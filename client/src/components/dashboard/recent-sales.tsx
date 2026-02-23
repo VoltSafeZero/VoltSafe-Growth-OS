@@ -4,7 +4,7 @@ import type { Sale } from "@shared/schema";
 
 export function RecentSales({ sales }: { sales: Sale[] }) {
   return (
-    <Card className="col-span-4 lg:col-span-2 xl:col-span-1 border-border/50 shadow-sm bg-card/50 backdrop-blur-sm hover-elevate transition-all duration-300">
+    <Card className="col-span-4 lg:col-span-1 border-border/50 shadow-sm bg-card/50 backdrop-blur-sm hover-elevate transition-all duration-300">
       <CardHeader>
         <CardTitle className="text-lg">Recent Sales</CardTitle>
         <CardDescription>
@@ -34,7 +34,7 @@ export function RecentSales({ sales }: { sales: Sale[] }) {
 
 export function RecentSalesSkeleton() {
   return (
-    <Card className="col-span-4 lg:col-span-2 xl:col-span-1 border-border/50 shadow-sm bg-card/50">
+    <Card className="col-span-4 lg:col-span-1 border-border/50 shadow-sm bg-card/50">
       <CardHeader>
         <div className="h-6 w-32 bg-muted animate-pulse rounded mb-2"></div>
         <div className="h-4 w-48 bg-muted animate-pulse rounded"></div>

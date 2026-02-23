@@ -1,5 +1,6 @@
 import {
   Activity,
+  Anchor,
   BarChart3,
   CreditCard,
   Home,
@@ -23,10 +24,10 @@ import {
 
 const navItems = [
   { title: "Overview", url: "/", icon: LayoutDashboard },
+  { title: "Marinas", url: "/marinas", icon: Anchor },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Customers", url: "/customers", icon: Users },
   { title: "Transactions", url: "/transactions", icon: CreditCard },
-  { title: "Activity", url: "/activity", icon: Activity },
 ];
 
 const settingsItems = [

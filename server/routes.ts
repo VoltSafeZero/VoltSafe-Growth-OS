@@ -26,6 +26,22 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  app.get(api.marinas.states.path, async (req, res) => {
+    const result = await storage.getMarinaStates();
+    res.json(result);
+  });
+
+  app.get(api.marinas.list.path, async (req, res) => {
+    const { search, state, page, limit } = req.query;
+    const result = await storage.getMarinas({
+      search: search as string | undefined,
+      state: state as string | undefined,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+    res.json(result);
+  });
+
   // Seed the database
   await seedDatabase();
 

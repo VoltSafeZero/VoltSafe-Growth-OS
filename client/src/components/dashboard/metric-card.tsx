@@ -3,9 +3,9 @@ import { DollarSign, Users, CreditCard, Activity, ArrowUpRight, ArrowDownRight }
 import type { Metric } from "@shared/schema";
 
 const iconMap: Record<string, React.ElementType> = {
-  dollar: DollarSign,
+  "dollar-sign": DollarSign,
   users: Users,
-  creditCard: CreditCard,
+  "credit-card": CreditCard,
   activity: Activity,
 };
 

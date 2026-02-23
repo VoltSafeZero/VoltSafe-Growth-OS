@@ -9,6 +9,7 @@ import { AppSidebar } from "@/components/dashboard/app-sidebar";
 import { Header } from "@/components/dashboard/header";
 
 import Dashboard from "@/pages/dashboard";
+import MarinasPage from "@/pages/marinas";
 import NotFound from "@/pages/not-found";
 
 function AppShell({ children }: { children: React.ReactNode }) {
@@ -41,6 +42,11 @@ function Router() {
         </AppShell>
       </Route>
       {/* Route fallbacks for sidebar links so they don't 404 immediately */}
+      <Route path="/marinas">
+        <AppShell>
+          <MarinasPage />
+        </AppShell>
+      </Route>
       <Route path="/analytics">
         <AppShell>
           <div className="p-8"><h1 className="text-2xl font-bold">Analytics</h1></div>
