@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -37,3 +37,22 @@ export type InsertSale = z.infer<typeof insertSaleSchema>;
 
 export type ChartData = typeof chartData.$inferSelect;
 export type InsertChartData = z.infer<typeof insertChartDataSchema>;
+
+export const marinas = pgTable("marinas", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  state: text("state").notNull(),
+  city: text("city").notNull(),
+  slips: text("slips"),
+  segment: text("segment"),
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
+  phone: text("phone"),
+  streetAddress: text("street_address"),
+  zipCode: text("zip_code"),
+});
+
+export const insertMarinaSchema = createInsertSchema(marinas).omit({ id: true });
+
+export type Marina = typeof marinas.$inferSelect;
+export type InsertMarina = z.infer<typeof insertMarinaSchema>;
