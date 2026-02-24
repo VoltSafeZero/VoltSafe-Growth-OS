@@ -43,9 +43,9 @@ export function AppSidebar() {
       <SidebarHeader className="h-16 flex items-center px-6">
         <div className="flex items-center gap-2 font-bold text-lg tracking-tight">
           <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
-            <Home className="w-4 h-4 text-primary-foreground" />
+            <Anchor className="w-4 h-4 text-primary-foreground" />
           </div>
-          Acme Inc
+          <span>VoltSafe <span className="text-primary">Marine</span></span>
         </div>
       </SidebarHeader>
       <SidebarContent>
@@ -62,10 +62,10 @@ export function AppSidebar() {
                     <SidebarMenuButton 
                       asChild 
                       isActive={isActive}
-                      className={`hover-elevate active-elevate-2 transition-all ${isActive ? 'bg-secondary/50 font-medium' : 'text-muted-foreground'}`}
+                      className={`hover-elevate active-elevate-2 transition-all ${isActive ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground'}`}
                     >
                       <Link href={item.url} className="flex items-center gap-3 px-3 py-2 rounded-lg">
-                        <item.icon className={`w-4 h-4 ${isActive ? 'text-foreground' : ''}`} />
+                        <item.icon className={`w-4 h-4 ${isActive ? 'text-primary' : ''}`} />
                         <span>{item.title}</span>
                       </Link>
                     </SidebarMenuButton>

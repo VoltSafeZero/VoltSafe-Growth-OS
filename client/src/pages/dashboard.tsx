@@ -17,7 +17,7 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground mt-1">Here's an overview of your business today.</p>
         </div>
-        <Button className="hover-elevate active-elevate-2 bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:shadow-primary/30">
+        <Button className="hover-elevate active-elevate-2 bg-primary text-primary-foreground shadow-lg shadow-primary/20">
           <Download className="mr-2 h-4 w-4" />
           Download Report
         </Button>
