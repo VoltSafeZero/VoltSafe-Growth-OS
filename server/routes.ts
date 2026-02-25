@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { metrics, sales, chartData } from "@shared/schema";
+import { metrics, sales, chartData, users } from "@shared/schema";
 import {
   insertLeadSchema, insertAccountSchema, insertContactSchema,
   insertOpportunitySchema, insertTicketSchema, insertQuoteSchema,
@@ -10,11 +10,95 @@ import {
   insertActivitySchema, insertTaskSchema,
   insertCommunicationListSchema, insertCampaignDraftSchema,
 } from "@shared/schema";
+import { requireAuth, seedUsers, hashPassword, verifyPassword } from "./auth";
+import { eq } from "drizzle-orm";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  app.post("/api/auth/login", async (req, res) => {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ message: "Email and password required" });
+
+    const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase().trim()));
+    if (!user) return res.status(401).json({ message: "Invalid email or password" });
+
+    const valid = await verifyPassword(password, user.password);
+    if (!valid) return res.status(401).json({ message: "Invalid email or password" });
+
+    await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, user.id));
+
+    req.session.userId = user.id;
+    req.session.email = user.email;
+    req.session.role = user.role;
+    req.session.name = user.name;
+    req.session.mustChangePassword = user.mustChangePassword;
+
+    res.json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      mustChangePassword: user.mustChangePassword,
+    });
+  });
+
+  app.post("/api/auth/logout", (req, res) => {
+    req.session.destroy(() => {
+      res.json({ message: "Logged out" });
+    });
+  });
+
+  app.get("/api/auth/me", (req, res) => {
+    if (!req.session?.userId) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+    res.json({
+      id: req.session.userId,
+      name: req.session.name,
+      email: req.session.email,
+      role: req.session.role,
+      mustChangePassword: req.session.mustChangePassword,
+    });
+  });
+
+  app.post("/api/auth/change-password", async (req, res) => {
+    if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
+
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) return res.status(400).json({ message: "Current and new password required" });
+    if (newPassword.length < 6) return res.status(400).json({ message: "New password must be at least 6 characters" });
+
+    const [user] = await db.select().from(users).where(eq(users.id, req.session.userId));
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const valid = await verifyPassword(currentPassword, user.password);
+    if (!valid) return res.status(401).json({ message: "Current password is incorrect" });
+
+    const hashed = await hashPassword(newPassword);
+    await db.update(users).set({ password: hashed, mustChangePassword: false }).where(eq(users.id, user.id));
+
+    req.session.mustChangePassword = false;
+    res.json({ message: "Password changed successfully" });
+  });
+
+  app.use("/api/metrics", requireAuth);
+  app.use("/api/sales", requireAuth);
+  app.use("/api/chart-data", requireAuth);
+  app.use("/api/marinas", requireAuth);
+  app.use("/api/dashboard", requireAuth);
+  app.use("/api/leads", requireAuth);
+  app.use("/api/accounts", requireAuth);
+  app.use("/api/contacts", requireAuth);
+  app.use("/api/opportunities", requireAuth);
+  app.use("/api/tickets", requireAuth);
+  app.use("/api/quotes", requireAuth);
+  app.use("/api/activities", requireAuth);
+  app.use("/api/tasks", requireAuth);
+  app.use("/api/comm-lists", requireAuth);
+  app.use("/api/campaigns", requireAuth);
 
   app.get("/api/metrics", async (_req, res) => {
     res.json(await storage.getMetrics());
@@ -422,6 +506,7 @@ export async function registerRoutes(
   });
 
   await seedDatabase();
+  await seedUsers();
   return httpServer;
 }
 

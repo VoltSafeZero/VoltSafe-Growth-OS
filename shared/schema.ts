@@ -43,7 +43,9 @@ export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
+  password: text("password").notNull(),
   role: text("role").notNull().default("read-only"),
+  mustChangePassword: boolean("must_change_password").default(true).notNull(),
   avatarUrl: text("avatar_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastLogin: timestamp("last_login"),
@@ -232,7 +234,7 @@ export const insertMetricSchema = createInsertSchema(metrics).omit({ id: true })
 export const insertSaleSchema = createInsertSchema(sales).omit({ id: true });
 export const insertChartDataSchema = createInsertSchema(chartData).omit({ id: true });
 export const insertMarinaSchema = createInsertSchema(marinas).omit({ id: true });
-export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, lastLogin: true });
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, lastLogin: true, password: true, mustChangePassword: true });
 export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertAccountSchema = createInsertSchema(accounts).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertContactSchema = createInsertSchema(contacts).omit({ id: true, createdAt: true });

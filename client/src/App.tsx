@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -16,9 +17,19 @@ import OpportunitiesPage from "@/pages/opportunities";
 import QuotesPage from "@/pages/quotes";
 import TicketsPage from "@/pages/tickets";
 import CommunicationsPage from "@/pages/communications";
+import LoginPage from "@/pages/login";
+import ChangePasswordPage from "@/pages/change-password";
 import NotFound from "@/pages/not-found";
 
-function AppShell({ children }: { children: React.ReactNode }) {
+type AuthUser = {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  mustChangePassword: boolean;
+};
+
+function AppShell({ children, user, onLogout }: { children: React.ReactNode; user: AuthUser; onLogout: () => void }) {
   const sidebarStyle = {
     "--sidebar-width": "16rem",
     "--sidebar-width-icon": "4rem",
@@ -29,7 +40,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-screen w-full bg-background text-foreground overflow-hidden">
         <AppSidebar />
         <div className="flex flex-col flex-1 w-full overflow-hidden">
-          <Header />
+          <Header user={user} onLogout={onLogout} />
           <main className="flex-1 overflow-y-auto overflow-x-hidden relative scroll-smooth">
             {children}
           </main>
@@ -39,31 +50,76 @@ function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Router() {
+function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   return (
     <Switch>
-      <Route path="/">{() => <AppShell><Dashboard /></AppShell>}</Route>
-      <Route path="/marinas">{() => <AppShell><MarinasPage /></AppShell>}</Route>
-      <Route path="/leads">{() => <AppShell><LeadsPage /></AppShell>}</Route>
-      <Route path="/accounts">{() => <AppShell><AccountsPage /></AppShell>}</Route>
-      <Route path="/opportunities">{() => <AppShell><OpportunitiesPage /></AppShell>}</Route>
-      <Route path="/quotes">{() => <AppShell><QuotesPage /></AppShell>}</Route>
-      <Route path="/tickets">{() => <AppShell><TicketsPage /></AppShell>}</Route>
-      <Route path="/communications">{() => <AppShell><CommunicationsPage /></AppShell>}</Route>
-      <Route path="/settings">{() => <AppShell><div className="p-8"><h1 className="text-2xl font-bold">Settings</h1><p className="text-muted-foreground mt-2">Admin settings coming soon.</p></div></AppShell>}</Route>
-      <Route path="/integrations">{() => <AppShell><div className="p-8"><h1 className="text-2xl font-bold">Integrations</h1><p className="text-muted-foreground mt-2">Gmail, HubSpot, and Klaviyo integrations coming soon.</p></div></AppShell>}</Route>
+      <Route path="/">{() => <AppShell user={user} onLogout={onLogout}><Dashboard /></AppShell>}</Route>
+      <Route path="/marinas">{() => <AppShell user={user} onLogout={onLogout}><MarinasPage /></AppShell>}</Route>
+      <Route path="/leads">{() => <AppShell user={user} onLogout={onLogout}><LeadsPage /></AppShell>}</Route>
+      <Route path="/accounts">{() => <AppShell user={user} onLogout={onLogout}><AccountsPage /></AppShell>}</Route>
+      <Route path="/opportunities">{() => <AppShell user={user} onLogout={onLogout}><OpportunitiesPage /></AppShell>}</Route>
+      <Route path="/quotes">{() => <AppShell user={user} onLogout={onLogout}><QuotesPage /></AppShell>}</Route>
+      <Route path="/tickets">{() => <AppShell user={user} onLogout={onLogout}><TicketsPage /></AppShell>}</Route>
+      <Route path="/communications">{() => <AppShell user={user} onLogout={onLogout}><CommunicationsPage /></AppShell>}</Route>
+      <Route path="/settings">{() => <AppShell user={user} onLogout={onLogout}><div className="p-8"><h1 className="text-2xl font-bold">Settings</h1><p className="text-muted-foreground mt-2">Admin settings coming soon.</p></div></AppShell>}</Route>
+      <Route path="/integrations">{() => <AppShell user={user} onLogout={onLogout}><div className="p-8"><h1 className="text-2xl font-bold">Integrations</h1><p className="text-muted-foreground mt-2">Gmail, HubSpot, and Klaviyo integrations coming soon.</p></div></AppShell>}</Route>
       <Route component={NotFound} />
     </Switch>
   );
 }
 
 function App() {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/auth/me", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data) setUser(data);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    setUser(null);
+    queryClient.clear();
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-pulse text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <ThemeProvider defaultTheme="dark">
+        <LoginPage onLogin={setUser} />
+      </ThemeProvider>
+    );
+  }
+
+  if (user.mustChangePassword) {
+    return (
+      <ThemeProvider defaultTheme="dark">
+        <ChangePasswordPage
+          onComplete={() => setUser({ ...user, mustChangePassword: false })}
+        />
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider defaultTheme="dark">
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <Toaster />
-          <Router />
+          <AuthenticatedRouter user={user} onLogout={handleLogout} />
         </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>
