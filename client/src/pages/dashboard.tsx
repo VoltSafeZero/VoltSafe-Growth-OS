@@ -4,7 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { UserPlus, TrendingUp, LifeBuoy, FileText, AlertTriangle, Clock } from "lucide-react";
 import { OverviewChart } from "@/components/dashboard/overview-chart";
 import { RecentSales } from "@/components/dashboard/recent-sales";
-import type { Activity } from "@shared/schema";
+import type { Activity, ChartData, Sale } from "@shared/schema";
 
 type DashboardSummary = {
   totalLeads: number;
@@ -20,8 +20,12 @@ export default function Dashboard() {
     queryKey: ["/api/dashboard/summary"],
   });
 
-  const { data: chartData, isLoading: chartLoading } = useQuery({
+  const { data: chartData, isLoading: chartLoading } = useQuery<ChartData[]>({
     queryKey: ["/api/chart-data"],
+  });
+
+  const { data: salesData, isLoading: salesLoading } = useQuery<Sale[]>({
+    queryKey: ["/api/sales"],
   });
 
   const cards = [
@@ -79,41 +83,50 @@ export default function Dashboard() {
       )}
 
       <div className="grid gap-6 lg:grid-cols-7">
-        <Card className="lg:col-span-4 border-border/50 bg-card/50 backdrop-blur-sm">
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold">Revenue Overview</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {chartLoading ? <Skeleton className="h-[300px]" /> : <OverviewChart />}
-          </CardContent>
-        </Card>
+        <div className="lg:col-span-4">
+          {chartLoading || !chartData ? (
+            <Card className="border-border/50 bg-card/50">
+              <CardHeader><Skeleton className="h-6 w-32" /></CardHeader>
+              <CardContent><Skeleton className="h-[350px]" /></CardContent>
+            </Card>
+          ) : (
+            <OverviewChart data={chartData} />
+          )}
+        </div>
 
-        <Card className="lg:col-span-3 border-border/50 bg-card/50 backdrop-blur-sm">
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold">Recent Activity</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {summaryLoading ? (
-              <div className="space-y-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
-            ) : summary?.recentActivities && summary.recentActivities.length > 0 ? (
-              <div className="space-y-3">
-                {summary.recentActivities.map((activity) => (
-                  <div key={activity.id} className="flex items-start gap-3 p-2 rounded-lg" data-testid={`activity-${activity.id}`}>
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Clock className="w-3 h-3 text-primary" />
+        <div className="lg:col-span-3">
+          {summary?.recentActivities && summary.recentActivities.length > 0 ? (
+            <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold">Recent Activity</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {summary.recentActivities.map((activity) => (
+                    <div key={activity.id} className="flex items-start gap-3 p-2 rounded-lg" data-testid={`activity-${activity.id}`}>
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <Clock className="w-3 h-3 text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm">{activity.summary}</p>
+                        <p className="text-xs text-muted-foreground">{new Date(activity.createdAt).toLocaleString()}</p>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <p className="text-sm">{activity.summary}</p>
-                      <p className="text-xs text-muted-foreground">{new Date(activity.createdAt).toLocaleString()}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <RecentSales />
-            )}
-          </CardContent>
-        </Card>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : salesLoading || !salesData ? (
+            <Card className="border-border/50 bg-card/50">
+              <CardHeader><Skeleton className="h-6 w-32" /></CardHeader>
+              <CardContent>
+                <div className="space-y-6">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
+              </CardContent>
+            </Card>
+          ) : (
+            <RecentSales sales={salesData} />
+          )}
+        </div>
       </div>
     </div>
   );
