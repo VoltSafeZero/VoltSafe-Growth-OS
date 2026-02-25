@@ -1,12 +1,13 @@
 import {
-  Activity,
   Anchor,
-  BarChart3,
-  CreditCard,
-  Home,
-  Settings,
-  Users,
   LayoutDashboard,
+  UserPlus,
+  Building2,
+  TrendingUp,
+  FileText,
+  LifeBuoy,
+  Megaphone,
+  Settings,
   Zap,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
@@ -22,17 +23,42 @@ import {
   SidebarHeader,
 } from "@/components/ui/sidebar";
 
-const navItems = [
-  { title: "Overview", url: "/", icon: LayoutDashboard },
+const overviewItems = [
+  { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Marinas", url: "/marinas", icon: Anchor },
-  { title: "Analytics", url: "/analytics", icon: BarChart3 },
-  { title: "Customers", url: "/customers", icon: Users },
-  { title: "Transactions", url: "/transactions", icon: CreditCard },
 ];
 
-const settingsItems = [
+const salesItems = [
+  { title: "Leads", url: "/leads", icon: UserPlus },
+  { title: "Accounts", url: "/accounts", icon: Building2 },
+  { title: "Opportunities", url: "/opportunities", icon: TrendingUp },
+  { title: "Quotes", url: "/quotes", icon: FileText },
+];
+
+const supportItems = [
+  { title: "Tickets", url: "/tickets", icon: LifeBuoy },
+];
+
+const commsItems = [
+  { title: "Communications", url: "/communications", icon: Megaphone },
+];
+
+const configItems = [
   { title: "Settings", url: "/settings", icon: Settings },
   { title: "Integrations", url: "/integrations", icon: Zap },
+];
+
+type NavGroup = {
+  label: string;
+  items: { title: string; url: string; icon: React.ElementType }[];
+};
+
+const navGroups: NavGroup[] = [
+  { label: "Overview", items: overviewItems },
+  { label: "Sales", items: salesItems },
+  { label: "Support", items: supportItems },
+  { label: "Communications", items: commsItems },
+  { label: "Configuration", items: configItems },
 ];
 
 export function AppSidebar() {
@@ -49,55 +75,34 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel className="px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-            Dashboard
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu className="px-3">
-              {navItems.map((item) => {
-                const isActive = location === item.url;
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton 
-                      asChild 
-                      isActive={isActive}
-                      className={`hover-elevate active-elevate-2 transition-all ${isActive ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground'}`}
-                    >
-                      <Link href={item.url} className="flex items-center gap-3 px-3 py-2 rounded-lg">
-                        <item.icon className={`w-4 h-4 ${isActive ? 'text-primary' : ''}`} />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup className="mt-4">
-          <SidebarGroupLabel className="px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-            Configuration
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu className="px-3">
-              {settingsItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton 
-                    asChild
-                    className="hover-elevate active-elevate-2 transition-all text-muted-foreground"
-                  >
-                    <Link href={item.url} className="flex items-center gap-3 px-3 py-2 rounded-lg">
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {navGroups.map((group) => (
+          <SidebarGroup key={group.label} className={group.label !== "Overview" ? "mt-2" : ""}>
+            <SidebarGroupLabel className="px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+              {group.label}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu className="px-3">
+                {group.items.map((item) => {
+                  const isActive = location === item.url;
+                  return (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isActive}
+                        className={`transition-all ${isActive ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground'}`}
+                      >
+                        <Link href={item.url} className="flex items-center gap-3 px-3 py-2 rounded-lg" data-testid={`nav-${item.title.toLowerCase()}`}>
+                          <item.icon className={`w-4 h-4 ${isActive ? 'text-primary' : ''}`} />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
     </Sidebar>
   );

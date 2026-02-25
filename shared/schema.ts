@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, doublePrecision, timestamp, boolean, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -25,19 +25,6 @@ export const chartData = pgTable("chart_data", {
   revenue: integer("revenue").notNull(),
 });
 
-export const insertMetricSchema = createInsertSchema(metrics).omit({ id: true });
-export const insertSaleSchema = createInsertSchema(sales).omit({ id: true });
-export const insertChartDataSchema = createInsertSchema(chartData).omit({ id: true });
-
-export type Metric = typeof metrics.$inferSelect;
-export type InsertMetric = z.infer<typeof insertMetricSchema>;
-
-export type Sale = typeof sales.$inferSelect;
-export type InsertSale = z.infer<typeof insertSaleSchema>;
-
-export type ChartData = typeof chartData.$inferSelect;
-export type InsertChartData = z.infer<typeof insertChartDataSchema>;
-
 export const marinas = pgTable("marinas", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -52,7 +39,244 @@ export const marinas = pgTable("marinas", {
   zipCode: text("zip_code"),
 });
 
-export const insertMarinaSchema = createInsertSchema(marinas).omit({ id: true });
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  role: text("role").notNull().default("read-only"),
+  avatarUrl: text("avatar_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  lastLogin: timestamp("last_login"),
+});
 
+export const leads = pgTable("leads", {
+  id: serial("id").primaryKey(),
+  company: text("company").notNull(),
+  contactName: text("contact_name").notNull(),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  source: text("source"),
+  status: text("status").notNull().default("new"),
+  ownerUserId: integer("owner_user_id"),
+  notes: text("notes"),
+  tags: text("tags"),
+  nextStep: text("next_step"),
+  dueDate: timestamp("due_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const accounts = pgTable("accounts", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  address: text("address"),
+  region: text("region"),
+  timezone: text("timezone"),
+  slipCount: integer("slip_count"),
+  segment: text("segment").notNull().default("marina"),
+  tags: text("tags"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const contacts = pgTable("contacts", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id").notNull(),
+  name: text("name").notNull(),
+  title: text("title"),
+  email: text("email"),
+  phone: text("phone"),
+  persona: text("persona"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const opportunities = pgTable("opportunities", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id").notNull(),
+  title: text("title").notNull(),
+  stage: text("stage").notNull().default("prospecting"),
+  ownerUserId: integer("owner_user_id"),
+  estCloseDate: timestamp("est_close_date"),
+  valueHardware: real("value_hardware").default(0),
+  valueSoftware: real("value_software").default(0),
+  valueServices: real("value_services").default(0),
+  valueTotal: real("value_total").default(0),
+  nextStep: text("next_step"),
+  dueDate: timestamp("due_date"),
+  competitors: text("competitors"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const tickets = pgTable("tickets", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id"),
+  contactId: integer("contact_id"),
+  category: text("category").notNull().default("general"),
+  severity: text("severity").notNull().default("medium"),
+  status: text("status").notNull().default("new"),
+  requesterName: text("requester_name").notNull(),
+  requesterEmail: text("requester_email"),
+  requesterPhone: text("requester_phone"),
+  assignedToUserId: integer("assigned_to_user_id"),
+  subject: text("subject").notNull(),
+  description: text("description"),
+  internalNotes: text("internal_notes"),
+  resolutionSummary: text("resolution_summary"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const quotes = pgTable("quotes", {
+  id: serial("id").primaryKey(),
+  quoteNumber: text("quote_number").notNull().unique(),
+  version: integer("version").notNull().default(1),
+  status: text("status").notNull().default("draft"),
+  quoteType: text("quote_type").notNull().default("marina_solution"),
+  accountId: integer("account_id"),
+  opportunityId: integer("opportunity_id"),
+  contactId: integer("contact_id"),
+  currency: text("currency").notNull().default("USD"),
+  createdBy: integer("created_by"),
+  validUntil: timestamp("valid_until"),
+  subtotal: real("subtotal").default(0),
+  tax: real("tax").default(0),
+  total: real("total").default(0),
+  assumptions: text("assumptions"),
+  exclusions: text("exclusions"),
+  notes: text("notes"),
+  sentAt: timestamp("sent_at"),
+  acceptedAt: timestamp("accepted_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const quoteLineItems = pgTable("quote_line_items", {
+  id: serial("id").primaryKey(),
+  quoteId: integer("quote_id").notNull(),
+  category: text("category").notNull().default("hardware"),
+  name: text("name").notNull(),
+  description: text("description"),
+  qty: real("qty").notNull().default(1),
+  unitPrice: real("unit_price").notNull().default(0),
+  unitType: text("unit_type"),
+  lineTotal: real("line_total").notNull().default(0),
+  sortOrder: integer("sort_order").default(0),
+});
+
+export const servicesEstimates = pgTable("services_estimates", {
+  id: serial("id").primaryKey(),
+  quoteId: integer("quote_id").notNull(),
+  role: text("role").notNull(),
+  hoursEstimate: real("hours_estimate").notNull().default(0),
+  hourlyRate: real("hourly_rate").notNull().default(0),
+  subtotal: real("subtotal").notNull().default(0),
+  sortOrder: integer("sort_order").default(0),
+});
+
+export const activities = pgTable("activities", {
+  id: serial("id").primaryKey(),
+  linkedObjectType: text("linked_object_type").notNull(),
+  linkedObjectId: integer("linked_object_id").notNull(),
+  type: text("type").notNull(),
+  summary: text("summary").notNull(),
+  rawContent: text("raw_content"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  gmailThreadId: text("gmail_thread_id"),
+  gmailMessageId: text("gmail_message_id"),
+});
+
+export const tasks = pgTable("tasks", {
+  id: serial("id").primaryKey(),
+  linkedObjectType: text("linked_object_type"),
+  linkedObjectId: integer("linked_object_id"),
+  ownerUserId: integer("owner_user_id"),
+  title: text("title").notNull(),
+  description: text("description"),
+  dueDate: timestamp("due_date"),
+  status: text("status").notNull().default("pending"),
+  aiSuggested: boolean("ai_suggested").default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const communicationLists = pgTable("communication_lists", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  source: text("source").notNull().default("manual"),
+  externalId: text("external_id"),
+  description: text("description"),
+  memberCount: integer("member_count").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const campaignDrafts = pgTable("campaign_drafts", {
+  id: serial("id").primaryKey(),
+  subject: text("subject").notNull(),
+  bodyHtml: text("body_html"),
+  bodyText: text("body_text"),
+  listIds: text("list_ids"),
+  status: text("status").notNull().default("draft"),
+  externalCampaignId: text("external_campaign_id"),
+  externalCampaignLink: text("external_campaign_link"),
+  sentAt: timestamp("sent_at"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertMetricSchema = createInsertSchema(metrics).omit({ id: true });
+export const insertSaleSchema = createInsertSchema(sales).omit({ id: true });
+export const insertChartDataSchema = createInsertSchema(chartData).omit({ id: true });
+export const insertMarinaSchema = createInsertSchema(marinas).omit({ id: true });
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, lastLogin: true });
+export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertAccountSchema = createInsertSchema(accounts).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertContactSchema = createInsertSchema(contacts).omit({ id: true, createdAt: true });
+export const insertOpportunitySchema = createInsertSchema(opportunities).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertTicketSchema = createInsertSchema(tickets).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertQuoteSchema = createInsertSchema(quotes).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertQuoteLineItemSchema = createInsertSchema(quoteLineItems).omit({ id: true });
+export const insertServicesEstimateSchema = createInsertSchema(servicesEstimates).omit({ id: true });
+export const insertActivitySchema = createInsertSchema(activities).omit({ id: true, createdAt: true });
+export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCommunicationListSchema = createInsertSchema(communicationLists).omit({ id: true, createdAt: true });
+export const insertCampaignDraftSchema = createInsertSchema(campaignDrafts).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type Metric = typeof metrics.$inferSelect;
+export type InsertMetric = z.infer<typeof insertMetricSchema>;
+export type Sale = typeof sales.$inferSelect;
+export type InsertSale = z.infer<typeof insertSaleSchema>;
+export type ChartData = typeof chartData.$inferSelect;
+export type InsertChartData = z.infer<typeof insertChartDataSchema>;
 export type Marina = typeof marinas.$inferSelect;
 export type InsertMarina = z.infer<typeof insertMarinaSchema>;
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type Lead = typeof leads.$inferSelect;
+export type InsertLead = z.infer<typeof insertLeadSchema>;
+export type Account = typeof accounts.$inferSelect;
+export type InsertAccount = z.infer<typeof insertAccountSchema>;
+export type Contact = typeof contacts.$inferSelect;
+export type InsertContact = z.infer<typeof insertContactSchema>;
+export type Opportunity = typeof opportunities.$inferSelect;
+export type InsertOpportunity = z.infer<typeof insertOpportunitySchema>;
+export type Ticket = typeof tickets.$inferSelect;
+export type InsertTicket = z.infer<typeof insertTicketSchema>;
+export type Quote = typeof quotes.$inferSelect;
+export type InsertQuote = z.infer<typeof insertQuoteSchema>;
+export type QuoteLineItem = typeof quoteLineItems.$inferSelect;
+export type InsertQuoteLineItem = z.infer<typeof insertQuoteLineItemSchema>;
+export type ServicesEstimate = typeof servicesEstimates.$inferSelect;
+export type InsertServicesEstimate = z.infer<typeof insertServicesEstimateSchema>;
+export type Activity = typeof activities.$inferSelect;
+export type InsertActivity = z.infer<typeof insertActivitySchema>;
+export type Task = typeof tasks.$inferSelect;
+export type InsertTask = z.infer<typeof insertTaskSchema>;
+export type CommunicationList = typeof communicationLists.$inferSelect;
+export type InsertCommunicationList = z.infer<typeof insertCommunicationListSchema>;
+export type CampaignDraft = typeof campaignDrafts.$inferSelect;
+export type InsertCampaignDraft = z.infer<typeof insertCampaignDraftSchema>;

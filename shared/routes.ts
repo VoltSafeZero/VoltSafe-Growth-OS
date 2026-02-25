@@ -1,64 +1,81 @@
 import { z } from "zod";
-import { metrics, sales, chartData, marinas, insertMetricSchema, insertSaleSchema, insertChartDataSchema } from "./schema";
-
-export const errorSchemas = {
-  notFound: z.object({ message: z.string() }),
-};
 
 export const api = {
   metrics: {
-    list: {
-      method: "GET" as const,
-      path: "/api/metrics" as const,
-      responses: {
-        200: z.array(z.custom<typeof metrics.$inferSelect>()),
-      },
-    },
+    list: { method: "GET" as const, path: "/api/metrics" as const },
   },
   sales: {
-    list: {
-      method: "GET" as const,
-      path: "/api/sales" as const,
-      responses: {
-        200: z.array(z.custom<typeof sales.$inferSelect>()),
-      },
-    },
+    list: { method: "GET" as const, path: "/api/sales" as const },
   },
   chartData: {
-    list: {
-      method: "GET" as const,
-      path: "/api/chart-data" as const,
-      responses: {
-        200: z.array(z.custom<typeof chartData.$inferSelect>()),
-      },
-    },
+    list: { method: "GET" as const, path: "/api/chart-data" as const },
   },
   marinas: {
-    list: {
-      method: "GET" as const,
-      path: "/api/marinas" as const,
-      input: z.object({
-        search: z.string().optional(),
-        state: z.string().optional(),
-        page: z.coerce.number().optional(),
-        limit: z.coerce.number().optional(),
-      }).optional(),
-      responses: {
-        200: z.object({
-          data: z.array(z.custom<typeof marinas.$inferSelect>()),
-          total: z.number(),
-          page: z.number(),
-          totalPages: z.number(),
-        }),
-      },
-    },
-    states: {
-      method: "GET" as const,
-      path: "/api/marinas/states" as const,
-      responses: {
-        200: z.array(z.string()),
-      },
-    },
+    list: { method: "GET" as const, path: "/api/marinas" as const },
+    states: { method: "GET" as const, path: "/api/marinas/states" as const },
+  },
+  dashboard: {
+    summary: { method: "GET" as const, path: "/api/dashboard/summary" as const },
+  },
+  leads: {
+    list: { method: "GET" as const, path: "/api/leads" as const },
+    get: { method: "GET" as const, path: "/api/leads/:id" as const },
+    create: { method: "POST" as const, path: "/api/leads" as const },
+    update: { method: "PUT" as const, path: "/api/leads/:id" as const },
+    delete: { method: "DELETE" as const, path: "/api/leads/:id" as const },
+    convert: { method: "POST" as const, path: "/api/leads/:id/convert" as const },
+  },
+  accounts: {
+    list: { method: "GET" as const, path: "/api/accounts" as const },
+    get: { method: "GET" as const, path: "/api/accounts/:id" as const },
+    create: { method: "POST" as const, path: "/api/accounts" as const },
+    update: { method: "PUT" as const, path: "/api/accounts/:id" as const },
+  },
+  contacts: {
+    list: { method: "GET" as const, path: "/api/contacts" as const },
+    get: { method: "GET" as const, path: "/api/contacts/:id" as const },
+    create: { method: "POST" as const, path: "/api/contacts" as const },
+    update: { method: "PUT" as const, path: "/api/contacts/:id" as const },
+    delete: { method: "DELETE" as const, path: "/api/contacts/:id" as const },
+  },
+  opportunities: {
+    list: { method: "GET" as const, path: "/api/opportunities" as const },
+    get: { method: "GET" as const, path: "/api/opportunities/:id" as const },
+    create: { method: "POST" as const, path: "/api/opportunities" as const },
+    update: { method: "PUT" as const, path: "/api/opportunities/:id" as const },
+  },
+  tickets: {
+    list: { method: "GET" as const, path: "/api/tickets" as const },
+    get: { method: "GET" as const, path: "/api/tickets/:id" as const },
+    create: { method: "POST" as const, path: "/api/tickets" as const },
+    update: { method: "PUT" as const, path: "/api/tickets/:id" as const },
+  },
+  quotes: {
+    list: { method: "GET" as const, path: "/api/quotes" as const },
+    get: { method: "GET" as const, path: "/api/quotes/:id" as const },
+    create: { method: "POST" as const, path: "/api/quotes" as const },
+    update: { method: "PUT" as const, path: "/api/quotes/:id" as const },
+    nextNumber: { method: "GET" as const, path: "/api/quotes/next-number" as const },
+  },
+  activities: {
+    list: { method: "GET" as const, path: "/api/activities" as const },
+    create: { method: "POST" as const, path: "/api/activities" as const },
+  },
+  tasks: {
+    list: { method: "GET" as const, path: "/api/tasks" as const },
+    create: { method: "POST" as const, path: "/api/tasks" as const },
+    update: { method: "PUT" as const, path: "/api/tasks/:id" as const },
+  },
+  commLists: {
+    list: { method: "GET" as const, path: "/api/comm-lists" as const },
+    create: { method: "POST" as const, path: "/api/comm-lists" as const },
+    update: { method: "PUT" as const, path: "/api/comm-lists/:id" as const },
+  },
+  campaigns: {
+    list: { method: "GET" as const, path: "/api/campaigns" as const },
+    get: { method: "GET" as const, path: "/api/campaigns/:id" as const },
+    create: { method: "POST" as const, path: "/api/campaigns" as const },
+    update: { method: "PUT" as const, path: "/api/campaigns/:id" as const },
   },
 };
 

@@ -1,45 +1,119 @@
-import { MetricCard, MetricCardSkeleton } from "@/components/dashboard/metric-card";
-import { OverviewChart, OverviewChartSkeleton } from "@/components/dashboard/overview-chart";
-import { RecentSales, RecentSalesSkeleton } from "@/components/dashboard/recent-sales";
-import { useMetrics, useChartData, useSales } from "@/hooks/use-dashboard";
-import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { UserPlus, TrendingUp, LifeBuoy, FileText, AlertTriangle, Clock } from "lucide-react";
+import { OverviewChart } from "@/components/dashboard/overview-chart";
+import { RecentSales } from "@/components/dashboard/recent-sales";
+import type { Activity } from "@shared/schema";
+
+type DashboardSummary = {
+  totalLeads: number;
+  activeDeals: number;
+  openTickets: number;
+  pendingQuotes: number;
+  overdueTasks: number;
+  recentActivities: Activity[];
+};
 
 export default function Dashboard() {
-  const { data: metrics, isLoading: isLoadingMetrics } = useMetrics();
-  const { data: chartData, isLoading: isLoadingChart } = useChartData();
-  const { data: sales, isLoading: isLoadingSales } = useSales();
+  const { data: summary, isLoading: summaryLoading } = useQuery<DashboardSummary>({
+    queryKey: ["/api/dashboard/summary"],
+  });
+
+  const { data: chartData, isLoading: chartLoading } = useQuery({
+    queryKey: ["/api/chart-data"],
+  });
+
+  const cards = [
+    { title: "New Leads", value: summary?.totalLeads ?? 0, icon: UserPlus, description: "Leads awaiting follow-up", color: "text-blue-400" },
+    { title: "Active Deals", value: summary?.activeDeals ?? 0, icon: TrendingUp, description: "In-progress opportunities", color: "text-green-400" },
+    { title: "Open Tickets", value: summary?.openTickets ?? 0, icon: LifeBuoy, description: "Support tickets open", color: "text-orange-400" },
+    { title: "Draft Quotes", value: summary?.pendingQuotes ?? 0, icon: FileText, description: "Quotes needing follow-up", color: "text-purple-400" },
+  ];
 
   return (
-    <div className="flex flex-col gap-6 p-6 md:p-8 pt-6 max-w-7xl mx-auto w-full animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+    <div className="p-6 space-y-6" data-testid="dashboard-page">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Here's an overview of your business today.</p>
+          <h1 className="text-3xl font-bold tracking-tight" data-testid="text-page-title">Dashboard</h1>
+          <p className="text-muted-foreground mt-1">VoltSafe Marine operations overview.</p>
         </div>
-        <Button className="hover-elevate active-elevate-2 bg-primary text-primary-foreground shadow-lg shadow-primary/20">
-          <Download className="mr-2 h-4 w-4" />
-          Download Report
-        </Button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-        {isLoadingMetrics 
-          ? [...Array(4)].map((_, i) => <MetricCardSkeleton key={i} />)
-          : metrics?.map((metric) => <MetricCard key={metric.id} metric={metric} />)
-        }
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {summaryLoading ? (
+          [...Array(4)].map((_, i) => (
+            <Card key={i} className="border-border/50 bg-card/50">
+              <CardHeader className="pb-2"><Skeleton className="h-4 w-24" /></CardHeader>
+              <CardContent><Skeleton className="h-8 w-16 mb-1" /><Skeleton className="h-3 w-32" /></CardContent>
+            </Card>
+          ))
+        ) : (
+          cards.map((card) => (
+            <Card key={card.title} className="border-border/50 bg-card/50 backdrop-blur-sm" data-testid={`card-metric-${card.title.toLowerCase().replace(/\s/g, '-')}`}>
+              <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                <CardTitle className="text-sm font-medium text-muted-foreground">{card.title}</CardTitle>
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <card.icon className={`w-4 h-4 ${card.color}`} />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold tracking-tight mb-1">{card.value}</div>
+                <p className="text-xs text-muted-foreground">{card.description}</p>
+              </CardContent>
+            </Card>
+          ))
+        )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 md:gap-6">
-        {isLoadingChart 
-          ? <OverviewChartSkeleton /> 
-          : <OverviewChart data={chartData || []} />
-        }
-        
-        {isLoadingSales 
-          ? <RecentSalesSkeleton /> 
-          : <RecentSales sales={sales || []} />
-        }
+      {summary && summary.overdueTasks > 0 && (
+        <Card className="border-orange-500/30 bg-orange-500/5" data-testid="card-overdue-tasks">
+          <CardContent className="flex items-center gap-3 p-4">
+            <AlertTriangle className="h-5 w-5 text-orange-400" />
+            <div>
+              <p className="font-medium text-orange-400">{summary.overdueTasks} overdue task{summary.overdueTasks > 1 ? "s" : ""}</p>
+              <p className="text-sm text-muted-foreground">Tasks past their due date need attention.</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid gap-6 lg:grid-cols-7">
+        <Card className="lg:col-span-4 border-border/50 bg-card/50 backdrop-blur-sm">
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold">Revenue Overview</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {chartLoading ? <Skeleton className="h-[300px]" /> : <OverviewChart />}
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-3 border-border/50 bg-card/50 backdrop-blur-sm">
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold">Recent Activity</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {summaryLoading ? (
+              <div className="space-y-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
+            ) : summary?.recentActivities && summary.recentActivities.length > 0 ? (
+              <div className="space-y-3">
+                {summary.recentActivities.map((activity) => (
+                  <div key={activity.id} className="flex items-start gap-3 p-2 rounded-lg" data-testid={`activity-${activity.id}`}>
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Clock className="w-3 h-3 text-primary" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm">{activity.summary}</p>
+                      <p className="text-xs text-muted-foreground">{new Date(activity.createdAt).toLocaleString()}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <RecentSales />
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

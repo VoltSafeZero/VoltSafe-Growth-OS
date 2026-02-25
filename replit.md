@@ -2,93 +2,136 @@
 
 ## Overview
 
-This is a full-stack dashboard application built with React (frontend) and Express (backend), featuring a business analytics dashboard and a marina directory. The app displays metrics, revenue charts, recent sales, and a searchable/filterable marina database imported from an Excel spreadsheet. It uses a PostgreSQL database with Drizzle ORM for data persistence and follows a monorepo structure with shared types and route definitions between client and server.
+VoltSafe CMS — a dark-themed internal Central Management System for VoltSafe Marine, built with React (frontend) and Express (backend). The app features a sales pipeline (Leads → Accounts → Opportunities → Quotes), support ticketing, marina directory (~10,000 US marinas), communications management, and an analytics dashboard. PostgreSQL database with Drizzle ORM. Teal/cyan brand color (HSL 174 100% 40%) on dark navy backgrounds.
 
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
+Brand colors: Teal/cyan primary on dark navy backgrounds — all colors flow through CSS theme variables.
+Dark mode by default.
 
 ## System Architecture
 
 ### Monorepo Structure
-The project is organized into three main directories:
-- **`client/`** — React single-page application (Vite-powered)
+- **`client/`** — React SPA (Vite-powered)
 - **`server/`** — Express 5 API server
-- **`shared/`** — Shared schema definitions and route contracts used by both client and server
+- **`shared/`** — Shared schema definitions and route contracts
 
 ### Frontend (`client/`)
 - **Framework:** React with TypeScript
-- **Bundler:** Vite (config in `vite.config.ts`)
-- **Routing:** Wouter (lightweight client-side router)
-- **State/Data Fetching:** TanStack React Query for server state management
-- **UI Components:** shadcn/ui (new-york style) built on Radix UI primitives
-- **Styling:** Tailwind CSS with CSS variables for theming, dark mode enabled by default
-- **Charts:** Recharts for bar chart visualizations
+- **Bundler:** Vite
+- **Routing:** Wouter
+- **State/Data Fetching:** TanStack React Query
+- **UI Components:** shadcn/ui (new-york style) on Radix UI
+- **Styling:** Tailwind CSS with CSS variables, dark mode default
+- **Charts:** Recharts
 - **Icons:** Lucide React
-- **Typography:** Inter (body) and Plus Jakarta Sans (headings) via Google Fonts
-- **Path aliases:** `@/` maps to `client/src/`, `@shared/` maps to `shared/`
+- **Typography:** Inter (body) + Plus Jakarta Sans (headings)
 
 ### Backend (`server/`)
 - **Framework:** Express 5 (ESM)
-- **Runtime:** Node.js with `tsx` for TypeScript execution in development
-- **API Pattern:** RESTful JSON API under `/api/*` prefix
-- **Key endpoints:**
-  - `GET /api/metrics` — Dashboard metric cards
-  - `GET /api/sales` — Recent sales list
-  - `GET /api/chart-data` — Monthly revenue chart data
-  - `GET /api/marinas` — Paginated, searchable marina directory (supports `search`, `state`, `page`, `limit` query params)
-  - `GET /api/marinas/states` — Distinct marina states for filtering
-- **Dev server:** Vite middleware serves the frontend in development; in production, static files are served from `dist/public`
-- **Database seeding:** The server seeds initial dashboard data (metrics, sales, chart data) on startup
+- **Runtime:** Node.js with `tsx`
+- **API Pattern:** RESTful JSON API under `/api/*`
 
-### Shared Layer (`shared/`)
-- **`schema.ts`** — Drizzle ORM table definitions and Zod insert schemas for `metrics`, `sales`, `chartData`, and `marinas` tables
-- **`routes.ts`** — API route contracts with paths, methods, and Zod response schemas, used by both client and server for type safety
+### Core CMS Modules
 
-### Database
-- **Database:** PostgreSQL (required, via `DATABASE_URL` environment variable)
-- **ORM:** Drizzle ORM with `drizzle-zod` for schema-to-Zod integration
-- **Migrations:** Managed via `drizzle-kit push` (schema push approach, not migration files)
-- **Connection:** `node-postgres` (pg) Pool
-- **Schema tables:**
-  - `metrics` — Dashboard KPI cards (title, value, change, description, icon)
-  - `sales` — Recent sales entries (name, email, amount, avatarUrl)
-  - `chart_data` — Monthly revenue data (month, revenue)
-  - `marinas` — Marina directory (name, state, city, slips, segment, lat/lng, phone, street, zip)
+#### Sales Module
+- **Leads** — Lead capture, search, status filtering, convert to Account
+- **Accounts** — Marina/Corp accounts with contacts, linked opportunities, tickets
+- **Contacts** — Linked to accounts, persona-based (owner, GM, harbourmaster, etc.)
+- **Opportunities** — Pipeline kanban (Prospecting → Closed Won/Lost), value breakdown (hardware/software/services)
+- **Quotes** — Two templates: Marina Shore Power Solution & Professional Services Agreement, versioned, line items
+
+#### Support Module
+- **Tickets** — Board (kanban by status) + list view, severity levels, internal notes, resolution summary
+
+#### Communications Module
+- **Communication Lists** — Manage broadcast lists (manual, Klaviyo, HubSpot sources)
+- **Campaign Drafts** — Draft, schedule, log campaigns with external campaign ID tracking
+
+#### Activity & Tasks
+- **Activities** — Universal timeline linked to any object (leads, opportunities, tickets, quotes)
+- **Tasks** — Linked to objects, due dates, AI-suggested flag
+
+### API Endpoints
+
+**Dashboard:** `GET /api/dashboard/summary`
+
+**Leads:** `GET/POST /api/leads`, `GET/PUT/DELETE /api/leads/:id`, `POST /api/leads/:id/convert`
+
+**Accounts:** `GET/POST /api/accounts`, `GET/PUT /api/accounts/:id`
+
+**Contacts:** `GET/POST /api/contacts`, `GET/PUT/DELETE /api/contacts/:id`
+
+**Opportunities:** `GET/POST /api/opportunities`, `GET/PUT /api/opportunities/:id`
+
+**Tickets:** `GET/POST /api/tickets`, `GET/PUT /api/tickets/:id`
+
+**Quotes:** `GET/POST /api/quotes`, `GET/PUT /api/quotes/:id`, `GET /api/quotes/next-number`
+- Quote Line Items: `GET/POST /api/quotes/:quoteId/line-items`, `DELETE /api/quote-line-items/:id`
+- Services Estimates: `GET/POST /api/quotes/:quoteId/services-estimates`, `DELETE /api/services-estimates/:id`
+
+**Activities:** `GET /api/activities?objectType=X&objectId=Y`, `POST /api/activities`
+
+**Tasks:** `GET/POST /api/tasks`, `PUT /api/tasks/:id`
+
+**Communications:** `GET/POST /api/comm-lists`, `PUT /api/comm-lists/:id`
+
+**Campaigns:** `GET/POST /api/campaigns`, `GET/PUT /api/campaigns/:id`
+
+**Marinas:** `GET /api/marinas`, `GET /api/marinas/states`
+
+**Legacy Dashboard:** `GET /api/metrics`, `GET /api/sales`, `GET /api/chart-data`
+
+### Database Schema (PostgreSQL + Drizzle ORM)
+
+**Existing tables:** metrics, sales, chart_data, marinas
+
+**CMS tables:**
+- `users` — id, name, email, role, avatar_url, created_at, last_login
+- `leads` — company, contact info, source, status, owner, notes, tags, next_step, due_date
+- `accounts` — name, address, region, timezone, slip_count, segment, tags, notes
+- `contacts` — account_id, name, title, email, phone, persona
+- `opportunities` — account_id, title, stage, owner, est_close_date, value breakdown, competitors
+- `tickets` — account_id, contact_id, category, severity, status, requester info, assigned_to, description, internal_notes, resolution_summary
+- `quotes` — quote_number (unique), version, status, quote_type, account/opportunity/contact links, currency, totals, assumptions/exclusions
+- `quote_line_items` — quote_id, category, name, description, qty, unit_price, unit_type, line_total
+- `services_estimates` — quote_id, role, hours_estimate, hourly_rate, subtotal
+- `activities` — linked_object_type/id, type, summary, raw_content, gmail thread/message IDs
+- `tasks` — linked_object_type/id, owner, title, description, due_date, status, ai_suggested
+- `communication_lists` — name, source, external_id, description, member_count
+- `campaign_drafts` — subject, body, list_ids, status, external campaign ID/link, sent_at
+
+### UI Pages
+1. **Dashboard** — CMS summary (leads, deals, tickets, quotes counts + overdue tasks alert + activity feed)
+2. **Marinas** — Searchable directory of ~10,000 US marinas
+3. **Leads** — List with search, status filter, create/convert/delete
+4. **Accounts** — Card grid with detail dialog (contacts, opportunities, tickets tabs)
+5. **Opportunities** — Kanban pipeline + list view toggle
+6. **Quotes** — List + detail + quote builder wizard (Marina Solution / Professional Services)
+7. **Tickets** — Board (kanban) + list view toggle, detail with internal notes + resolution
+8. **Communications** — Lists tab + Campaigns tab
+9. **Settings** — Placeholder
+10. **Integrations** — Placeholder (Gmail, HubSpot, Klaviyo planned)
+
+### Sidebar Navigation Groups
+- **Overview:** Dashboard, Marinas
+- **Sales:** Leads, Accounts, Opportunities, Quotes
+- **Support:** Tickets
+- **Communications:** Communications
+- **Configuration:** Settings, Integrations
 
 ### Build Process
-- **Development:** `npm run dev` runs the Express server with Vite middleware via `tsx`
-- **Production build:** `npm run build` runs a custom build script (`script/build.ts`) that:
-  1. Builds the client with Vite (output to `dist/public`)
-  2. Bundles the server with esbuild (output to `dist/index.cjs`), externalizing most dependencies except an allowlist
-- **Production start:** `npm start` runs `node dist/index.cjs`
-- **Database push:** `npm run db:push` syncs the Drizzle schema to the database
+- **Development:** `npm run dev`
+- **Production:** `npm run build` then `npm start`
+- **Database push:** `npm run db:push`
 
-### Storage Layer
-- **Pattern:** Repository/storage interface (`IStorage`) with a `DatabaseStorage` implementation
-- **Location:** `server/storage.ts`
-- **Features:** Supports paginated queries with search and filtering for the marinas table
-
-## External Dependencies
-
-### Required Services
-- **PostgreSQL Database** — Required. Connection string must be provided via `DATABASE_URL` environment variable. Used for all data persistence.
-
-### Key NPM Packages
-- **drizzle-orm / drizzle-kit** — ORM and schema management for PostgreSQL
-- **express** — HTTP server framework (v5)
-- **@tanstack/react-query** — Client-side data fetching and caching
-- **recharts** — Chart visualization library
-- **zod / drizzle-zod** — Runtime validation and schema generation
-- **wouter** — Client-side routing
-- **shadcn/ui ecosystem** — Radix UI primitives, class-variance-authority, clsx, tailwind-merge
-- **xlsx** — Excel file parsing (used for marina data import script)
-- **connect-pg-simple** — PostgreSQL session store (available but not actively used for auth yet)
-
-### Data Import
-- **Marina data** — Imported from an Excel file (`attached_assets/MARINA_LIST_Full_USA_2024_1771878269076.xlsx`) via `script/import-marinas.ts`. This is a one-time batch import script run separately.
-
-### Replit-specific Plugins
-- `@replit/vite-plugin-runtime-error-modal` — Runtime error overlay in development
-- `@replit/vite-plugin-cartographer` — Development tooling (dev only)
-- `@replit/vite-plugin-dev-banner` — Development banner (dev only)
+### Planned Features (Not Yet Implemented)
+- Google OAuth authentication with domain restriction
+- Gmail integration (send/receive/log emails)
+- HubSpot one-way lead import
+- Klaviyo campaign API integration
+- PDF quote generation
+- AI smart summaries and action item suggestions
+- Global search
+- Admin user/role management

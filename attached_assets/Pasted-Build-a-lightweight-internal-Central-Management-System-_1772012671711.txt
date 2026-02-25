@@ -1,0 +1,346 @@
+Build a lightweight internal Central Management System for VoltSafe Marine that is optimized for:
+	1.	Sales execution and lead generation workflow
+	2.	Customer service and work tickets
+	3.	Mass communications using existing lists (Klaviyo today, HubSpot for lead gen today)
+	4.	Quoting + proposal generation for:
+	•	Marina shore power pedestal hardware
+	•	SaaS subscriptions per slip
+	•	Professional services (engineering hours + project cost) for custom, novel product requests using VoltSafe’s patented prongless technology
+
+This CMS should not replace HubSpot or Klaviyo yet. It becomes the operational cockpit where deals, comms, tickets, and quotes live.
+
+⸻
+
+1) Google Workspace Only
+
+Authentication
+	•	Login via Google OAuth (OpenID Connect)
+	•	Restrict to approved domains (ex: @voltsafe.com)
+	•	Role-based access control:
+	•	Admin
+	•	Sales
+	•	Support
+	•	Read-only
+
+⸻
+
+2) Core Modules to Build
+
+A) Sales Module (Lead → Deal → Quote → Close)
+
+Core features
+	•	Lead capture (manual + CSV import)
+	•	Convert Lead → Account + Contact + Opportunity
+	•	Opportunity pipeline (kanban; stages configurable)
+	•	Universal Activity timeline everywhere
+	•	Tasks and reminders per rep
+	•	Gmail integration for sending and logging emails
+	•	AI smart summaries + action items (button-driven)
+	•	Quote generation (hardware + SaaS + services)
+	•	Export quotes to PDF and email directly from the record
+
+⸻
+
+B) Support Module (Tickets + Communication)
+
+Core features
+	•	Ticket intake:
+	•	Public form (no login) for marina requests
+	•	Internal ticket creation from Account
+	•	Ticket triage board + list view
+	•	Ticket detail:
+	•	assignment, severity, status
+	•	internal notes vs external replies
+	•	email customer from inside ticket (Gmail)
+	•	resolution summary required on close
+	•	Link tickets to Account, Contact, and optionally to installed product(s) later
+
+⸻
+
+C) Communications Module (News + Broadcast Lists)
+
+v1 objective
+
+Keep mass comms simple. VoltSafe already uses Klaviyo.
+
+Build a Communications module that:
+	•	Stores communication lists (name, source, description)
+	•	Stores campaign drafts (subject, body, audience list(s), status)
+	•	Either:
+	•	Option 1: send via Klaviyo API
+	•	Option 2: “campaign registry” where user sends in Klaviyo and logs campaign ID/link back in CMS
+
+CMS becomes the system of record for announcements without rebuilding marketing automation.
+
+⸻
+
+D) Quoting + Proposals Module (New Requirement)
+
+What we must support
+
+VoltSafe must generate quotes in two distinct contexts:
+	1.	Marina Shore Power Pedestal Solutions
+	•	Hardware quote (pedestals, connectors, options)
+	•	SaaS quote (per slip per month, tiers)
+	•	Installation/rollout assumptions
+	•	Optional services (training, commissioning)
+	2.	Professional Services Agreement Quotes
+	•	For corporations requesting a novel/custom product built to their specs using VoltSafe’s prongless patented tech
+	•	Quote engineering hours by role and rate
+	•	Estimate timeline and total project cost
+	•	Include PSA terms reference and statement of work summary
+	•	Capture scope, assumptions, exclusions, and change order language
+
+Quote output
+	•	Generate a clean, professional PDF quote
+	•	Quote can be emailed via Gmail from inside the app
+	•	Quotes link to the Opportunity and Account and are versioned
+
+⸻
+
+3) Objects and Data Model (Minimum Set)
+
+Users
+	•	id, name, email, role, created_at, last_login
+	•	google_oauth_tokens (encrypted) for Gmail
+
+Lead
+	•	company/name, contact info, source, status, owner_user_id
+	•	notes, tags, next_step, due_date
+	•	convert_to_account()
+
+Account (Marina or Corporation)
+	•	name, address, region, timezone, slip_count optional
+	•	segment: marina, corp, partner, other
+	•	tags, notes
+
+Contact
+	•	account_id, name, title, email, phone, persona (owner, GM, harbourmaster, electrician, accounting)
+
+Opportunity (Deal)
+	•	account_id, stage, owner_user_id
+	•	est_close_date, value_estimate (hardware, software, services, total)
+	•	next_step, due_date, competitors
+
+Ticket
+	•	account_id, contact_id optional
+	•	category, severity, status
+	•	requester name/email/phone
+	•	assigned_to_user_id
+	•	description, attachments
+	•	internal_notes
+	•	resolution_summary
+
+Quote (Versioned)
+	•	quote_number (human readable unique)
+	•	version integer
+	•	status: draft, sent, accepted, rejected, expired
+	•	quote_type: marina_solution, professional_services
+	•	account_id, opportunity_id, contact_id
+	•	currency, created_by, created_at, valid_until
+	•	totals: subtotal, tax, total
+	•	assumptions, exclusions, notes
+	•	pdf_url/storage_reference
+	•	sent_at, accepted_at
+
+QuoteLineItem
+	•	quote_id
+	•	category: hardware, saas, services, discount, other
+	•	name/description
+	•	qty, unit_price, unit_type
+	•	line_total
+
+ServicesEstimate (for PSA quoting)
+	•	quote_id
+	•	workstreams (array or table)
+	•	role: (engineering, firmware, mechanical, electrical, PM, QA, etc.)
+	•	hours_estimate
+	•	hourly_rate
+	•	subtotal per workstream
+	•	timeline estimate (weeks)
+	•	key deliverables
+	•	assumptions + exclusions
+	•	change order policy text reference
+
+Activity (Universal timeline)
+	•	linked_object_type + linked_object_id
+	•	type: email_sent, email_received, note, call, meeting, task, status_change, quote_generated, quote_sent, ticket_created
+	•	summary
+	•	raw_content (optional)
+	•	created_by, created_at
+	•	gmail_thread_id, gmail_message_id when applicable
+
+Task
+	•	linked_object_type/id
+	•	owner_user_id
+	•	due_date
+	•	status
+	•	ai_suggested boolean
+
+CommunicationList
+	•	name
+	•	source: klaviyo, hubspot, manual
+	•	external_id (klaviyo list id if known)
+	•	description
+
+CampaignDraft
+	•	subject, body_html/body_text
+	•	list_ids (references CommunicationList)
+	•	status: draft, scheduled, sent, logged
+	•	external_campaign_id/link (klaviyo)
+	•	sent_at
+	•	created_by
+
+⸻
+
+4) Integrations
+
+Gmail Integration (Required)
+
+Use Gmail API per user OAuth.
+
+Features:
+	•	Connect Gmail account
+	•	Send email from Lead, Opportunity, Ticket, Quote
+	•	Log outbound emails as Activity
+	•	Sync inbound replies periodically and attach to correct record
+	•	Matching based on email address and Gmail threadId
+	•	If ambiguous, show “Needs Linking” workflow
+
+HubSpot Integration (Light Touch v1)
+	•	One-way import of leads (scheduled or on demand)
+	•	Optional push-back of key lifecycle events:
+	•	qualified
+	•	opportunity created
+	•	deal stage changed
+
+HubSpot remains the marketing lead engine for now.
+
+Klaviyo Integration (Broadcast Lists)
+	•	v1 can be “registry” mode (store drafts + log sends)
+	•	optional: Klaviyo API to create/send campaigns and fetch stats
+
+⸻
+
+5) AI Features (Button Driven, High ROI Only)
+
+AI Smart Summary
+
+On Lead, Opportunity, Ticket, Quote:
+	•	summarize current state
+	•	key facts, risks, blockers
+	•	recommended next actions
+
+AI Action Items
+	•	suggest 3 tasks with due dates
+	•	one click create tasks
+
+Guardrails:
+	•	user triggered only
+	•	show what activities were used as context
+	•	editable output before saving
+
+⸻
+
+6) UI Pages (Minimum Viable)
+	1.	Dashboard
+
+	•	Sales: my leads, my deals, overdue tasks, quotes needing follow up
+	•	Support: new tickets, high severity, aging tickets
+	•	Comms: drafts pending, recent sends
+
+	2.	Leads (list + detail)
+	3.	Accounts (list + detail with contacts, opportunities, tickets, quotes timeline)
+	4.	Opportunities (pipeline kanban + detail)
+	5.	Quotes (list + detail + create new quote wizard)
+	6.	Tickets (board + detail)
+	7.	Communications (lists + campaign drafts + send history)
+	8.	Global search
+	9.	Admin Settings (users/roles, pipeline stages, quote templates, integrations)
+
+⸻
+
+7) Quote Builder Requirements (Important)
+
+Quote wizard supports two templates
+
+Template A: Marina Shore Power Quote
+
+Inputs:
+	•	pedestal quantity
+	•	connector count/options
+	•	SaaS tier and $/slip/month, slip count
+	•	optional services line items (install support, training, commissioning)
+Outputs:
+	•	line item breakdown and totals
+	•	validity period
+	•	standard assumptions/exclusions
+	•	PDF generation
+
+Template B: Professional Services Agreement Quote (PSA + SOW Summary)
+
+Inputs:
+	•	customer requirements summary
+	•	workstreams + role-based hours + rates
+	•	estimated timeline
+	•	deliverables list
+	•	assumptions/exclusions
+	•	change order policy reference
+Outputs:
+	•	professional PDF quote + scope summary
+	•	optional signature block placeholder (actual e-sign later)
+
+Quotes must be versioned: v1, v2, v3 etc.
+
+⸻
+
+8) Technical Stack (Replit Friendly)
+	•	Next.js frontend
+	•	Backend: Next.js API routes or Express
+	•	Postgres DB
+	•	Prisma ORM
+	•	Auth: NextAuth Google Provider + domain restriction
+	•	Gmail: googleapis library, encrypt tokens at rest
+	•	Background jobs: simple worker/cron for email sync + HubSpot import
+	•	PDF generation: server-side PDF generator (template-based)
+
+⸻
+
+9) Acceptance Criteria (Definition of Done)
+
+Sales can:
+	•	create lead fast
+	•	convert to opportunity
+	•	email from inside CMS with Gmail
+	•	see all comms in timeline
+	•	generate a Marina quote PDF and send it
+	•	generate a PSA services quote with hours and rates and send it
+	•	click AI Summary and auto-create follow-up tasks
+
+Support can:
+	•	receive ticket from public form
+	•	assign, triage, communicate via Gmail
+	•	close ticket with resolution summary
+
+Comms can:
+	•	manage list registry
+	•	draft announcements
+	•	log sends and view history (optionally send via Klaviyo API)
+
+Admin can:
+	•	manage users/roles
+	•	configure pipeline stages
+	•	configure quote templates defaults
+	•	manage integration connections
+
+⸻
+
+10) Build Order (Ship Fast)
+	1.	Google login + roles
+	2.	Core objects + Activity timeline + search
+	3.	Gmail send/log + inbound sync
+	4.	Sales pipeline + tasks + AI summaries
+	5.	Support tickets + public intake + ticket email
+	6.	Quote builder + PDF + email send
+	7.	Comms registry + Klaviyo logging
+	8.	HubSpot one-way import
