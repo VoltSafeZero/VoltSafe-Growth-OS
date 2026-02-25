@@ -35,8 +35,13 @@ Dark mode by default.
 
 ### Core CMS Modules
 
+#### Authentication
+- **Session-based auth** — bcryptjs password hashing, express-session with PostgreSQL store (connect-pg-simple)
+- **5 named users** — terri, scott, sanad, trevor, alex @voltsafe.com; initial password "alberni1444", force-change on first login
+- **Protected routes** — all `/api/*` endpoints require authentication via `requireAuth` middleware
+
 #### Sales Module
-- **Leads** — Lead capture, search, status filtering, convert to Account
+- **Leads** — Marina directory import (~10,000 US marinas), HubSpot-style pipeline stages (New → Contacted → Meeting Scheduled → Qualified → Proposal Sent → Negotiation → Closed Won / Closed Lost), list + kanban pipeline view, search by name/city/state, filter by stage and state, convert to Account
 - **Accounts** — Marina/Corp accounts with contacts, linked opportunities, tickets
 - **Contacts** — Linked to accounts, persona-based (owner, GM, harbourmaster, etc.)
 - **Opportunities** — Pipeline kanban (Prospecting → Closed Won/Lost), value breakdown (hardware/software/services)
@@ -57,7 +62,9 @@ Dark mode by default.
 
 **Dashboard:** `GET /api/dashboard/summary`
 
-**Leads:** `GET/POST /api/leads`, `GET/PUT/DELETE /api/leads/:id`, `POST /api/leads/:id/convert`
+**Auth:** `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/change-password`
+
+**Leads:** `GET/POST /api/leads`, `GET/PUT/DELETE /api/leads/:id`, `POST /api/leads/:id/convert`, `POST /api/leads/import-marinas`, `GET /api/leads/states`
 
 **Accounts:** `GET/POST /api/accounts`, `GET/PUT /api/accounts/:id`
 

@@ -27,11 +27,13 @@ export interface IStorage {
   getMarinas(options: { search?: string; state?: string; page?: number; limit?: number }): Promise<{ data: Marina[]; total: number; page: number; totalPages: number }>;
   getMarinaStates(): Promise<string[]>;
 
-  getLeads(options?: { search?: string; status?: string; page?: number; limit?: number }): Promise<{ data: Lead[]; total: number; page: number; totalPages: number }>;
+  getLeads(options?: { search?: string; status?: string; state?: string; page?: number; limit?: number }): Promise<{ data: Lead[]; total: number; page: number; totalPages: number }>;
   getLead(id: number): Promise<Lead | undefined>;
   createLead(data: InsertLead): Promise<Lead>;
   updateLead(id: number, data: Partial<InsertLead>): Promise<Lead | undefined>;
   deleteLead(id: number): Promise<boolean>;
+  getLeadStates(): Promise<string[]>;
+  importMarinasAsLeads(): Promise<number>;
 
   getAccounts(options?: { search?: string; segment?: string; page?: number; limit?: number }): Promise<{ data: Account[]; total: number; page: number; totalPages: number }>;
   getAccount(id: number): Promise<Account | undefined>;
@@ -149,7 +151,7 @@ export class DatabaseStorage implements IStorage {
     return result.map((r) => r.state);
   }
 
-  async getLeads(options?: { search?: string; status?: string; page?: number; limit?: number }) {
+  async getLeads(options?: { search?: string; status?: string; state?: string; page?: number; limit?: number }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -159,11 +161,16 @@ export class DatabaseStorage implements IStorage {
       conditions.push(or(
         ilike(leads.company, `%${options.search}%`),
         ilike(leads.contactName, `%${options.search}%`),
-        ilike(leads.contactEmail, `%${options.search}%`)
+        ilike(leads.contactEmail, `%${options.search}%`),
+        ilike(leads.city, `%${options.search}%`),
+        ilike(leads.state, `%${options.search}%`)
       ));
     }
     if (options?.status) {
       conditions.push(eq(leads.status, options.status));
+    }
+    if (options?.state) {
+      conditions.push(eq(leads.state, options.state));
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -173,6 +180,44 @@ export class DatabaseStorage implements IStorage {
     ]);
 
     return { data, total: Number(countResult[0].count), page, totalPages: Math.ceil(Number(countResult[0].count) / limit) };
+  }
+
+  async getLeadStates(): Promise<string[]> {
+    const result = await db.selectDistinct({ state: leads.state }).from(leads).where(sql`${leads.state} IS NOT NULL`).orderBy(asc(leads.state));
+    return result.map((r) => r.state!).filter(Boolean);
+  }
+
+  async importMarinasAsLeads(): Promise<number> {
+    const existingMarinaIds = await db.select({ marinaId: leads.marinaId }).from(leads).where(sql`${leads.marinaId} IS NOT NULL`);
+    const existingIds = new Set(existingMarinaIds.map(r => r.marinaId));
+
+    const allMarinas = await db.select().from(marinas);
+    const toImport = allMarinas.filter(m => !existingIds.has(m.id));
+
+    if (toImport.length === 0) return 0;
+
+    const batchSize = 500;
+    let imported = 0;
+    for (let i = 0; i < toImport.length; i += batchSize) {
+      const batch = toImport.slice(i, i + batchSize);
+      await db.insert(leads).values(batch.map(m => ({
+        company: m.name,
+        contactName: "Marina Contact",
+        contactPhone: m.phone || undefined,
+        source: "marina_directory",
+        status: "new",
+        marinaId: m.id,
+        state: m.state,
+        city: m.city,
+        slips: m.slips || undefined,
+        segment: m.segment || undefined,
+        streetAddress: m.streetAddress || undefined,
+        zipCode: m.zipCode || undefined,
+      })));
+      imported += batch.length;
+    }
+
+    return imported;
   }
 
   async getLead(id: number) {

@@ -11,35 +11,57 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Search, ArrowRightLeft, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  Plus, Search, ArrowRightLeft, Trash2, ChevronLeft, ChevronRight,
+  LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor
+} from "lucide-react";
 import type { Lead } from "@shared/schema";
 
-const statusColors: Record<string, string> = {
-  new: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-  contacted: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
-  qualified: "bg-green-500/10 text-green-500 border-green-500/20",
-  unqualified: "bg-red-500/10 text-red-500 border-red-500/20",
-  converted: "bg-primary/10 text-primary border-primary/20",
-};
+const PIPELINE_STAGES = [
+  { value: "new", label: "New", color: "bg-slate-500/10 text-slate-400 border-slate-500/20", columnColor: "border-t-slate-500" },
+  { value: "contacted", label: "Contacted", color: "bg-blue-500/10 text-blue-400 border-blue-500/20", columnColor: "border-t-blue-500" },
+  { value: "meeting_scheduled", label: "Meeting Scheduled", color: "bg-purple-500/10 text-purple-400 border-purple-500/20", columnColor: "border-t-purple-500" },
+  { value: "qualified", label: "Qualified", color: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20", columnColor: "border-t-cyan-500" },
+  { value: "proposal_sent", label: "Proposal Sent", color: "bg-amber-500/10 text-amber-400 border-amber-500/20", columnColor: "border-t-amber-500" },
+  { value: "negotiation", label: "Negotiation", color: "bg-orange-500/10 text-orange-400 border-orange-500/20", columnColor: "border-t-orange-500" },
+  { value: "converted", label: "Closed Won", color: "bg-green-500/10 text-green-400 border-green-500/20", columnColor: "border-t-green-500" },
+  { value: "lost", label: "Closed Lost", color: "bg-red-500/10 text-red-400 border-red-500/20", columnColor: "border-t-red-500" },
+];
+
+const statusColors: Record<string, string> = Object.fromEntries(
+  PIPELINE_STAGES.map(s => [s.value, s.color])
+);
+
+function getStageLabel(value: string) {
+  return PIPELINE_STAGES.find(s => s.value === value)?.label || value;
+}
 
 export default function LeadsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [stateFilter, setStateFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [view, setView] = useState<"list" | "pipeline">("list");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const { toast } = useToast();
 
   const { data, isLoading } = useQuery<{ data: Lead[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, page }],
+    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, state: stateFilter === "all" ? "" : stateFilter, page, limit: view === "pipeline" ? 500 : 25 }],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (stateFilter !== "all") params.set("state", stateFilter);
       params.set("page", String(page));
-      const res = await fetch(`/api/leads?${params}`);
+      if (view === "pipeline") params.set("limit", "500");
+      const res = await fetch(`/api/leads?${params}`, { credentials: "include" });
       return res.json();
     },
+  });
+
+  const { data: leadStates } = useQuery<string[]>({
+    queryKey: ["/api/leads/states"],
   });
 
   const createMutation = useMutation({
@@ -77,33 +99,73 @@ export default function LeadsPage() {
     },
   });
 
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: string }) => {
+      const res = await apiRequest("PUT", `/api/leads/${id}`, { status });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({ title: "Lead stage updated" });
+    },
+  });
+
+  const importMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/leads/import-marinas");
+      return res.json();
+    },
+    onSuccess: (data: { imported: number; message: string }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads/states"] });
+      toast({ title: data.message });
+    },
+    onError: () => {
+      toast({ title: "Import failed", variant: "destructive" });
+    },
+  });
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight" data-testid="text-page-title">Leads</h1>
-          <p className="text-muted-foreground mt-1">Manage and convert your sales leads.</p>
+          <h1 className="text-3xl font-bold tracking-tight" data-testid="text-page-title">Leads Pipeline</h1>
+          <p className="text-muted-foreground mt-1">
+            {data ? `${data.total.toLocaleString()} leads` : "Manage your sales pipeline"}
+          </p>
         </div>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-primary text-primary-foreground" data-testid="button-create-lead">
-              <Plus className="mr-2 h-4 w-4" /> New Lead
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Create New Lead</DialogTitle>
-            </DialogHeader>
-            <CreateLeadForm onSubmit={(data) => createMutation.mutate(data)} isPending={createMutation.isPending} />
-          </DialogContent>
-        </Dialog>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => importMutation.mutate()}
+            disabled={importMutation.isPending}
+            data-testid="button-import-marinas"
+          >
+            <Download className="mr-2 h-4 w-4" />
+            {importMutation.isPending ? "Importing..." : "Import Marinas"}
+          </Button>
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-primary text-primary-foreground" data-testid="button-create-lead">
+                <Plus className="mr-2 h-4 w-4" /> New Lead
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Create New Lead</DialogTitle>
+              </DialogHeader>
+              <CreateLeadForm onSubmit={(data) => createMutation.mutate(data)} isPending={createMutation.isPending} />
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
-      <div className="flex gap-3">
+      <div className="flex gap-3 flex-wrap items-center">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search leads..."
+            placeholder="Search leads by name, city, state..."
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             className="pl-10"
@@ -111,152 +173,343 @@ export default function LeadsPage() {
           />
         </div>
         <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
-          <SelectTrigger className="w-40" data-testid="select-status-filter">
-            <SelectValue placeholder="Status" />
+          <SelectTrigger className="w-44" data-testid="select-status-filter">
+            <SelectValue placeholder="Stage" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="new">New</SelectItem>
-            <SelectItem value="contacted">Contacted</SelectItem>
-            <SelectItem value="qualified">Qualified</SelectItem>
-            <SelectItem value="unqualified">Unqualified</SelectItem>
-            <SelectItem value="converted">Converted</SelectItem>
+            <SelectItem value="all">All Stages</SelectItem>
+            {PIPELINE_STAGES.map(s => (
+              <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
+        <Select value={stateFilter} onValueChange={(v) => { setStateFilter(v); setPage(1); }}>
+          <SelectTrigger className="w-36" data-testid="select-state-filter">
+            <SelectValue placeholder="State" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All States</SelectItem>
+            {leadStates?.map(s => (
+              <SelectItem key={s} value={s}>{s}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex items-center border border-border/50 rounded-lg overflow-hidden ml-auto">
+          <Button
+            variant={view === "list" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setView("list")}
+            className="rounded-none"
+            data-testid="button-list-view"
+          >
+            <List className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={view === "pipeline" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setView("pipeline")}
+            className="rounded-none"
+            data-testid="button-pipeline-view"
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
         <div className="space-y-3">
           {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
         </div>
+      ) : view === "pipeline" ? (
+        <PipelineView
+          leads={data?.data || []}
+          onSelect={setSelectedLead}
+          onUpdateStatus={(id, status) => updateStatusMutation.mutate({ id, status })}
+        />
       ) : (
-        <Card className="border-border/50">
-          <CardContent className="p-0">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border/50">
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Company</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Contact</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Source</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Status</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Created</th>
-                  <th className="text-right p-4 text-sm font-medium text-muted-foreground">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.data.map((lead) => (
-                  <tr key={lead.id} className="border-b border-border/30 hover:bg-muted/30 cursor-pointer" onClick={() => setSelectedLead(lead)} data-testid={`row-lead-${lead.id}`}>
-                    <td className="p-4 font-medium">{lead.company}</td>
-                    <td className="p-4 text-sm">
-                      <div>{lead.contactName}</div>
-                      <div className="text-muted-foreground text-xs">{lead.contactEmail}</div>
-                    </td>
-                    <td className="p-4 text-sm text-muted-foreground">{lead.source || "—"}</td>
-                    <td className="p-4">
-                      <Badge variant="outline" className={statusColors[lead.status] || ""} data-testid={`badge-status-${lead.id}`}>
-                        {lead.status}
-                      </Badge>
-                    </td>
-                    <td className="p-4 text-sm text-muted-foreground">
-                      {new Date(lead.createdAt).toLocaleDateString()}
-                    </td>
-                    <td className="p-4 text-right">
-                      {lead.status !== "converted" && (
-                        <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); convertMutation.mutate(lead.id); }} data-testid={`button-convert-${lead.id}`}>
-                          <ArrowRightLeft className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </td>
+        <>
+          <Card className="border-border/50">
+            <CardContent className="p-0">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border/50">
+                    <th className="text-left p-4 text-sm font-medium text-muted-foreground">Marina / Company</th>
+                    <th className="text-left p-4 text-sm font-medium text-muted-foreground">Location</th>
+                    <th className="text-left p-4 text-sm font-medium text-muted-foreground">Contact</th>
+                    <th className="text-left p-4 text-sm font-medium text-muted-foreground">Slips</th>
+                    <th className="text-left p-4 text-sm font-medium text-muted-foreground">Stage</th>
+                    <th className="text-left p-4 text-sm font-medium text-muted-foreground">Source</th>
+                    <th className="text-right p-4 text-sm font-medium text-muted-foreground">Actions</th>
                   </tr>
-                ))}
-                {data?.data.length === 0 && (
-                  <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No leads found</td></tr>
-                )}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      )}
+                </thead>
+                <tbody>
+                  {data?.data.map((lead) => (
+                    <tr key={lead.id} className="border-b border-border/30 hover:bg-muted/30 cursor-pointer" onClick={() => setSelectedLead(lead)} data-testid={`row-lead-${lead.id}`}>
+                      <td className="p-4">
+                        <div className="flex items-center gap-2">
+                          {lead.marinaId && <Anchor className="h-4 w-4 text-primary shrink-0" />}
+                          <span className="font-medium">{lead.company}</span>
+                        </div>
+                      </td>
+                      <td className="p-4 text-sm text-muted-foreground">
+                        {lead.city && lead.state ? `${lead.city}, ${lead.state}` : lead.state || "—"}
+                      </td>
+                      <td className="p-4 text-sm">
+                        <div>{lead.contactName}</div>
+                        {lead.contactPhone && <div className="text-muted-foreground text-xs">{lead.contactPhone}</div>}
+                      </td>
+                      <td className="p-4 text-sm text-muted-foreground">{lead.slips || "—"}</td>
+                      <td className="p-4">
+                        <Badge variant="outline" className={statusColors[lead.status] || ""} data-testid={`badge-status-${lead.id}`}>
+                          {getStageLabel(lead.status)}
+                        </Badge>
+                      </td>
+                      <td className="p-4 text-sm text-muted-foreground">{lead.source || "—"}</td>
+                      <td className="p-4 text-right">
+                        {lead.status !== "converted" && lead.status !== "lost" && (
+                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); convertMutation.mutate(lead.id); }} data-testid={`button-convert-${lead.id}`}>
+                            <ArrowRightLeft className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {data?.data.length === 0 && (
+                    <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No leads found. Click "Import Marinas" to populate your pipeline.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
 
-      {data && data.totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">{data.total} leads total</p>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(p => p - 1)} data-testid="button-prev-page">
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="text-sm py-1 px-3">Page {page} of {data.totalPages}</span>
-            <Button variant="outline" size="sm" disabled={page >= data.totalPages} onClick={() => setPage(p => p + 1)} data-testid="button-next-page">
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {selectedLead && (
-        <Dialog open={!!selectedLead} onOpenChange={() => setSelectedLead(null)}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>{selectedLead.company}</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-xs text-muted-foreground">Contact</Label>
-                  <p className="text-sm font-medium">{selectedLead.contactName}</p>
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Email</Label>
-                  <p className="text-sm">{selectedLead.contactEmail || "—"}</p>
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Phone</Label>
-                  <p className="text-sm">{selectedLead.contactPhone || "—"}</p>
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Source</Label>
-                  <p className="text-sm">{selectedLead.source || "—"}</p>
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Status</Label>
-                  <Badge variant="outline" className={statusColors[selectedLead.status] || ""}>{selectedLead.status}</Badge>
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Next Step</Label>
-                  <p className="text-sm">{selectedLead.nextStep || "—"}</p>
-                </div>
-              </div>
-              {selectedLead.notes && (
-                <div>
-                  <Label className="text-xs text-muted-foreground">Notes</Label>
-                  <p className="text-sm">{selectedLead.notes}</p>
-                </div>
-              )}
-              <div className="flex gap-2 justify-end pt-4 border-t border-border/50">
-                {selectedLead.status !== "converted" && (
-                  <Button variant="outline" onClick={() => convertMutation.mutate(selectedLead.id)} disabled={convertMutation.isPending} data-testid="button-convert-detail">
-                    <ArrowRightLeft className="mr-2 h-4 w-4" /> Convert to Account
-                  </Button>
-                )}
-                <Button variant="destructive" size="sm" onClick={() => deleteMutation.mutate(selectedLead.id)} disabled={deleteMutation.isPending} data-testid="button-delete-lead">
-                  <Trash2 className="mr-2 h-4 w-4" /> Delete
+          {data && data.totalPages > 1 && (
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">{data.total.toLocaleString()} leads total</p>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(p => p - 1)} data-testid="button-prev-page">
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm py-1 px-3">Page {page} of {data.totalPages}</span>
+                <Button variant="outline" size="sm" disabled={page >= data.totalPages} onClick={() => setPage(p => p + 1)} data-testid="button-next-page">
+                  <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
             </div>
-          </DialogContent>
-        </Dialog>
+          )}
+        </>
+      )}
+
+      {selectedLead && (
+        <LeadDetailDialog
+          lead={selectedLead}
+          onClose={() => setSelectedLead(null)}
+          onConvert={() => convertMutation.mutate(selectedLead.id)}
+          onDelete={() => deleteMutation.mutate(selectedLead.id)}
+          onUpdateStatus={(status) => {
+            updateStatusMutation.mutate({ id: selectedLead.id, status });
+            setSelectedLead({ ...selectedLead, status });
+          }}
+          isConverting={convertMutation.isPending}
+          isDeleting={deleteMutation.isPending}
+        />
       )}
     </div>
   );
 }
 
+function PipelineView({
+  leads,
+  onSelect,
+  onUpdateStatus,
+}: {
+  leads: Lead[];
+  onSelect: (lead: Lead) => void;
+  onUpdateStatus: (id: number, status: string) => void;
+}) {
+  const stageGroups = PIPELINE_STAGES.map(stage => ({
+    ...stage,
+    leads: leads.filter(l => l.status === stage.value),
+  }));
+
+  return (
+    <div className="flex gap-4 overflow-x-auto pb-4">
+      {stageGroups.map(stage => (
+        <div key={stage.value} className={`flex-shrink-0 w-72 border border-border/50 rounded-xl bg-card/50 border-t-2 ${stage.columnColor}`}>
+          <div className="p-3 border-b border-border/30">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold">{stage.label}</h3>
+              <Badge variant="outline" className="text-xs px-1.5 py-0">{stage.leads.length}</Badge>
+            </div>
+          </div>
+          <div className="p-2 space-y-2 max-h-[calc(100vh-320px)] overflow-y-auto">
+            {stage.leads.length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-4">No leads</p>
+            )}
+            {stage.leads.slice(0, 50).map(lead => (
+              <div
+                key={lead.id}
+                className="p-3 bg-background/80 border border-border/30 rounded-lg cursor-pointer hover:border-primary/30 transition-colors"
+                onClick={() => onSelect(lead)}
+                data-testid={`pipeline-card-${lead.id}`}
+              >
+                <div className="flex items-start gap-2 mb-1">
+                  {lead.marinaId && <Anchor className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />}
+                  <p className="text-sm font-medium leading-tight line-clamp-2">{lead.company}</p>
+                </div>
+                {(lead.city || lead.state) && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                    <MapPin className="h-3 w-3" />
+                    {lead.city && lead.state ? `${lead.city}, ${lead.state}` : lead.state}
+                  </p>
+                )}
+                {lead.slips && (
+                  <p className="text-xs text-muted-foreground mt-0.5">{lead.slips} slips</p>
+                )}
+                {lead.contactPhone && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                    <Phone className="h-3 w-3" />
+                    {lead.contactPhone}
+                  </p>
+                )}
+              </div>
+            ))}
+            {stage.leads.length > 50 && (
+              <p className="text-xs text-muted-foreground text-center py-2">+{stage.leads.length - 50} more</p>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LeadDetailDialog({
+  lead,
+  onClose,
+  onConvert,
+  onDelete,
+  onUpdateStatus,
+  isConverting,
+  isDeleting,
+}: {
+  lead: Lead;
+  onClose: () => void;
+  onConvert: () => void;
+  onDelete: () => void;
+  onUpdateStatus: (status: string) => void;
+  isConverting: boolean;
+  isDeleting: boolean;
+}) {
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {lead.marinaId && <Anchor className="h-5 w-5 text-primary" />}
+            {lead.company}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <Label className="text-xs text-muted-foreground mb-2 block">Pipeline Stage</Label>
+            <Select value={lead.status} onValueChange={onUpdateStatus}>
+              <SelectTrigger data-testid="select-lead-stage">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PIPELINE_STAGES.map(s => (
+                  <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            {(lead.city || lead.state) && (
+              <div>
+                <Label className="text-xs text-muted-foreground">Location</Label>
+                <p className="text-sm font-medium flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+                  {lead.city && lead.state ? `${lead.city}, ${lead.state}` : lead.state || lead.city}
+                </p>
+                {lead.streetAddress && <p className="text-xs text-muted-foreground mt-0.5">{lead.streetAddress}</p>}
+                {lead.zipCode && <p className="text-xs text-muted-foreground">{lead.zipCode}</p>}
+              </div>
+            )}
+            <div>
+              <Label className="text-xs text-muted-foreground">Contact</Label>
+              <p className="text-sm font-medium">{lead.contactName}</p>
+            </div>
+            {lead.contactEmail && (
+              <div>
+                <Label className="text-xs text-muted-foreground">Email</Label>
+                <p className="text-sm flex items-center gap-1">
+                  <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+                  {lead.contactEmail}
+                </p>
+              </div>
+            )}
+            {lead.contactPhone && (
+              <div>
+                <Label className="text-xs text-muted-foreground">Phone</Label>
+                <p className="text-sm flex items-center gap-1">
+                  <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+                  {lead.contactPhone}
+                </p>
+              </div>
+            )}
+            {lead.slips && (
+              <div>
+                <Label className="text-xs text-muted-foreground">Slips</Label>
+                <p className="text-sm">{lead.slips}</p>
+              </div>
+            )}
+            {lead.segment && (
+              <div>
+                <Label className="text-xs text-muted-foreground">Segment</Label>
+                <p className="text-sm">{lead.segment}</p>
+              </div>
+            )}
+            <div>
+              <Label className="text-xs text-muted-foreground">Source</Label>
+              <p className="text-sm">{lead.source || "—"}</p>
+            </div>
+            {lead.nextStep && (
+              <div>
+                <Label className="text-xs text-muted-foreground">Next Step</Label>
+                <p className="text-sm">{lead.nextStep}</p>
+              </div>
+            )}
+          </div>
+          {lead.notes && (
+            <div>
+              <Label className="text-xs text-muted-foreground">Notes</Label>
+              <p className="text-sm">{lead.notes}</p>
+            </div>
+          )}
+          <div className="flex gap-2 justify-end pt-4 border-t border-border/50">
+            {lead.status !== "converted" && lead.status !== "lost" && (
+              <Button variant="outline" onClick={onConvert} disabled={isConverting} data-testid="button-convert-detail">
+                <ArrowRightLeft className="mr-2 h-4 w-4" /> Convert to Account
+              </Button>
+            )}
+            <Button variant="destructive" size="sm" onClick={onDelete} disabled={isDeleting} data-testid="button-delete-lead">
+              <Trash2 className="mr-2 h-4 w-4" /> Delete
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function CreateLeadForm({ onSubmit, isPending }: { onSubmit: (data: Record<string, string>) => void; isPending: boolean }) {
-  const [form, setForm] = useState({ company: "", contactName: "", contactEmail: "", contactPhone: "", source: "", notes: "" });
+  const [form, setForm] = useState({ company: "", contactName: "", contactEmail: "", contactPhone: "", source: "", notes: "", state: "", city: "" });
 
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit(form); }} className="space-y-4">
       <div>
-        <Label>Company *</Label>
+        <Label>Company / Marina Name *</Label>
         <Input value={form.company} onChange={(e) => setForm(f => ({ ...f, company: e.target.value }))} required data-testid="input-company" />
       </div>
       <div>
@@ -271,6 +524,16 @@ function CreateLeadForm({ onSubmit, isPending }: { onSubmit: (data: Record<strin
         <div>
           <Label>Phone</Label>
           <Input value={form.contactPhone} onChange={(e) => setForm(f => ({ ...f, contactPhone: e.target.value }))} data-testid="input-contact-phone" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>City</Label>
+          <Input value={form.city} onChange={(e) => setForm(f => ({ ...f, city: e.target.value }))} data-testid="input-city" />
+        </div>
+        <div>
+          <Label>State</Label>
+          <Input value={form.state} onChange={(e) => setForm(f => ({ ...f, state: e.target.value }))} data-testid="input-state" />
         </div>
       </div>
       <div>

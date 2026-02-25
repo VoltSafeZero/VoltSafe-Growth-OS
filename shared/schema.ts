@@ -64,6 +64,13 @@ export const leads = pgTable("leads", {
   tags: text("tags"),
   nextStep: text("next_step"),
   dueDate: timestamp("due_date"),
+  marinaId: integer("marina_id"),
+  state: text("state"),
+  city: text("city"),
+  slips: text("slips"),
+  segment: text("segment"),
+  streetAddress: text("street_address"),
+  zipCode: text("zip_code"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

@@ -130,11 +130,21 @@ export async function registerRoutes(
     res.json(await storage.getDashboardSummary());
   });
 
+  app.get("/api/leads/states", async (_req, res) => {
+    res.json(await storage.getLeadStates());
+  });
+
+  app.post("/api/leads/import-marinas", async (_req, res) => {
+    const count = await storage.importMarinasAsLeads();
+    res.json({ imported: count, message: `Imported ${count} marinas as leads` });
+  });
+
   app.get("/api/leads", async (req, res) => {
-    const { search, status, page, limit } = req.query;
+    const { search, status, state, page, limit } = req.query;
     res.json(await storage.getLeads({
       search: search as string | undefined,
       status: status as string | undefined,
+      state: state as string | undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     }));
