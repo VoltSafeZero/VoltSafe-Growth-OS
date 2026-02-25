@@ -17,6 +17,33 @@ import {
 } from "lucide-react";
 import type { Lead } from "@shared/schema";
 
+const US_STATES = [
+  "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware",
+  "Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa","Kansas","Kentucky",
+  "Louisiana","Maine","Maryland","Massachusetts","Michigan","Minnesota","Mississippi",
+  "Missouri","Montana","Nebraska","Nevada","New Hampshire","New Jersey","New Mexico",
+  "New York","North Carolina","North Dakota","Ohio","Oklahoma","Oregon","Pennsylvania",
+  "Rhode Island","South Carolina","South Dakota","Tennessee","Texas","Utah","Vermont",
+  "Virginia","Washington","West Virginia","Wisconsin","Wyoming",
+];
+
+const CA_PROVINCES = [
+  "Alberta","British Columbia","Manitoba","New Brunswick","Newfoundland and Labrador",
+  "Northwest Territories","Nova Scotia","Nunavut","Ontario","Prince Edward Island",
+  "Quebec","Saskatchewan","Yukon",
+];
+
+const COUNTRIES = [
+  { value: "CA", label: "Canada" },
+  { value: "US", label: "United States" },
+];
+
+function getRegionsForCountry(country: string): string[] {
+  if (country === "US") return US_STATES;
+  if (country === "CA") return CA_PROVINCES;
+  return [];
+}
+
 const PIPELINE_STAGES = [
   { value: "new", label: "New", color: "bg-slate-500/10 text-slate-400 border-slate-500/20", columnColor: "border-t-slate-500" },
   { value: "contacted", label: "Contacted", color: "bg-blue-500/10 text-blue-400 border-blue-500/20", columnColor: "border-t-blue-500" },
@@ -39,6 +66,7 @@ function getStageLabel(value: string) {
 export default function LeadsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [countryFilter, setCountryFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [view, setView] = useState<"list" | "pipeline">("list");
@@ -46,22 +74,21 @@ export default function LeadsPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const { toast } = useToast();
 
+  const regionOptions = countryFilter !== "all" ? getRegionsForCountry(countryFilter) : [];
+
   const { data, isLoading } = useQuery<{ data: Lead[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, state: stateFilter === "all" ? "" : stateFilter, page, limit: view === "pipeline" ? 500 : 25 }],
+    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, page, limit: view === "pipeline" ? 500 : 25 }],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (countryFilter !== "all") params.set("country", countryFilter);
       if (stateFilter !== "all") params.set("state", stateFilter);
       params.set("page", String(page));
       if (view === "pipeline") params.set("limit", "500");
       const res = await fetch(`/api/leads?${params}`, { credentials: "include" });
       return res.json();
     },
-  });
-
-  const { data: leadStates } = useQuery<string[]>({
-    queryKey: ["/api/leads/states"],
   });
 
   const createMutation = useMutation({
@@ -183,13 +210,24 @@ export default function LeadsPage() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={stateFilter} onValueChange={(v) => { setStateFilter(v); setPage(1); }}>
-          <SelectTrigger className="w-36" data-testid="select-state-filter">
-            <SelectValue placeholder="State" />
+        <Select value={countryFilter} onValueChange={(v) => { setCountryFilter(v); setStateFilter("all"); setPage(1); }}>
+          <SelectTrigger className="w-40" data-testid="select-country-filter">
+            <SelectValue placeholder="Country" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All States</SelectItem>
-            {leadStates?.map(s => (
+            <SelectItem value="all">All Countries</SelectItem>
+            {COUNTRIES.map(c => (
+              <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={stateFilter} onValueChange={(v) => { setStateFilter(v); setPage(1); }}>
+          <SelectTrigger className="w-48" data-testid="select-state-filter">
+            <SelectValue placeholder={countryFilter === "CA" ? "Province" : "State"} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{countryFilter === "CA" ? "All Provinces" : countryFilter === "US" ? "All States" : "All Regions"}</SelectItem>
+            {regionOptions.map(s => (
               <SelectItem key={s} value={s}>{s}</SelectItem>
             ))}
           </SelectContent>
@@ -430,7 +468,7 @@ function LeadDetailDialog({
                 <Label className="text-xs text-muted-foreground">Location</Label>
                 <p className="text-sm font-medium flex items-center gap-1">
                   <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
-                  {lead.city && lead.state ? `${lead.city}, ${lead.state}` : lead.state || lead.city}
+                  {[lead.city, lead.state, lead.country].filter(Boolean).join(", ")}
                 </p>
                 {lead.streetAddress && <p className="text-xs text-muted-foreground mt-0.5">{lead.streetAddress}</p>}
                 {lead.zipCode && <p className="text-xs text-muted-foreground">{lead.zipCode}</p>}
@@ -504,7 +542,9 @@ function LeadDetailDialog({
 }
 
 function CreateLeadForm({ onSubmit, isPending }: { onSubmit: (data: Record<string, string>) => void; isPending: boolean }) {
-  const [form, setForm] = useState({ company: "", contactName: "", contactEmail: "", contactPhone: "", source: "", notes: "", state: "", city: "" });
+  const [form, setForm] = useState({ company: "", contactName: "", contactEmail: "", contactPhone: "", source: "", notes: "", country: "", state: "", city: "" });
+
+  const formRegions = form.country ? getRegionsForCountry(form.country) : [];
 
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit(form); }} className="space-y-4">
@@ -526,14 +566,42 @@ function CreateLeadForm({ onSubmit, isPending }: { onSubmit: (data: Record<strin
           <Input value={form.contactPhone} onChange={(e) => setForm(f => ({ ...f, contactPhone: e.target.value }))} data-testid="input-contact-phone" />
         </div>
       </div>
+      <div>
+        <Label>Country</Label>
+        <Select value={form.country || "none"} onValueChange={(v) => setForm(f => ({ ...f, country: v === "none" ? "" : v, state: "" }))}>
+          <SelectTrigger data-testid="select-country">
+            <SelectValue placeholder="Select country" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Select country</SelectItem>
+            {COUNTRIES.map(c => (
+              <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label>City</Label>
           <Input value={form.city} onChange={(e) => setForm(f => ({ ...f, city: e.target.value }))} data-testid="input-city" />
         </div>
         <div>
-          <Label>State</Label>
-          <Input value={form.state} onChange={(e) => setForm(f => ({ ...f, state: e.target.value }))} data-testid="input-state" />
+          <Label>{form.country === "CA" ? "Province / Territory" : "State"}</Label>
+          {formRegions.length > 0 ? (
+            <Select value={form.state || "none"} onValueChange={(v) => setForm(f => ({ ...f, state: v === "none" ? "" : v }))}>
+              <SelectTrigger data-testid="select-state">
+                <SelectValue placeholder={form.country === "CA" ? "Select province" : "Select state"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{form.country === "CA" ? "Select province" : "Select state"}</SelectItem>
+                {formRegions.map(s => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input value={form.state} onChange={(e) => setForm(f => ({ ...f, state: e.target.value }))} placeholder="State / Province" data-testid="input-state" />
+          )}
         </div>
       </div>
       <div>

@@ -65,6 +65,7 @@ export const leads = pgTable("leads", {
   nextStep: text("next_step"),
   dueDate: timestamp("due_date"),
   marinaId: integer("marina_id"),
+  country: text("country"),
   state: text("state"),
   city: text("city"),
   slips: text("slips"),

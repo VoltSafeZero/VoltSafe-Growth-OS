@@ -27,7 +27,7 @@ export interface IStorage {
   getMarinas(options: { search?: string; state?: string; page?: number; limit?: number }): Promise<{ data: Marina[]; total: number; page: number; totalPages: number }>;
   getMarinaStates(): Promise<string[]>;
 
-  getLeads(options?: { search?: string; status?: string; state?: string; page?: number; limit?: number }): Promise<{ data: Lead[]; total: number; page: number; totalPages: number }>;
+  getLeads(options?: { search?: string; status?: string; state?: string; country?: string; page?: number; limit?: number }): Promise<{ data: Lead[]; total: number; page: number; totalPages: number }>;
   getLead(id: number): Promise<Lead | undefined>;
   createLead(data: InsertLead): Promise<Lead>;
   updateLead(id: number, data: Partial<InsertLead>): Promise<Lead | undefined>;
@@ -151,7 +151,7 @@ export class DatabaseStorage implements IStorage {
     return result.map((r) => r.state);
   }
 
-  async getLeads(options?: { search?: string; status?: string; state?: string; page?: number; limit?: number }) {
+  async getLeads(options?: { search?: string; status?: string; state?: string; country?: string; page?: number; limit?: number }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -171,6 +171,9 @@ export class DatabaseStorage implements IStorage {
     }
     if (options?.state) {
       conditions.push(eq(leads.state, options.state));
+    }
+    if (options?.country) {
+      conditions.push(eq(leads.country, options.country));
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -207,6 +210,7 @@ export class DatabaseStorage implements IStorage {
         source: "marina_directory",
         status: "new",
         marinaId: m.id,
+        country: "US",
         state: m.state,
         city: m.city,
         slips: m.slips || undefined,
