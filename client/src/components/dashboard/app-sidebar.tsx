@@ -25,11 +25,10 @@ import {
 
 const overviewItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Marinas", url: "/marinas", icon: Anchor },
 ];
 
 const salesItems = [
-  { title: "Leads", url: "/leads", icon: UserPlus },
+  { title: "Marina Leads", url: "/leads", icon: UserPlus },
   { title: "Accounts", url: "/accounts", icon: Building2 },
   { title: "Opportunities", url: "/opportunities", icon: TrendingUp },
   { title: "Quotes", url: "/quotes", icon: FileText },
@@ -71,7 +70,7 @@ export function AppSidebar() {
           <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
             <Anchor className="w-4 h-4 text-primary-foreground" />
           </div>
-          <span>VoltSafe <span className="text-primary">Marine</span></span>
+          <span>VoltSafe <span className="text-primary">CMS</span></span>
         </div>
       </SidebarHeader>
       <SidebarContent>
