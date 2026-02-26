@@ -104,20 +104,52 @@ export const contacts = pgTable("contacts", {
 export const opportunities = pgTable("opportunities", {
   id: serial("id").primaryKey(),
   accountId: integer("account_id").notNull(),
+  contactId: integer("contact_id"),
   title: text("title").notNull(),
-  stage: text("stage").notNull().default("prospecting"),
+  stage: text("stage").notNull().default("inbound_new"),
   ownerUserId: integer("owner_user_id"),
   estCloseDate: timestamp("est_close_date"),
+  amount: real("amount").default(0),
+  currency: text("currency").notNull().default("USD"),
+  forecastCategory: text("forecast_category").notNull().default("pipeline"),
   valueHardware: real("value_hardware").default(0),
   valueSoftware: real("value_software").default(0),
   valueServices: real("value_services").default(0),
   valueTotal: real("value_total").default(0),
   nextStep: text("next_step"),
-  dueDate: timestamp("due_date"),
+  nextStepDueDate: timestamp("next_step_due_date"),
+  lastActivityDate: timestamp("last_activity_date"),
+  painClarity: integer("pain_clarity").default(0),
+  economicBuyerIdentified: text("economic_buyer_identified").default("unknown"),
+  decisionCriteriaKnown: text("decision_criteria_known").default("unknown"),
+  decisionProcessKnown: text("decision_process_known").default("unknown"),
+  competition: text("competition").default("unknown"),
+  championIdentified: text("champion_identified").default("unknown"),
+  timeline: text("timeline").default("unknown"),
+  estimatedPedestalCount: integer("estimated_pedestal_count"),
+  estimatedSlipsImpacted: integer("estimated_slips_impacted"),
+  primaryValueDriver: text("primary_value_driver"),
+  riskFlags: text("risk_flags"),
+  roiStory: text("roi_story"),
+  isStalled: boolean("is_stalled").default(false),
+  stalledAt: timestamp("stalled_at"),
+  closedLostReason: text("closed_lost_reason"),
+  closedLostCompetitor: text("closed_lost_competitor"),
+  closedLostNotes: text("closed_lost_notes"),
+  closedWonNotes: text("closed_won_notes"),
   competitors: text("competitors"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const dealStageHistory = pgTable("deal_stage_history", {
+  id: serial("id").primaryKey(),
+  dealId: integer("deal_id").notNull(),
+  fromStage: text("from_stage"),
+  toStage: text("to_stage").notNull(),
+  changedByUserId: integer("changed_by_user_id"),
+  changedAt: timestamp("changed_at").defaultNow().notNull(),
 });
 
 export const tickets = pgTable("tickets", {
@@ -247,6 +279,7 @@ export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, creat
 export const insertAccountSchema = createInsertSchema(accounts).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertContactSchema = createInsertSchema(contacts).omit({ id: true, createdAt: true });
 export const insertOpportunitySchema = createInsertSchema(opportunities).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertDealStageHistorySchema = createInsertSchema(dealStageHistory).omit({ id: true, changedAt: true });
 export const insertTicketSchema = createInsertSchema(tickets).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertQuoteSchema = createInsertSchema(quotes).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertQuoteLineItemSchema = createInsertSchema(quoteLineItems).omit({ id: true });
@@ -274,6 +307,8 @@ export type Contact = typeof contacts.$inferSelect;
 export type InsertContact = z.infer<typeof insertContactSchema>;
 export type Opportunity = typeof opportunities.$inferSelect;
 export type InsertOpportunity = z.infer<typeof insertOpportunitySchema>;
+export type DealStageHistory = typeof dealStageHistory.$inferSelect;
+export type InsertDealStageHistory = z.infer<typeof insertDealStageHistorySchema>;
 export type Ticket = typeof tickets.$inferSelect;
 export type InsertTicket = z.infer<typeof insertTicketSchema>;
 export type Quote = typeof quotes.$inferSelect;

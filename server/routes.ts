@@ -268,13 +268,19 @@ export async function registerRoutes(
   });
 
   app.get("/api/opportunities", async (req, res) => {
-    const { accountId, stage, page, limit } = req.query;
+    const { accountId, stage, ownerId, forecastCategory, page, limit } = req.query;
     res.json(await storage.getOpportunities({
       accountId: accountId ? Number(accountId) : undefined,
       stage: stage as string | undefined,
+      ownerId: ownerId ? Number(ownerId) : undefined,
+      forecastCategory: forecastCategory as string | undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     }));
+  });
+
+  app.get("/api/opportunities/:id/stage-history", async (req, res) => {
+    res.json(await storage.getDealStageHistory(Number(req.params.id)));
   });
 
   app.get("/api/opportunities/:id", async (req, res) => {
@@ -301,6 +307,12 @@ export async function registerRoutes(
     if (!existing) return res.status(404).json({ message: "Opportunity not found" });
     const result = await storage.updateOpportunity(Number(req.params.id), req.body);
     if (req.body.stage && req.body.stage !== existing.stage) {
+      await storage.createDealStageHistory({
+        dealId: existing.id,
+        fromStage: existing.stage,
+        toStage: req.body.stage,
+        changedByUserId: req.session?.userId || null,
+      });
       await storage.createActivity({
         linkedObjectType: "opportunity",
         linkedObjectId: existing.id,

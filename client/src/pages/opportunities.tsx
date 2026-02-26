@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -10,38 +10,145 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, List, Columns3, DollarSign } from "lucide-react";
+import {
+  Plus, List, Columns3, DollarSign, AlertTriangle, Clock, CalendarClock,
+  ArrowRight, CheckCircle2, XCircle, Target, ShieldAlert, Zap, MessageSquare
+} from "lucide-react";
 import type { Opportunity, Account } from "@shared/schema";
 
-const STAGES = [
-  { key: "prospecting", label: "Prospecting", color: "bg-blue-500" },
-  { key: "qualification", label: "Qualification", color: "bg-yellow-500" },
-  { key: "proposal", label: "Proposal", color: "bg-orange-500" },
-  { key: "negotiation", label: "Negotiation", color: "bg-purple-500" },
-  { key: "closed_won", label: "Closed Won", color: "bg-green-500" },
-  { key: "closed_lost", label: "Closed Lost", color: "bg-red-500" },
+const DEAL_STAGES = [
+  { key: "inbound_new", label: "Inbound New", color: "bg-slate-500", badgeColor: "bg-slate-500/10 text-slate-400 border-slate-500/20" },
+  { key: "attempting_contact", label: "Attempting Contact", color: "bg-blue-500", badgeColor: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
+  { key: "connected", label: "Connected", color: "bg-indigo-500", badgeColor: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20" },
+  { key: "qualified", label: "Qualified", color: "bg-cyan-500", badgeColor: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" },
+  { key: "solution_fit", label: "Solution Fit", color: "bg-teal-500", badgeColor: "bg-teal-500/10 text-teal-400 border-teal-500/20" },
+  { key: "proposal_sent", label: "Proposal Sent", color: "bg-amber-500", badgeColor: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
+  { key: "negotiation", label: "Negotiation", color: "bg-orange-500", badgeColor: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
+  { key: "commit", label: "Commit", color: "bg-purple-500", badgeColor: "bg-purple-500/10 text-purple-400 border-purple-500/20" },
+  { key: "closed_won", label: "Closed Won", color: "bg-green-500", badgeColor: "bg-green-500/10 text-green-400 border-green-500/20" },
+  { key: "closed_lost", label: "Closed Lost", color: "bg-red-500", badgeColor: "bg-red-500/10 text-red-400 border-red-500/20" },
+  { key: "nurture", label: "Nurture", color: "bg-gray-500", badgeColor: "bg-gray-500/10 text-gray-400 border-gray-500/20" },
 ];
 
-const stageColorMap: Record<string, string> = {
-  prospecting: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  qualification: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
-  proposal: "bg-orange-500/10 text-orange-400 border-orange-500/20",
-  negotiation: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-  closed_won: "bg-green-500/10 text-green-400 border-green-500/20",
-  closed_lost: "bg-red-500/10 text-red-400 border-red-500/20",
-};
+const RISK_FLAG_OPTIONS = [
+  { value: "procurement_slow", label: "Procurement slow" },
+  { value: "board_approval", label: "Board approval required" },
+  { value: "electrician_dependency", label: "Electrician dependency" },
+  { value: "budget_cycle", label: "Budget cycle" },
+  { value: "incumbent_lock_in", label: "Incumbent contract lock-in" },
+];
+
+const FORECAST_CATEGORIES = [
+  { value: "omitted", label: "Omitted" },
+  { value: "pipeline", label: "Pipeline" },
+  { value: "best_case", label: "Best Case" },
+  { value: "commit", label: "Commit" },
+  { value: "closed", label: "Closed" },
+];
+
+const VALUE_DRIVERS = [
+  { value: "safety", label: "Safety" },
+  { value: "opex_reduction", label: "Opex Reduction" },
+  { value: "revenue_enablement", label: "Revenue Enablement" },
+  { value: "ux", label: "User Experience" },
+  { value: "liability_reduction", label: "Liability Reduction" },
+];
+
+function getStageLabel(key: string) {
+  return DEAL_STAGES.find(s => s.key === key)?.label || key;
+}
+
+function getStageBadgeColor(key: string) {
+  return DEAL_STAGES.find(s => s.key === key)?.badgeColor || "";
+}
+
+function parseRiskFlags(flags: string | null): string[] {
+  if (!flags) return [];
+  try { return JSON.parse(flags); } catch { return flags.split(",").map(s => s.trim()).filter(Boolean); }
+}
+
+function getRiskFlagLabel(value: string) {
+  return RISK_FLAG_OPTIONS.find(r => r.value === value)?.label || value;
+}
+
+function daysAgo(dateStr: string | Date | null): number | null {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  return Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function isOverdue(dateStr: string | Date | null): boolean {
+  if (!dateStr) return false;
+  return new Date(dateStr) < new Date();
+}
+
+function formatDate(dateStr: string | Date | null): string {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
+}
+
+function DealSignals({ deal }: { deal: Opportunity }) {
+  const risks = parseRiskFlags(deal.riskFlags);
+  const nextStepOverdue = deal.nextStepDueDate ? isOverdue(deal.nextStepDueDate) : false;
+  const lastActivityDays = daysAgo(deal.lastActivityDate);
+  const isStale = lastActivityDays !== null && lastActivityDays > 14;
+
+  return (
+    <div className="space-y-2">
+      <div className={`flex items-start gap-2 rounded-lg p-2 text-xs ${deal.nextStep ? (nextStepOverdue ? "bg-red-500/10 border border-red-500/20" : "bg-primary/5 border border-primary/10") : "bg-yellow-500/10 border border-yellow-500/20"}`}>
+        <ArrowRight className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${nextStepOverdue ? "text-red-400" : deal.nextStep ? "text-primary" : "text-yellow-400"}`} />
+        <div className="min-w-0 flex-1">
+          <p className={`font-medium ${nextStepOverdue ? "text-red-400" : ""}`}>
+            {deal.nextStep || "No next step set"}
+          </p>
+          {deal.nextStepDueDate && (
+            <p className={`text-[11px] mt-0.5 ${nextStepOverdue ? "text-red-400 font-semibold" : "text-muted-foreground"}`}>
+              {nextStepOverdue ? "OVERDUE — " : "Due "}
+              {formatDate(deal.nextStepDueDate)}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 text-[11px] text-muted-foreground px-1">
+        <span className={`flex items-center gap-1 ${isStale ? "text-amber-400 font-medium" : ""}`}>
+          <Clock className="h-3 w-3" />
+          {deal.lastActivityDate
+            ? `${lastActivityDays}d ago`
+            : "No activity"
+          }
+          {isStale && " — Stale"}
+        </span>
+      </div>
+
+      {risks.length > 0 && (
+        <div className="flex flex-wrap gap-1 px-1">
+          {risks.slice(0, 3).map(flag => (
+            <span key={flag} className="inline-flex items-center gap-1 text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full px-2 py-0.5">
+              <AlertTriangle className="h-2.5 w-2.5" />
+              {getRiskFlagLabel(flag)}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function OpportunitiesPage() {
   const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
   const [createOpen, setCreateOpen] = useState(false);
-  const [selectedOpp, setSelectedOpp] = useState<Opportunity | null>(null);
+  const [selectedDeal, setSelectedDeal] = useState<Opportunity | null>(null);
   const { toast } = useToast();
 
   const { data, isLoading } = useQuery<{ data: Opportunity[]; total: number }>({
     queryKey: ["/api/opportunities"],
     queryFn: async () => {
-      const res = await fetch("/api/opportunities?limit=200");
+      const res = await fetch("/api/opportunities?limit=500", { credentials: "include" });
       return res.json();
     },
   });
@@ -49,7 +156,7 @@ export default function OpportunitiesPage() {
   const { data: accountsData } = useQuery<{ data: Account[] }>({
     queryKey: ["/api/accounts", "all"],
     queryFn: async () => {
-      const res = await fetch("/api/accounts?limit=200");
+      const res = await fetch("/api/accounts?limit=500", { credentials: "include" });
       return res.json();
     },
   });
@@ -62,33 +169,57 @@ export default function OpportunitiesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/opportunities"] });
       setCreateOpen(false);
-      toast({ title: "Opportunity created" });
+      toast({ title: "Deal created" });
     },
   });
 
-  const updateStageMutation = useMutation({
-    mutationFn: async ({ id, stage }: { id: number; stage: string }) => {
-      const res = await apiRequest("PUT", `/api/opportunities/${id}`, { stage });
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: Record<string, unknown> }) => {
+      const res = await apiRequest("PUT", `/api/opportunities/${id}`, data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/opportunities"] });
+      if (selectedDeal) setSelectedDeal(result);
     },
   });
 
   const accountMap = new Map(accountsData?.data?.map(a => [a.id, a.name]) || []);
 
-  const groupedByStage = STAGES.map(stage => ({
+  const activeStages = DEAL_STAGES.filter(s => s.key !== "closed_won" && s.key !== "closed_lost" && s.key !== "nurture");
+
+  const groupedByStage = activeStages.map(stage => ({
     ...stage,
     items: data?.data?.filter(o => o.stage === stage.key) || [],
   }));
+
+  const closedDeals = data?.data?.filter(o => o.stage === "closed_won" || o.stage === "closed_lost" || o.stage === "nurture") || [];
+
+  const pipelineTotal = data?.data?.filter(o => !["closed_won", "closed_lost", "nurture"].includes(o.stage)).reduce((sum, d) => sum + (d.amount || d.valueTotal || 0), 0) || 0;
+  const stalledCount = data?.data?.filter(d => d.isStalled).length || 0;
+  const overdueCount = data?.data?.filter(d => d.nextStepDueDate && isOverdue(d.nextStepDueDate) && !["closed_won", "closed_lost"].includes(d.stage)).length || 0;
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight" data-testid="text-page-title">Opportunities</h1>
-          <p className="text-muted-foreground mt-1">Track deals through your sales pipeline.</p>
+          <h1 className="text-3xl font-bold tracking-tight" data-testid="text-page-title">Deals Pipeline</h1>
+          <div className="flex items-center gap-4 mt-1">
+            <span className="text-muted-foreground text-sm">{data?.total || 0} deals</span>
+            <span className="text-sm font-medium text-primary flex items-center gap-1">
+              <DollarSign className="h-3.5 w-3.5" />{pipelineTotal.toLocaleString()} pipeline
+            </span>
+            {stalledCount > 0 && (
+              <span className="text-sm text-amber-400 flex items-center gap-1">
+                <ShieldAlert className="h-3.5 w-3.5" />{stalledCount} stalled
+              </span>
+            )}
+            {overdueCount > 0 && (
+              <span className="text-sm text-red-400 flex items-center gap-1">
+                <CalendarClock className="h-3.5 w-3.5" />{overdueCount} overdue
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex gap-2">
           <div className="flex border border-border/50 rounded-lg overflow-hidden">
@@ -101,44 +232,44 @@ export default function OpportunitiesPage() {
           </div>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
-              <Button className="bg-primary text-primary-foreground" data-testid="button-create-opp">
+              <Button className="bg-primary text-primary-foreground" data-testid="button-create-deal">
                 <Plus className="mr-2 h-4 w-4" /> New Deal
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-md">
-              <DialogHeader><DialogTitle>Create Opportunity</DialogTitle></DialogHeader>
-              <CreateOppForm accounts={accountsData?.data || []} onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
+            <DialogContent className="max-w-lg">
+              <DialogHeader><DialogTitle>Create Deal</DialogTitle></DialogHeader>
+              <CreateDealForm accounts={accountsData?.data || []} onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
             </DialogContent>
           </Dialog>
         </div>
       </div>
 
       {isLoading ? (
-        <div className="flex gap-4 overflow-x-auto">{[...Array(6)].map((_, i) => <Skeleton key={i} className="min-w-[280px] h-[400px]" />)}</div>
+        <div className="flex gap-4 overflow-x-auto">{[...Array(6)].map((_, i) => <Skeleton key={i} className="min-w-[300px] h-[400px]" />)}</div>
       ) : viewMode === "kanban" ? (
-        <div className="flex gap-4 overflow-x-auto pb-4">
+        <div className="flex gap-3 overflow-x-auto pb-4">
           {groupedByStage.map(stage => (
-            <div key={stage.key} className="min-w-[280px] flex-shrink-0" data-testid={`column-${stage.key}`}>
+            <div key={stage.key} className="min-w-[300px] max-w-[300px] flex-shrink-0" data-testid={`column-${stage.key}`}>
               <div className="flex items-center gap-2 mb-3 px-1">
-                <div className={`w-2 h-2 rounded-full ${stage.color}`} />
+                <div className={`w-2.5 h-2.5 rounded-full ${stage.color}`} />
                 <h3 className="text-sm font-semibold">{stage.label}</h3>
-                <Badge variant="outline" className="ml-auto text-xs">{stage.items.length}</Badge>
+                <Badge variant="outline" className="ml-auto text-xs px-1.5">{stage.items.length}</Badge>
               </div>
-              <div className="space-y-2">
-                {stage.items.map(opp => (
-                  <Card key={opp.id} className="border-border/50 hover:border-primary/30 cursor-pointer transition-colors" onClick={() => setSelectedOpp(opp)} data-testid={`card-opp-${opp.id}`}>
-                    <CardContent className="p-4">
-                      <p className="font-medium text-sm mb-1">{opp.title}</p>
-                      <p className="text-xs text-muted-foreground mb-2">{accountMap.get(opp.accountId) || "Unknown Account"}</p>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold flex items-center gap-1">
-                          <DollarSign className="h-3 w-3 text-primary" />
-                          {opp.valueTotal?.toLocaleString() || "0"}
+              <div className="space-y-2 max-h-[calc(100vh-280px)] overflow-y-auto">
+                {stage.items.map(deal => (
+                  <Card key={deal.id} className="border-border/50 hover:border-primary/30 cursor-pointer transition-colors" onClick={() => setSelectedDeal(deal)} data-testid={`card-deal-${deal.id}`}>
+                    <CardContent className="p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm leading-tight truncate">{deal.title}</p>
+                          <p className="text-xs text-muted-foreground truncate">{accountMap.get(deal.accountId) || "Unknown"}</p>
+                        </div>
+                        <span className="text-sm font-semibold text-primary whitespace-nowrap flex items-center gap-0.5">
+                          <DollarSign className="h-3 w-3" />
+                          {(deal.amount || deal.valueTotal || 0).toLocaleString()}
                         </span>
-                        {opp.estCloseDate && (
-                          <span className="text-xs text-muted-foreground">{new Date(opp.estCloseDate).toLocaleDateString()}</span>
-                        )}
                       </div>
+                      <DealSignals deal={deal} />
                     </CardContent>
                   </Card>
                 ))}
@@ -157,105 +288,438 @@ export default function OpportunitiesPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border/50">
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Deal</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Account</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Stage</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Value</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Close Date</th>
+                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Deal</th>
+                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Account</th>
+                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Stage</th>
+                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Amount</th>
+                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Next Step</th>
+                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Due</th>
+                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Last Activity</th>
+                  <th className="text-left p-3 text-xs font-medium text-muted-foreground">Risks</th>
                 </tr>
               </thead>
               <tbody>
-                {data?.data?.map(opp => (
-                  <tr key={opp.id} className="border-b border-border/30 hover:bg-muted/30 cursor-pointer" onClick={() => setSelectedOpp(opp)} data-testid={`row-opp-${opp.id}`}>
-                    <td className="p-4 font-medium">{opp.title}</td>
-                    <td className="p-4 text-sm text-muted-foreground">{accountMap.get(opp.accountId) || "—"}</td>
-                    <td className="p-4"><Badge variant="outline" className={stageColorMap[opp.stage] || ""}>{opp.stage}</Badge></td>
-                    <td className="p-4 text-sm font-medium">${opp.valueTotal?.toLocaleString() || "0"}</td>
-                    <td className="p-4 text-sm text-muted-foreground">{opp.estCloseDate ? new Date(opp.estCloseDate).toLocaleDateString() : "—"}</td>
-                  </tr>
-                ))}
+                {data?.data?.map(deal => {
+                  const risks = parseRiskFlags(deal.riskFlags);
+                  const nextOverdue = deal.nextStepDueDate ? isOverdue(deal.nextStepDueDate) : false;
+                  const actDays = daysAgo(deal.lastActivityDate);
+                  const stale = actDays !== null && actDays > 14;
+                  return (
+                    <tr key={deal.id} className="border-b border-border/30 hover:bg-muted/30 cursor-pointer" onClick={() => setSelectedDeal(deal)} data-testid={`row-deal-${deal.id}`}>
+                      <td className="p-3">
+                        <p className="font-medium text-sm">{deal.title}</p>
+                        {deal.forecastCategory && deal.forecastCategory !== "pipeline" && (
+                          <span className="text-[10px] text-muted-foreground uppercase">{deal.forecastCategory}</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-sm text-muted-foreground">{accountMap.get(deal.accountId) || "—"}</td>
+                      <td className="p-3"><Badge variant="outline" className={`text-[11px] ${getStageBadgeColor(deal.stage)}`}>{getStageLabel(deal.stage)}</Badge></td>
+                      <td className="p-3 text-sm font-medium">${(deal.amount || deal.valueTotal || 0).toLocaleString()}</td>
+                      <td className="p-3">
+                        <p className={`text-xs max-w-[160px] truncate ${!deal.nextStep ? "text-yellow-400 italic" : ""}`}>
+                          {deal.nextStep || "Not set"}
+                        </p>
+                      </td>
+                      <td className="p-3">
+                        <span className={`text-xs ${nextOverdue ? "text-red-400 font-semibold" : "text-muted-foreground"}`}>
+                          {nextOverdue && "⚠ "}{formatDate(deal.nextStepDueDate)}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <span className={`text-xs ${stale ? "text-amber-400 font-medium" : "text-muted-foreground"}`}>
+                          {deal.lastActivityDate ? `${actDays}d ago` : "None"}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex gap-1">
+                          {risks.slice(0, 2).map(f => (
+                            <span key={f} className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded px-1.5 py-0.5">
+                              {getRiskFlagLabel(f).split(" ")[0]}
+                            </span>
+                          ))}
+                          {risks.length > 2 && <span className="text-[10px] text-muted-foreground">+{risks.length - 2}</span>}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </CardContent>
         </Card>
       )}
 
-      {selectedOpp && (
-        <OppDetailDialog opp={selectedOpp} accountName={accountMap.get(selectedOpp.accountId) || "Unknown"} stages={STAGES} onStageChange={(stage) => { updateStageMutation.mutate({ id: selectedOpp.id, stage }); setSelectedOpp({ ...selectedOpp, stage }); }} onClose={() => setSelectedOpp(null)} />
+      {selectedDeal && (
+        <DealDetailDialog
+          deal={selectedDeal}
+          accountName={accountMap.get(selectedDeal.accountId) || "Unknown"}
+          onUpdate={(data) => {
+            updateMutation.mutate({ id: selectedDeal.id, data });
+            setSelectedDeal({ ...selectedDeal, ...data } as Opportunity);
+          }}
+          onClose={() => setSelectedDeal(null)}
+        />
       )}
     </div>
   );
 }
 
-function OppDetailDialog({ opp, accountName, stages, onStageChange, onClose }: { opp: Opportunity; accountName: string; stages: typeof STAGES; onStageChange: (s: string) => void; onClose: () => void }) {
+function DealDetailDialog({ deal, accountName, onUpdate, onClose }: {
+  deal: Opportunity;
+  accountName: string;
+  onUpdate: (data: Record<string, unknown>) => void;
+  onClose: () => void;
+}) {
+  const [editingNextStep, setEditingNextStep] = useState(false);
+  const [nextStep, setNextStep] = useState(deal.nextStep || "");
+  const [nextStepDue, setNextStepDue] = useState(deal.nextStepDueDate ? new Date(deal.nextStepDueDate).toISOString().split("T")[0] : "");
+
+  const risks = parseRiskFlags(deal.riskFlags);
+  const nextOverdue = deal.nextStepDueDate ? isOverdue(deal.nextStepDueDate) : false;
+  const actDays = daysAgo(deal.lastActivityDate);
+
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{opp.title}</DialogTitle>
-          <p className="text-sm text-muted-foreground">{accountName}</p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <DialogTitle className="text-xl">{deal.title}</DialogTitle>
+              <p className="text-sm text-muted-foreground mt-0.5">{accountName}</p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-lg font-bold text-primary">${(deal.amount || deal.valueTotal || 0).toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">Close: {formatDate(deal.estCloseDate)}</p>
+            </div>
+          </div>
         </DialogHeader>
-        <div className="space-y-4">
-          <div>
-            <Label className="text-xs text-muted-foreground">Stage</Label>
-            <Select value={opp.stage} onValueChange={onStageChange}>
-              <SelectTrigger data-testid="select-opp-stage"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {stages.map(s => <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
+
+        <div className={`rounded-lg p-4 space-y-3 ${nextOverdue ? "bg-red-500/5 border border-red-500/20" : "bg-primary/5 border border-primary/10"}`}>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <Target className={`h-4 w-4 ${nextOverdue ? "text-red-400" : "text-primary"}`} />
+              Next Step
+              {nextOverdue && <span className="text-[10px] bg-red-500/20 text-red-400 rounded px-1.5 py-0.5 uppercase font-bold">Overdue</span>}
+            </h3>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setEditingNextStep(!editingNextStep)} data-testid="button-edit-next-step">
+              {editingNextStep ? "Cancel" : "Edit"}
+            </Button>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div><Label className="text-xs text-muted-foreground">Hardware Value</Label><p className="text-sm">${opp.valueHardware?.toLocaleString() || "0"}</p></div>
-            <div><Label className="text-xs text-muted-foreground">Software Value</Label><p className="text-sm">${opp.valueSoftware?.toLocaleString() || "0"}</p></div>
-            <div><Label className="text-xs text-muted-foreground">Services Value</Label><p className="text-sm">${opp.valueServices?.toLocaleString() || "0"}</p></div>
-            <div><Label className="text-xs text-muted-foreground">Total Value</Label><p className="text-sm font-bold">${opp.valueTotal?.toLocaleString() || "0"}</p></div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div><Label className="text-xs text-muted-foreground">Est. Close Date</Label><p className="text-sm">{opp.estCloseDate ? new Date(opp.estCloseDate).toLocaleDateString() : "—"}</p></div>
-            <div><Label className="text-xs text-muted-foreground">Competitors</Label><p className="text-sm">{opp.competitors || "—"}</p></div>
-          </div>
-          {opp.nextStep && <div><Label className="text-xs text-muted-foreground">Next Step</Label><p className="text-sm">{opp.nextStep}</p></div>}
-          {opp.notes && <div><Label className="text-xs text-muted-foreground">Notes</Label><p className="text-sm">{opp.notes}</p></div>}
+          {editingNextStep ? (
+            <div className="space-y-2">
+              <Input value={nextStep} onChange={(e) => setNextStep(e.target.value)} placeholder="What's the next action?" data-testid="input-next-step" />
+              <div className="flex gap-2 items-center">
+                <Input type="date" value={nextStepDue} onChange={(e) => setNextStepDue(e.target.value)} className="flex-1" data-testid="input-next-step-due" />
+                <Button size="sm" onClick={() => { onUpdate({ nextStep, nextStepDueDate: nextStepDue ? new Date(nextStepDue) : null }); setEditingNextStep(false); }} data-testid="button-save-next-step">
+                  Save
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <p className="text-sm">{deal.nextStep || "No next step set — add one now!"}</p>
+              {deal.nextStepDueDate && (
+                <p className={`text-xs mt-1 ${nextOverdue ? "text-red-400 font-semibold" : "text-muted-foreground"}`}>
+                  Due: {formatDate(deal.nextStepDueDate)}
+                </p>
+              )}
+            </div>
+          )}
         </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-lg border border-border/50 p-3 text-center">
+            <p className="text-[10px] uppercase text-muted-foreground mb-1">Last Activity</p>
+            <p className={`text-lg font-bold ${actDays !== null && actDays > 14 ? "text-amber-400" : ""}`}>
+              {actDays !== null ? `${actDays}d` : "—"}
+            </p>
+            <p className="text-[10px] text-muted-foreground">{actDays !== null && actDays > 14 ? "Stale — follow up!" : "ago"}</p>
+          </div>
+          <div className="rounded-lg border border-border/50 p-3 text-center">
+            <p className="text-[10px] uppercase text-muted-foreground mb-1">Forecast</p>
+            <p className="text-sm font-semibold capitalize">{deal.forecastCategory || "pipeline"}</p>
+          </div>
+          <div className="rounded-lg border border-border/50 p-3 text-center">
+            <p className="text-[10px] uppercase text-muted-foreground mb-1">Risk Flags</p>
+            <p className={`text-lg font-bold ${risks.length > 0 ? "text-amber-400" : ""}`}>{risks.length}</p>
+          </div>
+        </div>
+
+        {risks.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground flex items-center gap-1"><AlertTriangle className="h-3 w-3 text-amber-400" /> Risk Flags</p>
+            <div className="flex flex-wrap gap-1.5">
+              {risks.map(f => (
+                <span key={f} className="text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full px-2.5 py-1">
+                  {getRiskFlagLabel(f)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <Tabs defaultValue="details" className="mt-2">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="details">Details</TabsTrigger>
+            <TabsTrigger value="qualification">Qualification</TabsTrigger>
+            <TabsTrigger value="outcome">Outcome</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="details" className="space-y-4 mt-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-xs text-muted-foreground">Stage</Label>
+                <Select value={deal.stage} onValueChange={(v) => onUpdate({ stage: v })}>
+                  <SelectTrigger data-testid="select-deal-stage"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {DEAL_STAGES.map(s => <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Forecast Category</Label>
+                <Select value={deal.forecastCategory || "pipeline"} onValueChange={(v) => onUpdate({ forecastCategory: v })}>
+                  <SelectTrigger data-testid="select-forecast"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {FORECAST_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Amount</Label>
+                <p className="text-sm font-medium">${(deal.amount || deal.valueTotal || 0).toLocaleString()}</p>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Close Date</Label>
+                <p className="text-sm">{formatDate(deal.estCloseDate)}</p>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Primary Value Driver</Label>
+                <p className="text-sm capitalize">{deal.primaryValueDriver?.replace(/_/g, " ") || "—"}</p>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Competition</Label>
+                <p className="text-sm capitalize">{deal.competition?.replace(/_/g, " ") || "Unknown"}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-xs text-muted-foreground">Est. Pedestals</Label>
+                <p className="text-sm">{deal.estimatedPedestalCount ?? "—"}</p>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Est. Slips Impacted</Label>
+                <p className="text-sm">{deal.estimatedSlipsImpacted ?? "—"}</p>
+              </div>
+            </div>
+            {deal.roiStory && (
+              <div>
+                <Label className="text-xs text-muted-foreground">ROI Story</Label>
+                <p className="text-sm">{deal.roiStory}</p>
+              </div>
+            )}
+            {deal.notes && (
+              <div>
+                <Label className="text-xs text-muted-foreground">Notes</Label>
+                <p className="text-sm">{deal.notes}</p>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="qualification" className="space-y-4 mt-4">
+            <p className="text-xs text-muted-foreground">MEDDICC-lite qualification scoring</p>
+            <div className="grid grid-cols-2 gap-4">
+              <QualField label="Pain Clarity" value={deal.painClarity ?? 0} max={3} onChange={(v) => onUpdate({ painClarity: v })} />
+              <div>
+                <Label className="text-xs text-muted-foreground">Economic Buyer Identified</Label>
+                <Select value={deal.economicBuyerIdentified || "unknown"} onValueChange={(v) => onUpdate({ economicBuyerIdentified: v })}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="yes">Yes</SelectItem>
+                    <SelectItem value="no">No</SelectItem>
+                    <SelectItem value="unknown">Unknown</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Decision Criteria Known</Label>
+                <Select value={deal.decisionCriteriaKnown || "unknown"} onValueChange={(v) => onUpdate({ decisionCriteriaKnown: v })}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="yes">Yes</SelectItem>
+                    <SelectItem value="no">No</SelectItem>
+                    <SelectItem value="unknown">Unknown</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Decision Process Known</Label>
+                <Select value={deal.decisionProcessKnown || "unknown"} onValueChange={(v) => onUpdate({ decisionProcessKnown: v })}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="yes">Yes</SelectItem>
+                    <SelectItem value="no">No</SelectItem>
+                    <SelectItem value="unknown">Unknown</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Champion Identified</Label>
+                <Select value={deal.championIdentified || "unknown"} onValueChange={(v) => onUpdate({ championIdentified: v })}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="strong">Strong</SelectItem>
+                    <SelectItem value="weak">Weak</SelectItem>
+                    <SelectItem value="yes">Yes</SelectItem>
+                    <SelectItem value="no">No</SelectItem>
+                    <SelectItem value="unknown">Unknown</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Timeline</Label>
+                <Select value={deal.timeline || "unknown"} onValueChange={(v) => onUpdate({ timeline: v })}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="this_month">This Month</SelectItem>
+                    <SelectItem value="this_quarter">This Quarter</SelectItem>
+                    <SelectItem value="6_plus_months">6+ Months</SelectItem>
+                    <SelectItem value="unknown">Unknown</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Risk Flags</Label>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {RISK_FLAG_OPTIONS.map(option => {
+                  const active = risks.includes(option.value);
+                  return (
+                    <button
+                      key={option.value}
+                      className={`text-xs border rounded-full px-3 py-1 transition-colors ${active ? "bg-amber-500/20 text-amber-400 border-amber-500/30" : "border-border/50 text-muted-foreground hover:border-border"}`}
+                      onClick={() => {
+                        const updated = active ? risks.filter(r => r !== option.value) : [...risks, option.value];
+                        onUpdate({ riskFlags: JSON.stringify(updated) });
+                      }}
+                      data-testid={`toggle-risk-${option.value}`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="outcome" className="space-y-4 mt-4">
+            {deal.stage === "closed_won" && (
+              <div className="rounded-lg bg-green-500/10 border border-green-500/20 p-4">
+                <p className="text-sm font-medium text-green-400 flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> Closed Won</p>
+                <p className="text-sm mt-2">{deal.closedWonNotes || "No win notes recorded."}</p>
+              </div>
+            )}
+            {deal.stage === "closed_lost" && (
+              <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-4 space-y-2">
+                <p className="text-sm font-medium text-red-400 flex items-center gap-2"><XCircle className="h-4 w-4" /> Closed Lost</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label className="text-xs text-muted-foreground">Reason</Label><p className="text-sm">{deal.closedLostReason || "—"}</p></div>
+                  <div><Label className="text-xs text-muted-foreground">Competitor</Label><p className="text-sm">{deal.closedLostCompetitor || "—"}</p></div>
+                </div>
+                {deal.closedLostNotes && <div><Label className="text-xs text-muted-foreground">Notes</Label><p className="text-sm">{deal.closedLostNotes}</p></div>}
+              </div>
+            )}
+            {deal.stage !== "closed_won" && deal.stage !== "closed_lost" && (
+              <p className="text-sm text-muted-foreground text-center py-4">Deal is still active. Outcome details appear when a deal is closed.</p>
+            )}
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
 }
 
-function CreateOppForm({ accounts, onSubmit, isPending }: { accounts: Account[]; onSubmit: (d: Record<string, unknown>) => void; isPending: boolean }) {
-  const [form, setForm] = useState({ title: "", accountId: "", stage: "prospecting", valueHardware: "", valueSoftware: "", valueServices: "", notes: "" });
-  const total = (Number(form.valueHardware) || 0) + (Number(form.valueSoftware) || 0) + (Number(form.valueServices) || 0);
+function QualField({ label, value, max, onChange }: { label: string; value: number; max: number; onChange: (v: number) => void }) {
+  return (
+    <div>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className="flex gap-1 mt-1">
+        {Array.from({ length: max + 1 }, (_, i) => (
+          <button
+            key={i}
+            className={`w-8 h-8 rounded text-xs font-medium border transition-colors ${i <= value && value > 0 ? "bg-primary/20 text-primary border-primary/30" : "border-border/50 text-muted-foreground hover:border-border"}`}
+            onClick={() => onChange(i)}
+            data-testid={`qual-${label.toLowerCase().replace(/\s/g, "-")}-${i}`}
+          >
+            {i}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CreateDealForm({ accounts, onSubmit, isPending }: { accounts: Account[]; onSubmit: (d: Record<string, unknown>) => void; isPending: boolean }) {
+  const [form, setForm] = useState({
+    title: "", accountId: "", stage: "inbound_new",
+    amount: "", nextStep: "", nextStepDueDate: "",
+    estCloseDate: "", primaryValueDriver: "", notes: "",
+  });
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onSubmit({ ...form, accountId: Number(form.accountId), valueHardware: Number(form.valueHardware) || 0, valueSoftware: Number(form.valueSoftware) || 0, valueServices: Number(form.valueServices) || 0, valueTotal: total }); }} className="space-y-4">
-      <div><Label>Title *</Label><Input value={form.title} onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))} required data-testid="input-opp-title" /></div>
+    <form onSubmit={(e) => {
+      e.preventDefault();
+      onSubmit({
+        ...form,
+        accountId: Number(form.accountId),
+        amount: Number(form.amount) || 0,
+        valueTotal: Number(form.amount) || 0,
+        nextStepDueDate: form.nextStepDueDate ? new Date(form.nextStepDueDate) : null,
+        estCloseDate: form.estCloseDate ? new Date(form.estCloseDate) : null,
+      });
+    }} className="space-y-4">
+      <div><Label>Deal Name *</Label><Input value={form.title} onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))} required placeholder="Company + use case" data-testid="input-deal-title" /></div>
       <div>
         <Label>Account *</Label>
         <Select value={form.accountId} onValueChange={(v) => setForm(f => ({ ...f, accountId: v }))}>
-          <SelectTrigger data-testid="select-opp-account"><SelectValue placeholder="Select account" /></SelectTrigger>
+          <SelectTrigger data-testid="select-deal-account"><SelectValue placeholder="Select account" /></SelectTrigger>
           <SelectContent>
             {accounts.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
-      <div>
-        <Label>Stage</Label>
-        <Select value={form.stage} onValueChange={(v) => setForm(f => ({ ...f, stage: v }))}>
-          <SelectTrigger data-testid="select-opp-stage"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {STAGES.map(s => <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>)}
-          </SelectContent>
-        </Select>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Stage</Label>
+          <Select value={form.stage} onValueChange={(v) => setForm(f => ({ ...f, stage: v }))}>
+            <SelectTrigger data-testid="select-deal-stage"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {DEAL_STAGES.map(s => <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div><Label>Amount ($)</Label><Input type="number" value={form.amount} onChange={(e) => setForm(f => ({ ...f, amount: e.target.value }))} data-testid="input-deal-amount" /></div>
       </div>
-      <div className="grid grid-cols-3 gap-2">
-        <div><Label className="text-xs">Hardware $</Label><Input type="number" value={form.valueHardware} onChange={(e) => setForm(f => ({ ...f, valueHardware: e.target.value }))} data-testid="input-value-hardware" /></div>
-        <div><Label className="text-xs">Software $</Label><Input type="number" value={form.valueSoftware} onChange={(e) => setForm(f => ({ ...f, valueSoftware: e.target.value }))} data-testid="input-value-software" /></div>
-        <div><Label className="text-xs">Services $</Label><Input type="number" value={form.valueServices} onChange={(e) => setForm(f => ({ ...f, valueServices: e.target.value }))} data-testid="input-value-services" /></div>
+      <div className="rounded-lg bg-primary/5 border border-primary/10 p-3 space-y-2">
+        <Label className="text-xs font-semibold flex items-center gap-1"><Target className="h-3 w-3 text-primary" /> Next Step (required for velocity)</Label>
+        <Input value={form.nextStep} onChange={(e) => setForm(f => ({ ...f, nextStep: e.target.value }))} placeholder="What's the next action?" data-testid="input-deal-next-step" />
+        <Input type="date" value={form.nextStepDueDate} onChange={(e) => setForm(f => ({ ...f, nextStepDueDate: e.target.value }))} data-testid="input-deal-next-step-due" />
       </div>
-      <p className="text-sm text-muted-foreground">Total: <span className="font-bold text-foreground">${total.toLocaleString()}</span></p>
-      <div><Label>Notes</Label><Textarea value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} data-testid="input-opp-notes" /></div>
-      <Button type="submit" className="w-full bg-primary text-primary-foreground" disabled={isPending} data-testid="button-submit-opp">{isPending ? "Creating..." : "Create Opportunity"}</Button>
+      <div className="grid grid-cols-2 gap-3">
+        <div><Label>Est. Close Date</Label><Input type="date" value={form.estCloseDate} onChange={(e) => setForm(f => ({ ...f, estCloseDate: e.target.value }))} data-testid="input-deal-close-date" /></div>
+        <div>
+          <Label>Value Driver</Label>
+          <Select value={form.primaryValueDriver || "none"} onValueChange={(v) => setForm(f => ({ ...f, primaryValueDriver: v === "none" ? "" : v }))}>
+            <SelectTrigger data-testid="select-value-driver"><SelectValue placeholder="Select" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Select</SelectItem>
+              {VALUE_DRIVERS.map(d => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div><Label>Notes</Label><Textarea value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} data-testid="input-deal-notes" /></div>
+      <Button type="submit" className="w-full bg-primary text-primary-foreground" disabled={isPending} data-testid="button-submit-deal">{isPending ? "Creating..." : "Create Deal"}</Button>
     </form>
   );
 }

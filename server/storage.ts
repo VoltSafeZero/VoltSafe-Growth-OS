@@ -1,7 +1,7 @@
 import { db } from "./db";
 import {
   metrics, sales, chartData, marinas,
-  leads, accounts, contacts, opportunities,
+  leads, accounts, contacts, opportunities, dealStageHistory,
   tickets, quotes, quoteLineItems, servicesEstimates,
   activities, tasks, communicationLists, campaignDrafts,
   type Metric, type Sale, type ChartData, type Marina,
@@ -9,6 +9,7 @@ import {
   type Account, type InsertAccount,
   type Contact, type InsertContact,
   type Opportunity, type InsertOpportunity,
+  type DealStageHistory, type InsertDealStageHistory,
   type Ticket, type InsertTicket,
   type Quote, type InsertQuote,
   type QuoteLineItem, type InsertQuoteLineItem,
@@ -46,10 +47,13 @@ export interface IStorage {
   updateContact(id: number, data: Partial<InsertContact>): Promise<Contact | undefined>;
   deleteContact(id: number): Promise<boolean>;
 
-  getOpportunities(options?: { accountId?: number; stage?: string; page?: number; limit?: number }): Promise<{ data: Opportunity[]; total: number; page: number; totalPages: number }>;
+  getOpportunities(options?: { accountId?: number; stage?: string; ownerId?: number; forecastCategory?: string; page?: number; limit?: number }): Promise<{ data: Opportunity[]; total: number; page: number; totalPages: number }>;
   getOpportunity(id: number): Promise<Opportunity | undefined>;
   createOpportunity(data: InsertOpportunity): Promise<Opportunity>;
   updateOpportunity(id: number, data: Partial<InsertOpportunity>): Promise<Opportunity | undefined>;
+
+  getDealStageHistory(dealId: number): Promise<DealStageHistory[]>;
+  createDealStageHistory(data: InsertDealStageHistory): Promise<DealStageHistory>;
 
   getTickets(options?: { status?: string; severity?: string; assignedTo?: number; page?: number; limit?: number }): Promise<{ data: Ticket[]; total: number; page: number; totalPages: number }>;
   getTicket(id: number): Promise<Ticket | undefined>;
@@ -317,7 +321,7 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async getOpportunities(options?: { accountId?: number; stage?: string; page?: number; limit?: number }) {
+  async getOpportunities(options?: { accountId?: number; stage?: string; ownerId?: number; forecastCategory?: string; page?: number; limit?: number }) {
     const page = options?.page || 1;
     const limit = options?.limit || 50;
     const offset = (page - 1) * limit;
@@ -325,6 +329,8 @@ export class DatabaseStorage implements IStorage {
 
     if (options?.accountId) conditions.push(eq(opportunities.accountId, options.accountId));
     if (options?.stage) conditions.push(eq(opportunities.stage, options.stage));
+    if (options?.ownerId) conditions.push(eq(opportunities.ownerUserId, options.ownerId));
+    if (options?.forecastCategory) conditions.push(eq(opportunities.forecastCategory, options.forecastCategory));
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
     const [data, countResult] = await Promise.all([
@@ -347,6 +353,15 @@ export class DatabaseStorage implements IStorage {
 
   async updateOpportunity(id: number, data: Partial<InsertOpportunity>) {
     const result = await db.update(opportunities).set({ ...data, updatedAt: new Date() }).where(eq(opportunities.id, id)).returning();
+    return result[0];
+  }
+
+  async getDealStageHistory(dealId: number) {
+    return await db.select().from(dealStageHistory).where(eq(dealStageHistory.dealId, dealId)).orderBy(desc(dealStageHistory.changedAt));
+  }
+
+  async createDealStageHistory(data: InsertDealStageHistory) {
+    const result = await db.insert(dealStageHistory).values(data).returning();
     return result[0];
   }
 
