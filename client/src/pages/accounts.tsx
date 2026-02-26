@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Search, Building2, Users, Loader2, Phone, Mail, Trash2 } from "lucide-react";
+import { Plus, Search, Building2, Users, Loader2, Phone, Mail, Trash2, ArrowUpDown } from "lucide-react";
 import type { Account, Contact, Opportunity, Ticket } from "@shared/schema";
 
 const segmentColors: Record<string, string> = {
@@ -29,14 +29,16 @@ export default function AccountsPage() {
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const { toast } = useToast();
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
+  const [sortOption, setSortOption] = useState("default");
 
   const PAGE_SIZE = 100;
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<{ data: Account[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/accounts", { search, segment: segmentFilter === "all" ? "" : segmentFilter }],
+    queryKey: ["/api/accounts", { search, segment: segmentFilter === "all" ? "" : segmentFilter, sort: sortOption }],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (segmentFilter !== "all") params.set("segment", segmentFilter);
+      if (sortOption !== "default") { const [key, order] = sortOption.split(":"); params.set("sortBy", key); params.set("sortOrder", order); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
       const res = await fetch(`/api/accounts?${params}`, { credentials: "include" });
@@ -107,6 +109,21 @@ export default function AccountsPage() {
             <SelectItem value="corp">Corporation</SelectItem>
             <SelectItem value="partner">Partner</SelectItem>
             <SelectItem value="other">Other</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sortOption} onValueChange={setSortOption}>
+          <SelectTrigger className="w-44" data-testid="select-sort">
+            <ArrowUpDown className="mr-2 h-4 w-4" />
+            <SelectValue placeholder="Sort by..." />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="default">Default</SelectItem>
+            <SelectItem value="name:asc">Name A–Z</SelectItem>
+            <SelectItem value="name:desc">Name Z–A</SelectItem>
+            <SelectItem value="createdAt:desc">Newest First</SelectItem>
+            <SelectItem value="createdAt:asc">Oldest First</SelectItem>
+            <SelectItem value="slipCount:desc">Most Slips</SelectItem>
+            <SelectItem value="slipCount:asc">Fewest Slips</SelectItem>
           </SelectContent>
         </Select>
       </div>

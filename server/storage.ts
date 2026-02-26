@@ -19,7 +19,11 @@ import {
   type CommunicationList, type InsertCommunicationList,
   type CampaignDraft, type InsertCampaignDraft,
 } from "@shared/schema";
-import { ilike, eq, or, sql, asc, desc, and } from "drizzle-orm";
+import { ilike, eq, or, sql, asc, desc, and, type AnyColumn } from "drizzle-orm";
+
+function getSortOrder(column: AnyColumn, order: string) {
+  return order === "asc" ? asc(column) : desc(column);
+}
 
 export interface IStorage {
   getMetrics(): Promise<Metric[]>;
@@ -116,7 +120,7 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(chartData);
   }
 
-  async getMarinas(options: { search?: string; state?: string; page?: number; limit?: number }) {
+  async getMarinas(options: { search?: string; state?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
     const page = options.page || 1;
     const limit = options.limit || 25;
     const offset = (page - 1) * limit;
@@ -141,8 +145,12 @@ export class DatabaseStorage implements IStorage {
         : sql`${conditions[0]} AND ${conditions[1]}`
       : undefined;
 
+    const marinaSortColumns: Record<string, AnyColumn> = { name: marinas.name, city: marinas.city, state: marinas.state, slips: marinas.slips };
+    const sortCol = options.sortBy && marinaSortColumns[options.sortBy];
+    const orderClause = sortCol ? getSortOrder(sortCol, options.sortOrder || "asc") : asc(marinas.state);
+
     const [data, countResult] = await Promise.all([
-      db.select().from(marinas).where(where).orderBy(asc(marinas.state), asc(marinas.name)).limit(limit).offset(offset),
+      db.select().from(marinas).where(where).orderBy(orderClause).limit(limit).offset(offset),
       db.select({ count: sql<number>`count(*)` }).from(marinas).where(where),
     ]);
 
@@ -155,7 +163,7 @@ export class DatabaseStorage implements IStorage {
     return result.map((r) => r.state);
   }
 
-  async getLeads(options?: { search?: string; status?: string; state?: string; country?: string; page?: number; limit?: number }) {
+  async getLeads(options?: { search?: string; status?: string; state?: string; country?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -181,8 +189,12 @@ export class DatabaseStorage implements IStorage {
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const leadSortColumns: Record<string, AnyColumn> = { company: leads.company, city: leads.city, state: leads.state, slips: leads.slips, status: leads.status, source: leads.source, contactName: leads.contactName, createdAt: leads.createdAt };
+    const sortCol = options?.sortBy && leadSortColumns[options.sortBy];
+    const orderClause = sortCol ? getSortOrder(sortCol, options?.sortOrder || "asc") : desc(leads.createdAt);
+
     const [data, countResult] = await Promise.all([
-      db.select().from(leads).where(where).orderBy(desc(leads.createdAt)).limit(limit).offset(offset),
+      db.select().from(leads).where(where).orderBy(orderClause).limit(limit).offset(offset),
       db.select({ count: sql<number>`count(*)` }).from(leads).where(where),
     ]);
 
@@ -248,7 +260,7 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async getAccounts(options?: { search?: string; segment?: string; page?: number; limit?: number }) {
+  async getAccounts(options?: { search?: string; segment?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -265,8 +277,12 @@ export class DatabaseStorage implements IStorage {
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const accountSortColumns: Record<string, AnyColumn> = { name: accounts.name, segment: accounts.segment, region: accounts.region, slipCount: accounts.slipCount, createdAt: accounts.createdAt };
+    const sortCol = options?.sortBy && accountSortColumns[options.sortBy];
+    const orderClause = sortCol ? getSortOrder(sortCol, options?.sortOrder || "asc") : desc(accounts.createdAt);
+
     const [data, countResult] = await Promise.all([
-      db.select().from(accounts).where(where).orderBy(desc(accounts.createdAt)).limit(limit).offset(offset),
+      db.select().from(accounts).where(where).orderBy(orderClause).limit(limit).offset(offset),
       db.select({ count: sql<number>`count(*)` }).from(accounts).where(where),
     ]);
 
@@ -399,7 +415,7 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async getQuotes(options?: { status?: string; accountId?: number; page?: number; limit?: number }) {
+  async getQuotes(options?: { status?: string; accountId?: number; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -409,8 +425,12 @@ export class DatabaseStorage implements IStorage {
     if (options?.accountId) conditions.push(eq(quotes.accountId, options.accountId));
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const quoteSortColumns: Record<string, AnyColumn> = { quoteNumber: quotes.quoteNumber, quoteType: quotes.quoteType, status: quotes.status, total: quotes.total, createdAt: quotes.createdAt };
+    const sortCol = options?.sortBy && quoteSortColumns[options.sortBy];
+    const orderClause = sortCol ? getSortOrder(sortCol, options?.sortOrder || "asc") : desc(quotes.createdAt);
+
     const [data, countResult] = await Promise.all([
-      db.select().from(quotes).where(where).orderBy(desc(quotes.createdAt)).limit(limit).offset(offset),
+      db.select().from(quotes).where(where).orderBy(orderClause).limit(limit).offset(offset),
       db.select({ count: sql<number>`count(*)` }).from(quotes).where(where),
     ]);
 

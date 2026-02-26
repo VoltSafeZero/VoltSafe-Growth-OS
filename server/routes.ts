@@ -117,12 +117,14 @@ export async function registerRoutes(
   });
 
   app.get("/api/marinas", async (req, res) => {
-    const { search, state, page, limit } = req.query;
+    const { search, state, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getMarinas({
       search: search as string | undefined,
       state: state as string | undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
+      sortBy: sortBy as string | undefined,
+      sortOrder: sortOrder as string | undefined,
     }));
   });
 
@@ -140,7 +142,7 @@ export async function registerRoutes(
   });
 
   app.get("/api/leads", async (req, res) => {
-    const { search, status, state, country, page, limit } = req.query;
+    const { search, status, state, country, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getLeads({
       search: search as string | undefined,
       status: status as string | undefined,
@@ -148,6 +150,8 @@ export async function registerRoutes(
       country: country as string | undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
+      sortBy: sortBy as string | undefined,
+      sortOrder: sortOrder as string | undefined,
     }));
   });
 
@@ -208,12 +212,14 @@ export async function registerRoutes(
   });
 
   app.get("/api/accounts", async (req, res) => {
-    const { search, segment, page, limit } = req.query;
+    const { search, segment, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getAccounts({
       search: search as string | undefined,
       segment: segment as string | undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
+      sortBy: sortBy as string | undefined,
+      sortOrder: sortOrder as string | undefined,
     }));
   });
 
@@ -360,12 +366,14 @@ export async function registerRoutes(
   });
 
   app.get("/api/quotes", async (req, res) => {
-    const { status, accountId, page, limit } = req.query;
+    const { status, accountId, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getQuotes({
       status: status as string | undefined,
       accountId: accountId ? Number(accountId) : undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
+      sortBy: sortBy as string | undefined,
+      sortOrder: sortOrder as string | undefined,
     }));
   });
 

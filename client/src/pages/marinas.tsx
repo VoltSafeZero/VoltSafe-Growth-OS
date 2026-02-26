@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, MapPin, Phone, Loader2, Anchor } from "lucide-react";
+import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
 import type { Marina } from "@shared/schema";
 
 export default function MarinasPage() {
@@ -14,6 +15,7 @@ export default function MarinasPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [state, setState] = useState<string>("");
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
+  const { sort, handleSort } = useSortState();
 
   const { data: states } = useQuery<string[]>({
     queryKey: ["/api/marinas/states"],
@@ -26,11 +28,12 @@ export default function MarinasPage() {
     page: number;
     totalPages: number;
   }>({
-    queryKey: ["/api/marinas", debouncedSearch, state],
+    queryKey: ["/api/marinas", debouncedSearch, state, sort.sortBy, sort.sortOrder],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (state && state !== "all") params.set("state", state);
+      if (sort.sortBy) { params.set("sortBy", sort.sortBy); params.set("sortOrder", sort.sortOrder); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
       const res = await fetch(`/api/marinas?${params}`, { credentials: "include" });
@@ -112,15 +115,15 @@ export default function MarinasPage() {
       <Card className="border-border/50 shadow-sm bg-card/50 backdrop-blur-sm">
         <CardContent className="p-0">
           <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Location</TableHead>
-                <TableHead className="hidden md:table-cell">Phone</TableHead>
-                <TableHead className="hidden lg:table-cell">Address</TableHead>
-                <TableHead className="hidden sm:table-cell">Slips</TableHead>
-              </TableRow>
-            </TableHeader>
+            <thead>
+              <tr className="border-b border-border">
+                <SortableHeader label="Name" sortKey="name" sort={sort} onSort={handleSort} />
+                <SortableHeader label="Location" sortKey="state" sort={sort} onSort={handleSort} />
+                <th className="text-left p-4 text-sm font-medium text-muted-foreground hidden md:table-cell">Phone</th>
+                <th className="text-left p-4 text-sm font-medium text-muted-foreground hidden lg:table-cell">Address</th>
+                <SortableHeader label="Slips" sortKey="slips" sort={sort} onSort={handleSort} className="hidden sm:table-cell" />
+              </tr>
+            </thead>
             <TableBody>
               {isLoading ? (
                 [...Array(10)].map((_, i) => (

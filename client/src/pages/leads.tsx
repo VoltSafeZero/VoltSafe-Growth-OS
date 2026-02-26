@@ -15,6 +15,7 @@ import {
   Plus, Search, ArrowRightLeft, Trash2, Loader2,
   LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor
 } from "lucide-react";
+import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
 import type { Lead } from "@shared/schema";
 
 const US_STATES = [
@@ -73,6 +74,7 @@ export default function LeadsPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const { toast } = useToast();
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
+  const { sort, handleSort } = useSortState();
 
   const regionOptions = countryFilter !== "all" ? getRegionsForCountry(countryFilter) : [];
 
@@ -85,13 +87,14 @@ export default function LeadsPage() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery<{ data: Lead[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter }],
+    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (countryFilter !== "all") params.set("country", countryFilter);
       if (stateFilter !== "all") params.set("state", stateFilter);
+      if (sort.sortBy) { params.set("sortBy", sort.sortBy); params.set("sortOrder", sort.sortOrder); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
       const res = await fetch(`/api/leads?${params}`, { credentials: "include" });
@@ -302,12 +305,12 @@ export default function LeadsPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border/50">
-                    <th className="text-left p-4 text-sm font-medium text-muted-foreground">Marina / Company</th>
-                    <th className="text-left p-4 text-sm font-medium text-muted-foreground">Location</th>
-                    <th className="text-left p-4 text-sm font-medium text-muted-foreground">Contact</th>
-                    <th className="text-left p-4 text-sm font-medium text-muted-foreground">Slips</th>
-                    <th className="text-left p-4 text-sm font-medium text-muted-foreground">Stage</th>
-                    <th className="text-left p-4 text-sm font-medium text-muted-foreground">Source</th>
+                    <SortableHeader label="Marina / Company" sortKey="company" sort={sort} onSort={handleSort} />
+                    <SortableHeader label="Location" sortKey="state" sort={sort} onSort={handleSort} />
+                    <SortableHeader label="Contact" sortKey="contactName" sort={sort} onSort={handleSort} />
+                    <SortableHeader label="Slips" sortKey="slips" sort={sort} onSort={handleSort} />
+                    <SortableHeader label="Stage" sortKey="status" sort={sort} onSort={handleSort} />
+                    <SortableHeader label="Source" sortKey="source" sort={sort} onSort={handleSort} />
                     <th className="text-right p-4 text-sm font-medium text-muted-foreground">Actions</th>
                   </tr>
                 </thead>

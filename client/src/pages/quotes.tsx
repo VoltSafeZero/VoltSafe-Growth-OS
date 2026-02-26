@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, FileText, Loader2, Trash2, DollarSign } from "lucide-react";
+import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
 import type { Quote, Account } from "@shared/schema";
 
 const statusColors: Record<string, string> = {
@@ -32,13 +33,15 @@ export default function QuotesPage() {
   const [selectedQuote, setSelectedQuote] = useState<number | null>(null);
   const { toast } = useToast();
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
+  const { sort, handleSort } = useSortState();
 
   const PAGE_SIZE = 100;
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<{ data: Quote[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/quotes", { status: statusFilter === "all" ? "" : statusFilter }],
+    queryKey: ["/api/quotes", { status: statusFilter === "all" ? "" : statusFilter, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (sort.sortBy) { params.set("sortBy", sort.sortBy); params.set("sortOrder", sort.sortOrder); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
       const res = await fetch(`/api/quotes?${params}`, { credentials: "include" });
@@ -128,12 +131,12 @@ export default function QuotesPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border/50">
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Quote #</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Type</th>
+                  <SortableHeader label="Quote #" sortKey="quoteNumber" sort={sort} onSort={handleSort} />
+                  <SortableHeader label="Type" sortKey="quoteType" sort={sort} onSort={handleSort} />
                   <th className="text-left p-4 text-sm font-medium text-muted-foreground">Account</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Status</th>
-                  <th className="text-right p-4 text-sm font-medium text-muted-foreground">Total</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Created</th>
+                  <SortableHeader label="Status" sortKey="status" sort={sort} onSort={handleSort} />
+                  <SortableHeader label="Total" sortKey="total" sort={sort} onSort={handleSort} align="right" />
+                  <SortableHeader label="Created" sortKey="createdAt" sort={sort} onSort={handleSort} />
                 </tr>
               </thead>
               <tbody>
