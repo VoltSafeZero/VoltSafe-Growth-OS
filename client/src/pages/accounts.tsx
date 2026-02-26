@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, useRef, useEffect } from "react";
+import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Search, Building2, Users, ChevronLeft, ChevronRight, Phone, Mail, Trash2 } from "lucide-react";
+import { Plus, Search, Building2, Users, Loader2, Phone, Mail, Trash2 } from "lucide-react";
 import type { Account, Contact, Opportunity, Ticket } from "@shared/schema";
 
 const segmentColors: Record<string, string> = {
@@ -25,22 +25,40 @@ const segmentColors: Record<string, string> = {
 export default function AccountsPage() {
   const [search, setSearch] = useState("");
   const [segmentFilter, setSegmentFilter] = useState("all");
-  const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const { toast } = useToast();
+  const scrollSentinelRef = useRef<HTMLDivElement>(null);
 
-  const { data, isLoading } = useQuery<{ data: Account[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/accounts", { search, segment: segmentFilter === "all" ? "" : segmentFilter, page }],
-    queryFn: async () => {
+  const PAGE_SIZE = 100;
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<{ data: Account[]; total: number; page: number; totalPages: number }>({
+    queryKey: ["/api/accounts", { search, segment: segmentFilter === "all" ? "" : segmentFilter }],
+    queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (segmentFilter !== "all") params.set("segment", segmentFilter);
-      params.set("page", String(page));
-      const res = await fetch(`/api/accounts?${params}`);
+      params.set("page", String(pageParam));
+      params.set("limit", String(PAGE_SIZE));
+      const res = await fetch(`/api/accounts?${params}`, { credentials: "include" });
       return res.json();
     },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => lastPage.page < lastPage.totalPages ? lastPage.page + 1 : undefined,
   });
+
+  const allAccounts = data?.pages.flatMap(p => p.data) || [];
+  const totalCount = data?.pages[0]?.total || 0;
+
+  useEffect(() => {
+    const sentinel = scrollSentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) fetchNextPage(); },
+      { threshold: 0.1 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const createMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
@@ -77,9 +95,9 @@ export default function AccountsPage() {
       <div className="flex gap-3">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search accounts..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="pl-10" data-testid="input-search-accounts" />
+          <Input placeholder="Search accounts..." value={search} onChange={(e) => { setSearch(e.target.value); }} className="pl-10" data-testid="input-search-accounts" />
         </div>
-        <Select value={segmentFilter} onValueChange={(v) => { setSegmentFilter(v); setPage(1); }}>
+        <Select value={segmentFilter} onValueChange={(v) => { setSegmentFilter(v); }}>
           <SelectTrigger className="w-40" data-testid="select-segment-filter">
             <SelectValue placeholder="Segment" />
           </SelectTrigger>
@@ -99,7 +117,7 @@ export default function AccountsPage() {
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {data?.data.map((account) => (
+          {allAccounts.map((account) => (
             <Card key={account.id} className="border-border/50 hover:border-primary/30 cursor-pointer transition-colors" onClick={() => setSelectedAccount(account)} data-testid={`card-account-${account.id}`}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
@@ -123,22 +141,19 @@ export default function AccountsPage() {
               </CardContent>
             </Card>
           ))}
-          {data?.data.length === 0 && (
+          {allAccounts.length === 0 && (
             <div className="col-span-full p-8 text-center text-muted-foreground">No accounts found</div>
           )}
         </div>
       )}
 
-      {data && data.totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">{data.total} accounts total</p>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(p => p - 1)} data-testid="button-prev-page"><ChevronLeft className="h-4 w-4" /></Button>
-            <span className="text-sm py-1 px-3">Page {page} of {data.totalPages}</span>
-            <Button variant="outline" size="sm" disabled={page >= data.totalPages} onClick={() => setPage(p => p + 1)} data-testid="button-next-page"><ChevronRight className="h-4 w-4" /></Button>
-          </div>
-        </div>
-      )}
+      <div className="flex items-center justify-between py-2">
+        <p className="text-sm text-muted-foreground">{allAccounts.length.toLocaleString()} of {totalCount.toLocaleString()} accounts loaded</p>
+        {isFetchingNextPage && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading more...</div>
+        )}
+      </div>
+      <div ref={scrollSentinelRef} className="h-4" />
 
       {selectedAccount && (
         <AccountDetailDialog account={selectedAccount} onClose={() => setSelectedAccount(null)} />

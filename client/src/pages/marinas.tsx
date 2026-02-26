@@ -1,43 +1,59 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, MapPin, Phone, ChevronLeft, ChevronRight, Anchor } from "lucide-react";
+import { Search, MapPin, Phone, Loader2, Anchor } from "lucide-react";
 import type { Marina } from "@shared/schema";
 
 export default function MarinasPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [state, setState] = useState<string>("");
-  const [page, setPage] = useState(1);
+  const scrollSentinelRef = useRef<HTMLDivElement>(null);
 
   const { data: states } = useQuery<string[]>({
     queryKey: ["/api/marinas/states"],
   });
 
-  const { data: result, isLoading } = useQuery<{
+  const PAGE_SIZE = 100;
+  const { data: result, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<{
     data: Marina[];
     total: number;
     page: number;
     totalPages: number;
   }>({
-    queryKey: ["/api/marinas", debouncedSearch, state, page],
-    queryFn: async () => {
+    queryKey: ["/api/marinas", debouncedSearch, state],
+    queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (state && state !== "all") params.set("state", state);
-      params.set("page", String(page));
-      params.set("limit", "25");
+      params.set("page", String(pageParam));
+      params.set("limit", String(PAGE_SIZE));
       const res = await fetch(`/api/marinas?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch marinas");
       return res.json();
     },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => lastPage.page < lastPage.totalPages ? lastPage.page + 1 : undefined,
   });
+
+  const allMarinas = result?.pages.flatMap(p => p.data) || [];
+  const totalCount = result?.pages[0]?.total || 0;
+
+  useEffect(() => {
+    const sentinel = scrollSentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) fetchNextPage(); },
+      { threshold: 0.1 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const handleSearch = (val: string) => {
@@ -45,7 +61,6 @@ export default function MarinasPage() {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     searchTimeoutRef.current = setTimeout(() => {
       setDebouncedSearch(val);
-      setPage(1);
     }, 300);
   };
 
@@ -57,7 +72,6 @@ export default function MarinasPage() {
 
   const handleStateChange = (val: string) => {
     setState(val);
-    setPage(1);
   };
 
   return (
@@ -66,7 +80,7 @@ export default function MarinasPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight" data-testid="text-marinas-title">Marinas</h1>
           <p className="text-muted-foreground mt-1">
-            {result ? `${result.total.toLocaleString()} marinas across the USA` : "Loading..."}
+            {totalCount > 0 ? `${totalCount.toLocaleString()} marinas across the USA` : "Loading..."}
           </p>
         </div>
       </div>
@@ -118,14 +132,14 @@ export default function MarinasPage() {
                     <TableCell className="hidden sm:table-cell"><Skeleton className="h-4 w-12" /></TableCell>
                   </TableRow>
                 ))
-              ) : result?.data.length === 0 ? (
+              ) : allMarinas.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
                     No marinas found matching your search.
                   </TableCell>
                 </TableRow>
               ) : (
-                result?.data.map((marina) => (
+                allMarinas.map((marina) => (
                   <TableRow key={marina.id} data-testid={`row-marina-${marina.id}`}>
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -171,35 +185,15 @@ export default function MarinasPage() {
         </CardContent>
       </Card>
 
-      {result && result.totalPages > 1 && (
-        <div className="flex items-center justify-between gap-4">
-          <p className="text-sm text-muted-foreground" data-testid="text-pagination-info">
-            Page {result.page} of {result.totalPages} ({result.total.toLocaleString()} total)
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => p - 1)}
-              data-testid="button-prev-page"
-            >
-              <ChevronLeft className="h-4 w-4 mr-1" />
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= result.totalPages}
-              onClick={() => setPage((p) => p + 1)}
-              data-testid="button-next-page"
-            >
-              Next
-              <ChevronRight className="h-4 w-4 ml-1" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <div className="flex items-center justify-between py-2">
+        <p className="text-sm text-muted-foreground" data-testid="text-pagination-info">
+          {allMarinas.length.toLocaleString()} of {totalCount.toLocaleString()} marinas loaded
+        </p>
+        {isFetchingNextPage && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading more...</div>
+        )}
+      </div>
+      <div ref={scrollSentinelRef} className="h-4" />
     </div>
   );
 }

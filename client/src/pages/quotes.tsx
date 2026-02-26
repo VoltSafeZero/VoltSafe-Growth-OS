@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, useRef, useEffect } from "react";
+import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, FileText, ChevronLeft, ChevronRight, Trash2, DollarSign } from "lucide-react";
+import { Plus, FileText, Loader2, Trash2, DollarSign } from "lucide-react";
 import type { Quote, Account } from "@shared/schema";
 
 const statusColors: Record<string, string> = {
@@ -28,21 +28,39 @@ type ServiceLine = { role: string; hoursEstimate: number; hourlyRate: number; su
 
 export default function QuotesPage() {
   const [statusFilter, setStatusFilter] = useState("all");
-  const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedQuote, setSelectedQuote] = useState<number | null>(null);
   const { toast } = useToast();
+  const scrollSentinelRef = useRef<HTMLDivElement>(null);
 
-  const { data, isLoading } = useQuery<{ data: Quote[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/quotes", { status: statusFilter === "all" ? "" : statusFilter, page }],
-    queryFn: async () => {
+  const PAGE_SIZE = 100;
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<{ data: Quote[]; total: number; page: number; totalPages: number }>({
+    queryKey: ["/api/quotes", { status: statusFilter === "all" ? "" : statusFilter }],
+    queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (statusFilter !== "all") params.set("status", statusFilter);
-      params.set("page", String(page));
-      const res = await fetch(`/api/quotes?${params}`);
+      params.set("page", String(pageParam));
+      params.set("limit", String(PAGE_SIZE));
+      const res = await fetch(`/api/quotes?${params}`, { credentials: "include" });
       return res.json();
     },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => lastPage.page < lastPage.totalPages ? lastPage.page + 1 : undefined,
   });
+
+  const allQuotes = data?.pages.flatMap(p => p.data) || [];
+  const totalCount = data?.pages[0]?.total || 0;
+
+  useEffect(() => {
+    const sentinel = scrollSentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) fetchNextPage(); },
+      { threshold: 0.1 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const { data: accountsData } = useQuery<{ data: Account[] }>({
     queryKey: ["/api/accounts", "all"],
@@ -87,7 +105,7 @@ export default function QuotesPage() {
       </div>
 
       <div className="flex gap-3">
-        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
+        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); }}>
           <SelectTrigger className="w-40" data-testid="select-quote-status">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
@@ -119,7 +137,7 @@ export default function QuotesPage() {
                 </tr>
               </thead>
               <tbody>
-                {data?.data?.map(quote => (
+                {allQuotes.map(quote => (
                   <tr key={quote.id} className="border-b border-border/30 hover:bg-muted/30 cursor-pointer" onClick={() => setSelectedQuote(quote.id)} data-testid={`row-quote-${quote.id}`}>
                     <td className="p-4 font-medium font-mono text-sm">{quote.quoteNumber}</td>
                     <td className="p-4 text-sm text-muted-foreground">{quote.quoteType === "marina_solution" ? "Marina Solution" : "Professional Services"}</td>
@@ -129,7 +147,7 @@ export default function QuotesPage() {
                     <td className="p-4 text-sm text-muted-foreground">{new Date(quote.createdAt).toLocaleDateString()}</td>
                   </tr>
                 ))}
-                {data?.data?.length === 0 && (
+                {allQuotes.length === 0 && (
                   <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No quotes found</td></tr>
                 )}
               </tbody>
@@ -138,16 +156,13 @@ export default function QuotesPage() {
         </Card>
       )}
 
-      {data && data.totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">{data.total} quotes total</p>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(p => p - 1)} data-testid="button-prev-page"><ChevronLeft className="h-4 w-4" /></Button>
-            <span className="text-sm py-1 px-3">Page {page} of {data.totalPages}</span>
-            <Button variant="outline" size="sm" disabled={page >= data.totalPages} onClick={() => setPage(p => p + 1)} data-testid="button-next-page"><ChevronRight className="h-4 w-4" /></Button>
-          </div>
-        </div>
-      )}
+      <div className="flex items-center justify-between py-2">
+        <p className="text-sm text-muted-foreground">{allQuotes.length.toLocaleString()} of {totalCount.toLocaleString()} quotes loaded</p>
+        {isFetchingNextPage && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading more...</div>
+        )}
+      </div>
+      <div ref={scrollSentinelRef} className="h-4" />
 
       {selectedQuote && (
         <QuoteDetailDialog quoteId={selectedQuote} accountMap={accountMap} onClose={() => setSelectedQuote(null)} />

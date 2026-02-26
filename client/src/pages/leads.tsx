@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Plus, Search, ArrowRightLeft, Trash2, ChevronLeft, ChevronRight,
+  Plus, Search, ArrowRightLeft, Trash2, Loader2,
   LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor
 } from "lucide-react";
 import type { Lead } from "@shared/schema";
@@ -68,28 +68,59 @@ export default function LeadsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [countryFilter, setCountryFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
-  const [page, setPage] = useState(1);
   const [view, setView] = useState<"list" | "pipeline">("list");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const { toast } = useToast();
+  const scrollSentinelRef = useRef<HTMLDivElement>(null);
 
   const regionOptions = countryFilter !== "all" ? getRegionsForCountry(countryFilter) : [];
 
-  const { data, isLoading } = useQuery<{ data: Lead[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, page, limit: view === "pipeline" ? 500 : 25 }],
-    queryFn: async () => {
+  const PAGE_SIZE = 100;
+
+  const {
+    data,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery<{ data: Lead[]; total: number; page: number; totalPages: number }>({
+    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter }],
+    queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (countryFilter !== "all") params.set("country", countryFilter);
       if (stateFilter !== "all") params.set("state", stateFilter);
-      params.set("page", String(page));
-      if (view === "pipeline") params.set("limit", "500");
+      params.set("page", String(pageParam));
+      params.set("limit", String(PAGE_SIZE));
       const res = await fetch(`/api/leads?${params}`, { credentials: "include" });
       return res.json();
     },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      if (lastPage.page < lastPage.totalPages) return lastPage.page + 1;
+      return undefined;
+    },
   });
+
+  const allLeads = data?.pages.flatMap(p => p.data) || [];
+  const totalCount = data?.pages[0]?.total || 0;
+
+  useEffect(() => {
+    const sentinel = scrollSentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const createMutation = useMutation({
     mutationFn: async (data: Record<string, string>) => {
@@ -158,7 +189,7 @@ export default function LeadsPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight" data-testid="text-page-title">Leads Pipeline</h1>
           <p className="text-muted-foreground mt-1">
-            {data ? `${data.total.toLocaleString()} leads` : "Manage your sales pipeline"}
+            {totalCount > 0 ? `${totalCount.toLocaleString()} leads` : "Manage your sales pipeline"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -194,12 +225,12 @@ export default function LeadsPage() {
           <Input
             placeholder="Search leads by name, city, state..."
             value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            onChange={(e) => { setSearch(e.target.value); }}
             className="pl-10"
             data-testid="input-search-leads"
           />
         </div>
-        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
+        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); }}>
           <SelectTrigger className="w-44" data-testid="select-status-filter">
             <SelectValue placeholder="Stage" />
           </SelectTrigger>
@@ -210,7 +241,7 @@ export default function LeadsPage() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={countryFilter} onValueChange={(v) => { setCountryFilter(v); setStateFilter("all"); setPage(1); }}>
+        <Select value={countryFilter} onValueChange={(v) => { setCountryFilter(v); setStateFilter("all"); }}>
           <SelectTrigger className="w-40" data-testid="select-country-filter">
             <SelectValue placeholder="Country" />
           </SelectTrigger>
@@ -221,7 +252,7 @@ export default function LeadsPage() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={stateFilter} onValueChange={(v) => { setStateFilter(v); setPage(1); }}>
+        <Select value={stateFilter} onValueChange={(v) => { setStateFilter(v); }}>
           <SelectTrigger className="w-48" data-testid="select-state-filter">
             <SelectValue placeholder={countryFilter === "CA" ? "Province" : "State"} />
           </SelectTrigger>
@@ -260,7 +291,7 @@ export default function LeadsPage() {
         </div>
       ) : view === "pipeline" ? (
         <PipelineView
-          leads={data?.data || []}
+          leads={allLeads}
           onSelect={setSelectedLead}
           onUpdateStatus={(id, status) => updateStatusMutation.mutate({ id, status })}
         />
@@ -281,7 +312,7 @@ export default function LeadsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data?.data.map((lead) => (
+                  {allLeads.map((lead) => (
                     <tr key={lead.id} className="border-b border-border/30 hover:bg-muted/30 cursor-pointer" onClick={() => setSelectedLead(lead)} data-testid={`row-lead-${lead.id}`}>
                       <td className="p-4">
                         <div className="flex items-center gap-2">
@@ -312,7 +343,7 @@ export default function LeadsPage() {
                       </td>
                     </tr>
                   ))}
-                  {data?.data.length === 0 && (
+                  {allLeads.length === 0 && (
                     <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No leads found. Click "Import Marinas" to populate your pipeline.</td></tr>
                   )}
                 </tbody>
@@ -320,20 +351,15 @@ export default function LeadsPage() {
             </CardContent>
           </Card>
 
-          {data && data.totalPages > 1 && (
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">{data.total.toLocaleString()} leads total</p>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(p => p - 1)} data-testid="button-prev-page">
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="text-sm py-1 px-3">Page {page} of {data.totalPages}</span>
-                <Button variant="outline" size="sm" disabled={page >= data.totalPages} onClick={() => setPage(p => p + 1)} data-testid="button-next-page">
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
+          <div className="flex items-center justify-between py-2">
+            <p className="text-sm text-muted-foreground">{allLeads.length.toLocaleString()} of {totalCount.toLocaleString()} leads loaded</p>
+            {isFetchingNextPage && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading more...
               </div>
-            </div>
-          )}
+            )}
+          </div>
+          <div ref={scrollSentinelRef} className="h-4" />
         </>
       )}
 
