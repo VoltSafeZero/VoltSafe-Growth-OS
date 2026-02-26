@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, List, FileEdit, Send, Users, Megaphone } from "lucide-react";
+import { ExportButton } from "@/components/ui/export-button";
 import type { CommunicationList, CampaignDraft } from "@shared/schema";
 
 const campaignStatusColors: Record<string, string> = {
@@ -83,7 +84,8 @@ export default function CommunicationsPage() {
         </TabsList>
 
         <TabsContent value="lists" className="mt-4 space-y-4">
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <ExportButton endpoint="/api/comm-lists/export" filename="comm_lists_export.csv" testId="button-export-comm-lists" />
             <Dialog open={createListOpen} onOpenChange={setCreateListOpen}>
               <DialogTrigger asChild>
                 <Button className="bg-primary text-primary-foreground" data-testid="button-create-list">
@@ -122,7 +124,8 @@ export default function CommunicationsPage() {
         </TabsContent>
 
         <TabsContent value="campaigns" className="mt-4 space-y-4">
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <ExportButton endpoint="/api/campaigns/export" filename="campaigns_export.csv" testId="button-export-campaigns" />
             <Dialog open={createCampaignOpen} onOpenChange={setCreateCampaignOpen}>
               <DialogTrigger asChild>
                 <Button className="bg-primary text-primary-foreground" data-testid="button-create-campaign">

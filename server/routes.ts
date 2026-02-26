@@ -11,6 +11,7 @@ import {
   insertCommunicationListSchema, insertCampaignDraftSchema,
 } from "@shared/schema";
 import { requireAuth, seedUsers, hashPassword, verifyPassword } from "./auth";
+import { toCsv, setCsvHeaders, type CsvColumn } from "./csv-export";
 import { eq } from "drizzle-orm";
 
 export async function registerRoutes(
@@ -111,6 +112,165 @@ export async function registerRoutes(
   app.get("/api/chart-data", async (_req, res) => {
     res.json(await storage.getChartData());
   });
+
+  // ── CSV Export Endpoints ──────────────────────────────────────────
+  app.get("/api/marinas/export", async (req, res) => {
+    const { search, state } = req.query;
+    const result = await storage.getMarinas({ search: search as string, state: state as string, page: 1, limit: 100000 });
+    const cols: CsvColumn[] = [
+      { key: "name", header: "Name" }, { key: "city", header: "City" }, { key: "state", header: "State" },
+      { key: "phone", header: "Phone" }, { key: "address", header: "Address" }, { key: "slips", header: "Slips" },
+    ];
+    setCsvHeaders(res, "marinas_export.csv");
+    res.send(toCsv(result.data as any, cols));
+  });
+
+  app.get("/api/leads/export", async (req, res) => {
+    const { search, status, country, state } = req.query;
+    const result = await storage.getLeads({
+      search: search as string, status: status as string,
+      country: country as string, state: state as string,
+      page: 1, limit: 100000, sortBy: "slips", sortOrder: "desc",
+    });
+    const cols: CsvColumn[] = [
+      { key: "company", header: "Company" }, { key: "contactName", header: "Contact Name" },
+      { key: "contactEmail", header: "Contact Email" }, { key: "contactPhone", header: "Contact Phone" },
+      { key: "city", header: "City" }, { key: "state", header: "State" }, { key: "country", header: "Country" },
+      { key: "slips", header: "Slips" }, { key: "status", header: "Stage" }, { key: "source", header: "Source" },
+      { key: "segment", header: "Segment" }, { key: "tags", header: "Tags" }, { key: "notes", header: "Notes" },
+      { key: "nextStep", header: "Next Step" }, { key: "dueDate", header: "Due Date" },
+      { key: "createdAt", header: "Created At" },
+    ];
+    setCsvHeaders(res, "leads_export.csv");
+    res.send(toCsv(result.data as any, cols));
+  });
+
+  app.get("/api/accounts/export", async (req, res) => {
+    const { search, segment } = req.query;
+    const result = await storage.getAccounts({ search: search as string, segment: segment as string, page: 1, limit: 100000 });
+    const cols: CsvColumn[] = [
+      { key: "name", header: "Name" }, { key: "segment", header: "Segment" },
+      { key: "region", header: "Region" }, { key: "timezone", header: "Timezone" },
+      { key: "slipCount", header: "Slip Count" }, { key: "tags", header: "Tags" },
+      { key: "notes", header: "Notes" }, { key: "createdAt", header: "Created At" },
+    ];
+    setCsvHeaders(res, "accounts_export.csv");
+    res.send(toCsv(result.data as any, cols));
+  });
+
+  app.get("/api/contacts/export", async (req, res) => {
+    const { accountId } = req.query;
+    const data = await storage.getContacts({ accountId: accountId ? Number(accountId) : undefined });
+    const cols: CsvColumn[] = [
+      { key: "name", header: "Name" }, { key: "title", header: "Title" },
+      { key: "email", header: "Email" }, { key: "phone", header: "Phone" },
+      { key: "persona", header: "Persona" }, { key: "accountId", header: "Account ID" },
+    ];
+    setCsvHeaders(res, "contacts_export.csv");
+    res.send(toCsv(data as any, cols));
+  });
+
+  app.get("/api/opportunities/export", async (req, res) => {
+    const { stage, owner } = req.query;
+    const result = await storage.getOpportunities({ stage: stage as string, owner: owner as string, page: 1, limit: 100000 });
+    const cols: CsvColumn[] = [
+      { key: "title", header: "Title" }, { key: "accountId", header: "Account ID" },
+      { key: "stage", header: "Stage" }, { key: "owner", header: "Owner" },
+      { key: "estCloseDate", header: "Est Close Date" },
+      { key: "valueHardware", header: "Hardware Value" }, { key: "valueSoftware", header: "Software Value" },
+      { key: "valueServices", header: "Services Value" }, { key: "totalValue", header: "Total Value" },
+      { key: "competitors", header: "Competitors" }, { key: "nextStep", header: "Next Step" },
+      { key: "dueDate", header: "Due Date" }, { key: "riskFlags", header: "Risk Flags" },
+      { key: "createdAt", header: "Created At" },
+    ];
+    setCsvHeaders(res, "opportunities_export.csv");
+    res.send(toCsv(result.data as any, cols));
+  });
+
+  app.get("/api/tickets/export", async (req, res) => {
+    const { status, severity } = req.query;
+    const result = await storage.getTickets({ status: status as string, severity: severity as string, page: 1, limit: 100000 });
+    const cols: CsvColumn[] = [
+      { key: "id", header: "ID" }, { key: "category", header: "Category" },
+      { key: "severity", header: "Severity" }, { key: "status", header: "Status" },
+      { key: "requesterName", header: "Requester Name" }, { key: "requesterEmail", header: "Requester Email" },
+      { key: "assignedTo", header: "Assigned To" }, { key: "description", header: "Description" },
+      { key: "internalNotes", header: "Internal Notes" }, { key: "resolutionSummary", header: "Resolution Summary" },
+      { key: "createdAt", header: "Created At" },
+    ];
+    setCsvHeaders(res, "tickets_export.csv");
+    res.send(toCsv(result.data as any, cols));
+  });
+
+  app.get("/api/quotes/export", async (req, res) => {
+    const { status } = req.query;
+    const result = await storage.getQuotes({ status: status as string, page: 1, limit: 100000 });
+    const cols: CsvColumn[] = [
+      { key: "quoteNumber", header: "Quote Number" }, { key: "version", header: "Version" },
+      { key: "quoteType", header: "Type" }, { key: "status", header: "Status" },
+      { key: "currency", header: "Currency" }, { key: "subtotal", header: "Subtotal" },
+      { key: "tax", header: "Tax" }, { key: "total", header: "Total" },
+      { key: "assumptions", header: "Assumptions" }, { key: "exclusions", header: "Exclusions" },
+      { key: "createdAt", header: "Created At" },
+    ];
+    setCsvHeaders(res, "quotes_export.csv");
+    res.send(toCsv(result.data as any, cols));
+  });
+
+  app.get("/api/activities/export", async (req, res) => {
+    const { objectType, objectId } = req.query;
+    if (!objectType || !objectId) return res.status(400).json({ message: "objectType and objectId required" });
+    const data = await storage.getActivities(objectType as string, Number(objectId));
+    const cols: CsvColumn[] = [
+      { key: "type", header: "Type" }, { key: "summary", header: "Summary" },
+      { key: "rawContent", header: "Content" }, { key: "createdAt", header: "Created At" },
+    ];
+    setCsvHeaders(res, "activities_export.csv");
+    res.send(toCsv(data as any, cols));
+  });
+
+  app.get("/api/tasks/export", async (req, res) => {
+    const { owner, status, linkedObjectType, linkedObjectId } = req.query;
+    const data = await storage.getTasks({
+      owner: owner as string, status: status as string,
+      linkedObjectType: linkedObjectType as string,
+      linkedObjectId: linkedObjectId ? Number(linkedObjectId) : undefined,
+    });
+    const cols: CsvColumn[] = [
+      { key: "title", header: "Title" }, { key: "description", header: "Description" },
+      { key: "owner", header: "Owner" }, { key: "status", header: "Status" },
+      { key: "dueDate", header: "Due Date" }, { key: "linkedObjectType", header: "Linked Object Type" },
+      { key: "linkedObjectId", header: "Linked Object ID" }, { key: "createdAt", header: "Created At" },
+    ];
+    setCsvHeaders(res, "tasks_export.csv");
+    res.send(toCsv(data as any, cols));
+  });
+
+  app.get("/api/comm-lists/export", async (_req, res) => {
+    const data = await storage.getCommunicationLists();
+    const cols: CsvColumn[] = [
+      { key: "name", header: "Name" }, { key: "source", header: "Source" },
+      { key: "externalId", header: "External ID" }, { key: "description", header: "Description" },
+      { key: "memberCount", header: "Member Count" }, { key: "createdAt", header: "Created At" },
+    ];
+    setCsvHeaders(res, "communication_lists_export.csv");
+    res.send(toCsv(data as any, cols));
+  });
+
+  app.get("/api/campaigns/export", async (req, res) => {
+    const { status } = req.query;
+    const data = await storage.getCampaignDrafts({ status: status as string });
+    const cols: CsvColumn[] = [
+      { key: "subject", header: "Subject" }, { key: "body", header: "Body" },
+      { key: "status", header: "Status" }, { key: "externalCampaignId", header: "External Campaign ID" },
+      { key: "externalCampaignLink", header: "External Campaign Link" },
+      { key: "sentAt", header: "Sent At" }, { key: "createdAt", header: "Created At" },
+    ];
+    setCsvHeaders(res, "campaigns_export.csv");
+    res.send(toCsv(data as any, cols));
+  });
+
+  // ── End CSV Export Endpoints ────────────────────────────────────────
 
   app.get("/api/marinas/states", async (_req, res) => {
     res.json(await storage.getMarinaStates());

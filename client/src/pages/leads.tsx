@@ -16,6 +16,7 @@ import {
   LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor
 } from "lucide-react";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
+import { ExportButton } from "@/components/ui/export-button";
 import type { Lead } from "@shared/schema";
 
 const US_STATES = [
@@ -209,6 +210,15 @@ export default function LeadsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <ExportButton
+            endpoint={`/api/leads/export?${new URLSearchParams({
+              ...(search ? { search } : {}),
+              ...(statusFilter !== "all" ? { status: statusFilter } : {}),
+              ...(countryFilter !== "all" ? { country: countryFilter } : {}),
+              ...(stateFilter !== "all" ? { state: stateFilter } : {}),
+            }).toString()}`}
+            filename="leads_export.csv"
+          />
           <Button
             variant="outline"
             size="sm"

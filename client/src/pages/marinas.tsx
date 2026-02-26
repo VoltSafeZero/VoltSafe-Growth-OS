@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, MapPin, Phone, Loader2, Anchor } from "lucide-react";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
+import { ExportButton } from "@/components/ui/export-button";
 import type { Marina } from "@shared/schema";
 
 export default function MarinasPage() {
@@ -86,6 +87,13 @@ export default function MarinasPage() {
             {totalCount > 0 ? `${totalCount.toLocaleString()} marinas across the USA` : "Loading..."}
           </p>
         </div>
+        <ExportButton
+          endpoint={`/api/marinas/export?${new URLSearchParams({
+            ...(debouncedSearch ? { search: debouncedSearch } : {}),
+            ...(state ? { state } : {}),
+          }).toString()}`}
+          filename="marinas_export.csv"
+        />
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">

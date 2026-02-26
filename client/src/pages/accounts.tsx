@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Search, Building2, Users, Loader2, Phone, Mail, Trash2, ArrowUpDown } from "lucide-react";
+import { ExportButton } from "@/components/ui/export-button";
 import type { Account, Contact, Opportunity, Ticket } from "@shared/schema";
 
 const segmentColors: Record<string, string> = {
@@ -81,17 +82,26 @@ export default function AccountsPage() {
           <h1 className="text-3xl font-bold tracking-tight" data-testid="text-page-title">Accounts</h1>
           <p className="text-muted-foreground mt-1">Manage marinas and corporate accounts.</p>
         </div>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-primary text-primary-foreground" data-testid="button-create-account">
-              <Plus className="mr-2 h-4 w-4" /> New Account
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2">
+          <ExportButton
+            endpoint={`/api/accounts/export?${new URLSearchParams({
+              ...(search ? { search } : {}),
+              ...(segmentFilter !== "all" ? { segment: segmentFilter } : {}),
+            }).toString()}`}
+            filename="accounts_export.csv"
+          />
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-primary text-primary-foreground" data-testid="button-create-account">
+                <Plus className="mr-2 h-4 w-4" /> New Account
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader><DialogTitle>Create Account</DialogTitle></DialogHeader>
             <CreateAccountForm onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <div className="flex gap-3">

@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, List, Columns3, AlertTriangle, Clock } from "lucide-react";
+import { ExportButton } from "@/components/ui/export-button";
 import type { Ticket } from "@shared/schema";
 
 const STATUSES = [
@@ -94,6 +95,7 @@ export default function TicketsPage() {
               <List className="h-4 w-4" />
             </Button>
           </div>
+          <ExportButton endpoint="/api/tickets/export" filename="tickets_export.csv" />
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
               <Button className="bg-primary text-primary-foreground" data-testid="button-create-ticket">

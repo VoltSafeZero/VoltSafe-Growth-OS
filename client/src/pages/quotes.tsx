@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, FileText, Loader2, Trash2, DollarSign } from "lucide-react";
+import { ExportButton } from "@/components/ui/export-button";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
 import type { Quote, Account } from "@shared/schema";
 
@@ -94,17 +95,25 @@ export default function QuotesPage() {
           <h1 className="text-3xl font-bold tracking-tight" data-testid="text-page-title">Quotes</h1>
           <p className="text-muted-foreground mt-1">Generate and manage quotes for marinas and professional services.</p>
         </div>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-primary text-primary-foreground" data-testid="button-create-quote">
-              <Plus className="mr-2 h-4 w-4" /> New Quote
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2">
+          <ExportButton
+            endpoint={`/api/quotes/export?${new URLSearchParams({
+              ...(statusFilter !== "all" ? { status: statusFilter } : {}),
+            }).toString()}`}
+            filename="quotes_export.csv"
+          />
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-primary text-primary-foreground" data-testid="button-create-quote">
+                <Plus className="mr-2 h-4 w-4" /> New Quote
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Create Quote</DialogTitle></DialogHeader>
             <QuoteBuilder accounts={accountsData?.data || []} onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <div className="flex gap-3">

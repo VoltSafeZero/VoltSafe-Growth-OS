@@ -16,6 +16,7 @@ import {
   Plus, List, Columns3, DollarSign, AlertTriangle, Clock, CalendarClock,
   ArrowRight, CheckCircle2, XCircle, Target, ShieldAlert, Zap, MessageSquare
 } from "lucide-react";
+import { ExportButton } from "@/components/ui/export-button";
 import type { Opportunity, Account } from "@shared/schema";
 
 const DEAL_STAGES = [
@@ -230,6 +231,7 @@ export default function OpportunitiesPage() {
               <List className="h-4 w-4" />
             </Button>
           </div>
+          <ExportButton endpoint="/api/opportunities/export" filename="opportunities_export.csv" />
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
               <Button className="bg-primary text-primary-foreground" data-testid="button-create-deal">
