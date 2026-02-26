@@ -156,8 +156,9 @@ export default function LeadsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
       setSelectedLead(null);
-      toast({ title: "Lead reverted back to New" });
+      toast({ title: "Lead reverted back to New and account removed" });
     },
   });
 

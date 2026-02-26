@@ -44,6 +44,7 @@ export interface IStorage {
   getAccount(id: number): Promise<Account | undefined>;
   createAccount(data: InsertAccount): Promise<Account>;
   updateAccount(id: number, data: Partial<InsertAccount>): Promise<Account | undefined>;
+  deleteAccount(id: number): Promise<boolean>;
 
   getContacts(options?: { accountId?: number; search?: string }): Promise<Contact[]>;
   getContact(id: number): Promise<Contact | undefined>;
@@ -312,6 +313,12 @@ export class DatabaseStorage implements IStorage {
   async updateAccount(id: number, data: Partial<InsertAccount>) {
     const result = await db.update(accounts).set({ ...data, updatedAt: new Date() }).where(eq(accounts.id, id)).returning();
     return result[0];
+  }
+
+  async deleteAccount(id: number) {
+    await db.delete(contacts).where(eq(contacts.accountId, id));
+    const result = await db.delete(accounts).where(eq(accounts.id, id));
+    return result.rowCount > 0;
   }
 
   async getContacts(options?: { accountId?: number; search?: string }) {

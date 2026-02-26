@@ -216,13 +216,19 @@ export async function registerRoutes(
     if (!lead) return res.status(404).json({ message: "Lead not found" });
     if (lead.status !== "converted") return res.status(400).json({ message: "Lead is not converted" });
 
+    const allAccounts = await storage.getAccounts({ search: lead.company, limit: 100 });
+    const matchingAccount = allAccounts.data.find(a => a.name === lead.company);
+    if (matchingAccount) {
+      await storage.deleteAccount(matchingAccount.id);
+    }
+
     await storage.updateLead(lead.id, { status: "new" });
 
     await storage.createActivity({
       linkedObjectType: "lead",
       linkedObjectId: lead.id,
       type: "status_change",
-      summary: "Lead reverted from converted back to New",
+      summary: "Lead reverted from converted back to New" + (matchingAccount ? ` (Account "${matchingAccount.name}" removed)` : ""),
     });
 
     const updated = await storage.getLead(lead.id);
