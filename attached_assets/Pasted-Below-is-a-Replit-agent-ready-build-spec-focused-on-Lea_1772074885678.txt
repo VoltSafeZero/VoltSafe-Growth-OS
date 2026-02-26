@@ -1,0 +1,368 @@
+Below is a Replit-agent-ready build spec focused on:
+	•	Lead capture → qualification → deal → close
+	•	Clean data model with the right fields + subfields
+	•	Simple UX for reps
+	•	High signal dashboards for you
+
+⸻
+
+1) What you’re building first
+
+The only modules in V1
+	1.	Accounts (Companies)
+	2.	Contacts
+	3.	Leads
+	4.	Deals
+	5.	Activities (timeline)
+	6.	Tasks
+	7.	Pipeline + forecasting dashboards
+	8.	Admin (users, roles, picklists, routing rules)
+	9.	Imports + dedupe + enrichment placeholders
+
+What you are not building yet
+	•	Billing, devices, slip maps, support tickets, CMS
+	•	Email sync, calling, marketing automation (we’ll log manually first)
+
+⸻
+
+2) Core philosophy for the build
+	•	Speed > features: reps should do meaningful updates in under 30 seconds.
+	•	No dead fields: if you can’t imagine a dashboard using it, don’t collect it.
+	•	Opinionated pipeline: minimal customization at first, clean reporting always wins.
+	•	CEO visibility is a first-class feature: forecasting, stage aging, next steps, stalled deals.
+
+⸻
+
+3) The pipeline (stages + exit criteria)
+
+Build one primary pipeline: VoltSafe Marine (Sales). Stages are strict and measurable.
+	1.	Inbound New
+	•	Created from form/import/manual
+	•	Exit: contact method + basic firmographic captured
+	2.	Attempting Contact
+	•	Exit: two-way contact OR confirmed unreachable
+	3.	Connected
+	•	Exit: role confirmed + pain acknowledged
+	4.	Qualified
+	•	Exit criteria (all required):
+	•	ICP fit score captured
+	•	Decision process known (or explicitly unknown)
+	•	Timeline captured
+	•	Next meeting scheduled
+	5.	Solution Fit
+	•	Exit: use case confirmed + rough scope (locations / pedestals / slips estimate) + stakeholders list started
+	6.	Proposal Sent
+	•	Exit: proposal date + value hypothesis + follow-up scheduled
+	7.	Negotiation
+	•	Exit: commercial terms being discussed + decision date
+	8.	Commit
+	•	Exit: verbal yes + procurement steps known + target PO date
+	9.	Closed Won / Closed Lost
+	•	Lost reason required
+	•	Competitor required (or “status quo”)
+
+Also add Nurture as a non-terminal holding stage (no forecast weight).
+
+⸻
+
+4) Data model (objects + must-have relationships)
+
+Objects
+	•	Company (Account)
+	•	Contact
+	•	Lead
+	•	Deal (Opportunity)
+	•	Activity (note, call log, email log, meeting, task, SMS log)
+	•	Task (subset of activity, but store separately if easier)
+	•	PipelineStageHistory (for stage aging + velocity)
+	•	Picklists (configurable dropdowns without schema changes)
+
+Relationships
+	•	Company has many Contacts
+	•	Company has many Deals
+	•	Contact can be linked to many Deals (stakeholders)
+	•	Lead converts into:
+	•	Contact + Company + Deal (optional auto-create)
+
+⸻
+
+5) Fields and subfields that matter
+
+A) Company (Account) fields
+
+Identity
+	•	Legal Name
+	•	Doing Business As
+	•	Website
+	•	LinkedIn URL
+	•	Industry Type (Marina, Boatyard, Yacht Club, Municipality, Utility, Other)
+	•	Sub-type (Marina: public/private, resort, strata/HOA, etc.)
+
+Location
+	•	Address (street, city, region/state, country, postal)
+	•	Timezone
+	•	Region (Sales territory)
+
+Size + fit
+	•	Estimated slips (number)
+	•	Shore power type today (30A/50A/100A mix, unknown allowed)
+	•	Annual capex appetite (Low/Med/High/Unknown)
+	•	Modernization stage (Legacy, Upgrading, Recently upgraded, Unknown)
+
+Buying signals
+	•	Known pain drivers (multi-select)
+	•	burnt plugs/cords
+	•	safety incidents
+	•	billing disputes
+	•	maintenance burden
+	•	theft/tampering
+	•	insurance pressure
+	•	modernization mandate
+	•	Urgency (0–3)
+	•	Champion strength (0–3)
+
+Commercial
+	•	Account owner
+	•	Account status (Target, Active Deal, Customer, Partner, Archived)
+	•	Source (top-level attribution)
+
+Notes
+	•	Key notes
+	•	Attachments
+
+⸻
+
+B) Contact fields
+
+Identity
+	•	First name, last name
+	•	Email, phone, mobile
+	•	Title
+	•	Role type (Decision Maker, Influencer, Technical, Finance, Ops, Installer, Boater, Other)
+	•	LinkedIn URL
+
+Relationship
+	•	Company
+	•	Relationship strength (0–3)
+	•	Preferred contact method
+	•	Last contacted date (auto)
+	•	Consent status (if relevant)
+
+Influence map
+	•	Department (Ops, Finance, Ownership, Maintenance, Board)
+	•	Decision authority (None, Recommends, Signs, Controls budget)
+
+⸻
+
+C) Lead fields (pre-conversion)
+
+Think of Leads as “unverified inbound”. Keep it tight.
+	•	Lead name (or contact name)
+	•	Email/phone
+	•	Company name (free text)
+	•	Source (Form, Referral, Event, Outbound, Partner, LinkedIn, Other)
+	•	Campaign (text)
+	•	Interest type (Marine Shore Power, Other future)
+	•	Message / inquiry text
+	•	Lead status (New, Working, Qualified, Disqualified, Converted)
+	•	Disqualify reason (Not ICP, No budget, No timeline, Wrong region, Competitor locked, Other)
+
+⸻
+
+D) Deal fields (this is where your oversight lives)
+
+Core
+	•	Deal name (Auto: Company + use case)
+	•	Company (required)
+	•	Primary contact (required)
+	•	Deal owner (required)
+	•	Stage (required)
+	•	Amount (numeric) + currency
+	•	Close date (target)
+	•	Forecast category (Omitted, Pipeline, Best Case, Commit, Closed)
+
+Qualification (MEDDICC-lite, simplified)
+	•	Pain clarity (0–3)
+	•	Economic buyer identified (Yes/No/Unknown)
+	•	Decision criteria known (Yes/No/Unknown)
+	•	Decision process known (Yes/No/Unknown)
+	•	Competition (None, Status quo, Competitor A/B/C, Unknown)
+	•	Champion identified (Yes/No/Weak/Strong)
+	•	Timeline (This month, This quarter, 6+ months, Unknown)
+
+Scope + value hypothesis
+	•	Estimated pedestal count (numeric, allow unknown)
+	•	Estimated slips impacted
+	•	Primary value driver (Safety, Opex reduction, Revenue enablement, UX, Liability reduction)
+	•	Risk flags (multi-select)
+	•	procurement slow
+	•	board approval required
+	•	electrician dependency
+	•	budget cycle
+	•	incumbent contract lock-in
+	•	ROI story (short text)
+	•	Next step (required field)
+	•	Next step due date (required)
+	•	Last meaningful touchpoint (auto via activity)
+
+Outcome tracking (must-have)
+	•	Closed lost reason (required if lost)
+	•	Competitor (required if lost)
+	•	Loss notes (required if lost)
+	•	Win notes (required if won)
+
+⸻
+
+E) Activity fields (timeline backbone)
+	•	Type: Note, Call, Email, Meeting, Task, SMS
+	•	Subject
+	•	Body
+	•	Date/time
+	•	Outcome (Connected, Left VM, No response, Meeting booked, Follow-up needed)
+	•	Related record (Lead/Contact/Company/Deal)
+	•	Created by
+	•	Attachments
+
+⸻
+
+6) Views reps will actually use
+
+CRM navigation
+	•	Leads
+	•	Deals (Kanban + list)
+	•	Companies
+	•	Contacts
+	•	Tasks
+	•	Reports
+	•	Admin
+
+Default saved views (non-customizable in MVP)
+
+Leads
+	•	New inbound (last 7 days)
+	•	Working now (owned by me)
+	•	Stale leads (no activity in 7/14/30)
+
+Deals
+	•	My pipeline (this quarter)
+	•	Commit deals (this month)
+	•	Stalled deals (no next step date or overdue)
+	•	Stage aging outliers (time-in-stage > threshold)
+
+Tasks
+	•	Due today
+	•	Overdue
+	•	Upcoming 7 days
+
+⸻
+
+7) Automation rules (small, high impact)
+
+Lead routing (simple)
+	•	If region matches → assign owner by territory map
+	•	If source = “Referral” → assign to you (or a rule)
+	•	Otherwise round-robin among sales users
+
+Required-field enforcement by stage
+
+Block stage advancement unless key fields are set:
+	•	Move to Qualified requires: pain clarity, timeline, next step + due date
+	•	Move to Proposal Sent requires: amount + close date + value driver
+	•	Move to Commit requires: decision process known + economic buyer status
+
+Auto-staleness
+	•	If Deal has no activity in 14 days → “Stalled” flag true
+	•	If next step due date passed → “Overdue next step” flag
+
+⸻
+
+8) CEO dashboards (your command center)
+
+Build these as first-class pages, not an afterthought.
+
+Dashboard 1: Pipeline health
+	•	Total pipeline $ by stage (current quarter)
+	•	Count of deals by stage
+	•	New deals created this week
+	•	Closed won/lost this month
+
+Dashboard 2: Forecast
+	•	Pipeline / Best Case / Commit totals
+	•	Commit deals list with:
+	•	amount
+	•	close date
+	•	next step
+	•	last activity date
+	•	risk flags
+
+Dashboard 3: Rep execution
+
+Per rep:
+	•	Activities this week
+	•	Deals advanced stages this week
+	•	Overdue next steps count
+	•	Stalled deals count
+
+Dashboard 4: Loss intelligence
+	•	Closed lost by reason (pie/bar)
+	•	Competitors frequency
+	•	Status quo losses count
+	•	Avg sales cycle days (won vs lost)
+
+These require StageHistory logging every time stage changes.
+
+⸻
+
+9) Replit build plan (agents can implement in order)
+
+Milestone 1: Foundation
+	•	Auth + users
+	•	Org + roles (Owner, Sales Rep, Read-only)
+	•	Base layout + left nav
+	•	Postgres + Prisma schema
+
+Milestone 2: Leads
+	•	Lead capture UI + import CSV
+	•	Routing rules
+	•	Lead working queue
+	•	Convert lead (creates Company/Contact/Deal)
+
+Milestone 3: Deals + pipeline
+	•	Deals kanban by stage
+	•	Deal detail page with:
+	•	Summary
+	•	Required fields
+	•	Timeline
+	•	Next step widget (prominent)
+	•	StageHistory logging
+
+Milestone 4: Activities + tasks
+	•	Timeline component reusable across records
+	•	Task list + reminders (in-app)
+
+Milestone 5: CEO dashboards + reports
+	•	Pipeline health
+	•	Forecast categories
+	•	Rep execution scoreboard
+	•	Loss intelligence
+
+Milestone 6: Dedupe + data hygiene
+	•	Duplicate detection on email + company name + domain
+	•	Merge contacts/companies (simple merge tool)
+	•	Field validation + picklist admin
+
+⸻
+
+10) The exact instruction you can paste into Replit
+
+Build a HubSpot-lite CRM focused only on lead gen and conversion. Core objects: Lead, Company, Contact, Deal, Activity, Task. Implement strict deal stages with required fields and stage history. Provide a rep-friendly pipeline workflow and CEO dashboards for pipeline health, forecast, rep execution, and loss intelligence. Prioritize speed of use, dedupe, required next steps, and stall detection.
+
+⸻
+
+If you want to make this “phenomenal” out of the gate, the single biggest UX win is this:
+
+Every Deal must always show
+	1.	Next step (text)
+	2.	Next step due date
+	3.	Last meaningful activity date
+	4.	Top 3 risk flags
