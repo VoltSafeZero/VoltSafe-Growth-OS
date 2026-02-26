@@ -175,7 +175,7 @@ export default function MarinasPage() {
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">
                       {marina.slips ? (
-                        <Badge variant="secondary" className="no-default-active-elevate">{marina.slips}</Badge>
+                        <Badge variant="secondary" className="no-default-active-elevate">{marina.slips === "-" ? "Unknown" : marina.slips}</Badge>
                       ) : (
                         <span className="text-muted-foreground text-sm">-</span>
                       )}

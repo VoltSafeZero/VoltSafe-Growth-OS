@@ -145,9 +145,14 @@ export class DatabaseStorage implements IStorage {
         : sql`${conditions[0]} AND ${conditions[1]}`
       : undefined;
 
-    const marinaSortColumns: Record<string, AnyColumn> = { name: marinas.name, city: marinas.city, state: marinas.state, slips: marinas.slips };
+    const marinaSortColumns: Record<string, AnyColumn> = { name: marinas.name, city: marinas.city, state: marinas.state };
     const sortCol = options.sortBy && marinaSortColumns[options.sortBy];
-    const orderClause = sortCol ? getSortOrder(sortCol, options.sortOrder || "asc") : asc(marinas.state);
+    const isSlipsSort = options.sortBy === "slips";
+    const orderClause = isSlipsSort
+      ? (options.sortOrder === "desc"
+        ? sql`CAST(NULLIF(${marinas.slips}, '-') AS INTEGER) DESC NULLS LAST`
+        : sql`CAST(NULLIF(${marinas.slips}, '-') AS INTEGER) ASC NULLS LAST`)
+      : sortCol ? getSortOrder(sortCol, options.sortOrder || "asc") : asc(marinas.state);
 
     const [data, countResult] = await Promise.all([
       db.select().from(marinas).where(where).orderBy(orderClause).limit(limit).offset(offset),
@@ -189,9 +194,14 @@ export class DatabaseStorage implements IStorage {
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
-    const leadSortColumns: Record<string, AnyColumn> = { company: leads.company, city: leads.city, state: leads.state, slips: leads.slips, status: leads.status, source: leads.source, contactName: leads.contactName, createdAt: leads.createdAt };
+    const leadSortColumns: Record<string, AnyColumn> = { company: leads.company, city: leads.city, state: leads.state, status: leads.status, source: leads.source, contactName: leads.contactName, createdAt: leads.createdAt };
     const sortCol = options?.sortBy && leadSortColumns[options.sortBy];
-    const orderClause = sortCol ? getSortOrder(sortCol, options?.sortOrder || "asc") : desc(leads.createdAt);
+    const isSlipsSort = options?.sortBy === "slips";
+    const orderClause = isSlipsSort
+      ? (options?.sortOrder === "desc"
+        ? sql`CAST(NULLIF(${leads.slips}, '-') AS INTEGER) DESC NULLS LAST`
+        : sql`CAST(NULLIF(${leads.slips}, '-') AS INTEGER) ASC NULLS LAST`)
+      : sortCol ? getSortOrder(sortCol, options?.sortOrder || "asc") : desc(leads.createdAt);
 
     const [data, countResult] = await Promise.all([
       db.select().from(leads).where(where).orderBy(orderClause).limit(limit).offset(offset),

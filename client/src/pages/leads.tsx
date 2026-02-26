@@ -330,7 +330,7 @@ export default function LeadsPage() {
                         <div>{lead.contactName}</div>
                         {lead.contactPhone && <div className="text-muted-foreground text-xs">{lead.contactPhone}</div>}
                       </td>
-                      <td className="p-4 text-sm text-muted-foreground">{lead.slips || "—"}</td>
+                      <td className="p-4 text-sm text-muted-foreground">{!lead.slips || lead.slips === "-" ? "Unknown" : lead.slips}</td>
                       <td className="p-4">
                         <Badge variant="outline" className={statusColors[lead.status] || ""} data-testid={`badge-status-${lead.id}`}>
                           {getStageLabel(lead.status)}
@@ -429,7 +429,7 @@ function PipelineView({
                     {lead.city && lead.state ? `${lead.city}, ${lead.state}` : lead.state}
                   </p>
                 )}
-                {lead.slips && (
+                {lead.slips && lead.slips !== "-" && (
                   <p className="text-xs text-muted-foreground mt-0.5">{lead.slips} slips</p>
                 )}
                 {lead.contactPhone && (
@@ -528,7 +528,7 @@ function LeadDetailDialog({
             {lead.slips && (
               <div>
                 <Label className="text-xs text-muted-foreground">Slips</Label>
-                <p className="text-sm">{lead.slips}</p>
+                <p className="text-sm">{lead.slips === "-" ? "Unknown" : lead.slips}</p>
               </div>
             )}
             {lead.segment && (
