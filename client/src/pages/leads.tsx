@@ -74,7 +74,7 @@ export default function LeadsPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const { toast } = useToast();
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
-  const { sort, handleSort } = useSortState();
+  const { sort, handleSort } = useSortState("slips", "desc");
 
   const regionOptions = countryFilter !== "all" ? getRegionsForCountry(countryFilter) : [];
 
