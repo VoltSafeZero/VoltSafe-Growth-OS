@@ -211,6 +211,24 @@ export async function registerRoutes(
     res.json({ account, leadId: lead.id });
   });
 
+  app.post("/api/leads/:id/unconvert", async (req, res) => {
+    const lead = await storage.getLead(Number(req.params.id));
+    if (!lead) return res.status(404).json({ message: "Lead not found" });
+    if (lead.status !== "converted") return res.status(400).json({ message: "Lead is not converted" });
+
+    await storage.updateLead(lead.id, { status: "new" });
+
+    await storage.createActivity({
+      linkedObjectType: "lead",
+      linkedObjectId: lead.id,
+      type: "status_change",
+      summary: "Lead reverted from converted back to New",
+    });
+
+    const updated = await storage.getLead(lead.id);
+    res.json(updated);
+  });
+
   app.get("/api/accounts", async (req, res) => {
     const { search, segment, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getAccounts({

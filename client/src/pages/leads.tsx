@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Plus, Search, ArrowRightLeft, Trash2, Loader2,
+  Plus, Search, ArrowRightLeft, Trash2, Loader2, Undo2,
   LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor
 } from "lucide-react";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
@@ -146,6 +146,18 @@ export default function LeadsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       setSelectedLead(null);
       toast({ title: "Lead converted to Account" });
+    },
+  });
+
+  const unconvertMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/leads/${id}/unconvert`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      setSelectedLead(null);
+      toast({ title: "Lead reverted back to New" });
     },
   });
 
@@ -338,11 +350,15 @@ export default function LeadsPage() {
                       </td>
                       <td className="p-4 text-sm text-muted-foreground">{lead.source || "—"}</td>
                       <td className="p-4 text-right">
-                        {lead.status !== "converted" && lead.status !== "lost" && (
+                        {lead.status === "converted" ? (
+                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); unconvertMutation.mutate(lead.id); }} data-testid={`button-unconvert-${lead.id}`} title="Revert to New Lead">
+                            <Undo2 className="h-4 w-4" />
+                          </Button>
+                        ) : lead.status !== "lost" ? (
                           <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); convertMutation.mutate(lead.id); }} data-testid={`button-convert-${lead.id}`}>
                             <ArrowRightLeft className="h-4 w-4" />
                           </Button>
-                        )}
+                        ) : null}
                       </td>
                     </tr>
                   ))}
@@ -371,12 +387,14 @@ export default function LeadsPage() {
           lead={selectedLead}
           onClose={() => setSelectedLead(null)}
           onConvert={() => convertMutation.mutate(selectedLead.id)}
+          onUnconvert={() => unconvertMutation.mutate(selectedLead.id)}
           onDelete={() => deleteMutation.mutate(selectedLead.id)}
           onUpdateStatus={(status) => {
             updateStatusMutation.mutate({ id: selectedLead.id, status });
             setSelectedLead({ ...selectedLead, status });
           }}
           isConverting={convertMutation.isPending}
+          isUnconverting={unconvertMutation.isPending}
           isDeleting={deleteMutation.isPending}
         />
       )}
@@ -454,17 +472,21 @@ function LeadDetailDialog({
   lead,
   onClose,
   onConvert,
+  onUnconvert,
   onDelete,
   onUpdateStatus,
   isConverting,
+  isUnconverting,
   isDeleting,
 }: {
   lead: Lead;
   onClose: () => void;
   onConvert: () => void;
+  onUnconvert: () => void;
   onDelete: () => void;
   onUpdateStatus: (status: string) => void;
   isConverting: boolean;
+  isUnconverting: boolean;
   isDeleting: boolean;
 }) {
   return (
@@ -555,11 +577,15 @@ function LeadDetailDialog({
             </div>
           )}
           <div className="flex gap-2 justify-end pt-4 border-t border-border/50">
-            {lead.status !== "converted" && lead.status !== "lost" && (
+            {lead.status === "converted" ? (
+              <Button variant="outline" onClick={onUnconvert} disabled={isUnconverting} data-testid="button-unconvert-detail">
+                <Undo2 className="mr-2 h-4 w-4" /> Revert to New Lead
+              </Button>
+            ) : lead.status !== "lost" ? (
               <Button variant="outline" onClick={onConvert} disabled={isConverting} data-testid="button-convert-detail">
                 <ArrowRightLeft className="mr-2 h-4 w-4" /> Convert to Account
               </Button>
-            )}
+            ) : null}
             <Button variant="destructive" size="sm" onClick={onDelete} disabled={isDeleting} data-testid="button-delete-lead">
               <Trash2 className="mr-2 h-4 w-4" /> Delete
             </Button>
