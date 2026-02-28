@@ -1,0 +1,194 @@
+// shared/db/schema.ts
+import {
+  pgTable,
+  uuid,
+  text,
+  timestamp,
+  boolean,
+  numeric,
+  integer,
+  date,
+  index,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
+
+export const users = pgTable("users", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  fullName: text("full_name").notNull(),
+  email: text("email").notNull().unique(),
+  role: text("role"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const accounts = pgTable(
+  "accounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+
+    accountName: text("account_name").notNull(),
+    legalName: text("legal_name"),
+    website: text("website"),
+
+    marinaType: text("marina_type"),
+    ownershipType: text("ownership_type"),
+    parentCompany: text("parent_company"),
+
+    streetAddress: text("street_address"),
+    city: text("city"),
+    stateProvince: text("state_province"),
+    postalZip: text("postal_zip"),
+    country: text("country"),
+    region: text("region"),
+    timeZone: text("time_zone"),
+    latitude: numeric("latitude", { precision: 10, scale: 7 }),
+    longitude: numeric("longitude", { precision: 10, scale: 7 }),
+
+    slipCount: integer("slip_count"),
+    segment: text("segment"),
+    slipMix: text("slip_mix"),
+    avgBoatSizeRange: text("avg_boat_size_range"),
+    powerDemandIntensity: text("power_demand_intensity"),
+    seasonality: text("seasonality"),
+    expansionPlans: boolean("expansion_plans").default(false),
+    expansionNotes: text("expansion_notes"),
+
+    leadSource: text("lead_source"),
+    leadStatus: text("lead_status").notNull().default("new"), // new, working, nurturing, unqualified, closed_won, closed_lost
+    priority: text("priority").notNull().default("medium"),   // low, medium, high
+
+    assignedToUserId: uuid("assigned_to_user_id").references(() => users.id),
+    betaTester: boolean("beta_tester").default(false),
+    pilotCandidateScore: integer("pilot_candidate_score"),
+    redFlags: text("red_flags"),
+
+    lastInteractionAt: timestamp("last_interaction_at", { withTimezone: true }),
+    nextAction: text("next_action"),
+    nextActionAt: timestamp("next_action_at", { withTimezone: true }),
+    nextActionOwnerUserId: uuid("next_action_owner_user_id").references(() => users.id),
+
+    notesSummary: text("notes_summary"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    assignedIdx: index("idx_accounts_assigned_to").on(t.assignedToUserId),
+    statusPriorityIdx: index("idx_accounts_status_priority").on(t.leadStatus, t.priority),
+  })
+);
+
+export const contacts = pgTable(
+  "contacts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    accountId: uuid("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+
+    firstName: text("first_name"),
+    lastName: text("last_name"),
+    fullName: text("full_name"),
+    title: text("title"),
+
+    roleType: text("role_type"), // economic_buyer, champion, technical, finance, ops
+    phone: text("phone"),
+    email: text("email"),
+    preferredContactMethod: text("preferred_contact_method"),
+    linkedinUrl: text("linkedin_url"),
+
+    relationshipStrength: text("relationship_strength"),
+    isPrimary: boolean("is_primary").default(false),
+    notes: text("notes"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    accountIdx: index("idx_contacts_account").on(t.accountId),
+    emailIdx: index("idx_contacts_email").on(t.email),
+  })
+);
+
+export const infrastructureProfiles = pgTable(
+  "infrastructure_profiles",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    accountId: uuid("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+    // enforce 1:1
+    existingPedestalBrands: text("existing_pedestal_brands"),
+    pedestalAgeAvgYears: numeric("pedestal_age_avg_years", { precision: 5, scale: 2 }),
+    pedestalAgeOldestYears: numeric("pedestal_age_oldest_years", { precision: 5, scale: 2 }),
+
+    powerPerSlip: text("power_per_slip"),
+    pctSlips30a: numeric("pct_slips_30a", { precision: 5, scale: 2 }),
+    pctSlips50a: numeric("pct_slips_50a", { precision: 5, scale: 2 }),
+    voltageTypes: text("voltage_types"),
+
+    meteringToday: text("metering_today"),
+    billingMethod: text("billing_method"),
+    leakageDetection: text("leakage_detection"),
+    breakerTripPain: text("breaker_trip_pain"),
+
+    knownFailureModes: text("known_failure_modes"),
+    recentIncidents: text("recent_incidents"),
+
+    complianceJurisdiction: text("compliance_jurisdiction"),
+    compliancePressure: text("compliance_pressure"),
+    complianceDeadline: text("compliance_deadline"),
+    inspectionNotes: text("inspection_notes"),
+
+    marinaManagementSoftware: text("marina_management_software"),
+    accountingSystem: text("accounting_system"),
+    paymentProvider: text("payment_provider"),
+    wifiMaturity: text("wifi_maturity"),
+    itContactName: text("it_contact_name"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    accountUnique: uniqueIndex("uq_infra_account").on(t.accountId),
+  })
+);
+
+export const activities = pgTable(
+  "activities",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    accountId: uuid("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+
+    activityType: text("activity_type").notNull(), // call, meeting, email, site_visit, demo, note
+    subject: text("subject"),
+    summary: text("summary"),
+    outcome: text("outcome"),
+    attendees: text("attendees"),
+
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    accountTimeIdx: index("idx_activities_account_time").on(t.accountId, t.occurredAt),
+  })
+);
+
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    accountId: uuid("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+
+    title: text("title").notNull(),
+    description: text("description"),
+    status: text("status").notNull().default("open"), // open, in_progress, done, blocked
+    priority: text("priority").notNull().default("medium"), // low, medium, high
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    ownerUserId: uuid("owner_user_id").references(() => users.id),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    ownerDueIdx: index("idx_tasks_owner_due").on(t.ownerUserId, t.dueAt),
+  })
+);

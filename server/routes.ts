@@ -9,6 +9,7 @@ import {
   insertQuoteLineItemSchema, insertServicesEstimateSchema,
   insertActivitySchema, insertTaskSchema,
   insertCommunicationListSchema, insertCampaignDraftSchema,
+  insertInfrastructureProfileSchema,
 } from "@shared/schema";
 import { requireAuth, seedUsers, hashPassword, verifyPassword } from "./auth";
 import { toCsv, setCsvHeaders, type CsvColumn } from "./csv-export";
@@ -467,10 +468,12 @@ export async function registerRoutes(
   });
 
   app.get("/api/accounts", async (req, res) => {
-    const { search, segment, page, limit, sortBy, sortOrder } = req.query;
+    const { search, segment, leadStatus, priority, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getAccounts({
       search: search as string | undefined,
       segment: segment as string | undefined,
+      leadStatus: leadStatus as string | undefined,
+      priority: priority as string | undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
       sortBy: sortBy as string | undefined,
@@ -493,6 +496,22 @@ export async function registerRoutes(
   app.put("/api/accounts/:id", async (req, res) => {
     const result = await storage.updateAccount(Number(req.params.id), req.body);
     if (!result) return res.status(404).json({ message: "Account not found" });
+    res.json(result);
+  });
+
+  app.get("/api/accounts/:id/infrastructure", async (req, res) => {
+    const profile = await storage.getInfrastructureProfile(Number(req.params.id));
+    res.json(profile || null);
+  });
+
+  app.put("/api/accounts/:id/infrastructure", async (req, res) => {
+    const accountId = Number(req.params.id);
+    const account = await storage.getAccount(accountId);
+    if (!account) return res.status(404).json({ message: "Account not found" });
+    const { id, accountId: _aid, createdAt, updatedAt, ...rest } = req.body;
+    const parsed = insertInfrastructureProfileSchema.partial().safeParse(rest);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
+    const result = await storage.upsertInfrastructureProfile(accountId, parsed.data);
     res.json(result);
   });
 

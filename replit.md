@@ -43,8 +43,9 @@ Dark mode by default.
 
 #### Sales Module
 - **Leads** — Marina directory import (~10,800 US & Canadian marinas), HubSpot-style pipeline stages (New → Contacted → Meeting Scheduled → Qualified → Proposal Sent → Negotiation → Closed Won / Closed Lost), list + kanban pipeline view, search by name/city/state, filter by stage and state, convert to Account
-- **Accounts** — Marina/Corp accounts with contacts, linked opportunities, tickets
-- **Contacts** — Linked to accounts, persona-based (owner, GM, harbourmaster, etc.)
+- **Accounts** — Marina/Corp accounts with enriched fields (legal name, website, marina type, ownership, location, slip mix, power demand, seasonality, expansion plans, pilot candidate score, beta tester flag, red flags, next action), lead status + priority filters, infrastructure profiles, contacts, linked opportunities, tickets
+- **Contacts** — Linked to accounts, role types (economic_buyer, champion, technical, finance, ops), personas, relationship strength, preferred contact method, LinkedIn URL, primary contact flag
+- **Infrastructure Profiles** — 1:1 per account, pedestal/power data (brands, age, per-slip power, 30A/50A mix, voltage), metering/billing, leakage detection, breaker trip pain, failure modes, incidents, compliance info, IT systems (management software, accounting, payment, WiFi)
 - **Opportunities** — Pipeline kanban (Prospecting → Closed Won/Lost), value breakdown (hardware/software/services)
 - **Quotes** — Two templates: Marina Shore Power Solution & Professional Services Agreement, versioned, line items
 
@@ -70,6 +71,7 @@ Dark mode by default.
 **Leads:** `GET/POST /api/leads`, `GET/PUT/DELETE /api/leads/:id`, `POST /api/leads/:id/convert`, `POST /api/leads/import-marinas`, `GET /api/leads/states`
 
 **Accounts:** `GET/POST /api/accounts`, `GET/PUT /api/accounts/:id`
+- Infrastructure Profiles: `GET/PUT /api/accounts/:id/infrastructure`
 
 **Contacts:** `GET/POST /api/contacts`, `GET/PUT/DELETE /api/contacts/:id`
 
@@ -100,8 +102,9 @@ Dark mode by default.
 **CMS tables:**
 - `users` — id, name, email, role, avatar_url, created_at, last_login
 - `leads` — company, contact info, source, status, owner, notes, tags, next_step, due_date
-- `accounts` — name, address, region, timezone, slip_count, segment, tags, notes
-- `contacts` — account_id, name, title, email, phone, persona
+- `accounts` — name, legal_name, website, marina_type, ownership_type, parent_company, street_address, city, state_province, postal_zip, country, region, timezone, lat/lng, slip_count, segment, slip_mix, avg_boat_size_range, power_demand_intensity, seasonality, expansion_plans/notes, lead_source, lead_status, priority, assigned_to, beta_tester, pilot_candidate_score, red_flags, last_interaction_at, next_action/at, notes_summary, tags, notes
+- `contacts` — account_id, name, first_name, last_name, title, email, phone, persona, role_type, preferred_contact_method, linkedin_url, relationship_strength, is_primary, notes
+- `infrastructure_profiles` — account_id (unique), pedestal brands/age, power_per_slip, 30A/50A mix, voltage_types, metering/billing, leakage_detection, breaker_trip_pain, failure_modes, incidents, compliance (jurisdiction/pressure/deadline/inspection), IT systems (marina software/accounting/payment/wifi/it_contact)
 - `opportunities` — account_id, title, stage, owner, est_close_date, value breakdown, competitors
 - `tickets` — account_id, contact_id, category, severity, status, requester info, assigned_to, description, internal_notes, resolution_summary
 - `quotes` — quote_number (unique), version, status, quote_type, account/opportunity/contact links, currency, totals, assumptions/exclusions
@@ -116,7 +119,7 @@ Dark mode by default.
 1. **Dashboard** — CMS summary (leads, deals, tickets, quotes counts + overdue tasks alert + activity feed)
 2. **Marinas** — Searchable directory of ~10,800 US & Canadian marinas
 3. **Leads** — List with search, status filter, create/convert/delete
-4. **Accounts** — Card grid with detail dialog (contacts, opportunities, tickets tabs)
+4. **Accounts** — Card grid with detail dialog (details with edit, contacts, deals, tickets, infrastructure profile tabs), status/priority/segment filters
 5. **Opportunities** — Kanban pipeline + list view toggle
 6. **Quotes** — List + detail + quote builder wizard (Marina Solution / Professional Services)
 7. **Tickets** — Board (kanban) + list view toggle, detail with internal notes + resolution

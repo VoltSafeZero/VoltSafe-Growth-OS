@@ -79,13 +79,51 @@ export const leads = pgTable("leads", {
 export const accounts = pgTable("accounts", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  legalName: text("legal_name"),
+  website: text("website"),
   address: text("address"),
+
+  marinaType: text("marina_type"),
+  ownershipType: text("ownership_type"),
+  parentCompany: text("parent_company"),
+
+  streetAddress: text("street_address"),
+  city: text("city"),
+  stateProvince: text("state_province"),
+  postalZip: text("postal_zip"),
+  country: text("country"),
   region: text("region"),
   timezone: text("timezone"),
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
+
   slipCount: integer("slip_count"),
   segment: text("segment").notNull().default("marina"),
+  slipMix: text("slip_mix"),
+  avgBoatSizeRange: text("avg_boat_size_range"),
+  powerDemandIntensity: text("power_demand_intensity"),
+  seasonality: text("seasonality"),
+  expansionPlans: boolean("expansion_plans").default(false),
+  expansionNotes: text("expansion_notes"),
+
+  leadSource: text("lead_source"),
+  leadStatus: text("lead_status").notNull().default("new"),
+  priority: text("priority").notNull().default("medium"),
+
+  assignedToUserId: integer("assigned_to_user_id"),
+  betaTester: boolean("beta_tester").default(false),
+  pilotCandidateScore: integer("pilot_candidate_score"),
+  redFlags: text("red_flags"),
+
+  lastInteractionAt: timestamp("last_interaction_at"),
+  nextAction: text("next_action"),
+  nextActionAt: timestamp("next_action_at"),
+  nextActionOwnerUserId: integer("next_action_owner_user_id"),
+
+  notesSummary: text("notes_summary"),
   tags: text("tags"),
   notes: text("notes"),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -94,11 +132,20 @@ export const contacts = pgTable("contacts", {
   id: serial("id").primaryKey(),
   accountId: integer("account_id").notNull(),
   name: text("name").notNull(),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
   title: text("title"),
   email: text("email"),
   phone: text("phone"),
   persona: text("persona"),
+  roleType: text("role_type"),
+  preferredContactMethod: text("preferred_contact_method"),
+  linkedinUrl: text("linkedin_url"),
+  relationshipStrength: text("relationship_strength"),
+  isPrimary: boolean("is_primary").default(false),
+  notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const opportunities = pgTable("opportunities", {
@@ -223,8 +270,12 @@ export const activities = pgTable("activities", {
   linkedObjectType: text("linked_object_type").notNull(),
   linkedObjectId: integer("linked_object_id").notNull(),
   type: text("type").notNull(),
+  subject: text("subject"),
   summary: text("summary").notNull(),
+  outcome: text("outcome"),
+  attendees: text("attendees"),
   rawContent: text("raw_content"),
+  contactId: integer("contact_id"),
   createdBy: integer("created_by"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   gmailThreadId: text("gmail_thread_id"),
@@ -235,11 +286,13 @@ export const tasks = pgTable("tasks", {
   id: serial("id").primaryKey(),
   linkedObjectType: text("linked_object_type"),
   linkedObjectId: integer("linked_object_id"),
+  accountId: integer("account_id"),
   ownerUserId: integer("owner_user_id"),
   title: text("title").notNull(),
   description: text("description"),
   dueDate: timestamp("due_date"),
   status: text("status").notNull().default("pending"),
+  priority: text("priority").notNull().default("medium"),
   aiSuggested: boolean("ai_suggested").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -270,6 +323,42 @@ export const campaignDrafts = pgTable("campaign_drafts", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const infrastructureProfiles = pgTable("infrastructure_profiles", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id").notNull(),
+
+  existingPedestalBrands: text("existing_pedestal_brands"),
+  pedestalAgeAvgYears: real("pedestal_age_avg_years"),
+  pedestalAgeOldestYears: real("pedestal_age_oldest_years"),
+
+  powerPerSlip: text("power_per_slip"),
+  pctSlips30a: real("pct_slips_30a"),
+  pctSlips50a: real("pct_slips_50a"),
+  voltageTypes: text("voltage_types"),
+
+  meteringToday: text("metering_today"),
+  billingMethod: text("billing_method"),
+  leakageDetection: text("leakage_detection"),
+  breakerTripPain: text("breaker_trip_pain"),
+
+  knownFailureModes: text("known_failure_modes"),
+  recentIncidents: text("recent_incidents"),
+
+  complianceJurisdiction: text("compliance_jurisdiction"),
+  compliancePressure: text("compliance_pressure"),
+  complianceDeadline: text("compliance_deadline"),
+  inspectionNotes: text("inspection_notes"),
+
+  marinaManagementSoftware: text("marina_management_software"),
+  accountingSystem: text("accounting_system"),
+  paymentProvider: text("payment_provider"),
+  wifiMaturity: text("wifi_maturity"),
+  itContactName: text("it_contact_name"),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const insertMetricSchema = createInsertSchema(metrics).omit({ id: true });
 export const insertSaleSchema = createInsertSchema(sales).omit({ id: true });
 export const insertChartDataSchema = createInsertSchema(chartData).omit({ id: true });
@@ -277,7 +366,7 @@ export const insertMarinaSchema = createInsertSchema(marinas).omit({ id: true })
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, lastLogin: true, password: true, mustChangePassword: true });
 export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertAccountSchema = createInsertSchema(accounts).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertContactSchema = createInsertSchema(contacts).omit({ id: true, createdAt: true });
+export const insertContactSchema = createInsertSchema(contacts).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertOpportunitySchema = createInsertSchema(opportunities).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertDealStageHistorySchema = createInsertSchema(dealStageHistory).omit({ id: true, changedAt: true });
 export const insertTicketSchema = createInsertSchema(tickets).omit({ id: true, createdAt: true, updatedAt: true });
@@ -288,6 +377,7 @@ export const insertActivitySchema = createInsertSchema(activities).omit({ id: tr
 export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertCommunicationListSchema = createInsertSchema(communicationLists).omit({ id: true, createdAt: true });
 export const insertCampaignDraftSchema = createInsertSchema(campaignDrafts).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertInfrastructureProfileSchema = createInsertSchema(infrastructureProfiles).omit({ id: true, createdAt: true, updatedAt: true });
 
 export type Metric = typeof metrics.$inferSelect;
 export type InsertMetric = z.infer<typeof insertMetricSchema>;
@@ -325,6 +415,8 @@ export type CommunicationList = typeof communicationLists.$inferSelect;
 export type InsertCommunicationList = z.infer<typeof insertCommunicationListSchema>;
 export type CampaignDraft = typeof campaignDrafts.$inferSelect;
 export type InsertCampaignDraft = z.infer<typeof insertCampaignDraftSchema>;
+export type InfrastructureProfile = typeof infrastructureProfiles.$inferSelect;
+export type InsertInfrastructureProfile = z.infer<typeof insertInfrastructureProfileSchema>;
 
 export const webauthnCredentials = pgTable("webauthn_credentials", {
   id: serial("id").primaryKey(),

@@ -4,6 +4,7 @@ import {
   leads, accounts, contacts, opportunities, dealStageHistory,
   tickets, quotes, quoteLineItems, servicesEstimates,
   activities, tasks, communicationLists, campaignDrafts,
+  infrastructureProfiles,
   type Metric, type Sale, type ChartData, type Marina,
   type Lead, type InsertLead,
   type Account, type InsertAccount,
@@ -18,6 +19,7 @@ import {
   type Task, type InsertTask,
   type CommunicationList, type InsertCommunicationList,
   type CampaignDraft, type InsertCampaignDraft,
+  type InfrastructureProfile, type InsertInfrastructureProfile,
 } from "@shared/schema";
 import { ilike, eq, or, sql, asc, desc, and, type AnyColumn } from "drizzle-orm";
 
@@ -52,7 +54,7 @@ export interface IStorage {
   getLeadStates(): Promise<string[]>;
   importMarinasAsLeads(): Promise<number>;
 
-  getAccounts(options?: { search?: string; segment?: string; page?: number; limit?: number }): Promise<{ data: Account[]; total: number; page: number; totalPages: number }>;
+  getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; page?: number; limit?: number }): Promise<{ data: Account[]; total: number; page: number; totalPages: number }>;
   getAccount(id: number): Promise<Account | undefined>;
   createAccount(data: InsertAccount): Promise<Account>;
   updateAccount(id: number, data: Partial<InsertAccount>): Promise<Account | undefined>;
@@ -109,6 +111,9 @@ export interface IStorage {
   getCampaignDraft(id: number): Promise<CampaignDraft | undefined>;
   createCampaignDraft(data: InsertCampaignDraft): Promise<CampaignDraft>;
   updateCampaignDraft(id: number, data: Partial<InsertCampaignDraft>): Promise<CampaignDraft | undefined>;
+
+  getInfrastructureProfile(accountId: number): Promise<InfrastructureProfile | undefined>;
+  upsertInfrastructureProfile(accountId: number, data: Partial<InsertInfrastructureProfile>): Promise<InfrastructureProfile>;
 
   getDashboardSummary(): Promise<{
     totalLeads: number;
@@ -283,7 +288,7 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async getAccounts(options?: { search?: string; segment?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
+  async getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -292,11 +297,19 @@ export class DatabaseStorage implements IStorage {
     if (options?.search) {
       conditions.push(or(
         ilike(accounts.name, `%${options.search}%`),
-        ilike(accounts.region, `%${options.search}%`)
+        ilike(accounts.region, `%${options.search}%`),
+        ilike(accounts.city, `%${options.search}%`),
+        ilike(accounts.stateProvince, `%${options.search}%`)
       ));
     }
     if (options?.segment) {
       conditions.push(eq(accounts.segment, options.segment));
+    }
+    if (options?.leadStatus) {
+      conditions.push(eq(accounts.leadStatus, options.leadStatus));
+    }
+    if (options?.priority) {
+      conditions.push(eq(accounts.priority, options.priority));
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -596,6 +609,27 @@ export class DatabaseStorage implements IStorage {
   async updateCampaignDraft(id: number, data: Partial<InsertCampaignDraft>) {
     const result = await db.update(campaignDrafts).set({ ...data, updatedAt: new Date() }).where(eq(campaignDrafts.id, id)).returning();
     return result[0];
+  }
+
+  async getInfrastructureProfile(accountId: number) {
+    const result = await db.select().from(infrastructureProfiles).where(eq(infrastructureProfiles.accountId, accountId));
+    return result[0];
+  }
+
+  async upsertInfrastructureProfile(accountId: number, data: Partial<InsertInfrastructureProfile>) {
+    const existing = await this.getInfrastructureProfile(accountId);
+    if (existing) {
+      const result = await db.update(infrastructureProfiles)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(infrastructureProfiles.accountId, accountId))
+        .returning();
+      return result[0];
+    } else {
+      const result = await db.insert(infrastructureProfiles)
+        .values({ ...data, accountId })
+        .returning();
+      return result[0];
+    }
   }
 
   async getDashboardSummary() {
