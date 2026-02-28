@@ -89,11 +89,11 @@ export default function QuotesPage() {
   });
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight" data-testid="text-page-title">Quotes</h1>
-          <p className="text-muted-foreground mt-1">Generate and manage quotes for marinas and professional services.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Quotes</h1>
+          <p className="text-muted-foreground mt-1 text-sm">Generate and manage quotes for marinas and professional services.</p>
         </div>
         <div className="flex items-center gap-2">
           <ExportButton
@@ -118,7 +118,7 @@ export default function QuotesPage() {
 
       <div className="flex gap-3">
         <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); }}>
-          <SelectTrigger className="w-40" data-testid="select-quote-status">
+          <SelectTrigger className="w-full sm:w-40" data-testid="select-quote-status">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
@@ -136,27 +136,27 @@ export default function QuotesPage() {
         <div className="space-y-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div>
       ) : (
         <Card className="border-border/50">
-          <CardContent className="p-0">
-            <table className="w-full">
+          <CardContent className="p-0 overflow-x-auto">
+            <table className="w-full min-w-[500px]">
               <thead>
                 <tr className="border-b border-border/50">
                   <SortableHeader label="Quote #" sortKey="quoteNumber" sort={sort} onSort={handleSort} />
-                  <SortableHeader label="Type" sortKey="quoteType" sort={sort} onSort={handleSort} />
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Account</th>
+                  <SortableHeader label="Type" sortKey="quoteType" sort={sort} onSort={handleSort} className="hidden md:table-cell" />
+                  <th className="text-left p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden lg:table-cell">Account</th>
                   <SortableHeader label="Status" sortKey="status" sort={sort} onSort={handleSort} />
                   <SortableHeader label="Total" sortKey="total" sort={sort} onSort={handleSort} align="right" />
-                  <SortableHeader label="Created" sortKey="createdAt" sort={sort} onSort={handleSort} />
+                  <SortableHeader label="Created" sortKey="createdAt" sort={sort} onSort={handleSort} className="hidden sm:table-cell" />
                 </tr>
               </thead>
               <tbody>
                 {allQuotes.map(quote => (
                   <tr key={quote.id} className="border-b border-border/30 hover:bg-muted/30 cursor-pointer" onClick={() => setSelectedQuote(quote.id)} data-testid={`row-quote-${quote.id}`}>
-                    <td className="p-4 font-medium font-mono text-sm">{quote.quoteNumber}</td>
-                    <td className="p-4 text-sm text-muted-foreground">{quote.quoteType === "marina_solution" ? "Marina Solution" : "Professional Services"}</td>
-                    <td className="p-4 text-sm">{accountMap.get(quote.accountId!) || "—"}</td>
-                    <td className="p-4"><Badge variant="outline" className={statusColors[quote.status] || ""}>{quote.status}</Badge></td>
-                    <td className="p-4 text-right font-medium">${quote.total?.toLocaleString() || "0"}</td>
-                    <td className="p-4 text-sm text-muted-foreground">{new Date(quote.createdAt).toLocaleDateString()}</td>
+                    <td className="p-3 sm:p-4 font-medium font-mono text-sm">{quote.quoteNumber}</td>
+                    <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden md:table-cell">{quote.quoteType === "marina_solution" ? "Marina Solution" : "Professional Services"}</td>
+                    <td className="p-3 sm:p-4 text-sm hidden lg:table-cell">{accountMap.get(quote.accountId!) || "—"}</td>
+                    <td className="p-3 sm:p-4"><Badge variant="outline" className={statusColors[quote.status] || ""}>{quote.status}</Badge></td>
+                    <td className="p-3 sm:p-4 text-right font-medium">${quote.total?.toLocaleString() || "0"}</td>
+                    <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden sm:table-cell">{new Date(quote.createdAt).toLocaleDateString()}</td>
                   </tr>
                 ))}
                 {allQuotes.length === 0 && (

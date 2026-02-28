@@ -76,11 +76,11 @@ export default function AccountsPage() {
   });
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight" data-testid="text-page-title">Accounts</h1>
-          <p className="text-muted-foreground mt-1">Manage marinas and corporate accounts.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Accounts</h1>
+          <p className="text-muted-foreground mt-1 text-sm">Manage marinas and corporate accounts.</p>
         </div>
         <div className="flex items-center gap-2">
           <ExportButton
@@ -104,13 +104,13 @@ export default function AccountsPage() {
         </div>
       </div>
 
-      <div className="flex gap-3">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex gap-2 sm:gap-3 flex-wrap">
+        <div className="relative w-full sm:flex-1 sm:max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Search accounts..." value={search} onChange={(e) => { setSearch(e.target.value); }} className="pl-10" data-testid="input-search-accounts" />
         </div>
         <Select value={segmentFilter} onValueChange={(v) => { setSegmentFilter(v); }}>
-          <SelectTrigger className="w-40" data-testid="select-segment-filter">
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-40" data-testid="select-segment-filter">
             <SelectValue placeholder="Segment" />
           </SelectTrigger>
           <SelectContent>
@@ -122,7 +122,7 @@ export default function AccountsPage() {
           </SelectContent>
         </Select>
         <Select value={sortOption} onValueChange={setSortOption}>
-          <SelectTrigger className="w-44" data-testid="select-sort">
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-sort">
             <ArrowUpDown className="mr-2 h-4 w-4" />
             <SelectValue placeholder="Sort by..." />
           </SelectTrigger>

@@ -79,10 +79,10 @@ export default function MarinasPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 p-6 md:p-8 pt-6 max-w-7xl mx-auto w-full animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="flex flex-col gap-4 sm:gap-6 p-4 sm:p-6 md:p-8 pt-4 sm:pt-6 max-w-7xl mx-auto w-full animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight" data-testid="text-marinas-title">Marinas</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-marinas-title">Marinas</h1>
           <p className="text-muted-foreground mt-1">
             {totalCount > 0 ? `${totalCount.toLocaleString()} marinas across the USA & Canada` : "Loading..."}
           </p>

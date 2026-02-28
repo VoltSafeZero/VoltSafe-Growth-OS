@@ -201,11 +201,11 @@ export default function OpportunitiesPage() {
   const overdueCount = data?.data?.filter(d => d.nextStepDueDate && isOverdue(d.nextStepDueDate) && !["closed_won", "closed_lost"].includes(d.stage)).length || 0;
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight" data-testid="text-page-title">Deals Pipeline</h1>
-          <div className="flex items-center gap-4 mt-1">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Deals Pipeline</h1>
+          <div className="flex flex-wrap items-center gap-2 sm:gap-4 mt-1">
             <span className="text-muted-foreground text-sm">{data?.total || 0} deals</span>
             <span className="text-sm font-medium text-primary flex items-center gap-1">
               <DollarSign className="h-3.5 w-3.5" />{pipelineTotal.toLocaleString()} pipeline
@@ -222,7 +222,7 @@ export default function OpportunitiesPage() {
             )}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <div className="flex border border-border/50 rounded-lg overflow-hidden">
             <Button variant={viewMode === "kanban" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("kanban")} data-testid="button-kanban-view">
               <Columns3 className="h-4 w-4" />

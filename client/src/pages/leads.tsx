@@ -201,15 +201,15 @@ export default function LeadsPage() {
   });
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight" data-testid="text-page-title">Leads Pipeline</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Leads Pipeline</h1>
+          <p className="text-muted-foreground mt-1 text-sm">
             {totalCount > 0 ? `${totalCount.toLocaleString()} leads` : "Manage your sales pipeline"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <ExportButton
             endpoint={`/api/leads/export?${new URLSearchParams({
               ...(search ? { search } : {}),
@@ -227,12 +227,13 @@ export default function LeadsPage() {
             data-testid="button-import-marinas"
           >
             <Download className="mr-2 h-4 w-4" />
-            {importMutation.isPending ? "Importing..." : "Import Marinas"}
+            <span className="hidden sm:inline">{importMutation.isPending ? "Importing..." : "Import Marinas"}</span>
+            <span className="sm:hidden">{importMutation.isPending ? "..." : "Import"}</span>
           </Button>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
               <Button className="bg-primary text-primary-foreground" data-testid="button-create-lead">
-                <Plus className="mr-2 h-4 w-4" /> New Lead
+                <Plus className="mr-2 h-4 w-4" /> <span className="hidden sm:inline">New Lead</span><span className="sm:hidden">New</span>
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-md">
@@ -245,8 +246,8 @@ export default function LeadsPage() {
         </div>
       </div>
 
-      <div className="flex gap-3 flex-wrap items-center">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex gap-2 sm:gap-3 flex-wrap items-center">
+        <div className="relative w-full sm:flex-1 sm:max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search leads by name, city, state..."
@@ -257,7 +258,7 @@ export default function LeadsPage() {
           />
         </div>
         <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); }}>
-          <SelectTrigger className="w-44" data-testid="select-status-filter">
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-status-filter">
             <SelectValue placeholder="Stage" />
           </SelectTrigger>
           <SelectContent>
@@ -268,7 +269,7 @@ export default function LeadsPage() {
           </SelectContent>
         </Select>
         <Select value={countryFilter} onValueChange={(v) => { setCountryFilter(v); setStateFilter("all"); }}>
-          <SelectTrigger className="w-40" data-testid="select-country-filter">
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-40" data-testid="select-country-filter">
             <SelectValue placeholder="Country" />
           </SelectTrigger>
           <SelectContent>
@@ -279,7 +280,7 @@ export default function LeadsPage() {
           </SelectContent>
         </Select>
         <Select value={stateFilter} onValueChange={(v) => { setStateFilter(v); }}>
-          <SelectTrigger className="w-48" data-testid="select-state-filter">
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-48" data-testid="select-state-filter">
             <SelectValue placeholder={countryFilter === "CA" ? "Province" : "State"} />
           </SelectTrigger>
           <SelectContent>
@@ -324,43 +325,48 @@ export default function LeadsPage() {
       ) : (
         <>
           <Card className="border-border/50">
-            <CardContent className="p-0">
-              <table className="w-full">
+            <CardContent className="p-0 overflow-x-auto">
+              <table className="w-full min-w-[600px]">
                 <thead>
                   <tr className="border-b border-border/50">
                     <SortableHeader label="Marina / Company" sortKey="company" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Location" sortKey="state" sort={sort} onSort={handleSort} />
-                    <SortableHeader label="Contact" sortKey="contactName" sort={sort} onSort={handleSort} />
-                    <SortableHeader label="Slips" sortKey="slips" sort={sort} onSort={handleSort} />
+                    <SortableHeader label="Contact" sortKey="contactName" sort={sort} onSort={handleSort} className="hidden md:table-cell" />
+                    <SortableHeader label="Slips" sortKey="slips" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />
                     <SortableHeader label="Stage" sortKey="status" sort={sort} onSort={handleSort} />
-                    <SortableHeader label="Source" sortKey="source" sort={sort} onSort={handleSort} />
-                    <th className="text-right p-4 text-sm font-medium text-muted-foreground">Actions</th>
+                    <SortableHeader label="Source" sortKey="source" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />
+                    <th className="text-right p-3 sm:p-4 text-sm font-medium text-muted-foreground">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {allLeads.map((lead) => (
                     <tr key={lead.id} className="border-b border-border/30 hover:bg-muted/30 cursor-pointer" onClick={() => setSelectedLead(lead)} data-testid={`row-lead-${lead.id}`}>
-                      <td className="p-4">
+                      <td className="p-3 sm:p-4">
                         <div className="flex items-center gap-2">
                           {lead.marinaId && <Anchor className="h-4 w-4 text-primary shrink-0" />}
-                          <span className="font-medium">{lead.company}</span>
+                          <div className="min-w-0">
+                            <span className="font-medium block truncate max-w-[180px] sm:max-w-none">{lead.company}</span>
+                            <span className="text-xs text-muted-foreground md:hidden">
+                              {lead.city && lead.state ? `${lead.city}, ${lead.state}` : lead.state || ""}
+                            </span>
+                          </div>
                         </div>
                       </td>
-                      <td className="p-4 text-sm text-muted-foreground">
+                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden sm:table-cell">
                         {lead.city && lead.state ? `${lead.city}, ${lead.state}` : lead.state || "—"}
                       </td>
-                      <td className="p-4 text-sm">
+                      <td className="p-3 sm:p-4 text-sm hidden md:table-cell">
                         <div>{lead.contactName}</div>
                         {lead.contactPhone && <div className="text-muted-foreground text-xs">{lead.contactPhone}</div>}
                       </td>
-                      <td className="p-4 text-sm text-muted-foreground">{!lead.slips || lead.slips === "-" ? "Unknown" : lead.slips}</td>
-                      <td className="p-4">
-                        <Badge variant="outline" className={statusColors[lead.status] || ""} data-testid={`badge-status-${lead.id}`}>
+                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell">{!lead.slips || lead.slips === "-" ? "Unknown" : lead.slips}</td>
+                      <td className="p-3 sm:p-4">
+                        <Badge variant="outline" className={`text-xs ${statusColors[lead.status] || ""}`} data-testid={`badge-status-${lead.id}`}>
                           {getStageLabel(lead.status)}
                         </Badge>
                       </td>
-                      <td className="p-4 text-sm text-muted-foreground">{lead.source || "—"}</td>
-                      <td className="p-4 text-right">
+                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell">{lead.source || "—"}</td>
+                      <td className="p-3 sm:p-4 text-right">
                         {lead.status === "converted" ? (
                           <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); unconvertMutation.mutate(lead.id); }} data-testid={`button-unconvert-${lead.id}`} title="Revert to New Lead">
                             <Undo2 className="h-4 w-4" />
