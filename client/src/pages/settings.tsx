@@ -67,7 +67,17 @@ export default function SettingsPage() {
       fetchCredentials();
     } catch (e: any) {
       if (e.name === "NotAllowedError") {
-        toast({ title: "Cancelled", description: "Biometric registration was cancelled.", variant: "destructive" });
+        toast({
+          title: "Registration cancelled",
+          description: "The biometric prompt was dismissed. If you're using an embedded preview, try opening the app in a full browser tab instead.",
+          variant: "destructive",
+        });
+      } else if (e.name === "InvalidStateError") {
+        toast({
+          title: "Already registered",
+          description: "This device already has a biometric credential registered.",
+          variant: "destructive",
+        });
       } else {
         toast({ title: "Registration failed", description: e.message, variant: "destructive" });
       }
@@ -122,6 +132,9 @@ export default function SettingsPage() {
             </div>
           ) : (
             <>
+              <div className="text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2" data-testid="text-biometric-tip">
+                Tip: For best results, open the app in a full browser tab (not an embedded preview). Use Safari on iPhone/Mac, Chrome on Android, or Edge on Windows.
+              </div>
               <Button
                 onClick={handleRegister}
                 disabled={registering}
