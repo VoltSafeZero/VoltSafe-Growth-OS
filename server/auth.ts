@@ -44,6 +44,8 @@ declare module "express-session" {
     role: string;
     name: string;
     mustChangePassword: boolean;
+    webauthnRegChallenge: string;
+    webauthnAuthChallenge: string;
   }
 }
 

@@ -325,3 +325,16 @@ export type CommunicationList = typeof communicationLists.$inferSelect;
 export type InsertCommunicationList = z.infer<typeof insertCommunicationListSchema>;
 export type CampaignDraft = typeof campaignDrafts.$inferSelect;
 export type InsertCampaignDraft = z.infer<typeof insertCampaignDraftSchema>;
+
+export const webauthnCredentials = pgTable("webauthn_credentials", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  credentialId: text("credential_id").notNull().unique(),
+  publicKey: text("public_key").notNull(),
+  counter: integer("counter").notNull().default(0),
+  deviceName: text("device_name"),
+  transports: text("transports"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type WebAuthnCredential = typeof webauthnCredentials.$inferSelect;

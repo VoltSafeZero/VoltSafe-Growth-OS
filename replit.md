@@ -37,6 +37,7 @@ Dark mode by default.
 
 #### Authentication
 - **Session-based auth** — bcryptjs password hashing, express-session with PostgreSQL store (connect-pg-simple)
+- **WebAuthn biometric login** — Face ID / Touch ID / Windows Hello support via @simplewebauthn/server + @simplewebauthn/browser; session-based challenge storage; register on Settings page, use on Login page
 - **5 named users** — terri, scott, sanad, trevor, alex @voltsafe.com; initial password "alberni1444", force-change on first login
 - **Protected routes** — all `/api/*` endpoints require authentication via `requireAuth` middleware
 
@@ -63,6 +64,8 @@ Dark mode by default.
 **Dashboard:** `GET /api/dashboard/summary`
 
 **Auth:** `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/change-password`
+
+**WebAuthn:** `POST /api/webauthn/register-options`, `POST /api/webauthn/register-verify`, `POST /api/webauthn/auth-options`, `POST /api/webauthn/auth-verify`, `GET /api/webauthn/credentials`, `DELETE /api/webauthn/credentials/:id`
 
 **Leads:** `GET/POST /api/leads`, `GET/PUT/DELETE /api/leads/:id`, `POST /api/leads/:id/convert`, `POST /api/leads/import-marinas`, `GET /api/leads/states`
 

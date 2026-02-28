@@ -12,6 +12,11 @@ import {
 } from "@shared/schema";
 import { requireAuth, seedUsers, hashPassword, verifyPassword } from "./auth";
 import { toCsv, setCsvHeaders, type CsvColumn } from "./csv-export";
+import {
+  getRegistrationOptions, verifyRegistration,
+  getAuthenticationOptions, verifyAuthentication,
+  getUserCredentials, deleteCredential,
+} from "./webauthn";
 import { eq } from "drizzle-orm";
 
 export async function registerRoutes(
@@ -83,6 +88,72 @@ export async function registerRoutes(
 
     req.session.mustChangePassword = false;
     res.json({ message: "Password changed successfully" });
+  });
+
+  app.post("/api/webauthn/register-options", requireAuth, async (req, res) => {
+    try {
+      const options = await getRegistrationOptions(req.session.userId!, req);
+      res.json(options);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/webauthn/register-verify", requireAuth, async (req, res) => {
+    try {
+      const result = await verifyRegistration(req.session.userId!, req.body, req);
+      res.json(result);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/webauthn/auth-options", async (req, res) => {
+    try {
+      const options = await getAuthenticationOptions(req, req.body.email);
+      res.json(options);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/webauthn/auth-verify", async (req, res) => {
+    try {
+      const result = await verifyAuthentication(req.body, req);
+      if (!result.user) return res.status(401).json({ message: "Authentication failed" });
+
+      await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, result.user.id));
+
+      req.session.userId = result.user.id;
+      req.session.email = result.user.email;
+      req.session.role = result.user.role;
+      req.session.name = result.user.name;
+      req.session.mustChangePassword = result.user.mustChangePassword;
+
+      res.json({
+        id: result.user.id,
+        name: result.user.name,
+        email: result.user.email,
+        role: result.user.role,
+        mustChangePassword: result.user.mustChangePassword,
+      });
+    } catch (e: any) {
+      res.status(401).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/webauthn/credentials", requireAuth, async (req, res) => {
+    const creds = await getUserCredentials(req.session.userId!);
+    res.json(creds);
+  });
+
+  app.delete("/api/webauthn/credentials/:id", requireAuth, async (req, res) => {
+    try {
+      await deleteCredential(req.session.userId!, Number(req.params.id));
+      res.json({ deleted: true });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
   });
 
   app.use("/api/metrics", requireAuth);

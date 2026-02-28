@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Anchor, LogIn, Eye, EyeOff } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { Anchor, LogIn, Eye, EyeOff, Fingerprint, Loader2 } from "lucide-react";
+import { startAuthentication } from "@simplewebauthn/browser";
 
 type AuthUser = {
   id: number;
@@ -19,6 +21,20 @@ export default function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => vo
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [biometricLoading, setBiometricLoading] = useState(false);
+  const [biometricSupported, setBiometricSupported] = useState(false);
+
+  useEffect(() => {
+    if (
+      typeof window !== "undefined" &&
+      window.PublicKeyCredential &&
+      typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === "function"
+    ) {
+      PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(
+        (available) => setBiometricSupported(available)
+      );
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,6 +63,46 @@ export default function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => vo
     }
   };
 
+  const handleBiometricLogin = async () => {
+    setError("");
+    setBiometricLoading(true);
+
+    try {
+      const optionsRes = await fetch("/api/webauthn/auth-options", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!optionsRes.ok) throw new Error("Failed to get authentication options");
+      const options = await optionsRes.json();
+
+      const authentication = await startAuthentication({ optionsJSON: options });
+
+      const verifyRes = await fetch("/api/webauthn/auth-verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(authentication),
+      });
+
+      const data = await verifyRes.json();
+      if (!verifyRes.ok) {
+        setError(data.message || "Biometric authentication failed");
+        return;
+      }
+
+      onLogin(data);
+    } catch (e: any) {
+      if (e.name === "NotAllowedError") {
+        setError("Biometric authentication was cancelled.");
+      } else {
+        setError(e.message || "Biometric authentication failed. Please use your password.");
+      }
+    } finally {
+      setBiometricLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-sm border-border/50 bg-card/80 backdrop-blur-sm">
@@ -61,7 +117,33 @@ export default function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => vo
           </CardTitle>
           <p className="text-sm text-muted-foreground mt-1">Sign in to your CMS account</p>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {biometricSupported && (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full border-primary/30 hover:border-primary/60"
+                onClick={handleBiometricLogin}
+                disabled={biometricLoading}
+                data-testid="button-biometric-login"
+              >
+                {biometricLoading ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Verifying...</>
+                ) : (
+                  <><Fingerprint className="mr-2 h-4 w-4" /> Sign in with Face ID / Biometric</>
+                )}
+              </Button>
+
+              <div className="relative">
+                <Separator />
+                <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-3 text-xs text-muted-foreground">
+                  or use password
+                </span>
+              </div>
+            </>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <Label>Email</Label>
@@ -71,7 +153,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => vo
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@voltsafe.com"
                 required
-                autoFocus
+                autoFocus={!biometricSupported}
                 data-testid="input-login-email"
               />
             </div>
