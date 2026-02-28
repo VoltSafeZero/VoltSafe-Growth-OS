@@ -25,6 +25,18 @@ function getSortOrder(column: AnyColumn, order: string) {
   return order === "asc" ? asc(column) : desc(column);
 }
 
+const CA_PROVINCES = new Set([
+  "Alberta", "British Columbia", "Manitoba", "New Brunswick",
+  "Newfoundland and Labrador", "Northwest Territories", "Nova Scotia",
+  "Nunavut", "Ontario", "Prince Edward Island", "Quebec",
+  "Saskatchewan", "Yukon",
+]);
+
+function detectCountryFromState(state: string | null | undefined): string {
+  if (!state) return "US";
+  return CA_PROVINCES.has(state) ? "CA" : "US";
+}
+
 export interface IStorage {
   getMetrics(): Promise<Metric[]>;
   getSales(): Promise<Sale[]>;
@@ -237,7 +249,7 @@ export class DatabaseStorage implements IStorage {
         source: "marina_directory",
         status: "new",
         marinaId: m.id,
-        country: "US",
+        country: detectCountryFromState(m.state) || "US",
         state: m.state,
         city: m.city,
         slips: m.slips || undefined,
