@@ -39,7 +39,7 @@ export default function Dashboard() {
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6" data-testid="dashboard-page">
       <div>
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Dashboard</h1>
-        <p className="text-muted-foreground mt-1 text-sm">VoltSafe Marine operations overview.</p>
+        <p className="text-muted-foreground mt-1 text-sm">VoltSafe Cortex operations overview.</p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

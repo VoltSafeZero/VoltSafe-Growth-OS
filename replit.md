@@ -2,7 +2,7 @@
 
 ## Overview
 
-VoltSafe CMS — a dark-themed internal Central Management System for VoltSafe Marine, built with React (frontend) and Express (backend). The app features a sales pipeline (Leads → Accounts → Opportunities → Quotes), support ticketing, marina directory (~10,800 US & Canadian marinas), communications management, and an analytics dashboard. PostgreSQL database with Drizzle ORM. Teal/cyan brand color (HSL 174 100% 40%) on dark navy backgrounds.
+VoltSafe Cortex — a dark-themed internal Central Management System for VoltSafe, built with React (frontend) and Express (backend). The app features a sales pipeline (Leads → Accounts → Opportunities → Quotes), support ticketing, marina directory (~10,800 US & Canadian marinas), communications management, and an analytics dashboard. PostgreSQL database with Drizzle ORM. Teal/cyan brand color (HSL 174 100% 40%) on dark navy backgrounds.
 
 ## User Preferences
 

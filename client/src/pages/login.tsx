@@ -113,7 +113,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => vo
             </div>
           </div>
           <CardTitle className="text-2xl font-bold">
-            VoltSafe <span className="text-primary">Marine</span>
+            VoltSafe <span className="text-primary">Cortex</span>
           </CardTitle>
           <p className="text-sm text-muted-foreground mt-1">Sign in to your CMS account</p>
         </CardHeader>

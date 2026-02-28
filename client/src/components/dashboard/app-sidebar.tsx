@@ -70,7 +70,7 @@ export function AppSidebar() {
           <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
             <Anchor className="w-4 h-4 text-primary-foreground" />
           </div>
-          <span>VoltSafe <span className="text-primary">CMS</span></span>
+          <span>VoltSafe <span className="text-primary">Cortex</span></span>
         </div>
       </SidebarHeader>
       <SidebarContent>
