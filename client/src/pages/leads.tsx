@@ -530,18 +530,23 @@ function LeadDetailDialog({
             </Select>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            {(lead.city || lead.state) && (
-              <div>
-                <Label className="text-xs text-muted-foreground">Location</Label>
-                <p className="text-sm font-medium flex items-center gap-1">
-                  <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
-                  {[lead.city, lead.state, lead.country].filter(Boolean).join(", ")}
-                </p>
-                {lead.streetAddress && <p className="text-xs text-muted-foreground mt-0.5">{lead.streetAddress}</p>}
-                {lead.zipCode && <p className="text-xs text-muted-foreground">{lead.zipCode}</p>}
+          {(lead.streetAddress || lead.city || lead.state) && (
+            <div className="rounded-lg border border-border/50 p-3" data-testid="lead-address">
+              <Label className="text-xs text-muted-foreground mb-1 block">Address</Label>
+              <div className="flex items-start gap-2">
+                <MapPin className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                <div className="text-sm">
+                  {lead.streetAddress && <p className="font-medium">{lead.streetAddress}</p>}
+                  <p className="text-muted-foreground">
+                    {[lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ")}
+                    {lead.country && <span className="ml-1">{lead.country === "CA" ? "Canada" : lead.country === "US" ? "USA" : lead.country}</span>}
+                  </p>
+                </div>
               </div>
-            )}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <Label className="text-xs text-muted-foreground">Contact</Label>
               <p className="text-sm font-medium">{lead.contactName}</p>
