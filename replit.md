@@ -2,7 +2,7 @@
 
 ## Overview
 
-VoltSafe CMS — a dark-themed internal Central Management System for VoltSafe Marine, built with React (frontend) and Express (backend). The app features a sales pipeline (Leads → Accounts → Opportunities → Quotes), support ticketing, marina directory (~10,000 US marinas), communications management, and an analytics dashboard. PostgreSQL database with Drizzle ORM. Teal/cyan brand color (HSL 174 100% 40%) on dark navy backgrounds.
+VoltSafe CMS — a dark-themed internal Central Management System for VoltSafe Marine, built with React (frontend) and Express (backend). The app features a sales pipeline (Leads → Accounts → Opportunities → Quotes), support ticketing, marina directory (~10,800 US & Canadian marinas), communications management, and an analytics dashboard. PostgreSQL database with Drizzle ORM. Teal/cyan brand color (HSL 174 100% 40%) on dark navy backgrounds.
 
 ## User Preferences
 
@@ -41,7 +41,7 @@ Dark mode by default.
 - **Protected routes** — all `/api/*` endpoints require authentication via `requireAuth` middleware
 
 #### Sales Module
-- **Leads** — Marina directory import (~10,000 US marinas), HubSpot-style pipeline stages (New → Contacted → Meeting Scheduled → Qualified → Proposal Sent → Negotiation → Closed Won / Closed Lost), list + kanban pipeline view, search by name/city/state, filter by stage and state, convert to Account
+- **Leads** — Marina directory import (~10,800 US & Canadian marinas), HubSpot-style pipeline stages (New → Contacted → Meeting Scheduled → Qualified → Proposal Sent → Negotiation → Closed Won / Closed Lost), list + kanban pipeline view, search by name/city/state, filter by stage and state, convert to Account
 - **Accounts** — Marina/Corp accounts with contacts, linked opportunities, tickets
 - **Contacts** — Linked to accounts, persona-based (owner, GM, harbourmaster, etc.)
 - **Opportunities** — Pipeline kanban (Prospecting → Closed Won/Lost), value breakdown (hardware/software/services)
@@ -111,7 +111,7 @@ Dark mode by default.
 
 ### UI Pages
 1. **Dashboard** — CMS summary (leads, deals, tickets, quotes counts + overdue tasks alert + activity feed)
-2. **Marinas** — Searchable directory of ~10,000 US marinas
+2. **Marinas** — Searchable directory of ~10,800 US & Canadian marinas
 3. **Leads** — List with search, status filter, create/convert/delete
 4. **Accounts** — Card grid with detail dialog (contacts, opportunities, tickets tabs)
 5. **Opportunities** — Kanban pipeline + list view toggle

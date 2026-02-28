@@ -84,7 +84,7 @@ export default function MarinasPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight" data-testid="text-marinas-title">Marinas</h1>
           <p className="text-muted-foreground mt-1">
-            {totalCount > 0 ? `${totalCount.toLocaleString()} marinas across the USA` : "Loading..."}
+            {totalCount > 0 ? `${totalCount.toLocaleString()} marinas across the USA & Canada` : "Loading..."}
           </p>
         </div>
         <ExportButton
@@ -101,7 +101,7 @@ export default function MarinasPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             data-testid="input-marina-search"
-            placeholder="Search by name, city, or state..."
+            placeholder="Search by name, city, state/province..."
             className="pl-9"
             value={search}
             onChange={(e) => handleSearch(e.target.value)}
@@ -109,10 +109,10 @@ export default function MarinasPage() {
         </div>
         <Select value={state} onValueChange={handleStateChange}>
           <SelectTrigger className="w-full sm:w-[200px]" data-testid="select-state-filter">
-            <SelectValue placeholder="All States" />
+            <SelectValue placeholder="All States/Provinces" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All States</SelectItem>
+            <SelectItem value="all">All States/Provinces</SelectItem>
             {states?.map((s) => (
               <SelectItem key={s} value={s}>{s}</SelectItem>
             ))}
