@@ -61,13 +61,13 @@
     --input: 210 12% 16%;
     --ring: 174 100% 40%;
 
-    --sidebar-background: 210 25% 5%;
+    --sidebar-background: 210 25% 8%;
     --sidebar-foreground: 192 15% 85%;
     --sidebar-primary: 174 100% 40%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 210 18% 12%;
+    --sidebar-accent: 210 18% 14%;
     --sidebar-accent-foreground: 192 15% 90%;
-    --sidebar-border: 210 15% 12%;
+    --sidebar-border: 210 15% 16%;
     --sidebar-ring: 174 100% 40%;
     
     --elevate-1: rgba(255, 255, 255, 0.04);
