@@ -4,7 +4,7 @@ import {
   leads, accounts, contacts, opportunities, dealStageHistory,
   tickets, quotes, quoteLineItems, servicesEstimates,
   activities, tasks, communicationLists, campaignDrafts,
-  infrastructureProfiles,
+  infrastructureProfiles, comments, users,
   type Metric, type Sale, type ChartData, type Marina,
   type Lead, type InsertLead,
   type Account, type InsertAccount,
@@ -20,6 +20,8 @@ import {
   type CommunicationList, type InsertCommunicationList,
   type CampaignDraft, type InsertCampaignDraft,
   type InfrastructureProfile, type InsertInfrastructureProfile,
+  type Comment, type InsertComment,
+  type User,
 } from "@shared/schema";
 import { ilike, eq, or, sql, asc, desc, and, type AnyColumn } from "drizzle-orm";
 
@@ -114,6 +116,24 @@ export interface IStorage {
 
   getInfrastructureProfile(accountId: number): Promise<InfrastructureProfile | undefined>;
   upsertInfrastructureProfile(accountId: number, data: Partial<InsertInfrastructureProfile>): Promise<InfrastructureProfile>;
+
+  getComments(objectType: string, objectId: number): Promise<Comment[]>;
+  createComment(data: InsertComment): Promise<Comment>;
+
+  getUsers(): Promise<Pick<User, 'id' | 'name' | 'email'>[]>;
+
+  getTeamWorkload(): Promise<{
+    userId: number;
+    userName: string;
+    userEmail: string;
+    assignedLeads: number;
+    assignedAccounts: number;
+    openTasks: number;
+    overdueTasks: number;
+    tasks: Task[];
+    leadsList: { id: number; company: string; status: string; dueDate: Date | null }[];
+    accountsList: { id: number; name: string; nextAction: string | null; nextActionAt: Date | null }[];
+  }[]>;
 
   getDashboardSummary(): Promise<{
     totalLeads: number;
@@ -630,6 +650,59 @@ export class DatabaseStorage implements IStorage {
         .returning();
       return result[0];
     }
+  }
+
+  async getComments(objectType: string, objectId: number) {
+    return await db.select().from(comments)
+      .where(and(eq(comments.objectType, objectType), eq(comments.objectId, objectId)))
+      .orderBy(desc(comments.createdAt));
+  }
+
+  async createComment(data: InsertComment) {
+    const result = await db.insert(comments).values(data).returning();
+    return result[0];
+  }
+
+  async getUsers(): Promise<Pick<User, 'id' | 'name' | 'email'>[]> {
+    return await db.select({ id: users.id, name: users.name, email: users.email }).from(users).orderBy(asc(users.name));
+  }
+
+  async getTeamWorkload() {
+    const allUsers = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).orderBy(asc(users.name));
+
+    const results = await Promise.all(allUsers.map(async (user) => {
+      const [userLeads, userAccounts, userTasks] = await Promise.all([
+        db.select({ id: leads.id, company: leads.company, status: leads.status, dueDate: leads.dueDate })
+          .from(leads)
+          .where(eq(leads.ownerUserId, user.id))
+          .orderBy(asc(leads.dueDate)),
+        db.select({ id: accounts.id, name: accounts.name, nextAction: accounts.nextAction, nextActionAt: accounts.nextActionAt })
+          .from(accounts)
+          .where(eq(accounts.assignedToUserId, user.id))
+          .orderBy(asc(accounts.nextActionAt)),
+        db.select().from(tasks)
+          .where(and(eq(tasks.ownerUserId, user.id), sql`${tasks.status} != 'completed'`))
+          .orderBy(asc(tasks.dueDate)),
+      ]);
+
+      const now = new Date();
+      const overdueTasks = userTasks.filter(t => t.dueDate && new Date(t.dueDate) < now).length;
+
+      return {
+        userId: user.id,
+        userName: user.name,
+        userEmail: user.email,
+        assignedLeads: userLeads.length,
+        assignedAccounts: userAccounts.length,
+        openTasks: userTasks.length,
+        overdueTasks,
+        tasks: userTasks,
+        leadsList: userLeads,
+        accountsList: userAccounts,
+      };
+    }));
+
+    return results;
   }
 
   async getDashboardSummary() {

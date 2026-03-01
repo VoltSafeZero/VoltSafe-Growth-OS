@@ -9,7 +9,7 @@ import {
   insertQuoteLineItemSchema, insertServicesEstimateSchema,
   insertActivitySchema, insertTaskSchema,
   insertCommunicationListSchema, insertCampaignDraftSchema,
-  insertInfrastructureProfileSchema,
+  insertInfrastructureProfileSchema, insertCommentSchema,
 } from "@shared/schema";
 import { requireAuth, seedUsers, hashPassword, verifyPassword } from "./auth";
 import { toCsv, setCsvHeaders, type CsvColumn } from "./csv-export";
@@ -172,6 +172,9 @@ export async function registerRoutes(
   app.use("/api/tasks", requireAuth);
   app.use("/api/comm-lists", requireAuth);
   app.use("/api/campaigns", requireAuth);
+  app.use("/api/comments", requireAuth);
+  app.use("/api/users", requireAuth);
+  app.use("/api/team-workload", requireAuth);
 
   app.get("/api/metrics", async (_req, res) => {
     res.json(await storage.getMetrics());
@@ -760,7 +763,10 @@ export async function registerRoutes(
   });
 
   app.post("/api/tasks", async (req, res) => {
-    const parsed = insertTaskSchema.safeParse(req.body);
+    const body = { ...req.body };
+    if (body.dueDate && typeof body.dueDate === "string") body.dueDate = new Date(body.dueDate);
+    body.createdByUserId = req.session.userId;
+    const parsed = insertTaskSchema.safeParse(body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createTask(parsed.data));
   });
@@ -808,6 +814,34 @@ export async function registerRoutes(
     const result = await storage.updateCampaignDraft(Number(req.params.id), req.body);
     if (!result) return res.status(404).json({ message: "Campaign not found" });
     res.json(result);
+  });
+
+  // ── Comments ──────────────────────────────────────────────────────
+  app.get("/api/comments", async (req, res) => {
+    const { objectType, objectId } = req.query;
+    if (!objectType || !objectId) return res.status(400).json({ message: "objectType and objectId required" });
+    res.json(await storage.getComments(objectType as string, Number(objectId)));
+  });
+
+  app.post("/api/comments", async (req, res) => {
+    const data = {
+      ...req.body,
+      userId: req.session.userId,
+      userName: req.session.name,
+    };
+    const parsed = insertCommentSchema.safeParse(data);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
+    res.status(201).json(await storage.createComment(parsed.data));
+  });
+
+  // ── Users List ──────────────────────────────────────────────────
+  app.get("/api/users", async (_req, res) => {
+    res.json(await storage.getUsers());
+  });
+
+  // ── Team Workload ───────────────────────────────────────────────
+  app.get("/api/team-workload", async (_req, res) => {
+    res.json(await storage.getTeamWorkload());
   });
 
   await seedDatabase();

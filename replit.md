@@ -56,9 +56,14 @@ Dark mode by default.
 - **Communication Lists** — Manage broadcast lists (manual, Klaviyo, HubSpot sources)
 - **Campaign Drafts** — Draft, schedule, log campaigns with external campaign ID tracking
 
+#### Comments & Collaboration
+- **Comments Feed** — Threaded comments on leads and accounts, showing user name and timestamp. Any authenticated user can comment. Reusable `CommentsFeed` component (`client/src/components/comments-feed.tsx`)
+- **User Assignment** — Leads have `ownerUserId`, accounts have `assignedToUserId`. Inline assignment dropdown via `AssignUserSelect` component (`client/src/components/assign-user-select.tsx`)
+- **Action Items** — Create tasks linked to leads/accounts with assignee, priority, and due date via `CreateActionItem` component (`client/src/components/create-action-item.tsx`)
+
 #### Activity & Tasks
 - **Activities** — Universal timeline linked to any object (leads, opportunities, tickets, quotes)
-- **Tasks** — Linked to objects, due dates, AI-suggested flag
+- **Tasks** — Linked to objects, due dates, priority, owner user, created-by user, AI-suggested flag
 
 ### API Endpoints
 
@@ -87,6 +92,12 @@ Dark mode by default.
 
 **Tasks:** `GET/POST /api/tasks`, `PUT /api/tasks/:id`
 
+**Comments:** `GET /api/comments?objectType=X&objectId=Y`, `POST /api/comments`
+
+**Users:** `GET /api/users`
+
+**Team Workload:** `GET /api/team-workload`
+
 **Communications:** `GET/POST /api/comm-lists`, `PUT /api/comm-lists/:id`
 
 **Campaigns:** `GET/POST /api/campaigns`, `GET/PUT /api/campaigns/:id`
@@ -112,14 +123,15 @@ Dark mode by default.
 - `services_estimates` — quote_id, role, hours_estimate, hourly_rate, subtotal
 - `activities` — linked_object_type/id, type, summary, raw_content, gmail thread/message IDs
 - `tasks` — linked_object_type/id, owner, title, description, due_date, status, ai_suggested
+- `comments` — object_type, object_id, user_id, user_name, content, created_at
 - `communication_lists` — name, source, external_id, description, member_count
 - `campaign_drafts` — subject, body, list_ids, status, external campaign ID/link, sent_at
 
 ### UI Pages
 1. **Dashboard** — CMS summary (leads, deals, tickets, quotes counts + overdue tasks alert + activity feed)
 2. **Marinas** — Searchable directory of ~10,800 US & Canadian marinas
-3. **Leads** — List with search, status filter, create/convert/delete
-4. **Accounts** — Card grid with detail dialog (details with edit, contacts, deals, tickets, infrastructure profile tabs), status/priority/segment filters
+3. **Leads** — List with search, status filter, create/convert/delete, inline edit, user assignment, comments feed, action items
+4. **Accounts** — Card grid with detail dialog (details with edit, contacts, deals, tickets, infrastructure profile tabs), status/priority/segment filters, user assignment, comments feed, action items
 5. **Opportunities** — Kanban pipeline + list view toggle
 6. **Quotes** — List + detail + quote builder wizard (Marina Solution / Professional Services)
 7. **Tickets** — Board (kanban) + list view toggle, detail with internal notes + resolution

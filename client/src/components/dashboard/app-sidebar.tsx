@@ -9,6 +9,7 @@ import {
   Megaphone,
   Settings,
   Zap,
+  Users,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import {
@@ -25,6 +26,7 @@ import {
 
 const overviewItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Team Workload", url: "/team-workload", icon: Users },
 ];
 
 const salesItems = [

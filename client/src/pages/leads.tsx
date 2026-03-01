@@ -17,6 +17,9 @@ import {
 } from "lucide-react";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
 import { ExportButton } from "@/components/ui/export-button";
+import { CommentsFeed } from "@/components/comments-feed";
+import { AssignUserSelect } from "@/components/assign-user-select";
+import { CreateActionItem } from "@/components/create-action-item";
 import type { Lead } from "@shared/schema";
 
 const US_STATES = [
@@ -674,6 +677,22 @@ function LeadDetailDialog({
                 </Button>
               </div>
             )}
+
+            <div className="rounded-lg border border-border/50 p-3">
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-xs text-muted-foreground">Assigned To</Label>
+                <CreateActionItem objectType="lead" objectId={lead.id} objectLabel={lead.company} />
+              </div>
+              <AssignUserSelect
+                value={lead.ownerUserId}
+                onValueChange={(userId) => updateMutation.mutate({ ownerUserId: userId })}
+                testId="select-lead-owner"
+              />
+            </div>
+
+            <div className="border-t border-border/50 pt-4">
+              <CommentsFeed objectType="lead" objectId={lead.id} />
+            </div>
 
             <div className="flex gap-2 justify-end pt-4 border-t border-border/50">
               {lead.status === "converted" ? (

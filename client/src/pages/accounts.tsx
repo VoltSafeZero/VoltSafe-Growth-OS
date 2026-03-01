@@ -18,6 +18,9 @@ import {
   Settings2, Wrench, Shield, Wifi, LinkIcon
 } from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
+import { CommentsFeed } from "@/components/comments-feed";
+import { AssignUserSelect } from "@/components/assign-user-select";
+import { CreateActionItem } from "@/components/create-action-item";
 import type { Account, Contact, Opportunity, Ticket, InfrastructureProfile } from "@shared/schema";
 
 const segmentColors: Record<string, string> = {
@@ -442,6 +445,22 @@ function AccountDetailDialog({ account: initialAccount, onClose }: { account: Ac
                     <p className="text-sm">{account.notesSummary || account.notes}</p>
                   </div>
                 )}
+
+                <div className="rounded-lg border border-border/50 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-xs text-muted-foreground">Assigned To</Label>
+                    <CreateActionItem objectType="account" objectId={account.id} objectLabel={account.name} />
+                  </div>
+                  <AssignUserSelect
+                    value={account.assignedToUserId}
+                    onValueChange={(userId) => updateAccountMutation.mutate({ assignedToUserId: userId })}
+                    testId="select-account-owner"
+                  />
+                </div>
+
+                <div className="border-t border-border/50 pt-4">
+                  <CommentsFeed objectType="account" objectId={account.id} />
+                </div>
               </>
             )}
           </TabsContent>

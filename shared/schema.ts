@@ -288,6 +288,7 @@ export const tasks = pgTable("tasks", {
   linkedObjectId: integer("linked_object_id"),
   accountId: integer("account_id"),
   ownerUserId: integer("owner_user_id"),
+  createdByUserId: integer("created_by_user_id"),
   title: text("title").notNull(),
   description: text("description"),
   dueDate: timestamp("due_date"),
@@ -417,6 +418,20 @@ export type CampaignDraft = typeof campaignDrafts.$inferSelect;
 export type InsertCampaignDraft = z.infer<typeof insertCampaignDraftSchema>;
 export type InfrastructureProfile = typeof infrastructureProfiles.$inferSelect;
 export type InsertInfrastructureProfile = z.infer<typeof insertInfrastructureProfileSchema>;
+
+export const comments = pgTable("comments", {
+  id: serial("id").primaryKey(),
+  objectType: text("object_type").notNull(),
+  objectId: integer("object_id").notNull(),
+  userId: integer("user_id").notNull(),
+  userName: text("user_name").notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertCommentSchema = createInsertSchema(comments).omit({ id: true, createdAt: true });
+export type Comment = typeof comments.$inferSelect;
+export type InsertComment = z.infer<typeof insertCommentSchema>;
 
 export const webauthnCredentials = pgTable("webauthn_credentials", {
   id: serial("id").primaryKey(),

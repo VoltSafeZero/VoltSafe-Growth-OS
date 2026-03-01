@@ -18,6 +18,7 @@ import QuotesPage from "@/pages/quotes";
 import TicketsPage from "@/pages/tickets";
 import CommunicationsPage from "@/pages/communications";
 import SettingsPage from "@/pages/settings";
+import TeamWorkloadPage from "@/pages/team-workload";
 import LoginPage from "@/pages/login";
 import ChangePasswordPage from "@/pages/change-password";
 import NotFound from "@/pages/not-found";
@@ -62,6 +63,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/quotes">{() => <AppShell user={user} onLogout={onLogout}><QuotesPage /></AppShell>}</Route>
       <Route path="/tickets">{() => <AppShell user={user} onLogout={onLogout}><TicketsPage /></AppShell>}</Route>
       <Route path="/communications">{() => <AppShell user={user} onLogout={onLogout}><CommunicationsPage /></AppShell>}</Route>
+      <Route path="/team-workload">{() => <AppShell user={user} onLogout={onLogout}><TeamWorkloadPage /></AppShell>}</Route>
       <Route path="/settings">{() => <AppShell user={user} onLogout={onLogout}><SettingsPage /></AppShell>}</Route>
       <Route path="/integrations">{() => <AppShell user={user} onLogout={onLogout}><div className="p-8"><h1 className="text-2xl font-bold">Integrations</h1><p className="text-muted-foreground mt-2">Gmail, HubSpot, and Klaviyo integrations coming soon.</p></div></AppShell>}</Route>
       <Route component={NotFound} />
