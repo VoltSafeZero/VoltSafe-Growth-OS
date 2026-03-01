@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Search, ArrowRightLeft, Trash2, Loader2, Undo2,
-  LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor
+  LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar
 } from "lucide-react";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
 import { ExportButton } from "@/components/ui/export-button";
@@ -486,7 +486,7 @@ function PipelineView({
 }
 
 function LeadDetailDialog({
-  lead,
+  lead: initialLead,
   onClose,
   onConvert,
   onUnconvert,
@@ -506,20 +506,66 @@ function LeadDetailDialog({
   isUnconverting: boolean;
   isDeleting: boolean;
 }) {
+  const { toast } = useToast();
+  const [editing, setEditing] = useState(false);
+
+  const { data: freshLead } = useQuery<Lead>({
+    queryKey: ["/api/leads", initialLead.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/leads/${initialLead.id}`, { credentials: "include" });
+      return res.json();
+    },
+  });
+  const lead = freshLead || initialLead;
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: Record<string, unknown>) => {
+      const res = await apiRequest("PUT", `/api/leads/${lead.id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      setEditing(false);
+      toast({ title: "Lead updated" });
+    },
+  });
+
+  const stageInfo = PIPELINE_STAGES.find(s => s.value === lead.status);
+
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {lead.marinaId && <Anchor className="h-5 w-5 text-primary" />}
-            {lead.company}
-          </DialogTitle>
+          <div className="flex items-start gap-3">
+            <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <Anchor className="w-5 h-5 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <DialogTitle className="text-xl leading-tight">{lead.company}</DialogTitle>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                <Badge variant="outline" className={stageInfo?.color || ""}>{stageInfo?.label || lead.status}</Badge>
+                {lead.source && <span className="text-xs text-muted-foreground">via {lead.source}</span>}
+                <span className="text-xs text-muted-foreground">· Created {new Date(lead.createdAt).toLocaleDateString()}</span>
+              </div>
+            </div>
+          </div>
         </DialogHeader>
-        <div className="space-y-4">
-          <div>
-            <Label className="text-xs text-muted-foreground mb-2 block">Pipeline Stage</Label>
+
+        {editing ? (
+          <EditLeadForm lead={lead} onSubmit={(d) => updateMutation.mutate(d)} onCancel={() => setEditing(false)} isPending={updateMutation.isPending} />
+        ) : (
+          <div className="space-y-4 mt-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Label className="text-xs text-muted-foreground">Pipeline Stage</Label>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setEditing(true)} data-testid="button-edit-lead">
+                Edit Lead
+              </Button>
+            </div>
+
             <Select value={lead.status} onValueChange={onUpdateStatus}>
-              <SelectTrigger data-testid="select-lead-stage">
+              <SelectTrigger data-testid="select-lead-stage" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -528,93 +574,232 @@ function LeadDetailDialog({
                 ))}
               </SelectContent>
             </Select>
-          </div>
 
-          {(lead.streetAddress || lead.city || lead.state) && (
-            <div className="rounded-lg border border-border/50 p-3" data-testid="lead-address">
-              <Label className="text-xs text-muted-foreground mb-1 block">Address</Label>
-              <div className="flex items-start gap-2">
-                <MapPin className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                <div className="text-sm">
-                  {lead.streetAddress && <p className="font-medium">{lead.streetAddress}</p>}
-                  <p className="text-muted-foreground">
-                    {[lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ")}
-                    {lead.country && <span className="ml-1">{lead.country === "CA" ? "Canada" : lead.country === "US" ? "USA" : lead.country}</span>}
-                  </p>
+            {(lead.streetAddress || lead.city || lead.state) && (
+              <div className="rounded-lg border border-border/50 p-3" data-testid="lead-address">
+                <Label className="text-xs text-muted-foreground mb-1 block">Location</Label>
+                <div className="flex items-start gap-2">
+                  <MapPin className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                  <div className="text-sm">
+                    {lead.streetAddress && <p className="font-medium">{lead.streetAddress}</p>}
+                    <p className="text-muted-foreground">
+                      {[lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ")}
+                      {lead.country && <span className="ml-1">{lead.country === "CA" ? "Canada" : lead.country === "US" ? "USA" : lead.country}</span>}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-lg border border-border/50 p-3">
+              <Label className="text-xs text-muted-foreground mb-2 block">Contact Information</Label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">Name</p>
+                  <p className="text-sm font-medium">{lead.contactName === "Marina Contact" ? <span className="text-muted-foreground italic">Not set — click Edit to add</span> : lead.contactName}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Email</p>
+                  {lead.contactEmail ? (
+                    <p className="text-sm flex items-center gap-1"><Mail className="h-3 w-3 text-muted-foreground" />{lead.contactEmail}</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">Not set</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Phone</p>
+                  {lead.contactPhone ? (
+                    <p className="text-sm flex items-center gap-1"><Phone className="h-3 w-3 text-muted-foreground" />{lead.contactPhone}</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">Not set</p>
+                  )}
                 </div>
               </div>
             </div>
-          )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label className="text-xs text-muted-foreground">Contact</Label>
-              <p className="text-sm font-medium">{lead.contactName}</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-lg border border-border/50 p-3">
+                <p className="text-xs text-muted-foreground">Slips</p>
+                <p className="text-lg font-semibold">{!lead.slips || lead.slips === "-" ? "—" : Number(lead.slips).toLocaleString()}</p>
+              </div>
+              <div className="rounded-lg border border-border/50 p-3">
+                <p className="text-xs text-muted-foreground">Segment</p>
+                <p className="text-sm font-medium">{lead.segment || "—"}</p>
+              </div>
+              <div className="rounded-lg border border-border/50 p-3">
+                <p className="text-xs text-muted-foreground">Country</p>
+                <p className="text-sm font-medium">{lead.country === "CA" ? "Canada" : lead.country === "US" ? "USA" : lead.country || "—"}</p>
+              </div>
+              <div className="rounded-lg border border-border/50 p-3">
+                <p className="text-xs text-muted-foreground">Source</p>
+                <p className="text-sm font-medium">{lead.source || "—"}</p>
+              </div>
             </div>
-            {lead.contactEmail && (
-              <div>
-                <Label className="text-xs text-muted-foreground">Email</Label>
-                <p className="text-sm flex items-center gap-1">
-                  <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-                  {lead.contactEmail}
-                </p>
+
+            {(lead.nextStep || lead.dueDate) && (
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+                <Label className="text-xs text-primary mb-1 block flex items-center gap-1">
+                  <Calendar className="h-3 w-3" /> Next Step
+                </Label>
+                <p className="text-sm font-medium">{lead.nextStep || "—"}</p>
+                {lead.dueDate && (
+                  <p className="text-xs text-muted-foreground mt-1">Due: {new Date(lead.dueDate).toLocaleDateString()}</p>
+                )}
               </div>
             )}
-            {lead.contactPhone && (
+
+            {lead.tags && (
               <div>
-                <Label className="text-xs text-muted-foreground">Phone</Label>
-                <p className="text-sm flex items-center gap-1">
-                  <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-                  {lead.contactPhone}
-                </p>
+                <Label className="text-xs text-muted-foreground mb-1 block">Tags</Label>
+                <div className="flex gap-1 flex-wrap">
+                  {lead.tags.split(",").map((tag, i) => (
+                    <Badge key={i} variant="outline" className="text-xs">{tag.trim()}</Badge>
+                  ))}
+                </div>
               </div>
             )}
-            {lead.slips && (
-              <div>
-                <Label className="text-xs text-muted-foreground">Slips</Label>
-                <p className="text-sm">{lead.slips === "-" ? "Unknown" : lead.slips}</p>
+
+            {lead.notes && (
+              <div className="rounded-lg border border-border/50 p-3">
+                <Label className="text-xs text-muted-foreground mb-1 block">Notes</Label>
+                <p className="text-sm whitespace-pre-wrap">{lead.notes}</p>
               </div>
             )}
-            {lead.segment && (
-              <div>
-                <Label className="text-xs text-muted-foreground">Segment</Label>
-                <p className="text-sm">{lead.segment}</p>
+
+            {!lead.nextStep && !lead.notes && !lead.tags && (
+              <div className="rounded-lg border border-dashed border-border/50 p-4 text-center">
+                <p className="text-sm text-muted-foreground mb-2">This lead needs more detail — add a next step, notes, or contact info.</p>
+                <Button variant="outline" size="sm" onClick={() => setEditing(true)} data-testid="button-enrich-lead">
+                  Enrich Lead
+                </Button>
               </div>
             )}
-            <div>
-              <Label className="text-xs text-muted-foreground">Source</Label>
-              <p className="text-sm">{lead.source || "—"}</p>
-            </div>
-            {lead.nextStep && (
-              <div>
-                <Label className="text-xs text-muted-foreground">Next Step</Label>
-                <p className="text-sm">{lead.nextStep}</p>
-              </div>
-            )}
-          </div>
-          {lead.notes && (
-            <div>
-              <Label className="text-xs text-muted-foreground">Notes</Label>
-              <p className="text-sm">{lead.notes}</p>
-            </div>
-          )}
-          <div className="flex gap-2 justify-end pt-4 border-t border-border/50">
-            {lead.status === "converted" ? (
-              <Button variant="outline" onClick={onUnconvert} disabled={isUnconverting} data-testid="button-unconvert-detail">
-                <Undo2 className="mr-2 h-4 w-4" /> Revert to New Lead
+
+            <div className="flex gap-2 justify-end pt-4 border-t border-border/50">
+              {lead.status === "converted" ? (
+                <Button variant="outline" onClick={onUnconvert} disabled={isUnconverting} data-testid="button-unconvert-detail">
+                  <Undo2 className="mr-2 h-4 w-4" /> Revert to New Lead
+                </Button>
+              ) : lead.status !== "lost" ? (
+                <Button variant="outline" onClick={onConvert} disabled={isConverting} data-testid="button-convert-detail">
+                  <ArrowRightLeft className="mr-2 h-4 w-4" /> Convert to Account
+                </Button>
+              ) : null}
+              <Button variant="destructive" size="sm" onClick={onDelete} disabled={isDeleting} data-testid="button-delete-lead">
+                <Trash2 className="mr-2 h-4 w-4" /> Delete
               </Button>
-            ) : lead.status !== "lost" ? (
-              <Button variant="outline" onClick={onConvert} disabled={isConverting} data-testid="button-convert-detail">
-                <ArrowRightLeft className="mr-2 h-4 w-4" /> Convert to Account
-              </Button>
-            ) : null}
-            <Button variant="destructive" size="sm" onClick={onDelete} disabled={isDeleting} data-testid="button-delete-lead">
-              <Trash2 className="mr-2 h-4 w-4" /> Delete
-            </Button>
+            </div>
           </div>
-        </div>
+        )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function EditLeadForm({ lead, onSubmit, onCancel, isPending }: { lead: Lead; onSubmit: (data: Record<string, unknown>) => void; onCancel: () => void; isPending: boolean }) {
+  const [form, setForm] = useState({
+    company: lead.company || "",
+    contactName: lead.contactName || "",
+    contactEmail: lead.contactEmail || "",
+    contactPhone: lead.contactPhone || "",
+    source: lead.source || "",
+    notes: lead.notes || "",
+    tags: lead.tags || "",
+    nextStep: lead.nextStep || "",
+    dueDate: lead.dueDate ? new Date(lead.dueDate).toISOString().split("T")[0] : "",
+    country: lead.country || "",
+    state: lead.state || "",
+    city: lead.city || "",
+    streetAddress: lead.streetAddress || "",
+    zipCode: lead.zipCode || "",
+    slips: lead.slips || "",
+    segment: lead.segment || "",
+  });
+
+  const formRegions = form.country ? getRegionsForCountry(form.country) : [];
+
+  return (
+    <form onSubmit={(e) => {
+      e.preventDefault();
+      onSubmit({
+        ...form,
+        dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : null,
+        contactName: form.contactName || "Marina Contact",
+      });
+    }} className="space-y-4 mt-2">
+      <div>
+        <Label className="text-xs">Company / Marina Name *</Label>
+        <Input value={form.company} onChange={(e) => setForm(f => ({ ...f, company: e.target.value }))} required data-testid="input-edit-company" />
+      </div>
+
+      <div className="border-t border-border/50 pt-3">
+        <Label className="text-xs text-muted-foreground mb-2 block">Contact Information</Label>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div><Label className="text-xs">Contact Name</Label><Input value={form.contactName} onChange={(e) => setForm(f => ({ ...f, contactName: e.target.value }))} placeholder="Full name" data-testid="input-edit-contact-name" /></div>
+          <div><Label className="text-xs">Email</Label><Input type="email" value={form.contactEmail} onChange={(e) => setForm(f => ({ ...f, contactEmail: e.target.value }))} data-testid="input-edit-contact-email" /></div>
+          <div><Label className="text-xs">Phone</Label><Input value={form.contactPhone} onChange={(e) => setForm(f => ({ ...f, contactPhone: e.target.value }))} data-testid="input-edit-contact-phone" /></div>
+        </div>
+      </div>
+
+      <div className="border-t border-border/50 pt-3">
+        <Label className="text-xs text-muted-foreground mb-2 block">Location</Label>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2"><Label className="text-xs">Street Address</Label><Input value={form.streetAddress} onChange={(e) => setForm(f => ({ ...f, streetAddress: e.target.value }))} data-testid="input-edit-street" /></div>
+          <div><Label className="text-xs">City</Label><Input value={form.city} onChange={(e) => setForm(f => ({ ...f, city: e.target.value }))} data-testid="input-edit-city" /></div>
+          <div>
+            <Label className="text-xs">{form.country === "CA" ? "Province" : "State"}</Label>
+            {formRegions.length > 0 ? (
+              <Select value={form.state || "none"} onValueChange={(v) => setForm(f => ({ ...f, state: v === "none" ? "" : v }))}>
+                <SelectTrigger data-testid="select-edit-state"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Select...</SelectItem>
+                  {formRegions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input value={form.state} onChange={(e) => setForm(f => ({ ...f, state: e.target.value }))} data-testid="input-edit-state" />
+            )}
+          </div>
+          <div><Label className="text-xs">Zip / Postal</Label><Input value={form.zipCode} onChange={(e) => setForm(f => ({ ...f, zipCode: e.target.value }))} data-testid="input-edit-zip" /></div>
+          <div>
+            <Label className="text-xs">Country</Label>
+            <Select value={form.country || "none"} onValueChange={(v) => setForm(f => ({ ...f, country: v === "none" ? "" : v }))}>
+              <SelectTrigger data-testid="select-edit-country"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Select...</SelectItem>
+                {COUNTRIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-border/50 pt-3">
+        <Label className="text-xs text-muted-foreground mb-2 block">Marina Details</Label>
+        <div className="grid grid-cols-2 gap-3">
+          <div><Label className="text-xs">Slips</Label><Input value={form.slips} onChange={(e) => setForm(f => ({ ...f, slips: e.target.value }))} data-testid="input-edit-slips" /></div>
+          <div><Label className="text-xs">Segment</Label><Input value={form.segment} onChange={(e) => setForm(f => ({ ...f, segment: e.target.value }))} data-testid="input-edit-segment" /></div>
+          <div><Label className="text-xs">Source</Label><Input value={form.source} onChange={(e) => setForm(f => ({ ...f, source: e.target.value }))} data-testid="input-edit-source" /></div>
+        </div>
+      </div>
+
+      <div className="border-t border-border/50 pt-3">
+        <Label className="text-xs text-muted-foreground mb-2 block">Sales Tracking</Label>
+        <div className="grid grid-cols-2 gap-3">
+          <div><Label className="text-xs">Next Step</Label><Input value={form.nextStep} onChange={(e) => setForm(f => ({ ...f, nextStep: e.target.value }))} placeholder="e.g. Schedule intro call" data-testid="input-edit-next-step" /></div>
+          <div><Label className="text-xs">Due Date</Label><Input type="date" value={form.dueDate} onChange={(e) => setForm(f => ({ ...f, dueDate: e.target.value }))} data-testid="input-edit-due-date" /></div>
+        </div>
+        <div className="mt-3"><Label className="text-xs">Tags</Label><Input value={form.tags} onChange={(e) => setForm(f => ({ ...f, tags: e.target.value }))} placeholder="Comma-separated tags" data-testid="input-edit-tags" /></div>
+        <div className="mt-3"><Label className="text-xs">Notes</Label><Textarea value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} rows={3} placeholder="Meeting notes, observations, key details..." data-testid="input-edit-notes" /></div>
+      </div>
+
+      <div className="flex justify-end gap-2 pt-2 border-t border-border/50">
+        <Button type="button" variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
+        <Button type="submit" size="sm" disabled={isPending} data-testid="button-save-lead">
+          {isPending ? "Saving..." : "Save Changes"}
+        </Button>
+      </div>
+    </form>
   );
 }
 
