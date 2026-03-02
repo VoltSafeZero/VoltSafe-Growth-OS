@@ -75,7 +75,7 @@ export default function AccountsPage() {
     getNextPageParam: (lastPage) => lastPage.page < lastPage.totalPages ? lastPage.page + 1 : undefined,
   });
 
-  const allAccounts = data?.pages.flatMap(p => p.data) || [];
+  const allAccounts = data?.pages.flatMap(p => p.data ?? []).filter(Boolean) || [];
   const totalCount = data?.pages[0]?.total || 0;
 
   useEffect(() => {

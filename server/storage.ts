@@ -188,8 +188,8 @@ export class DatabaseStorage implements IStorage {
     const isSlipsSort = options.sortBy === "slips";
     const orderClause = isSlipsSort
       ? (options.sortOrder === "desc"
-        ? sql`CAST(NULLIF(${marinas.slips}, '-') AS INTEGER) DESC NULLS LAST`
-        : sql`CAST(NULLIF(${marinas.slips}, '-') AS INTEGER) ASC NULLS LAST`)
+        ? sql`CAST(NULLIF(REGEXP_REPLACE(${marinas.slips}, '[^0-9]', '', 'g'), '') AS INTEGER) DESC NULLS LAST`
+        : sql`CAST(NULLIF(REGEXP_REPLACE(${marinas.slips}, '[^0-9]', '', 'g'), '') AS INTEGER) ASC NULLS LAST`)
       : sortCol ? getSortOrder(sortCol, options.sortOrder || "asc") : asc(marinas.state);
 
     const [data, countResult] = await Promise.all([
@@ -237,8 +237,8 @@ export class DatabaseStorage implements IStorage {
     const isSlipsSort = options?.sortBy === "slips";
     const orderClause = isSlipsSort
       ? (options?.sortOrder === "desc"
-        ? sql`CAST(NULLIF(${leads.slips}, '-') AS INTEGER) DESC NULLS LAST`
-        : sql`CAST(NULLIF(${leads.slips}, '-') AS INTEGER) ASC NULLS LAST`)
+        ? sql`CAST(NULLIF(REGEXP_REPLACE(${leads.slips}, '[^0-9]', '', 'g'), '') AS INTEGER) DESC NULLS LAST`
+        : sql`CAST(NULLIF(REGEXP_REPLACE(${leads.slips}, '[^0-9]', '', 'g'), '') AS INTEGER) ASC NULLS LAST`)
       : sortCol ? getSortOrder(sortCol, options?.sortOrder || "asc") : desc(leads.createdAt);
 
     const [data, countResult] = await Promise.all([
