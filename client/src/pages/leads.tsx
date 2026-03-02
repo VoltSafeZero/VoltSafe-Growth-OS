@@ -111,7 +111,7 @@ export default function LeadsPage() {
     },
   });
 
-  const allLeads = data?.pages.flatMap(p => p.data) || [];
+  const allLeads = data?.pages.flatMap(p => p.data ?? []).filter(Boolean) || [];
   const totalCount = data?.pages[0]?.total || 0;
 
   useEffect(() => {
