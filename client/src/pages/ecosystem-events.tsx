@@ -4,6 +4,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -214,7 +215,7 @@ function EventForm({ initial, onSubmit, isPending }: { initial?: EcosystemEvent;
         </div>
         <div>
           <Label>Event Date</Label>
-          <Input type="date" value={form.eventDate} onChange={(e) => setForm({ ...form, eventDate: e.target.value })} data-testid="input-event-date" />
+          <DatePicker value={form.eventDate} onChange={(v) => setForm({ ...form, eventDate: v })} data-testid="input-event-date" />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">

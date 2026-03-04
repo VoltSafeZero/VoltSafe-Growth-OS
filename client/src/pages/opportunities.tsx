@@ -4,6 +4,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -411,7 +412,7 @@ function DealDetailDialog({ deal, accountName, onUpdate, onClose }: {
             <div className="space-y-2">
               <Input value={nextStep} onChange={(e) => setNextStep(e.target.value)} placeholder="What's the next action?" data-testid="input-next-step" />
               <div className="flex gap-2 items-center">
-                <Input type="date" value={nextStepDue} onChange={(e) => setNextStepDue(e.target.value)} className="flex-1" data-testid="input-next-step-due" />
+                <DatePicker value={nextStepDue} onChange={setNextStepDue} className="flex-1" data-testid="input-next-step-due" />
                 <Button size="sm" onClick={() => { onUpdate({ nextStep, nextStepDueDate: nextStepDue ? new Date(nextStepDue) : null }); setEditingNextStep(false); }} data-testid="button-save-next-step">
                   Save
                 </Button>
@@ -705,10 +706,10 @@ function CreateDealForm({ accounts, onSubmit, isPending }: { accounts: Account[]
       <div className="rounded-lg bg-primary/5 border border-primary/10 p-3 space-y-2">
         <Label className="text-xs font-semibold flex items-center gap-1"><Target className="h-3 w-3 text-primary" /> Next Step (required for velocity)</Label>
         <Input value={form.nextStep} onChange={(e) => setForm(f => ({ ...f, nextStep: e.target.value }))} placeholder="What's the next action?" data-testid="input-deal-next-step" />
-        <Input type="date" value={form.nextStepDueDate} onChange={(e) => setForm(f => ({ ...f, nextStepDueDate: e.target.value }))} data-testid="input-deal-next-step-due" />
+        <DatePicker value={form.nextStepDueDate} onChange={(v) => setForm(f => ({ ...f, nextStepDueDate: v }))} data-testid="input-deal-next-step-due" />
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <div><Label>Est. Close Date</Label><Input type="date" value={form.estCloseDate} onChange={(e) => setForm(f => ({ ...f, estCloseDate: e.target.value }))} data-testid="input-deal-close-date" /></div>
+        <div><Label>Est. Close Date</Label><DatePicker value={form.estCloseDate} onChange={(v) => setForm(f => ({ ...f, estCloseDate: v }))} data-testid="input-deal-close-date" /></div>
         <div>
           <Label>Value Driver</Label>
           <Select value={form.primaryValueDriver || "none"} onValueChange={(v) => setForm(f => ({ ...f, primaryValueDriver: v === "none" ? "" : v }))}>

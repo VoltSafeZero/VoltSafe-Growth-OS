@@ -4,6 +4,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -941,7 +942,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending }: { lead: Lead; onS
         <Label className="text-xs text-muted-foreground mb-2 block">Sales Tracking</Label>
         <div className="grid grid-cols-2 gap-3">
           <div><Label className="text-xs">Next Step</Label><Input value={form.nextStep} onChange={(e) => setForm(f => ({ ...f, nextStep: e.target.value }))} placeholder="e.g. Schedule intro call" data-testid="input-edit-next-step" /></div>
-          <div><Label className="text-xs">Due Date</Label><Input type="date" value={form.dueDate} onChange={(e) => setForm(f => ({ ...f, dueDate: e.target.value }))} data-testid="input-edit-due-date" /></div>
+          <div><Label className="text-xs">Due Date</Label><DatePicker value={form.dueDate} onChange={(v) => setForm(f => ({ ...f, dueDate: v }))} data-testid="input-edit-due-date" /></div>
         </div>
         <div className="mt-3"><Label className="text-xs">Tags</Label><Input value={form.tags} onChange={(e) => setForm(f => ({ ...f, tags: e.target.value }))} placeholder="Comma-separated tags" data-testid="input-edit-tags" /></div>
         <div className="mt-3"><Label className="text-xs">Notes</Label><Textarea value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} rows={3} placeholder="Meeting notes, observations, key details..." data-testid="input-edit-notes" /></div>
@@ -952,7 +953,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending }: { lead: Lead; onS
         <div className="grid grid-cols-3 gap-3">
           <div><Label className="text-xs">Deal Amount ($)</Label><Input type="number" value={form.dealAmount} onChange={(e) => setForm(f => ({ ...f, dealAmount: e.target.value }))} placeholder="0" data-testid="input-edit-deal-amount" /></div>
           <div><Label className="text-xs">Probability (%)</Label><Input type="number" min="0" max="100" value={form.dealProbability} onChange={(e) => setForm(f => ({ ...f, dealProbability: e.target.value }))} placeholder="0-100" data-testid="input-edit-deal-probability" /></div>
-          <div><Label className="text-xs">Est. Close Date</Label><Input type="date" value={form.estCloseDate} onChange={(e) => setForm(f => ({ ...f, estCloseDate: e.target.value }))} data-testid="input-edit-est-close" /></div>
+          <div><Label className="text-xs">Est. Close Date</Label><DatePicker value={form.estCloseDate} onChange={(v) => setForm(f => ({ ...f, estCloseDate: v }))} data-testid="input-edit-est-close" /></div>
         </div>
         <div className="grid grid-cols-3 gap-3 mt-3">
           <div><Label className="text-xs">Hardware ($)</Label><Input type="number" value={form.dealValueHardware} onChange={(e) => setForm(f => ({ ...f, dealValueHardware: e.target.value }))} placeholder="0" data-testid="input-edit-deal-hardware" /></div>

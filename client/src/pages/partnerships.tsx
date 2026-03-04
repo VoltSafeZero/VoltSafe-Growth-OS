@@ -4,6 +4,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -683,11 +684,9 @@ function PartnerForm({
                 data-testid={`textarea-${field.key}`}
               />
             ) : field.type === "date" ? (
-              <Input
-                id={field.key}
-                type="date"
+              <DatePicker
                 value={(formData[field.key] as string) || ""}
-                onChange={(e) => handleChange(field.key, e.target.value)}
+                onChange={(v) => handleChange(field.key, v)}
                 data-testid={`input-${field.key}`}
               />
             ) : field.type === "number" ? (

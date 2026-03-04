@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -150,11 +151,10 @@ export function CreateActionItem({
           </div>
           <div>
             <Label className="text-xs">Due Date</Label>
-            <Input
-              type="date"
+            <DatePicker
               value={form.dueDate}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, dueDate: e.target.value }))
+              onChange={(v) =>
+                setForm((f) => ({ ...f, dueDate: v }))
               }
               data-testid="input-action-due-date"
             />
