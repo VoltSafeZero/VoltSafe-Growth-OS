@@ -2,8 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { MapPin, Locate, Loader2, Search, Navigation, Anchor } from "lucide-react";
+import { MapPin, Locate, Loader2, Navigation, Anchor } from "lucide-react";
+import AddressAutocomplete from "@/components/address-autocomplete";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -46,13 +46,14 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 const STORAGE_KEY = "voltsafe-map-last-location";
+const DEFAULT_LOCATION = { lat: 43.55, lng: -79.58, zoom: 13 };
 
-function getSavedLocation(): { lat: number; lng: number; zoom: number } | null {
+function getSavedLocation(): { lat: number; lng: number; zoom: number } {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) return JSON.parse(saved);
   } catch {}
-  return null;
+  return DEFAULT_LOCATION;
 }
 
 function saveLocation(lat: number, lng: number, zoom: number) {
@@ -118,11 +119,9 @@ function createUserIcon() {
 }
 
 export default function DashboardMap() {
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [locationError, setLocationError] = useState<string | null>(null);
+  const initialLoc = getSavedLocation();
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number }>({ lat: initialLoc.lat, lng: initialLoc.lng });
   const [locating, setLocating] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searching, setSearching] = useState(false);
   const [marinas, setMarinas] = useState<NearbyLead[]>([]);
   const [loading, setLoading] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
@@ -131,6 +130,7 @@ export default function DashboardMap() {
   const userMarkerRef = useRef<L.Marker | null>(null);
   const fetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const initialZoomRef = useRef(initialLoc.zoom);
 
   const fetchMarinas = useCallback(async (lat: number, lng: number, radiusKm: number) => {
     if (abortRef.current) abortRef.current.abort();
@@ -164,37 +164,29 @@ export default function DashboardMap() {
   }, [fetchMarinas]);
 
   const requestLocation = useCallback(() => {
+    if (!navigator.geolocation) return;
     setLocating(true);
-    setLocationError(null);
-    if (!navigator.geolocation) {
-      const saved = getSavedLocation();
-      if (saved) {
-        setUserLocation({ lat: saved.lat, lng: saved.lng });
-        setLocating(false);
-      } else {
-        setLocationError("Geolocation not supported");
-        setLocating(false);
-      }
-      return;
-    }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setUserLocation(loc);
+        setMapCenter(loc);
         saveLocation(loc.lat, loc.lng, 13);
         setLocating(false);
-      },
-      () => {
-        const saved = getSavedLocation();
-        if (saved) {
-          setUserLocation({ lat: saved.lat, lng: saved.lng });
-          setLocating(false);
-        } else {
-          setLocationError("Could not get your location. Search an address or enable location access.");
-          setLocating(false);
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.setView([loc.lat, loc.lng], 13, { animate: true });
+          if (userMarkerRef.current) {
+            userMarkerRef.current.setLatLng([loc.lat, loc.lng]);
+          } else {
+            userMarkerRef.current = L.marker([loc.lat, loc.lng], {
+              icon: createUserIcon(),
+              zIndexOffset: 1000,
+            }).addTo(mapInstanceRef.current);
+            userMarkerRef.current.bindPopup("<b>You are here</b>");
+          }
         }
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+      () => { setLocating(false); },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
     );
   }, []);
 
@@ -202,34 +194,22 @@ export default function DashboardMap() {
     requestLocation();
   }, [requestLocation]);
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
-    setSearching(true);
-    try {
-      const res = await fetch(`/api/geocode/search?q=${encodeURIComponent(searchQuery.trim())}`, { credentials: "include" });
-      if (!res.ok) { setSearching(false); return; }
-      const data = await res.json();
-      const loc = { lat: data.lat, lng: data.lng };
-      setUserLocation(loc);
-      saveLocation(loc.lat, loc.lng, 13);
-      setLocationError(null);
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.setView([loc.lat, loc.lng], 13, { animate: true });
-      }
-    } catch {}
-    setSearching(false);
+  const handleAddressSelect = (lat: number, lng: number, _displayName: string) => {
+    setMapCenter({ lat, lng });
+    saveLocation(lat, lng, 13);
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.setView([lat, lng], 13, { animate: true });
+    }
   };
 
   useEffect(() => {
-    if (!mapRef.current || !userLocation) return;
+    if (!mapRef.current) return;
 
     if (!mapInstanceRef.current) {
-      const saved = getSavedLocation();
-      const zoom = saved?.zoom || 13;
       mapInstanceRef.current = L.map(mapRef.current, {
         zoomControl: true,
         attributionControl: true,
-      }).setView([userLocation.lat, userLocation.lng], zoom);
+      }).setView([mapCenter.lat, mapCenter.lng], initialZoomRef.current);
 
       L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
@@ -249,21 +229,9 @@ export default function DashboardMap() {
       mapInstanceRef.current.on("moveend", debouncedFetchFromBounds);
 
       const radius = boundsToRadius(mapInstanceRef.current);
-      fetchMarinas(userLocation.lat, userLocation.lng, radius);
-    } else {
-      mapInstanceRef.current.setView([userLocation.lat, userLocation.lng], mapInstanceRef.current.getZoom());
+      fetchMarinas(mapCenter.lat, mapCenter.lng, radius);
     }
-
-    if (userMarkerRef.current) {
-      userMarkerRef.current.setLatLng([userLocation.lat, userLocation.lng]);
-    } else {
-      userMarkerRef.current = L.marker([userLocation.lat, userLocation.lng], {
-        icon: createUserIcon(),
-        zIndexOffset: 1000,
-      }).addTo(mapInstanceRef.current);
-      userMarkerRef.current.bindPopup("<b>You are here</b>");
-    }
-  }, [userLocation, debouncedFetchFromBounds, fetchMarinas]);
+  }, [mapCenter, debouncedFetchFromBounds, fetchMarinas]);
 
   useEffect(() => {
     return () => {
@@ -373,7 +341,7 @@ export default function DashboardMap() {
             <p className="text-xs text-muted-foreground mt-1">
               {marinas.length > 0
                 ? `${marinas.length} marinas in view — hover for name, click for directions`
-                : "Pan or zoom the map to discover marinas"}
+                : "Search an address or pan the map to discover marinas"}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -392,104 +360,70 @@ export default function DashboardMap() {
             </Button>
           </div>
         </div>
-        <div className="flex items-center gap-2 mt-2">
-          <div className="relative flex-1">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search address or city..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              className="pl-8 h-8 text-xs bg-secondary/30 border-border/50"
-              data-testid="input-map-address-search"
-            />
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs"
-            onClick={handleSearch}
-            disabled={searching || !searchQuery.trim()}
-            data-testid="button-map-search"
-          >
-            {searching ? <Loader2 className="h-3 w-3 animate-spin" /> : "Go"}
-          </Button>
-        </div>
+        <AddressAutocomplete
+          onSelect={handleAddressSelect}
+          className="mt-2"
+          testId="input-map-address-search"
+        />
       </CardHeader>
       <CardContent className="pt-0">
-        {locationError && !userLocation ? (
-          <div className="flex flex-col items-center justify-center py-12 rounded-xl border border-border/30 bg-muted/5">
-            <MapPin className="h-10 w-10 text-muted-foreground mb-3" />
-            <p className="text-sm font-medium mb-1">Location Required</p>
-            <p className="text-xs text-muted-foreground text-center max-w-xs mb-3">{locationError}</p>
-            <Button onClick={requestLocation} variant="outline" size="sm" data-testid="button-dashboard-retry-location">
-              <Locate className="mr-1.5 h-3.5 w-3.5" /> Enable Location
-            </Button>
+        <div className="flex gap-3">
+          <div className="flex-1 min-w-0">
+            <div
+              ref={mapRef}
+              className="w-full rounded-xl border border-border/30 overflow-hidden z-0 h-[280px] sm:h-[360px] md:h-[420px]"
+              data-testid="dashboard-map-container"
+            />
           </div>
-        ) : locating && !userLocation ? (
-          <div className="flex flex-col items-center justify-center py-12 rounded-xl border border-border/30 bg-muted/5">
-            <Loader2 className="h-8 w-8 animate-spin text-primary mb-3" />
-            <p className="text-sm text-muted-foreground">Finding your location...</p>
-          </div>
-        ) : (
-          <div className="flex gap-3">
-            <div className="flex-1 min-w-0">
+          <div className="w-48 sm:w-56 flex-shrink-0 space-y-1.5 overflow-y-auto max-h-[280px] sm:max-h-[360px] md:max-h-[420px]" data-testid="dashboard-closest-list">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1">Closest Marinas</p>
+            {closest5.length === 0 && !loading && (
+              <div className="text-center py-4">
+                <Anchor className="h-5 w-5 text-muted-foreground mx-auto mb-1" />
+                <p className="text-[11px] text-muted-foreground">No marinas in view</p>
+              </div>
+            )}
+            {closest5.map((lead) => (
               <div
-                ref={mapRef}
-                className="w-full rounded-xl border border-border/30 overflow-hidden z-0 h-[280px] sm:h-[360px] md:h-[420px]"
-                data-testid="dashboard-map-container"
-              />
-            </div>
-            <div className="w-48 sm:w-56 flex-shrink-0 space-y-1.5 overflow-y-auto max-h-[280px] sm:max-h-[360px] md:max-h-[420px]" data-testid="dashboard-closest-list">
-              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1">Closest Marinas</p>
-              {closest5.length === 0 && !loading && (
-                <div className="text-center py-4">
-                  <Anchor className="h-5 w-5 text-muted-foreground mx-auto mb-1" />
-                  <p className="text-[11px] text-muted-foreground">No marinas in view</p>
-                </div>
-              )}
-              {closest5.map((lead, idx) => (
-                <div
-                  key={lead.id}
-                  className="p-2 rounded-lg border border-border/30 bg-card/50 cursor-pointer transition-all hover:border-primary/30"
-                  onClick={() => {
-                    if (mapInstanceRef.current) {
-                      mapInstanceRef.current.setView([lead.marina_lat, lead.marina_lng], 15, { animate: true });
-                    }
-                  }}
-                  data-testid={`dashboard-closest-${lead.id}`}
-                >
-                  <div className="flex items-start justify-between gap-1">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium truncate">{lead.company}</p>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className="text-[10px] text-muted-foreground">{formatDistance(lead.distance_km)}</span>
-                        <span
-                          className="w-2 h-2 rounded-full inline-block flex-shrink-0"
-                          style={{ background: STAGE_COLORS[lead.status] || "#64748b" }}
-                          title={STAGE_LABELS[lead.status] || lead.status}
-                        />
-                      </div>
+                key={lead.id}
+                className="p-2 rounded-lg border border-border/30 bg-card/50 cursor-pointer transition-all hover:border-primary/30"
+                onClick={() => {
+                  if (mapInstanceRef.current) {
+                    mapInstanceRef.current.setView([lead.marina_lat, lead.marina_lng], 15, { animate: true });
+                  }
+                }}
+                data-testid={`dashboard-closest-${lead.id}`}
+              >
+                <div className="flex items-start justify-between gap-1">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium truncate">{lead.company}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[10px] text-muted-foreground">{formatDistance(lead.distance_km)}</span>
+                      <span
+                        className="w-2 h-2 rounded-full inline-block flex-shrink-0"
+                        style={{ background: STAGE_COLORS[lead.status] || "#64748b" }}
+                        title={STAGE_LABELS[lead.status] || lead.status}
+                      />
                     </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleListDirections(lead); }}
-                      className="shrink-0 p-1 rounded-md bg-primary/10 transition-colors hover-elevate"
-                      data-testid={`dashboard-directions-${lead.id}`}
-                      title="Get Directions"
-                    >
-                      <Navigation className="h-3 w-3 text-primary" />
-                    </button>
                   </div>
-                  {(lead.city || lead.state) && (
-                    <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
-                      {[lead.city, lead.state].filter(Boolean).join(", ")}
-                    </p>
-                  )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleListDirections(lead); }}
+                    className="shrink-0 p-1 rounded-md bg-primary/10 transition-colors hover-elevate"
+                    data-testid={`dashboard-directions-${lead.id}`}
+                    title="Get Directions"
+                  >
+                    <Navigation className="h-3 w-3 text-primary" />
+                  </button>
                 </div>
-              ))}
-            </div>
+                {(lead.city || lead.state) && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                    {[lead.city, lead.state].filter(Boolean).join(", ")}
+                  </p>
+                )}
+              </div>
+            ))}
           </div>
-        )}
+        </div>
       </CardContent>
     </Card>
   );

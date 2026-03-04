@@ -415,14 +415,22 @@ export async function registerRoutes(
   app.get("/api/geocode/search", async (req, res) => {
     const q = String(req.query.q || "").trim();
     if (!q) return res.status(400).json({ message: "q parameter required" });
+    const limit = Math.min(Number(req.query.limit) || 1, 8);
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`;
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=${limit}&addressdetails=1`;
       const response = await fetch(url, {
         headers: { "User-Agent": "VoltSafeCortex/1.0" },
       });
-      const data = await response.json() as Array<{ lat: string; lon: string; display_name: string }>;
+      const data = await response.json() as Array<{ lat: string; lon: string; display_name: string; type: string }>;
       if (!data.length) return res.status(404).json({ message: "Address not found" });
-      res.json({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), display_name: data[0].display_name });
+      if (limit === 1) {
+        return res.json({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), display_name: data[0].display_name });
+      }
+      res.json(data.map(d => ({
+        lat: parseFloat(d.lat),
+        lng: parseFloat(d.lon),
+        display_name: d.display_name,
+      })));
     } catch {
       res.status(500).json({ message: "Geocoding failed" });
     }

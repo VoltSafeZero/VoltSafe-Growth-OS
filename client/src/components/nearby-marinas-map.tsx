@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Navigation, MapPin, Anchor, Search,
+  Navigation, MapPin, Anchor,
   Locate, Loader2
 } from "lucide-react";
+import AddressAutocomplete from "@/components/address-autocomplete";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -61,13 +61,14 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 const STORAGE_KEY = "voltsafe-map-last-location";
+const DEFAULT_LOCATION = { lat: 43.55, lng: -79.58, zoom: 13 };
 
-function getSavedLocation(): { lat: number; lng: number; zoom: number } | null {
+function getSavedLocation(): { lat: number; lng: number; zoom: number } {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) return JSON.parse(saved);
   } catch {}
-  return null;
+  return DEFAULT_LOCATION;
 }
 
 function saveLocation(lat: number, lng: number, zoom: number) {
@@ -139,13 +140,11 @@ function createUserIcon() {
 }
 
 export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (leadId: number) => void }) {
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [locationError, setLocationError] = useState<string | null>(null);
+  const initialLoc = getSavedLocation();
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number }>({ lat: initialLoc.lat, lng: initialLoc.lng });
   const [locating, setLocating] = useState(false);
   const [selectedLead, setSelectedLead] = useState<NearbyLead | null>(null);
   const [stageFilter, setStageFilter] = useState("all");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searching, setSearching] = useState(false);
   const [marinas, setMarinas] = useState<NearbyLead[]>([]);
   const [loading, setLoading] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
@@ -154,6 +153,7 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
   const userMarkerRef = useRef<L.Marker | null>(null);
   const fetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const initialZoomRef = useRef(initialLoc.zoom);
 
   const fetchMarinas = useCallback(async (lat: number, lng: number, radiusKm: number) => {
     if (abortRef.current) abortRef.current.abort();
@@ -187,37 +187,29 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
   }, [fetchMarinas]);
 
   const requestLocation = useCallback(() => {
+    if (!navigator.geolocation) return;
     setLocating(true);
-    setLocationError(null);
-    if (!navigator.geolocation) {
-      const saved = getSavedLocation();
-      if (saved) {
-        setUserLocation({ lat: saved.lat, lng: saved.lng });
-        setLocating(false);
-      } else {
-        setLocationError("Geolocation is not supported by your browser");
-        setLocating(false);
-      }
-      return;
-    }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setUserLocation(loc);
+        setMapCenter(loc);
         saveLocation(loc.lat, loc.lng, 13);
         setLocating(false);
-      },
-      () => {
-        const saved = getSavedLocation();
-        if (saved) {
-          setUserLocation({ lat: saved.lat, lng: saved.lng });
-          setLocating(false);
-        } else {
-          setLocationError("Could not get your location. Search an address or enable location access.");
-          setLocating(false);
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.setView([loc.lat, loc.lng], 13, { animate: true });
+          if (userMarkerRef.current) {
+            userMarkerRef.current.setLatLng([loc.lat, loc.lng]);
+          } else {
+            userMarkerRef.current = L.marker([loc.lat, loc.lng], {
+              icon: createUserIcon(),
+              zIndexOffset: 1000,
+            }).addTo(mapInstanceRef.current);
+            userMarkerRef.current.bindPopup("<b>Your Location</b>");
+          }
         }
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+      () => { setLocating(false); },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
     );
   }, []);
 
@@ -225,36 +217,24 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
     requestLocation();
   }, [requestLocation]);
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
-    setSearching(true);
-    try {
-      const res = await fetch(`/api/geocode/search?q=${encodeURIComponent(searchQuery.trim())}`, { credentials: "include" });
-      if (!res.ok) { setSearching(false); return; }
-      const data = await res.json();
-      const loc = { lat: data.lat, lng: data.lng };
-      setUserLocation(loc);
-      saveLocation(loc.lat, loc.lng, 13);
-      setLocationError(null);
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.setView([loc.lat, loc.lng], 13, { animate: true });
-      }
-    } catch {}
-    setSearching(false);
+  const handleAddressSelect = (lat: number, lng: number, _displayName: string) => {
+    setMapCenter({ lat, lng });
+    saveLocation(lat, lng, 13);
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.setView([lat, lng], 13, { animate: true });
+    }
   };
 
   const filteredMarinas = marinas.filter(l => stageFilter === "all" || l.status === stageFilter);
 
   useEffect(() => {
-    if (!mapRef.current || !userLocation) return;
+    if (!mapRef.current) return;
 
     if (!mapInstanceRef.current) {
-      const saved = getSavedLocation();
-      const zoom = saved?.zoom || 13;
       mapInstanceRef.current = L.map(mapRef.current, {
         zoomControl: true,
         attributionControl: true,
-      }).setView([userLocation.lat, userLocation.lng], zoom);
+      }).setView([mapCenter.lat, mapCenter.lng], initialZoomRef.current);
 
       L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
@@ -274,23 +254,9 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
       mapInstanceRef.current.on("moveend", debouncedFetchFromBounds);
 
       const radius = boundsToRadius(mapInstanceRef.current);
-      fetchMarinas(userLocation.lat, userLocation.lng, radius);
-    } else {
-      mapInstanceRef.current.setView([userLocation.lat, userLocation.lng], mapInstanceRef.current.getZoom());
+      fetchMarinas(mapCenter.lat, mapCenter.lng, radius);
     }
-
-    if (userMarkerRef.current) {
-      userMarkerRef.current.setLatLng([userLocation.lat, userLocation.lng]);
-    } else {
-      userMarkerRef.current = L.marker([userLocation.lat, userLocation.lng], {
-        icon: createUserIcon(),
-        zIndexOffset: 1000,
-      }).addTo(mapInstanceRef.current);
-      userMarkerRef.current.bindPopup("<b>Your Location</b>");
-    }
-
-    return () => {};
-  }, [userLocation, debouncedFetchFromBounds, fetchMarinas]);
+  }, [mapCenter, debouncedFetchFromBounds, fetchMarinas]);
 
   useEffect(() => {
     if (!mapInstanceRef.current || !markersRef.current) return;
@@ -374,46 +340,6 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
     });
   }, [filteredMarinas]);
 
-  if (locationError && !userLocation) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 px-4">
-        <div className="w-16 h-16 rounded-2xl bg-red-500/10 flex items-center justify-center mb-4">
-          <MapPin className="w-8 h-8 text-red-400" />
-        </div>
-        <h3 className="text-lg font-semibold mb-2">Location Required</h3>
-        <p className="text-sm text-muted-foreground text-center mb-4 max-w-md">{locationError}</p>
-        <div className="flex items-center gap-2 mb-4">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search address or city..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              className="pl-8 h-9 text-sm"
-              data-testid="input-leads-map-address-search-error"
-            />
-          </div>
-          <Button onClick={handleSearch} variant="outline" size="sm" disabled={searching || !searchQuery.trim()} data-testid="button-leads-map-search-error">
-            {searching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Search"}
-          </Button>
-        </div>
-        <Button onClick={requestLocation} variant="outline" data-testid="button-retry-location">
-          <Locate className="mr-2 h-4 w-4" /> Try Again
-        </Button>
-      </div>
-    );
-  }
-
-  if (locating && !userLocation) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16">
-        <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
-        <p className="text-sm text-muted-foreground">Getting your location...</p>
-      </div>
-    );
-  }
-
   const handleListDirections = async (lead: NearbyLead, e: React.MouseEvent) => {
     e.stopPropagation();
     const addr = lead.marina_address || [lead.street_address, lead.city, lead.state].filter(Boolean).join(", ");
@@ -431,20 +357,11 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
   return (
     <div className="flex flex-col h-[calc(100vh-220px)]">
       <div className="flex items-center gap-2 px-1 pb-3 flex-wrap">
-        <div className="relative flex-1 min-w-[180px] max-w-xs">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search address or city..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-            className="pl-8 h-8 text-xs bg-secondary/30 border-border/50"
-            data-testid="input-leads-map-address-search"
-          />
-        </div>
-        <Button variant="outline" size="sm" className="h-8 text-xs" onClick={handleSearch} disabled={searching || !searchQuery.trim()} data-testid="button-leads-map-search">
-          {searching ? <Loader2 className="h-3 w-3 animate-spin" /> : "Go"}
-        </Button>
+        <AddressAutocomplete
+          onSelect={handleAddressSelect}
+          className="flex-1 min-w-[180px] max-w-xs"
+          testId="input-leads-map-address-search"
+        />
         <Select value={stageFilter} onValueChange={setStageFilter}>
           <SelectTrigger className="w-[140px] h-8 text-xs" data-testid="select-stage-filter">
             <SelectValue />
@@ -456,8 +373,9 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
             ))}
           </SelectContent>
         </Select>
-        <Button variant="outline" size="sm" className="h-8 text-xs" onClick={requestLocation} data-testid="button-refresh-location">
-          <Locate className="mr-1 h-3 w-3" /> Refresh
+        <Button variant="outline" size="sm" className="h-8 text-xs" onClick={requestLocation} disabled={locating} data-testid="button-refresh-location">
+          {locating ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Locate className="mr-1 h-3 w-3" />}
+          <span className="hidden sm:inline">My Location</span>
         </Button>
         {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
         {!loading && filteredMarinas.length > 0 && (
@@ -475,7 +393,7 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
             <div className="text-center py-8">
               <Anchor className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">No marinas in view</p>
-              <p className="text-xs text-muted-foreground mt-1">Zoom out or pan to find more</p>
+              <p className="text-xs text-muted-foreground mt-1">Zoom out or search an address</p>
             </div>
           ) : (
             filteredMarinas.map((lead) => (
