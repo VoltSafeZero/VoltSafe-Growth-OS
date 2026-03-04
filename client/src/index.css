@@ -175,6 +175,20 @@
   background: transparent !important;
   border: none !important;
 }
+.marina-tooltip {
+  background: hsl(222 47% 11%) !important;
+  color: hsl(210 40% 98%) !important;
+  border: 1px solid hsl(217 33% 17%) !important;
+  border-radius: 6px !important;
+  padding: 4px 8px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  font-family: var(--font-sans) !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+}
+.marina-tooltip::before {
+  border-top-color: hsl(222 47% 11%) !important;
+}
 
 /* Recharts Customization for Dark Mode */
 .recharts-cartesian-grid-horizontal line,

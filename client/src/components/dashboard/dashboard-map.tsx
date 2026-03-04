@@ -3,8 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MapPin, Locate, Loader2 } from "lucide-react";
+import { MapPin, Locate, Loader2, Search } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -35,12 +36,31 @@ const STAGE_COLORS: Record<string, string> = {
   lost: "#ef4444",
 };
 
-function getDirectionsUrl(lat: number, lng: number, name: string) {
-  const encoded = encodeURIComponent(name);
+const STORAGE_KEY = "voltsafe-map-last-location";
+
+function getSavedLocation(): { lat: number; lng: number; zoom: number } | null {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return null;
+}
+
+function saveLocation(lat: number, lng: number, zoom: number) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ lat, lng, zoom }));
+  } catch {}
+}
+
+function getDirectionsUrl(lat: number, lng: number, address: string | null, name: string) {
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  if (isIOS) {
-    return `maps://maps.apple.com/?daddr=${lat},${lng}&q=${encoded}`;
+  if (address) {
+    const encoded = encodeURIComponent(address);
+    if (isIOS) return `maps://maps.apple.com/?daddr=${encoded}`;
+    return `https://www.google.com/maps/dir/?api=1&destination=${encoded}&travelmode=driving`;
   }
+  const encoded = encodeURIComponent(name);
+  if (isIOS) return `maps://maps.apple.com/?daddr=${lat},${lng}&q=${encoded}`;
   return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
 }
 
@@ -56,13 +76,13 @@ function createMarkerIcon(status: string) {
   return L.divIcon({
     className: "custom-marker",
     html: `<div style="
-      width: 24px; height: 24px; border-radius: 50%;
+      width: 12px; height: 12px; border-radius: 50%;
       background: ${color}; border: 2px solid white;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
     "></div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-    popupAnchor: [0, -12],
+    iconSize: [12, 12],
+    iconAnchor: [6, 6],
+    popupAnchor: [0, -8],
   });
 }
 
@@ -70,13 +90,13 @@ function createUserIcon() {
   return L.divIcon({
     className: "user-marker",
     html: `<div style="
-      width: 18px; height: 18px; border-radius: 50%;
-      background: #2dd4bf; border: 3px solid white;
-      box-shadow: 0 0 0 3px rgba(45,212,191,0.3), 0 2px 8px rgba(0,0,0,0.4);
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #2dd4bf; border: 2px solid white;
+      box-shadow: 0 0 0 3px rgba(45,212,191,0.3), 0 2px 6px rgba(0,0,0,0.3);
       animation: pulse-ring 2s ease-out infinite;
     "></div>`,
-    iconSize: [18, 18],
-    iconAnchor: [9, 9],
+    iconSize: [14, 14],
+    iconAnchor: [7, 7],
   });
 }
 
@@ -84,6 +104,8 @@ export default function DashboardMap() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searching, setSearching] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.LayerGroup | null>(null);
@@ -93,21 +115,32 @@ export default function DashboardMap() {
     setLocating(true);
     setLocationError(null);
     if (!navigator.geolocation) {
-      setLocationError("Geolocation not supported");
-      setLocating(false);
+      const saved = getSavedLocation();
+      if (saved) {
+        setUserLocation({ lat: saved.lat, lng: saved.lng });
+        setLocating(false);
+      } else {
+        setLocationError("Geolocation not supported");
+        setLocating(false);
+      }
       return;
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setUserLocation(loc);
+        saveLocation(loc.lat, loc.lng, 11);
         setLocating(false);
       },
-      (err) => {
-        setLocationError(
-          err.code === 1 ? "Location access denied. Enable location in browser settings."
-          : "Could not get your location. Please try again."
-        );
-        setLocating(false);
+      () => {
+        const saved = getSavedLocation();
+        if (saved) {
+          setUserLocation({ lat: saved.lat, lng: saved.lng });
+          setLocating(false);
+        } else {
+          setLocationError("Could not get your location. Search an address or enable location access.");
+          setLocating(false);
+        }
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
     );
@@ -116,6 +149,27 @@ export default function DashboardMap() {
   useEffect(() => {
     requestLocation();
   }, [requestLocation]);
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    try {
+      const res = await fetch(`/api/geocode/search?q=${encodeURIComponent(searchQuery.trim())}`, { credentials: "include" });
+      if (!res.ok) {
+        setSearching(false);
+        return;
+      }
+      const data = await res.json();
+      const loc = { lat: data.lat, lng: data.lng };
+      setUserLocation(loc);
+      saveLocation(loc.lat, loc.lng, 12);
+      setLocationError(null);
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.setView([loc.lat, loc.lng], 12, { animate: true });
+      }
+    } catch {}
+    setSearching(false);
+  };
 
   const { data: nearbyLeads, isLoading, isError } = useQuery<NearbyLead[]>({
     queryKey: ["/api/leads/nearby", userLocation?.lat, userLocation?.lng, "50"],
@@ -136,20 +190,29 @@ export default function DashboardMap() {
     if (!mapRef.current || !userLocation) return;
 
     if (!mapInstanceRef.current) {
+      const saved = getSavedLocation();
+      const zoom = saved?.zoom || 11;
       mapInstanceRef.current = L.map(mapRef.current, {
         zoomControl: true,
         attributionControl: true,
-      }).setView([userLocation.lat, userLocation.lng], 11);
+      }).setView([userLocation.lat, userLocation.lng], zoom);
 
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
         subdomains: "abcd",
         maxZoom: 19,
       }).addTo(mapInstanceRef.current);
 
       markersRef.current = L.layerGroup().addTo(mapInstanceRef.current);
+
+      mapInstanceRef.current.on("moveend", () => {
+        if (mapInstanceRef.current) {
+          const c = mapInstanceRef.current.getCenter();
+          saveLocation(c.lat, c.lng, mapInstanceRef.current.getZoom());
+        }
+      });
     } else {
-      mapInstanceRef.current.setView([userLocation.lat, userLocation.lng], 11);
+      mapInstanceRef.current.setView([userLocation.lat, userLocation.lng], mapInstanceRef.current.getZoom());
     }
 
     if (userMarkerRef.current) {
@@ -193,52 +256,68 @@ export default function DashboardMap() {
         icon: createMarkerIcon(lead.status),
       });
 
+      marker.bindTooltip(lead.company, {
+        direction: "top",
+        offset: [0, -8],
+        className: "marina-tooltip",
+      });
+
       const addr = lead.marina_address || lead.street_address || [lead.city, lead.state].filter(Boolean).join(", ");
-      const directionsUrl = getDirectionsUrl(lead.marina_lat, lead.marina_lng, lead.company);
+
+      const handleClick = async () => {
+        let finalAddr = addr;
+        if (!finalAddr) {
+          try {
+            const res = await fetch(`/api/leads/${lead.id}/geocode-address`, {
+              method: "POST",
+              credentials: "include",
+            });
+            if (res.ok) {
+              const data = await res.json();
+              finalAddr = data.address;
+            }
+          } catch {}
+        }
+        const url = getDirectionsUrl(lead.marina_lat, lead.marina_lng, finalAddr || null, lead.company);
+        window.open(url, "_blank", "noopener");
+      };
 
       const popupEl = document.createElement("div");
-      popupEl.style.cssText = "min-width: 180px; font-family: Inter, sans-serif;";
+      popupEl.style.cssText = "min-width: 170px; font-family: Inter, sans-serif;";
 
       const titleEl = document.createElement("div");
-      titleEl.style.cssText = "font-weight: 600; font-size: 14px; margin-bottom: 4px;";
+      titleEl.style.cssText = "font-weight: 600; font-size: 13px; margin-bottom: 3px;";
       titleEl.textContent = lead.company;
       popupEl.appendChild(titleEl);
 
       const distEl = document.createElement("div");
-      distEl.style.cssText = "font-size: 12px; color: #94a3b8; margin-bottom: 6px;";
+      distEl.style.cssText = "font-size: 11px; color: #64748b; margin-bottom: 4px;";
       distEl.textContent = `${formatDistance(lead.distance_km)} away`;
       popupEl.appendChild(distEl);
 
       if (addr) {
         const addrEl = document.createElement("div");
-        addrEl.style.cssText = "font-size: 12px; color: #cbd5e1; margin-bottom: 4px;";
+        addrEl.style.cssText = "font-size: 11px; color: #475569; margin-bottom: 3px;";
         addrEl.textContent = addr;
         popupEl.appendChild(addrEl);
       }
 
       if (lead.slips && lead.slips !== "-") {
         const slipsEl = document.createElement("div");
-        slipsEl.style.cssText = "font-size: 12px; color: #cbd5e1; margin-bottom: 4px;";
+        slipsEl.style.cssText = "font-size: 11px; color: #475569; margin-bottom: 3px;";
         slipsEl.textContent = `${lead.slips} slips`;
         popupEl.appendChild(slipsEl);
       }
 
-      if (lead.contact_phone) {
-        const phoneEl = document.createElement("div");
-        phoneEl.style.cssText = "font-size: 12px; color: #cbd5e1; margin-bottom: 4px;";
-        phoneEl.textContent = lead.contact_phone;
-        popupEl.appendChild(phoneEl);
-      }
-
-      const dirBtn = document.createElement("a");
-      dirBtn.href = directionsUrl;
-      dirBtn.target = "_blank";
-      dirBtn.rel = "noopener";
-      dirBtn.style.cssText = "display: flex; align-items: center; gap: 6px; margin-top: 8px; padding: 8px 14px; background: #2dd4bf; color: #0f172a; border-radius: 8px; text-decoration: none; font-size: 13px; font-weight: 600; justify-content: center;";
-      dirBtn.textContent = "Drive Here";
+      const dirBtn = document.createElement("button");
+      dirBtn.type = "button";
+      dirBtn.setAttribute("data-testid", `button-directions-${lead.id}`);
+      dirBtn.style.cssText = "display: flex; align-items: center; gap: 5px; margin-top: 6px; padding: 6px 12px; background: #0d9488; color: white; border-radius: 6px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; width: 100%; justify-content: center;";
+      dirBtn.textContent = "Get Directions";
+      dirBtn.addEventListener("click", handleClick);
       popupEl.appendChild(dirBtn);
 
-      marker.bindPopup(popupEl, { maxWidth: 260 });
+      marker.bindPopup(popupEl, { maxWidth: 240 });
       marker.addTo(markersRef.current!);
       bounds.extend([lead.marina_lat, lead.marina_lng]);
     });
@@ -259,7 +338,7 @@ export default function DashboardMap() {
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-1">
               {nearbyLeads && nearbyLeads.length > 0
-                ? `${nearbyLeads.length} marinas within 50km — tap a marker for directions`
+                ? `${nearbyLeads.length} marinas within 50km — hover for name, click for directions`
                 : "Marinas within 50km of your location"}
             </p>
           </div>
@@ -279,9 +358,32 @@ export default function DashboardMap() {
             </Button>
           </div>
         </div>
+        <div className="flex items-center gap-2 mt-2">
+          <div className="relative flex-1">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search address or city..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+              className="pl-8 h-8 text-xs bg-secondary/30 border-border/50"
+              data-testid="input-map-address-search"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            onClick={handleSearch}
+            disabled={searching || !searchQuery.trim()}
+            data-testid="button-map-search"
+          >
+            {searching ? <Loader2 className="h-3 w-3 animate-spin" /> : "Go"}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="pt-0">
-        {locationError ? (
+        {locationError && !userLocation ? (
           <div className="flex flex-col items-center justify-center py-12 rounded-xl border border-border/30 bg-muted/5">
             <MapPin className="h-10 w-10 text-muted-foreground mb-3" />
             <p className="text-sm font-medium mb-1">Location Required</p>
@@ -290,7 +392,7 @@ export default function DashboardMap() {
               <Locate className="mr-1.5 h-3.5 w-3.5" /> Enable Location
             </Button>
           </div>
-        ) : locating || !userLocation ? (
+        ) : locating && !userLocation ? (
           <div className="flex flex-col items-center justify-center py-12 rounded-xl border border-border/30 bg-muted/5">
             <Loader2 className="h-8 w-8 animate-spin text-primary mb-3" />
             <p className="text-sm text-muted-foreground">Finding your location...</p>

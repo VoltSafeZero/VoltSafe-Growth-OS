@@ -181,6 +181,7 @@ export async function registerRoutes(
   app.use("/api/team-workload", requireAuth);
   app.use("/api/partnerships", requireAuth);
   app.use("/api/ecosystem", requireAuth);
+  app.use("/api/geocode", requireAuth);
 
   app.get("/api/metrics", async (_req, res) => {
     res.json(await storage.getMetrics());
@@ -409,6 +410,67 @@ export async function registerRoutes(
       LIMIT ${limit}
     `);
     res.json(results.rows);
+  });
+
+  app.get("/api/geocode/search", async (req, res) => {
+    const q = String(req.query.q || "").trim();
+    if (!q) return res.status(400).json({ message: "q parameter required" });
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`;
+      const response = await fetch(url, {
+        headers: { "User-Agent": "VoltSafeCortex/1.0" },
+      });
+      const data = await response.json() as Array<{ lat: string; lon: string; display_name: string }>;
+      if (!data.length) return res.status(404).json({ message: "Address not found" });
+      res.json({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), display_name: data[0].display_name });
+    } catch {
+      res.status(500).json({ message: "Geocoding failed" });
+    }
+  });
+
+  app.post("/api/leads/:id/geocode-address", async (req, res) => {
+    const leadId = Number(req.params.id);
+    const lead = await storage.getLead(leadId);
+    if (!lead) return res.status(404).json({ message: "Lead not found" });
+
+    let lat: number | null = null;
+    let lng: number | null = null;
+    if (lead.marinaId) {
+      const marinaResult = await db.execute(sql`SELECT latitude, longitude, street_address FROM marinas WHERE id = ${lead.marinaId}`);
+      const marina = marinaResult.rows[0] as { latitude: number | null; longitude: number | null; street_address: string | null } | undefined;
+      if (marina?.street_address) {
+        return res.json({ address: marina.street_address, lat: marina.latitude, lng: marina.longitude });
+      }
+      lat = marina?.latitude as number | null;
+      lng = marina?.longitude as number | null;
+    }
+    if (!lat || !lng) {
+      return res.status(400).json({ message: "No coordinates available to reverse-geocode" });
+    }
+
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`;
+      const response = await fetch(url, {
+        headers: { "User-Agent": "VoltSafeCortex/1.0" },
+      });
+      const data = await response.json() as { display_name?: string; address?: { road?: string; house_number?: string; city?: string; state?: string; postcode?: string } };
+      if (!data.display_name) return res.status(404).json({ message: "Could not reverse-geocode address" });
+
+      const addr = data.address;
+      const street = [addr?.house_number, addr?.road].filter(Boolean).join(" ");
+      const fullAddress = street || data.display_name;
+
+      if (lead.marinaId) {
+        await db.execute(sql`UPDATE marinas SET street_address = ${fullAddress} WHERE id = ${lead.marinaId}`);
+      }
+      if (!lead.streetAddress) {
+        await db.execute(sql`UPDATE leads SET street_address = ${fullAddress} WHERE id = ${leadId}`);
+      }
+
+      res.json({ address: fullAddress, lat, lng });
+    } catch {
+      res.status(500).json({ message: "Reverse geocoding failed" });
+    }
   });
 
   app.get("/api/leads/states", async (_req, res) => {
