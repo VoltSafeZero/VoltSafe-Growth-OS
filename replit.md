@@ -29,7 +29,7 @@ The project is organized as a monorepo containing `client/` (React SPA), `server
 
 ### Core CMS Modules
 - **Authentication:** Session-based authentication with `bcryptjs` for password hashing and `express-session`. Supports WebAuthn for biometric login. All API endpoints are protected.
-- **Sales:** Manages leads (including a marina directory import), accounts, contacts, infrastructure profiles, opportunities, and quotes. Features Kanban and list views for pipeline management.
+- **Sales:** Manages leads (including a marina directory import) with integrated deal/financial fields (amount, probability, value breakdown, value driver, competitors, ROI story, close date), accounts, contacts, infrastructure profiles, and quotes. Features Kanban and list views for pipeline management. Opportunities fields are integrated directly into leads (no separate Opportunities page).
 - **Support:** Provides a ticketing system with Kanban board and list views for tracking support issues.
 - **Communications:** Manages broadcast lists and campaign drafts.
 - **Comments & Collaboration:** Features a threaded comments feed, user assignment for leads/accounts, and action item creation.

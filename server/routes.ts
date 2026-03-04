@@ -220,6 +220,11 @@ export async function registerRoutes(
       { key: "slips", header: "Slips" }, { key: "status", header: "Stage" }, { key: "source", header: "Source" },
       { key: "segment", header: "Segment" }, { key: "tags", header: "Tags" }, { key: "notes", header: "Notes" },
       { key: "nextStep", header: "Next Step" }, { key: "dueDate", header: "Due Date" },
+      { key: "dealAmount", header: "Deal Amount" }, { key: "dealProbability", header: "Probability %" },
+      { key: "dealValueHardware", header: "Hardware $" }, { key: "dealValueSoftware", header: "Software $" },
+      { key: "dealValueServices", header: "Services $" }, { key: "primaryValueDriver", header: "Value Driver" },
+      { key: "estimatedPedestalCount", header: "Est. Pedestals" }, { key: "estimatedSlipsImpacted", header: "Est. Slips Impacted" },
+      { key: "estCloseDate", header: "Est. Close Date" }, { key: "competitors", header: "Competitors" },
       { key: "createdAt", header: "Created At" },
     ];
     setCsvHeaders(res, "leads_export.csv");
@@ -403,13 +408,19 @@ export async function registerRoutes(
   });
 
   app.post("/api/leads", async (req, res) => {
-    const parsed = insertLeadSchema.safeParse(req.body);
+    const body = { ...req.body };
+    if (body.dueDate && typeof body.dueDate === "string") body.dueDate = new Date(body.dueDate);
+    if (body.estCloseDate && typeof body.estCloseDate === "string") body.estCloseDate = new Date(body.estCloseDate);
+    const parsed = insertLeadSchema.safeParse(body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createLead(parsed.data));
   });
 
   app.put("/api/leads/:id", async (req, res) => {
-    const result = await storage.updateLead(Number(req.params.id), req.body);
+    const body = { ...req.body };
+    if (body.dueDate && typeof body.dueDate === "string") body.dueDate = new Date(body.dueDate);
+    if (body.estCloseDate && typeof body.estCloseDate === "string") body.estCloseDate = new Date(body.estCloseDate);
+    const result = await storage.updateLead(Number(req.params.id), body);
     if (!result) return res.status(404).json({ message: "Lead not found" });
     res.json(result);
   });

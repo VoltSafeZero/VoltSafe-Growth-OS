@@ -13,7 +13,6 @@ import Dashboard from "@/pages/dashboard";
 import MarinasPage from "@/pages/marinas";
 import LeadsPage from "@/pages/leads";
 import AccountsPage from "@/pages/accounts";
-import OpportunitiesPage from "@/pages/opportunities";
 import QuotesPage from "@/pages/quotes";
 import TicketsPage from "@/pages/tickets";
 import CommunicationsPage from "@/pages/communications";
@@ -65,7 +64,6 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/marinas">{() => <AppShell user={user} onLogout={onLogout}><MarinasPage /></AppShell>}</Route>
       <Route path="/leads">{() => <AppShell user={user} onLogout={onLogout}><LeadsPage /></AppShell>}</Route>
       <Route path="/accounts">{() => <AppShell user={user} onLogout={onLogout}><AccountsPage /></AppShell>}</Route>
-      <Route path="/opportunities">{() => <AppShell user={user} onLogout={onLogout}><OpportunitiesPage /></AppShell>}</Route>
       <Route path="/quotes">{() => <AppShell user={user} onLogout={onLogout}><QuotesPage /></AppShell>}</Route>
       <Route path="/tickets">{() => <AppShell user={user} onLogout={onLogout}><TicketsPage /></AppShell>}</Route>
       <Route path="/communications">{() => <AppShell user={user} onLogout={onLogout}><CommunicationsPage /></AppShell>}</Route>

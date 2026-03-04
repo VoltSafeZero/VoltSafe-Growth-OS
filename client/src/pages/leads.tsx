@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Search, ArrowRightLeft, Trash2, Loader2, Undo2,
-  LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar
+  LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar, DollarSign
 } from "lucide-react";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
 import { ExportButton } from "@/components/ui/export-button";
@@ -210,6 +210,7 @@ export default function LeadsPage() {
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Leads Pipeline</h1>
           <p className="text-muted-foreground mt-1 text-sm">
             {totalCount > 0 ? `${totalCount.toLocaleString()} leads` : "Manage your sales pipeline"}
+            {(() => { const pv = allLeads.reduce((s, l) => s + (l.dealAmount || 0), 0); return pv > 0 ? ` · $${pv.toLocaleString()} pipeline` : ""; })()}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -336,6 +337,7 @@ export default function LeadsPage() {
                     <SortableHeader label="Location" sortKey="state" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Contact" sortKey="contactName" sort={sort} onSort={handleSort} className="hidden md:table-cell" />
                     <SortableHeader label="Slips" sortKey="slips" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />
+                    <SortableHeader label="Deal $" sortKey="dealAmount" sort={sort} onSort={handleSort} className="hidden xl:table-cell" />
                     <SortableHeader label="Stage" sortKey="status" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Source" sortKey="source" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />
                     <th className="text-right p-3 sm:p-4 text-sm font-medium text-muted-foreground">Actions</th>
@@ -363,6 +365,13 @@ export default function LeadsPage() {
                         {lead.contactPhone && <div className="text-muted-foreground text-xs">{lead.contactPhone}</div>}
                       </td>
                       <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell">{!lead.slips || lead.slips === "-" ? "Unknown" : lead.slips}</td>
+                      <td className="p-3 sm:p-4 text-sm hidden xl:table-cell">
+                        {lead.dealAmount ? (
+                          <span className="text-emerald-400 font-medium">${Number(lead.dealAmount).toLocaleString()}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
                       <td className="p-3 sm:p-4">
                         <Badge variant="outline" className={`text-xs ${statusColors[lead.status] || ""}`} data-testid={`badge-status-${lead.id}`}>
                           {getStageLabel(lead.status)}
@@ -445,6 +454,7 @@ function PipelineView({
               <h3 className="text-sm font-semibold">{stage.label}</h3>
               <Badge variant="outline" className="text-xs px-1.5 py-0">{stage.leads.length}</Badge>
             </div>
+            {(() => { const total = stage.leads.reduce((sum, l) => sum + (l.dealAmount || 0), 0); return total > 0 ? <p className="text-xs text-emerald-400 mt-1">${total.toLocaleString()}</p> : null; })()}
           </div>
           <div className="p-2 space-y-2 max-h-[calc(100vh-320px)] overflow-y-auto">
             {stage.leads.length === 0 && (
@@ -469,6 +479,13 @@ function PipelineView({
                 )}
                 {lead.slips && lead.slips !== "-" && (
                   <p className="text-xs text-muted-foreground mt-0.5">{lead.slips} slips</p>
+                )}
+                {lead.dealAmount != null && lead.dealAmount > 0 && (
+                  <p className="text-xs text-emerald-400 font-medium mt-0.5 flex items-center gap-1">
+                    <DollarSign className="h-3 w-3" />
+                    ${Number(lead.dealAmount).toLocaleString()}
+                    {lead.dealProbability != null && <span className="text-muted-foreground font-normal">({lead.dealProbability}%)</span>}
+                  </p>
                 )}
                 {lead.contactPhone && (
                   <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -639,6 +656,81 @@ function LeadDetailDialog({
               </div>
             </div>
 
+            {(lead.dealAmount || lead.dealProbability || lead.primaryValueDriver || lead.estimatedPedestalCount) && (
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+                <Label className="text-xs text-emerald-400 mb-2 block flex items-center gap-1">
+                  <DollarSign className="h-3 w-3" /> Deal Information
+                </Label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {lead.dealAmount != null && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Amount</p>
+                      <p className="text-lg font-semibold text-emerald-400">${Number(lead.dealAmount).toLocaleString()}</p>
+                    </div>
+                  )}
+                  {lead.dealProbability != null && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Probability</p>
+                      <p className="text-sm font-medium">{lead.dealProbability}%</p>
+                    </div>
+                  )}
+                  {lead.primaryValueDriver && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Value Driver</p>
+                      <p className="text-sm font-medium">{lead.primaryValueDriver}</p>
+                    </div>
+                  )}
+                  {lead.estCloseDate && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Est. Close</p>
+                      <p className="text-sm font-medium">{new Date(lead.estCloseDate).toLocaleDateString()}</p>
+                    </div>
+                  )}
+                </div>
+                {(lead.dealValueHardware || lead.dealValueSoftware || lead.dealValueServices) && (
+                  <div className="grid grid-cols-3 gap-3 mt-2 pt-2 border-t border-emerald-500/10">
+                    <div><p className="text-xs text-muted-foreground">Hardware</p><p className="text-sm font-medium">${Number(lead.dealValueHardware || 0).toLocaleString()}</p></div>
+                    <div><p className="text-xs text-muted-foreground">Software</p><p className="text-sm font-medium">${Number(lead.dealValueSoftware || 0).toLocaleString()}</p></div>
+                    <div><p className="text-xs text-muted-foreground">Services</p><p className="text-sm font-medium">${Number(lead.dealValueServices || 0).toLocaleString()}</p></div>
+                  </div>
+                )}
+                {(lead.estimatedPedestalCount || lead.estimatedSlipsImpacted) && (
+                  <div className="grid grid-cols-2 gap-3 mt-2 pt-2 border-t border-emerald-500/10">
+                    {lead.estimatedPedestalCount && <div><p className="text-xs text-muted-foreground">Est. Pedestals</p><p className="text-sm font-medium">{lead.estimatedPedestalCount}</p></div>}
+                    {lead.estimatedSlipsImpacted && <div><p className="text-xs text-muted-foreground">Est. Slips Impacted</p><p className="text-sm font-medium">{lead.estimatedSlipsImpacted}</p></div>}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {lead.competitors && (
+              <div className="rounded-lg border border-border/50 p-3">
+                <Label className="text-xs text-muted-foreground mb-1 block">Competitors</Label>
+                <p className="text-sm">{lead.competitors}</p>
+              </div>
+            )}
+
+            {lead.roiStory && (
+              <div className="rounded-lg border border-border/50 p-3">
+                <Label className="text-xs text-muted-foreground mb-1 block">ROI Story</Label>
+                <p className="text-sm whitespace-pre-wrap">{lead.roiStory}</p>
+              </div>
+            )}
+
+            {lead.closedWonNotes && (
+              <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-3">
+                <Label className="text-xs text-green-400 mb-1 block">Won Notes</Label>
+                <p className="text-sm whitespace-pre-wrap">{lead.closedWonNotes}</p>
+              </div>
+            )}
+
+            {lead.closedLostReason && (
+              <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
+                <Label className="text-xs text-red-400 mb-1 block">Lost Reason</Label>
+                <p className="text-sm whitespace-pre-wrap">{lead.closedLostReason}</p>
+              </div>
+            )}
+
             {(lead.nextStep || lead.dueDate) && (
               <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
                 <Label className="text-xs text-primary mb-1 block flex items-center gap-1">
@@ -733,6 +825,19 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending }: { lead: Lead; onS
     zipCode: lead.zipCode || "",
     slips: lead.slips || "",
     segment: lead.segment || "",
+    dealAmount: lead.dealAmount != null ? String(lead.dealAmount) : "",
+    dealProbability: lead.dealProbability != null ? String(lead.dealProbability) : "",
+    dealValueHardware: lead.dealValueHardware != null ? String(lead.dealValueHardware) : "",
+    dealValueSoftware: lead.dealValueSoftware != null ? String(lead.dealValueSoftware) : "",
+    dealValueServices: lead.dealValueServices != null ? String(lead.dealValueServices) : "",
+    primaryValueDriver: lead.primaryValueDriver || "",
+    estimatedPedestalCount: lead.estimatedPedestalCount != null ? String(lead.estimatedPedestalCount) : "",
+    estimatedSlipsImpacted: lead.estimatedSlipsImpacted != null ? String(lead.estimatedSlipsImpacted) : "",
+    estCloseDate: lead.estCloseDate ? new Date(lead.estCloseDate).toISOString().split("T")[0] : "",
+    competitors: lead.competitors || "",
+    roiStory: lead.roiStory || "",
+    closedLostReason: lead.closedLostReason || "",
+    closedWonNotes: lead.closedWonNotes || "",
   });
 
   const formRegions = form.country ? getRegionsForCountry(form.country) : [];
@@ -743,7 +848,15 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending }: { lead: Lead; onS
       onSubmit({
         ...form,
         dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : null,
+        estCloseDate: form.estCloseDate ? new Date(form.estCloseDate).toISOString() : null,
         contactName: form.contactName || "Marina Contact",
+        dealAmount: form.dealAmount ? Number(form.dealAmount) : null,
+        dealProbability: form.dealProbability ? Number(form.dealProbability) : null,
+        dealValueHardware: form.dealValueHardware ? Number(form.dealValueHardware) : null,
+        dealValueSoftware: form.dealValueSoftware ? Number(form.dealValueSoftware) : null,
+        dealValueServices: form.dealValueServices ? Number(form.dealValueServices) : null,
+        estimatedPedestalCount: form.estimatedPedestalCount ? Number(form.estimatedPedestalCount) : null,
+        estimatedSlipsImpacted: form.estimatedSlipsImpacted ? Number(form.estimatedSlipsImpacted) : null,
       });
     }} className="space-y-4 mt-2">
       <div>
@@ -810,6 +923,49 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending }: { lead: Lead; onS
         </div>
         <div className="mt-3"><Label className="text-xs">Tags</Label><Input value={form.tags} onChange={(e) => setForm(f => ({ ...f, tags: e.target.value }))} placeholder="Comma-separated tags" data-testid="input-edit-tags" /></div>
         <div className="mt-3"><Label className="text-xs">Notes</Label><Textarea value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} rows={3} placeholder="Meeting notes, observations, key details..." data-testid="input-edit-notes" /></div>
+      </div>
+
+      <div className="border-t border-border/50 pt-3">
+        <Label className="text-xs text-emerald-400 mb-2 block flex items-center gap-1"><DollarSign className="h-3 w-3" /> Deal / Financial</Label>
+        <div className="grid grid-cols-3 gap-3">
+          <div><Label className="text-xs">Deal Amount ($)</Label><Input type="number" value={form.dealAmount} onChange={(e) => setForm(f => ({ ...f, dealAmount: e.target.value }))} placeholder="0" data-testid="input-edit-deal-amount" /></div>
+          <div><Label className="text-xs">Probability (%)</Label><Input type="number" min="0" max="100" value={form.dealProbability} onChange={(e) => setForm(f => ({ ...f, dealProbability: e.target.value }))} placeholder="0-100" data-testid="input-edit-deal-probability" /></div>
+          <div><Label className="text-xs">Est. Close Date</Label><Input type="date" value={form.estCloseDate} onChange={(e) => setForm(f => ({ ...f, estCloseDate: e.target.value }))} data-testid="input-edit-est-close" /></div>
+        </div>
+        <div className="grid grid-cols-3 gap-3 mt-3">
+          <div><Label className="text-xs">Hardware ($)</Label><Input type="number" value={form.dealValueHardware} onChange={(e) => setForm(f => ({ ...f, dealValueHardware: e.target.value }))} placeholder="0" data-testid="input-edit-deal-hardware" /></div>
+          <div><Label className="text-xs">Software ($)</Label><Input type="number" value={form.dealValueSoftware} onChange={(e) => setForm(f => ({ ...f, dealValueSoftware: e.target.value }))} placeholder="0" data-testid="input-edit-deal-software" /></div>
+          <div><Label className="text-xs">Services ($)</Label><Input type="number" value={form.dealValueServices} onChange={(e) => setForm(f => ({ ...f, dealValueServices: e.target.value }))} placeholder="0" data-testid="input-edit-deal-services" /></div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <div>
+            <Label className="text-xs">Primary Value Driver</Label>
+            <Select value={form.primaryValueDriver || "none"} onValueChange={(v) => setForm(f => ({ ...f, primaryValueDriver: v === "none" ? "" : v }))}>
+              <SelectTrigger data-testid="select-edit-value-driver"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Select...</SelectItem>
+                <SelectItem value="safety">Safety & Compliance</SelectItem>
+                <SelectItem value="revenue">Revenue Generation</SelectItem>
+                <SelectItem value="cost_savings">Cost Savings</SelectItem>
+                <SelectItem value="modernization">Infrastructure Modernization</SelectItem>
+                <SelectItem value="sustainability">Sustainability / Green</SelectItem>
+                <SelectItem value="customer_experience">Customer Experience</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label className="text-xs">Est. Pedestals</Label><Input type="number" value={form.estimatedPedestalCount} onChange={(e) => setForm(f => ({ ...f, estimatedPedestalCount: e.target.value }))} data-testid="input-edit-pedestal-count" /></div>
+            <div><Label className="text-xs">Est. Slips</Label><Input type="number" value={form.estimatedSlipsImpacted} onChange={(e) => setForm(f => ({ ...f, estimatedSlipsImpacted: e.target.value }))} data-testid="input-edit-slips-impacted" /></div>
+          </div>
+        </div>
+        <div className="mt-3"><Label className="text-xs">Competitors</Label><Input value={form.competitors} onChange={(e) => setForm(f => ({ ...f, competitors: e.target.value }))} placeholder="Competing vendors or solutions" data-testid="input-edit-competitors" /></div>
+        <div className="mt-3"><Label className="text-xs">ROI Story</Label><Textarea value={form.roiStory} onChange={(e) => setForm(f => ({ ...f, roiStory: e.target.value }))} rows={2} placeholder="How does VoltSafe create value for this marina?" data-testid="input-edit-roi-story" /></div>
+        {lead.status === "converted" && (
+          <div className="mt-3"><Label className="text-xs">Won Notes</Label><Textarea value={form.closedWonNotes} onChange={(e) => setForm(f => ({ ...f, closedWonNotes: e.target.value }))} rows={2} data-testid="input-edit-won-notes" /></div>
+        )}
+        {lead.status === "lost" && (
+          <div className="mt-3"><Label className="text-xs">Lost Reason</Label><Textarea value={form.closedLostReason} onChange={(e) => setForm(f => ({ ...f, closedLostReason: e.target.value }))} rows={2} data-testid="input-edit-lost-reason" /></div>
+        )}
       </div>
 
       <div className="flex justify-end gap-2 pt-2 border-t border-border/50">

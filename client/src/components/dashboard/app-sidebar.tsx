@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   UserPlus,
   Building2,
-  TrendingUp,
   FileText,
   LifeBuoy,
   Megaphone,
@@ -44,7 +43,6 @@ const overviewItems = [
 const salesItems = [
   { title: "Marina Accounts", url: "/accounts", icon: Building2 },
   { title: "Marina Leads", url: "/leads", icon: UserPlus },
-  { title: "Opportunities", url: "/opportunities", icon: TrendingUp },
   { title: "Quotes", url: "/quotes", icon: FileText },
 ];
 
