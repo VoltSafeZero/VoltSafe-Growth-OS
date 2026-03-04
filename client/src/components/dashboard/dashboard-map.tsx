@@ -367,63 +367,63 @@ export default function DashboardMap() {
         />
       </CardHeader>
       <CardContent className="pt-0">
-        <div className="flex gap-3">
-          <div className="flex-1 min-w-0">
-            <div
-              ref={mapRef}
-              className="w-full rounded-xl border border-border/30 overflow-hidden z-0 h-[280px] sm:h-[360px] md:h-[420px]"
-              data-testid="dashboard-map-container"
-            />
-          </div>
-          <div className="w-48 sm:w-56 flex-shrink-0 space-y-1.5 overflow-y-auto max-h-[280px] sm:max-h-[360px] md:max-h-[420px]" data-testid="dashboard-closest-list">
-            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1">Closest Marinas</p>
-            {closest5.length === 0 && !loading && (
-              <div className="text-center py-4">
-                <Anchor className="h-5 w-5 text-muted-foreground mx-auto mb-1" />
-                <p className="text-[11px] text-muted-foreground">No marinas in view</p>
-              </div>
-            )}
-            {closest5.map((lead) => (
-              <div
-                key={lead.id}
-                className="p-2 rounded-lg border border-border/30 bg-card/50 cursor-pointer transition-all hover:border-primary/30"
-                onClick={() => {
-                  if (mapInstanceRef.current) {
-                    mapInstanceRef.current.setView([lead.marina_lat, lead.marina_lng], 15, { animate: true });
-                  }
-                }}
-                data-testid={`dashboard-closest-${lead.id}`}
-              >
-                <div className="flex items-start justify-between gap-1">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium truncate">{lead.company}</p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[10px] text-muted-foreground">{formatDistance(lead.distance_km)}</span>
-                      <span
-                        className="w-2 h-2 rounded-full inline-block flex-shrink-0"
-                        style={{ background: STAGE_COLORS[lead.status] || "#64748b" }}
-                        title={STAGE_LABELS[lead.status] || lead.status}
-                      />
+        <div
+          ref={mapRef}
+          className="w-full rounded-xl border border-border/30 overflow-hidden z-0 h-[300px] sm:h-[380px] md:h-[440px]"
+          data-testid="dashboard-map-container"
+        />
+        {closest5.length > 0 && (
+          <div className="mt-3" data-testid="dashboard-closest-list">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1 mb-2">Closest Marinas</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2">
+              {closest5.map((lead) => (
+                <div
+                  key={lead.id}
+                  className="p-2.5 rounded-lg border border-border/30 bg-card/50 cursor-pointer transition-all hover:border-primary/30"
+                  onClick={() => {
+                    if (mapInstanceRef.current) {
+                      mapInstanceRef.current.setView([lead.marina_lat, lead.marina_lng], 15, { animate: true });
+                    }
+                  }}
+                  data-testid={`dashboard-closest-${lead.id}`}
+                >
+                  <div className="flex items-start justify-between gap-1">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium truncate">{lead.company}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] text-muted-foreground">{formatDistance(lead.distance_km)}</span>
+                        <span
+                          className="w-2 h-2 rounded-full inline-block flex-shrink-0"
+                          style={{ background: STAGE_COLORS[lead.status] || "#64748b" }}
+                          title={STAGE_LABELS[lead.status] || lead.status}
+                        />
+                      </div>
                     </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleListDirections(lead); }}
+                      className="shrink-0 p-1 rounded-md bg-primary/10 transition-colors hover-elevate"
+                      data-testid={`dashboard-directions-${lead.id}`}
+                      title="Get Directions"
+                    >
+                      <Navigation className="h-3 w-3 text-primary" />
+                    </button>
                   </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleListDirections(lead); }}
-                    className="shrink-0 p-1 rounded-md bg-primary/10 transition-colors hover-elevate"
-                    data-testid={`dashboard-directions-${lead.id}`}
-                    title="Get Directions"
-                  >
-                    <Navigation className="h-3 w-3 text-primary" />
-                  </button>
+                  {(lead.city || lead.state) && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                      {[lead.city, lead.state].filter(Boolean).join(", ")}
+                    </p>
+                  )}
                 </div>
-                {(lead.city || lead.state) && (
-                  <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
-                    {[lead.city, lead.state].filter(Boolean).join(", ")}
-                  </p>
-                )}
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
+        )}
+        {closest5.length === 0 && !loading && marinas.length === 0 && (
+          <div className="text-center py-3 mt-2">
+            <Anchor className="h-5 w-5 text-muted-foreground mx-auto mb-1" />
+            <p className="text-[11px] text-muted-foreground">No marinas in view</p>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
