@@ -445,3 +445,167 @@ export const webauthnCredentials = pgTable("webauthn_credentials", {
 });
 
 export type WebAuthnCredential = typeof webauthnCredentials.$inferSelect;
+
+export const partnerships = pgTable("partnerships", {
+  id: serial("id").primaryKey(),
+  category: text("category").notNull(),
+  name: text("name").notNull(),
+  region: text("region"),
+  country: text("country"),
+  website: text("website"),
+  strategicImportance: text("strategic_importance"),
+  influenceScore: integer("influence_score"),
+  notes: text("notes"),
+  keyContacts: text("key_contacts"),
+  organizationType: text("organization_type"),
+  membershipStatus: text("membership_status"),
+  marinasRepresented: integer("marinas_represented"),
+  eventsHosted: text("events_hosted"),
+  speakingOpportunities: text("speaking_opportunities"),
+  technologyCategory: text("technology_category"),
+  integrationStatus: text("integration_status"),
+  apiAvailable: boolean("api_available"),
+  integrationType: text("integration_type"),
+  technicalContact: text("technical_contact"),
+  jointRoadmapNotes: text("joint_roadmap_notes"),
+  priorityLevel: text("priority_level"),
+  integrationDocLink: text("integration_doc_link"),
+  channelType: text("channel_type"),
+  territory: text("territory"),
+  salesReach: integer("sales_reach"),
+  certificationStatus: text("certification_status"),
+  trainingCompletedDate: timestamp("training_completed_date"),
+  dealRegistrationEnabled: boolean("deal_registration_enabled"),
+  activeOpportunities: integer("active_opportunities"),
+  revenueGenerated: real("revenue_generated"),
+  industry: text("industry"),
+  licenseType: text("license_type"),
+  royaltyStructure: text("royalty_structure"),
+  contractStatus: text("contract_status"),
+  productIntegrationDescription: text("product_integration_description"),
+  expectedRevenuePotential: text("expected_revenue_potential"),
+  agencyBody: text("agency_body"),
+  grantType: text("grant_type"),
+  fundingAmount: real("funding_amount"),
+  applicationStatus: text("application_status"),
+  reportingRequirements: text("reporting_requirements"),
+  startDate: timestamp("start_date"),
+  endDate: timestamp("end_date"),
+  deliverables: text("deliverables"),
+  institutionType: text("institution_type"),
+  researchFocus: text("research_focus"),
+  programName: text("program_name"),
+  projectDescription: text("project_description"),
+  participationStatus: text("participation_status"),
+  ipConsiderations: text("ip_considerations"),
+  keyResearchers: text("key_researchers"),
+  slipCount: integer("slip_count"),
+  pilotStatus: text("pilot_status"),
+  deploymentSize: integer("deployment_size"),
+  productVersionInstalled: text("product_version_installed"),
+  caseStudyStatus: text("case_study_status"),
+  testimonialStatus: text("testimonial_status"),
+  operationalFeedback: text("operational_feedback"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPartnershipSchema = createInsertSchema(partnerships).omit({ id: true, createdAt: true, updatedAt: true });
+export type Partnership = typeof partnerships.$inferSelect;
+export type InsertPartnership = z.infer<typeof insertPartnershipSchema>;
+
+export const ecosystemOrganizations = pgTable("ecosystem_organizations", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  organizationType: text("organization_type"),
+  region: text("region"),
+  country: text("country"),
+  website: text("website"),
+  marinasOrLocations: integer("marinas_or_locations"),
+  totalSlipCount: integer("total_slip_count"),
+  strategicTier: text("strategic_tier"),
+  influenceScore: integer("influence_score"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertEcosystemOrganizationSchema = createInsertSchema(ecosystemOrganizations).omit({ id: true, createdAt: true, updatedAt: true });
+export type EcosystemOrganization = typeof ecosystemOrganizations.$inferSelect;
+export type InsertEcosystemOrganization = z.infer<typeof insertEcosystemOrganizationSchema>;
+
+export const ecosystemPeople = pgTable("ecosystem_people", {
+  id: serial("id").primaryKey(),
+  fullName: text("full_name").notNull(),
+  title: text("title"),
+  organizationId: integer("organization_id"),
+  organizationName: text("organization_name"),
+  roleType: text("role_type"),
+  linkedinProfile: text("linkedin_profile"),
+  email: text("email"),
+  phone: text("phone"),
+  influenceScore: integer("influence_score"),
+  relationshipStrength: text("relationship_strength"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertEcosystemPersonSchema = createInsertSchema(ecosystemPeople).omit({ id: true, createdAt: true, updatedAt: true });
+export type EcosystemPerson = typeof ecosystemPeople.$inferSelect;
+export type InsertEcosystemPerson = z.infer<typeof insertEcosystemPersonSchema>;
+
+export const ecosystemRelationships = pgTable("ecosystem_relationships", {
+  id: serial("id").primaryKey(),
+  sourceEntityType: text("source_entity_type").notNull(),
+  sourceEntityId: integer("source_entity_id").notNull(),
+  sourceEntityName: text("source_entity_name"),
+  targetEntityType: text("target_entity_type").notNull(),
+  targetEntityId: integer("target_entity_id").notNull(),
+  targetEntityName: text("target_entity_name"),
+  relationshipType: text("relationship_type"),
+  startDate: timestamp("start_date"),
+  strategicImportance: text("strategic_importance"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertEcosystemRelationshipSchema = createInsertSchema(ecosystemRelationships).omit({ id: true, createdAt: true, updatedAt: true });
+export type EcosystemRelationship = typeof ecosystemRelationships.$inferSelect;
+export type InsertEcosystemRelationship = z.infer<typeof insertEcosystemRelationshipSchema>;
+
+export const ecosystemEvents = pgTable("ecosystem_events", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  organizer: text("organizer"),
+  location: text("location"),
+  eventDate: timestamp("event_date"),
+  industryCategory: text("industry_category"),
+  voltsafeParticipation: text("voltsafe_participation"),
+  keyContactsMet: text("key_contacts_met"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertEcosystemEventSchema = createInsertSchema(ecosystemEvents).omit({ id: true, createdAt: true, updatedAt: true });
+export type EcosystemEvent = typeof ecosystemEvents.$inferSelect;
+export type InsertEcosystemEvent = z.infer<typeof insertEcosystemEventSchema>;
+
+export const ecosystemRegions = pgTable("ecosystem_regions", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  country: text("country"),
+  stateProvince: text("state_province"),
+  numberOfMarinas: integer("number_of_marinas"),
+  electricalCodeVersion: text("electrical_code_version"),
+  regulatoryNotes: text("regulatory_notes"),
+  strategicImportance: text("strategic_importance"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertEcosystemRegionSchema = createInsertSchema(ecosystemRegions).omit({ id: true, createdAt: true, updatedAt: true });
+export type EcosystemRegion = typeof ecosystemRegions.$inferSelect;
+export type InsertEcosystemRegion = z.infer<typeof insertEcosystemRegionSchema>;

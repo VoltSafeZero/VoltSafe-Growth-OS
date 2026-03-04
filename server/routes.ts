@@ -10,6 +10,10 @@ import {
   insertActivitySchema, insertTaskSchema,
   insertCommunicationListSchema, insertCampaignDraftSchema,
   insertInfrastructureProfileSchema, insertCommentSchema,
+  insertPartnershipSchema,
+  insertEcosystemOrganizationSchema, insertEcosystemPersonSchema,
+  insertEcosystemRelationshipSchema, insertEcosystemEventSchema,
+  insertEcosystemRegionSchema,
 } from "@shared/schema";
 import { requireAuth, seedUsers, hashPassword, verifyPassword } from "./auth";
 import { toCsv, setCsvHeaders, type CsvColumn } from "./csv-export";
@@ -175,6 +179,8 @@ export async function registerRoutes(
   app.use("/api/comments", requireAuth);
   app.use("/api/users", requireAuth);
   app.use("/api/team-workload", requireAuth);
+  app.use("/api/partnerships", requireAuth);
+  app.use("/api/ecosystem", requireAuth);
 
   app.get("/api/metrics", async (_req, res) => {
     res.json(await storage.getMetrics());
@@ -842,6 +848,183 @@ export async function registerRoutes(
   // ── Team Workload ───────────────────────────────────────────────
   app.get("/api/team-workload", async (_req, res) => {
     res.json(await storage.getTeamWorkload());
+  });
+
+  // ── Partnerships ───────────────────────────────────────────────
+  app.get("/api/partnerships", async (req, res) => {
+    const { category, search } = req.query;
+    res.json(await storage.getPartnerships({
+      category: category as string | undefined,
+      search: search as string | undefined,
+    }));
+  });
+  app.get("/api/partnerships/:id", async (req, res) => {
+    const p = await storage.getPartnership(Number(req.params.id));
+    if (!p) return res.status(404).json({ message: "Partnership not found" });
+    res.json(p);
+  });
+  app.post("/api/partnerships", async (req, res) => {
+    const body = { ...req.body };
+    if (body.startDate && typeof body.startDate === "string") body.startDate = new Date(body.startDate);
+    if (body.endDate && typeof body.endDate === "string") body.endDate = new Date(body.endDate);
+    if (body.trainingCompletedDate && typeof body.trainingCompletedDate === "string") body.trainingCompletedDate = new Date(body.trainingCompletedDate);
+    const parsed = insertPartnershipSchema.safeParse(body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
+    res.status(201).json(await storage.createPartnership(parsed.data));
+  });
+  app.put("/api/partnerships/:id", async (req, res) => {
+    const body = { ...req.body };
+    if (body.startDate && typeof body.startDate === "string") body.startDate = new Date(body.startDate);
+    if (body.endDate && typeof body.endDate === "string") body.endDate = new Date(body.endDate);
+    if (body.trainingCompletedDate && typeof body.trainingCompletedDate === "string") body.trainingCompletedDate = new Date(body.trainingCompletedDate);
+    const result = await storage.updatePartnership(Number(req.params.id), body);
+    if (!result) return res.status(404).json({ message: "Partnership not found" });
+    res.json(result);
+  });
+  app.delete("/api/partnerships/:id", async (req, res) => {
+    const ok = await storage.deletePartnership(Number(req.params.id));
+    if (!ok) return res.status(404).json({ message: "Partnership not found" });
+    res.json({ message: "Deleted" });
+  });
+
+  // ── Ecosystem Organizations ────────────────────────────────────
+  app.get("/api/ecosystem/organizations", async (req, res) => {
+    res.json(await storage.getEcosystemOrganizations({ search: req.query.search as string | undefined }));
+  });
+  app.get("/api/ecosystem/organizations/:id", async (req, res) => {
+    const o = await storage.getEcosystemOrganization(Number(req.params.id));
+    if (!o) return res.status(404).json({ message: "Organization not found" });
+    res.json(o);
+  });
+  app.post("/api/ecosystem/organizations", async (req, res) => {
+    const parsed = insertEcosystemOrganizationSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
+    res.status(201).json(await storage.createEcosystemOrganization(parsed.data));
+  });
+  app.put("/api/ecosystem/organizations/:id", async (req, res) => {
+    const result = await storage.updateEcosystemOrganization(Number(req.params.id), req.body);
+    if (!result) return res.status(404).json({ message: "Organization not found" });
+    res.json(result);
+  });
+  app.delete("/api/ecosystem/organizations/:id", async (req, res) => {
+    const ok = await storage.deleteEcosystemOrganization(Number(req.params.id));
+    if (!ok) return res.status(404).json({ message: "Organization not found" });
+    res.json({ message: "Deleted" });
+  });
+
+  // ── Ecosystem People ───────────────────────────────────────────
+  app.get("/api/ecosystem/people", async (req, res) => {
+    res.json(await storage.getEcosystemPeople({
+      search: req.query.search as string | undefined,
+      organizationId: req.query.organizationId ? Number(req.query.organizationId) : undefined,
+    }));
+  });
+  app.get("/api/ecosystem/people/:id", async (req, res) => {
+    const p = await storage.getEcosystemPerson(Number(req.params.id));
+    if (!p) return res.status(404).json({ message: "Person not found" });
+    res.json(p);
+  });
+  app.post("/api/ecosystem/people", async (req, res) => {
+    const parsed = insertEcosystemPersonSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
+    res.status(201).json(await storage.createEcosystemPerson(parsed.data));
+  });
+  app.put("/api/ecosystem/people/:id", async (req, res) => {
+    const result = await storage.updateEcosystemPerson(Number(req.params.id), req.body);
+    if (!result) return res.status(404).json({ message: "Person not found" });
+    res.json(result);
+  });
+  app.delete("/api/ecosystem/people/:id", async (req, res) => {
+    const ok = await storage.deleteEcosystemPerson(Number(req.params.id));
+    if (!ok) return res.status(404).json({ message: "Person not found" });
+    res.json({ message: "Deleted" });
+  });
+
+  // ── Ecosystem Relationships ────────────────────────────────────
+  app.get("/api/ecosystem/relationships", async (req, res) => {
+    res.json(await storage.getEcosystemRelationships({
+      entityType: req.query.entityType as string | undefined,
+      entityId: req.query.entityId ? Number(req.query.entityId) : undefined,
+      search: req.query.search as string | undefined,
+    }));
+  });
+  app.get("/api/ecosystem/relationships/:id", async (req, res) => {
+    const r = await storage.getEcosystemRelationship(Number(req.params.id));
+    if (!r) return res.status(404).json({ message: "Relationship not found" });
+    res.json(r);
+  });
+  app.post("/api/ecosystem/relationships", async (req, res) => {
+    const body = { ...req.body };
+    if (body.startDate && typeof body.startDate === "string") body.startDate = new Date(body.startDate);
+    const parsed = insertEcosystemRelationshipSchema.safeParse(body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
+    res.status(201).json(await storage.createEcosystemRelationship(parsed.data));
+  });
+  app.put("/api/ecosystem/relationships/:id", async (req, res) => {
+    const body = { ...req.body };
+    if (body.startDate && typeof body.startDate === "string") body.startDate = new Date(body.startDate);
+    const result = await storage.updateEcosystemRelationship(Number(req.params.id), body);
+    if (!result) return res.status(404).json({ message: "Relationship not found" });
+    res.json(result);
+  });
+  app.delete("/api/ecosystem/relationships/:id", async (req, res) => {
+    const ok = await storage.deleteEcosystemRelationship(Number(req.params.id));
+    if (!ok) return res.status(404).json({ message: "Relationship not found" });
+    res.json({ message: "Deleted" });
+  });
+
+  // ── Ecosystem Events ───────────────────────────────────────────
+  app.get("/api/ecosystem/events", async (req, res) => {
+    res.json(await storage.getEcosystemEvents({ search: req.query.search as string | undefined }));
+  });
+  app.get("/api/ecosystem/events/:id", async (req, res) => {
+    const e = await storage.getEcosystemEvent(Number(req.params.id));
+    if (!e) return res.status(404).json({ message: "Event not found" });
+    res.json(e);
+  });
+  app.post("/api/ecosystem/events", async (req, res) => {
+    const body = { ...req.body };
+    if (body.eventDate && typeof body.eventDate === "string") body.eventDate = new Date(body.eventDate);
+    const parsed = insertEcosystemEventSchema.safeParse(body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
+    res.status(201).json(await storage.createEcosystemEvent(parsed.data));
+  });
+  app.put("/api/ecosystem/events/:id", async (req, res) => {
+    const body = { ...req.body };
+    if (body.eventDate && typeof body.eventDate === "string") body.eventDate = new Date(body.eventDate);
+    const result = await storage.updateEcosystemEvent(Number(req.params.id), body);
+    if (!result) return res.status(404).json({ message: "Event not found" });
+    res.json(result);
+  });
+  app.delete("/api/ecosystem/events/:id", async (req, res) => {
+    const ok = await storage.deleteEcosystemEvent(Number(req.params.id));
+    if (!ok) return res.status(404).json({ message: "Event not found" });
+    res.json({ message: "Deleted" });
+  });
+
+  // ── Ecosystem Regions ──────────────────────────────────────────
+  app.get("/api/ecosystem/regions", async (req, res) => {
+    res.json(await storage.getEcosystemRegions({ search: req.query.search as string | undefined }));
+  });
+  app.get("/api/ecosystem/regions/:id", async (req, res) => {
+    const r = await storage.getEcosystemRegion(Number(req.params.id));
+    if (!r) return res.status(404).json({ message: "Region not found" });
+    res.json(r);
+  });
+  app.post("/api/ecosystem/regions", async (req, res) => {
+    const parsed = insertEcosystemRegionSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
+    res.status(201).json(await storage.createEcosystemRegion(parsed.data));
+  });
+  app.put("/api/ecosystem/regions/:id", async (req, res) => {
+    const result = await storage.updateEcosystemRegion(Number(req.params.id), req.body);
+    if (!result) return res.status(404).json({ message: "Region not found" });
+    res.json(result);
+  });
+  app.delete("/api/ecosystem/regions/:id", async (req, res) => {
+    const ok = await storage.deleteEcosystemRegion(Number(req.params.id));
+    if (!ok) return res.status(404).json({ message: "Region not found" });
+    res.json({ message: "Deleted" });
   });
 
   await seedDatabase();

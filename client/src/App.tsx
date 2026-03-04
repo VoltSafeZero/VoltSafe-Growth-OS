@@ -19,6 +19,12 @@ import TicketsPage from "@/pages/tickets";
 import CommunicationsPage from "@/pages/communications";
 import SettingsPage from "@/pages/settings";
 import TeamWorkloadPage from "@/pages/team-workload";
+import PartnershipsPage from "@/pages/partnerships";
+import EcosystemOrganizationsPage from "@/pages/ecosystem-organizations";
+import EcosystemPeoplePage from "@/pages/ecosystem-people";
+import EcosystemRelationshipsPage from "@/pages/ecosystem-relationships";
+import EcosystemEventsPage from "@/pages/ecosystem-events";
+import EcosystemRegionsPage from "@/pages/ecosystem-regions";
 import LoginPage from "@/pages/login";
 import ChangePasswordPage from "@/pages/change-password";
 import NotFound from "@/pages/not-found";
@@ -64,6 +70,18 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/tickets">{() => <AppShell user={user} onLogout={onLogout}><TicketsPage /></AppShell>}</Route>
       <Route path="/communications">{() => <AppShell user={user} onLogout={onLogout}><CommunicationsPage /></AppShell>}</Route>
       <Route path="/team-workload">{() => <AppShell user={user} onLogout={onLogout}><TeamWorkloadPage /></AppShell>}</Route>
+      <Route path="/partnerships/strategic-industry">{() => <AppShell user={user} onLogout={onLogout}><PartnershipsPage category="strategic_industry" /></AppShell>}</Route>
+      <Route path="/partnerships/technology">{() => <AppShell user={user} onLogout={onLogout}><PartnershipsPage category="technology" /></AppShell>}</Route>
+      <Route path="/partnerships/distribution">{() => <AppShell user={user} onLogout={onLogout}><PartnershipsPage category="distribution" /></AppShell>}</Route>
+      <Route path="/partnerships/oem">{() => <AppShell user={user} onLogout={onLogout}><PartnershipsPage category="oem" /></AppShell>}</Route>
+      <Route path="/partnerships/government">{() => <AppShell user={user} onLogout={onLogout}><PartnershipsPage category="government" /></AppShell>}</Route>
+      <Route path="/partnerships/research">{() => <AppShell user={user} onLogout={onLogout}><PartnershipsPage category="research" /></AppShell>}</Route>
+      <Route path="/partnerships/pilot">{() => <AppShell user={user} onLogout={onLogout}><PartnershipsPage category="pilot" /></AppShell>}</Route>
+      <Route path="/ecosystem/organizations">{() => <AppShell user={user} onLogout={onLogout}><EcosystemOrganizationsPage /></AppShell>}</Route>
+      <Route path="/ecosystem/people">{() => <AppShell user={user} onLogout={onLogout}><EcosystemPeoplePage /></AppShell>}</Route>
+      <Route path="/ecosystem/relationships">{() => <AppShell user={user} onLogout={onLogout}><EcosystemRelationshipsPage /></AppShell>}</Route>
+      <Route path="/ecosystem/events">{() => <AppShell user={user} onLogout={onLogout}><EcosystemEventsPage /></AppShell>}</Route>
+      <Route path="/ecosystem/regions">{() => <AppShell user={user} onLogout={onLogout}><EcosystemRegionsPage /></AppShell>}</Route>
       <Route path="/settings">{() => <AppShell user={user} onLogout={onLogout}><SettingsPage /></AppShell>}</Route>
       <Route path="/integrations">{() => <AppShell user={user} onLogout={onLogout}><div className="p-8"><h1 className="text-2xl font-bold">Integrations</h1><p className="text-muted-foreground mt-2">Gmail, HubSpot, and Klaviyo integrations coming soon.</p></div></AppShell>}</Route>
       <Route component={NotFound} />

@@ -1,0 +1,175 @@
+oltSafe Cortex is going to become the operating system for the modern marina, the Partnerships section should reflect the ecosystem that surrounds electrification at the dock.
+
+Not just who we sell to.
+Who multiplies distribution, adoption, and credibility.
+
+Think of it as the network layer of the business.
+
+Below is the structure I would use.
+
+⸻
+
+Partnerships (VoltSafe Cortex)
+
+1. Strategic Industry Partners
+
+Organizations that influence the marina industry at scale.
+
+These drive credibility, policy awareness, and market access.
+
+Examples:
+	•	Marina associations
+	•	Marine industry groups
+	•	Standards organizations
+	•	Port authorities
+
+Typical records inside this category:
+	•	Association of Marina Industries
+	•	American Boat & Yacht Council
+	•	NMMA
+	•	Pacific Coast Congress of Harbormasters
+	•	Boating Ontario
+	•	Washington Maritime Blue
+
+These groups shape marina policy, safety standards, and industry direction.  ￼
+
+Suggested fields:
+	•	Organization
+	•	Type (Association / Standards / Port Authority)
+	•	Membership status
+	•	Sponsorships
+	•	Speaking opportunities
+	•	Events attended
+	•	Strategic notes
+
+⸻
+
+2. Technology & Integration Partners
+
+Companies whose software or hardware integrates with VoltSafe.
+
+These create platform expansion and ecosystem lock-in.
+
+Examples:
+	•	Dockwa
+	•	MarineSync
+	•	Quadlogic
+	•	Dockmaster
+	•	Molo
+	•	Slipfinder
+
+These are the existing marina CRM platforms you’re effectively replacing or integrating with.  ￼
+
+Suggested fields:
+	•	Integration status
+	•	API available
+	•	Partner type (CRM / Metering / Payment / IoT)
+	•	Joint roadmap
+	•	Technical contact
+
+⸻
+
+3. Distribution & Channel Partners
+
+Companies that can sell VoltSafe into large marina networks.
+
+Even if you sell direct initially, these matter long term.
+
+Examples:
+	•	Marina construction companies
+	•	Dock builders
+	•	Electrical contractors
+	•	Marine equipment distributors
+	•	Boat dealerships
+
+Suggested fields:
+	•	Territory
+	•	Sales reach (# marinas served)
+	•	Certification status
+	•	Training completed
+	•	Deal registrations
+
+⸻
+
+4. Government & Funding Partners
+
+Programs that fund pilots, trials, and infrastructure upgrades.
+
+Examples:
+	•	Innovate BC
+	•	NRC IRAP
+	•	Ocean Supercluster
+	•	Clean energy grants
+	•	Port authority innovation programs
+
+These programs already supported VoltSafe pilots and development.  ￼
+
+Fields:
+	•	Program name
+	•	Funding amount
+	•	Grant stage
+	•	Deliverables
+	•	Reporting schedule
+
+⸻
+
+5. Pilot & Lighthouse Marinas
+
+These are not just customers.
+
+They are market proof.
+
+Examples:
+	•	Port of San Diego
+	•	Royal Vancouver Yacht Club
+	•	Early pilot marinas
+
+Fields:
+	•	Slip count
+	•	Pedestals deployed
+	•	Pilot stage
+	•	Case study status
+	•	Testimonial potential
+
+⸻
+
+6. OEM & Licensing Partners
+
+Where VoltSafe becomes embedded into other products.
+
+Examples:
+	•	Swappable battery companies
+	•	EV charging manufacturers
+	•	Boat manufacturers
+	•	RV infrastructure companies
+
+VoltSafe already has a binding licensing agreement with a global corporation in this category.  ￼
+
+Fields:
+	•	License type
+	•	Territory
+	•	Royalties
+	•	Product integration
+	•	NDA status
+
+⸻
+
+7. Research & Innovation Partners
+
+Labs and universities helping with next-gen tech.
+
+Examples:
+	•	University research labs
+	•	Maritime innovation hubs
+	•	Accelerator programs
+	•	Hardware test labs
+
+Examples VoltSafe already engages with:
+	•	Newlab
+	•	Vancouver Maritime Centre for Climate  ￼
+
+Fields:
+	•	Program type
+	•	R&D focus
+	•	Prototype stage
+	•	IP implications

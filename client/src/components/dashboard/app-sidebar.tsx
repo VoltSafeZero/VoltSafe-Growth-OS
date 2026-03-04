@@ -10,6 +10,18 @@ import {
   Settings,
   Zap,
   Users,
+  Handshake,
+  Cpu,
+  Truck,
+  Factory,
+  Landmark,
+  FlaskConical,
+  Ship,
+  Globe,
+  Contact,
+  GitBranch,
+  CalendarDays,
+  MapPin,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import {
@@ -36,6 +48,24 @@ const salesItems = [
   { title: "Quotes", url: "/quotes", icon: FileText },
 ];
 
+const partnershipsItems = [
+  { title: "Strategic Industry", url: "/partnerships/strategic-industry", icon: Handshake },
+  { title: "Technology & Integrations", url: "/partnerships/technology", icon: Cpu },
+  { title: "Distribution & Channel", url: "/partnerships/distribution", icon: Truck },
+  { title: "OEM & Licensing", url: "/partnerships/oem", icon: Factory },
+  { title: "Government & Grants", url: "/partnerships/government", icon: Landmark },
+  { title: "Research & Innovation", url: "/partnerships/research", icon: FlaskConical },
+  { title: "Pilot & Lighthouse Marinas", url: "/partnerships/pilot", icon: Ship },
+];
+
+const ecosystemItems = [
+  { title: "Organizations", url: "/ecosystem/organizations", icon: Globe },
+  { title: "People", url: "/ecosystem/people", icon: Contact },
+  { title: "Relationships", url: "/ecosystem/relationships", icon: GitBranch },
+  { title: "Events", url: "/ecosystem/events", icon: CalendarDays },
+  { title: "Regions", url: "/ecosystem/regions", icon: MapPin },
+];
+
 const supportItems = [
   { title: "Tickets", url: "/tickets", icon: LifeBuoy },
 ];
@@ -57,6 +87,8 @@ type NavGroup = {
 const navGroups: NavGroup[] = [
   { label: "Overview", items: overviewItems },
   { label: "Sales", items: salesItems },
+  { label: "Partnerships", items: partnershipsItems },
+  { label: "Ecosystem", items: ecosystemItems },
   { label: "Support", items: supportItems },
   { label: "Communications", items: commsItems },
   { label: "Configuration", items: configItems },
@@ -84,7 +116,7 @@ export function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu className="px-3">
                 {group.items.map((item) => {
-                  const isActive = location === item.url;
+                  const isActive = location === item.url || (item.url !== "/" && location.startsWith(item.url));
                   return (
                     <SidebarMenuItem key={item.title}>
                       <SidebarMenuButton
@@ -92,7 +124,7 @@ export function AppSidebar() {
                         isActive={isActive}
                         className={`transition-all ${isActive ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground'}`}
                       >
-                        <Link href={item.url} className="flex items-center gap-3 px-3 py-2 rounded-lg" data-testid={`nav-${item.title.toLowerCase()}`}>
+                        <Link href={item.url} className="flex items-center gap-3 px-3 py-2 rounded-lg" data-testid={`nav-${item.title.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}>
                           <item.icon className={`w-4 h-4 ${isActive ? 'text-primary' : ''}`} />
                           <span>{item.title}</span>
                         </Link>

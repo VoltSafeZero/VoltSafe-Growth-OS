@@ -5,6 +5,8 @@ import {
   tickets, quotes, quoteLineItems, servicesEstimates,
   activities, tasks, communicationLists, campaignDrafts,
   infrastructureProfiles, comments, users,
+  partnerships, ecosystemOrganizations, ecosystemPeople,
+  ecosystemRelationships, ecosystemEvents, ecosystemRegions,
   type Metric, type Sale, type ChartData, type Marina,
   type Lead, type InsertLead,
   type Account, type InsertAccount,
@@ -22,6 +24,12 @@ import {
   type InfrastructureProfile, type InsertInfrastructureProfile,
   type Comment, type InsertComment,
   type User,
+  type Partnership, type InsertPartnership,
+  type EcosystemOrganization, type InsertEcosystemOrganization,
+  type EcosystemPerson, type InsertEcosystemPerson,
+  type EcosystemRelationship, type InsertEcosystemRelationship,
+  type EcosystemEvent, type InsertEcosystemEvent,
+  type EcosystemRegion, type InsertEcosystemRegion,
 } from "@shared/schema";
 import { ilike, eq, or, sql, asc, desc, and, type AnyColumn } from "drizzle-orm";
 
@@ -143,6 +151,42 @@ export interface IStorage {
     overdueTasks: number;
     recentActivities: Activity[];
   }>;
+
+  getPartnerships(options?: { category?: string; search?: string }): Promise<Partnership[]>;
+  getPartnership(id: number): Promise<Partnership | undefined>;
+  createPartnership(data: InsertPartnership): Promise<Partnership>;
+  updatePartnership(id: number, data: Partial<InsertPartnership>): Promise<Partnership | undefined>;
+  deletePartnership(id: number): Promise<boolean>;
+
+  getEcosystemOrganizations(options?: { search?: string }): Promise<EcosystemOrganization[]>;
+  getEcosystemOrganization(id: number): Promise<EcosystemOrganization | undefined>;
+  createEcosystemOrganization(data: InsertEcosystemOrganization): Promise<EcosystemOrganization>;
+  updateEcosystemOrganization(id: number, data: Partial<InsertEcosystemOrganization>): Promise<EcosystemOrganization | undefined>;
+  deleteEcosystemOrganization(id: number): Promise<boolean>;
+
+  getEcosystemPeople(options?: { search?: string; organizationId?: number }): Promise<EcosystemPerson[]>;
+  getEcosystemPerson(id: number): Promise<EcosystemPerson | undefined>;
+  createEcosystemPerson(data: InsertEcosystemPerson): Promise<EcosystemPerson>;
+  updateEcosystemPerson(id: number, data: Partial<InsertEcosystemPerson>): Promise<EcosystemPerson | undefined>;
+  deleteEcosystemPerson(id: number): Promise<boolean>;
+
+  getEcosystemRelationships(options?: { entityType?: string; entityId?: number; search?: string }): Promise<EcosystemRelationship[]>;
+  getEcosystemRelationship(id: number): Promise<EcosystemRelationship | undefined>;
+  createEcosystemRelationship(data: InsertEcosystemRelationship): Promise<EcosystemRelationship>;
+  updateEcosystemRelationship(id: number, data: Partial<InsertEcosystemRelationship>): Promise<EcosystemRelationship | undefined>;
+  deleteEcosystemRelationship(id: number): Promise<boolean>;
+
+  getEcosystemEvents(options?: { search?: string }): Promise<EcosystemEvent[]>;
+  getEcosystemEvent(id: number): Promise<EcosystemEvent | undefined>;
+  createEcosystemEvent(data: InsertEcosystemEvent): Promise<EcosystemEvent>;
+  updateEcosystemEvent(id: number, data: Partial<InsertEcosystemEvent>): Promise<EcosystemEvent | undefined>;
+  deleteEcosystemEvent(id: number): Promise<boolean>;
+
+  getEcosystemRegions(options?: { search?: string }): Promise<EcosystemRegion[]>;
+  getEcosystemRegion(id: number): Promise<EcosystemRegion | undefined>;
+  createEcosystemRegion(data: InsertEcosystemRegion): Promise<EcosystemRegion>;
+  updateEcosystemRegion(id: number, data: Partial<InsertEcosystemRegion>): Promise<EcosystemRegion | undefined>;
+  deleteEcosystemRegion(id: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -729,6 +773,152 @@ export class DatabaseStorage implements IStorage {
       overdueTasks: Number(overdueTasksCount[0].count),
       recentActivities: recentActs,
     };
+  }
+  async getPartnerships(options?: { category?: string; search?: string }): Promise<Partnership[]> {
+    const conditions = [];
+    if (options?.category) conditions.push(eq(partnerships.category, options.category));
+    if (options?.search) conditions.push(ilike(partnerships.name, `%${options.search}%`));
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    return db.select().from(partnerships).where(where).orderBy(desc(partnerships.createdAt));
+  }
+  async getPartnership(id: number): Promise<Partnership | undefined> {
+    const [p] = await db.select().from(partnerships).where(eq(partnerships.id, id));
+    return p;
+  }
+  async createPartnership(data: InsertPartnership): Promise<Partnership> {
+    const [p] = await db.insert(partnerships).values(data).returning();
+    return p;
+  }
+  async updatePartnership(id: number, data: Partial<InsertPartnership>): Promise<Partnership | undefined> {
+    const [p] = await db.update(partnerships).set({ ...data, updatedAt: new Date() }).where(eq(partnerships.id, id)).returning();
+    return p;
+  }
+  async deletePartnership(id: number): Promise<boolean> {
+    const [p] = await db.delete(partnerships).where(eq(partnerships.id, id)).returning();
+    return !!p;
+  }
+
+  async getEcosystemOrganizations(options?: { search?: string }): Promise<EcosystemOrganization[]> {
+    const where = options?.search ? ilike(ecosystemOrganizations.name, `%${options.search}%`) : undefined;
+    return db.select().from(ecosystemOrganizations).where(where).orderBy(desc(ecosystemOrganizations.createdAt));
+  }
+  async getEcosystemOrganization(id: number): Promise<EcosystemOrganization | undefined> {
+    const [o] = await db.select().from(ecosystemOrganizations).where(eq(ecosystemOrganizations.id, id));
+    return o;
+  }
+  async createEcosystemOrganization(data: InsertEcosystemOrganization): Promise<EcosystemOrganization> {
+    const [o] = await db.insert(ecosystemOrganizations).values(data).returning();
+    return o;
+  }
+  async updateEcosystemOrganization(id: number, data: Partial<InsertEcosystemOrganization>): Promise<EcosystemOrganization | undefined> {
+    const [o] = await db.update(ecosystemOrganizations).set({ ...data, updatedAt: new Date() }).where(eq(ecosystemOrganizations.id, id)).returning();
+    return o;
+  }
+  async deleteEcosystemOrganization(id: number): Promise<boolean> {
+    const [o] = await db.delete(ecosystemOrganizations).where(eq(ecosystemOrganizations.id, id)).returning();
+    return !!o;
+  }
+
+  async getEcosystemPeople(options?: { search?: string; organizationId?: number }): Promise<EcosystemPerson[]> {
+    const conditions = [];
+    if (options?.search) conditions.push(or(ilike(ecosystemPeople.fullName, `%${options.search}%`), ilike(ecosystemPeople.organizationName, `%${options.search}%`)));
+    if (options?.organizationId) conditions.push(eq(ecosystemPeople.organizationId, options.organizationId));
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    return db.select().from(ecosystemPeople).where(where).orderBy(desc(ecosystemPeople.createdAt));
+  }
+  async getEcosystemPerson(id: number): Promise<EcosystemPerson | undefined> {
+    const [p] = await db.select().from(ecosystemPeople).where(eq(ecosystemPeople.id, id));
+    return p;
+  }
+  async createEcosystemPerson(data: InsertEcosystemPerson): Promise<EcosystemPerson> {
+    const [p] = await db.insert(ecosystemPeople).values(data).returning();
+    return p;
+  }
+  async updateEcosystemPerson(id: number, data: Partial<InsertEcosystemPerson>): Promise<EcosystemPerson | undefined> {
+    const [p] = await db.update(ecosystemPeople).set({ ...data, updatedAt: new Date() }).where(eq(ecosystemPeople.id, id)).returning();
+    return p;
+  }
+  async deleteEcosystemPerson(id: number): Promise<boolean> {
+    const [p] = await db.delete(ecosystemPeople).where(eq(ecosystemPeople.id, id)).returning();
+    return !!p;
+  }
+
+  async getEcosystemRelationships(options?: { entityType?: string; entityId?: number; search?: string }): Promise<EcosystemRelationship[]> {
+    const conditions = [];
+    if (options?.entityType && options?.entityId) {
+      conditions.push(or(
+        and(eq(ecosystemRelationships.sourceEntityType, options.entityType), eq(ecosystemRelationships.sourceEntityId, options.entityId)),
+        and(eq(ecosystemRelationships.targetEntityType, options.entityType), eq(ecosystemRelationships.targetEntityId, options.entityId))
+      ));
+    }
+    if (options?.search) {
+      const term = `%${options.search.toLowerCase()}%`;
+      conditions.push(or(
+        ilike(ecosystemRelationships.sourceEntityName, term),
+        ilike(ecosystemRelationships.targetEntityName, term),
+        ilike(ecosystemRelationships.relationshipType, term)
+      ));
+    }
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    return db.select().from(ecosystemRelationships).where(where).orderBy(desc(ecosystemRelationships.createdAt));
+  }
+  async getEcosystemRelationship(id: number): Promise<EcosystemRelationship | undefined> {
+    const [r] = await db.select().from(ecosystemRelationships).where(eq(ecosystemRelationships.id, id));
+    return r;
+  }
+  async createEcosystemRelationship(data: InsertEcosystemRelationship): Promise<EcosystemRelationship> {
+    const [r] = await db.insert(ecosystemRelationships).values(data).returning();
+    return r;
+  }
+  async updateEcosystemRelationship(id: number, data: Partial<InsertEcosystemRelationship>): Promise<EcosystemRelationship | undefined> {
+    const [r] = await db.update(ecosystemRelationships).set({ ...data, updatedAt: new Date() }).where(eq(ecosystemRelationships.id, id)).returning();
+    return r;
+  }
+  async deleteEcosystemRelationship(id: number): Promise<boolean> {
+    const [r] = await db.delete(ecosystemRelationships).where(eq(ecosystemRelationships.id, id)).returning();
+    return !!r;
+  }
+
+  async getEcosystemEvents(options?: { search?: string }): Promise<EcosystemEvent[]> {
+    const where = options?.search ? ilike(ecosystemEvents.name, `%${options.search}%`) : undefined;
+    return db.select().from(ecosystemEvents).where(where).orderBy(desc(ecosystemEvents.createdAt));
+  }
+  async getEcosystemEvent(id: number): Promise<EcosystemEvent | undefined> {
+    const [e] = await db.select().from(ecosystemEvents).where(eq(ecosystemEvents.id, id));
+    return e;
+  }
+  async createEcosystemEvent(data: InsertEcosystemEvent): Promise<EcosystemEvent> {
+    const [e] = await db.insert(ecosystemEvents).values(data).returning();
+    return e;
+  }
+  async updateEcosystemEvent(id: number, data: Partial<InsertEcosystemEvent>): Promise<EcosystemEvent | undefined> {
+    const [e] = await db.update(ecosystemEvents).set({ ...data, updatedAt: new Date() }).where(eq(ecosystemEvents.id, id)).returning();
+    return e;
+  }
+  async deleteEcosystemEvent(id: number): Promise<boolean> {
+    const [e] = await db.delete(ecosystemEvents).where(eq(ecosystemEvents.id, id)).returning();
+    return !!e;
+  }
+
+  async getEcosystemRegions(options?: { search?: string }): Promise<EcosystemRegion[]> {
+    const where = options?.search ? ilike(ecosystemRegions.name, `%${options.search}%`) : undefined;
+    return db.select().from(ecosystemRegions).where(where).orderBy(asc(ecosystemRegions.name));
+  }
+  async getEcosystemRegion(id: number): Promise<EcosystemRegion | undefined> {
+    const [r] = await db.select().from(ecosystemRegions).where(eq(ecosystemRegions.id, id));
+    return r;
+  }
+  async createEcosystemRegion(data: InsertEcosystemRegion): Promise<EcosystemRegion> {
+    const [r] = await db.insert(ecosystemRegions).values(data).returning();
+    return r;
+  }
+  async updateEcosystemRegion(id: number, data: Partial<InsertEcosystemRegion>): Promise<EcosystemRegion | undefined> {
+    const [r] = await db.update(ecosystemRegions).set({ ...data, updatedAt: new Date() }).where(eq(ecosystemRegions.id, id)).returning();
+    return r;
+  }
+  async deleteEcosystemRegion(id: number): Promise<boolean> {
+    const [r] = await db.delete(ecosystemRegions).where(eq(ecosystemRegions.id, id)).returning();
+    return !!r;
   }
 }
 
