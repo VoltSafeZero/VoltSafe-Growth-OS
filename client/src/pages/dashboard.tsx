@@ -1,10 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
+import { lazy, Suspense } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { UserPlus, TrendingUp, LifeBuoy, FileText, AlertTriangle, Clock } from "lucide-react";
 import { OverviewChart } from "@/components/dashboard/overview-chart";
 import { RecentSales } from "@/components/dashboard/recent-sales";
 import type { Activity, ChartData, Sale } from "@shared/schema";
+
+const DashboardMap = lazy(() => import("@/components/dashboard/dashboard-map"));
 
 type DashboardSummary = {
   totalLeads: number;
@@ -41,6 +44,15 @@ export default function Dashboard() {
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Dashboard</h1>
         <p className="text-muted-foreground mt-1 text-sm">VoltSafe Cortex operations overview.</p>
       </div>
+
+      <Suspense fallback={
+        <Card className="border-border/50 bg-card/50">
+          <CardHeader><Skeleton className="h-6 w-40" /></CardHeader>
+          <CardContent><Skeleton className="h-[420px] rounded-xl" /></CardContent>
+        </Card>
+      }>
+        <DashboardMap />
+      </Suspense>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {summaryLoading ? (
