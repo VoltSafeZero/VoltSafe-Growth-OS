@@ -208,12 +208,43 @@ export default function LeadsPage() {
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Leads Pipeline</h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            {totalCount > 0 ? `${totalCount.toLocaleString()} leads` : "Manage your sales pipeline"}
-            {(() => { const pv = allLeads.reduce((s, l) => s + (l.dealAmount || 0), 0); return pv > 0 ? ` · $${pv.toLocaleString()} pipeline` : ""; })()}
-          </p>
+        <div className="flex items-center gap-4">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Leads Pipeline</h1>
+            <p className="text-muted-foreground mt-1 text-sm">
+              {totalCount > 0 ? `${totalCount.toLocaleString()} leads` : "Manage your sales pipeline"}
+              {(() => { const pv = allLeads.reduce((s, l) => s + (l.dealAmount || 0), 0); return pv > 0 ? ` · $${pv.toLocaleString()} pipeline` : ""; })()}
+            </p>
+          </div>
+          <div className="flex items-center border border-border/50 rounded-xl overflow-hidden">
+            <Button
+              variant={view === "list" ? "secondary" : "ghost"}
+              size="default"
+              onClick={() => setView("list")}
+              className="rounded-none px-3"
+              data-testid="button-list-view"
+            >
+              <List className="h-5 w-5" />
+            </Button>
+            <Button
+              variant={view === "pipeline" ? "secondary" : "ghost"}
+              size="default"
+              onClick={() => setView("pipeline")}
+              className="rounded-none px-3"
+              data-testid="button-pipeline-view"
+            >
+              <LayoutGrid className="h-5 w-5" />
+            </Button>
+            <Button
+              variant={view === "map" ? "secondary" : "ghost"}
+              size="default"
+              onClick={() => setView("map")}
+              className="rounded-none px-3"
+              data-testid="button-map-view"
+            >
+              <Map className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <ExportButton
@@ -298,35 +329,6 @@ export default function LeadsPage() {
           </SelectContent>
         </Select>
         </>}
-        <div className="flex items-center border border-border/50 rounded-lg overflow-hidden ml-auto">
-          <Button
-            variant={view === "list" ? "secondary" : "ghost"}
-            size="sm"
-            onClick={() => setView("list")}
-            className="rounded-none"
-            data-testid="button-list-view"
-          >
-            <List className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={view === "pipeline" ? "secondary" : "ghost"}
-            size="sm"
-            onClick={() => setView("pipeline")}
-            className="rounded-none"
-            data-testid="button-pipeline-view"
-          >
-            <LayoutGrid className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={view === "map" ? "secondary" : "ghost"}
-            size="sm"
-            onClick={() => setView("map")}
-            className="rounded-none"
-            data-testid="button-map-view"
-          >
-            <Map className="h-4 w-4" />
-          </Button>
-        </div>
       </div>
 
       {view === "map" ? (
