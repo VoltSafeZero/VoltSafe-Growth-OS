@@ -13,9 +13,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Search, ArrowRightLeft, Trash2, Loader2, Undo2,
-  LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar, DollarSign
+  LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar, DollarSign, Map
 } from "lucide-react";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
+import { lazy, Suspense } from "react";
+const NearbyMarinasMap = lazy(() => import("@/components/nearby-marinas-map"));
 import { ExportButton } from "@/components/ui/export-button";
 import { CommentsFeed } from "@/components/comments-feed";
 import { AssignUserSelect } from "@/components/assign-user-select";
@@ -73,7 +75,7 @@ export default function LeadsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [countryFilter, setCountryFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
-  const [view, setView] = useState<"list" | "pipeline">("list");
+  const [view, setView] = useState<"list" | "pipeline" | "map">("list");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const { toast } = useToast();
@@ -251,6 +253,7 @@ export default function LeadsPage() {
       </div>
 
       <div className="flex gap-2 sm:gap-3 flex-wrap items-center">
+        {view !== "map" && <>
         <div className="relative w-full sm:flex-1 sm:max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -294,6 +297,7 @@ export default function LeadsPage() {
             ))}
           </SelectContent>
         </Select>
+        </>}
         <div className="flex items-center border border-border/50 rounded-lg overflow-hidden ml-auto">
           <Button
             variant={view === "list" ? "secondary" : "ghost"}
@@ -313,10 +317,26 @@ export default function LeadsPage() {
           >
             <LayoutGrid className="h-4 w-4" />
           </Button>
+          <Button
+            variant={view === "map" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setView("map")}
+            className="rounded-none"
+            data-testid="button-map-view"
+          >
+            <Map className="h-4 w-4" />
+          </Button>
         </div>
       </div>
 
-      {isLoading ? (
+      {view === "map" ? (
+        <Suspense fallback={<div className="flex items-center justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
+          <NearbyMarinasMap onSelectLead={(id) => {
+            const lead = allLeads.find(l => l.id === id);
+            if (lead) setSelectedLead(lead);
+          }} />
+        </Suspense>
+      ) : isLoading ? (
         <div className="space-y-3">
           {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
         </div>

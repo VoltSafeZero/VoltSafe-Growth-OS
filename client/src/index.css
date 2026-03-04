@@ -111,6 +111,44 @@
   }
 }
 
+/* Leaflet Map Customization for Dark Mode */
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 3px rgba(45,212,191,0.3), 0 2px 8px rgba(0,0,0,0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(45,212,191,0.1), 0 2px 8px rgba(0,0,0,0.4); }
+  100% { box-shadow: 0 0 0 3px rgba(45,212,191,0.3), 0 2px 8px rgba(0,0,0,0.4); }
+}
+.leaflet-popup-content-wrapper {
+  background: hsl(222 47% 11%) !important;
+  color: hsl(210 40% 98%) !important;
+  border-radius: 12px !important;
+  border: 1px solid hsl(217 33% 17%) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+}
+.leaflet-popup-tip {
+  background: hsl(222 47% 11%) !important;
+  border: 1px solid hsl(217 33% 17%) !important;
+}
+.leaflet-popup-close-button {
+  color: hsl(215 20% 65%) !important;
+}
+.leaflet-control-zoom a {
+  background: hsl(222 47% 11%) !important;
+  color: hsl(210 40% 98%) !important;
+  border-color: hsl(217 33% 17%) !important;
+}
+.leaflet-control-attribution {
+  background: hsl(222 47% 14% / 0.8) !important;
+  color: hsl(215 20% 45%) !important;
+  font-size: 10px !important;
+}
+.leaflet-control-attribution a {
+  color: hsl(174 100% 40%) !important;
+}
+.custom-marker, .user-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
 /* Recharts Customization for Dark Mode */
 .recharts-cartesian-grid-horizontal line,
 .recharts-cartesian-grid-vertical line {

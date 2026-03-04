@@ -22,7 +22,7 @@ import {
   getAuthenticationOptions, verifyAuthentication,
   getUserCredentials, deleteCredential,
 } from "./webauthn";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -376,6 +376,39 @@ export async function registerRoutes(
 
   app.get("/api/dashboard/summary", async (_req, res) => {
     res.json(await storage.getDashboardSummary());
+  });
+
+  app.get("/api/leads/nearby", async (req, res) => {
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    const radiusKm = Number(req.query.radius) || 100;
+    const limit = Math.min(Number(req.query.limit) || 200, 500);
+    if (isNaN(lat) || isNaN(lng)) return res.status(400).json({ message: "lat and lng required" });
+    const latDeg = radiusKm / 111.0;
+    const lngDeg = radiusKm / (111.0 * Math.cos(lat * Math.PI / 180));
+    const minLat = lat - latDeg;
+    const maxLat = lat + latDeg;
+    const minLng = lng - lngDeg;
+    const maxLng = lng + lngDeg;
+    const results = await db.execute(sql`
+      SELECT * FROM (
+        SELECT l.*, m.latitude as marina_lat, m.longitude as marina_lng, m.street_address as marina_address,
+          (6371 * acos(
+            LEAST(1.0, cos(radians(${lat})) * cos(radians(m.latitude)) *
+            cos(radians(m.longitude) - radians(${lng})) +
+            sin(radians(${lat})) * sin(radians(m.latitude)))
+          )) AS distance_km
+        FROM leads l
+        JOIN marinas m ON l.marina_id = m.id
+        WHERE m.latitude IS NOT NULL AND m.longitude IS NOT NULL
+          AND m.latitude BETWEEN ${minLat} AND ${maxLat}
+          AND m.longitude BETWEEN ${minLng} AND ${maxLng}
+      ) sub
+      WHERE distance_km <= ${radiusKm}
+      ORDER BY distance_km ASC
+      LIMIT ${limit}
+    `);
+    res.json(results.rows);
   });
 
   app.get("/api/leads/states", async (_req, res) => {

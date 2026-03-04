@@ -29,7 +29,8 @@ The project is organized as a monorepo containing `client/` (React SPA), `server
 
 ### Core CMS Modules
 - **Authentication:** Session-based authentication with `bcryptjs` for password hashing and `express-session`. Supports WebAuthn for biometric login. All API endpoints are protected.
-- **Sales:** Manages leads (including a marina directory import) with integrated deal/financial fields (amount, probability, value breakdown, value driver, competitors, ROI story, close date), accounts, contacts, infrastructure profiles, and quotes. Features Kanban and list views for pipeline management. Opportunities fields are integrated directly into leads (no separate Opportunities page).
+- **Sales:** Manages leads (including a marina directory import) with integrated deal/financial fields (amount, probability, value breakdown, value driver, competitors, ROI story, close date), accounts, contacts, infrastructure profiles, and quotes. Features Kanban, list, and map views for pipeline management. Opportunities fields are integrated directly into leads (no separate Opportunities page).
+- **Nearby Marinas Map:** Interactive Leaflet map view on the Leads page showing marinas sorted by GPS distance from the user. Uses dark CARTO basemap tiles, color-coded stage markers, distance display in km/miles, and native Maps app directions (Google Maps on desktop, Apple Maps on iOS). Backend uses Haversine formula for distance calculation via `/api/leads/nearby` endpoint.
 - **Support:** Provides a ticketing system with Kanban board and list views for tracking support issues.
 - **Communications:** Manages broadcast lists and campaign drafts.
 - **Comments & Collaboration:** Features a threaded comments feed, user assignment for leads/accounts, and action item creation.
@@ -55,3 +56,4 @@ The project is organized as a monorepo containing `client/` (React SPA), `server
 - **`Recharts`:** For charting and data visualization.
 - **`Lucide React`:** For icons.
 - **`Wouter`:** For frontend routing.
+- **`Leaflet`:** For interactive maps (Nearby Marinas Map view).
