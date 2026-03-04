@@ -1,11 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import { MapPin, Locate, Loader2, Search } from "lucide-react";
+import { MapPin, Locate, Loader2, Search, Navigation, Anchor } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -34,6 +32,17 @@ const STAGE_COLORS: Record<string, string> = {
   negotiation: "#f97316",
   converted: "#22c55e",
   lost: "#ef4444",
+};
+
+const STAGE_LABELS: Record<string, string> = {
+  new: "New",
+  contacted: "Contacted",
+  meeting_scheduled: "Meeting",
+  qualified: "Qualified",
+  proposal_sent: "Proposal",
+  negotiation: "Negotiation",
+  converted: "Won",
+  lost: "Lost",
 };
 
 const STORAGE_KEY = "voltsafe-map-last-location";
@@ -71,6 +80,14 @@ function formatDistance(km: number): string {
   return `${Math.round(miles)}mi`;
 }
 
+function boundsToRadius(map: L.Map): number {
+  const bounds = map.getBounds();
+  const center = bounds.getCenter();
+  const ne = bounds.getNorthEast();
+  const radiusKm = center.distanceTo(ne) / 1000;
+  return Math.ceil(Math.min(radiusKm, 500));
+}
+
 function createMarkerIcon(status: string) {
   const color = STAGE_COLORS[status] || "#64748b";
   return L.divIcon({
@@ -106,10 +123,45 @@ export default function DashboardMap() {
   const [locating, setLocating] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
+  const [marinas, setMarinas] = useState<NearbyLead[]>([]);
+  const [loading, setLoading] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.LayerGroup | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
+  const fetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const fetchMarinas = useCallback(async (lat: number, lng: number, radiusKm: number) => {
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/leads/nearby?lat=${lat}&lng=${lng}&radius=${radiusKm}&limit=500`,
+        { credentials: "include", signal: controller.signal }
+      );
+      if (!res.ok) throw new Error("Failed");
+      const data = await res.json();
+      if (!controller.signal.aborted) setMarinas(data);
+    } catch (e: unknown) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
+    } finally {
+      if (!controller.signal.aborted) setLoading(false);
+    }
+  }, []);
+
+  const debouncedFetchFromBounds = useCallback(() => {
+    if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current);
+    fetchTimerRef.current = setTimeout(() => {
+      if (!mapInstanceRef.current) return;
+      const center = mapInstanceRef.current.getCenter();
+      const radius = boundsToRadius(mapInstanceRef.current);
+      saveLocation(center.lat, center.lng, mapInstanceRef.current.getZoom());
+      fetchMarinas(center.lat, center.lng, radius);
+    }, 400);
+  }, [fetchMarinas]);
 
   const requestLocation = useCallback(() => {
     setLocating(true);
@@ -129,7 +181,7 @@ export default function DashboardMap() {
       (pos) => {
         const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setUserLocation(loc);
-        saveLocation(loc.lat, loc.lng, 11);
+        saveLocation(loc.lat, loc.lng, 13);
         setLocating(false);
       },
       () => {
@@ -155,43 +207,25 @@ export default function DashboardMap() {
     setSearching(true);
     try {
       const res = await fetch(`/api/geocode/search?q=${encodeURIComponent(searchQuery.trim())}`, { credentials: "include" });
-      if (!res.ok) {
-        setSearching(false);
-        return;
-      }
+      if (!res.ok) { setSearching(false); return; }
       const data = await res.json();
       const loc = { lat: data.lat, lng: data.lng };
       setUserLocation(loc);
-      saveLocation(loc.lat, loc.lng, 12);
+      saveLocation(loc.lat, loc.lng, 13);
       setLocationError(null);
       if (mapInstanceRef.current) {
-        mapInstanceRef.current.setView([loc.lat, loc.lng], 12, { animate: true });
+        mapInstanceRef.current.setView([loc.lat, loc.lng], 13, { animate: true });
       }
     } catch {}
     setSearching(false);
   };
-
-  const { data: nearbyLeads, isLoading, isError } = useQuery<NearbyLead[]>({
-    queryKey: ["/api/leads/nearby", userLocation?.lat, userLocation?.lng, "50"],
-    queryFn: async () => {
-      if (!userLocation) return [];
-      const res = await fetch(
-        `/api/leads/nearby?lat=${userLocation.lat}&lng=${userLocation.lng}&radius=50&limit=200`,
-        { credentials: "include" }
-      );
-      if (!res.ok) throw new Error("Failed to fetch nearby leads");
-      return res.json();
-    },
-    enabled: !!userLocation,
-    retry: 1,
-  });
 
   useEffect(() => {
     if (!mapRef.current || !userLocation) return;
 
     if (!mapInstanceRef.current) {
       const saved = getSavedLocation();
-      const zoom = saved?.zoom || 11;
+      const zoom = saved?.zoom || 13;
       mapInstanceRef.current = L.map(mapRef.current, {
         zoomControl: true,
         attributionControl: true,
@@ -203,14 +237,19 @@ export default function DashboardMap() {
         maxZoom: 19,
       }).addTo(mapInstanceRef.current);
 
+      L.control.scale({
+        position: "bottomleft",
+        metric: true,
+        imperial: true,
+        maxWidth: 150,
+      }).addTo(mapInstanceRef.current);
+
       markersRef.current = L.layerGroup().addTo(mapInstanceRef.current);
 
-      mapInstanceRef.current.on("moveend", () => {
-        if (mapInstanceRef.current) {
-          const c = mapInstanceRef.current.getCenter();
-          saveLocation(c.lat, c.lng, mapInstanceRef.current.getZoom());
-        }
-      });
+      mapInstanceRef.current.on("moveend", debouncedFetchFromBounds);
+
+      const radius = boundsToRadius(mapInstanceRef.current);
+      fetchMarinas(userLocation.lat, userLocation.lng, radius);
     } else {
       mapInstanceRef.current.setView([userLocation.lat, userLocation.lng], mapInstanceRef.current.getZoom());
     }
@@ -224,34 +263,25 @@ export default function DashboardMap() {
       }).addTo(mapInstanceRef.current);
       userMarkerRef.current.bindPopup("<b>You are here</b>");
     }
-  }, [userLocation]);
+  }, [userLocation, debouncedFetchFromBounds, fetchMarinas]);
 
   useEffect(() => {
     return () => {
-      if (markersRef.current) {
-        markersRef.current.clearLayers();
-        markersRef.current = null;
-      }
-      if (userMarkerRef.current) {
-        userMarkerRef.current.remove();
-        userMarkerRef.current = null;
-      }
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
-      }
+      if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current);
+      if (abortRef.current) abortRef.current.abort();
+      if (markersRef.current) { markersRef.current.clearLayers(); markersRef.current = null; }
+      if (userMarkerRef.current) { userMarkerRef.current.remove(); userMarkerRef.current = null; }
+      if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; }
     };
   }, []);
 
   useEffect(() => {
-    if (!mapInstanceRef.current || !markersRef.current || !userLocation || !nearbyLeads) return;
+    if (!mapInstanceRef.current || !markersRef.current) return;
     markersRef.current.clearLayers();
 
-    if (!nearbyLeads.length) return;
+    if (!marinas.length) return;
 
-    const bounds = L.latLngBounds([[userLocation.lat, userLocation.lng]]);
-
-    nearbyLeads.forEach((lead) => {
+    marinas.forEach((lead) => {
       const marker = L.marker([lead.marina_lat, lead.marina_lng], {
         icon: createMarkerIcon(lead.status),
       });
@@ -268,14 +298,8 @@ export default function DashboardMap() {
         let finalAddr = addr;
         if (!finalAddr) {
           try {
-            const res = await fetch(`/api/leads/${lead.id}/geocode-address`, {
-              method: "POST",
-              credentials: "include",
-            });
-            if (res.ok) {
-              const data = await res.json();
-              finalAddr = data.address;
-            }
+            const res = await fetch(`/api/leads/${lead.id}/geocode-address`, { method: "POST", credentials: "include" });
+            if (res.ok) { const data = await res.json(); finalAddr = data.address; }
           } catch {}
         }
         const url = getDirectionsUrl(lead.marina_lat, lead.marina_lng, finalAddr || null, lead.company);
@@ -319,13 +343,23 @@ export default function DashboardMap() {
 
       marker.bindPopup(popupEl, { maxWidth: 240 });
       marker.addTo(markersRef.current!);
-      bounds.extend([lead.marina_lat, lead.marina_lng]);
     });
+  }, [marinas]);
 
-    if (nearbyLeads.length > 0) {
-      mapInstanceRef.current.fitBounds(bounds, { padding: [30, 30], maxZoom: 13 });
+  const closest5 = marinas.slice(0, 5);
+
+  const handleListDirections = async (lead: NearbyLead) => {
+    const addr = lead.marina_address || lead.street_address || [lead.city, lead.state].filter(Boolean).join(", ");
+    let finalAddr = addr;
+    if (!finalAddr) {
+      try {
+        const res = await fetch(`/api/leads/${lead.id}/geocode-address`, { method: "POST", credentials: "include" });
+        if (res.ok) { const data = await res.json(); finalAddr = data.address; }
+      } catch {}
     }
-  }, [nearbyLeads, userLocation]);
+    const url = getDirectionsUrl(lead.marina_lat, lead.marina_lng, finalAddr || null, lead.company);
+    window.open(url, "_blank", "noopener");
+  };
 
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-sm" data-testid="card-dashboard-map">
@@ -337,15 +371,15 @@ export default function DashboardMap() {
               Nearby Marinas
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-1">
-              {nearbyLeads && nearbyLeads.length > 0
-                ? `${nearbyLeads.length} marinas within 50km — hover for name, click for directions`
-                : "Marinas within 50km of your location"}
+              {marinas.length > 0
+                ? `${marinas.length} marinas in view — hover for name, click for directions`
+                : "Pan or zoom the map to discover marinas"}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-            {nearbyLeads && nearbyLeads.length > 0 && (
-              <Badge variant="outline" className="text-xs">{nearbyLeads.length}</Badge>
+            {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+            {marinas.length > 0 && (
+              <Badge variant="outline" className="text-xs">{marinas.length}</Badge>
             )}
             <Button
               variant="outline"
@@ -397,18 +431,64 @@ export default function DashboardMap() {
             <Loader2 className="h-8 w-8 animate-spin text-primary mb-3" />
             <p className="text-sm text-muted-foreground">Finding your location...</p>
           </div>
-        ) : isError ? (
-          <div className="flex flex-col items-center justify-center py-12 rounded-xl border border-border/30 bg-muted/5">
-            <MapPin className="h-10 w-10 text-destructive/60 mb-3" />
-            <p className="text-sm font-medium mb-1">Failed to load marinas</p>
-            <p className="text-xs text-muted-foreground mb-3">Could not fetch nearby marina data.</p>
-          </div>
         ) : (
-          <div
-            ref={mapRef}
-            className="w-full rounded-xl border border-border/30 overflow-hidden z-0 h-[280px] sm:h-[360px] md:h-[420px]"
-            data-testid="dashboard-map-container"
-          />
+          <div className="flex gap-3">
+            <div className="flex-1 min-w-0">
+              <div
+                ref={mapRef}
+                className="w-full rounded-xl border border-border/30 overflow-hidden z-0 h-[280px] sm:h-[360px] md:h-[420px]"
+                data-testid="dashboard-map-container"
+              />
+            </div>
+            <div className="w-48 sm:w-56 flex-shrink-0 space-y-1.5 overflow-y-auto max-h-[280px] sm:max-h-[360px] md:max-h-[420px]" data-testid="dashboard-closest-list">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1">Closest Marinas</p>
+              {closest5.length === 0 && !loading && (
+                <div className="text-center py-4">
+                  <Anchor className="h-5 w-5 text-muted-foreground mx-auto mb-1" />
+                  <p className="text-[11px] text-muted-foreground">No marinas in view</p>
+                </div>
+              )}
+              {closest5.map((lead, idx) => (
+                <div
+                  key={lead.id}
+                  className="p-2 rounded-lg border border-border/30 bg-card/50 cursor-pointer transition-all hover:border-primary/30"
+                  onClick={() => {
+                    if (mapInstanceRef.current) {
+                      mapInstanceRef.current.setView([lead.marina_lat, lead.marina_lng], 15, { animate: true });
+                    }
+                  }}
+                  data-testid={`dashboard-closest-${lead.id}`}
+                >
+                  <div className="flex items-start justify-between gap-1">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium truncate">{lead.company}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] text-muted-foreground">{formatDistance(lead.distance_km)}</span>
+                        <span
+                          className="w-2 h-2 rounded-full inline-block flex-shrink-0"
+                          style={{ background: STAGE_COLORS[lead.status] || "#64748b" }}
+                          title={STAGE_LABELS[lead.status] || lead.status}
+                        />
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleListDirections(lead); }}
+                      className="shrink-0 p-1 rounded-md bg-primary/10 transition-colors hover-elevate"
+                      data-testid={`dashboard-directions-${lead.id}`}
+                      title="Get Directions"
+                    >
+                      <Navigation className="h-3 w-3 text-primary" />
+                    </button>
+                  </div>
+                  {(lead.city || lead.state) && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                      {[lead.city, lead.state].filter(Boolean).join(", ")}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </CardContent>
     </Card>

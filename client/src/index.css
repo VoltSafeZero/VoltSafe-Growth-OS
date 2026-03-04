@@ -189,6 +189,14 @@
 .marina-tooltip::before {
   border-top-color: hsl(222 47% 11%) !important;
 }
+.leaflet-control-scale-line {
+  background: hsl(222 47% 14% / 0.85) !important;
+  color: hsl(210 40% 80%) !important;
+  border-color: hsl(215 20% 45%) !important;
+  font-size: 10px !important;
+  font-family: var(--font-sans) !important;
+  padding: 2px 5px !important;
+}
 
 /* Recharts Customization for Dark Mode */
 .recharts-cartesian-grid-horizontal line,
