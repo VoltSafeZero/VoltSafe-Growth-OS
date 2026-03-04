@@ -304,8 +304,7 @@ export default function DashboardMap() {
         ) : (
           <div
             ref={mapRef}
-            className="w-full rounded-xl border border-border/30 overflow-hidden z-0"
-            style={{ height: "420px" }}
+            className="w-full rounded-xl border border-border/30 overflow-hidden z-0 h-[280px] sm:h-[360px] md:h-[420px]"
             data-testid="dashboard-map-container"
           />
         )}

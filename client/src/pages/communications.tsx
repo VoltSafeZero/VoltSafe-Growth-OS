@@ -140,31 +140,31 @@ export default function CommunicationsPage() {
           </div>
 
           <Card className="border-border/50">
-            <CardContent className="p-0">
-              <table className="w-full">
+            <CardContent className="p-0 overflow-x-auto">
+              <table className="w-full min-w-[400px]">
                 <thead>
                   <tr className="border-b border-border/50">
-                    <th className="text-left p-4 text-sm font-medium text-muted-foreground">Subject</th>
-                    <th className="text-left p-4 text-sm font-medium text-muted-foreground">Status</th>
-                    <th className="text-left p-4 text-sm font-medium text-muted-foreground">Created</th>
-                    <th className="text-right p-4 text-sm font-medium text-muted-foreground">Actions</th>
+                    <th className="text-left p-3 sm:p-4 text-sm font-medium text-muted-foreground">Subject</th>
+                    <th className="text-left p-3 sm:p-4 text-sm font-medium text-muted-foreground">Status</th>
+                    <th className="text-left p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden sm:table-cell">Created</th>
+                    <th className="text-right p-3 sm:p-4 text-sm font-medium text-muted-foreground">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {campaignsData?.map(campaign => (
                     <tr key={campaign.id} className="border-b border-border/30" data-testid={`row-campaign-${campaign.id}`}>
-                      <td className="p-4">
-                        <p className="font-medium">{campaign.subject}</p>
-                        {campaign.externalCampaignId && <p className="text-xs text-muted-foreground font-mono mt-0.5">{campaign.externalCampaignId}</p>}
+                      <td className="p-3 sm:p-4">
+                        <p className="font-medium truncate max-w-[180px] sm:max-w-none">{campaign.subject}</p>
+                        {campaign.externalCampaignId && <p className="text-xs text-muted-foreground font-mono mt-0.5 truncate max-w-[160px]">{campaign.externalCampaignId}</p>}
                       </td>
-                      <td className="p-4">
+                      <td className="p-3 sm:p-4">
                         <Badge variant="outline" className={campaignStatusColors[campaign.status] || ""}>{campaign.status}</Badge>
                       </td>
-                      <td className="p-4 text-sm text-muted-foreground">{new Date(campaign.createdAt).toLocaleDateString()}</td>
-                      <td className="p-4 text-right">
+                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden sm:table-cell">{new Date(campaign.createdAt).toLocaleDateString()}</td>
+                      <td className="p-3 sm:p-4 text-right">
                         {campaign.status === "draft" && (
                           <Button variant="ghost" size="sm" onClick={() => updateCampaignMutation.mutate({ id: campaign.id, status: "sent", sentAt: new Date().toISOString() })} data-testid={`button-mark-sent-${campaign.id}`}>
-                            <Send className="h-4 w-4 mr-1" /> Mark Sent
+                            <Send className="h-4 w-4 mr-1" /> <span className="hidden sm:inline">Mark</span> Sent
                           </Button>
                         )}
                       </td>

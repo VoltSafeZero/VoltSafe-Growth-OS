@@ -470,7 +470,7 @@ function PipelineView({
   return (
     <div className="flex gap-4 overflow-x-auto pb-4">
       {stageGroups.map(stage => (
-        <div key={stage.value} className={`flex-shrink-0 w-72 border border-border/50 rounded-xl bg-card/50 border-t-2 ${stage.columnColor}`}>
+        <div key={stage.value} className={`flex-shrink-0 w-[260px] sm:w-72 border border-border/50 rounded-xl bg-card/50 border-t-2 ${stage.columnColor}`}>
           <div className="p-3 border-b border-border/30">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">{stage.label}</h3>
@@ -576,7 +576,7 @@ function LeadDetailDialog({
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] sm:max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-start gap-3">
             <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">

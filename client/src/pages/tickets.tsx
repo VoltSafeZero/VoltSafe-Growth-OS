@@ -99,7 +99,7 @@ export default function TicketsPage() {
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
               <Button className="bg-primary text-primary-foreground" data-testid="button-create-ticket">
-                <Plus className="mr-2 h-4 w-4" /> New Ticket
+                <Plus className="mr-2 h-4 w-4" /> <span className="hidden sm:inline">New Ticket</span><span className="sm:hidden">New</span>
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-md">
@@ -115,7 +115,7 @@ export default function TicketsPage() {
       ) : viewMode === "board" ? (
         <div className="flex gap-4 overflow-x-auto pb-4">
           {groupedByStatus.map(status => (
-            <div key={status.key} className="min-w-[260px] flex-shrink-0" data-testid={`column-${status.key}`}>
+            <div key={status.key} className="min-w-[240px] sm:min-w-[260px] flex-shrink-0" data-testid={`column-${status.key}`}>
               <div className="flex items-center gap-2 mb-3 px-1">
                 <div className={`w-2 h-2 rounded-full ${status.color}`} />
                 <h3 className="text-sm font-semibold">{status.label}</h3>
@@ -151,27 +151,30 @@ export default function TicketsPage() {
         </div>
       ) : (
         <Card className="border-border/50">
-          <CardContent className="p-0">
-            <table className="w-full">
+          <CardContent className="p-0 overflow-x-auto">
+            <table className="w-full min-w-[480px]">
               <thead>
                 <tr className="border-b border-border/50">
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Subject</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Requester</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Category</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Severity</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Status</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Created</th>
+                  <th className="text-left p-3 sm:p-4 text-sm font-medium text-muted-foreground">Subject</th>
+                  <th className="text-left p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden sm:table-cell">Requester</th>
+                  <th className="text-left p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden md:table-cell">Category</th>
+                  <th className="text-left p-3 sm:p-4 text-sm font-medium text-muted-foreground">Severity</th>
+                  <th className="text-left p-3 sm:p-4 text-sm font-medium text-muted-foreground">Status</th>
+                  <th className="text-left p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden sm:table-cell">Created</th>
                 </tr>
               </thead>
               <tbody>
                 {data?.data?.map(ticket => (
                   <tr key={ticket.id} className="border-b border-border/30 hover:bg-muted/30 cursor-pointer" onClick={() => setSelectedTicket(ticket)} data-testid={`row-ticket-${ticket.id}`}>
-                    <td className="p-4 font-medium">{ticket.subject}</td>
-                    <td className="p-4 text-sm">{ticket.requesterName}</td>
-                    <td className="p-4 text-sm text-muted-foreground">{ticket.category}</td>
-                    <td className="p-4"><Badge variant="outline" className={severityColors[ticket.severity] || ""}>{ticket.severity}</Badge></td>
-                    <td className="p-4"><Badge variant="outline" className={statusBadgeColors[ticket.status] || ""}>{ticket.status}</Badge></td>
-                    <td className="p-4 text-sm text-muted-foreground">{new Date(ticket.createdAt).toLocaleDateString()}</td>
+                    <td className="p-3 sm:p-4">
+                      <p className="font-medium truncate max-w-[200px] sm:max-w-none">{ticket.subject}</p>
+                      <p className="text-xs text-muted-foreground sm:hidden">{ticket.requesterName}</p>
+                    </td>
+                    <td className="p-3 sm:p-4 text-sm hidden sm:table-cell">{ticket.requesterName}</td>
+                    <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden md:table-cell">{ticket.category}</td>
+                    <td className="p-3 sm:p-4"><Badge variant="outline" className={severityColors[ticket.severity] || ""}>{ticket.severity}</Badge></td>
+                    <td className="p-3 sm:p-4"><Badge variant="outline" className={statusBadgeColors[ticket.status] || ""}>{ticket.status}</Badge></td>
+                    <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden sm:table-cell">{new Date(ticket.createdAt).toLocaleDateString()}</td>
                   </tr>
                 ))}
               </tbody>

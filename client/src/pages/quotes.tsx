@@ -108,7 +108,7 @@ export default function QuotesPage() {
                 <Plus className="mr-2 h-4 w-4" /> New Quote
               </Button>
             </DialogTrigger>
-          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[90vh] sm:max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Create Quote</DialogTitle></DialogHeader>
             <QuoteBuilder accounts={accountsData?.data || []} onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
           </DialogContent>
@@ -206,7 +206,7 @@ function QuoteDetailDialog({ quoteId, accountMap, onClose }: { quoteId: number; 
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] sm:max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center justify-between">
             <div>
