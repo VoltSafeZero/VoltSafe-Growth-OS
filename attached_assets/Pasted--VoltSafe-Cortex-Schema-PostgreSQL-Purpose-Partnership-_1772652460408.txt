@@ -1,0 +1,594 @@
+-- VoltSafe Cortex Schema (PostgreSQL)
+-- Purpose: Partnership + Ecosystem Intelligence Layer + Sales + Support
+-- Notes: Uses UUIDs, created_at/updated_at, and sensible indexes.
+
+-- Enable UUID generation (Postgres)
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- =========================
+-- ENUMS
+-- =========================
+
+DO $$ BEGIN
+  CREATE TYPE org_type AS ENUM (
+    'marina',
+    'marina_group',
+    'association',
+    'standards_body',
+    'port_authority',
+    'technology_company',
+    'distributor',
+    'installer_contractor',
+    'oem_manufacturer',
+    'government_agency',
+    'research_institution',
+    'other'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE partnership_category AS ENUM (
+    'strategic_industry',
+    'technology_integrations',
+    'distribution_channel',
+    'oem_licensing',
+    'government_grants',
+    'research_innovation',
+    'pilot_lighthouse_marinas'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE strategic_tier AS ENUM ('tier_1', 'tier_2', 'tier_3');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE integration_status AS ENUM ('none', 'planned', 'in_progress', 'active');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE partner_priority AS ENUM ('low', 'medium', 'high', 'critical');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE relationship_type AS ENUM (
+    'member_of',
+    'partner_with',
+    'uses_software',
+    'integrates_with',
+    'distributor_of',
+    'installer_for',
+    'investor_in',
+    'pilot_customer',
+    'oem_integration',
+    'licensing_partner',
+    'government_program',
+    'research_collaboration',
+    'attends_event',
+    'located_in'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE relationship_strength AS ENUM ('weak', 'moderate', 'strong');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE lead_status AS ENUM ('new', 'qualified', 'unqualified', 'converted', 'archived');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE opportunity_stage AS ENUM (
+    'prospecting',
+    'discovery',
+    'proposal',
+    'negotiation',
+    'verbal_commit',
+    'won',
+    'lost'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE quote_status AS ENUM ('draft', 'sent', 'accepted', 'rejected', 'expired');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE ticket_status AS ENUM ('open', 'in_progress', 'resolved', 'closed');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+
+-- =========================
+-- CORE: REGIONS
+-- =========================
+
+CREATE TABLE IF NOT EXISTS regions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  country TEXT,
+  state_province TEXT,
+  electrical_code_version TEXT,
+  regulatory_notes TEXT,
+  strategic_importance partner_priority DEFAULT 'medium',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_regions_unique
+ON regions (name, country, COALESCE(state_province, ''));
+
+
+-- =========================
+-- CORE: ORGANIZATIONS
+-- =========================
+
+CREATE TABLE IF NOT EXISTS organizations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  type org_type NOT NULL DEFAULT 'other',
+  website TEXT,
+  region_id UUID REFERENCES regions(id) ON DELETE SET NULL,
+  country TEXT,
+  city TEXT,
+
+  -- marina/market sizing
+  number_of_locations INTEGER,
+  number_of_marinas INTEGER,
+  total_slip_count INTEGER,
+
+  strategic_tier strategic_tier DEFAULT 'tier_3',
+  influence_score INTEGER NOT NULL DEFAULT 0, -- 0-100 recommended
+  notes TEXT,
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orgs_name_type
+ON organizations (LOWER(name), type);
+
+CREATE INDEX IF NOT EXISTS idx_orgs_region
+ON organizations (region_id);
+
+CREATE INDEX IF NOT EXISTS idx_orgs_influence
+ON organizations (influence_score DESC);
+
+
+-- =========================
+-- CORE: PEOPLE
+-- =========================
+
+CREATE TABLE IF NOT EXISTS people (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  first_name TEXT NOT NULL,
+  last_name TEXT NOT NULL,
+  title TEXT,
+  role_type TEXT, -- flexible: "Harbourmaster", "GM", "Director", "Engineer", etc.
+  organization_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+
+  email TEXT,
+  phone TEXT,
+  linkedin_url TEXT,
+
+  influence_score INTEGER NOT NULL DEFAULT 0, -- 0-100 recommended
+  relationship_strength relationship_strength DEFAULT 'weak',
+  notes TEXT,
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_people_org
+ON people (organization_id);
+
+CREATE INDEX IF NOT EXISTS idx_people_name
+ON people (LOWER(last_name), LOWER(first_name));
+
+CREATE INDEX IF NOT EXISTS idx_people_influence
+ON people (influence_score DESC);
+
+
+-- =========================
+-- ECOSYSTEM: RELATIONSHIPS (GRAPH EDGE TABLE)
+-- =========================
+
+-- Generic relationship edges between entities.
+-- Supports Organization->Organization, Person->Organization, Person->Person, and Organization->Region via located_in.
+CREATE TABLE IF NOT EXISTS relationships (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  source_org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+  source_person_id UUID REFERENCES people(id) ON DELETE CASCADE,
+
+  target_org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+  target_person_id UUID REFERENCES people(id) ON DELETE CASCADE,
+  target_region_id UUID REFERENCES regions(id) ON DELETE CASCADE,
+
+  type relationship_type NOT NULL,
+  strength relationship_strength DEFAULT 'moderate',
+  strategic_importance partner_priority DEFAULT 'medium',
+  start_date DATE,
+  end_date DATE,
+
+  notes TEXT,
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  -- Enforce "exactly one source"
+  CONSTRAINT chk_relationship_source_one
+    CHECK (
+      (source_org_id IS NOT NULL AND source_person_id IS NULL)
+      OR (source_org_id IS NULL AND source_person_id IS NOT NULL)
+    ),
+
+  -- Enforce "exactly one target"
+  CONSTRAINT chk_relationship_target_one
+    CHECK (
+      (target_org_id IS NOT NULL AND target_person_id IS NULL AND target_region_id IS NULL)
+      OR (target_org_id IS NULL AND target_person_id IS NOT NULL AND target_region_id IS NULL)
+      OR (target_org_id IS NULL AND target_person_id IS NULL AND target_region_id IS NOT NULL)
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_relationships_source_org
+ON relationships (source_org_id);
+
+CREATE INDEX IF NOT EXISTS idx_relationships_source_person
+ON relationships (source_person_id);
+
+CREATE INDEX IF NOT EXISTS idx_relationships_target_org
+ON relationships (target_org_id);
+
+CREATE INDEX IF NOT EXISTS idx_relationships_type
+ON relationships (type);
+
+CREATE INDEX IF NOT EXISTS idx_relationships_importance
+ON relationships (strategic_importance);
+
+
+-- =========================
+-- PARTNERSHIPS: PARTNER PROFILES
+-- =========================
+
+-- A partner is always an Organization, with extra fields depending on partnership role.
+CREATE TABLE IF NOT EXISTS partners (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL UNIQUE REFERENCES organizations(id) ON DELETE CASCADE,
+  category partnership_category NOT NULL,
+
+  priority partner_priority DEFAULT 'medium',
+
+  -- Strategic Industry
+  membership_status TEXT, -- Member / Sponsor / Board / None
+  number_of_marinas_represented INTEGER,
+
+  -- Technology & Integrations
+  tech_category TEXT, -- CRM / Metering / Payments / IoT / Infrastructure
+  integration_status integration_status DEFAULT 'none',
+  api_available BOOLEAN,
+  integration_type TEXT, -- Native / API / Data Sync
+  integration_doc_url TEXT,
+  technical_contact_person_id UUID REFERENCES people(id) ON DELETE SET NULL,
+
+  -- Distribution & Channel
+  channel_type TEXT, -- Distributor / Installer / Builder / Contractor
+  territory TEXT,
+  sales_reach_est_marinas INTEGER,
+  certification_status TEXT, -- Untrained / Training / Certified
+  training_completed_date DATE,
+  deal_registration_enabled BOOLEAN,
+
+  -- OEM & Licensing
+  industry TEXT, -- Marine / EV / Industrial / Defense
+  license_type TEXT, -- Technology / Hardware / Software
+  territory_licensed TEXT,
+  royalty_structure TEXT,
+  contract_status TEXT, -- Exploration / NDA / Negotiation / Signed
+  product_integration_description TEXT,
+  expected_revenue_potential_usd NUMERIC(14,2),
+
+  -- Government & Grants
+  program_name TEXT,
+  grant_type TEXT, -- Pilot / R&D / Infrastructure / Subsidy
+  funding_amount NUMERIC(14,2),
+  application_status TEXT, -- Not Applied / Applied / Approved / Completed
+  reporting_requirements TEXT,
+  start_date DATE,
+  end_date DATE,
+  deliverables TEXT,
+
+  -- Research & Innovation
+  institution_type TEXT, -- University / Accelerator / Lab / Innovation Hub
+  research_focus TEXT,
+  ip_considerations TEXT,
+
+  -- Pilot & Lighthouse
+  pilot_status TEXT, -- Planned / Active / Completed
+  deployment_size_pedestals INTEGER,
+  product_version_installed TEXT,
+  case_study_status TEXT,
+  testimonial_status TEXT,
+  operational_feedback TEXT,
+
+  notes TEXT,
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_partners_category
+ON partners (category);
+
+CREATE INDEX IF NOT EXISTS idx_partners_priority
+ON partners (priority);
+
+
+-- =========================
+-- ECOSYSTEM: EVENTS
+-- =========================
+
+CREATE TABLE IF NOT EXISTS events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  organizer_org_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+  location TEXT,
+  start_date DATE,
+  end_date DATE,
+  industry_category TEXT,
+
+  voltsafe_participation TEXT, -- Attendee / Sponsor / Speaker / Exhibitor
+  notes TEXT,
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_dates
+ON events (start_date DESC);
+
+CREATE INDEX IF NOT EXISTS idx_events_org
+ON events (organizer_org_id);
+
+-- Optional: link attendees/contacts met at events
+CREATE TABLE IF NOT EXISTS event_contacts (
+  event_id UUID REFERENCES events(id) ON DELETE CASCADE,
+  person_id UUID REFERENCES people(id) ON DELETE CASCADE,
+  notes TEXT,
+  PRIMARY KEY (event_id, person_id)
+);
+
+
+-- =========================
+-- SALES: LEADS
+-- =========================
+
+CREATE TABLE IF NOT EXISTS leads (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  organization_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+  primary_contact_person_id UUID REFERENCES people(id) ON DELETE SET NULL,
+
+  status lead_status NOT NULL DEFAULT 'new',
+  source TEXT, -- inbound / outbound / event / referral / association / etc.
+  interest_area TEXT, -- shore power / dashboard / pilot / etc.
+
+  owner_user TEXT, -- simple field; swap to users table later if needed
+  notes TEXT,
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_leads_status
+ON leads (status);
+
+CREATE INDEX IF NOT EXISTS idx_leads_org
+ON leads (organization_id);
+
+
+-- =========================
+-- SALES: ACCOUNTS (MARINAS)
+-- =========================
+
+CREATE TABLE IF NOT EXISTS accounts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  organization_id UUID NOT NULL UNIQUE REFERENCES organizations(id) ON DELETE CASCADE,
+
+  -- marina ops specifics
+  slip_count INTEGER,
+  dock_count INTEGER,
+  power_pedestals_estimate INTEGER,
+
+  account_owner_user TEXT,
+  account_stage TEXT, -- prospect / active / dormant etc
+  notes TEXT,
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_accounts_owner
+ON accounts (account_owner_user);
+
+
+-- =========================
+-- SALES: OPPORTUNITIES
+-- =========================
+
+CREATE TABLE IF NOT EXISTS opportunities (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  account_id UUID REFERENCES accounts(id) ON DELETE CASCADE,
+  lead_id UUID REFERENCES leads(id) ON DELETE SET NULL,
+
+  name TEXT NOT NULL,
+  stage opportunity_stage NOT NULL DEFAULT 'prospecting',
+
+  est_value_usd NUMERIC(14,2),
+  probability INTEGER DEFAULT 0, -- 0-100
+  expected_close_date DATE,
+
+  notes TEXT,
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_opps_stage
+ON opportunities (stage);
+
+CREATE INDEX IF NOT EXISTS idx_opps_close
+ON opportunities (expected_close_date);
+
+
+-- =========================
+-- SALES: QUOTES
+-- =========================
+
+CREATE TABLE IF NOT EXISTS quotes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  opportunity_id UUID REFERENCES opportunities(id) ON DELETE CASCADE,
+  status quote_status NOT NULL DEFAULT 'draft',
+
+  currency TEXT NOT NULL DEFAULT 'USD',
+  subtotal NUMERIC(14,2) DEFAULT 0,
+  tax NUMERIC(14,2) DEFAULT 0,
+  total NUMERIC(14,2) GENERATED ALWAYS AS (COALESCE(subtotal,0) + COALESCE(tax,0)) STORED,
+
+  valid_until DATE,
+  notes TEXT,
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_quotes_status
+ON quotes (status);
+
+
+-- Line items (hardware/software)
+CREATE TABLE IF NOT EXISTS quote_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  quote_id UUID NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+
+  sku TEXT,
+  item_name TEXT NOT NULL,
+  item_type TEXT, -- hardware / software / services
+  quantity INTEGER NOT NULL DEFAULT 1,
+  unit_price NUMERIC(14,2) NOT NULL DEFAULT 0,
+  line_total NUMERIC(14,2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
+
+  notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_quote_items_quote
+ON quote_items (quote_id);
+
+
+-- =========================
+-- SUPPORT: TICKETS
+-- =========================
+
+CREATE TABLE IF NOT EXISTS tickets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  account_id UUID REFERENCES accounts(id) ON DELETE SET NULL,
+  organization_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+  person_id UUID REFERENCES people(id) ON DELETE SET NULL,
+
+  status ticket_status NOT NULL DEFAULT 'open',
+  priority partner_priority DEFAULT 'medium',
+  subject TEXT NOT NULL,
+  description TEXT,
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tickets_status
+ON tickets (status);
+
+CREATE INDEX IF NOT EXISTS idx_tickets_priority
+ON tickets (priority);
+
+
+-- =========================
+-- UPDATED_AT TRIGGERS
+-- =========================
+
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$ BEGIN
+  CREATE TRIGGER trg_regions_updated
+  BEFORE UPDATE ON regions
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TRIGGER trg_orgs_updated
+  BEFORE UPDATE ON organizations
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TRIGGER trg_people_updated
+  BEFORE UPDATE ON people
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TRIGGER trg_relationships_updated
+  BEFORE UPDATE ON relationships
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TRIGGER trg_partners_updated
+  BEFORE UPDATE ON partners
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TRIGGER trg_events_updated
+  BEFORE UPDATE ON events
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TRIGGER trg_leads_updated
+  BEFORE UPDATE ON leads
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TRIGGER trg_accounts_updated
+  BEFORE UPDATE ON accounts
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TRIGGER trg_opps_updated
+  BEFORE UPDATE ON opportunities
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TRIGGER trg_quotes_updated
+  BEFORE UPDATE ON quotes
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TRIGGER trg_tickets_updated
+  BEFORE UPDATE ON tickets
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
