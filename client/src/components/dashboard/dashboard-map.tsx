@@ -230,26 +230,6 @@ export default function DashboardMap() {
         maxWidth: 150,
       }).addTo(mapInstanceRef.current);
 
-      const LocateControl = L.Control.extend({
-        options: { position: "topright" as L.ControlPosition },
-        onAdd() {
-          const container = L.DomUtil.create("div", "leaflet-bar leaflet-control locate-control");
-          const btn = L.DomUtil.create("a", "", container);
-          btn.href = "#";
-          btn.title = "Center on my location";
-          btn.setAttribute("role", "button");
-          btn.setAttribute("data-testid", "button-map-locate");
-          btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M2 12h2"/><path d="M20 12h2"/></svg>`;
-          L.DomEvent.disableClickPropagation(container);
-          L.DomEvent.on(btn, "click", (e) => {
-            L.DomEvent.preventDefault(e);
-            requestLocation();
-          });
-          return container;
-        },
-      });
-      new LocateControl().addTo(mapInstanceRef.current);
-
       markersRef.current = L.layerGroup().addTo(mapInstanceRef.current);
 
       mapInstanceRef.current.on("moveend", debouncedFetchFromBounds);
@@ -257,7 +237,7 @@ export default function DashboardMap() {
       const radius = boundsToRadius(mapInstanceRef.current);
       fetchMarinas(mapCenter.lat, mapCenter.lng, radius);
     }
-  }, [mapCenter, debouncedFetchFromBounds, fetchMarinas, requestLocation]);
+  }, [mapCenter, debouncedFetchFromBounds, fetchMarinas]);
 
   useEffect(() => {
     return () => {
@@ -393,11 +373,25 @@ export default function DashboardMap() {
         />
       </CardHeader>
       <CardContent className="pt-0">
-        <div
-          ref={mapRef}
-          className="w-full rounded-xl border border-border/30 overflow-hidden z-0 h-[300px] sm:h-[380px] md:h-[440px]"
-          data-testid="dashboard-map-container"
-        />
+        <div className="relative">
+          <div
+            ref={mapRef}
+            className="w-full rounded-xl border border-border/30 overflow-hidden z-0 h-[300px] sm:h-[380px] md:h-[440px]"
+            data-testid="dashboard-map-container"
+          />
+          <button
+            onClick={requestLocation}
+            className="absolute top-2 right-2 z-[1000] w-9 h-9 flex items-center justify-center rounded-lg bg-[hsl(222,47%,14%)] border border-[hsl(217,33%,25%)] text-[hsl(210,40%,90%)] shadow-lg cursor-pointer"
+            title="Center on my location"
+            data-testid="button-map-locate"
+          >
+            {locating ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Locate className="h-4 w-4" />
+            )}
+          </button>
+        </div>
         {closest5.length > 0 && (
           <div className="mt-3 space-y-1" data-testid="dashboard-closest-list">
             <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1 mb-1.5">Closest Marinas</p>

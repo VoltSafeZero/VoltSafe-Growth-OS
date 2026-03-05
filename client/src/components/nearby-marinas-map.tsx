@@ -255,26 +255,6 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
         maxWidth: 150,
       }).addTo(mapInstanceRef.current);
 
-      const LocateControl = L.Control.extend({
-        options: { position: "topright" as L.ControlPosition },
-        onAdd() {
-          const container = L.DomUtil.create("div", "leaflet-bar leaflet-control locate-control");
-          const btn = L.DomUtil.create("a", "", container);
-          btn.href = "#";
-          btn.title = "Center on my location";
-          btn.setAttribute("role", "button");
-          btn.setAttribute("data-testid", "button-map-locate-leads");
-          btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M2 12h2"/><path d="M20 12h2"/></svg>`;
-          L.DomEvent.disableClickPropagation(container);
-          L.DomEvent.on(btn, "click", (e) => {
-            L.DomEvent.preventDefault(e);
-            requestLocation();
-          });
-          return container;
-        },
-      });
-      new LocateControl().addTo(mapInstanceRef.current);
-
       markersRef.current = L.layerGroup().addTo(mapInstanceRef.current);
 
       mapInstanceRef.current.on("moveend", debouncedFetchFromBounds);
@@ -282,7 +262,7 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
       const radius = boundsToRadius(mapInstanceRef.current);
       fetchMarinas(mapCenter.lat, mapCenter.lng, radius);
     }
-  }, [mapCenter, debouncedFetchFromBounds, fetchMarinas, requestLocation]);
+  }, [mapCenter, debouncedFetchFromBounds, fetchMarinas]);
 
   useEffect(() => {
     if (!mapInstanceRef.current || !markersRef.current) return;
@@ -410,7 +390,21 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
       </div>
 
       <div className="flex flex-1 gap-3 min-h-0">
-        <div ref={mapRef} className="flex-1 rounded-xl border border-border/50 overflow-hidden z-0" data-testid="map-container" />
+        <div className="flex-1 relative min-w-0">
+          <div ref={mapRef} className="absolute inset-0 rounded-xl border border-border/50 overflow-hidden z-0" data-testid="map-container" />
+          <button
+            onClick={requestLocation}
+            className="absolute top-2 right-2 z-[1000] w-9 h-9 flex items-center justify-center rounded-lg bg-[hsl(222,47%,14%)] border border-[hsl(217,33%,25%)] text-[hsl(210,40%,90%)] shadow-lg cursor-pointer"
+            title="Center on my location"
+            data-testid="button-map-locate-leads"
+          >
+            {locating ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Locate className="h-4 w-4" />
+            )}
+          </button>
+        </div>
 
         <div className="w-72 lg:w-80 flex-shrink-0 overflow-y-auto space-y-1.5 pr-1">
           {loading && marinas.length === 0 ? (
