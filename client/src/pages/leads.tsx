@@ -21,6 +21,7 @@ import { lazy, Suspense } from "react";
 const NearbyMarinasMap = lazy(() => import("@/components/nearby-marinas-map"));
 import { ExportButton } from "@/components/ui/export-button";
 import { CommentsFeed } from "@/components/comments-feed";
+import { AttachmentsSection } from "@/components/attachments-section";
 import { AssignUserSelect } from "@/components/assign-user-select";
 import { CreateActionItem } from "@/components/create-action-item";
 import type { Lead } from "@shared/schema";
@@ -803,6 +804,10 @@ function LeadDetailDialog({
                 onValueChange={(userId) => updateMutation.mutate({ ownerUserId: userId })}
                 testId="select-lead-owner"
               />
+            </div>
+
+            <div className="border-t border-border/50 pt-4">
+              <AttachmentsSection objectType="lead" objectId={lead.id} />
             </div>
 
             <div className="border-t border-border/50 pt-4">

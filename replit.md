@@ -59,7 +59,8 @@ The project is organized as a monorepo containing `client/` (React SPA), `server
 ### Database
 - **Type:** PostgreSQL.
 - **ORM:** Drizzle ORM.
-- **Schema:** Comprehensive schema covering users, leads, accounts, contacts, opportunities, tickets, quotes, activities, tasks, comments, communication lists, campaign drafts, partnerships, and ecosystem entities.
+- **Schema:** Comprehensive schema covering users, leads, accounts, contacts, opportunities, tickets, quotes, activities, tasks, comments, attachments, communication lists, campaign drafts, partnerships, and ecosystem entities.
+- **File Attachments:** `attachments` table supports polymorphic file uploads (images/videos) linked to any object (lead, account, partnership) via `objectType`/`objectId`. Files stored on disk in `uploads/` directory, served via `/api/attachments/file/:fileName`. Reusable `AttachmentsSection` component (`client/src/components/attachments-section.tsx`) integrated into lead, account, and partnership detail dialogs. Uses `multer` for multipart upload handling (50MB max, images and videos only).
 
 ## External Dependencies
 

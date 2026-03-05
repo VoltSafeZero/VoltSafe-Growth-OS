@@ -623,3 +623,20 @@ export const ecosystemRegions = pgTable("ecosystem_regions", {
 export const insertEcosystemRegionSchema = createInsertSchema(ecosystemRegions).omit({ id: true, createdAt: true, updatedAt: true });
 export type EcosystemRegion = typeof ecosystemRegions.$inferSelect;
 export type InsertEcosystemRegion = z.infer<typeof insertEcosystemRegionSchema>;
+
+export const attachments = pgTable("attachments", {
+  id: serial("id").primaryKey(),
+  objectType: text("object_type").notNull(),
+  objectId: integer("object_id").notNull(),
+  fileName: text("file_name").notNull(),
+  originalName: text("original_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  fileSize: integer("file_size").notNull(),
+  uploadedBy: integer("uploaded_by"),
+  uploadedByName: text("uploaded_by_name"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAttachmentSchema = createInsertSchema(attachments).omit({ id: true, createdAt: true });
+export type Attachment = typeof attachments.$inferSelect;
+export type InsertAttachment = z.infer<typeof insertAttachmentSchema>;

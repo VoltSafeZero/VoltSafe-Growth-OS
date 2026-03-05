@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { AttachmentsSection } from "@/components/attachments-section";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -494,6 +495,10 @@ function PartnerDetailDialog({
                   <p className="text-sm mt-0.5">{partner.notes}</p>
                 </div>
               )}
+
+              <div className="border-t border-border/50 pt-3">
+                <AttachmentsSection objectType="partnership" objectId={partner.id} />
+              </div>
 
               <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/50">
                 <Button

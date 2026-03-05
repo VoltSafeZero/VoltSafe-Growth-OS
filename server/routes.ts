@@ -15,6 +15,10 @@ import {
   insertEcosystemRelationshipSchema, insertEcosystemEventSchema,
   insertEcosystemRegionSchema,
 } from "@shared/schema";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+import crypto from "crypto";
 import { requireAuth, seedUsers, hashPassword, verifyPassword } from "./auth";
 import { toCsv, setCsvHeaders, type CsvColumn } from "./csv-export";
 import {
@@ -23,6 +27,28 @@ import {
   getUserCredentials, deleteCredential,
 } from "./webauthn";
 import { eq, sql } from "drizzle-orm";
+
+const UPLOADS_DIR = path.resolve("uploads");
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname);
+      cb(null, crypto.randomUUID() + ext);
+    },
+  }),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = /^(image|video)\//;
+    if (allowed.test(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image and video files are allowed"));
+    }
+  },
+});
 
 export async function registerRoutes(
   httpServer: Server,
@@ -177,6 +203,7 @@ export async function registerRoutes(
   app.use("/api/comm-lists", requireAuth);
   app.use("/api/campaigns", requireAuth);
   app.use("/api/comments", requireAuth);
+  app.use("/api/attachments", requireAuth);
   app.use("/api/users", requireAuth);
   app.use("/api/team-workload", requireAuth);
   app.use("/api/partnerships", requireAuth);
@@ -952,6 +979,64 @@ export async function registerRoutes(
     const parsed = insertCommentSchema.safeParse(data);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createComment(parsed.data));
+  });
+
+  // ── Attachments ────────────────────────────────────────────────
+  app.get("/api/attachments", async (req, res) => {
+    const { objectType, objectId } = req.query;
+    if (!objectType || !objectId) return res.status(400).json({ message: "objectType and objectId required" });
+    res.json(await storage.getAttachments(objectType as string, Number(objectId)));
+  });
+
+  app.post("/api/attachments", (req, res, next) => {
+    upload.single("file")(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ message: err.message || "Upload failed" });
+      }
+      next();
+    });
+  }, async (req, res) => {
+    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+    const { objectType, objectId } = req.body;
+    const allowedTypes = ["lead", "account", "partnership"];
+    if (!objectType || !objectId || !allowedTypes.includes(objectType)) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(400).json({ message: "Valid objectType (lead/account/partnership) and objectId required" });
+    }
+    try {
+      const attachment = await storage.createAttachment({
+        objectType,
+        objectId: Number(objectId),
+        fileName: req.file.filename,
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        fileSize: req.file.size,
+        uploadedBy: req.session.userId ?? null,
+        uploadedByName: req.session.name ?? null,
+      });
+      res.status(201).json(attachment);
+    } catch (e) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+      res.status(500).json({ message: "Failed to save attachment" });
+    }
+  });
+
+  app.get("/api/attachments/file/:fileName", async (req, res) => {
+    const fileName = path.basename(req.params.fileName);
+    const filePath = path.join(UPLOADS_DIR, fileName);
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(UPLOADS_DIR)) return res.status(403).json({ message: "Forbidden" });
+    if (!fs.existsSync(resolved)) return res.status(404).json({ message: "File not found" });
+    res.sendFile(resolved);
+  });
+
+  app.delete("/api/attachments/:id", async (req, res) => {
+    const attachment = await storage.getAttachment(Number(req.params.id));
+    if (!attachment) return res.status(404).json({ message: "Attachment not found" });
+    const filePath = path.join(UPLOADS_DIR, path.basename(attachment.fileName));
+    try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch {}
+    await storage.deleteAttachment(attachment.id);
+    res.json({ message: "Deleted" });
   });
 
   // ── Users List ──────────────────────────────────────────────────

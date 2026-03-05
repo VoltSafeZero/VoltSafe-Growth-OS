@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
 import { CommentsFeed } from "@/components/comments-feed";
+import { AttachmentsSection } from "@/components/attachments-section";
 import { AssignUserSelect } from "@/components/assign-user-select";
 import { CreateActionItem } from "@/components/create-action-item";
 import type { Account, Contact, Opportunity, Ticket, InfrastructureProfile } from "@shared/schema";
@@ -456,6 +457,10 @@ function AccountDetailDialog({ account: initialAccount, onClose }: { account: Ac
                     onValueChange={(userId) => updateAccountMutation.mutate({ assignedToUserId: userId })}
                     testId="select-account-owner"
                   />
+                </div>
+
+                <div className="border-t border-border/50 pt-4">
+                  <AttachmentsSection objectType="account" objectId={account.id} />
                 </div>
 
                 <div className="border-t border-border/50 pt-4">

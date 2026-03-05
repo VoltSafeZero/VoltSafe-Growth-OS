@@ -24,6 +24,8 @@ import {
   type InfrastructureProfile, type InsertInfrastructureProfile,
   type Comment, type InsertComment,
   type User,
+  type Attachment, type InsertAttachment,
+  attachments,
   type Partnership, type InsertPartnership,
   type EcosystemOrganization, type InsertEcosystemOrganization,
   type EcosystemPerson, type InsertEcosystemPerson,
@@ -127,6 +129,11 @@ export interface IStorage {
 
   getComments(objectType: string, objectId: number): Promise<Comment[]>;
   createComment(data: InsertComment): Promise<Comment>;
+
+  getAttachments(objectType: string, objectId: number): Promise<Attachment[]>;
+  createAttachment(data: InsertAttachment): Promise<Attachment>;
+  deleteAttachment(id: number): Promise<Attachment | undefined>;
+  getAttachment(id: number): Promise<Attachment | undefined>;
 
   getUsers(): Promise<Pick<User, 'id' | 'name' | 'email'>[]>;
 
@@ -704,6 +711,27 @@ export class DatabaseStorage implements IStorage {
 
   async createComment(data: InsertComment) {
     const result = await db.insert(comments).values(data).returning();
+    return result[0];
+  }
+
+  async getAttachments(objectType: string, objectId: number) {
+    return await db.select().from(attachments)
+      .where(and(eq(attachments.objectType, objectType), eq(attachments.objectId, objectId)))
+      .orderBy(desc(attachments.createdAt));
+  }
+
+  async createAttachment(data: InsertAttachment) {
+    const result = await db.insert(attachments).values(data).returning();
+    return result[0];
+  }
+
+  async deleteAttachment(id: number) {
+    const result = await db.delete(attachments).where(eq(attachments.id, id)).returning();
+    return result[0];
+  }
+
+  async getAttachment(id: number) {
+    const result = await db.select().from(attachments).where(eq(attachments.id, id));
     return result[0];
   }
 
