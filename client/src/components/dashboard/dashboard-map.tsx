@@ -108,13 +108,17 @@ function createUserIcon() {
   return L.divIcon({
     className: "user-marker",
     html: `<div style="
-      width: 14px; height: 14px; border-radius: 50%;
-      background: #2dd4bf; border: 2px solid white;
-      box-shadow: 0 0 0 3px rgba(45,212,191,0.3), 0 2px 6px rgba(0,0,0,0.3);
-      animation: pulse-ring 2s ease-out infinite;
-    "></div>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7],
+      width: 22px; height: 22px; border-radius: 50%;
+      background: radial-gradient(circle, #38bdf8 0%, #0ea5e9 100%);
+      border: 3px solid white;
+      box-shadow: 0 0 0 4px rgba(14,165,233,0.25), 0 2px 8px rgba(0,0,0,0.3);
+    "><div style="
+      position: absolute; inset: -8px; border-radius: 50%;
+      border: 2px solid rgba(14,165,233,0.4);
+      animation: user-pulse 2s ease-out infinite;
+    "></div></div>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
   });
 }
 
@@ -224,6 +228,26 @@ export default function DashboardMap() {
         maxWidth: 150,
       }).addTo(mapInstanceRef.current);
 
+      const LocateControl = L.Control.extend({
+        options: { position: "topright" as L.ControlPosition },
+        onAdd() {
+          const container = L.DomUtil.create("div", "leaflet-bar leaflet-control locate-control");
+          const btn = L.DomUtil.create("a", "", container);
+          btn.href = "#";
+          btn.title = "Center on my location";
+          btn.setAttribute("role", "button");
+          btn.setAttribute("data-testid", "button-map-locate");
+          btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M2 12h2"/><path d="M20 12h2"/></svg>`;
+          L.DomEvent.disableClickPropagation(container);
+          L.DomEvent.on(btn, "click", (e) => {
+            L.DomEvent.preventDefault(e);
+            requestLocation();
+          });
+          return container;
+        },
+      });
+      new LocateControl().addTo(mapInstanceRef.current);
+
       markersRef.current = L.layerGroup().addTo(mapInstanceRef.current);
 
       mapInstanceRef.current.on("moveend", debouncedFetchFromBounds);
@@ -231,7 +255,7 @@ export default function DashboardMap() {
       const radius = boundsToRadius(mapInstanceRef.current);
       fetchMarinas(mapCenter.lat, mapCenter.lng, radius);
     }
-  }, [mapCenter, debouncedFetchFromBounds, fetchMarinas]);
+  }, [mapCenter, debouncedFetchFromBounds, fetchMarinas, requestLocation]);
 
   useEffect(() => {
     return () => {

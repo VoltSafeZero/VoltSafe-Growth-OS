@@ -175,6 +175,25 @@
   background: transparent !important;
   border: none !important;
 }
+@keyframes user-pulse {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+.locate-control a {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 34px !important;
+  height: 34px !important;
+  background: hsl(222 47% 14% / 0.9) !important;
+  color: hsl(210 40% 90%) !important;
+  border: 1px solid hsl(217 33% 25%) !important;
+  cursor: pointer;
+}
+.locate-control a:hover {
+  background: hsl(222 47% 20% / 0.95) !important;
+  color: hsl(174 100% 50%) !important;
+}
 .marina-tooltip {
   background: hsl(222 47% 11%) !important;
   color: hsl(210 40% 98%) !important;
