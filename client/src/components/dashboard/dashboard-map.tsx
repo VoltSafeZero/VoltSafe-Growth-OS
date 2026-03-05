@@ -108,17 +108,17 @@ function createUserIcon() {
   return L.divIcon({
     className: "user-marker",
     html: `<div style="
-      width: 22px; height: 22px; border-radius: 50%;
-      background: radial-gradient(circle, #38bdf8 0%, #0ea5e9 100%);
+      width: 30px; height: 30px; border-radius: 50%;
+      background: radial-gradient(circle, #4ade80 0%, #22c55e 100%);
       border: 3px solid white;
-      box-shadow: 0 0 0 4px rgba(14,165,233,0.25), 0 2px 8px rgba(0,0,0,0.3);
+      box-shadow: 0 0 0 5px rgba(34,197,94,0.25), 0 2px 8px rgba(0,0,0,0.4);
     "><div style="
-      position: absolute; inset: -8px; border-radius: 50%;
-      border: 2px solid rgba(14,165,233,0.4);
+      position: absolute; inset: -10px; border-radius: 50%;
+      border: 2px solid rgba(34,197,94,0.4);
       animation: user-pulse 2s ease-out infinite;
     "></div></div>`,
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
   });
 }
 
@@ -173,11 +173,10 @@ export default function DashboardMap() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setMapCenter(loc);
         saveLocation(loc.lat, loc.lng, 13);
         setLocating(false);
         if (mapInstanceRef.current) {
-          mapInstanceRef.current.setView([loc.lat, loc.lng], 13, { animate: true });
+          mapInstanceRef.current.flyTo([loc.lat, loc.lng], 13);
           if (userMarkerRef.current) {
             userMarkerRef.current.setLatLng([loc.lat, loc.lng]);
           } else {
@@ -190,7 +189,7 @@ export default function DashboardMap() {
         }
       },
       () => { setLocating(false); },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }, []);
 
