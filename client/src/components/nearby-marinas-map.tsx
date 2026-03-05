@@ -211,23 +211,23 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
   const requestLocation = useCallback(() => {
     if (!navigator.geolocation) return;
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLocating(false);
-        centerOnCoords(pos.coords.latitude, pos.coords.longitude);
-      },
-      () => {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            setLocating(false);
-            centerOnCoords(pos.coords.latitude, pos.coords.longitude);
-          },
-          () => { setLocating(false); },
-          { enableHighAccuracy: false, timeout: 10000, maximumAge: Infinity }
-        );
-      },
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+    let done = false;
+    const finish = (lat?: number, lng?: number) => {
+      if (done) return;
+      done = true;
+      setLocating(false);
+      navigator.geolocation.clearWatch(watchId);
+      clearTimeout(fallbackTimer);
+      if (lat !== undefined && lng !== undefined) {
+        centerOnCoords(lat, lng);
+      }
+    };
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => finish(pos.coords.latitude, pos.coords.longitude),
+      () => finish(),
+      { enableHighAccuracy: false, maximumAge: 60000, timeout: 10000 }
     );
+    const fallbackTimer = setTimeout(() => finish(), 6000);
   }, [centerOnCoords]);
 
   useEffect(() => {
