@@ -1,0 +1,52 @@
+My published Replit app is flapping (up/down multiple times per day). I want you to permanently fix it.
+
+DO THIS IN ORDER:
+
+1) Identify the root cause from logs
+- Open the Deploy/Run logs and find the exact timestamps where the server goes down.
+- For each drop, capture the final error lines before restart (stack trace / exit code / OOM / port binding / DB errors).
+- Summarize the single most likely root cause and the evidence.
+
+2) Fix the most common “flap” causes (apply whichever are relevant)
+A) Correct port + bind (mandatory)
+- Ensure the server listens on process.env.PORT (no hard-coded port).
+- Ensure it binds to 0.0.0.0 (not localhost).
+- Add a startup log like: “Listening on 0.0.0.0:${PORT}”.
+
+B) Stop crashes from killing the process
+- Add global handlers:
+  - Node/Express: process.on('unhandledRejection', ...) and process.on('uncaughtException', ...)
+  - Log the error details clearly (include request id if possible).
+- Add an Express error middleware that returns 500 and logs stack traces.
+
+C) Health check reliability
+- Add GET /health that returns 200 immediately with minimal work.
+- Ensure heavy initialization (migrations, big builds, remote fetches) is NOT blocking server start.
+- If there’s startup work, move it to a background task after server is listening.
+
+D) Database stability (if using Postgres/Drizzle)
+- Ensure a single shared DB client/pool is created once (not per request).
+- Configure pooling and reasonable limits.
+- Add retries/backoff for transient connection errors.
+- Add a lightweight DB check to /health only if it’s fast; otherwise keep /health purely in-process.
+
+E) Memory/CPU protection
+- If logs show OOM or high memory: identify largest memory users (caching, large JSON, image processing).
+- Reduce payload sizes, disable verbose logging, paginate queries, avoid loading huge datasets into memory.
+- Add request size limits and timeouts.
+
+F) Rate limiting & runaway polling
+- If the frontend polls frequently, throttle/debounce it.
+- Add server-side rate limiting to protect from accidental self-DDoS.
+
+3) Verify the fix
+- Provide a reproducible test plan:
+  - start the app locally in Replit
+  - hit /health and main routes
+  - run a simple load test (light) to ensure no crash
+- Keep logs clean and confirm no restarts for at least a few run cycles.
+
+4) Deliverables
+- Commit code changes.
+- Tell me exactly what the root cause was, what you changed, and where (file names + snippets).
+- Include any Replit deploy settings changes I must apply (run command, build command, environment vars).
