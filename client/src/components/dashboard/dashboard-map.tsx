@@ -220,7 +220,7 @@ export default function DashboardMap() {
       L.control.scale({
         position: "bottomleft",
         metric: true,
-        imperial: true,
+        imperial: false,
         maxWidth: 150,
       }).addTo(mapInstanceRef.current);
 
@@ -373,49 +373,23 @@ export default function DashboardMap() {
           data-testid="dashboard-map-container"
         />
         {closest5.length > 0 && (
-          <div className="mt-3" data-testid="dashboard-closest-list">
-            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1 mb-2">Closest Marinas</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2">
-              {closest5.map((lead) => (
-                <div
-                  key={lead.id}
-                  className="p-2.5 rounded-lg border border-border/30 bg-card/50 cursor-pointer transition-all hover:border-primary/30"
-                  onClick={() => {
-                    if (mapInstanceRef.current) {
-                      mapInstanceRef.current.setView([lead.marina_lat, lead.marina_lng], 15, { animate: true });
-                    }
-                  }}
-                  data-testid={`dashboard-closest-${lead.id}`}
-                >
-                  <div className="flex items-start justify-between gap-1">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium truncate">{lead.company}</p>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className="text-[10px] text-muted-foreground">{formatDistance(lead.distance_km)}</span>
-                        <span
-                          className="w-2 h-2 rounded-full inline-block flex-shrink-0"
-                          style={{ background: STAGE_COLORS[lead.status] || "#64748b" }}
-                          title={STAGE_LABELS[lead.status] || lead.status}
-                        />
-                      </div>
-                    </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleListDirections(lead); }}
-                      className="shrink-0 p-1 rounded-md bg-primary/10 transition-colors hover-elevate"
-                      data-testid={`dashboard-directions-${lead.id}`}
-                      title="Get Directions"
-                    >
-                      <Navigation className="h-3 w-3 text-primary" />
-                    </button>
-                  </div>
-                  {(lead.city || lead.state) && (
-                    <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
-                      {[lead.city, lead.state].filter(Boolean).join(", ")}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
+          <div className="mt-3 space-y-1" data-testid="dashboard-closest-list">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1 mb-1.5">Closest Marinas</p>
+            {closest5.map((lead) => (
+              <div
+                key={lead.id}
+                className="flex items-center justify-between px-2 py-1.5 rounded-md cursor-pointer transition-colors hover:bg-muted/40"
+                onClick={() => {
+                  if (mapInstanceRef.current) {
+                    mapInstanceRef.current.setView([lead.marina_lat, lead.marina_lng], 15, { animate: true });
+                  }
+                }}
+                data-testid={`dashboard-closest-${lead.id}`}
+              >
+                <p className="text-xs font-medium truncate min-w-0 flex-1">{lead.company}</p>
+                <span className="text-[11px] text-muted-foreground ml-3 flex-shrink-0">{formatDistance(lead.distance_km)}</span>
+              </div>
+            ))}
           </div>
         )}
         {closest5.length === 0 && !loading && marinas.length === 0 && (
