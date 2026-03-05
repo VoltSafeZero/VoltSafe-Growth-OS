@@ -129,17 +129,17 @@ function createUserIcon() {
   return L.divIcon({
     className: "user-marker",
     html: `<div style="
-      width: 44px; height: 44px; border-radius: 50%;
+      width: 11px; height: 11px; border-radius: 50%;
       background: radial-gradient(circle, #4ade80 0%, #22c55e 100%);
-      border: 4px solid white;
-      box-shadow: 0 0 0 6px rgba(34,197,94,0.3), 0 3px 10px rgba(0,0,0,0.4);
+      border: 1.5px solid white;
+      box-shadow: 0 0 0 2px rgba(34,197,94,0.3), 0 1px 4px rgba(0,0,0,0.4);
     "><div style="
-      position: absolute; inset: -12px; border-radius: 50%;
-      border: 2px solid rgba(34,197,94,0.4);
+      position: absolute; inset: -4px; border-radius: 50%;
+      border: 1px solid rgba(34,197,94,0.4);
       animation: user-pulse 2s ease-out infinite;
     "></div></div>`,
-    iconSize: [44, 44],
-    iconAnchor: [22, 22],
+    iconSize: [11, 11],
+    iconAnchor: [6, 6],
   });
 }
 
