@@ -193,8 +193,10 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
   const requestLocation = useCallback(() => {
     if (!navigator.geolocation) return;
     setLocating(true);
+    const safetyTimer = setTimeout(() => setLocating(false), 20000);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        clearTimeout(safetyTimer);
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         saveLocation(lat, lng, 14);
@@ -214,7 +216,7 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
           }
         }
       },
-      () => { setLocating(false); },
+      () => { clearTimeout(safetyTimer); setLocating(false); },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }, []);

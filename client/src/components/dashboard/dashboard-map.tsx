@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { MapPin, Locate, Loader2, Navigation, Anchor } from "lucide-react";
 import AddressAutocomplete from "@/components/address-autocomplete";
 import L from "leaflet";
@@ -170,8 +169,10 @@ export default function DashboardMap() {
   const requestLocation = useCallback(() => {
     if (!navigator.geolocation) return;
     setLocating(true);
+    const safetyTimer = setTimeout(() => setLocating(false), 20000);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        clearTimeout(safetyTimer);
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         saveLocation(lat, lng, 14);
@@ -191,14 +192,10 @@ export default function DashboardMap() {
           }
         }
       },
-      () => { setLocating(false); },
+      () => { clearTimeout(safetyTimer); setLocating(false); },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }, []);
-
-  useEffect(() => {
-    requestLocation();
-  }, [requestLocation]);
 
   const handleAddressSelect = (lat: number, lng: number, _displayName: string) => {
     setMapCenter({ lat, lng });
@@ -351,19 +348,9 @@ export default function DashboardMap() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             {marinas.length > 0 && (
               <Badge variant="outline" className="text-xs">{marinas.length}</Badge>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={requestLocation}
-              disabled={locating}
-              data-testid="button-dashboard-refresh-location"
-            >
-              {locating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Locate className="h-3.5 w-3.5" />}
-            </Button>
           </div>
         </div>
         <AddressAutocomplete
