@@ -166,36 +166,45 @@ export default function DashboardMap() {
     }, 400);
   }, [fetchMarinas]);
 
+  const centerOnCoords = useCallback((lat: number, lng: number) => {
+    saveLocation(lat, lng, 14);
+    const map = mapInstanceRef.current;
+    if (map) {
+      map.invalidateSize();
+      map.setView([lat, lng], 14, { animate: false });
+      if (userMarkerRef.current) {
+        userMarkerRef.current.setLatLng([lat, lng]);
+      } else {
+        userMarkerRef.current = L.marker([lat, lng], {
+          icon: createUserIcon(),
+          zIndexOffset: 1000,
+        }).addTo(map);
+        userMarkerRef.current.bindPopup("<b>You are here</b>");
+      }
+    }
+  }, []);
+
   const requestLocation = useCallback(() => {
     if (!navigator.geolocation) return;
     setLocating(true);
-    const safetyTimer = setTimeout(() => setLocating(false), 20000);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        clearTimeout(safetyTimer);
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        saveLocation(lat, lng, 14);
         setLocating(false);
-        const map = mapInstanceRef.current;
-        if (map) {
-          map.invalidateSize();
-          map.setView([lat, lng], 14, { animate: false });
-          if (userMarkerRef.current) {
-            userMarkerRef.current.setLatLng([lat, lng]);
-          } else {
-            userMarkerRef.current = L.marker([lat, lng], {
-              icon: createUserIcon(),
-              zIndexOffset: 1000,
-            }).addTo(map);
-            userMarkerRef.current.bindPopup("<b>You are here</b>");
-          }
-        }
+        centerOnCoords(pos.coords.latitude, pos.coords.longitude);
       },
-      () => { clearTimeout(safetyTimer); setLocating(false); },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      () => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            setLocating(false);
+            centerOnCoords(pos.coords.latitude, pos.coords.longitude);
+          },
+          () => { setLocating(false); },
+          { enableHighAccuracy: false, timeout: 10000, maximumAge: Infinity }
+        );
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
     );
-  }, []);
+  }, [centerOnCoords]);
 
   const handleAddressSelect = (lat: number, lng: number, _displayName: string) => {
     setMapCenter({ lat, lng });
