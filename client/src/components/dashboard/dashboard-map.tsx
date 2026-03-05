@@ -108,17 +108,17 @@ function createUserIcon() {
   return L.divIcon({
     className: "user-marker",
     html: `<div style="
-      width: 30px; height: 30px; border-radius: 50%;
+      width: 44px; height: 44px; border-radius: 50%;
       background: radial-gradient(circle, #4ade80 0%, #22c55e 100%);
-      border: 3px solid white;
-      box-shadow: 0 0 0 5px rgba(34,197,94,0.25), 0 2px 8px rgba(0,0,0,0.4);
+      border: 4px solid white;
+      box-shadow: 0 0 0 6px rgba(34,197,94,0.3), 0 3px 10px rgba(0,0,0,0.4);
     "><div style="
-      position: absolute; inset: -10px; border-radius: 50%;
+      position: absolute; inset: -12px; border-radius: 50%;
       border: 2px solid rgba(34,197,94,0.4);
       animation: user-pulse 2s ease-out infinite;
     "></div></div>`,
-    iconSize: [30, 30],
-    iconAnchor: [15, 15],
+    iconSize: [44, 44],
+    iconAnchor: [22, 22],
   });
 }
 
@@ -172,18 +172,21 @@ export default function DashboardMap() {
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        saveLocation(loc.lat, loc.lng, 13);
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        saveLocation(lat, lng, 14);
         setLocating(false);
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.flyTo([loc.lat, loc.lng], 13);
+        const map = mapInstanceRef.current;
+        if (map) {
+          map.invalidateSize();
+          map.setView([lat, lng], 14, { animate: false });
           if (userMarkerRef.current) {
-            userMarkerRef.current.setLatLng([loc.lat, loc.lng]);
+            userMarkerRef.current.setLatLng([lat, lng]);
           } else {
-            userMarkerRef.current = L.marker([loc.lat, loc.lng], {
+            userMarkerRef.current = L.marker([lat, lng], {
               icon: createUserIcon(),
               zIndexOffset: 1000,
-            }).addTo(mapInstanceRef.current);
+            }).addTo(map);
             userMarkerRef.current.bindPopup("<b>You are here</b>");
           }
         }
