@@ -185,7 +185,13 @@ export default function DashboardMap() {
   }, []);
 
   const requestLocation = useCallback(() => {
-    if (!navigator.geolocation) return;
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    if (!navigator.geolocation) {
+      const saved = getSavedLocation();
+      centerOnCoords(saved.lat, saved.lng);
+      return;
+    }
     setLocating(true);
     let done = false;
     const finish = (lat?: number, lng?: number) => {
@@ -196,14 +202,18 @@ export default function DashboardMap() {
       clearTimeout(fallbackTimer);
       if (lat !== undefined && lng !== undefined) {
         centerOnCoords(lat, lng);
+      } else {
+        const saved = getSavedLocation();
+        map.invalidateSize();
+        map.setView([saved.lat, saved.lng], 14, { animate: false });
       }
     };
     const watchId = navigator.geolocation.watchPosition(
       (pos) => finish(pos.coords.latitude, pos.coords.longitude),
       () => finish(),
-      { enableHighAccuracy: false, maximumAge: 60000, timeout: 10000 }
+      { enableHighAccuracy: false, maximumAge: 60000, timeout: 5000 }
     );
-    const fallbackTimer = setTimeout(() => finish(), 6000);
+    const fallbackTimer = setTimeout(() => finish(), 4000);
   }, [centerOnCoords]);
 
   const handleAddressSelect = (lat: number, lng: number, _displayName: string) => {
