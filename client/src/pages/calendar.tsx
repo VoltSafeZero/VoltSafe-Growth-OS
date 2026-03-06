@@ -23,6 +23,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar as CalendarWidget } from "@/components/ui/calendar";
 import { useToast } from "@/hooks/use-toast";
 import {
   ChevronLeft,
@@ -35,7 +41,15 @@ import {
   Clock,
   Pencil,
   CalendarDays,
+  X,
+  Users,
+  Bell,
+  Eye,
+  Repeat,
+  Car,
+  Globe,
 } from "lucide-react";
+import AddressAutocomplete from "@/components/address-autocomplete";
 import {
   format,
   startOfMonth,
@@ -63,6 +77,146 @@ type ViewMode = "month" | "week" | "day";
 
 const EVENT_TYPES = ["meeting", "call", "task", "reminder"] as const;
 const EVENT_STATUSES = ["scheduled", "completed", "cancelled"] as const;
+
+const TIME_OPTIONS = (() => {
+  const opts: { value: string; label: string }[] = [];
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      const hh = String(h).padStart(2, "0");
+      const mm = String(m).padStart(2, "0");
+      const value = `${hh}:${mm}`;
+      const period = h < 12 ? "AM" : "PM";
+      const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
+      const label = `${displayH}:${mm} ${period}`;
+      opts.push({ value, label });
+    }
+  }
+  return opts;
+})();
+
+const TIMEZONE_OPTIONS = [
+  "Eastern Time", "Central Time", "Mountain Time", "Pacific Time",
+  "Alaska Time", "Hawaii Time", "Atlantic Time",
+  "UTC", "GMT", "BST", "CET", "EET",
+  "IST", "JST", "CST (China)", "AEST", "NZST",
+];
+
+const REPEAT_OPTIONS = [
+  { value: "none", label: "None" },
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+  { value: "yearly", label: "Yearly" },
+];
+
+const TRAVEL_TIME_OPTIONS = [
+  { value: "none", label: "None" },
+  { value: "5min", label: "5 minutes" },
+  { value: "15min", label: "15 minutes" },
+  { value: "30min", label: "30 minutes" },
+  { value: "1hr", label: "1 hour" },
+  { value: "1.5hr", label: "1 hour 30 minutes" },
+  { value: "2hr", label: "2 hours" },
+];
+
+const ALERT_OPTIONS = [
+  { value: "none", label: "None" },
+  { value: "at_time", label: "At time of event" },
+  { value: "1min", label: "1 minute before" },
+  { value: "5min", label: "5 minutes before" },
+  { value: "10min", label: "10 minutes before" },
+  { value: "15min", label: "15 minutes before" },
+  { value: "30min", label: "30 minutes before" },
+  { value: "45min", label: "45 minutes before" },
+  { value: "1hr", label: "1 hour before" },
+  { value: "2hr", label: "2 hours before" },
+  { value: "1day", label: "1 day before" },
+  { value: "2day", label: "2 days before" },
+];
+
+const SHOW_AS_OPTIONS = [
+  { value: "busy", label: "Busy" },
+  { value: "free", label: "Free" },
+];
+
+const VISIBILITY_OPTIONS = [
+  { value: "default", label: "Default" },
+  { value: "public", label: "Public" },
+  { value: "private", label: "Private" },
+];
+
+const COLOR_OPTIONS = [
+  { value: "", label: "None" },
+  { value: "blue", label: "Blue" },
+  { value: "red", label: "Red" },
+  { value: "green", label: "Green" },
+  { value: "orange", label: "Orange" },
+  { value: "purple", label: "Purple" },
+  { value: "teal", label: "Teal" },
+  { value: "pink", label: "Pink" },
+];
+
+const COLOR_DOT: Record<string, string> = {
+  blue: "bg-blue-500",
+  red: "bg-red-500",
+  green: "bg-green-500",
+  orange: "bg-orange-500",
+  purple: "bg-purple-500",
+  teal: "bg-teal-500",
+  pink: "bg-pink-500",
+};
+
+function roundTo15(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const rounded = Math.round(m / 15) * 15;
+  const finalM = rounded === 60 ? 0 : rounded;
+  const finalH = rounded === 60 ? (h + 1) % 24 : h;
+  return `${String(finalH).padStart(2, "0")}:${String(finalM).padStart(2, "0")}`;
+}
+
+function DatePickerField({ value, onChange, label, testId }: { value: string; onChange: (v: string) => void; label: string; testId: string }) {
+  const [open, setOpen] = useState(false);
+  const dateObj = value ? new Date(value + "T00:00:00") : undefined;
+  return (
+    <div>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" className="w-full justify-start text-left font-normal h-9 text-sm" data-testid={testId}>
+            <CalendarDays className="mr-2 h-4 w-4 text-muted-foreground" />
+            {value ? format(new Date(value + "T00:00:00"), "MMM d, yyyy") : "Pick a date"}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0" align="start">
+          <CalendarWidget
+            mode="single"
+            selected={dateObj}
+            onSelect={(d) => { if (d) { onChange(format(d, "yyyy-MM-dd")); setOpen(false); } }}
+          />
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+function TimePickerField({ value, onChange, label, testId }: { value: string; onChange: (v: string) => void; label: string; testId: string }) {
+  return (
+    <div>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="h-9 text-sm" data-testid={testId}>
+          <Clock className="mr-2 h-4 w-4 text-muted-foreground" />
+          <SelectValue placeholder="Select time" />
+        </SelectTrigger>
+        <SelectContent className="max-h-[240px]">
+          {TIME_OPTIONS.map((t) => (
+            <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
 
 const EVENT_TYPE_COLORS: Record<string, string> = {
   meeting: "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/25",
@@ -581,17 +735,17 @@ function EventFormDialog({
     eventType: initialData?.eventType || "meeting",
     startDate: initialData ? format(new Date(initialData.startTime), "yyyy-MM-dd") : format(defaultStart, "yyyy-MM-dd"),
     startTime: initialData
-      ? format(new Date(initialData.startTime), "HH:mm")
+      ? roundTo15(format(new Date(initialData.startTime), "HH:mm"))
       : initialSlot?.hour !== undefined
         ? `${String(initialSlot.hour).padStart(2, "0")}:00`
-        : format(new Date(), "HH:mm"),
+        : roundTo15(format(new Date(), "HH:mm")),
     endDate: initialData?.endTime
       ? format(new Date(initialData.endTime), "yyyy-MM-dd")
       : defaultEnd
         ? format(defaultEnd, "yyyy-MM-dd")
         : "",
     endTime: initialData?.endTime
-      ? format(new Date(initialData.endTime), "HH:mm")
+      ? roundTo15(format(new Date(initialData.endTime), "HH:mm"))
       : defaultEnd
         ? format(defaultEnd, "HH:mm")
         : "",
@@ -600,7 +754,29 @@ function EventFormDialog({
     meetingUrl: initialData?.meetingUrl || "",
     color: initialData?.color || "",
     status: initialData?.status || "scheduled",
+    timeZone: initialData?.timeZone || "Eastern Time",
+    repeat: initialData?.repeat || "none",
+    travelTime: initialData?.travelTime || "none",
+    alert: initialData?.alert || "5min",
+    secondAlert: initialData?.secondAlert || "none",
+    showAs: initialData?.showAs || "busy",
+    visibility: initialData?.visibility || "default",
   });
+
+  const [invitees, setInvitees] = useState<string[]>(initialData?.invitees || []);
+  const [inviteeInput, setInviteeInput] = useState("");
+
+  const addInvitee = () => {
+    const email = inviteeInput.trim().toLowerCase();
+    if (email && email.includes("@") && !invitees.includes(email)) {
+      setInvitees((prev) => [...prev, email]);
+      setInviteeInput("");
+    }
+  };
+
+  const removeInvitee = (email: string) => {
+    setInvitees((prev) => prev.filter((e) => e !== email));
+  };
 
   const handleSubmit = () => {
     if (!formData.title.trim()) return;
@@ -624,6 +800,14 @@ function EventFormDialog({
       meetingUrl: formData.meetingUrl || null,
       color: formData.color || null,
       status: formData.status,
+      invitees: invitees.length > 0 ? invitees : null,
+      timeZone: formData.timeZone || null,
+      repeat: formData.repeat,
+      travelTime: formData.travelTime,
+      alert: formData.alert,
+      secondAlert: formData.secondAlert,
+      showAs: formData.showAs,
+      visibility: formData.visibility,
     });
   };
 
@@ -631,7 +815,7 @@ function EventFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{initialData ? "Edit Event" : "New Event"}</DialogTitle>
         </DialogHeader>
@@ -641,8 +825,18 @@ function EventFormDialog({
             <Input
               value={formData.title}
               onChange={(e) => set("title", e.target.value)}
-              placeholder="Event title"
+              placeholder="Add Title"
               data-testid="input-event-title"
+            />
+          </div>
+
+          <div>
+            <Label className="flex items-center gap-1.5"><Video className="h-3.5 w-3.5" /> Zoom Meeting URL</Label>
+            <Input
+              value={formData.meetingUrl}
+              onChange={(e) => set("meetingUrl", e.target.value)}
+              placeholder="https://zoom.us/j/..."
+              data-testid="input-event-meeting-url"
             />
           </div>
 
@@ -650,14 +844,12 @@ function EventFormDialog({
             <div>
               <Label>Type</Label>
               <Select value={formData.eventType} onValueChange={(v) => set("eventType", v)}>
-                <SelectTrigger data-testid="select-event-type">
+                <SelectTrigger className="h-9" data-testid="select-event-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {EVENT_TYPES.map((t) => (
-                    <SelectItem key={t} value={t} className="capitalize">
-                      {t}
-                    </SelectItem>
+                    <SelectItem key={t} value={t} className="capitalize">{t}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -665,14 +857,12 @@ function EventFormDialog({
             <div>
               <Label>Status</Label>
               <Select value={formData.status} onValueChange={(v) => set("status", v)}>
-                <SelectTrigger data-testid="select-event-status">
+                <SelectTrigger className="h-9" data-testid="select-event-status">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {EVENT_STATUSES.map((s) => (
-                    <SelectItem key={s} value={s} className="capitalize">
-                      {s}
-                    </SelectItem>
+                    <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -685,53 +875,145 @@ function EventFormDialog({
               onCheckedChange={(v) => set("allDay", v)}
               data-testid="switch-all-day"
             />
-            <Label>All day</Label>
+            <Label>all-day</Label>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Start Date</Label>
-              <Input
-                type="date"
-                value={formData.startDate}
-                onChange={(e) => set("startDate", e.target.value)}
-                data-testid="input-start-date"
-              />
-            </div>
+            <DatePickerField value={formData.startDate} onChange={(v) => set("startDate", v)} label="starts" testId="picker-start-date" />
             {!formData.allDay && (
-              <div>
-                <Label>Start Time</Label>
-                <Input
-                  type="time"
-                  value={formData.startTime}
-                  onChange={(e) => set("startTime", e.target.value)}
-                  data-testid="input-start-time"
-                />
-              </div>
+              <TimePickerField value={formData.startTime} onChange={(v) => set("startTime", v)} label="" testId="picker-start-time" />
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <DatePickerField value={formData.endDate} onChange={(v) => set("endDate", v)} label="ends" testId="picker-end-date" />
+            {!formData.allDay && (
+              <TimePickerField value={formData.endTime} onChange={(v) => set("endTime", v)} label="" testId="picker-end-time" />
             )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>End Date</Label>
-              <Input
-                type="date"
-                value={formData.endDate}
-                onChange={(e) => set("endDate", e.target.value)}
-                data-testid="input-end-date"
-              />
+              <Label className="flex items-center gap-1.5 text-xs text-muted-foreground"><Globe className="h-3 w-3" /> time zone</Label>
+              <Select value={formData.timeZone} onValueChange={(v) => set("timeZone", v)}>
+                <SelectTrigger className="h-9 text-sm" data-testid="select-timezone">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="max-h-[240px]">
+                  {TIMEZONE_OPTIONS.map((tz) => (
+                    <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            {!formData.allDay && (
-              <div>
-                <Label>End Time</Label>
-                <Input
-                  type="time"
-                  value={formData.endTime}
-                  onChange={(e) => set("endTime", e.target.value)}
-                  data-testid="input-end-time"
-                />
-              </div>
-            )}
+            <div>
+              <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">color</Label>
+              <Select value={formData.color || "none"} onValueChange={(v) => set("color", v === "none" ? "" : v)}>
+                <SelectTrigger className="h-9 text-sm" data-testid="select-color">
+                  <div className="flex items-center gap-2">
+                    {formData.color && <span className={`w-2.5 h-2.5 rounded-full ${COLOR_DOT[formData.color] || ""}`} />}
+                    <SelectValue />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  {COLOR_OPTIONS.map((c) => (
+                    <SelectItem key={c.value || "none"} value={c.value || "none"}>
+                      <div className="flex items-center gap-2">
+                        {c.value && <span className={`w-2.5 h-2.5 rounded-full ${COLOR_DOT[c.value] || ""}`} />}
+                        {c.label}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="flex items-center gap-1.5 text-xs text-muted-foreground"><Repeat className="h-3 w-3" /> repeat</Label>
+              <Select value={formData.repeat} onValueChange={(v) => set("repeat", v)}>
+                <SelectTrigger className="h-9 text-sm" data-testid="select-repeat">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {REPEAT_OPTIONS.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="flex items-center gap-1.5 text-xs text-muted-foreground"><Car className="h-3 w-3" /> travel time</Label>
+              <Select value={formData.travelTime} onValueChange={(v) => set("travelTime", v)}>
+                <SelectTrigger className="h-9 text-sm" data-testid="select-travel-time">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TRAVEL_TIME_OPTIONS.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="flex items-center gap-1.5 text-xs text-muted-foreground"><Bell className="h-3 w-3" /> alert</Label>
+              <Select value={formData.alert} onValueChange={(v) => set("alert", v)}>
+                <SelectTrigger className="h-9 text-sm" data-testid="select-alert">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="max-h-[240px]">
+                  {ALERT_OPTIONS.map((a) => (
+                    <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="flex items-center gap-1.5 text-xs text-muted-foreground"><Bell className="h-3 w-3" /> second alert</Label>
+              <Select value={formData.secondAlert} onValueChange={(v) => set("secondAlert", v)}>
+                <SelectTrigger className="h-9 text-sm" data-testid="select-second-alert">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="max-h-[240px]">
+                  {ALERT_OPTIONS.map((a) => (
+                    <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">show as</Label>
+              <Select value={formData.showAs} onValueChange={(v) => set("showAs", v)}>
+                <SelectTrigger className="h-9 text-sm" data-testid="select-show-as">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SHOW_AS_OPTIONS.map((s) => (
+                    <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="flex items-center gap-1.5 text-xs text-muted-foreground"><Eye className="h-3 w-3" /> visibility</Label>
+              <Select value={formData.visibility} onValueChange={(v) => set("visibility", v)}>
+                <SelectTrigger className="h-9 text-sm" data-testid="select-visibility">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {VISIBILITY_OPTIONS.map((v) => (
+                    <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div>
@@ -741,29 +1023,56 @@ function EventFormDialog({
               onChange={(e) => set("description", e.target.value)}
               placeholder="Add details..."
               className="resize-none"
+              rows={3}
               data-testid="input-event-description"
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Location</Label>
+          <div>
+            <Label className="flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5" /> Location</Label>
+            <AddressAutocomplete
+              onSelect={(_lat, _lng, displayName) => set("location", displayName)}
+              placeholder="Search for a location..."
+              testId="input-event-location"
+            />
+            {formData.location && (
+              <div className="flex items-center gap-1.5 mt-1.5 text-xs text-muted-foreground">
+                <MapPin className="h-3 w-3" />
+                <span className="truncate">{formData.location}</span>
+                <button type="button" onClick={() => set("location", "")} className="ml-auto">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-border/50 pt-3">
+            <Label className="flex items-center gap-1.5 mb-2"><Users className="h-3.5 w-3.5" /> Invitees</Label>
+            <div className="flex gap-2">
               <Input
-                value={formData.location}
-                onChange={(e) => set("location", e.target.value)}
-                placeholder="Location"
-                data-testid="input-event-location"
+                value={inviteeInput}
+                onChange={(e) => setInviteeInput(e.target.value)}
+                placeholder="Add email address..."
+                className="h-9 text-sm"
+                data-testid="input-invitee-email"
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addInvitee(); } }}
               />
+              <Button type="button" variant="outline" size="sm" onClick={addInvitee} className="h-9 px-3" data-testid="button-add-invitee">
+                Add
+              </Button>
             </div>
-            <div>
-              <Label>Meeting URL</Label>
-              <Input
-                value={formData.meetingUrl}
-                onChange={(e) => set("meetingUrl", e.target.value)}
-                placeholder="https://..."
-                data-testid="input-event-meeting-url"
-              />
-            </div>
+            {invitees.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {invitees.map((email) => (
+                  <div key={email} className="flex items-center justify-between text-sm bg-secondary/30 rounded px-2.5 py-1.5" data-testid={`invitee-${email}`}>
+                    <span className="truncate">{email}</span>
+                    <button type="button" onClick={() => removeInvitee(email)} className="ml-2 shrink-0" data-testid={`button-remove-invitee-${email}`}>
+                      <X className="h-3.5 w-3.5 text-muted-foreground" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         <DialogFooter className="gap-2 mt-4">
@@ -821,9 +1130,16 @@ function EventDetailDialog({
         ? "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/25"
         : "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/25";
 
+  const alertLabel = ALERT_OPTIONS.find((a) => a.value === event.alert)?.label || event.alert || "None";
+  const secondAlertLabel = ALERT_OPTIONS.find((a) => a.value === event.secondAlert)?.label || event.secondAlert || "None";
+  const repeatLabel = REPEAT_OPTIONS.find((r) => r.value === event.repeat)?.label || event.repeat || "None";
+  const travelLabel = TRAVEL_TIME_OPTIONS.find((t) => t.value === event.travelTime)?.label || event.travelTime || "None";
+  const showAsLabel = SHOW_AS_OPTIONS.find((s) => s.value === event.showAs)?.label || event.showAs || "Busy";
+  const visibilityLabel = VISIBILITY_OPTIONS.find((v) => v.value === event.visibility)?.label || event.visibility || "Default";
+
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-start justify-between gap-2">
             <div>
@@ -842,9 +1158,18 @@ function EventDetailDialog({
           </div>
         </DialogHeader>
 
-        <div className="space-y-3 mt-2">
-          <div className="flex items-center gap-2 text-sm">
-            <CalendarDays className="h-4 w-4 text-muted-foreground" />
+        <div className="space-y-2.5 mt-2 text-sm">
+          {event.meetingUrl && (
+            <div className="flex items-center gap-2">
+              <Video className="h-4 w-4 text-muted-foreground shrink-0" />
+              <a href={event.meetingUrl} target="_blank" rel="noopener noreferrer" className="text-primary truncate" data-testid="link-meeting-url">
+                Zoom Meeting URL
+              </a>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
             <span>
               {event.allDay
                 ? format(startDate, "MMM d, yyyy")
@@ -852,31 +1177,47 @@ function EventDetailDialog({
             </span>
           </div>
 
-          {event.location && (
-            <div className="flex items-center gap-2 text-sm">
-              <MapPin className="h-4 w-4 text-muted-foreground" />
-              <span>{event.location}</span>
+          {event.timeZone && (
+            <div className="flex items-center gap-2">
+              <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span>{event.timeZone}</span>
             </div>
           )}
 
-          {event.meetingUrl && (
-            <div className="flex items-center gap-2 text-sm">
-              <Video className="h-4 w-4 text-muted-foreground" />
-              <a
-                href={event.meetingUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary truncate"
-                data-testid="link-meeting-url"
-              >
-                Join Meeting
-              </a>
+          {event.location && (
+            <div className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span className="truncate">{event.location}</span>
+            </div>
+          )}
+
+          <div className="border-t border-border/30 pt-2 mt-2 grid grid-cols-2 gap-y-1.5 gap-x-4 text-xs">
+            <div className="flex justify-between"><span className="text-muted-foreground">repeat</span><span>{repeatLabel}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">travel time</span><span>{travelLabel}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">alert</span><span>{alertLabel}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">2nd alert</span><span>{secondAlertLabel}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">show as</span><span>{showAsLabel}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">visibility</span><span>{visibilityLabel}</span></div>
+          </div>
+
+          {event.invitees && event.invitees.length > 0 && (
+            <div className="border-t border-border/30 pt-2">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1.5">
+                <Users className="h-3.5 w-3.5" /> Invitees
+              </div>
+              <div className="space-y-1">
+                {event.invitees.map((email) => (
+                  <div key={email} className="text-xs bg-secondary/30 rounded px-2 py-1" data-testid={`detail-invitee-${email}`}>
+                    {email}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
           {event.description && (
-            <div className="border-t border-border/50 pt-3">
-              <p className="text-sm text-muted-foreground">{event.description}</p>
+            <div className="border-t border-border/30 pt-2">
+              <p className="text-muted-foreground">{event.description}</p>
             </div>
           )}
         </div>
