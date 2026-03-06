@@ -46,14 +46,17 @@ export default function Dashboard() {
         <p className="text-muted-foreground mt-1 text-sm">VoltSafe Cortex operations overview.</p>
       </div>
 
-      <Suspense fallback={
-        <Card className="border-border/50 bg-card/50">
-          <CardHeader><Skeleton className="h-6 w-40" /></CardHeader>
-          <CardContent><Skeleton className="h-[420px] rounded-xl" /></CardContent>
-        </Card>
-      }>
-        <DashboardMap />
-      </Suspense>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <DashboardCalendar />
+        <Suspense fallback={
+          <Card className="border-border/50 bg-card/50">
+            <CardHeader><Skeleton className="h-6 w-40" /></CardHeader>
+            <CardContent><Skeleton className="h-[420px] rounded-xl" /></CardContent>
+          </Card>
+        }>
+          <DashboardMap />
+        </Suspense>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {summaryLoading ? (
@@ -106,8 +109,6 @@ export default function Dashboard() {
         </div>
 
         <div className="lg:col-span-3 space-y-6">
-          <DashboardCalendar />
-
           {summary?.recentActivities && summary.recentActivities.length > 0 ? (
             <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
               <CardHeader>
