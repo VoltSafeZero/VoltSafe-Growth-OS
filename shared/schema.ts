@@ -640,3 +640,26 @@ export const attachments = pgTable("attachments", {
 export const insertAttachmentSchema = createInsertSchema(attachments).omit({ id: true, createdAt: true });
 export type Attachment = typeof attachments.$inferSelect;
 export type InsertAttachment = z.infer<typeof insertAttachmentSchema>;
+
+export const calendarEvents = pgTable("calendar_events", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  eventType: text("event_type").notNull().default("meeting"),
+  startTime: timestamp("start_time").notNull(),
+  endTime: timestamp("end_time"),
+  allDay: boolean("all_day").default(false),
+  location: text("location"),
+  meetingUrl: text("meeting_url"),
+  linkedObjectType: text("linked_object_type"),
+  linkedObjectId: integer("linked_object_id"),
+  color: text("color"),
+  status: text("status").notNull().default("scheduled"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCalendarEventSchema = createInsertSchema(calendarEvents).omit({ id: true, createdAt: true, updatedAt: true });
+export type CalendarEvent = typeof calendarEvents.$inferSelect;
+export type InsertCalendarEvent = z.infer<typeof insertCalendarEventSchema>;

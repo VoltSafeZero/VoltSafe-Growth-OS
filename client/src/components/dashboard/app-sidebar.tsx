@@ -20,6 +20,7 @@ import {
   Contact,
   GitBranch,
   CalendarDays,
+  CalendarClock,
   MapPin,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
@@ -37,6 +38,7 @@ import {
 
 const overviewItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Calendar", url: "/calendar", icon: CalendarClock },
   { title: "Team Workload", url: "/team-workload", icon: Users },
 ];
 

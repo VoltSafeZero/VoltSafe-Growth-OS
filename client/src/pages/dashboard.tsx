@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { UserPlus, TrendingUp, LifeBuoy, FileText, AlertTriangle, Clock } from "lucide-react";
 import { OverviewChart } from "@/components/dashboard/overview-chart";
 import { RecentSales } from "@/components/dashboard/recent-sales";
+import { DashboardCalendar } from "@/components/dashboard/dashboard-calendar";
 import type { Activity, ChartData, Sale } from "@shared/schema";
 
 const DashboardMap = lazy(() => import("@/components/dashboard/dashboard-map"));
@@ -104,7 +105,9 @@ export default function Dashboard() {
           )}
         </div>
 
-        <div className="lg:col-span-3">
+        <div className="lg:col-span-3 space-y-6">
+          <DashboardCalendar />
+
           {summary?.recentActivities && summary.recentActivities.length > 0 ? (
             <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
               <CardHeader>

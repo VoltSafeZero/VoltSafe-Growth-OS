@@ -14,6 +14,7 @@ import {
   insertEcosystemOrganizationSchema, insertEcosystemPersonSchema,
   insertEcosystemRelationshipSchema, insertEcosystemEventSchema,
   insertEcosystemRegionSchema,
+  insertCalendarEventSchema,
 } from "@shared/schema";
 import multer from "multer";
 import path from "path";
@@ -1223,6 +1224,44 @@ export async function registerRoutes(
   app.delete("/api/ecosystem/regions/:id", async (req, res) => {
     const ok = await storage.deleteEcosystemRegion(Number(req.params.id));
     if (!ok) return res.status(404).json({ message: "Region not found" });
+    res.json({ message: "Deleted" });
+  });
+
+  app.get("/api/calendar/events", requireAuth, async (req, res) => {
+    const userId = req.session.userId!;
+    const start = req.query.start ? new Date(req.query.start as string) : new Date();
+    const end = req.query.end ? new Date(req.query.end as string) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const events = await storage.getCalendarEvents(userId, start, end);
+    res.json(events);
+  });
+  app.get("/api/calendar/events/:id", requireAuth, async (req, res) => {
+    const event = await storage.getCalendarEvent(Number(req.params.id));
+    if (!event || event.userId !== req.session.userId) return res.status(404).json({ message: "Event not found" });
+    res.json(event);
+  });
+  app.post("/api/calendar/events", requireAuth, async (req, res) => {
+    const body = { ...req.body, userId: req.session.userId };
+    if (body.startTime && typeof body.startTime === "string") body.startTime = new Date(body.startTime);
+    if (body.endTime && typeof body.endTime === "string") body.endTime = new Date(body.endTime);
+    const parsed = insertCalendarEventSchema.safeParse(body);
+    if (!parsed.success) return res.status(400).json({ message: "Validation error", errors: parsed.error.flatten() });
+    const event = await storage.createCalendarEvent(parsed.data);
+    res.status(201).json(event);
+  });
+  app.put("/api/calendar/events/:id", requireAuth, async (req, res) => {
+    const existing = await storage.getCalendarEvent(Number(req.params.id));
+    if (!existing || existing.userId !== req.session.userId) return res.status(404).json({ message: "Event not found" });
+    const { userId, id, ...updates } = req.body;
+    if (updates.startTime && typeof updates.startTime === "string") updates.startTime = new Date(updates.startTime);
+    if (updates.endTime && typeof updates.endTime === "string") updates.endTime = new Date(updates.endTime);
+    const result = await storage.updateCalendarEvent(Number(req.params.id), updates);
+    res.json(result);
+  });
+  app.delete("/api/calendar/events/:id", requireAuth, async (req, res) => {
+    const existing = await storage.getCalendarEvent(Number(req.params.id));
+    if (!existing || existing.userId !== req.session.userId) return res.status(404).json({ message: "Event not found" });
+    const ok = await storage.deleteCalendarEvent(Number(req.params.id));
+    if (!ok) return res.status(404).json({ message: "Event not found" });
     res.json({ message: "Deleted" });
   });
 

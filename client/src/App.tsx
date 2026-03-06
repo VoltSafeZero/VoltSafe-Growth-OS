@@ -24,6 +24,7 @@ import EcosystemPeoplePage from "@/pages/ecosystem-people";
 import EcosystemRelationshipsPage from "@/pages/ecosystem-relationships";
 import EcosystemEventsPage from "@/pages/ecosystem-events";
 import EcosystemRegionsPage from "@/pages/ecosystem-regions";
+import CalendarPage from "@/pages/calendar";
 import LoginPage from "@/pages/login";
 import ChangePasswordPage from "@/pages/change-password";
 import NotFound from "@/pages/not-found";
@@ -67,6 +68,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/quotes">{() => <AppShell user={user} onLogout={onLogout}><QuotesPage /></AppShell>}</Route>
       <Route path="/tickets">{() => <AppShell user={user} onLogout={onLogout}><TicketsPage /></AppShell>}</Route>
       <Route path="/communications">{() => <AppShell user={user} onLogout={onLogout}><CommunicationsPage /></AppShell>}</Route>
+      <Route path="/calendar">{() => <AppShell user={user} onLogout={onLogout}><CalendarPage /></AppShell>}</Route>
       <Route path="/team-workload">{() => <AppShell user={user} onLogout={onLogout}><TeamWorkloadPage /></AppShell>}</Route>
       <Route path="/partnerships/strategic-industry">{() => <AppShell user={user} onLogout={onLogout}><PartnershipsPage category="strategic_industry" /></AppShell>}</Route>
       <Route path="/partnerships/technology">{() => <AppShell user={user} onLogout={onLogout}><PartnershipsPage category="technology" /></AppShell>}</Route>

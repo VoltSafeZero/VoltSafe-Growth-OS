@@ -32,6 +32,8 @@ import {
   type EcosystemRelationship, type InsertEcosystemRelationship,
   type EcosystemEvent, type InsertEcosystemEvent,
   type EcosystemRegion, type InsertEcosystemRegion,
+  calendarEvents,
+  type CalendarEvent, type InsertCalendarEvent,
 } from "@shared/schema";
 import { ilike, eq, or, sql, asc, desc, and, type AnyColumn } from "drizzle-orm";
 
@@ -194,6 +196,12 @@ export interface IStorage {
   createEcosystemRegion(data: InsertEcosystemRegion): Promise<EcosystemRegion>;
   updateEcosystemRegion(id: number, data: Partial<InsertEcosystemRegion>): Promise<EcosystemRegion | undefined>;
   deleteEcosystemRegion(id: number): Promise<boolean>;
+
+  getCalendarEvents(userId: number, start: Date, end: Date): Promise<CalendarEvent[]>;
+  getCalendarEvent(id: number): Promise<CalendarEvent | undefined>;
+  createCalendarEvent(data: InsertCalendarEvent): Promise<CalendarEvent>;
+  updateCalendarEvent(id: number, data: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined>;
+  deleteCalendarEvent(id: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -946,6 +954,32 @@ export class DatabaseStorage implements IStorage {
   }
   async deleteEcosystemRegion(id: number): Promise<boolean> {
     const [r] = await db.delete(ecosystemRegions).where(eq(ecosystemRegions.id, id)).returning();
+    return !!r;
+  }
+
+  async getCalendarEvents(userId: number, start: Date, end: Date): Promise<CalendarEvent[]> {
+    return await db.select().from(calendarEvents)
+      .where(and(
+        eq(calendarEvents.userId, userId),
+        sql`${calendarEvents.startTime} >= ${start}`,
+        sql`${calendarEvents.startTime} <= ${end}`
+      ))
+      .orderBy(asc(calendarEvents.startTime));
+  }
+  async getCalendarEvent(id: number): Promise<CalendarEvent | undefined> {
+    const [r] = await db.select().from(calendarEvents).where(eq(calendarEvents.id, id));
+    return r;
+  }
+  async createCalendarEvent(data: InsertCalendarEvent): Promise<CalendarEvent> {
+    const [r] = await db.insert(calendarEvents).values(data).returning();
+    return r;
+  }
+  async updateCalendarEvent(id: number, data: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined> {
+    const [r] = await db.update(calendarEvents).set({ ...data, updatedAt: new Date() }).where(eq(calendarEvents.id, id)).returning();
+    return r;
+  }
+  async deleteCalendarEvent(id: number): Promise<boolean> {
+    const [r] = await db.delete(calendarEvents).where(eq(calendarEvents.id, id)).returning();
     return !!r;
   }
 }
