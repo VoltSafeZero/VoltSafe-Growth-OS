@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Search, ArrowRightLeft, Trash2, Loader2, Undo2,
-  LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar, DollarSign, Map
+  LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar, DollarSign, Map, ExternalLink
 } from "lucide-react";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
 import { lazy, Suspense } from "react";
@@ -619,21 +619,32 @@ function LeadDetailDialog({
               </SelectContent>
             </Select>
 
-            {(lead.streetAddress || lead.city || lead.state) && (
-              <div className="rounded-lg border border-border/50 p-3" data-testid="lead-address">
-                <Label className="text-xs text-muted-foreground mb-1 block">Location</Label>
-                <div className="flex items-start gap-2">
-                  <MapPin className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                  <div className="text-sm">
-                    {lead.streetAddress && <p className="font-medium">{lead.streetAddress}</p>}
-                    <p className="text-muted-foreground">
-                      {[lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ")}
-                      {lead.country && <span className="ml-1">{lead.country === "CA" ? "Canada" : lead.country === "US" ? "USA" : lead.country}</span>}
-                    </p>
+            {(lead.streetAddress || lead.city || lead.state) && (() => {
+              const addressParts = [lead.streetAddress, lead.city, lead.state, lead.zipCode, lead.country].filter(Boolean).join(", ");
+              const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(addressParts)}`;
+              return (
+                <a
+                  href={directionsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block rounded-lg border border-border/50 p-3 cursor-pointer transition-colors hover:border-primary/50 hover:bg-primary/5 active:bg-primary/10"
+                  data-testid="link-lead-directions"
+                >
+                  <Label className="text-xs text-muted-foreground mb-1 block pointer-events-none">Location</Label>
+                  <div className="flex items-start gap-2">
+                    <MapPin className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                    <div className="text-sm flex-1">
+                      {lead.streetAddress && <p className="font-medium">{lead.streetAddress}</p>}
+                      <p className="text-muted-foreground">
+                        {[lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ")}
+                        {lead.country && <span className="ml-1">{lead.country === "CA" ? "Canada" : lead.country === "US" ? "USA" : lead.country}</span>}
+                      </p>
+                    </div>
+                    <ExternalLink className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                   </div>
-                </div>
-              </div>
-            )}
+                </a>
+              );
+            })()}
 
             <div className="rounded-lg border border-border/50 p-3">
               <Label className="text-xs text-muted-foreground mb-2 block">Contact Information</Label>
