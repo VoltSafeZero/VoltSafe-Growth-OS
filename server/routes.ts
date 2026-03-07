@@ -28,6 +28,7 @@ import {
   getUserCredentials, deleteCredential,
 } from "./webauthn";
 import { eq, sql } from "drizzle-orm";
+import { registerVoiceAssistantRoutes } from "./voice-assistant";
 
 const UPLOADS_DIR = path.resolve("uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -55,6 +56,8 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  registerVoiceAssistantRoutes(app);
 
   app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;

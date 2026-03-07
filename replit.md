@@ -56,6 +56,7 @@ The project is organized as a monorepo containing `client/` (React SPA), `server
   - UI: 5 separate page components in `client/src/pages/ecosystem-*.tsx`
   - API: `GET/POST /api/ecosystem/{organizations|people|relationships|events|regions}`, `GET/PUT/DELETE /api/ecosystem/{...}/:id`
 - **Activity & Tasks:** Provides a universal timeline for activities linked to various objects and a task management system with due dates and assignments.
+- **Cortex AI Voice Assistant:** Floating chat widget (bottom-right corner) powered by OpenAI via Replit AI Integrations. Supports both voice (microphone recording with gpt-audio speech-to-speech) and text input modes. Queries the leads database in real-time to answer questions about marina phone numbers, addresses, contacts, and details. Uses SSE streaming for responses. Auth-protected endpoints: `POST /api/voice-assistant/ask` (voice), `POST /api/voice-assistant/text` (text). Component: `client/src/components/voice-assistant.tsx`. Backend: `server/voice-assistant.ts`. Conversations stored in `conversations` and `messages` tables. Integration files in `server/replit_integrations/` and `client/replit_integrations/`.
 
 ### Database
 - **Type:** PostgreSQL.

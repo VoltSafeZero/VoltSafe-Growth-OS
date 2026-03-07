@@ -28,6 +28,7 @@ import CalendarPage from "@/pages/calendar";
 import LoginPage from "@/pages/login";
 import ChangePasswordPage from "@/pages/change-password";
 import NotFound from "@/pages/not-found";
+import { VoiceAssistant } from "@/components/voice-assistant";
 
 type AuthUser = {
   id: number;
@@ -141,6 +142,7 @@ function App() {
         <TooltipProvider>
           <Toaster />
           <AuthenticatedRouter user={user} onLogout={handleLogout} />
+          <VoiceAssistant />
         </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>
