@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useSidebar } from "@/components/ui/sidebar";
+import cortexLogo from "@assets/cortex-ai-logo.png";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -92,6 +93,13 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
+            <button
+              onClick={() => window.dispatchEvent(new Event("open-cortex-ai"))}
+              className="relative rounded-full w-9 h-9 flex items-center justify-center transition-colors hover:bg-secondary/50"
+              data-testid="button-header-cortex-ai"
+            >
+              <img src={cortexLogo} alt="Cortex AI" className="w-6 h-6 object-contain" />
+            </button>
             <Button variant="ghost" size="icon" className="relative text-muted-foreground rounded-full" data-testid="button-notifications">
               <Bell className="w-5 h-5" />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full ring-2 ring-background"></span>

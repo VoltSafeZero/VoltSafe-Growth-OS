@@ -1,9 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Mic, MicOff, X, Send, MessageSquare, Volume2 } from "lucide-react";
+import { Mic, MicOff, X, Send, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useVoiceRecorder } from "../../replit_integrations/audio/useVoiceRecorder";
 import { useAudioPlayback } from "../../replit_integrations/audio/useAudioPlayback";
+import cortexLogo from "@assets/cortex-ai-logo.png";
 
 type Message = {
   role: "user" | "assistant";
@@ -12,6 +13,13 @@ type Message = {
 
 export function VoiceAssistant() {
   const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setIsOpen(true);
+    window.addEventListener("open-cortex-ai", handler);
+    return () => window.removeEventListener("open-cortex-ai", handler);
+  }, []);
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentTranscript, setCurrentTranscript] = useState("");
@@ -182,10 +190,10 @@ export function VoiceAssistant() {
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg shadow-primary/25 active:scale-95 transition-transform"
+        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-[hsl(220,30%,15%)] flex items-center justify-center shadow-lg shadow-black/30 active:scale-95 transition-transform border border-border/30"
         data-testid="button-open-voice-assistant"
       >
-        <MessageSquare className="w-6 h-6" />
+        <img src={cortexLogo} alt="Cortex AI" className="w-10 h-10 object-contain" />
       </button>
     );
   }
@@ -194,8 +202,8 @@ export function VoiceAssistant() {
     <div className="fixed bottom-6 right-6 z-50 w-[360px] max-w-[calc(100vw-2rem)] h-[500px] max-h-[calc(100vh-4rem)] bg-background border border-border/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden" data-testid="panel-voice-assistant">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border/50 bg-card/80 backdrop-blur-sm">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center">
-            <Volume2 className="w-4 h-4 text-primary" />
+          <div className="w-8 h-8 rounded-full bg-[hsl(220,30%,15%)] flex items-center justify-center">
+            <img src={cortexLogo} alt="Cortex AI" className="w-6 h-6 object-contain" />
           </div>
           <div>
             <p className="text-sm font-semibold">Cortex AI</p>
@@ -227,8 +235,8 @@ export function VoiceAssistant() {
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {messages.length === 0 && !currentTranscript && (
           <div className="text-center py-8">
-            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
-              <Volume2 className="w-6 h-6 text-primary" />
+            <div className="w-12 h-12 rounded-full bg-[hsl(220,30%,15%)] flex items-center justify-center mx-auto mb-3">
+              <img src={cortexLogo} alt="Cortex AI" className="w-8 h-8 object-contain" />
             </div>
             <p className="text-sm font-medium mb-1">Cortex AI Assistant</p>
             <p className="text-xs text-muted-foreground max-w-[240px] mx-auto">
