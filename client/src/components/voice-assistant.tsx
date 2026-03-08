@@ -187,15 +187,7 @@ export function VoiceAssistant() {
   }, [textInput, isProcessing, conversationId]);
 
   if (!isOpen) {
-    return (
-      <button
-        onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-[hsl(220,30%,15%)] flex items-center justify-center shadow-lg shadow-black/30 active:scale-95 transition-transform border border-border/30"
-        data-testid="button-open-voice-assistant"
-      >
-        <img src={cortexLogo} alt="Cortex AI" className="w-10 h-10 object-contain" />
-      </button>
-    );
+    return null;
   }
 
   return (

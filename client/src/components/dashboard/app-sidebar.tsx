@@ -100,12 +100,16 @@ export function AppSidebar() {
   return (
     <Sidebar className="border-r border-border/50">
       <SidebarHeader className="h-16 flex items-center px-6">
-        <div className="flex items-center gap-2 font-bold text-lg tracking-tight">
+        <button
+          onClick={() => window.dispatchEvent(new Event("open-cortex-ai"))}
+          className="flex items-center gap-2 font-bold text-lg tracking-tight cursor-pointer transition-opacity hover:opacity-80 active:scale-[0.98]"
+          data-testid="button-sidebar-cortex-ai"
+        >
           <div className="w-8 h-8 rounded-xl flex items-center justify-center">
             <img src={navLogo} alt="VoltSafe Cortex" className="w-8 h-8 object-contain" />
           </div>
           <span>VoltSafe <span className="text-primary">Cortex</span></span>
-        </div>
+        </button>
       </SidebarHeader>
       <SidebarContent>
         {navGroups.map((group) => (
