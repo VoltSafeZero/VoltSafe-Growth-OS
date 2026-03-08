@@ -1,5 +1,4 @@
 import {
-  Anchor,
   LayoutDashboard,
   UserPlus,
   Building2,
@@ -24,6 +23,7 @@ import {
   MapPin,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
+import navLogo from "@assets/nav-logo.png";
 import {
   Sidebar,
   SidebarContent,
@@ -101,8 +101,8 @@ export function AppSidebar() {
     <Sidebar className="border-r border-border/50">
       <SidebarHeader className="h-16 flex items-center px-6">
         <div className="flex items-center gap-2 font-bold text-lg tracking-tight">
-          <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
-            <Anchor className="w-4 h-4 text-primary-foreground" />
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center">
+            <img src={navLogo} alt="VoltSafe Cortex" className="w-8 h-8 object-contain" />
           </div>
           <span>VoltSafe <span className="text-primary">Cortex</span></span>
         </div>
