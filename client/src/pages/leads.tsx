@@ -84,6 +84,17 @@ export default function LeadsPage() {
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
   const { sort, handleSort } = useSortState("slips", "desc");
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const selectedId = params.get("selected");
+    if (selectedId) {
+      fetch(`/api/leads/${selectedId}`).then(r => r.ok ? r.json() : null).then(lead => {
+        if (lead) setSelectedLead(lead);
+      });
+      window.history.replaceState({}, "", "/leads");
+    }
+  }, []);
+
   const regionOptions = countryFilter !== "all" ? getRegionsForCountry(countryFilter) : [];
 
   const PAGE_SIZE = 100;
