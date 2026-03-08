@@ -199,7 +199,7 @@ export function VoiceAssistant() {
           </div>
           <div>
             <p className="text-sm font-semibold">Cortex AI</p>
-            <p className="text-[10px] text-muted-foreground">Marina data assistant</p>
+            <p className="text-[10px] text-muted-foreground">CRM + Web assistant</p>
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -233,8 +233,8 @@ export function VoiceAssistant() {
             <p className="text-sm font-medium mb-1">Cortex AI Assistant</p>
             <p className="text-xs text-muted-foreground max-w-[240px] mx-auto">
               {mode === "voice"
-                ? "Tap the microphone and ask about any marina — phone numbers, addresses, contacts, and more."
-                : "Type a question about any marina in the database."}
+                ? "Tap the microphone and ask anything — CRM data, marina info, web searches, and more."
+                : "Ask about CRM data, marinas, industry news, or anything else."}
             </p>
           </div>
         )}
@@ -321,7 +321,7 @@ export function VoiceAssistant() {
             <Input
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
-              placeholder="Ask about a marina..."
+              placeholder="Ask anything..."
               disabled={isProcessing}
               className="flex-1 rounded-full bg-secondary/30 border-transparent focus-visible:border-primary/50"
               data-testid="input-text-assistant"
