@@ -2,10 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { lazy, Suspense } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { UserPlus, TrendingUp, LifeBuoy, FileText, AlertTriangle, Clock } from "lucide-react";
-import { OverviewChart } from "@/components/dashboard/overview-chart";
+import { Badge } from "@/components/ui/badge";
+import { UserPlus, TrendingUp, LifeBuoy, FileText, AlertTriangle, Clock, MapPin, Building2 } from "lucide-react";
 import { RecentSales } from "@/components/dashboard/recent-sales";
 import { DashboardCalendar } from "@/components/dashboard/dashboard-calendar";
+import { Link } from "wouter";
 import type { Activity, ChartData, Sale } from "@shared/schema";
 
 const DashboardMap = lazy(() => import("@/components/dashboard/dashboard-map"));
@@ -24,8 +25,19 @@ export default function Dashboard() {
     queryKey: ["/api/dashboard/summary"],
   });
 
-  const { data: chartData, isLoading: chartLoading } = useQuery<ChartData[]>({
-    queryKey: ["/api/chart-data"],
+  const activeStages = ["contacted", "meeting_scheduled", "qualified", "proposal_sent", "negotiation"];
+  const { data: activeLeads, isLoading: activeLeadsLoading } = useQuery<any[]>({
+    queryKey: ["/api/leads", "active-dashboard"],
+    queryFn: async () => {
+      const results = await Promise.all(
+        activeStages.map(stage =>
+          fetch(`/api/leads?status=${stage}&limit=50`).then(r => r.json()).then(r => r.data || [])
+        )
+      );
+      return results.flat().sort((a: any, b: any) => {
+        return activeStages.indexOf(a.status) - activeStages.indexOf(b.status);
+      });
+    },
   });
 
   const { data: salesData, isLoading: salesLoading } = useQuery<Sale[]>({
@@ -98,14 +110,51 @@ export default function Dashboard() {
 
       <div className="grid gap-6 lg:grid-cols-7">
         <div className="lg:col-span-4">
-          {chartLoading || !chartData ? (
-            <Card className="border-border/50 bg-card/50">
-              <CardHeader><Skeleton className="h-6 w-32" /></CardHeader>
-              <CardContent><Skeleton className="h-[350px]" /></CardContent>
-            </Card>
-          ) : (
-            <OverviewChart data={chartData} />
-          )}
+          <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-lg font-semibold">Active Marina Leads</CardTitle>
+              <Link href="/leads" className="text-xs text-primary hover:underline" data-testid="link-view-all-leads">View all</Link>
+            </CardHeader>
+            <CardContent>
+              {activeLeadsLoading ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-14" />)}
+                </div>
+              ) : !activeLeads || activeLeads.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">No active leads in pipeline</p>
+              ) : (
+                <div className="space-y-1 max-h-[380px] overflow-y-auto pr-1">
+                  {activeLeads.map((lead: any) => {
+                    const stageConfig: Record<string, { label: string; color: string }> = {
+                      contacted: { label: "Contacted", color: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
+                      meeting_scheduled: { label: "Meeting Scheduled", color: "bg-purple-500/10 text-purple-400 border-purple-500/20" },
+                      qualified: { label: "Qualified", color: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" },
+                      proposal_sent: { label: "Proposal Sent", color: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
+                      negotiation: { label: "Negotiation", color: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
+                    };
+                    const stage = stageConfig[lead.status] || { label: lead.status, color: "bg-secondary text-muted-foreground" };
+                    return (
+                      <div key={lead.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/30 transition-colors" data-testid={`active-lead-${lead.id}`}>
+                        <Building2 className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{lead.company}</p>
+                          {(lead.city || lead.state) && (
+                            <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
+                              <MapPin className="w-3 h-3 shrink-0" />
+                              {[lead.city, lead.state].filter(Boolean).join(", ")}
+                            </p>
+                          )}
+                        </div>
+                        <Badge variant="outline" className={`shrink-0 text-[10px] px-2 py-0.5 ${stage.color}`}>
+                          {stage.label}
+                        </Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         <div className="lg:col-span-3 space-y-6">
