@@ -1270,6 +1270,10 @@ export async function registerRoutes(
 
   await seedDatabase();
   await seedUsers();
+
+  const { seedProductionData } = await import("./seed-production");
+  await seedProductionData();
+
   return httpServer;
 }
 
