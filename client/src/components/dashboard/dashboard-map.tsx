@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { MapPin, Locate, Loader2, Navigation, Anchor } from "lucide-react";
+import { MapPin, Locate, Loader2, Navigation, Anchor, Map, List } from "lucide-react";
 import AddressAutocomplete from "@/components/address-autocomplete";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -127,6 +127,7 @@ export default function DashboardMap() {
   const [locating, setLocating] = useState(false);
   const [marinas, setMarinas] = useState<NearbyLead[]>([]);
   const [loading, setLoading] = useState(false);
+  const [viewMode, setViewMode] = useState<"collapsed" | "map" | "list">("collapsed");
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.LayerGroup | null>(null);
@@ -225,7 +226,7 @@ export default function DashboardMap() {
   };
 
   useEffect(() => {
-    if (!mapRef.current) return;
+    if (viewMode !== "map" || !mapRef.current) return;
 
     if (!mapInstanceRef.current) {
       mapInstanceRef.current = L.map(mapRef.current, {
@@ -252,8 +253,10 @@ export default function DashboardMap() {
 
       const radius = boundsToRadius(mapInstanceRef.current);
       fetchMarinas(mapCenter.lat, mapCenter.lng, radius);
+    } else {
+      setTimeout(() => mapInstanceRef.current?.invalidateSize(), 100);
     }
-  }, [mapCenter, debouncedFetchFromBounds, fetchMarinas]);
+  }, [viewMode, mapCenter, debouncedFetchFromBounds, fetchMarinas]);
 
   useEffect(() => {
     return () => {
@@ -351,6 +354,18 @@ export default function DashboardMap() {
     window.open(url, "_blank", "noopener");
   };
 
+  const handleOpenMapView = () => {
+    setViewMode("map");
+  };
+
+  const handleOpenListView = () => {
+    if (viewMode !== "list") {
+      const saved = getSavedLocation();
+      fetchMarinas(saved.lat, saved.lng, 100);
+    }
+    setViewMode("list");
+  };
+
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-sm" data-testid="card-dashboard-map">
       <CardHeader className="pb-3">
@@ -361,9 +376,7 @@ export default function DashboardMap() {
               Nearby Marinas
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-1">
-              {marinas.length > 0
-                ? `${marinas.length} marinas in view — hover for name, click for directions`
-                : "Search an address or pan the map to discover marinas"}
+              Search an address or pan the map to discover marinas
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -372,52 +385,118 @@ export default function DashboardMap() {
             )}
           </div>
         </div>
-        <AddressAutocomplete
-          onSelect={handleAddressSelect}
-          className="mt-2"
-          testId="input-map-address-search"
-        />
       </CardHeader>
-      <CardContent className="pt-0">
-        <div className="relative">
-          <div
-            ref={mapRef}
-            className="w-full rounded-xl border border-border/30 overflow-hidden z-0 h-[300px] sm:h-[380px] md:h-[440px]"
-            data-testid="dashboard-map-container"
-          />
-          <button
-            onClick={requestLocation}
-            className="absolute top-2 right-2 z-[1000] w-9 h-9 flex items-center justify-center rounded-lg bg-[hsl(222,47%,14%)] border border-[hsl(217,33%,25%)] text-[hsl(210,40%,90%)] shadow-lg cursor-pointer"
-            title="Center on my location"
-            data-testid="button-map-locate"
-          >
-            {locating ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Locate className="h-4 w-4" />
-            )}
-          </button>
-        </div>
-        {closest5.length > 0 && (
-          <div className="mt-3 space-y-1" data-testid="dashboard-closest-list">
-            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1 mb-1.5">Closest Marinas</p>
-            {closest5.map((lead) => (
-              <a
-                key={lead.id}
-                href={`/leads?selected=${lead.id}`}
-                className="flex items-center justify-between px-2 py-1.5 rounded-md cursor-pointer transition-colors hover:bg-muted/40"
-                data-testid={`dashboard-closest-${lead.id}`}
+      <CardContent className="pt-0 space-y-3">
+        <button
+          onClick={handleOpenMapView}
+          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-all cursor-pointer ${
+            viewMode === "map"
+              ? "border-primary bg-primary/10 text-primary"
+              : "border-border/50 bg-secondary/30 hover:bg-secondary/50 text-foreground"
+          }`}
+          data-testid="button-map-view"
+        >
+          <Map className="h-6 w-6 shrink-0" />
+          <div className="text-left">
+            <p className="text-sm font-semibold">Map View</p>
+            <p className="text-[11px] text-muted-foreground">Interactive map with marina pins</p>
+          </div>
+        </button>
+
+        {viewMode === "map" && (
+          <div className="space-y-2">
+            <AddressAutocomplete
+              onSelect={handleAddressSelect}
+              className=""
+              testId="input-map-address-search"
+            />
+            <div className="relative">
+              <div
+                ref={mapRef}
+                className="w-full rounded-xl border border-border/30 overflow-hidden z-0 h-[300px] sm:h-[380px] md:h-[440px]"
+                data-testid="dashboard-map-container"
+              />
+              <button
+                onClick={requestLocation}
+                className="absolute top-2 right-2 z-[1000] w-9 h-9 flex items-center justify-center rounded-lg bg-[hsl(222,47%,14%)] border border-[hsl(217,33%,25%)] text-[hsl(210,40%,90%)] shadow-lg cursor-pointer"
+                title="Center on my location"
+                data-testid="button-map-locate"
               >
-                <p className="text-xs font-medium truncate min-w-0 flex-1">{lead.company}</p>
-                <span className="text-[11px] text-muted-foreground ml-3 flex-shrink-0">{formatDistance(lead.distance_km)}</span>
-              </a>
-            ))}
+                {locating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Locate className="h-4 w-4" />
+                )}
+              </button>
+            </div>
+            {marinas.length > 0 && (
+              <p className="text-[11px] text-muted-foreground text-center">
+                {marinas.length} marinas in view
+              </p>
+            )}
           </div>
         )}
-        {closest5.length === 0 && !loading && marinas.length === 0 && (
-          <div className="text-center py-3 mt-2">
+
+        <button
+          onClick={handleOpenListView}
+          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-all cursor-pointer ${
+            viewMode === "list"
+              ? "border-primary bg-primary/10 text-primary"
+              : "border-border/50 bg-secondary/30 hover:bg-secondary/50 text-foreground"
+          }`}
+          data-testid="button-list-view"
+        >
+          <List className="h-6 w-6 shrink-0" />
+          <div className="text-left">
+            <p className="text-sm font-semibold">List View</p>
+            <p className="text-[11px] text-muted-foreground">Search and browse nearby marinas</p>
+          </div>
+        </button>
+
+        {viewMode === "list" && (
+          <div className="space-y-2">
+            <AddressAutocomplete
+              onSelect={(lat, lng, name) => {
+                handleAddressSelect(lat, lng, name);
+                fetchMarinas(lat, lng, 100);
+              }}
+              className=""
+              testId="input-list-address-search"
+            />
+            {loading && (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            {closest5.length > 0 && (
+              <div className="space-y-1" data-testid="dashboard-closest-list">
+                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1 mb-1.5">Closest Marinas</p>
+                {closest5.map((lead) => (
+                  <a
+                    key={lead.id}
+                    href={`/leads?selected=${lead.id}`}
+                    className="flex items-center justify-between px-2 py-1.5 rounded-md cursor-pointer transition-colors hover:bg-muted/40"
+                    data-testid={`dashboard-closest-${lead.id}`}
+                  >
+                    <p className="text-xs font-medium truncate min-w-0 flex-1">{lead.company}</p>
+                    <span className="text-[11px] text-muted-foreground ml-3 flex-shrink-0">{formatDistance(lead.distance_km)}</span>
+                  </a>
+                ))}
+              </div>
+            )}
+            {closest5.length === 0 && !loading && (
+              <div className="text-center py-3">
+                <Anchor className="h-5 w-5 text-muted-foreground mx-auto mb-1" />
+                <p className="text-[11px] text-muted-foreground">Search an address to find nearby marinas</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {viewMode === "collapsed" && (
+          <div className="text-center py-3">
             <Anchor className="h-5 w-5 text-muted-foreground mx-auto mb-1" />
-            <p className="text-[11px] text-muted-foreground">No marinas in view</p>
+            <p className="text-[11px] text-muted-foreground">Choose a view above to explore marinas</p>
           </div>
         )}
       </CardContent>
