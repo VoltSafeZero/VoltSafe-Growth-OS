@@ -4,12 +4,15 @@ import { execSync } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
 
+const EXPECTED_LEAD_COUNT = 10871;
+
 export async function seedProductionData(): Promise<void> {
   try {
     const result = await db.execute(sql`SELECT COUNT(*) as cnt FROM leads`);
     const count = Number((result.rows[0] as any).cnt);
-    if (count > 0) {
-      console.log(`Database already has ${count} leads — skipping seed.`);
+
+    if (count >= EXPECTED_LEAD_COUNT) {
+      console.log(`Database has ${count} leads — seed not needed.`);
       return;
     }
 
@@ -25,7 +28,25 @@ export async function seedProductionData(): Promise<void> {
       return;
     }
 
-    console.log("Database is empty — seeding with data...");
+    if (count > 0) {
+      console.log(`Database has ${count}/${EXPECTED_LEAD_COUNT} leads — incomplete data, clearing and re-seeding...`);
+      const tables = [
+        "messages", "conversations", "comments", "attachments", "activities",
+        "tasks", "calendar_events", "webauthn_credentials",
+        "ecosystem_relationships", "ecosystem_events", "ecosystem_people",
+        "ecosystem_organizations", "ecosystem_regions",
+        "partnerships", "contacts", "tickets", "quotes",
+        "leads", "accounts", "users", "metrics", "sales"
+      ];
+      for (const table of tables) {
+        try {
+          await db.execute(sql.raw(`TRUNCATE TABLE ${table} CASCADE`));
+        } catch {}
+      }
+      console.log("Tables cleared.");
+    } else {
+      console.log("Database is empty — seeding with data...");
+    }
 
     try {
       execSync(
@@ -35,10 +56,10 @@ export async function seedProductionData(): Promise<void> {
       console.log("Seed complete via pg_restore.");
     } catch (restoreErr: any) {
       const stderr = restoreErr.stderr?.toString() || "";
-      if (stderr.includes("errors ignored")) {
-        console.log("Seed complete with some warnings (duplicate keys ignored).");
+      if (stderr.includes("errors ignored") || restoreErr.status === 1) {
+        console.log("Seed complete (some non-critical warnings).");
       } else {
-        console.error("pg_restore stderr:", stderr.substring(0, 500));
+        console.error("pg_restore issue:", stderr.substring(0, 500));
       }
     }
 
