@@ -99,13 +99,13 @@ export function AppSidebar() {
 
   return (
     <Sidebar className="border-r border-border/50">
-      <SidebarHeader className="h-16 flex items-center px-6">
+      <SidebarHeader className="h-auto py-2 flex items-center px-6">
         <button
           onClick={() => window.dispatchEvent(new Event("open-cortex-ai"))}
           className="flex items-center gap-1.5 font-bold text-lg tracking-tight cursor-pointer transition-opacity hover:opacity-80 active:scale-[0.98]"
           data-testid="button-sidebar-cortex-ai"
         >
-          <img src={navLogo} alt="VoltSafe Cortex" className="w-9 h-9 object-contain mix-blend-screen brightness-125 shrink-0" />
+          <img src={navLogo} alt="VoltSafe Cortex" className="w-[6.75rem] h-[6.75rem] object-contain mix-blend-screen brightness-125 shrink-0" />
           <span>VoltSafe <span className="text-primary">Cortex</span></span>
         </button>
       </SidebarHeader>

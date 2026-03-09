@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useSidebar } from "@/components/ui/sidebar";
-import cortexLogo from "@assets/cortex-ai-logo.png";
+import navLogo from "@assets/nav-logo.png";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,7 +38,7 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
   const { toggleSidebar } = useSidebar();
 
   return (
-    <header className="h-14 sm:h-16 flex items-center justify-between px-3 sm:px-6 border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
+    <header className="h-auto py-2 flex items-center justify-between px-3 sm:px-6 border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
       {mobileSearchOpen ? (
         <div className="flex items-center gap-2 flex-1 md:hidden">
           <div className="relative flex-1">
@@ -95,10 +95,10 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
           <div className="flex items-center gap-2 sm:gap-4">
             <button
               onClick={() => window.dispatchEvent(new Event("open-cortex-ai"))}
-              className="relative rounded-full w-12 h-12 flex items-center justify-center transition-colors hover:bg-secondary/50"
+              className="relative flex items-center justify-center cursor-pointer transition-opacity hover:opacity-80 active:scale-[0.98]"
               data-testid="button-header-cortex-ai"
             >
-              <img src={cortexLogo} alt="Cortex AI" className="w-10 h-10 object-contain" />
+              <img src={navLogo} alt="VoltSafe Cortex" className="w-[6.75rem] h-[6.75rem] object-contain mix-blend-screen brightness-125" />
             </button>
             <Button variant="ghost" size="icon" className="relative text-muted-foreground rounded-full" data-testid="button-notifications">
               <Bell className="w-5 h-5" />
