@@ -355,6 +355,9 @@ export function VoiceAssistant() {
                 fullText += event.data;
                 setCurrentTranscript(fullText);
                 break;
+              case "tool_action":
+                setCurrentTranscript(prev => prev ? prev + "\n\n---\n" + event.data : event.data);
+                break;
               case "done":
                 setMessages(prev => [...prev, { role: "assistant", content: event.transcript || fullText, timestamp: new Date() }]);
                 setCurrentTranscript("");

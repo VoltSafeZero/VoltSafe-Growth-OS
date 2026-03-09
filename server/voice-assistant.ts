@@ -295,6 +295,258 @@ async function searchActivities(terms: string[]): Promise<string> {
   }).join("\n");
 }
 
+function buildUpdateQuery(table: string, id: number, updates: Record<string, any>, allowedFields: Record<string, string>): { sqlQuery: ReturnType<typeof sql> | null; fieldNames: string[] } {
+  const validUpdates: { col: string; val: any }[] = [];
+  for (const [key, val] of Object.entries(updates)) {
+    if (allowedFields[key]) {
+      validUpdates.push({ col: allowedFields[key], val });
+    }
+  }
+  if (validUpdates.length === 0) return { sqlQuery: null, fieldNames: [] };
+
+  let query = sql``;
+  for (let i = 0; i < validUpdates.length; i++) {
+    if (i > 0) query = sql`${query}, `;
+    query = sql`${query}${sql.raw(validUpdates[i].col)} = ${validUpdates[i].val}`;
+  }
+  query = sql`UPDATE ${sql.raw(table)} SET ${query}, updated_at = NOW() WHERE id = ${id}`;
+  return { sqlQuery: query, fieldNames: Object.keys(updates).filter(k => allowedFields[k]) };
+}
+
+async function updateLead(leadId: number, updates: Record<string, any>): Promise<string> {
+  try {
+    const existing = await db.execute(sql`SELECT id, company FROM leads WHERE id = ${leadId}`);
+    if (existing.rows.length === 0) return `Error: Lead with ID ${leadId} not found.`;
+
+    const allowedFields: Record<string, string> = {
+      status: "status", contact_name: "contact_name", contact_email: "contact_email",
+      contact_phone: "contact_phone", notes: "notes", tags: "tags", next_step: "next_step",
+      deal_amount: "deal_amount", deal_probability: "deal_probability",
+      segment: "segment", city: "city", state: "state", country: "country",
+      street_address: "street_address", zip_code: "zip_code", slips: "slips",
+      source: "source", competitors: "competitors", roi_story: "roi_story",
+      primary_value_driver: "primary_value_driver", closed_lost_reason: "closed_lost_reason",
+      closed_won_notes: "closed_won_notes",
+    };
+
+    const { sqlQuery, fieldNames } = buildUpdateQuery("leads", leadId, updates, allowedFields);
+    if (!sqlQuery) return "Error: No valid fields to update.";
+    await db.execute(sqlQuery);
+
+    const company = (existing.rows[0] as any).company;
+    return `Successfully updated lead "${company}" (ID: ${leadId}). Fields changed: ${fieldNames.join(", ")}.`;
+  } catch (error: any) {
+    console.error("Error updating lead:", error);
+    return `Error updating lead: ${error.message}`;
+  }
+}
+
+async function updateAccount(accountId: number, updates: Record<string, any>): Promise<string> {
+  try {
+    const existing = await db.execute(sql`SELECT id, name FROM accounts WHERE id = ${accountId}`);
+    if (existing.rows.length === 0) return `Error: Account with ID ${accountId} not found.`;
+
+    const allowedFields: Record<string, string> = {
+      name: "name", industry: "industry", type: "type", status: "status",
+      phone: "phone", website: "website", notes: "notes",
+      city: "city", state: "state", country: "country",
+      street_address: "street_address", zip_code: "zip_code",
+      annual_revenue: "annual_revenue", employees: "employees",
+    };
+
+    const { sqlQuery, fieldNames } = buildUpdateQuery("accounts", accountId, updates, allowedFields);
+    if (!sqlQuery) return "Error: No valid fields to update.";
+    await db.execute(sqlQuery);
+
+    const name = (existing.rows[0] as any).name;
+    return `Successfully updated account "${name}" (ID: ${accountId}). Fields changed: ${fieldNames.join(", ")}.`;
+  } catch (error: any) {
+    console.error("Error updating account:", error);
+    return `Error updating account: ${error.message}`;
+  }
+}
+
+async function updateTicket(ticketId: number, updates: Record<string, any>): Promise<string> {
+  try {
+    const existing = await db.execute(sql`SELECT id, subject FROM tickets WHERE id = ${ticketId}`);
+    if (existing.rows.length === 0) return `Error: Ticket with ID ${ticketId} not found.`;
+
+    const allowedFields: Record<string, string> = {
+      status: "status", severity: "severity", category: "category",
+      subject: "subject", description: "description",
+      internal_notes: "internal_notes", resolution_summary: "resolution_summary",
+    };
+
+    const { sqlQuery, fieldNames } = buildUpdateQuery("tickets", ticketId, updates, allowedFields);
+    if (!sqlQuery) return "Error: No valid fields to update.";
+    await db.execute(sqlQuery);
+
+    const subject = (existing.rows[0] as any).subject;
+    return `Successfully updated ticket "${subject}" (ID: ${ticketId}). Fields changed: ${fieldNames.join(", ")}.`;
+  } catch (error: any) {
+    console.error("Error updating ticket:", error);
+    return `Error updating ticket: ${error.message}`;
+  }
+}
+
+async function addComment(objectType: string, objectId: number, content: string, userId: number, userName: string): Promise<string> {
+  try {
+    await db.execute(sql`
+      INSERT INTO comments (object_type, object_id, user_id, user_name, content, created_at)
+      VALUES (${objectType}, ${objectId}, ${userId}, ${userName}, ${content}, NOW())
+    `);
+    return `Successfully added comment to ${objectType} #${objectId}: "${content.substring(0, 80)}${content.length > 80 ? '...' : ''}"`;
+  } catch (error: any) {
+    console.error("Error adding comment:", error);
+    return `Error adding comment: ${error.message}`;
+  }
+}
+
+async function findLeadByName(name: string): Promise<string> {
+  const results = await db.execute(sql`
+    SELECT id, company, status, contact_name, city, state, deal_amount
+    FROM leads WHERE LOWER(company) LIKE ${`%${name.toLowerCase()}%`} LIMIT 5
+  `);
+  if (results.rows.length === 0) return `No leads found matching "${name}".`;
+  return results.rows.map((r: any) =>
+    `ID: ${r.id} | ${r.company} | Stage: ${r.status} | Contact: ${r.contact_name} | ${[r.city, r.state].filter(Boolean).join(", ")}${r.deal_amount ? ` | Deal: $${r.deal_amount}` : ""}`
+  ).join("\n");
+}
+
+async function findAccountByName(name: string): Promise<string> {
+  const results = await db.execute(sql`
+    SELECT id, name, industry, status, city, state
+    FROM accounts WHERE LOWER(name) LIKE ${`%${name.toLowerCase()}%`} LIMIT 5
+  `);
+  if (results.rows.length === 0) return `No accounts found matching "${name}".`;
+  return results.rows.map((r: any) =>
+    `ID: ${r.id} | ${r.name} | Industry: ${r.industry || "N/A"} | Status: ${r.status} | ${[r.city, r.state].filter(Boolean).join(", ")}`
+  ).join("\n");
+}
+
+const CRM_TOOLS = [
+  {
+    type: "function" as const,
+    function: {
+      name: "find_lead",
+      description: "Search for a marina lead by name to get its ID before updating. Always call this first when the user wants to modify a lead.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "The marina or lead name to search for" },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "update_lead",
+      description: "Update fields on a marina lead. Valid status values: new, contacted, qualified, proposal, negotiation, closed_won, closed_lost. Valid segment values: enterprise, mid_market, small.",
+      parameters: {
+        type: "object",
+        properties: {
+          lead_id: { type: "number", description: "The lead ID (get from find_lead first)" },
+          updates: {
+            type: "object",
+            description: "Fields to update. Keys: status, contact_name, contact_email, contact_phone, notes, tags, next_step, deal_amount, deal_probability, segment, city, state, country, street_address, zip_code, slips, source, competitors, roi_story, primary_value_driver, closed_lost_reason, closed_won_notes",
+            additionalProperties: true,
+          },
+        },
+        required: ["lead_id", "updates"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "find_account",
+      description: "Search for an account by name to get its ID before updating.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "The account name to search for" },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "update_account",
+      description: "Update fields on an account.",
+      parameters: {
+        type: "object",
+        properties: {
+          account_id: { type: "number", description: "The account ID (get from find_account first)" },
+          updates: {
+            type: "object",
+            description: "Fields to update. Keys: name, industry, type, status, phone, website, notes, city, state, country, street_address, zip_code, annual_revenue, employees",
+            additionalProperties: true,
+          },
+        },
+        required: ["account_id", "updates"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "update_ticket",
+      description: "Update fields on a support ticket.",
+      parameters: {
+        type: "object",
+        properties: {
+          ticket_id: { type: "number", description: "The ticket ID" },
+          updates: {
+            type: "object",
+            description: "Fields to update. Keys: status (new/open/in_progress/resolved/closed), severity (low/medium/high/critical), category, subject, description, internal_notes, resolution_summary",
+            additionalProperties: true,
+          },
+        },
+        required: ["ticket_id", "updates"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "add_comment",
+      description: "Add a comment/note to a lead, account, or ticket. Use this when the user wants to add notes, comments, or observations.",
+      parameters: {
+        type: "object",
+        properties: {
+          object_type: { type: "string", enum: ["lead", "account", "ticket"], description: "Type of object to comment on" },
+          object_id: { type: "number", description: "ID of the object" },
+          content: { type: "string", description: "The comment text" },
+        },
+        required: ["object_type", "object_id", "content"],
+      },
+    },
+  },
+];
+
+async function executeTool(toolName: string, args: any, userId: number, userName: string): Promise<string> {
+  switch (toolName) {
+    case "find_lead":
+      return findLeadByName(args.name);
+    case "update_lead":
+      return updateLead(args.lead_id, args.updates);
+    case "find_account":
+      return findAccountByName(args.name);
+    case "update_account":
+      return updateAccount(args.account_id, args.updates);
+    case "update_ticket":
+      return updateTicket(args.ticket_id, args.updates);
+    case "add_comment":
+      return addComment(args.object_type, args.object_id, args.content, userId, userName);
+    default:
+      return `Unknown tool: ${toolName}`;
+  }
+}
+
 async function getCRMStats(): Promise<string> {
   const [leadStats, accountStats, ticketStats, taskStats, partnerStats] = await Promise.all([
     db.execute(sql`
@@ -488,28 +740,29 @@ async function gatherContext(query: string): Promise<string> {
 const SYSTEM_PROMPT = `You are Cortex AI, the intelligent assistant for VoltSafe Cortex — VoltSafe's internal CRM and management system. You have full access to all CRM data and the internet.
 
 Your capabilities:
-1. FULL CRM DATABASE ACCESS — You can query and answer questions about:
-   - Marina leads (phone numbers, addresses, contacts, deal values, pipeline stages, slips)
-   - Accounts (companies, industries, revenue, status)
-   - Contacts (people, emails, phones, titles, companies)
-   - Support tickets (issues, priorities, statuses)
-   - Tasks (assignments, due dates, priorities)
-   - Calendar events (meetings, schedules, appointments)
-   - Partnerships (strategic, technology, distribution, OEM, government, research, pilot)
-   - Ecosystem (organizations, people, relationships, events, regions)
-   - Quotes (proposals, amounts, statuses)
-   - Activities (timeline, history, logs)
+1. FULL CRM DATABASE ACCESS (READ & WRITE) — You can query AND modify:
+   - Marina leads: read details, update stage/status (new→contacted→qualified→proposal→negotiation→closed_won/closed_lost), edit contact info, deal amounts, probability, notes, tags, next steps, segment, location, competitors, ROI story
+   - Accounts: read and update company details, industry, status, contact info, revenue, notes
+   - Contacts: read people, emails, phones, titles, companies
+   - Support tickets: read and update status (new/open/in_progress/resolved/closed), severity, notes
+   - Tasks, Calendar events, Partnerships, Ecosystem, Quotes, Activities: read access
+   - Add comments/notes to leads, accounts, and tickets
    - CRM-wide statistics and pipeline summaries
 
 2. INTERNET ACCESS — You can search the web for:
    - Industry news and trends (marina, boating, shore power, electric)
    - Company information and competitor research
    - General knowledge, definitions, and explanations
-   - Current events, regulations, and market data
-   - Technical information about products and technologies
+
+WRITE OPERATIONS — When the user asks you to update, change, edit, move, or modify CRM records:
+- Use the provided tools (find_lead, update_lead, find_account, update_account, update_ticket, add_comment)
+- ALWAYS search/find the record first to get the correct ID before updating
+- After making changes, confirm exactly what was updated
+- If the user's request is ambiguous (multiple matches), list the options and ask which one they mean
+- For stage changes, use the exact values: new, contacted, qualified, proposal, negotiation, closed_won, closed_lost
 
 Guidelines:
-- Use **markdown formatting** in your responses for clarity: bold for emphasis, bullet lists for multiple items, headers for sections, tables for structured data comparisons, and code blocks for technical details
+- Use **markdown formatting** in your responses for clarity: bold for emphasis, bullet lists for multiple items, headers for sections, tables for structured data comparisons
 - Be concise and conversational — the user may be driving or multitasking
 - When asked about CRM data, provide key details: names, phone numbers, locations, statuses
 - If you find multiple matches, present them in a clean bulleted or numbered list
@@ -592,12 +845,15 @@ export function registerVoiceAssistantRoutes(app: Express): void {
 
       await chatStorage.createMessage(conversationId, "user", userTranscript);
 
+      const userRow = await db.execute(sql`SELECT name FROM users WHERE id = ${userId}`);
+      const userName = (userRow.rows[0] as any)?.name || "Unknown User";
+
       const contextData = await gatherContext(userTranscript);
       const crmStats = await getCRMStats();
 
       const existingMessages = await chatStorage.getMessagesByConversation(conversationId);
       const chatHistory: any[] = [
-        { role: "system", content: `${SYSTEM_PROMPT}\n\n${crmStats}` },
+        { role: "system", content: `${SYSTEM_PROMPT}\n\nCurrent user: ${userName} (ID: ${userId})\n\n${crmStats}` },
       ];
 
       for (const m of existingMessages.slice(-10)) {
@@ -620,6 +876,58 @@ export function registerVoiceAssistantRoutes(app: Express): void {
 
       res.write(`data: ${JSON.stringify({ type: "user_transcript", data: userTranscript })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: "conversation_id", data: conversationId })}\n\n`);
+
+      const hasWriteIntent = /\b(update|change|edit|move|set|modify|mark|assign|close|resolve|reopen|log|note|comment|add\s+(a\s+)?(comment|note)|stage|switch|transition|reassign|escalate|promote|demote)\b/i.test(userTranscript);
+      let toolContext = "";
+
+      if (hasWriteIntent) {
+        let toolMessages = [...chatHistory];
+        let maxToolRounds = 5;
+
+        while (maxToolRounds-- > 0) {
+          const completion = await openai.chat.completions.create({
+            model: "gpt-5-nano",
+            messages: toolMessages,
+            tools: CRM_TOOLS,
+            tool_choice: "auto",
+            max_completion_tokens: 4096,
+          });
+
+          const choice = completion.choices[0];
+          const msg = choice.message;
+
+          if (msg.tool_calls && msg.tool_calls.length > 0) {
+            toolMessages.push(msg as any);
+
+            for (const toolCall of msg.tool_calls) {
+              let args: any;
+              try {
+                args = JSON.parse(toolCall.function.arguments);
+              } catch {
+                toolMessages.push({ role: "tool", tool_call_id: toolCall.id, content: "Error: Invalid tool arguments." } as any);
+                continue;
+              }
+              const toolResult = await executeTool(toolCall.function.name, args, userId, userName);
+              toolMessages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: toolResult,
+              } as any);
+              toolContext += `\n${toolResult}`;
+            }
+          } else {
+            if (msg.content) toolContext += `\nAI summary: ${msg.content}`;
+            break;
+          }
+        }
+
+        if (toolContext) {
+          chatHistory.push({
+            role: "system",
+            content: `The following CRM write operations were performed:\n${toolContext}\n\nNow confirm to the user what was done in a natural, conversational way.`,
+          });
+        }
+      }
 
       const stream = await openai.chat.completions.create({
         model: "gpt-audio",
@@ -670,6 +978,9 @@ export function registerVoiceAssistantRoutes(app: Express): void {
         return res.status(400).json({ error: "Message is required" });
       }
 
+      const userRow = await db.execute(sql`SELECT name FROM users WHERE id = ${userId}`);
+      const userName = (userRow.rows[0] as any)?.name || "Unknown User";
+
       let conversationId = reqConvId;
       if (!conversationId) {
         const conv = await chatStorage.createConversation("Text Chat", userId);
@@ -686,7 +997,7 @@ export function registerVoiceAssistantRoutes(app: Express): void {
 
       const existingMessages = await chatStorage.getMessagesByConversation(conversationId);
       const chatHistory: any[] = [
-        { role: "system", content: `${SYSTEM_PROMPT}\n\n${crmStats}` },
+        { role: "system", content: `${SYSTEM_PROMPT}\n\nCurrent user: ${userName} (ID: ${userId})\n\n${crmStats}` },
       ];
 
       for (const m of existingMessages.slice(-10)) {
@@ -709,20 +1020,78 @@ export function registerVoiceAssistantRoutes(app: Express): void {
 
       res.write(`data: ${JSON.stringify({ type: "conversation_id", data: conversationId })}\n\n`);
 
-      const stream = await openai.chat.completions.create({
-        model: "gpt-5-nano",
-        messages: chatHistory,
-        stream: true,
-        max_completion_tokens: 8192,
-      });
+      const hasWriteIntent = /\b(update|change|edit|move|set|modify|mark|assign|close|resolve|reopen|log|note|comment|add\s+(a\s+)?(comment|note)|stage|switch|transition|reassign|escalate|promote|demote)\b/i.test(message);
 
       let fullResponse = "";
 
-      for await (const chunk of stream) {
-        const content = chunk.choices[0]?.delta?.content || "";
-        if (content) {
-          fullResponse += content;
-          res.write(`data: ${JSON.stringify({ type: "text", data: content })}\n\n`);
+      if (hasWriteIntent) {
+        let toolMessages = [...chatHistory];
+        let maxToolRounds = 5;
+        let toolsExecuted = false;
+
+        while (maxToolRounds-- > 0) {
+          const completion = await openai.chat.completions.create({
+            model: "gpt-5-nano",
+            messages: toolMessages,
+            tools: CRM_TOOLS,
+            tool_choice: "auto",
+            max_completion_tokens: 4096,
+          });
+
+          const choice = completion.choices[0];
+          const msg = choice.message;
+
+          if (msg.tool_calls && msg.tool_calls.length > 0) {
+            toolsExecuted = true;
+            toolMessages.push(msg as any);
+
+            for (const toolCall of msg.tool_calls) {
+              let args: any;
+              try {
+                args = JSON.parse(toolCall.function.arguments);
+              } catch {
+                toolMessages.push({ role: "tool", tool_call_id: toolCall.id, content: "Error: Invalid tool arguments." } as any);
+                continue;
+              }
+              const toolResult = await executeTool(toolCall.function.name, args, userId, userName);
+              toolMessages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: toolResult,
+              } as any);
+              res.write(`data: ${JSON.stringify({ type: "tool_action", data: `[${toolCall.function.name}] ${toolResult}` })}\n\n`);
+            }
+          } else {
+            fullResponse = msg.content || "";
+            res.write(`data: ${JSON.stringify({ type: "text", data: fullResponse })}\n\n`);
+            break;
+          }
+        }
+
+        if (!fullResponse && toolsExecuted) {
+          toolMessages.push({ role: "user", content: "Summarize what you just did in a brief confirmation message." } as any);
+          const summary = await openai.chat.completions.create({
+            model: "gpt-5-nano",
+            messages: toolMessages,
+            max_completion_tokens: 2048,
+          });
+          fullResponse = summary.choices[0]?.message?.content || "Done. The requested changes have been applied.";
+          res.write(`data: ${JSON.stringify({ type: "text", data: fullResponse })}\n\n`);
+        }
+      } else {
+        const stream = await openai.chat.completions.create({
+          model: "gpt-5-nano",
+          messages: chatHistory,
+          stream: true,
+          max_completion_tokens: 8192,
+        });
+
+        for await (const chunk of stream) {
+          const content = chunk.choices[0]?.delta?.content || "";
+          if (content) {
+            fullResponse += content;
+            res.write(`data: ${JSON.stringify({ type: "text", data: content })}\n\n`);
+          }
         }
       }
 
