@@ -36,6 +36,21 @@ export default function QuotesPage() {
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
   const { sort, handleSort } = useSortState();
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const statusParam = params.get("status");
+    const selectedId = params.get("selected");
+    if (statusParam) {
+      setStatusFilter(statusParam);
+    }
+    if (selectedId) {
+      setSelectedQuote(Number(selectedId));
+    }
+    if (statusParam || selectedId) {
+      window.history.replaceState({}, "", "/quotes");
+    }
+  }, []);
+
   const PAGE_SIZE = 100;
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<{ data: Quote[]; total: number; page: number; totalPages: number }>({
     queryKey: ["/api/quotes", { status: statusFilter === "all" ? "" : statusFilter, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],

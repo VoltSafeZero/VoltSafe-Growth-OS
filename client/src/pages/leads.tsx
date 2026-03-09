@@ -87,10 +87,16 @@ export default function LeadsPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const selectedId = params.get("selected");
+    const statusParam = params.get("status");
     if (selectedId) {
       fetch(`/api/leads/${selectedId}`).then(r => r.ok ? r.json() : null).then(lead => {
         if (lead) setSelectedLead(lead);
       });
+    }
+    if (statusParam) {
+      setStatusFilter(statusParam);
+    }
+    if (selectedId || statusParam) {
       window.history.replaceState({}, "", "/leads");
     }
   }, []);

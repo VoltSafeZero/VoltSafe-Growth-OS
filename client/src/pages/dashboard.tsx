@@ -45,10 +45,10 @@ export default function Dashboard() {
   });
 
   const cards = [
-    { title: "New Leads", value: summary?.totalLeads ?? 0, icon: UserPlus, description: "Leads awaiting follow-up", color: "text-blue-400" },
-    { title: "Active Deals", value: summary?.activeDeals ?? 0, icon: TrendingUp, description: "In-progress opportunities", color: "text-green-400" },
-    { title: "Open Tickets", value: summary?.openTickets ?? 0, icon: LifeBuoy, description: "Support tickets open", color: "text-orange-400" },
-    { title: "Draft Quotes", value: summary?.pendingQuotes ?? 0, icon: FileText, description: "Quotes needing follow-up", color: "text-purple-400" },
+    { title: "New Leads", value: summary?.totalLeads ?? 0, icon: UserPlus, description: "Leads awaiting follow-up", color: "text-blue-400", href: "/leads?status=new" },
+    { title: "Active Deals", value: summary?.activeDeals ?? 0, icon: TrendingUp, description: "In-progress opportunities", color: "text-green-400", href: "/leads" },
+    { title: "Open Tickets", value: summary?.openTickets ?? 0, icon: LifeBuoy, description: "Support tickets open", color: "text-orange-400", href: "/tickets" },
+    { title: "Draft Quotes", value: summary?.pendingQuotes ?? 0, icon: FileText, description: "Quotes needing follow-up", color: "text-purple-400", href: "/quotes?status=draft" },
   ];
 
   return (
@@ -80,32 +80,36 @@ export default function Dashboard() {
           ))
         ) : (
           cards.map((card) => (
-            <Card key={card.title} className="border-border/50 bg-card/50 backdrop-blur-sm" data-testid={`card-metric-${card.title.toLowerCase().replace(/\s/g, '-')}`}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                <CardTitle className="text-sm font-medium text-muted-foreground">{card.title}</CardTitle>
-                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <card.icon className={`w-4 h-4 ${card.color}`} />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold tracking-tight mb-1">{card.value}</div>
-                <p className="text-xs text-muted-foreground">{card.description}</p>
-              </CardContent>
-            </Card>
+            <a key={card.title} href={card.href} className="block" data-testid={`card-metric-${card.title.toLowerCase().replace(/\s/g, '-')}`}>
+              <Card className="border-border/50 bg-card/50 backdrop-blur-sm hover:border-primary/30 transition-colors cursor-pointer">
+                <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">{card.title}</CardTitle>
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <card.icon className={`w-4 h-4 ${card.color}`} />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold tracking-tight mb-1">{card.value}</div>
+                  <p className="text-xs text-muted-foreground">{card.description}</p>
+                </CardContent>
+              </Card>
+            </a>
           ))
         )}
       </div>
 
       {summary && summary.overdueTasks > 0 && (
-        <Card className="border-orange-500/30 bg-orange-500/5" data-testid="card-overdue-tasks">
-          <CardContent className="flex items-center gap-3 p-4">
-            <AlertTriangle className="h-5 w-5 text-orange-400" />
-            <div>
-              <p className="font-medium text-orange-400">{summary.overdueTasks} overdue task{summary.overdueTasks > 1 ? "s" : ""}</p>
-              <p className="text-sm text-muted-foreground">Tasks past their due date need attention.</p>
-            </div>
-          </CardContent>
-        </Card>
+        <a href="/team-workload" data-testid="card-overdue-tasks">
+          <Card className="border-orange-500/30 bg-orange-500/5 hover:border-orange-500/50 transition-colors cursor-pointer">
+            <CardContent className="flex items-center gap-3 p-4">
+              <AlertTriangle className="h-5 w-5 text-orange-400" />
+              <div>
+                <p className="font-medium text-orange-400">{summary.overdueTasks} overdue task{summary.overdueTasks > 1 ? "s" : ""}</p>
+                <p className="text-sm text-muted-foreground">Tasks past their due date need attention.</p>
+              </div>
+            </CardContent>
+          </Card>
+        </a>
       )}
 
       <div className="grid gap-6 lg:grid-cols-7">
@@ -165,13 +169,17 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {summary.recentActivities.map((activity) => {
+                  {summary.recentActivities.map((activity: any) => {
+                    const objType = activity.linkedObjectType || activity.objectType;
+                    const objId = activity.linkedObjectId || activity.objectId;
                     const linkMap: Record<string, string> = {
-                      lead: `/leads?selected=${activity.objectId}`,
-                      account: `/accounts?selected=${activity.objectId}`,
-                      ticket: `/tickets?selected=${activity.objectId}`,
+                      lead: `/leads?selected=${objId}`,
+                      account: `/accounts?selected=${objId}`,
+                      ticket: `/tickets?selected=${objId}`,
+                      opportunity: `/leads?selected=${objId}`,
+                      quote: `/quotes?selected=${objId}`,
                     };
-                    const href = activity.objectType ? linkMap[activity.objectType] : undefined;
+                    const href = objType ? linkMap[objType] : undefined;
                     const Tag = href ? "a" : "div";
                     const tagProps = href ? { href } : {};
                     return (
