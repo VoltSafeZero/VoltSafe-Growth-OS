@@ -1,0 +1,46 @@
+There is no way for me to interupt or stop Polybrain from voice answering however long their answer is to my voice question. Currently ChatGPT has voice interaction that whenever you start to speak the AI automatically stops what it was saying and listens to you again. Is that possible for this? If not, simply add a stop button to that chat. Also, whatever Polybrain answers, include the actual text in the chat feed (just like ChatGPT does).
+
+Let me explore the current voice interaction code to understand the full flow:
+
+Now let me also check the voice call bar UI for the mic button and what controls exist:
+
+Now I have a clear picture of the full voice interaction flow. Let me implement all three requested features:
+
+Stop button to interrupt TTS while Polybrain is speaking
+Auto-interrupt: When user clicks mic while Polybrain is speaking, stop speech and start listening
+Show response text in chat feed (already happening via addAiMessage(data.response, false) on line 10556, but let me verify)
+Looking at the code, the text IS already being added to the chat feed (line 10556). The issue is that the voice response text might need to be more visibly added. Let me also check the addAiMessage function:
+
+Good — the text IS already being added to the chat via addAiMessage(data.response, false) on line 10556. The user can see the text. Now let me implement the changes:
+
+Add a Stop button visible while TTS is speaking
+Auto-interrupt TTS when mic is clicked (ChatGPT-style barge-in)
+The text display is already working
+Now let me update the voice interaction JavaScript to add the stop functionality and auto-interrupt behavior:
+
+Now let me update the processVoiceRecording function to show/hide the stop button and track the speaking state:
+
+Now I also need to make sure that when toggleVoiceCall() is called to close the voice panel, it also stops any ongoing speech:
+
+Now let me restart the workflow and test:
+
+Let me run the code review and test:
+
+Good, the review passes. Let me also apply the minor fix from the review — adding status text reset in utter.onerror:
+
+Now let me run the e2e test:
+
+All tests pass. Here's what I implemented:
+
+Stop Button: A red square stop button now appears next to the mic button while Polybrain is speaking. Clicking it immediately stops the speech.
+
+Mic-to-Interrupt (ChatGPT-style): Clicking the mic button while Polybrain is still speaking will automatically stop the speech and start recording your next question — no need to wait for the response to finish.
+
+Text in Chat Feed: The spoken response text was already being displayed in the chat feed (this was working before). Every voice response appears as a regular text bubble in the conversation.
+
+Panel Close Stops Speech: Closing the voice panel or the entire chat also stops any ongoing speech.
+
+The status text now shows "Speaking... click stop or mic to interrupt" while Polybrain is talking, so you know your options.
+
+Optimized Agent memory
+I also want Polybrain to show all prior (most recent) back and forth discussions whever i reopen it, just like ChatGPT does.

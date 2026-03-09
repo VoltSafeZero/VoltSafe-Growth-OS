@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Mic, MicOff, X, Send, MessageSquare, Plus, History, ChevronLeft, Trash2, Sparkles, Bot } from "lucide-react";
+import { Mic, MicOff, X, Send, MessageSquare, Plus, History, ChevronLeft, Trash2, Sparkles, Bot, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useVoiceRecorder } from "../../replit_integrations/audio/useVoiceRecorder";
@@ -66,15 +66,13 @@ function MarkdownMessage({ content }: { content: string }) {
 export function VoiceAssistant() {
   const [isOpen, setIsOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-
-  useEffect(() => {
-    const handler = () => setIsOpen(true);
-    window.addEventListener("open-cortex-ai", handler);
-    return () => window.removeEventListener("open-cortex-ai", handler);
-  }, []);
+  const hasLoadedMostRecent = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const turnIdRef = useRef(0);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [currentTranscript, setCurrentTranscript] = useState("");
   const [textInput, setTextInput] = useState("");
   const [mode, setMode] = useState<"voice" | "text">("text");
@@ -85,6 +83,67 @@ export function VoiceAssistant() {
 
   const recorder = useVoiceRecorder();
   const playback = useAudioPlayback();
+
+  const abortCurrentRequest = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    turnIdRef.current++;
+  }, []);
+
+  useEffect(() => {
+    const handler = () => setIsOpen(true);
+    window.addEventListener("open-cortex-ai", handler);
+    return () => window.removeEventListener("open-cortex-ai", handler);
+  }, []);
+
+  useEffect(() => {
+    if (isOpen && !hasLoadedMostRecent.current) {
+      hasLoadedMostRecent.current = true;
+      fetch("/api/voice-assistant/conversations", { credentials: "include" })
+        .then(res => res.ok ? res.json() : [])
+        .then((convos: Conversation[]) => {
+          if (convos.length > 0) {
+            const latest = convos[0];
+            fetch(`/api/voice-assistant/conversations/${latest.id}/messages`, { credentials: "include" })
+              .then(res => res.ok ? res.json() : [])
+              .then((msgs: any[]) => {
+                if (msgs.length > 0) {
+                  setMessages(msgs.map((m: any) => ({ role: m.role, content: m.content, timestamp: new Date(m.createdAt) })));
+                  setConversationId(latest.id);
+                }
+              });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isOpen]);
+
+  const stopSpeaking = useCallback(() => {
+    abortCurrentRequest();
+    playback.clear();
+    setIsSpeaking(false);
+    setIsProcessing(false);
+    setCurrentTranscript("");
+  }, [playback, abortCurrentRequest]);
+
+  const handleClose = useCallback(() => {
+    if (recorder.state === "recording") recorder.stopRecording();
+    abortCurrentRequest();
+    playback.clear();
+    setIsSpeaking(false);
+    setIsProcessing(false);
+    setCurrentTranscript("");
+    hasLoadedMostRecent.current = false;
+    setIsOpen(false);
+  }, [recorder, playback, abortCurrentRequest]);
+
+  useEffect(() => {
+    if (playback.state === "idle" && isSpeaking) {
+      setIsSpeaking(false);
+    }
+  }, [playback.state, isSpeaking]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -140,6 +199,11 @@ export function VoiceAssistant() {
   }, []);
 
   const handleVoiceSubmit = useCallback(async (audioBlob: Blob) => {
+    abortCurrentRequest();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const myTurn = ++turnIdRef.current;
+
     setIsProcessing(true);
     setCurrentTranscript("");
 
@@ -160,6 +224,7 @@ export function VoiceAssistant() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ audio: base64Audio, conversationId, voice: "nova" }),
+        signal: controller.signal,
       });
 
       if (!response.ok) throw new Error("Voice request failed");
@@ -173,14 +238,14 @@ export function VoiceAssistant() {
 
       while (true) {
         const { done, value } = await streamReader.read();
-        if (done) break;
+        if (done || turnIdRef.current !== myTurn) break;
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
 
         for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
+          if (!line.startsWith("data: ") || turnIdRef.current !== myTurn) continue;
           try {
             const event = JSON.parse(line.slice(6));
             switch (event.type) {
@@ -196,6 +261,7 @@ export function VoiceAssistant() {
                 break;
               case "audio":
                 playback.pushAudio(event.data);
+                setIsSpeaking(true);
                 break;
               case "done":
                 playback.signalComplete();
@@ -211,15 +277,27 @@ export function VoiceAssistant() {
           } catch {}
         }
       }
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.name === "AbortError") return;
       console.error("Voice assistant error:", error);
-      setMessages(prev => [...prev, { role: "assistant", content: "Connection error. Please try again.", timestamp: new Date() }]);
+      if (turnIdRef.current === myTurn) {
+        setMessages(prev => [...prev, { role: "assistant", content: "Connection error. Please try again.", timestamp: new Date() }]);
+      }
     } finally {
-      setIsProcessing(false);
+      if (turnIdRef.current === myTurn) {
+        setIsProcessing(false);
+      }
     }
-  }, [conversationId, playback]);
+  }, [conversationId, playback, abortCurrentRequest]);
 
   const handleMicClick = useCallback(async () => {
+    if (isSpeaking) {
+      abortCurrentRequest();
+      playback.clear();
+      setIsSpeaking(false);
+      setIsProcessing(false);
+      setCurrentTranscript("");
+    }
     if (recorder.state === "recording") {
       const blob = await recorder.stopRecording();
       if (blob.size > 0) {
@@ -228,9 +306,14 @@ export function VoiceAssistant() {
     } else {
       await recorder.startRecording();
     }
-  }, [recorder, handleVoiceSubmit]);
+  }, [recorder, handleVoiceSubmit, isSpeaking, playback, abortCurrentRequest]);
 
   const sendTextMessage = useCallback(async (msg: string) => {
+    abortCurrentRequest();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const myTurn = ++turnIdRef.current;
+
     setMessages(prev => [...prev, { role: "user", content: msg, timestamp: new Date() }]);
     setIsProcessing(true);
     setCurrentTranscript("");
@@ -240,6 +323,7 @@ export function VoiceAssistant() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: msg, conversationId }),
+        signal: controller.signal,
       });
 
       if (!response.ok) throw new Error("Request failed");
@@ -253,14 +337,14 @@ export function VoiceAssistant() {
 
       while (true) {
         const { done, value } = await streamReader.read();
-        if (done) break;
+        if (done || turnIdRef.current !== myTurn) break;
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
 
         for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
+          if (!line.startsWith("data: ") || turnIdRef.current !== myTurn) continue;
           try {
             const event = JSON.parse(line.slice(6));
             switch (event.type) {
@@ -283,13 +367,18 @@ export function VoiceAssistant() {
           } catch {}
         }
       }
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.name === "AbortError") return;
       console.error("Text assistant error:", error);
-      setMessages(prev => [...prev, { role: "assistant", content: "Connection error. Please try again.", timestamp: new Date() }]);
+      if (turnIdRef.current === myTurn) {
+        setMessages(prev => [...prev, { role: "assistant", content: "Connection error. Please try again.", timestamp: new Date() }]);
+      }
     } finally {
-      setIsProcessing(false);
+      if (turnIdRef.current === myTurn) {
+        setIsProcessing(false);
+      }
     }
-  }, [conversationId]);
+  }, [conversationId, abortCurrentRequest]);
 
   const handleTextSubmit = useCallback(async () => {
     if (!textInput.trim() || isProcessing) return;
@@ -309,7 +398,7 @@ export function VoiceAssistant() {
     <>
       <div
         className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm transition-opacity"
-        onClick={() => { if (recorder.state === "recording") recorder.stopRecording(); setIsOpen(false); }}
+        onClick={handleClose}
         data-testid="overlay-voice-assistant"
       />
 
@@ -373,7 +462,7 @@ export function VoiceAssistant() {
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground"
-                  onClick={() => { if (recorder.state === "recording") recorder.stopRecording(); setIsOpen(false); }}
+                  onClick={handleClose}
                   data-testid="button-close-voice-assistant"
                 >
                   <X className="w-4 h-4" />
@@ -522,11 +611,11 @@ export function VoiceAssistant() {
                 <div className="flex items-center justify-center gap-4">
                   <button
                     onClick={handleMicClick}
-                    disabled={isProcessing}
+                    disabled={isProcessing && !isSpeaking}
                     className={`w-14 h-14 rounded-full flex items-center justify-center transition-all active:scale-95 ${
                       recorder.state === "recording"
                         ? "bg-red-500 text-white shadow-lg shadow-red-500/30"
-                        : isProcessing
+                        : isProcessing && !isSpeaking
                           ? "bg-secondary text-muted-foreground cursor-not-allowed"
                           : "bg-primary text-primary-foreground shadow-lg shadow-primary/25 hover:shadow-primary/40"
                     }`}
@@ -538,6 +627,16 @@ export function VoiceAssistant() {
                       <Mic className="w-6 h-6" />
                     )}
                   </button>
+                  {isSpeaking && (
+                    <button
+                      onClick={stopSpeaking}
+                      className="w-10 h-10 rounded-full bg-red-500/90 text-white flex items-center justify-center transition-all active:scale-95 shadow-lg shadow-red-500/20"
+                      data-testid="button-stop-speaking"
+                      title="Stop speaking"
+                    >
+                      <Square className="w-4 h-4 fill-current" />
+                    </button>
+                  )}
                   {recorder.state === "recording" && (
                     <div className="flex items-center gap-2">
                       <div className="flex gap-0.5 items-end h-5">
@@ -548,10 +647,13 @@ export function VoiceAssistant() {
                       <p className="text-xs text-red-400 font-medium">Recording...</p>
                     </div>
                   )}
-                  {!recorder.state && !isProcessing && (
+                  {recorder.state === "idle" && !isProcessing && !isSpeaking && (
                     <p className="text-xs text-muted-foreground">Tap to speak</p>
                   )}
-                  {isProcessing && (
+                  {isSpeaking && (
+                    <p className="text-xs text-muted-foreground">Speaking... tap mic or stop to interrupt</p>
+                  )}
+                  {isProcessing && !isSpeaking && recorder.state === "idle" && (
                     <p className="text-xs text-muted-foreground">Processing...</p>
                   )}
                 </div>
