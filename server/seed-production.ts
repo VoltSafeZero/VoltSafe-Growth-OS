@@ -40,7 +40,7 @@ export async function seedProductionData(): Promise<void> {
       ];
       for (const table of tables) {
         try {
-          await db.execute(sql.raw(`TRUNCATE TABLE ${table} CASCADE`));
+          await db.execute(sql`TRUNCATE TABLE ${sql.identifier(table)} CASCADE`);
         } catch {}
       }
       console.log("Tables cleared.");
