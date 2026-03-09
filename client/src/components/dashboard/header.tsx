@@ -95,10 +95,10 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
           <div className="flex items-center gap-2 sm:gap-4">
             <button
               onClick={() => window.dispatchEvent(new Event("open-cortex-ai"))}
-              className="relative rounded-full w-9 h-9 flex items-center justify-center transition-colors hover:bg-secondary/50"
+              className="relative rounded-full w-12 h-12 flex items-center justify-center transition-colors hover:bg-secondary/50"
               data-testid="button-header-cortex-ai"
             >
-              <img src={cortexLogo} alt="Cortex AI" className="w-6 h-6 object-contain" />
+              <img src={cortexLogo} alt="Cortex AI" className="w-10 h-10 object-contain" />
             </button>
             <Button variant="ghost" size="icon" className="relative text-muted-foreground rounded-full" data-testid="button-notifications">
               <Bell className="w-5 h-5" />
