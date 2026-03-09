@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
@@ -43,6 +43,17 @@ export default function TicketsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const selectedId = params.get("selected");
+    if (selectedId) {
+      fetch(`/api/tickets/${selectedId}`).then(r => r.ok ? r.json() : null).then(ticket => {
+        if (ticket) setSelectedTicket(ticket);
+      });
+      window.history.replaceState({}, "", "/tickets");
+    }
+  }, []);
 
   const { data, isLoading } = useQuery<{ data: Ticket[]; total: number }>({
     queryKey: ["/api/tickets"],

@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Calendar, Clock, Video, MapPin, CheckCircle2, XCircle, Phone, Bell } from "lucide-react";
+import { Link } from "wouter";
 import type { CalendarEvent } from "@shared/schema";
 
 const EVENT_TYPE_CONFIG: Record<string, { icon: typeof Calendar; label: string }> = {
@@ -82,11 +83,14 @@ export function DashboardCalendar() {
           <Calendar className="h-5 w-5 text-primary" />
           Today's Schedule
         </CardTitle>
-        {todayEvents.length > 0 && (
-          <Badge variant="outline" className="text-xs" data-testid="badge-event-count">
-            {todayEvents.length}
-          </Badge>
-        )}
+        <div className="flex items-center gap-2">
+          {todayEvents.length > 0 && (
+            <Badge variant="outline" className="text-xs" data-testid="badge-event-count">
+              {todayEvents.length}
+            </Badge>
+          )}
+          <Link href="/calendar" className="text-xs text-primary hover:underline" data-testid="link-view-calendar">View all</Link>
+        </div>
       </CardHeader>
       <CardContent>
         {todayEvents.length === 0 ? (
@@ -129,8 +133,9 @@ function EventRow({ event, isUpcoming }: { event: CalendarEvent; isUpcoming: boo
   const statusVariant = STATUS_VARIANT[event.status] || "outline";
 
   return (
-    <div
-      className={`flex items-start gap-3 p-2 rounded-md ${isUpcoming ? "" : "opacity-60"}`}
+    <Link
+      href="/calendar"
+      className={`flex items-start gap-3 p-2 rounded-md transition-colors hover:bg-secondary/30 cursor-pointer ${isUpcoming ? "" : "opacity-60"}`}
       data-testid={`calendar-event-${event.id}`}
     >
       <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -167,6 +172,6 @@ function EventRow({ event, isUpcoming }: { event: CalendarEvent; isUpcoming: boo
           )}
         </div>
       </div>
-    </div>
+    </Link>
   );
 }

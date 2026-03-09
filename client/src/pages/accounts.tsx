@@ -57,6 +57,17 @@ export default function AccountsPage() {
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
   const [sortOption, setSortOption] = useState("default");
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const selectedId = params.get("selected");
+    if (selectedId) {
+      fetch(`/api/accounts/${selectedId}`).then(r => r.ok ? r.json() : null).then(account => {
+        if (account) setSelectedAccount(account);
+      });
+      window.history.replaceState({}, "", "/accounts");
+    }
+  }, []);
+
   const PAGE_SIZE = 100;
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<{ data: Account[]; total: number; page: number; totalPages: number }>({
     queryKey: ["/api/accounts", { search, segment: segmentFilter === "all" ? "" : segmentFilter, status: statusFilter === "all" ? "" : statusFilter, priority: priorityFilter === "all" ? "" : priorityFilter, sort: sortOption }],

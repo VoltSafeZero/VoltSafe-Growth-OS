@@ -134,7 +134,7 @@ export default function Dashboard() {
                     };
                     const stage = stageConfig[lead.status] || { label: lead.status, color: "bg-secondary text-muted-foreground" };
                     return (
-                      <Link key={lead.id} href={`/leads?selected=${lead.id}`} className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/30 transition-colors cursor-pointer" data-testid={`active-lead-${lead.id}`}>
+                      <a key={lead.id} href={`/leads?selected=${lead.id}`} className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/30 transition-colors cursor-pointer" data-testid={`active-lead-${lead.id}`}>
                         <Building2 className="w-4 h-4 text-muted-foreground shrink-0" />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{lead.company}</p>
@@ -148,7 +148,7 @@ export default function Dashboard() {
                         <Badge variant="outline" className={`shrink-0 text-[10px] px-2 py-0.5 ${stage.color}`}>
                           {stage.label}
                         </Badge>
-                      </Link>
+                      </a>
                     );
                   })}
                 </div>
@@ -169,15 +169,13 @@ export default function Dashboard() {
                     const linkMap: Record<string, string> = {
                       lead: `/leads?selected=${activity.objectId}`,
                       account: `/accounts?selected=${activity.objectId}`,
-                      contact: `/contacts?selected=${activity.objectId}`,
                       ticket: `/tickets?selected=${activity.objectId}`,
-                      task: `/tasks?selected=${activity.objectId}`,
                     };
                     const href = activity.objectType ? linkMap[activity.objectType] : undefined;
-                    const Wrapper = href ? Link : "div" as any;
-                    const wrapperProps = href ? { href } : {};
+                    const Tag = href ? "a" : "div";
+                    const tagProps = href ? { href } : {};
                     return (
-                      <Wrapper key={activity.id} {...wrapperProps} className={`flex items-start gap-3 p-2 rounded-lg transition-colors ${href ? "hover:bg-secondary/30 cursor-pointer" : ""}`} data-testid={`activity-${activity.id}`}>
+                      <Tag key={activity.id} {...tagProps} className={`flex items-start gap-3 p-2 rounded-lg transition-colors ${href ? "hover:bg-secondary/30 cursor-pointer" : ""}`} data-testid={`activity-${activity.id}`}>
                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
                           <Clock className="w-3 h-3 text-primary" />
                         </div>
@@ -185,7 +183,7 @@ export default function Dashboard() {
                           <p className="text-sm">{activity.summary}</p>
                           <p className="text-xs text-muted-foreground">{new Date(activity.createdAt).toLocaleString()}</p>
                         </div>
-                      </Wrapper>
+                      </Tag>
                     );
                   })}
                 </div>

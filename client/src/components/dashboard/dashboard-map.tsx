@@ -402,19 +402,15 @@ export default function DashboardMap() {
           <div className="mt-3 space-y-1" data-testid="dashboard-closest-list">
             <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1 mb-1.5">Closest Marinas</p>
             {closest5.map((lead) => (
-              <div
+              <a
                 key={lead.id}
+                href={`/leads?selected=${lead.id}`}
                 className="flex items-center justify-between px-2 py-1.5 rounded-md cursor-pointer transition-colors hover:bg-muted/40"
-                onClick={() => {
-                  if (mapInstanceRef.current) {
-                    mapInstanceRef.current.setView([lead.marina_lat, lead.marina_lng], 15, { animate: true });
-                  }
-                }}
                 data-testid={`dashboard-closest-${lead.id}`}
               >
                 <p className="text-xs font-medium truncate min-w-0 flex-1">{lead.company}</p>
                 <span className="text-[11px] text-muted-foreground ml-3 flex-shrink-0">{formatDistance(lead.distance_km)}</span>
-              </div>
+              </a>
             ))}
           </div>
         )}
