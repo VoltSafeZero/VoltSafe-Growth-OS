@@ -38,18 +38,24 @@ app.use(
 app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 
 const PgStore = connectPgSimple(session);
+const pgStore = new PgStore({
+  conString: process.env.DATABASE_URL,
+  createTableIfMissing: true,
+  errorLog: (err: Error) => {
+    console.error("Session store error:", err.message);
+  },
+});
+
+const isProduction = process.env.NODE_ENV === "production";
 
 app.use(
   session({
-    store: new PgStore({
-      conString: process.env.DATABASE_URL,
-      createTableIfMissing: true,
-    }),
+    store: pgStore,
     secret: process.env.SESSION_SECRET || "voltsafe-cms-secret-key-change-me",
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: false,
+      secure: isProduction,
       httpOnly: true,
       maxAge: 7 * 24 * 60 * 60 * 1000,
       sameSite: "lax",
@@ -110,7 +116,7 @@ app.use((req, res, next) => {
     return res.status(status).json({ message });
   });
 
-  if (process.env.NODE_ENV === "production") {
+  if (isProduction) {
     serveStatic(app);
   } else {
     const { setupVite } = await import("./vite");
@@ -124,8 +130,15 @@ app.use((req, res, next) => {
       host: "0.0.0.0",
       reusePort: true,
     },
-    () => {
+    async () => {
       log(`Listening on 0.0.0.0:${port}`);
+
+      try {
+        const { seedProductionData } = await import("./seed-production");
+        await seedProductionData();
+      } catch (err) {
+        console.error("Seed error (non-fatal):", err);
+      }
     },
   );
 })();
