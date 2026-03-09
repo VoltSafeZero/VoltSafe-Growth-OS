@@ -509,20 +509,68 @@ Your capabilities:
    - Technical information about products and technologies
 
 Guidelines:
+- Use **markdown formatting** in your responses for clarity: bold for emphasis, bullet lists for multiple items, headers for sections, tables for structured data comparisons, and code blocks for technical details
 - Be concise and conversational — the user may be driving or multitasking
 - When asked about CRM data, provide key details: names, phone numbers, locations, statuses
-- If you find multiple matches, mention the top results and ask which one they mean
+- If you find multiple matches, present them in a clean bulleted or numbered list
 - Always specify which record you're talking about by name
-- For phone numbers, read them clearly with pauses (e.g., "five one nine, seven three four, eight three four two")
+- For phone numbers in text mode, format them clearly (e.g., **(519) 734-8342**)
+- For phone numbers in voice mode, read them clearly with pauses
 - Keep responses brief for quick-fact queries, more detailed for analytical questions
+- When presenting data summaries or pipeline stats, use structured formatting with bold labels
 - When answering from web search results, mention that the info is from online sources
 - You can combine CRM data with web knowledge to give comprehensive answers
 - If you don't have data in the CRM, say so and offer to search the web instead`;
 
 export function registerVoiceAssistantRoutes(app: Express): void {
+  app.get("/api/voice-assistant/conversations", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).session?.userId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+      const convos = await chatStorage.getConversationsForUser(userId);
+      res.json(convos);
+    } catch (error) {
+      console.error("Error fetching conversations:", error);
+      res.status(500).json({ error: "Failed to fetch conversations" });
+    }
+  });
+
+  app.get("/api/voice-assistant/conversations/:id/messages", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = Number(req.params.id);
+      const userId = (req as any).session?.userId;
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid conversation ID" });
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+      const conv = await chatStorage.getConversationForUser(id, userId);
+      if (!conv) return res.status(404).json({ error: "Conversation not found" });
+      const msgs = await chatStorage.getMessagesByConversation(id);
+      res.json(msgs);
+    } catch (error) {
+      console.error("Error fetching messages:", error);
+      res.status(500).json({ error: "Failed to fetch messages" });
+    }
+  });
+
+  app.delete("/api/voice-assistant/conversations/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = Number(req.params.id);
+      const userId = (req as any).session?.userId;
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid conversation ID" });
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+      const deleted = await chatStorage.deleteConversationForUser(id, userId);
+      if (!deleted) return res.status(404).json({ error: "Conversation not found" });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting conversation:", error);
+      res.status(500).json({ error: "Failed to delete conversation" });
+    }
+  });
+
   app.post("/api/voice-assistant/ask", requireAuth, audioBodyParser, async (req: Request, res: Response) => {
     try {
       const { audio, conversationId: reqConvId, voice = "nova" } = req.body;
+      const userId = (req as any).session?.userId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
 
       if (!audio) {
         return res.status(400).json({ error: "Audio data (base64) is required" });
@@ -535,8 +583,11 @@ export function registerVoiceAssistantRoutes(app: Express): void {
 
       let conversationId = reqConvId;
       if (!conversationId) {
-        const conv = await chatStorage.createConversation("Voice Chat");
+        const conv = await chatStorage.createConversation("Voice Chat", userId);
         conversationId = conv.id;
+      } else {
+        const conv = await chatStorage.getConversationForUser(conversationId, userId);
+        if (!conv) return res.status(404).json({ error: "Conversation not found" });
       }
 
       await chatStorage.createMessage(conversationId, "user", userTranscript);
@@ -612,6 +663,8 @@ export function registerVoiceAssistantRoutes(app: Express): void {
   app.post("/api/voice-assistant/text", requireAuth, async (req: Request, res: Response) => {
     try {
       const { message, conversationId: reqConvId } = req.body;
+      const userId = (req as any).session?.userId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
 
       if (!message) {
         return res.status(400).json({ error: "Message is required" });
@@ -619,8 +672,11 @@ export function registerVoiceAssistantRoutes(app: Express): void {
 
       let conversationId = reqConvId;
       if (!conversationId) {
-        const conv = await chatStorage.createConversation("Text Chat");
+        const conv = await chatStorage.createConversation("Text Chat", userId);
         conversationId = conv.id;
+      } else {
+        const conv = await chatStorage.getConversationForUser(conversationId, userId);
+        if (!conv) return res.status(404).json({ error: "Conversation not found" });
       }
 
       await chatStorage.createMessage(conversationId, "user", message);
