@@ -1,4 +1,4 @@
-import XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import pg from "pg";
 
 const { Pool } = pg;
@@ -13,9 +13,13 @@ async function importMarinas() {
     return;
   }
 
-  const wb = XLSX.readFile("attached_assets/MARINA_LIST_Full_USA_2024_1771878269076.xlsx");
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile("attached_assets/MARINA_LIST_Full_USA_2024_1771878269076.xlsx");
+  const ws = wb.worksheets[0];
+  const rows: any[][] = [];
+  ws.eachRow((row) => {
+    rows.push((row.values as any[]).slice(1));
+  });
 
   const headers = rows[0];
   const dataRows = rows.slice(1).filter((r) => r[0]);
