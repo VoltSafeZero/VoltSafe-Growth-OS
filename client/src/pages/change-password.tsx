@@ -56,7 +56,7 @@ export default function ChangePasswordPage({ onComplete }: { onComplete: () => v
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-sm border-border/50 bg-card/80 backdrop-blur-sm">
+      <Card className="w-full max-w-sm border-border/50 bg-card">
         <CardHeader className="text-center pb-4">
           <div className="flex justify-center mb-4">
             <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
