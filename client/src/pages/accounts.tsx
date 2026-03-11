@@ -31,14 +31,24 @@ const segmentColors: Record<string, string> = {
   other: "bg-gray-500/10 text-gray-500 border-gray-500/20",
 };
 
-const statusColors: Record<string, string> = {
-  new: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-  working: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
-  nurturing: "bg-purple-500/10 text-purple-500 border-purple-500/20",
-  unqualified: "bg-gray-500/10 text-gray-500 border-gray-500/20",
-  closed_won: "bg-green-500/10 text-green-500 border-green-500/20",
-  closed_lost: "bg-red-500/10 text-red-500 border-red-500/20",
-};
+const PIPELINE_STAGES = [
+  { value: "new", label: "New", color: "bg-slate-500/10 text-slate-400 border-slate-500/20" },
+  { value: "contacted", label: "Contacted", color: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
+  { value: "meeting_scheduled", label: "Meeting Scheduled", color: "bg-purple-500/10 text-purple-400 border-purple-500/20" },
+  { value: "qualified", label: "Qualified", color: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" },
+  { value: "proposal_sent", label: "Proposal Sent", color: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
+  { value: "negotiation", label: "Negotiation", color: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
+  { value: "converted", label: "Closed Won", color: "bg-green-500/10 text-green-400 border-green-500/20" },
+  { value: "lost", label: "Closed Lost", color: "bg-red-500/10 text-red-400 border-red-500/20" },
+];
+
+const statusColors: Record<string, string> = Object.fromEntries(
+  PIPELINE_STAGES.map(s => [s.value, s.color])
+);
+
+function getStageLabel(value: string) {
+  return PIPELINE_STAGES.find(s => s.value === value)?.label || value;
+}
 
 const priorityColors: Record<string, string> = {
   low: "bg-gray-500/10 text-gray-500 border-gray-500/20",
@@ -164,13 +174,10 @@ export default function AccountsPage() {
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="new">New</SelectItem>
-            <SelectItem value="working">Working</SelectItem>
-            <SelectItem value="nurturing">Nurturing</SelectItem>
-            <SelectItem value="unqualified">Unqualified</SelectItem>
-            <SelectItem value="closed_won">Closed Won</SelectItem>
-            <SelectItem value="closed_lost">Closed Lost</SelectItem>
+            <SelectItem value="all">All Stages</SelectItem>
+            {PIPELINE_STAGES.map(s => (
+              <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
         <Select value={priorityFilter} onValueChange={setPriorityFilter}>
@@ -230,7 +237,7 @@ export default function AccountsPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between text-sm text-muted-foreground">
-                  <Badge variant="outline" className={statusColors[account.leadStatus] || ""}>{account.leadStatus.replace("_", " ")}</Badge>
+                  <Badge variant="outline" className={statusColors[account.leadStatus] || ""}>{getStageLabel(account.leadStatus)}</Badge>
                   <div className="flex items-center gap-3">
                     {account.slipCount && <span>{account.slipCount} slips</span>}
                     {account.pilotCandidateScore && (
@@ -363,7 +370,7 @@ function AccountDetailDialog({ account: initialAccount, onClose }: { account: Ac
               <DialogTitle className="text-xl">{account.name}</DialogTitle>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <Badge variant="outline" className={segmentColors[account.segment] || ""}>{account.segment}</Badge>
-                <Badge variant="outline" className={statusColors[account.leadStatus] || ""}>{account.leadStatus.replace("_", " ")}</Badge>
+                <Badge variant="outline" className={statusColors[account.leadStatus] || ""}>{getStageLabel(account.leadStatus)}</Badge>
                 <Badge variant="outline" className={priorityColors[account.priority] || ""}>{account.priority}</Badge>
                 {account.betaTester && <Badge variant="outline" className="bg-cyan-500/10 text-cyan-500 border-cyan-500/20">Beta Tester</Badge>}
                 {account.pilotCandidateScore && (
@@ -915,16 +922,13 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
         <Label className="text-xs text-muted-foreground mb-2 block">Sales Info</Label>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label className="text-xs">Lead Status</Label>
+            <Label className="text-xs">Pipeline Stage</Label>
             <Select value={form.leadStatus} onValueChange={(v) => setForm(f => ({ ...f, leadStatus: v }))}>
               <SelectTrigger data-testid="select-edit-lead-status"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="new">New</SelectItem>
-                <SelectItem value="working">Working</SelectItem>
-                <SelectItem value="nurturing">Nurturing</SelectItem>
-                <SelectItem value="unqualified">Unqualified</SelectItem>
-                <SelectItem value="closed_won">Closed Won</SelectItem>
-                <SelectItem value="closed_lost">Closed Lost</SelectItem>
+                {PIPELINE_STAGES.map(s => (
+                  <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -1003,13 +1007,13 @@ function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <Label>Status</Label>
+          <Label>Pipeline Stage</Label>
           <Select value={form.leadStatus} onValueChange={(v) => setForm(f => ({ ...f, leadStatus: v }))}>
             <SelectTrigger data-testid="select-account-status"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="new">New</SelectItem>
-              <SelectItem value="working">Working</SelectItem>
-              <SelectItem value="nurturing">Nurturing</SelectItem>
+              {PIPELINE_STAGES.map(s => (
+                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
