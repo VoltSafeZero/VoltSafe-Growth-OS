@@ -21,6 +21,7 @@ import {
   CalendarDays,
   CalendarClock,
   MapPin,
+  Mail,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import navLogo from "@assets/nav-logo.png";
@@ -71,6 +72,7 @@ const supportItems = [
 ];
 
 const commsItems = [
+  { title: "Gmail Inbox", url: "/gmail", icon: Mail },
   { title: "Communications", url: "/communications", icon: Megaphone },
 ];
 

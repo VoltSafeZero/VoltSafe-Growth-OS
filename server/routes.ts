@@ -29,6 +29,7 @@ import {
 } from "./webauthn";
 import { eq, sql } from "drizzle-orm";
 import { registerVoiceAssistantRoutes } from "./voice-assistant";
+import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile } from "./gmail";
 
 const UPLOADS_DIR = path.resolve("uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -1266,6 +1267,64 @@ export async function registerRoutes(
     const ok = await storage.deleteCalendarEvent(Number(req.params.id));
     if (!ok) return res.status(404).json({ message: "Event not found" });
     res.json({ message: "Deleted" });
+  });
+
+  // ── Gmail routes (trevor@voltsafe.com, view-only for non-owners) ──────────
+  app.get("/api/gmail/profile", requireAuth, async (req, res) => {
+    try {
+      const profile = await getProfile();
+      res.json(profile);
+    } catch (err: any) {
+      res.status(503).json({ message: "Gmail not connected", error: err.message });
+    }
+  });
+
+  app.get("/api/gmail/messages", requireAuth, async (req, res) => {
+    try {
+      const q = (req.query.q as string) || "";
+      const maxResults = Math.min(Number(req.query.limit) || 50, 100);
+      const messages = await getMessageSummaries(maxResults, q);
+      res.json(messages);
+    } catch (err: any) {
+      res.status(503).json({ message: "Gmail not connected", error: err.message });
+    }
+  });
+
+  app.get("/api/gmail/threads", requireAuth, async (req, res) => {
+    try {
+      const q = (req.query.q as string) || "";
+      const maxResults = Math.min(Number(req.query.limit) || 30, 100);
+      const threads = await listThreads(q, maxResults);
+      res.json(threads);
+    } catch (err: any) {
+      res.status(503).json({ message: "Gmail not connected", error: err.message });
+    }
+  });
+
+  app.get("/api/gmail/threads/:id", requireAuth, async (req, res) => {
+    try {
+      const thread = await getThread(req.params.id);
+      res.json(thread);
+    } catch (err: any) {
+      res.status(503).json({ message: "Gmail not connected", error: err.message });
+    }
+  });
+
+  app.post("/api/gmail/send", requireAuth, async (req, res) => {
+    const [user] = await db.select().from(users).where(eq(users.id, req.session.userId!));
+    if (!user || user.email !== "trevor@voltsafe.com") {
+      return res.status(403).json({ message: "Only the connected Gmail account owner can send emails." });
+    }
+    try {
+      const { to, subject, body, threadId } = req.body;
+      if (!to || !subject || !body) {
+        return res.status(400).json({ message: "to, subject, and body are required" });
+      }
+      const result = await sendEmail(to, subject, body, threadId);
+      res.json(result);
+    } catch (err: any) {
+      res.status(503).json({ message: "Failed to send email", error: err.message });
+    }
   });
 
   await seedDatabase();
