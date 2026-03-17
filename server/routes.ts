@@ -30,6 +30,7 @@ import {
 import { eq, sql } from "drizzle-orm";
 import { registerVoiceAssistantRoutes } from "./voice-assistant";
 import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile } from "./gmail";
+import { getAuthUrl, exchangeCodeForTokens, isGmailConnected } from "./gmail-oauth";
 
 const UPLOADS_DIR = path.resolve("uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -1324,6 +1325,45 @@ export async function registerRoutes(
       res.json(result);
     } catch (err: any) {
       res.status(503).json({ message: "Failed to send email", error: err.message });
+    }
+  });
+
+  // ── Gmail OAuth connect/callback ─────────────────────────────────────────
+  app.get("/api/gmail/status", requireAuth, async (_req, res) => {
+    const connected = await isGmailConnected();
+    const hasCredentials = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+    res.json({ connected, hasCredentials });
+  });
+
+  app.get("/api/auth/gmail/connect", requireAuth, (_req, res) => {
+    try {
+      const url = getAuthUrl();
+      res.redirect(url);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/auth/google/callback", async (req, res) => {
+    const code = req.query.code as string;
+    if (!code) return res.status(400).send("Missing authorization code");
+    try {
+      await exchangeCodeForTokens(code);
+      res.send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+        <div style="text-align:center">
+          <h2 style="color:#22c55e">✓ Gmail Connected</h2>
+          <p>Your Gmail account has been connected to VoltSafe Cortex.</p>
+          <a href="/gmail" style="color:#14b8a6">Go to Gmail Inbox →</a>
+        </div>
+      </body></html>`);
+    } catch (err: any) {
+      res.status(500).send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+        <div style="text-align:center">
+          <h2 style="color:#ef4444">Connection Failed</h2>
+          <p>${err.message}</p>
+          <a href="/gmail" style="color:#14b8a6">← Back</a>
+        </div>
+      </body></html>`);
     }
   });
 

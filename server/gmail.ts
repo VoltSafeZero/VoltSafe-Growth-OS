@@ -1,60 +1,6 @@
-// Gmail integration via Replit Google Mail connector
-// Connection: conn_google-mail_01KKWKTSCQ6RFM1F6CQWP7X529
-import { google } from "googleapis";
-
-let connectionSettings: any;
-
-async function getAccessToken() {
-  if (
-    connectionSettings &&
-    connectionSettings.settings.expires_at &&
-    new Date(connectionSettings.settings.expires_at).getTime() > Date.now()
-  ) {
-    return connectionSettings.settings.access_token;
-  }
-
-  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
-  const xReplitToken = process.env.REPL_IDENTITY
-    ? "repl " + process.env.REPL_IDENTITY
-    : process.env.WEB_REPL_RENEWAL
-    ? "depl " + process.env.WEB_REPL_RENEWAL
-    : null;
-
-  if (!xReplitToken) {
-    throw new Error("X-Replit-Token not found for repl/depl");
-  }
-
-  connectionSettings = await fetch(
-    "https://" +
-      hostname +
-      "/api/v2/connection?include_secrets=true&connector_names=google-mail",
-    {
-      headers: {
-        Accept: "application/json",
-        "X-Replit-Token": xReplitToken,
-      },
-    }
-  )
-    .then((res) => res.json())
-    .then((data) => data.items?.[0]);
-
-  const accessToken =
-    connectionSettings?.settings?.access_token ||
-    connectionSettings?.settings?.oauth?.credentials?.access_token;
-
-  if (!connectionSettings || !accessToken) {
-    throw new Error("Gmail not connected");
-  }
-  return accessToken;
-}
-
-// WARNING: Never cache this client. Tokens expire.
-export async function getUncachableGmailClient() {
-  const accessToken = await getAccessToken();
-  const oauth2Client = new google.auth.OAuth2();
-  oauth2Client.setCredentials({ access_token: accessToken });
-  return google.gmail({ version: "v1", auth: oauth2Client });
-}
+// Gmail integration via Google OAuth2 (GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET)
+// Refresh token stored in system_settings DB table
+import { getGmailClient } from "./gmail-oauth";
 
 function decodeBase64(data: string) {
   return Buffer.from(data.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8");
@@ -101,7 +47,7 @@ function getHeader(headers: any[], name: string): string {
 }
 
 export async function listThreads(query: string = "", maxResults: number = 30) {
-  const gmail = await getUncachableGmailClient();
+  const gmail = await getGmailClient();
   const res = await gmail.users.threads.list({
     userId: "me",
     maxResults,
@@ -111,7 +57,7 @@ export async function listThreads(query: string = "", maxResults: number = 30) {
 }
 
 export async function getThread(threadId: string) {
-  const gmail = await getUncachableGmailClient();
+  const gmail = await getGmailClient();
   const res = await gmail.users.threads.get({
     userId: "me",
     id: threadId,
@@ -141,7 +87,7 @@ export async function getThread(threadId: string) {
 }
 
 export async function getMessageSummaries(maxResults: number = 50, query: string = "") {
-  const gmail = await getUncachableGmailClient();
+  const gmail = await getGmailClient();
   const listRes = await gmail.users.messages.list({
     userId: "me",
     maxResults,
@@ -174,7 +120,7 @@ export async function getMessageSummaries(maxResults: number = 50, query: string
 }
 
 export async function sendEmail(to: string, subject: string, body: string, threadId?: string) {
-  const gmail = await getUncachableGmailClient();
+  const gmail = await getGmailClient();
   const profileRes = await gmail.users.getProfile({ userId: "me" });
   const from = profileRes.data.emailAddress;
 
@@ -202,7 +148,7 @@ export async function sendEmail(to: string, subject: string, body: string, threa
 }
 
 export async function getProfile() {
-  const gmail = await getUncachableGmailClient();
+  const gmail = await getGmailClient();
   const res = await gmail.users.getProfile({ userId: "me" });
   return res.data;
 }

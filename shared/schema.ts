@@ -673,3 +673,9 @@ export type CalendarEvent = typeof calendarEvents.$inferSelect;
 export type InsertCalendarEvent = z.infer<typeof insertCalendarEventSchema>;
 
 export * from "./models/chat";
+
+export const systemSettings = pgTable("system_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});

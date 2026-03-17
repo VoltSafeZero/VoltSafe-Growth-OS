@@ -172,6 +172,16 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
 
   const canSend = currentUserEmail === "trevor@voltsafe.com";
 
+  const statusQuery = useQuery<{ connected: boolean; hasCredentials: boolean }>({
+    queryKey: ["/api/gmail/status"],
+    queryFn: async () => {
+      const res = await fetch("/api/gmail/status", { credentials: "include" });
+      if (!res.ok) return { connected: false, hasCredentials: false };
+      return res.json();
+    },
+    retry: false,
+  });
+
   const inboxQuery = useQuery<MessageSummary[]>({
     queryKey: ["/api/gmail/messages", "inbox", searchQuery],
     queryFn: async () => {
@@ -345,10 +355,29 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               </div>
             )}
             {error && (
-              <div className="p-6 text-center text-sm text-muted-foreground">
-                <Mail className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                <p>Could not load emails.</p>
-                <p className="text-xs mt-1 text-red-400">{(error as Error).message}</p>
+              <div className="p-8 text-center">
+                <Mail className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                <p className="text-sm font-medium text-foreground mb-1">Could not load emails.</p>
+                {statusQuery.data && !statusQuery.data.connected ? (
+                  <>
+                    <p className="text-xs text-muted-foreground mb-4">Gmail is not connected to VoltSafe Cortex.</p>
+                    {canSend && statusQuery.data.hasCredentials && (
+                      <a
+                        href="/api/auth/gmail/connect"
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                        data-testid="button-connect-gmail"
+                      >
+                        <Mail className="w-4 h-4" />
+                        Connect Gmail Account
+                      </a>
+                    )}
+                    {canSend && !statusQuery.data.hasCredentials && (
+                      <p className="text-xs text-red-400">Google credentials not configured. Ask your admin to set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-xs mt-1 text-red-400">{(error as Error).message}</p>
+                )}
               </div>
             )}
             {!isLoading && !error && activeMessages?.length === 0 && (
