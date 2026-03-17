@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/dashboard/app-sidebar";
 import { Header } from "@/components/dashboard/header";
+import { MobileNav } from "@/components/dashboard/mobile-nav";
 
 import Dashboard from "@/pages/dashboard";
 import MarinasPage from "@/pages/marinas";
@@ -48,14 +49,15 @@ function AppShell({ children, user, onLogout }: { children: React.ReactNode; use
   return (
     <SidebarProvider style={sidebarStyle}>
       <div className="flex min-h-screen w-full bg-background text-foreground overflow-hidden">
-        <AppSidebar />
+        <div className="hidden md:flex"><AppSidebar /></div>
         <div className="flex flex-col flex-1 w-full overflow-hidden">
           <Header user={user} onLogout={onLogout} />
-          <main className="flex-1 overflow-y-auto overflow-x-hidden relative scroll-smooth">
+          <main className="flex-1 overflow-y-auto overflow-x-hidden relative scroll-smooth pb-16 md:pb-0">
             {children}
           </main>
         </div>
       </div>
+      <MobileNav />
     </SidebarProvider>
   );
 }

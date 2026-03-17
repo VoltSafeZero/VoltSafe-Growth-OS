@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { Search, Bell, LogOut, X, Menu } from "lucide-react";
+import { Search, Bell, LogOut, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useSidebar } from "@/components/ui/sidebar";
 import navLogo from "@assets/nav-logo.png";
 import {
   DropdownMenu,
@@ -35,8 +34,6 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
     }
   }, [mobileSearchOpen]);
 
-  const { toggleSidebar } = useSidebar();
-
   return (
     <header className="h-auto py-2 flex items-center justify-between px-3 sm:px-6 border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
       {mobileSearchOpen ? (
@@ -63,14 +60,6 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
       ) : (
         <>
           <div className="flex items-center gap-3 sm:gap-4 flex-1">
-            <button
-              onClick={toggleSidebar}
-              className="md:hidden flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/60 border border-border/50 text-sm font-medium text-foreground active:scale-95 transition-all"
-              data-testid="button-mobile-sidebar"
-            >
-              <Menu className="w-5 h-5 text-primary" />
-              <span>Menu</span>
-            </button>
 
             <Button
               variant="ghost"
