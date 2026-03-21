@@ -93,7 +93,7 @@ const EMAIL_SIGNATURE_HTML = `<div style="font-family: OpenSans, Arial, sans-ser
                     410-1444 Alberni St. Vancouver, BC<br>
                     <b style="color: #555;">M:</b> <a href="tel:+17786880498" style="text-decoration: none; color: #787f84;">+1 778 688 0498</a> &nbsp;|&nbsp; <b style="color: #555;">T:</b> <a href="tel:+18339996960" style="text-decoration: none; color: #787f84;">+1 833 999 6960</a><br>
                     <a href="mailto:trevor@voltsafe.com" style="color: #787f84; text-decoration: none;">trevor@voltsafe.com</a><br>
-                    <a href="https://www.voltsafe.com" style="color: #787f84; text-decoration: none;">voltsafe.com</a> | <a href="https://www.voltsafemarine.com" style="color: #787f84; text-decoration: none;">voltsafemarine.com</a>
+                    <a href="https://www.voltsafe.com" style="color: #787f84; text-decoration: none;"><span style="color: #787f84;">voltsafe.com</span></a> | <a href="https://www.voltsafemarine.com" style="color: #787f84; text-decoration: none;"><span style="color: #787f84;">voltsafemarine.com</span></a>
                 </p>
                 <p style="margin: 4px 0 0 0; font-size: 11px; color: #787f84;">
                     Follow us:
@@ -102,14 +102,6 @@ const EMAIL_SIGNATURE_HTML = `<div style="font-family: OpenSans, Arial, sans-ser
                     <a href="https://www.youtube.com/channel/UChU-fgZlHgE6TQtve3pXGMw" style="color: #00C1DE; text-decoration: none;">Youtube</a>
                 </p>
             </td>
-        </tr>
-        <tr>
-            <td style="padding: 8px 0 10px 0;">
-                <hr style="border: none; border-top: 1px solid #d0d0d0; margin: 0;">
-            </td>
-        </tr>
-        <tr>
-            <td><img src="https://lh3.googleusercontent.com/drive-viewer/AKGpihb5mZ0DrGSoEajW251qCw0TjBlUI4QxgOJSa0HXPTMLaKSUIDC4FdAkm5GKirVv9z0hYjZ_YMSWTTvuCQbz8uda1fYQNeJMri4=s2560" alt="VoltSafe unplug. connect." style="width: 200px; display: block;"></td>
         </tr>
     </tbody>
 </table>
