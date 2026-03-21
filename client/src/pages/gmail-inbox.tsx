@@ -344,8 +344,12 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
     retry: false,
   });
 
-  const inboxMain = (inboxQuery.data || []).filter((m) => !blockedDomains.has(parseSenderDomain(m.from)));
-  const inboxOther = (inboxQuery.data || []).filter((m) => blockedDomains.has(parseSenderDomain(m.from)));
+  const inboxMain = canSend
+    ? (inboxQuery.data || []).filter((m) => !blockedDomains.has(parseSenderDomain(m.from)))
+    : (inboxQuery.data || []);
+  const inboxOther = canSend
+    ? (inboxQuery.data || []).filter((m) => blockedDomains.has(parseSenderDomain(m.from)))
+    : [];
 
   const activeMessages =
     tab === "inbox" ? inboxMain :
@@ -451,20 +455,22 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               >
                 <Send className="h-4 w-4 mr-1" /> Sent
               </Button>
-              <Button
-                size="sm"
-                variant={tab === "other" ? "default" : "ghost"}
-                className="flex-1 relative"
-                onClick={() => { setTab("other"); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                data-testid="tab-other"
-              >
-                <FolderX className="h-4 w-4 mr-1" /> Other
-                {inboxOther.length > 0 && (
-                  <span className="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 rounded-full bg-muted-foreground/40 text-[10px] flex items-center justify-center">
-                    {inboxOther.length}
-                  </span>
-                )}
-              </Button>
+              {canSend && (
+                <Button
+                  size="sm"
+                  variant={tab === "other" ? "default" : "ghost"}
+                  className="flex-1 relative"
+                  onClick={() => { setTab("other"); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                  data-testid="tab-other"
+                >
+                  <FolderX className="h-4 w-4 mr-1" /> Other
+                  {inboxOther.length > 0 && (
+                    <span className="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 rounded-full bg-muted-foreground/40 text-[10px] flex items-center justify-center">
+                      {inboxOther.length}
+                    </span>
+                  )}
+                </Button>
+              )}
             </div>
             <form onSubmit={handleSearch} className="flex gap-1">
               <div className="relative flex-1">
@@ -565,7 +571,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                     <p className="text-xs text-muted-foreground truncate mt-0.5">{msg.snippet}</p>
                     {unread && <div className="w-1.5 h-1.5 rounded-full bg-primary mt-1" />}
                   </button>
-                  {tab !== "sent" && (
+                  {canSend && tab !== "sent" && (
                     <button
                       title={blocked ? `Unblock @${domain}` : `Block all email from @${domain}`}
                       data-testid={`button-flag-${msg.id}`}
