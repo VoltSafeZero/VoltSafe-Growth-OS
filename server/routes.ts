@@ -33,6 +33,7 @@ import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile } fr
 import { getAuthUrl, exchangeCodeForTokens, isGmailConnected } from "./gmail-oauth";
 import { parseGmailMessage } from "./services/email-parser";
 import { runAssociationEngine } from "./services/association-engine";
+import { runGmailSync } from "./services/gmail-sync";
 import {
   emailMessages, emailThreads, emailAssociations, associationFeedback,
 } from "@shared/schema";
@@ -1375,50 +1376,9 @@ export async function registerRoutes(
   // ── Email Sync + Association Routes ─────────────────────────────────────
   app.post("/api/gmail/sync", requireAuth, async (req, res) => {
     try {
-      const connected = await isGmailConnected();
-      if (!connected) return res.status(503).json({ message: "Gmail not connected" });
-
-      const gmail = await import("./gmail");
-      const profileData = await gmail.getProfile();
-      const myDomain = profileData.emailAddress?.split("@")[1] || "voltsafe.com";
-
       const limit = Number(req.query.limit) || 50;
-      const query = (req.query.q as string) || "in:inbox OR in:sent";
-
-      const { google } = await import("googleapis");
-      const { getGmailClient } = await import("./gmail-oauth");
-      const gmailClient = await getGmailClient();
-
-      const listRes = await gmailClient.users.messages.list({
-        userId: "me",
-        maxResults: limit,
-        q: query,
-      });
-      const messageIds = listRes.data.messages || [];
-
-      let newCount = 0;
-      let processedCount = 0;
-
-      for (const { id } of messageIds) {
-        if (!id) continue;
-        const existing = await db.select({ id: emailMessages.id })
-          .from(emailMessages).where(eq(emailMessages.gmailMessageId, id)).limit(1);
-        if (existing.length > 0) { processedCount++; continue; }
-
-        const msgRes = await gmailClient.users.messages.get({
-          userId: "me", id, format: "full",
-        });
-        const parsed = parseGmailMessage(msgRes.data, myDomain);
-        const [inserted] = await db.insert(emailMessages).values(parsed)
-          .onConflictDoNothing().returning();
-        if (inserted) {
-          await runAssociationEngine(inserted.id);
-          newCount++;
-        }
-        processedCount++;
-      }
-
-      res.json({ processed: processedCount, newMessages: newCount });
+      const result = await runGmailSync(limit);
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: "Sync failed", error: err.message });
     }

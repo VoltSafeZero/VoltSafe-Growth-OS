@@ -4,6 +4,7 @@ import connectPgSimple from "connect-pg-simple";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { startHourlySyncScheduler } from "./services/gmail-sync";
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);
@@ -139,6 +140,8 @@ app.use((req, res, next) => {
       } catch (err) {
         console.error("Seed error (non-fatal):", err);
       }
+
+      startHourlySyncScheduler();
     },
   );
 })();
