@@ -41,6 +41,7 @@ const overviewItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Calendar", url: "/calendar", icon: CalendarClock },
   { title: "Team Workload", url: "/team-workload", icon: Users },
+  { title: "Gmail Inbox", url: "/gmail", icon: Mail },
 ];
 
 const salesItems = [
@@ -72,7 +73,6 @@ const supportItems = [
 ];
 
 const commsItems = [
-  { title: "Gmail Inbox", url: "/gmail", icon: Mail },
   { title: "Communications", url: "/communications", icon: Megaphone },
 ];
 
