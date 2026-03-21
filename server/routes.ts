@@ -1324,10 +1324,13 @@ export async function registerRoutes(
     }
     try {
       const { to, subject, body, threadId } = req.body;
-      if (!to || !subject || !body) {
-        return res.status(400).json({ message: "to, subject, and body are required" });
+      if (!to || !body) {
+        return res.status(400).json({ message: "to and body are required" });
       }
-      const result = await sendEmail(to, subject, body, threadId);
+      if (!threadId && !subject) {
+        return res.status(400).json({ message: "subject is required for new emails" });
+      }
+      const result = await sendEmail(to, subject || "", body, threadId);
       res.json(result);
     } catch (err: any) {
       res.status(503).json({ message: "Failed to send email", error: err.message });
