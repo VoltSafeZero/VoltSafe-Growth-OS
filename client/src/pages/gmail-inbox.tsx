@@ -71,6 +71,30 @@ function isUnread(labelIds: string[]) {
   return labelIds.includes("UNREAD");
 }
 
+const EMAIL_SIGNATURE_HTML = `<div style="font-family:Arial,sans-serif;font-size:13px;color:#333;line-height:1.5;">
+<p style="margin:0 0 16px 0;">Regards,</p>
+<p style="margin:0;"><strong style="font-size:14px;">TREVOR BURGESS</strong></p>
+<p style="margin:0;color:#2563eb;">Co-Founder &amp; CEO</p>
+<hr style="border:none;border-top:1px solid #d1d5db;margin:10px 0;width:220px;text-align:left;"/>
+<p style="margin:0;">VoltSafe Inc.</p>
+<p style="margin:0;">410-1444 Alberni St. Vancouver, BC</p>
+<p style="margin:0;"><strong>M:</strong> +1 778 688 0498 &nbsp;|&nbsp; <strong>T:</strong> +1 833 999 6960</p>
+<p style="margin:0;"><a href="mailto:trevor@voltsafe.com" style="color:#333;text-decoration:none;">trevor@voltsafe.com</a></p>
+<p style="margin:0;"><a href="https://voltsafe.com" style="color:#333;text-decoration:none;">voltsafe.com</a> | <a href="https://voltsafemarine.com" style="color:#333;text-decoration:none;">voltsafemarine.com</a></p>
+<p style="margin:4px 0 0 0;">Follow us: <a href="https://www.linkedin.com/company/voltsafe" style="color:#2563eb;text-decoration:none;">LinkedIn</a> | <a href="https://www.instagram.com/voltsafe" style="color:#2563eb;text-decoration:none;">Instagram</a> | <a href="https://www.youtube.com/@voltsafe" style="color:#2563eb;text-decoration:none;">Youtube</a></p>
+</div>`;
+
+function buildEmailHtml(messageText: string): string {
+  const escaped = messageText
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .split("\n")
+    .map((line) => line || "&nbsp;")
+    .join("<br/>");
+  return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111;line-height:1.6;margin-bottom:24px;">${escaped}</div>\n${EMAIL_SIGNATURE_HTML}`;
+}
+
 function ComposeDialog({
   open,
   onClose,
@@ -93,7 +117,8 @@ function ComposeDialog({
 
   const sendMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/gmail/send", { to, subject, body, threadId });
+      const htmlBody = buildEmailHtml(body);
+      const res = await apiRequest("POST", "/api/gmail/send", { to, subject, body: htmlBody, threadId });
       return res.json();
     },
     onSuccess: () => {
@@ -108,7 +133,7 @@ function ComposeDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{threadId ? "Reply" : "New Email"}</DialogTitle>
         </DialogHeader>
@@ -130,8 +155,17 @@ function ComposeDialog({
           )}
           <div>
             <Label className="text-xs">Message</Label>
-            <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={8} placeholder="Write your message..." disabled={!canSend} data-testid="input-email-body" />
+            <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={6} placeholder="Write your message..." disabled={!canSend} data-testid="input-email-body" />
           </div>
+
+          <div className="border border-border/50 rounded-md p-3 bg-muted/20">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Signature (auto-appended)</p>
+            <div
+              className="text-sm opacity-70 pointer-events-none select-none"
+              dangerouslySetInnerHTML={{ __html: EMAIL_SIGNATURE_HTML }}
+            />
+          </div>
+
           <div className="flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
             {canSend && (

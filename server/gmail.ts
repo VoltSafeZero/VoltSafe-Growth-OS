@@ -124,14 +124,29 @@ export async function sendEmail(to: string, subject: string, body: string, threa
   const profileRes = await gmail.users.getProfile({ userId: "me" });
   const from = profileRes.data.emailAddress;
 
+  const boundary = `boundary_${Date.now()}_voltsafe`;
+  const plainText = body.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+
   const messageParts = [
     `From: ${from}`,
     `To: ${to}`,
     `Subject: ${subject}`,
-    "Content-Type: text/plain; charset=utf-8",
     "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
+    "Content-Type: text/plain; charset=utf-8",
+    "Content-Transfer-Encoding: quoted-printable",
+    "",
+    plainText,
+    "",
+    `--${boundary}`,
+    "Content-Type: text/html; charset=utf-8",
+    "Content-Transfer-Encoding: quoted-printable",
     "",
     body,
+    "",
+    `--${boundary}--`,
   ];
 
   const raw = Buffer.from(messageParts.join("\n"))
