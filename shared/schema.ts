@@ -744,6 +744,16 @@ export const associationFeedback = pgTable("association_feedback", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const emailFilters = pgTable("email_filters", {
+  id: serial("id").primaryKey(),
+  domain: text("domain").notNull().unique(),
+  addedBy: integer("added_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertEmailFilterSchema = createInsertSchema(emailFilters).omit({ id: true, createdAt: true });
+export type EmailFilter = typeof emailFilters.$inferSelect;
+
 export const insertEmailMessageSchema = createInsertSchema(emailMessages).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertEmailThreadSchema = createInsertSchema(emailThreads).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertEmailAssociationSchema = createInsertSchema(emailAssociations).omit({ id: true, createdAt: true, updatedAt: true });

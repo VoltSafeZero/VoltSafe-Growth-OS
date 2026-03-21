@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2,
+  Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
 } from "lucide-react";
 import DOMPurify from "dompurify";
 
@@ -66,6 +66,14 @@ function parseSenderEmail(from: string) {
   const match = from.match(/<([^>]+)>/);
   return match ? match[1] : from;
 }
+
+function parseSenderDomain(from: string): string {
+  const email = parseSenderEmail(from);
+  const at = email.lastIndexOf("@");
+  return at >= 0 ? email.slice(at + 1).toLowerCase() : "";
+}
+
+type EmailFilter = { id: number; domain: string; createdAt: string };
 
 function isUnread(labelIds: string[]) {
   return labelIds.includes("UNREAD");
@@ -224,7 +232,42 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<{ to: string; subject: string; threadId: string } | null>(null);
-  const [tab, setTab] = useState<"inbox" | "sent">("inbox");
+  const [tab, setTab] = useState<"inbox" | "sent" | "other">("inbox");
+
+  const filtersQuery = useQuery<EmailFilter[]>({
+    queryKey: ["/api/email-filters"],
+    queryFn: async () => {
+      const res = await fetch("/api/email-filters", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const blockedDomains = new Set((filtersQuery.data || []).map((f) => f.domain));
+
+  const flagMutation = useMutation({
+    mutationFn: async (domain: string) => {
+      const res = await apiRequest("POST", "/api/email-filters", { domain });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/email-filters"] });
+      toast({ title: "Domain blocked", description: "Future emails from this sender will appear in Other." });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const unblockMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/email-filters/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/email-filters"] });
+      toast({ title: "Domain unblocked", description: "Emails from this sender will appear in your inbox again." });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
 
   const syncMutation = useMutation({
     mutationFn: async () => {
@@ -301,9 +344,15 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
     retry: false,
   });
 
-  const activeMessages = tab === "inbox" ? inboxQuery.data : sentQuery.data;
-  const isLoading = tab === "inbox" ? inboxQuery.isLoading : sentQuery.isLoading;
-  const error = tab === "inbox" ? inboxQuery.error : sentQuery.error;
+  const inboxMain = (inboxQuery.data || []).filter((m) => !blockedDomains.has(parseSenderDomain(m.from)));
+  const inboxOther = (inboxQuery.data || []).filter((m) => blockedDomains.has(parseSenderDomain(m.from)));
+
+  const activeMessages =
+    tab === "inbox" ? inboxMain :
+    tab === "sent"  ? sentQuery.data :
+    inboxOther;
+  const isLoading = tab === "other" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : sentQuery.isLoading;
+  const error = tab === "other" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : sentQuery.error;
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -402,6 +451,20 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               >
                 <Send className="h-4 w-4 mr-1" /> Sent
               </Button>
+              <Button
+                size="sm"
+                variant={tab === "other" ? "default" : "ghost"}
+                className="flex-1 relative"
+                onClick={() => { setTab("other"); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                data-testid="tab-other"
+              >
+                <FolderX className="h-4 w-4 mr-1" /> Other
+                {inboxOther.length > 0 && (
+                  <span className="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 rounded-full bg-muted-foreground/40 text-[10px] flex items-center justify-center">
+                    {inboxOther.length}
+                  </span>
+                )}
+              </Button>
             </div>
             <form onSubmit={handleSearch} className="flex gap-1">
               <div className="relative flex-1">
@@ -461,36 +524,66 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                 )}
               </div>
             )}
-            {!isLoading && !error && activeMessages?.length === 0 && (
+            {!isLoading && !error && tab !== "other" && activeMessages?.length === 0 && (
               <div className="p-6 text-center text-sm text-muted-foreground">
                 <Inbox className="h-8 w-8 mx-auto mb-2 opacity-30" />
                 <p>No messages found</p>
               </div>
             )}
+            {tab === "other" && inboxOther.length === 0 && !isLoading && (
+              <div className="p-6 text-center text-sm text-muted-foreground">
+                <FolderX className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                <p>No filtered emails</p>
+              </div>
+            )}
             {activeMessages?.map((msg) => {
               const unread = isUnread(msg.labelIds);
               const isSelected = msg.threadId === selectedThreadId;
+              const domain = parseSenderDomain(msg.from);
+              const blocked = blockedDomains.has(domain);
               return (
-                <button
+                <div
                   key={msg.id}
-                  onClick={() => handleSelectMessage(msg)}
-                  data-testid={`email-row-${msg.id}`}
-                  className={`w-full text-left px-3 py-2.5 border-b border-border/30 transition-colors hover:bg-muted/50 ${isSelected ? "bg-primary/10 border-l-2 border-l-primary" : ""}`}
+                  className={`relative group border-b border-border/30 ${isSelected ? "bg-primary/10 border-l-2 border-l-primary" : ""}`}
                 >
-                  <div className="flex items-start justify-between gap-2 mb-0.5">
-                    <span className={`text-sm truncate ${unread ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
-                      {tab === "sent" ? (msg.to ? `To: ${parseSenderName(msg.to)}` : "Unknown") : parseSenderName(msg.from)}
-                    </span>
-                    <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
-                      {formatDate(msg.date, msg.internalDate)}
-                    </span>
-                  </div>
-                  <p className={`text-xs truncate ${unread ? "text-foreground" : "text-muted-foreground"}`}>
-                    {msg.subject || "(no subject)"}
-                  </p>
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">{msg.snippet}</p>
-                  {unread && <div className="w-1.5 h-1.5 rounded-full bg-primary mt-1" />}
-                </button>
+                  <button
+                    onClick={() => handleSelectMessage(msg)}
+                    data-testid={`email-row-${msg.id}`}
+                    className="w-full text-left px-3 py-2.5 pr-8 transition-colors hover:bg-muted/50"
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-0.5">
+                      <span className={`text-sm truncate ${unread ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
+                        {tab === "sent" ? (msg.to ? `To: ${parseSenderName(msg.to)}` : "Unknown") : parseSenderName(msg.from)}
+                      </span>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
+                        {formatDate(msg.date, msg.internalDate)}
+                      </span>
+                    </div>
+                    <p className={`text-xs truncate ${unread ? "text-foreground" : "text-muted-foreground"}`}>
+                      {msg.subject || "(no subject)"}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">{msg.snippet}</p>
+                    {unread && <div className="w-1.5 h-1.5 rounded-full bg-primary mt-1" />}
+                  </button>
+                  {tab !== "sent" && (
+                    <button
+                      title={blocked ? `Unblock @${domain}` : `Block all email from @${domain}`}
+                      data-testid={`button-flag-${msg.id}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (blocked) {
+                          const filter = (filtersQuery.data || []).find((f) => f.domain === domain);
+                          if (filter) unblockMutation.mutate(filter.id);
+                        } else {
+                          flagMutation.mutate(domain);
+                        }
+                      }}
+                      className={`absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity ${blocked ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/50 hover:text-destructive"}`}
+                    >
+                      {blocked ? <Trash2 className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />}
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>

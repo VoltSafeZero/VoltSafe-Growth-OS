@@ -35,7 +35,7 @@ import { parseGmailMessage } from "./services/email-parser";
 import { runAssociationEngine } from "./services/association-engine";
 import { runGmailSync } from "./services/gmail-sync";
 import {
-  emailMessages, emailThreads, emailAssociations, associationFeedback,
+  emailMessages, emailThreads, emailAssociations, associationFeedback, emailFilters,
 } from "@shared/schema";
 
 const UPLOADS_DIR = path.resolve("uploads");
@@ -1384,6 +1384,40 @@ export async function registerRoutes(
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: "Sync failed", error: err.message });
+    }
+  });
+
+  // ── Email Filters (blocked domains → "Other") ───────────────────────────
+  app.get("/api/email-filters", requireAuth, async (req, res) => {
+    try {
+      const filters = await db.select().from(emailFilters).orderBy(emailFilters.createdAt);
+      res.json(filters);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/email-filters", requireAuth, async (req, res) => {
+    try {
+      const { domain } = req.body;
+      if (!domain) return res.status(400).json({ message: "domain required" });
+      const normalised = domain.toLowerCase().trim();
+      const [row] = await db.insert(emailFilters)
+        .values({ domain: normalised, addedBy: req.session.userId })
+        .onConflictDoNothing()
+        .returning();
+      res.json(row || { domain: normalised });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/email-filters/:id", requireAuth, async (req, res) => {
+    try {
+      await db.delete(emailFilters).where(eq(emailFilters.id, Number(req.params.id)));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 
