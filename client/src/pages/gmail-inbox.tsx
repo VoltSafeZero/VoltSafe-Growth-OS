@@ -159,7 +159,6 @@ function ComposeDialog({
           </div>
 
           <div className="border border-border/50 rounded-md p-3 bg-muted/20">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Signature (auto-appended)</p>
             <div
               className="text-sm opacity-70 pointer-events-none select-none"
               dangerouslySetInnerHTML={{ __html: EMAIL_SIGNATURE_HTML }}
