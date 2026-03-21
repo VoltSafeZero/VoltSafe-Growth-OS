@@ -71,31 +71,45 @@ function isUnread(labelIds: string[]) {
   return labelIds.includes("UNREAD");
 }
 
-const EMAIL_SIGNATURE_HTML = `<div style="font-family: OpenSans, Arial, sans-serif; line-height: 1.5;">
-<p style="margin: 0 0 12px 0;">Regards,</p>
-<table cellpadding="0" cellspacing="0" border="0">
+const EMAIL_SIGNATURE_HTML = `<div style="font-family: OpenSans, Arial, sans-serif; font-size: 13px; color: #222; line-height: 1.5;">
+<p style="margin: 0 0 20px 0; font-size: 13px;">Regards,</p>
+<table cellpadding="0" cellspacing="0" border="0" style="min-width: 300px;">
     <tbody>
         <tr>
+            <td style="padding-bottom: 2px;">
+                <p style="margin: 0; font-size: 16px; font-weight: bold; color: #111; letter-spacing: 0.01em;">TREVOR BURGESS</p>
+                <p style="margin: 0; font-size: 12px; color: #00C1DE; line-height: 1.6;">Co-Founder &amp; CEO</p>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 6px 0 8px 0;">
+                <hr style="border: none; border-top: 1px solid #d0d0d0; margin: 0;">
+            </td>
+        </tr>
+        <tr>
             <td>
-                <p style="margin: 0; line-height: 1.2; font-size: 14px;"><b>TREVOR BURGESS</b></p>
-                <p style="margin: 0; font-size: 12px; line-height: 1.4; color: #00C1DE;">Co-Founder &amp; CEO</p>
-                <hr style="border: none; border-top: 1px solid #ccc; margin: 8px 0; width: 240px;">
-                <p style="margin: 0; font-size: 12px; color: #787f84; line-height: 1.7;">
+                <p style="margin: 0; font-size: 12px; color: #787f84; line-height: 1.8;">
                     VoltSafe Inc.<br>
                     410-1444 Alberni St. Vancouver, BC<br>
-                    <b>M:</b> <a href="tel:+17786880498" style="text-decoration: none; color: #787f84;">+1 778 688 0498</a> &nbsp;|&nbsp; <b>T:</b> <a href="tel:+18339996960" style="text-decoration: none; color: #787f84;">+1 833 999 6960</a><br>
+                    <b style="color: #555;">M:</b> <a href="tel:+17786880498" style="text-decoration: none; color: #787f84;">+1 778 688 0498</a> &nbsp;|&nbsp; <b style="color: #555;">T:</b> <a href="tel:+18339996960" style="text-decoration: none; color: #787f84;">+1 833 999 6960</a><br>
                     <a href="mailto:trevor@voltsafe.com" style="color: #787f84; text-decoration: none;">trevor@voltsafe.com</a><br>
                     <a href="https://www.voltsafe.com" style="color: #787f84; text-decoration: none;">voltsafe.com</a> | <a href="https://www.voltsafemarine.com" style="color: #787f84; text-decoration: none;">voltsafemarine.com</a>
                 </p>
-                <p style="margin: 4px 0 0 0; font-size: 10px; color: #787f84;">
+                <p style="margin: 4px 0 0 0; font-size: 11px; color: #787f84;">
                     Follow us:
-                    <a href="https://www.linkedin.com/company/voltsafe" style="color: #00C1DE;">LinkedIn</a> |
-                    <a href="https://www.instagram.com/voltsafetech/" style="color: #00C1DE;">Instagram</a> |
-                    <a href="https://www.youtube.com/channel/UChU-fgZlHgE6TQtve3pXGMw" style="color: #00C1DE;">Youtube</a>
+                    <a href="https://www.linkedin.com/company/voltsafe" style="color: #00C1DE; text-decoration: none;">LinkedIn</a> |
+                    <a href="https://www.instagram.com/voltsafetech/" style="color: #00C1DE; text-decoration: none;">Instagram</a> |
+                    <a href="https://www.youtube.com/channel/UChU-fgZlHgE6TQtve3pXGMw" style="color: #00C1DE; text-decoration: none;">Youtube</a>
                 </p>
-                <hr style="border: none; border-top: 1px solid #ccc; margin: 10px 0; width: 240px;">
-                <p style="margin: 0;"><img src="https://lh3.googleusercontent.com/drive-viewer/AKGpihb5mZ0DrGSoEajW251qCw0TjBlUI4QxgOJSa0HXPTMLaKSUIDC4FdAkm5GKirVv9z0hYjZ_YMSWTTvuCQbz8uda1fYQNeJMri4=s2560" alt="VoltSafe unplug. connect." style="width: 200px; display: block;"></p>
             </td>
+        </tr>
+        <tr>
+            <td style="padding: 8px 0 10px 0;">
+                <hr style="border: none; border-top: 1px solid #d0d0d0; margin: 0;">
+            </td>
+        </tr>
+        <tr>
+            <td><img src="https://lh3.googleusercontent.com/drive-viewer/AKGpihb5mZ0DrGSoEajW251qCw0TjBlUI4QxgOJSa0HXPTMLaKSUIDC4FdAkm5GKirVv9z0hYjZ_YMSWTTvuCQbz8uda1fYQNeJMri4=s2560" alt="VoltSafe unplug. connect." style="width: 200px; display: block;"></td>
         </tr>
     </tbody>
 </table>
