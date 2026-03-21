@@ -125,9 +125,15 @@ export async function sendEmail(to: string, subject: string, body: string, threa
   const from = profileRes.data.emailAddress;
 
   const boundary = `boundary_${Date.now()}_voltsafe`;
-  const plainText = body.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+  const plainText = body
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
 
-  const messageParts = [
+  const CRLF = "\r\n";
+  const rawMessage = [
     `From: ${from}`,
     `To: ${to}`,
     `Subject: ${subject}`,
@@ -136,20 +142,18 @@ export async function sendEmail(to: string, subject: string, body: string, threa
     "",
     `--${boundary}`,
     "Content-Type: text/plain; charset=utf-8",
-    "Content-Transfer-Encoding: quoted-printable",
     "",
     plainText,
     "",
     `--${boundary}`,
     "Content-Type: text/html; charset=utf-8",
-    "Content-Transfer-Encoding: quoted-printable",
     "",
     body,
     "",
     `--${boundary}--`,
-  ];
+  ].join(CRLF);
 
-  const raw = Buffer.from(messageParts.join("\n"))
+  const raw = Buffer.from(rawMessage)
     .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")

@@ -71,35 +71,34 @@ function isUnread(labelIds: string[]) {
   return labelIds.includes("UNREAD");
 }
 
-const EMAIL_SIGNATURE_HTML = `<div data-spark-custom-html="true">
-    <div dir="auto"><br>Regards,<br>&nbsp;<br>&nbsp;<br>
-        <table cellpadding="0" cellspacing="0" border="0" style="font-family: OpenSans, sans-serif; line-height: 1.5;">
-            <tbody>
-                <tr>
-                    <td>
-                        <p style="margin: 0; line-height: 1; font-size: 14px;"><span style="margin: 0px; line-height: 1; font-size: 14px;"><span style="margin: 0px; line-height: 1; font-size: 14px;"><br> <b>TREVOR BURGESS</b><br> </span></span></p>
-                        <p style="margin: 0; font-size: 12px; line-height: 1.6; color: #00C1DE;"><span style="margin: 0px; font-size: 12px; line-height: 1.6; color: rgb(0, 193, 222);"><span style="margin: 0px; font-size: 12px; line-height: 1.6; color: rgb(0, 193, 222);"><span>Co-Founder &amp; CEO</span><br> </span></span></p>
-                        <hr style="border: none; border-top: 1px solid #ccc; margin: 12px 0;">
-                        <p style="margin: 0; font-size: 12px; color: #787f84;"><span style="margin: 0px; font-size: 12px; color: rgb(120, 127, 132);"><span style="margin: 0px; font-size: 12px; color: rgb(120, 127, 132);"><span>VoltSafe Inc.</span><br> <span>410-1444 Alberni St. Vancouver, BC</span><br> <span><b>M: </b><a href="tel:+17786880498" style="text-decoration: none; color: inherit;">+1 778 688 0498</a></span> &nbsp;|&nbsp;
-                                    <span><b>T: </b><a href="tel:+18339996960" style="text-decoration: none; color: inherit;">+1 833 999 6960</a></span><br> <a href="mailto:trevor@voltsafe.com" style="color: #787f84; text-decoration: none;">trevor@voltsafe.com</a><br> <a href="https://www.voltsafe.com" style="color: #787f84; text-decoration: none;">voltsafe.com</a> |
-                                    <a href="https://www.voltsafemarine.com" style="color: #787f84; text-decoration: none;">voltsafemarine.com</a><br> </span></span></p>
-                        <p style="margin: 0; font-size: 10px; line-height: 1.9; color: #787f84;"><span style="margin: 0px; font-size: 10px; line-height: 1.9; color: rgb(120, 127, 132);"><span style="margin: 0px; font-size: 10px; line-height: 1.9; color: rgb(120, 127, 132);"><span>Follow us:</span>
-                                    <a href="https://www.linkedin.com/company/voltsafe" style="color: #00C1DE; text-decoration: none;">LinkedIn</a> |
-                                    <a href="https://www.instagram.com/voltsafetech/" style="color: #00C1DE; text-decoration: none;">Instagram</a> |
-                                    <a href="https://www.youtube.com/channel/UChU-fgZlHgE6TQtve3pXGMw" style="color: #00C1DE; text-decoration: none;">Youtube</a></span></span></p>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px 0;">
-                        <hr style="border: none; border-top: 1px solid #ccc;">
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding-top: 10px;"><img src="https://lh3.googleusercontent.com/drive-viewer/AKGpihb5mZ0DrGSoEajW251qCw0TjBlUI4QxgOJSa0HXPTMLaKSUIDC4FdAkm5GKirVv9z0hYjZ_YMSWTTvuCQbz8uda1fYQNeJMri4=s2560" alt="VoltSafe unplug. connect." style="width: 200px;"></td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
+const EMAIL_SIGNATURE_HTML = `<div style="font-family: OpenSans, Arial, sans-serif; line-height: 1.5;">
+<p style="margin: 0 0 12px 0;">Regards,</p>
+<table cellpadding="0" cellspacing="0" border="0">
+    <tbody>
+        <tr>
+            <td>
+                <p style="margin: 0; line-height: 1.2; font-size: 14px;"><b>TREVOR BURGESS</b></p>
+                <p style="margin: 0; font-size: 12px; line-height: 1.4; color: #00C1DE;">Co-Founder &amp; CEO</p>
+                <hr style="border: none; border-top: 1px solid #ccc; margin: 8px 0; width: 240px;">
+                <p style="margin: 0; font-size: 12px; color: #787f84; line-height: 1.7;">
+                    VoltSafe Inc.<br>
+                    410-1444 Alberni St. Vancouver, BC<br>
+                    <b>M:</b> <a href="tel:+17786880498" style="text-decoration: none; color: #787f84;">+1 778 688 0498</a> &nbsp;|&nbsp; <b>T:</b> <a href="tel:+18339996960" style="text-decoration: none; color: #787f84;">+1 833 999 6960</a><br>
+                    <a href="mailto:trevor@voltsafe.com" style="color: #787f84; text-decoration: none;">trevor@voltsafe.com</a><br>
+                    <a href="https://www.voltsafe.com" style="color: #787f84; text-decoration: none;">voltsafe.com</a> | <a href="https://www.voltsafemarine.com" style="color: #787f84; text-decoration: none;">voltsafemarine.com</a>
+                </p>
+                <p style="margin: 4px 0 0 0; font-size: 10px; color: #787f84;">
+                    Follow us:
+                    <a href="https://www.linkedin.com/company/voltsafe" style="color: #00C1DE;">LinkedIn</a> |
+                    <a href="https://www.instagram.com/voltsafetech/" style="color: #00C1DE;">Instagram</a> |
+                    <a href="https://www.youtube.com/channel/UChU-fgZlHgE6TQtve3pXGMw" style="color: #00C1DE;">Youtube</a>
+                </p>
+                <hr style="border: none; border-top: 1px solid #ccc; margin: 10px 0; width: 240px;">
+                <p style="margin: 0;"><img src="https://lh3.googleusercontent.com/drive-viewer/AKGpihb5mZ0DrGSoEajW251qCw0TjBlUI4QxgOJSa0HXPTMLaKSUIDC4FdAkm5GKirVv9z0hYjZ_YMSWTTvuCQbz8uda1fYQNeJMri4=s2560" alt="VoltSafe unplug. connect." style="width: 200px; display: block;"></p>
+            </td>
+        </tr>
+    </tbody>
+</table>
 </div>`;
 
 function buildEmailHtml(messageText: string): string {
