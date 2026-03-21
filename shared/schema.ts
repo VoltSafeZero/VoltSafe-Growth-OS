@@ -758,6 +758,23 @@ export const scheduledEmails = pgTable("scheduled_emails", {
 });
 export type ScheduledEmail = typeof scheduledEmails.$inferSelect;
 
+export const assets = pgTable("assets", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  originalName: text("original_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  size: integer("size").notNull(),
+  filePath: text("file_path").notNull(),
+  category: text("category").notNull().default("general"),
+  description: text("description"),
+  tags: text("tags").default(""),
+  uploadedBy: integer("uploaded_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export const insertAssetSchema = createInsertSchema(assets).omit({ id: true, createdAt: true });
+export type Asset = typeof assets.$inferSelect;
+export type InsertAsset = z.infer<typeof insertAssetSchema>;
+
 export const emailFilters = pgTable("email_filters", {
   id: serial("id").primaryKey(),
   domain: text("domain").notNull().unique(),

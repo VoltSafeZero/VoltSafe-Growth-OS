@@ -22,6 +22,7 @@ import {
   CalendarClock,
   MapPin,
   Mail,
+  FolderOpen,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import navLogo from "@assets/nav-logo.png";
@@ -48,6 +49,7 @@ const salesItems = [
   { title: "Marina Accounts", url: "/accounts", icon: Building2 },
   { title: "Marina Leads", url: "/leads", icon: UserPlus },
   { title: "Quotes", url: "/quotes", icon: FileText },
+  { title: "Assets", url: "/assets", icon: FolderOpen },
 ];
 
 const partnershipsItems = [

@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useToast } from "@/hooks/use-toast";
 import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
-  Clock, FileText, CalendarClock, CalendarX,
+  Clock, FileText, CalendarClock, CalendarX, Paperclip,
 } from "lucide-react";
 import DOMPurify from "dompurify";
 
@@ -153,11 +153,21 @@ function ComposeDialog({
   const [showScheduler, setShowScheduler] = useState(false);
   const [scheduledAt, setScheduledAt] = useState("");
   const [activeDraftId, setActiveDraftId] = useState(draftId);
+  const [attachedAssets, setAttachedAssets] = useState<{ id: number; name: string }[]>([]);
+  const [showAssetPicker, setShowAssetPicker] = useState(false);
+
+  const assetsQuery = useQuery<{ id: number; name: string; mimeType: string; size: number; category: string }[]>({
+    queryKey: ["/api/assets"],
+    enabled: showAssetPicker,
+  });
 
   const sendMutation = useMutation({
     mutationFn: async () => {
       const htmlBody = buildEmailHtml(body);
-      const res = await apiRequest("POST", "/api/gmail/send", { to, subject, body: htmlBody, threadId });
+      const res = await apiRequest("POST", "/api/gmail/send", {
+        to, subject, body: htmlBody, threadId,
+        attachmentIds: attachedAssets.map((a) => a.id),
+      });
       return res.json();
     },
     onSuccess: async () => {
@@ -208,6 +218,7 @@ function ComposeDialog({
   const minDatetime = new Date(Date.now() + 60000).toISOString().slice(0, 16);
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -240,6 +251,25 @@ function ComposeDialog({
               dangerouslySetInnerHTML={{ __html: EMAIL_SIGNATURE_HTML }}
             />
           </div>
+
+          {/* Attached assets chips */}
+          {attachedAssets.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {attachedAssets.map((a) => (
+                <div key={a.id} className="flex items-center gap-1 bg-primary/10 border border-primary/20 rounded-md px-2 py-0.5 text-xs">
+                  <Paperclip className="h-2.5 w-2.5 text-primary" />
+                  <span className="max-w-[180px] truncate">{a.name}</span>
+                  <button
+                    onClick={() => setAttachedAssets((prev) => prev.filter((x) => x.id !== a.id))}
+                    className="text-muted-foreground hover:text-destructive ml-0.5"
+                    data-testid={`button-remove-attachment-${a.id}`}
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
 
           {showScheduler && canSend && (
             <div className="flex items-center gap-2 p-2.5 bg-muted/30 border border-border/50 rounded-md">
@@ -277,6 +307,23 @@ function ComposeDialog({
                 >
                   {draftMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
                   <span className="ml-1">Save Draft</span>
+                </Button>
+              )}
+              {canSend && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={`h-8 w-8 ${attachedAssets.length > 0 ? "text-primary" : "text-muted-foreground"}`}
+                  onClick={() => setShowAssetPicker(true)}
+                  title="Attach asset"
+                  data-testid="button-attach-asset"
+                >
+                  <Paperclip className="h-4 w-4" />
+                  {attachedAssets.length > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-primary text-[9px] text-primary-foreground flex items-center justify-center font-medium">
+                      {attachedAssets.length}
+                    </span>
+                  )}
                 </Button>
               )}
             </div>
@@ -319,6 +366,61 @@ function ComposeDialog({
         </div>
       </DialogContent>
     </Dialog>
+
+    {/* Asset picker dialog */}
+    <Dialog open={showAssetPicker} onOpenChange={(v) => !v && setShowAssetPicker(false)}>
+      <DialogContent className="sm:max-w-md max-h-[70vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle>Attach an Asset</DialogTitle>
+        </DialogHeader>
+        <div className="flex-1 overflow-y-auto space-y-1 py-2">
+          {assetsQuery.isLoading && (
+            <div className="p-4 text-center text-sm text-muted-foreground">Loading assets...</div>
+          )}
+          {!assetsQuery.isLoading && (assetsQuery.data || []).length === 0 && (
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              <p>No assets uploaded yet.</p>
+              <a href="/assets" target="_blank" className="text-primary hover:underline text-xs mt-1 block">
+                Go to Assets to upload files →
+              </a>
+            </div>
+          )}
+          {(assetsQuery.data || []).map((asset) => {
+            const isAttached = attachedAssets.some((a) => a.id === asset.id);
+            return (
+              <button
+                key={asset.id}
+                onClick={() => {
+                  setAttachedAssets((prev) =>
+                    isAttached ? prev.filter((a) => a.id !== asset.id) : [...prev, { id: asset.id, name: asset.name }]
+                  );
+                }}
+                data-testid={`asset-picker-item-${asset.id}`}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors ${
+                  isAttached ? "bg-primary/10 border border-primary/30" : "hover:bg-muted/50"
+                }`}
+              >
+                <div className={`h-4 w-4 rounded border flex-shrink-0 flex items-center justify-center ${
+                  isAttached ? "bg-primary border-primary" : "border-border"
+                }`}>
+                  {isAttached && <span className="text-[10px] text-primary-foreground font-bold">✓</span>}
+                </div>
+                <Paperclip className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm truncate">{asset.name}</p>
+                  <p className="text-xs text-muted-foreground">{asset.category}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex-shrink-0 pt-3 flex justify-between items-center border-t border-border/50">
+          <span className="text-xs text-muted-foreground">{attachedAssets.length} attached</span>
+          <Button size="sm" onClick={() => setShowAssetPicker(false)} data-testid="button-done-assets">Done</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 

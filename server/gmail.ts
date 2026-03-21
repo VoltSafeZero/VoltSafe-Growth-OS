@@ -133,8 +133,16 @@ function mimeBase64(content: string): string {
   return b64.match(/.{1,76}/g)?.join("\r\n") ?? b64;
 }
 
-function buildMimeRaw(from: string, to: string, subject: string, body: string): string {
-  const boundary = `vs_${Date.now()}`;
+type MimeAttachment = { name: string; mimeType: string; data: Buffer };
+
+function buildMimeRaw(
+  from: string,
+  to: string,
+  subject: string,
+  body: string,
+  attachments: MimeAttachment[] = []
+): string {
+  const R = "\r\n";
   const plainText = body
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
     .replace(/<[^>]+>/g, "")
@@ -144,28 +152,66 @@ function buildMimeRaw(from: string, to: string, subject: string, body: string): 
     .replace(/&gt;/g, ">")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  const R = "\r\n";
-  const lines = [
-    `From: ${from}`,
-    `To: ${to}`,
-    `Subject: ${subject || ""}`,
-    "MIME-Version: 1.0",
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
-    "",
-    `--${boundary}`,
+
+  const innerBoundary = `vs_alt_${Date.now()}`;
+  const altPart = [
+    `--${innerBoundary}`,
     "Content-Type: text/plain; charset=UTF-8",
     "Content-Transfer-Encoding: base64",
     "",
     mimeBase64(plainText),
     "",
-    `--${boundary}`,
+    `--${innerBoundary}`,
     "Content-Type: text/html; charset=UTF-8",
     "Content-Transfer-Encoding: base64",
     "",
     mimeBase64(body),
     "",
-    `--${boundary}--`,
-  ];
+    `--${innerBoundary}--`,
+  ].join(R);
+
+  let lines: string[];
+  if (attachments.length === 0) {
+    lines = [
+      `From: ${from}`,
+      `To: ${to}`,
+      `Subject: ${subject || ""}`,
+      "MIME-Version: 1.0",
+      `Content-Type: multipart/alternative; boundary="${innerBoundary}"`,
+      "",
+      altPart,
+    ];
+  } else {
+    const outerBoundary = `vs_mix_${Date.now() + 1}`;
+    const attachParts = attachments.map((att) => {
+      const b64 = att.data.toString("base64").match(/.{1,76}/g)?.join(R) ?? "";
+      return [
+        `--${outerBoundary}`,
+        `Content-Type: ${att.mimeType}; name="${att.name}"`,
+        "Content-Transfer-Encoding: base64",
+        `Content-Disposition: attachment; filename="${att.name}"`,
+        "",
+        b64,
+        "",
+      ].join(R);
+    });
+    lines = [
+      `From: ${from}`,
+      `To: ${to}`,
+      `Subject: ${subject || ""}`,
+      "MIME-Version: 1.0",
+      `Content-Type: multipart/mixed; boundary="${outerBoundary}"`,
+      "",
+      `--${outerBoundary}`,
+      `Content-Type: multipart/alternative; boundary="${innerBoundary}"`,
+      "",
+      altPart,
+      "",
+      ...attachParts,
+      `--${outerBoundary}--`,
+    ];
+  }
+
   return Buffer.from(lines.join(R))
     .toString("base64")
     .replace(/\+/g, "-")
@@ -173,11 +219,17 @@ function buildMimeRaw(from: string, to: string, subject: string, body: string): 
     .replace(/=+$/, "");
 }
 
-export async function sendEmail(to: string, subject: string, body: string, threadId?: string) {
+export async function sendEmail(
+  to: string,
+  subject: string,
+  body: string,
+  threadId?: string,
+  attachments: MimeAttachment[] = []
+) {
   const gmail = await getGmailClient();
   const profileRes = await gmail.users.getProfile({ userId: "me" });
   const from = profileRes.data.emailAddress!;
-  const raw = buildMimeRaw(from, to, subject, body);
+  const raw = buildMimeRaw(from, to, subject, body, attachments);
   const params: any = { userId: "me", requestBody: { raw } };
   if (threadId) params.requestBody.threadId = threadId;
   const res = await gmail.users.messages.send(params);

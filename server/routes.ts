@@ -36,10 +36,14 @@ import { runAssociationEngine } from "./services/association-engine";
 import { runGmailSync } from "./services/gmail-sync";
 import {
   emailMessages, emailThreads, emailAssociations, associationFeedback, emailFilters, scheduledEmails,
+  assets,
 } from "@shared/schema";
 
 const UPLOADS_DIR = path.resolve("uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+const ASSETS_DIR = path.resolve("uploads/assets");
+if (!fs.existsSync(ASSETS_DIR)) fs.mkdirSync(ASSETS_DIR, { recursive: true });
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -56,6 +60,38 @@ const upload = multer({
       cb(null, true);
     } else {
       cb(new Error("Only image and video files are allowed"));
+    }
+  },
+});
+
+const ALLOWED_ASSET_MIME_TYPES = new Set([
+  "image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif",
+  "image/svg+xml", "image/tiff", "image/bmp",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/csv", "text/plain",
+  "application/zip",
+]);
+
+const assetUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, ASSETS_DIR),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname);
+      cb(null, crypto.randomUUID() + ext);
+    },
+  }),
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_ASSET_MIME_TYPES.has(file.mimetype) || file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error(`File type '${file.mimetype}' is not allowed`));
     }
   },
 });
@@ -1411,14 +1447,23 @@ export async function registerRoutes(
       return res.status(403).json({ message: "Only the connected Gmail account owner can send emails." });
     }
     try {
-      const { to, subject, body, threadId } = req.body;
+      const { to, subject, body, threadId, attachmentIds } = req.body;
       if (!to || !body) {
         return res.status(400).json({ message: "to and body are required" });
       }
       if (!threadId && !subject) {
         return res.status(400).json({ message: "subject is required for new emails" });
       }
-      const result = await sendEmail(to, subject || "", body, threadId);
+      const mimeAttachments: { name: string; mimeType: string; data: Buffer }[] = [];
+      if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
+        const assetRows = await db.select().from(assets).where(inArray(assets.id, attachmentIds.map(Number)));
+        for (const a of assetRows) {
+          if (fs.existsSync(a.filePath)) {
+            mimeAttachments.push({ name: a.originalName, mimeType: a.mimeType, data: fs.readFileSync(a.filePath) });
+          }
+        }
+      }
+      const result = await sendEmail(to, subject || "", body, threadId, mimeAttachments);
       res.json(result);
     } catch (err: any) {
       res.status(503).json({ message: "Failed to send email", error: err.message });
@@ -1644,6 +1689,96 @@ export async function registerRoutes(
         result[t.gmailThreadId] = t;
       }
       res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Sales & Marketing Assets ────────────────────────────────────────────
+  app.get("/api/assets", requireAuth, async (_req, res) => {
+    try {
+      const all = await db.select().from(assets).orderBy(assets.createdAt);
+      res.json(all.reverse());
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/assets", requireAuth, assetUpload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file provided" });
+      const { name, description, tags } = req.body;
+      const mimeType = req.file.mimetype;
+      let category = "other";
+      if (mimeType.startsWith("image/")) category = "image";
+      else if (mimeType === "application/pdf") category = "document";
+      else if (["application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"].includes(mimeType)) category = "document";
+      else if (["application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/csv"].includes(mimeType)) category = "spreadsheet";
+      else if (["application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"].includes(mimeType)) category = "presentation";
+
+      const [asset] = await db.insert(assets).values({
+        name: name || req.file.originalname,
+        originalName: req.file.originalname,
+        mimeType,
+        size: req.file.size,
+        filePath: req.file.path,
+        category,
+        description: description || null,
+        tags: tags || "",
+        uploadedBy: req.session.userId ?? null,
+      }).returning();
+      res.json(asset);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/assets/:id", requireAuth, async (req, res) => {
+    try {
+      const { name, description, tags } = req.body;
+      const [updated] = await db.update(assets)
+        .set({ name, description, tags })
+        .where(eq(assets.id, Number(req.params.id)))
+        .returning();
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/assets/:id", requireAuth, async (req, res) => {
+    try {
+      const [asset] = await db.select().from(assets).where(eq(assets.id, Number(req.params.id)));
+      if (!asset) return res.status(404).json({ message: "Asset not found" });
+      if (fs.existsSync(asset.filePath)) fs.unlinkSync(asset.filePath);
+      await db.delete(assets).where(eq(assets.id, Number(req.params.id)));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/assets/:id/file", requireAuth, async (req, res) => {
+    try {
+      const [asset] = await db.select().from(assets).where(eq(assets.id, Number(req.params.id)));
+      if (!asset) return res.status(404).json({ message: "Asset not found" });
+      if (!fs.existsSync(asset.filePath)) return res.status(404).json({ message: "File not found on disk" });
+      res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(asset.originalName)}"`);
+      res.setHeader("Content-Type", asset.mimeType);
+      res.sendFile(path.resolve(asset.filePath));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/assets/:id/download", requireAuth, async (req, res) => {
+    try {
+      const [asset] = await db.select().from(assets).where(eq(assets.id, Number(req.params.id)));
+      if (!asset) return res.status(404).json({ message: "Asset not found" });
+      if (!fs.existsSync(asset.filePath)) return res.status(404).json({ message: "File not found on disk" });
+      res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(asset.originalName)}"`);
+      res.setHeader("Content-Type", asset.mimeType);
+      res.sendFile(path.resolve(asset.filePath));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
