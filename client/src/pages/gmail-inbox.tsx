@@ -368,6 +368,22 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
   const handleSelectMessage = (msg: MessageSummary) => {
     setSelectedMessageId(msg.id);
     setSelectedThreadId(msg.threadId);
+
+    if (isUnread(msg.labelIds)) {
+      // Optimistically remove UNREAD from both inbox query caches immediately
+      const removeUnread = (old: MessageSummary[] | undefined) =>
+        old?.map((m) =>
+          m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m
+        );
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery], removeUnread);
+      queryClient.setQueryData(["/api/gmail/messages", "sent", searchQuery], removeUnread);
+
+      // Fire-and-forget — tell Gmail to mark it read server-side
+      fetch(`/api/gmail/messages/${msg.id}/mark-read`, {
+        method: "POST",
+        credentials: "include",
+      }).catch(() => {/* silent — cache already updated */});
+    }
   };
 
   const handleBack = () => {

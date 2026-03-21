@@ -119,6 +119,15 @@ export async function getMessageSummaries(maxResults: number = 50, query: string
   return summaries;
 }
 
+export async function markMessageRead(messageId: string) {
+  const gmail = await getGmailClient();
+  await gmail.users.messages.modify({
+    userId: "me",
+    id: messageId,
+    requestBody: { removeLabelIds: ["UNREAD"] },
+  });
+}
+
 function mimeBase64(content: string): string {
   const b64 = Buffer.from(content, "utf-8").toString("base64");
   // MIME requires base64 lines wrapped at 76 chars

@@ -29,7 +29,7 @@ import {
 } from "./webauthn";
 import { eq, sql, and, inArray } from "drizzle-orm";
 import { registerVoiceAssistantRoutes } from "./voice-assistant";
-import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile } from "./gmail";
+import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead } from "./gmail";
 import { getAuthUrl, exchangeCodeForTokens, isGmailConnected } from "./gmail-oauth";
 import { parseGmailMessage } from "./services/email-parser";
 import { runAssociationEngine } from "./services/association-engine";
@@ -1314,6 +1314,15 @@ export async function registerRoutes(
       res.json(thread);
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
+    }
+  });
+
+  app.post("/api/gmail/messages/:id/mark-read", requireAuth, async (req, res) => {
+    try {
+      await markMessageRead(req.params.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(503).json({ message: "Failed to mark as read", error: err.message });
     }
   });
 
