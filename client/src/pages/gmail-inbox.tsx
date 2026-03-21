@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2,
+  Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2,
 } from "lucide-react";
 import DOMPurify from "dompurify";
 
@@ -170,6 +170,20 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
   const [replyTo, setReplyTo] = useState<{ to: string; subject: string; threadId: string } | null>(null);
   const [tab, setTab] = useState<"inbox" | "sent">("inbox");
 
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/gmail/sync?limit=50");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Sync complete", description: `${data.newMessages} new emails processed and matched` });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-assocs"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Sync failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const canSend = currentUserEmail === "trevor@voltsafe.com";
 
   const statusQuery = useQuery<{ connected: boolean; hasCredentials: boolean }>({
@@ -283,6 +297,17 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               <Send className="h-4 w-4 mr-1" /> Compose
             </Button>
           )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+            data-testid="button-sync-crm"
+            className="gap-1.5 text-xs"
+          >
+            {syncMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
+            {syncMutation.isPending ? "Syncing..." : "Sync to CRM"}
+          </Button>
           <Button
             size="icon"
             variant="ghost"

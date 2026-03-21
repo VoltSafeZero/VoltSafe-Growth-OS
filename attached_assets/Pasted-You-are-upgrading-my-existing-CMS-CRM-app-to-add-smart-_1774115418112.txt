@@ -1,0 +1,307 @@
+You are upgrading my existing CMS/CRM app to add smart Gmail-to-CRM email association.
+
+Important context:
+- My CRM/CMS already exists.
+- Gmail is already integrated.
+- Do NOT rebuild the CRM from scratch.
+- Extend the current architecture cleanly.
+- Preserve existing data models where reasonable, but add new models/tables/services if needed.
+- Prioritize a safe MVP first, then leave room for smarter scoring later.
+
+Goal:
+Build a smart email ingestion + association system that:
+1. captures Gmail emails into my CRM,
+2. associates them to the correct Contact / Company / Lead / Deal,
+3. ignores unrelated or low-confidence emails,
+4. avoids attaching junk like newsletters, auto-generated emails, receipts, or internal-only chatter,
+5. stores the reason for every association so it is explainable and debuggable.
+
+Core design requirements:
+
+1) Normalize and store every Gmail email in our own internal email model
+Create or extend an `email_messages` table/model with fields like:
+- id
+- gmail_message_id
+- gmail_thread_id
+- subject
+- normalized_subject
+- from_email
+- from_name
+- to_emails (array/json)
+- cc_emails (array/json)
+- bcc_emails (array/json)
+- all_participants (array/json)
+- sent_at
+- body_text
+- body_html
+- direction (inbound/outbound)
+- from_domain
+- headers_json
+- attachments_json
+- has_attachments
+- is_reply
+- unsubscribe_detected
+- auto_generated_score
+- bulk_email_score
+- ignored_reason (nullable)
+- created_at
+- updated_at
+
+Do not directly treat Gmail messages as CRM activities without normalizing them first.
+
+2) Create email thread tracking
+Create an `email_threads` table/model:
+- id
+- gmail_thread_id
+- primary_contact_id (nullable)
+- primary_company_id (nullable)
+- primary_lead_id (nullable)
+- primary_deal_id (nullable)
+- association_status
+- created_at
+- updated_at
+
+This table should help future emails in the same thread inherit prior associations when confidence is strong.
+
+3) Create association records
+Create an `email_associations` table/model:
+- id
+- email_message_id
+- object_type (contact/company/lead/deal)
+- object_id
+- confidence_score
+- association_reason_json
+- is_auto
+- is_user_confirmed
+- created_at
+- updated_at
+
+Store WHY the system linked the email, for example:
+- matched exact email
+- matched thread
+- matched company domain
+- matched active deal
+- subject matched deal name
+
+4) Add association feedback memory
+Create an `association_feedback` table/model:
+- id
+- email_message_id
+- original_object_type
+- original_object_id
+- corrected_object_type
+- corrected_object_id
+- feedback_type
+- created_at
+
+This is for later learning when users move emails manually.
+
+5) Use existing CRM records as the source of truth
+Use current CRM entities if they already exist:
+- contacts
+- companies
+- leads
+- deals/opportunities
+
+Extend them only if needed.
+If these models do not already support this logic, add minimal fields such as:
+- contacts: primary_email, alternate_emails
+- companies: primary_domain, secondary_domains
+
+6) Build an email parsing service
+Create a service such as:
+- `services/email_parser.py`
+
+Responsibilities:
+- parse Gmail payload into normalized email record
+- extract from/to/cc/bcc
+- determine internal vs external participants
+- detect direction
+- derive domain values
+- compute basic signals like:
+  - is_reply
+  - unsubscribe_detected
+  - likely_bulk
+  - likely_auto_generated
+
+7) Build an identity resolution service
+Create:
+- `services/identity_resolver.py`
+
+Responsibilities:
+- determine internal domains/users (configure from app settings/env)
+- match external email addresses to Contacts by exact email
+- match external domains to Companies
+- ignore generic public domains for company auto-match when possible:
+  - gmail.com
+  - outlook.com
+  - yahoo.com
+  - icloud.com
+  - hotmail.com
+
+If exact contact match exists, that is a strong signal.
+If only domain match exists, that is weaker.
+Do not over-link based on domain alone.
+
+8) Build an association engine
+Create:
+- `services/association_engine.py`
+
+Responsibilities:
+For each normalized email:
+- generate candidate matches for:
+  - Contact
+  - Company
+  - Lead
+  - Deal
+- score each candidate
+- auto-associate only when confidence is high
+- leave low-confidence emails unattached or flagged for review
+
+Use deterministic scoring first, not pure AI guessing.
+
+Suggested scoring logic:
+- exact contact email match: +45
+- existing thread match: +35
+- matched company domain (non-generic): +15
+- open deal with same contact: +20
+- subject contains deal/project name: +15
+- participant overlap with recent associated email: +15
+- bulk email detected: -60
+- auto-generated detected: -50
+- internal-only email: -80
+
+Thresholds:
+- score >= 90: auto-associate to deal/lead if applicable
+- score 70-89: associate to contact/company, suggest lead/deal but do not hard-link aggressively
+- score < 70: do not auto-associate to lead/deal
+- if obviously junk/internal/bulk: mark ignored
+
+Always prefer precision over over-attachment.
+
+9) Apply conservative association rules
+Rules to implement:
+- If all participants are internal, do not associate to customer records by default
+- If email is newsletter/bulk/auto-generated, ignore or heavily down-rank
+- If email thread already has a confirmed association, prefer inheriting that
+- If one contact/company has multiple deals, prefer:
+  - open deals over closed
+  - most recent deals over stale ones
+  - deals with highest participant overlap
+  - deals whose names appear in subject/body
+- Always attach to Contact if confidence is strong
+- Usually attach to Company if confidence is strong
+- Only attach to Lead/Deal when confidence is high enough
+
+10) Add ignored email classification
+Create logic to ignore or heavily suppress emails that look like:
+- newsletters
+- promotions
+- receipts
+- no-reply emails
+- automated alerts
+- calendar updates
+- mailing list messages
+- high-recipient-count blasts
+
+Signals to use:
+- sender includes no-reply / donotreply / mailer-daemon
+- List-Unsubscribe header present
+- bulk-like headers
+- many recipients
+- no meaningful match to CRM records
+- template-heavy content
+
+Store ignored reason in the email record.
+
+11) Add Gmail sync processing pipeline
+Since Gmail is already integrated, extend the current sync flow so that for every fetched email:
+- normalize the email
+- store/update email record
+- create/update thread record
+- run identity resolution
+- run association scoring
+- write association records
+- mark ignored if applicable
+
+Make this idempotent so re-processing the same Gmail message does not duplicate rows.
+
+12) Add API/backend endpoints as needed
+Create or extend endpoints for:
+- viewing normalized emails
+- viewing associations for an email
+- manually reassigning an email to a different contact/company/lead/deal
+- marking an ignored email as relevant
+- viewing why an email was associated
+
+13) Add CRM UI components
+Update the existing CRM UI to show:
+- Emails on Contact pages
+- Emails on Company pages
+- Emails on Lead pages
+- Emails on Deal pages
+- Association confidence and reason
+- Ignored emails tab or filter
+- Manual “Move / Reassign Email” action
+- Optional badge: Auto-linked / Suggested / Ignored
+
+Do not make the UI ugly or cluttered.
+Keep it clean and explainable.
+
+14) Add explainability everywhere
+Every email association should be explainable in the UI/admin/debug logs.
+For example:
+- “Matched contact via jane@acme.com”
+- “Matched active deal because this thread already belongs to Deal X”
+- “Ignored because sender is no-reply and List-Unsubscribe header is present”
+
+15) Build MVP first
+Phase 1 MVP must include:
+- Gmail email normalization
+- exact contact email matching
+- company domain matching
+- thread inheritance
+- bulk/auto/internal filtering
+- attach to contact/company
+- cautious lead/deal association
+- association reason logging
+- UI display of linked emails
+
+Phase 2 can include:
+- better deal scoring
+- manual correction memory
+- AI classification/summarization
+- smarter suggestions
+
+16) Code organization
+Use clean modular files, for example:
+- `services/email_parser.py`
+- `services/identity_resolver.py`
+- `services/association_engine.py`
+- `services/thread_manager.py`
+
+If my project uses JS/TS instead of Python in parts, adapt to the existing stack rather than forcing a rewrite.
+
+17) Non-destructive implementation
+Do not break the existing CRM.
+Do not remove working Gmail functionality.
+Do not rename core models unnecessarily.
+Perform migrations safely.
+Reuse existing auth, DB, UI patterns, and conventions already in the project.
+
+Execution plan:
+1. Inspect current CRM/CMS models and Gmail integration
+2. Identify what already exists and what should be extended
+3. Add the new tables/models/migrations
+4. Implement parser + identity resolver + association engine
+5. Connect pipeline to Gmail sync
+6. Expose UI/API for viewing and correcting associations
+7. Test with sample emails
+8. Make the feature production-safe and idempotent
+
+Output required from you:
+- implement the feature directly in the codebase
+- show me what files you changed
+- explain any migrations added
+- summarize the association rules implemented
+- point out any TODOs for phase 2

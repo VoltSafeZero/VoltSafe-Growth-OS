@@ -23,6 +23,7 @@ import { AttachmentsSection } from "@/components/attachments-section";
 import { AssignUserSelect } from "@/components/assign-user-select";
 import { CreateActionItem } from "@/components/create-action-item";
 import type { Account, Contact, Opportunity, Ticket, InfrastructureProfile } from "@shared/schema";
+import { EmailsTab } from "@/components/emails-tab";
 
 const segmentColors: Record<string, string> = {
   marina: "bg-blue-500/10 text-blue-500 border-blue-500/20",
@@ -390,6 +391,7 @@ function AccountDetailDialog({ account: initialAccount, onClose }: { account: Ac
             <TabsTrigger value="opportunities" data-testid="tab-opportunities">Deals ({oppsData?.data?.length || 0})</TabsTrigger>
             <TabsTrigger value="tickets" data-testid="tab-tickets">Tickets ({ticketsData?.data?.length || 0})</TabsTrigger>
             <TabsTrigger value="infrastructure" data-testid="tab-infrastructure">Infrastructure</TabsTrigger>
+            <TabsTrigger value="emails" data-testid="tab-emails">Emails</TabsTrigger>
           </TabsList>
 
           <TabsContent value="details" className="space-y-4 mt-4">
@@ -571,6 +573,10 @@ function AccountDetailDialog({ account: initialAccount, onClose }: { account: Ac
               onSave={(data) => updateInfraMutation.mutate(data)}
               isPending={updateInfraMutation.isPending}
             />
+          </TabsContent>
+
+          <TabsContent value="emails" className="mt-4">
+            <EmailsTab objectType="account" objectId={account.id} />
           </TabsContent>
         </Tabs>
       </DialogContent>

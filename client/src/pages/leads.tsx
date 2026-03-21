@@ -25,6 +25,7 @@ import { AttachmentsSection } from "@/components/attachments-section";
 import { AssignUserSelect } from "@/components/assign-user-select";
 import { CreateActionItem } from "@/components/create-action-item";
 import type { Lead } from "@shared/schema";
+import { EmailsTab } from "@/components/emails-tab";
 
 const US_STATES = [
   "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware",
@@ -836,6 +837,11 @@ function LeadDetailDialog({
 
             <div className="border-t border-border/50 pt-4">
               <AttachmentsSection objectType="lead" objectId={lead.id} />
+            </div>
+
+            <div className="border-t border-border/50 pt-4">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Emails</p>
+              <EmailsTab objectType="lead" objectId={lead.id} />
             </div>
 
             <div className="border-t border-border/50 pt-4">

@@ -27,10 +27,15 @@ import {
   getAuthenticationOptions, verifyAuthentication,
   getUserCredentials, deleteCredential,
 } from "./webauthn";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and, inArray } from "drizzle-orm";
 import { registerVoiceAssistantRoutes } from "./voice-assistant";
 import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile } from "./gmail";
 import { getAuthUrl, exchangeCodeForTokens, isGmailConnected } from "./gmail-oauth";
+import { parseGmailMessage } from "./services/email-parser";
+import { runAssociationEngine } from "./services/association-engine";
+import {
+  emailMessages, emailThreads, emailAssociations, associationFeedback,
+} from "@shared/schema";
 
 const UPLOADS_DIR = path.resolve("uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -1364,6 +1369,198 @@ export async function registerRoutes(
           <a href="/gmail" style="color:#14b8a6">← Back</a>
         </div>
       </body></html>`);
+    }
+  });
+
+  // ── Email Sync + Association Routes ─────────────────────────────────────
+  app.post("/api/gmail/sync", requireAuth, async (req, res) => {
+    try {
+      const connected = await isGmailConnected();
+      if (!connected) return res.status(503).json({ message: "Gmail not connected" });
+
+      const gmail = await import("./gmail");
+      const profileData = await gmail.getProfile();
+      const myDomain = profileData.emailAddress?.split("@")[1] || "voltsafe.com";
+
+      const limit = Number(req.query.limit) || 50;
+      const query = (req.query.q as string) || "in:inbox OR in:sent";
+
+      const { google } = await import("googleapis");
+      const { getGmailClient } = await import("./gmail-oauth");
+      const gmailClient = await getGmailClient();
+
+      const listRes = await gmailClient.users.messages.list({
+        userId: "me",
+        maxResults: limit,
+        q: query,
+      });
+      const messageIds = listRes.data.messages || [];
+
+      let newCount = 0;
+      let processedCount = 0;
+
+      for (const { id } of messageIds) {
+        if (!id) continue;
+        const existing = await db.select({ id: emailMessages.id })
+          .from(emailMessages).where(eq(emailMessages.gmailMessageId, id)).limit(1);
+        if (existing.length > 0) { processedCount++; continue; }
+
+        const msgRes = await gmailClient.users.messages.get({
+          userId: "me", id, format: "full",
+        });
+        const parsed = parseGmailMessage(msgRes.data, myDomain);
+        const [inserted] = await db.insert(emailMessages).values(parsed)
+          .onConflictDoNothing().returning();
+        if (inserted) {
+          await runAssociationEngine(inserted.id);
+          newCount++;
+        }
+        processedCount++;
+      }
+
+      res.json({ processed: processedCount, newMessages: newCount });
+    } catch (err: any) {
+      res.status(500).json({ message: "Sync failed", error: err.message });
+    }
+  });
+
+  app.get("/api/email-messages", requireAuth, async (req, res) => {
+    try {
+      const msgs = await db.select().from(emailMessages)
+        .orderBy(emailMessages.sentAt)
+        .limit(100);
+      const reversed = msgs.reverse();
+      res.json(reversed);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/email-messages/:id/associations", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const assocs = await db.select().from(emailAssociations)
+        .where(eq(emailAssociations.emailMessageId, id));
+      res.json(assocs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/email-messages/:id/reassign", requireAuth, async (req, res) => {
+    try {
+      const emailMsgId = Number(req.params.id);
+      const { objectType, objectId, objectName, removeObjectType, removeObjectId } = req.body;
+
+      if (removeObjectType && removeObjectId) {
+        await db.delete(emailAssociations).where(
+          and(
+            eq(emailAssociations.emailMessageId, emailMsgId),
+            eq(emailAssociations.objectType, removeObjectType),
+            eq(emailAssociations.objectId, Number(removeObjectId))
+          )
+        );
+        await db.insert(associationFeedback).values({
+          emailMessageId: emailMsgId,
+          originalObjectType: removeObjectType,
+          originalObjectId: Number(removeObjectId),
+          correctedObjectType: objectType || null,
+          correctedObjectId: objectId ? Number(objectId) : null,
+          feedbackType: "moved",
+        });
+      }
+
+      if (objectType && objectId) {
+        await db.insert(emailAssociations).values({
+          emailMessageId: emailMsgId,
+          objectType,
+          objectId: Number(objectId),
+          objectName: objectName || null,
+          confidenceScore: 100,
+          associationReasonJson: JSON.stringify(["Manually assigned by user"]),
+          isAuto: false,
+          isUserConfirmed: true,
+        }).onConflictDoNothing();
+      }
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/email-messages/:id/confirm", requireAuth, async (req, res) => {
+    try {
+      const emailMsgId = Number(req.params.id);
+      const { associationId } = req.body;
+      await db.update(emailAssociations)
+        .set({ isUserConfirmed: true, updatedAt: new Date() })
+        .where(
+          and(
+            eq(emailAssociations.emailMessageId, emailMsgId),
+            eq(emailAssociations.id, Number(associationId))
+          )
+        );
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/crm-emails", requireAuth, async (req, res) => {
+    try {
+      const { objectType, objectId } = req.query;
+      if (!objectType || !objectId) return res.status(400).json({ message: "objectType and objectId required" });
+
+      const assocs = await db.select().from(emailAssociations)
+        .where(
+          and(
+            eq(emailAssociations.objectType, objectType as string),
+            eq(emailAssociations.objectId, Number(objectId))
+          )
+        )
+        .orderBy(emailAssociations.createdAt);
+
+      if (assocs.length === 0) return res.json([]);
+
+      const msgIds = assocs.map(a => a.emailMessageId);
+      const msgs = await db.select().from(emailMessages)
+        .where(inArray(emailMessages.id, msgIds));
+
+      const result = msgs.map(msg => {
+        const assoc = assocs.find(a => a.emailMessageId === msg.id);
+        return {
+          ...msg,
+          association: assoc,
+        };
+      }).sort((a, b) => {
+        const aTime = a.sentAt ? new Date(a.sentAt).getTime() : 0;
+        const bTime = b.sentAt ? new Date(b.sentAt).getTime() : 0;
+        return bTime - aTime;
+      });
+
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/gmail/associations-by-thread", requireAuth, async (req, res) => {
+    try {
+      const { threadIds } = req.query;
+      if (!threadIds) return res.json({});
+      const ids: string[] = Array.isArray(threadIds) ? threadIds as string[] : [threadIds as string];
+
+      const threads = await db.select().from(emailThreads)
+        .where(inArray(emailThreads.gmailThreadId, ids));
+
+      const result: Record<string, any> = {};
+      for (const t of threads) {
+        result[t.gmailThreadId] = t;
+      }
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 
