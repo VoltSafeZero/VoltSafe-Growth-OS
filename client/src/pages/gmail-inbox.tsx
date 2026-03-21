@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -449,6 +449,12 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
   const [tab, setTab] = useState<"inbox" | "sent" | "other" | "drafts" | "scheduled">("inbox");
   const [editingDraft, setEditingDraft] = useState<{ to: string; subject: string; body: string; draftId: string; threadId?: string } | null>(null);
   const [loadingDraftId, setLoadingDraftId] = useState<string | null>(null);
+  const [inboxExtra, setInboxExtra] = useState<MessageSummary[]>([]);
+  const [inboxNextToken, setInboxNextToken] = useState<string | null>(null);
+  const [loadingMoreInbox, setLoadingMoreInbox] = useState(false);
+  const [sentExtra, setSentExtra] = useState<MessageSummary[]>([]);
+  const [sentNextToken, setSentNextToken] = useState<string | null>(null);
+  const [loadingMoreSent, setLoadingMoreSent] = useState(false);
 
   const filtersQuery = useQuery<EmailFilter[]>({
     queryKey: ["/api/email-filters"],
@@ -511,23 +517,19 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
     retry: false,
   });
 
-  const inboxQuery = useQuery<MessageSummary[]>({
+  const inboxQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
     queryKey: ["/api/gmail/messages", "inbox", searchQuery],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", "50");
-      if (searchQuery) {
-        params.set("q", `in:inbox ${searchQuery}`);
-      } else {
-        params.set("q", "in:inbox");
-      }
+      params.set("q", searchQuery ? `in:inbox ${searchQuery}` : "in:inbox");
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
       return res.json();
     },
   });
 
-  const sentQuery = useQuery<MessageSummary[]>({
+  const sentQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
     queryKey: ["/api/gmail/messages", "sent", searchQuery],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -539,6 +541,52 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
     },
     enabled: tab === "sent",
   });
+
+  // Reset extra pages when the base query data refreshes (e.g. search change)
+  const inboxBaseToken = inboxQuery.data?.nextPageToken ?? null;
+  const sentBaseToken = sentQuery.data?.nextPageToken ?? null;
+  useEffect(() => { setInboxExtra([]); setInboxNextToken(inboxBaseToken); }, [inboxQuery.data]);
+  useEffect(() => { setSentExtra([]); setSentNextToken(sentBaseToken); }, [sentQuery.data]);
+
+  const loadMoreInbox = async () => {
+    if (!inboxNextToken || loadingMoreInbox) return;
+    setLoadingMoreInbox(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", "50");
+      params.set("q", searchQuery ? `in:inbox ${searchQuery}` : "in:inbox");
+      params.set("pageToken", inboxNextToken);
+      const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error();
+      const data: { messages: MessageSummary[]; nextPageToken: string | null } = await res.json();
+      setInboxExtra((prev) => [...prev, ...data.messages]);
+      setInboxNextToken(data.nextPageToken);
+    } catch {
+      toast({ title: "Failed to load more", variant: "destructive" });
+    } finally {
+      setLoadingMoreInbox(false);
+    }
+  };
+
+  const loadMoreSent = async () => {
+    if (!sentNextToken || loadingMoreSent) return;
+    setLoadingMoreSent(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", "50");
+      params.set("q", searchQuery ? `in:sent ${searchQuery}` : "in:sent");
+      params.set("pageToken", sentNextToken);
+      const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error();
+      const data: { messages: MessageSummary[]; nextPageToken: string | null } = await res.json();
+      setSentExtra((prev) => [...prev, ...data.messages]);
+      setSentNextToken(data.nextPageToken);
+    } catch {
+      toast({ title: "Failed to load more", variant: "destructive" });
+    } finally {
+      setLoadingMoreSent(false);
+    }
+  };
 
   const threadQuery = useQuery<Thread>({
     queryKey: ["/api/gmail/threads", selectedThreadId],
@@ -609,19 +657,25 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
     }
   };
 
+  const allInboxMessages = [...(inboxQuery.data?.messages || []), ...inboxExtra];
+  const allSentMessages = [...(sentQuery.data?.messages || []), ...sentExtra];
+
   const inboxMain = canSend
-    ? (inboxQuery.data || []).filter((m) => !blockedDomains.has(parseSenderDomain(m.from)))
-    : (inboxQuery.data || []);
+    ? allInboxMessages.filter((m) => !blockedDomains.has(parseSenderDomain(m.from)))
+    : allInboxMessages;
   const inboxOther = canSend
-    ? (inboxQuery.data || []).filter((m) => blockedDomains.has(parseSenderDomain(m.from)))
+    ? allInboxMessages.filter((m) => blockedDomains.has(parseSenderDomain(m.from)))
     : [];
 
   const activeMessages =
     tab === "inbox" ? inboxMain :
-    tab === "sent"  ? sentQuery.data :
+    tab === "sent"  ? allSentMessages :
     inboxOther;
   const isLoading = tab === "other" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : sentQuery.isLoading;
   const error = tab === "other" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : sentQuery.error;
+  const hasMore = tab === "inbox" ? !!inboxNextToken : tab === "sent" ? !!sentNextToken : false;
+  const isLoadingMore = tab === "inbox" ? loadingMoreInbox : tab === "sent" ? loadingMoreSent : false;
+  const loadMore = tab === "inbox" ? loadMoreInbox : loadMoreSent;
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -636,12 +690,15 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
 
     if (isUnread(msg.labelIds)) {
       // Optimistically remove UNREAD from both inbox query caches immediately
-      const removeUnread = (old: MessageSummary[] | undefined) =>
-        old?.map((m) =>
+      const removeUnread = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
+        old ? { ...old, messages: old.messages.map((m) =>
           m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m
-        );
+        ) } : old;
       queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery], removeUnread);
       queryClient.setQueryData(["/api/gmail/messages", "sent", searchQuery], removeUnread);
+      // Also update the locally-stored extra pages
+      setInboxExtra((prev) => prev.map((m) => m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
+      setSentExtra((prev) => prev.map((m) => m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
 
       // Fire-and-forget — tell Gmail to mark it read server-side
       fetch(`/api/gmail/messages/${msg.id}/mark-read`, {
@@ -714,7 +771,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
 
       <div className="flex flex-1 min-h-0">
         {/* Left panel: message list */}
-        <div className={`flex flex-col border-r border-border/50 bg-background ${selectedThreadId ? "hidden md:flex md:w-80 lg:w-96 flex-shrink-0" : "flex-1 md:w-80 lg:w-96 md:flex-initial"}`}>
+        <div className={`flex flex-col min-h-0 border-r border-border/50 bg-background ${selectedThreadId ? "hidden md:flex md:w-80 lg:w-96 flex-shrink-0" : "flex-1 md:w-80 lg:w-96 md:flex-initial"}`}>
           {/* Tabs + Search */}
           <div className="flex-shrink-0 p-3 space-y-2 border-b border-border/50">
             <div className="flex gap-1">
@@ -960,6 +1017,23 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                 </div>
               );
             })}
+
+            {/* Load more button */}
+            {tab !== "drafts" && tab !== "scheduled" && !isLoading && !error && hasMore && (
+              <div className="p-3 flex justify-center">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={loadMore}
+                  disabled={isLoadingMore}
+                  data-testid="button-load-more-emails"
+                  className="w-full text-xs gap-1.5"
+                >
+                  {isLoadingMore ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  {isLoadingMore ? "Loading..." : "Load more emails"}
+                </Button>
+              </div>
+            )}
           </div>
         </div>
 

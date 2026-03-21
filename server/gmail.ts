@@ -86,14 +86,16 @@ export async function getThread(threadId: string) {
   return { id: thread.id, historyId: thread.historyId, messages };
 }
 
-export async function getMessageSummaries(maxResults: number = 50, query: string = "") {
+export async function getMessageSummaries(maxResults: number = 50, query: string = "", pageToken?: string) {
   const gmail = await getGmailClient();
   const listRes = await gmail.users.messages.list({
     userId: "me",
     maxResults,
     q: query,
+    ...(pageToken ? { pageToken } : {}),
   });
   const messageIds = listRes.data.messages || [];
+  const nextPageToken = listRes.data.nextPageToken || null;
   const summaries = await Promise.all(
     messageIds.map(async ({ id }) => {
       const msg = await gmail.users.messages.get({
@@ -116,7 +118,7 @@ export async function getMessageSummaries(maxResults: number = 50, query: string
       };
     })
   );
-  return summaries;
+  return { summaries, nextPageToken };
 }
 
 export async function markMessageRead(messageId: string) {

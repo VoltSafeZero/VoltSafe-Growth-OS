@@ -1326,8 +1326,9 @@ export async function registerRoutes(
     try {
       const q = (req.query.q as string) || "";
       const maxResults = Math.min(Number(req.query.limit) || 50, 100);
-      const messages = await getMessageSummaries(maxResults, q);
-      res.json(messages);
+      const pageToken = (req.query.pageToken as string) || undefined;
+      const { summaries, nextPageToken } = await getMessageSummaries(maxResults, q, pageToken);
+      res.json({ messages: summaries, nextPageToken });
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
     }
