@@ -27,15 +27,15 @@ import {
   getAuthenticationOptions, verifyAuthentication,
   getUserCredentials, deleteCredential,
 } from "./webauthn";
-import { eq, sql, and, inArray } from "drizzle-orm";
+import { eq, sql, and, inArray, lte } from "drizzle-orm";
 import { registerVoiceAssistantRoutes } from "./voice-assistant";
-import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead } from "./gmail";
+import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead, saveDraft, listDraftSummaries, getDraftContent, deleteDraft } from "./gmail";
 import { getAuthUrl, exchangeCodeForTokens, isGmailConnected } from "./gmail-oauth";
 import { parseGmailMessage } from "./services/email-parser";
 import { runAssociationEngine } from "./services/association-engine";
 import { runGmailSync } from "./services/gmail-sync";
 import {
-  emailMessages, emailThreads, emailAssociations, associationFeedback, emailFilters,
+  emailMessages, emailThreads, emailAssociations, associationFeedback, emailFilters, scheduledEmails,
 } from "@shared/schema";
 
 const UPLOADS_DIR = path.resolve("uploads");
@@ -1314,6 +1314,85 @@ export async function registerRoutes(
       res.json(thread);
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
+    }
+  });
+
+  // ── Gmail Drafts ─────────────────────────────────────────────────────────
+  app.get("/api/gmail/drafts", requireAuth, async (req, res) => {
+    try {
+      const drafts = await listDraftSummaries();
+      res.json(drafts);
+    } catch (err: any) {
+      res.status(503).json({ message: "Gmail not connected", error: err.message });
+    }
+  });
+
+  app.get("/api/gmail/drafts/:id", requireAuth, async (req, res) => {
+    try {
+      const content = await getDraftContent(req.params.id);
+      res.json(content);
+    } catch (err: any) {
+      res.status(503).json({ message: "Gmail not connected", error: err.message });
+    }
+  });
+
+  app.post("/api/gmail/drafts", requireAuth, async (req, res) => {
+    try {
+      const { to, subject, body, threadId, draftId } = req.body;
+      if (!body) return res.status(400).json({ message: "body is required" });
+      const draft = await saveDraft(to || "", subject || "", body, threadId, draftId);
+      res.json(draft);
+    } catch (err: any) {
+      res.status(503).json({ message: "Failed to save draft", error: err.message });
+    }
+  });
+
+  app.delete("/api/gmail/drafts/:id", requireAuth, async (req, res) => {
+    try {
+      await deleteDraft(req.params.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(503).json({ message: "Failed to delete draft", error: err.message });
+    }
+  });
+
+  // ── Scheduled Emails ─────────────────────────────────────────────────────
+  app.get("/api/gmail/scheduled", requireAuth, async (req, res) => {
+    try {
+      const emails = await db.select().from(scheduledEmails)
+        .where(eq(scheduledEmails.status, "pending"))
+        .orderBy(scheduledEmails.scheduledAt);
+      res.json(emails);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/gmail/schedule", requireAuth, async (req, res) => {
+    const [user] = await db.select().from(users).where(eq(users.id, req.session.userId!));
+    if (!user || user.email !== "trevor@voltsafe.com") {
+      return res.status(403).json({ message: "Only the account owner can schedule emails." });
+    }
+    try {
+      const { to, subject, body, threadId, scheduledAt } = req.body;
+      if (!to || !body || !scheduledAt) return res.status(400).json({ message: "to, body, scheduledAt required" });
+      const [email] = await db.insert(scheduledEmails)
+        .values({ to, subject, body, threadId, scheduledAt: new Date(scheduledAt) })
+        .returning();
+      res.json(email);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/gmail/scheduled/:id", requireAuth, async (req, res) => {
+    try {
+      await db.update(scheduledEmails)
+        .set({ status: "cancelled" })
+        .where(eq(scheduledEmails.id, Number(req.params.id)));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

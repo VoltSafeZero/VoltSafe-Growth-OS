@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useToast } from "@/hooks/use-toast";
 import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
+  Clock, FileText, CalendarClock, CalendarX,
 } from "lucide-react";
 import DOMPurify from "dompurify";
 
@@ -132,19 +133,26 @@ function ComposeDialog({
   canSend,
   defaultTo = "",
   defaultSubject = "",
+  defaultBody = "",
   threadId,
+  draftId,
 }: {
   open: boolean;
   onClose: () => void;
   canSend: boolean;
   defaultTo?: string;
   defaultSubject?: string;
+  defaultBody?: string;
   threadId?: string;
+  draftId?: string;
 }) {
   const { toast } = useToast();
   const [to, setTo] = useState(defaultTo);
   const [subject, setSubject] = useState(defaultSubject);
-  const [body, setBody] = useState("");
+  const [body, setBody] = useState(defaultBody);
+  const [showScheduler, setShowScheduler] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [activeDraftId, setActiveDraftId] = useState(draftId);
 
   const sendMutation = useMutation({
     mutationFn: async () => {
@@ -152,21 +160,58 @@ function ComposeDialog({
       const res = await apiRequest("POST", "/api/gmail/send", { to, subject, body: htmlBody, threadId });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast({ title: "Email sent" });
+      if (activeDraftId) {
+        await fetch(`/api/gmail/drafts/${activeDraftId}`, { method: "DELETE", credentials: "include" }).catch(() => {});
+        queryClient.invalidateQueries({ queryKey: ["/api/gmail/drafts"] });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
       onClose();
     },
-    onError: (err: any) => {
-      toast({ title: "Failed to send", description: err.message, variant: "destructive" });
-    },
+    onError: (err: any) => toast({ title: "Failed to send", description: err.message, variant: "destructive" }),
   });
+
+  const draftMutation = useMutation({
+    mutationFn: async () => {
+      const htmlBody = buildEmailHtml(body);
+      const res = await apiRequest("POST", "/api/gmail/drafts", { to, subject, body: htmlBody, threadId, draftId: activeDraftId });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setActiveDraftId(data.id);
+      toast({ title: "Draft saved" });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/drafts"] });
+    },
+    onError: (err: any) => toast({ title: "Failed to save draft", description: err.message, variant: "destructive" }),
+  });
+
+  const scheduleMutation = useMutation({
+    mutationFn: async () => {
+      const htmlBody = buildEmailHtml(body);
+      const res = await apiRequest("POST", "/api/gmail/schedule", { to, subject, body: htmlBody, threadId, scheduledAt });
+      return res.json();
+    },
+    onSuccess: async () => {
+      toast({ title: "Email scheduled", description: `Will send on ${new Date(scheduledAt).toLocaleString()}` });
+      if (activeDraftId) {
+        await fetch(`/api/gmail/drafts/${activeDraftId}`, { method: "DELETE", credentials: "include" }).catch(() => {});
+        queryClient.invalidateQueries({ queryKey: ["/api/gmail/drafts"] });
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/scheduled"] });
+      onClose();
+    },
+    onError: (err: any) => toast({ title: "Failed to schedule", description: err.message, variant: "destructive" }),
+  });
+
+  const isWorking = sendMutation.isPending || draftMutation.isPending || scheduleMutation.isPending;
+  const minDatetime = new Date(Date.now() + 60000).toISOString().slice(0, 16);
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{threadId ? "Reply" : "New Email"}</DialogTitle>
+          <DialogTitle>{threadId ? "Reply" : draftId ? "Edit Draft" : "New Email"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           {!canSend && (
@@ -196,12 +241,79 @@ function ComposeDialog({
             />
           </div>
 
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          {showScheduler && canSend && (
+            <div className="flex items-center gap-2 p-2.5 bg-muted/30 border border-border/50 rounded-md">
+              <CalendarClock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              <div className="flex-1">
+                <Label className="text-xs text-muted-foreground mb-1 block">Send at</Label>
+                <input
+                  type="datetime-local"
+                  value={scheduledAt}
+                  min={minDatetime}
+                  onChange={(e) => setScheduledAt(e.target.value)}
+                  className="w-full bg-transparent text-sm text-foreground outline-none"
+                  data-testid="input-scheduled-at"
+                />
+              </div>
+              {scheduledAt && (
+                <button onClick={() => setScheduledAt("")} className="text-muted-foreground hover:text-foreground">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+              {canSend && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => draftMutation.mutate()}
+                  disabled={!body || isWorking}
+                  data-testid="button-save-draft"
+                  className="text-muted-foreground"
+                >
+                  {draftMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+                  <span className="ml-1">Save Draft</span>
+                </Button>
+              )}
+            </div>
             {canSend && (
-              <Button size="sm" onClick={() => sendMutation.mutate()} disabled={!to || !body || sendMutation.isPending} data-testid="button-send-email">
-                {sendMutation.isPending ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Sending...</> : <><Send className="h-4 w-4 mr-1" /> Send</>}
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={`h-8 w-8 ${showScheduler ? "text-primary" : "text-muted-foreground"}`}
+                  onClick={() => setShowScheduler((v) => !v)}
+                  title="Send Later"
+                  data-testid="button-toggle-scheduler"
+                >
+                  <Clock className="h-4 w-4" />
+                </Button>
+                {scheduledAt ? (
+                  <Button
+                    size="sm"
+                    onClick={() => scheduleMutation.mutate()}
+                    disabled={!to || !body || isWorking}
+                    data-testid="button-schedule-send"
+                    className="gap-1"
+                  >
+                    {scheduleMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
+                    Schedule
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={() => sendMutation.mutate()}
+                    disabled={!to || !body || isWorking}
+                    data-testid="button-send-email"
+                  >
+                    {sendMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending...</> : <><Send className="h-4 w-4 mr-1" /> Send</>}
+                  </Button>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -232,7 +344,9 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<{ to: string; subject: string; threadId: string } | null>(null);
-  const [tab, setTab] = useState<"inbox" | "sent" | "other">("inbox");
+  const [tab, setTab] = useState<"inbox" | "sent" | "other" | "drafts" | "scheduled">("inbox");
+  const [editingDraft, setEditingDraft] = useState<{ to: string; subject: string; body: string; draftId: string; threadId?: string } | null>(null);
+  const [loadingDraftId, setLoadingDraftId] = useState<string | null>(null);
 
   const filtersQuery = useQuery<EmailFilter[]>({
     queryKey: ["/api/email-filters"],
@@ -343,6 +457,55 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
     },
     retry: false,
   });
+
+  type DraftSummary = { id: string; to: string; subject: string; date: string; snippet: string; internalDate: string };
+  type ScheduledEmail = { id: number; to: string; subject: string | null; scheduledAt: string; createdAt: string };
+
+  const draftsQuery = useQuery<DraftSummary[]>({
+    queryKey: ["/api/gmail/drafts"],
+    queryFn: async () => {
+      const res = await fetch("/api/gmail/drafts", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: canSend && tab === "drafts",
+  });
+
+  const scheduledQuery = useQuery<ScheduledEmail[]>({
+    queryKey: ["/api/gmail/scheduled"],
+    queryFn: async () => {
+      const res = await fetch("/api/gmail/scheduled", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: canSend && tab === "scheduled",
+    refetchInterval: canSend && tab === "scheduled" ? 30000 : false,
+  });
+
+  const cancelScheduledMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/gmail/scheduled/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/scheduled"] });
+      toast({ title: "Scheduled email cancelled" });
+    },
+  });
+
+  const openDraft = async (draftId: string) => {
+    setLoadingDraftId(draftId);
+    try {
+      const res = await fetch(`/api/gmail/drafts/${draftId}`, { credentials: "include" });
+      const content = await res.json();
+      setEditingDraft({ to: content.to, subject: content.subject, body: content.body, draftId, threadId: content.threadId });
+      setComposeOpen(true);
+    } catch {
+      toast({ title: "Could not load draft", variant: "destructive" });
+    } finally {
+      setLoadingDraftId(null);
+    }
+  };
 
   const inboxMain = canSend
     ? (inboxQuery.data || []).filter((m) => !blockedDomains.has(parseSenderDomain(m.from)))
@@ -488,6 +651,33 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                 </Button>
               )}
             </div>
+            {canSend && (
+              <div className="flex gap-1">
+                <Button
+                  size="sm"
+                  variant={tab === "drafts" ? "default" : "ghost"}
+                  className="flex-1"
+                  onClick={() => { setTab("drafts"); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                  data-testid="tab-drafts"
+                >
+                  <FileText className="h-4 w-4 mr-1" /> Drafts
+                </Button>
+                <Button
+                  size="sm"
+                  variant={tab === "scheduled" ? "default" : "ghost"}
+                  className="flex-1 relative"
+                  onClick={() => { setTab("scheduled"); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                  data-testid="tab-scheduled"
+                >
+                  <CalendarClock className="h-4 w-4 mr-1" /> Scheduled
+                  {(scheduledQuery.data?.length ?? 0) > 0 && (
+                    <span className="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 rounded-full bg-primary/60 text-[10px] flex items-center justify-center">
+                      {scheduledQuery.data?.length}
+                    </span>
+                  )}
+                </Button>
+              </div>
+            )}
             <form onSubmit={handleSearch} className="flex gap-1">
               <div className="relative flex-1">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -509,7 +699,67 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
 
           {/* Message list */}
           <div className="flex-1 overflow-y-auto">
-            {isLoading && (
+            {/* Drafts tab */}
+            {tab === "drafts" && (
+              draftsQuery.isLoading ? (
+                <div className="p-3 space-y-2">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="space-y-1 p-2"><Skeleton className="h-3.5 w-2/3" /><Skeleton className="h-3 w-full" /></div>)}</div>
+              ) : (draftsQuery.data || []).length === 0 ? (
+                <div className="p-6 text-center text-sm text-muted-foreground"><FileText className="h-8 w-8 mx-auto mb-2 opacity-30" /><p>No drafts</p></div>
+              ) : (
+                (draftsQuery.data || []).map((draft) => (
+                  <button
+                    key={draft.id}
+                    onClick={() => openDraft(draft.id)}
+                    disabled={loadingDraftId === draft.id}
+                    data-testid={`draft-row-${draft.id}`}
+                    className="w-full text-left px-3 py-2.5 border-b border-border/30 transition-colors hover:bg-muted/50 flex flex-col gap-0.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm truncate text-muted-foreground">
+                        {loadingDraftId === draft.id ? <Loader2 className="h-3.5 w-3.5 animate-spin inline" /> : null}
+                        {draft.to || "(no recipient)"}
+                      </span>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(draft.date, draft.internalDate)}</span>
+                    </div>
+                    <p className="text-xs truncate text-foreground/70">{draft.subject || "(no subject)"}</p>
+                    <p className="text-xs text-muted-foreground truncate">{draft.snippet}</p>
+                  </button>
+                ))
+              )
+            )}
+
+            {/* Scheduled tab */}
+            {tab === "scheduled" && (
+              scheduledQuery.isLoading ? (
+                <div className="p-3 space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="space-y-1 p-2"><Skeleton className="h-3.5 w-2/3" /><Skeleton className="h-3 w-full" /></div>)}</div>
+              ) : (scheduledQuery.data || []).length === 0 ? (
+                <div className="p-6 text-center text-sm text-muted-foreground"><CalendarClock className="h-8 w-8 mx-auto mb-2 opacity-30" /><p>No scheduled emails</p></div>
+              ) : (
+                (scheduledQuery.data || []).map((email) => (
+                  <div key={email.id} className="group relative px-3 py-2.5 border-b border-border/30">
+                    <div className="flex items-center justify-between gap-2 mb-0.5">
+                      <span className="text-sm truncate text-muted-foreground">{email.to}</span>
+                      <button
+                        onClick={() => cancelScheduledMutation.mutate(email.id)}
+                        disabled={cancelScheduledMutation.isPending}
+                        title="Cancel scheduled send"
+                        data-testid={`button-cancel-scheduled-${email.id}`}
+                        className="text-muted-foreground/40 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                      >
+                        <CalendarX className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <p className="text-xs truncate text-foreground/70">{email.subject || "(no subject)"}</p>
+                    <p className="text-xs text-primary/70 mt-0.5 flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {new Date(email.scheduledAt).toLocaleString()}
+                    </p>
+                  </div>
+                ))
+              )
+            )}
+
+            {tab !== "drafts" && tab !== "scheduled" && isLoading && (
               <div className="p-3 space-y-2">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <div key={i} className="space-y-1 p-2">
@@ -546,7 +796,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                 )}
               </div>
             )}
-            {!isLoading && !error && tab !== "other" && activeMessages?.length === 0 && (
+            {tab !== "drafts" && tab !== "scheduled" && !isLoading && !error && tab !== "other" && activeMessages?.length === 0 && (
               <div className="p-6 text-center text-sm text-muted-foreground">
                 <Inbox className="h-8 w-8 mx-auto mb-2 opacity-30" />
                 <p>No messages found</p>
@@ -558,7 +808,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                 <p>No filtered emails</p>
               </div>
             )}
-            {activeMessages?.map((msg) => {
+            {tab !== "drafts" && tab !== "scheduled" && activeMessages?.map((msg) => {
               const unread = isUnread(msg.labelIds);
               const isSelected = msg.threadId === selectedThreadId;
               const domain = parseSenderDomain(msg.from);
@@ -612,7 +862,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
         </div>
 
         {/* Right panel: thread view */}
-        {selectedThreadId && (
+        {selectedThreadId && tab !== "drafts" && tab !== "scheduled" && (
           <div className="flex-1 flex flex-col min-h-0 min-w-0">
             {/* Thread header */}
             <div className="flex-shrink-0 flex items-center gap-2 px-4 py-3 border-b border-border/50 bg-card/30">
@@ -677,7 +927,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
         )}
 
         {/* Empty state when no message selected */}
-        {!selectedThreadId && (
+        {!selectedThreadId && tab !== "drafts" && tab !== "scheduled" && (
           <div className="hidden md:flex flex-1 items-center justify-center text-muted-foreground">
             <div className="text-center">
               <MailOpen className="h-12 w-12 mx-auto mb-3 opacity-20" />
@@ -689,12 +939,15 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
 
       {/* Compose / Reply dialog */}
       <ComposeDialog
-        open={composeOpen || !!replyTo}
-        onClose={() => { setComposeOpen(false); setReplyTo(null); }}
+        key={editingDraft?.draftId ?? "compose"}
+        open={composeOpen || !!replyTo || !!editingDraft}
+        onClose={() => { setComposeOpen(false); setReplyTo(null); setEditingDraft(null); }}
         canSend={canSend}
-        defaultTo={replyTo?.to || ""}
-        defaultSubject={replyTo?.subject || ""}
-        threadId={replyTo?.threadId}
+        defaultTo={editingDraft?.to || replyTo?.to || ""}
+        defaultSubject={editingDraft?.subject || replyTo?.subject || ""}
+        defaultBody={editingDraft?.body || ""}
+        draftId={editingDraft?.draftId}
+        threadId={editingDraft?.threadId || replyTo?.threadId}
       />
     </div>
   );

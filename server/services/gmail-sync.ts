@@ -1,6 +1,6 @@
 import { db } from "../db";
-import { emailMessages } from "../../shared/schema";
-import { eq } from "drizzle-orm";
+import { emailMessages, scheduledEmails } from "../../shared/schema";
+import { eq, and, lte } from "drizzle-orm";
 import { parseGmailMessage } from "./email-parser";
 import { runAssociationEngine } from "./association-engine";
 import { log } from "../index";
@@ -63,19 +63,42 @@ export async function runGmailSync(limit = 100): Promise<{ processed: number; ne
   return { processed: processedCount, newMessages: newCount };
 }
 
+async function runScheduledEmailSender() {
+  const now = new Date();
+  const due = await db.select().from(scheduledEmails).where(
+    and(eq(scheduledEmails.status, "pending"), lte(scheduledEmails.scheduledAt, now))
+  );
+  if (!due.length) return;
+  const { sendEmail } = await import("../gmail");
+  for (const email of due) {
+    try {
+      await sendEmail(email.to, email.subject || "", email.body, email.threadId ?? undefined);
+      await db.update(scheduledEmails).set({ status: "sent", sentAt: new Date() }).where(eq(scheduledEmails.id, email.id));
+      log(`[gmail-scheduled] Sent scheduled email #${email.id} to ${email.to}`);
+    } catch (err: any) {
+      await db.update(scheduledEmails).set({ status: "failed", error: err.message }).where(eq(scheduledEmails.id, email.id));
+      log(`[gmail-scheduled] Failed to send scheduled email #${email.id}: ${err.message}`);
+    }
+  }
+}
+
 const HOUR_MS = 60 * 60 * 1000;
+const MIN_MS = 60 * 1000;
 
 export function startHourlySyncScheduler() {
   log("[gmail-sync] Hourly sync scheduler started");
 
-  const tick = async () => {
+  setInterval(async () => {
     try {
       log("[gmail-sync] Running scheduled sync…");
       await runGmailSync(200);
     } catch (err: any) {
       log(`[gmail-sync] Scheduled sync error: ${err.message}`);
     }
-  };
+  }, HOUR_MS);
 
-  setInterval(tick, HOUR_MS);
+  // Check for scheduled emails every minute
+  setInterval(async () => {
+    try { await runScheduledEmailSender(); } catch {}
+  }, MIN_MS);
 }

@@ -130,17 +130,11 @@ export async function markMessageRead(messageId: string) {
 
 function mimeBase64(content: string): string {
   const b64 = Buffer.from(content, "utf-8").toString("base64");
-  // MIME requires base64 lines wrapped at 76 chars
   return b64.match(/.{1,76}/g)?.join("\r\n") ?? b64;
 }
 
-export async function sendEmail(to: string, subject: string, body: string, threadId?: string) {
-  const gmail = await getGmailClient();
-  const profileRes = await gmail.users.getProfile({ userId: "me" });
-  const from = profileRes.data.emailAddress;
-
+function buildMimeRaw(from: string, to: string, subject: string, body: string): string {
   const boundary = `vs_${Date.now()}`;
-
   const plainText = body
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
     .replace(/<[^>]+>/g, "")
@@ -150,9 +144,8 @@ export async function sendEmail(to: string, subject: string, body: string, threa
     .replace(/&gt;/g, ">")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-
   const R = "\r\n";
-  const lines: string[] = [
+  const lines = [
     `From: ${from}`,
     `To: ${to}`,
     `Subject: ${subject || ""}`,
@@ -173,18 +166,83 @@ export async function sendEmail(to: string, subject: string, body: string, threa
     "",
     `--${boundary}--`,
   ];
-
-  const raw = Buffer.from(lines.join(R))
+  return Buffer.from(lines.join(R))
     .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
+}
 
+export async function sendEmail(to: string, subject: string, body: string, threadId?: string) {
+  const gmail = await getGmailClient();
+  const profileRes = await gmail.users.getProfile({ userId: "me" });
+  const from = profileRes.data.emailAddress!;
+  const raw = buildMimeRaw(from, to, subject, body);
   const params: any = { userId: "me", requestBody: { raw } };
   if (threadId) params.requestBody.threadId = threadId;
-
   const res = await gmail.users.messages.send(params);
   return res.data;
+}
+
+export async function saveDraft(to: string, subject: string, body: string, threadId?: string, draftId?: string) {
+  const gmail = await getGmailClient();
+  const profileRes = await gmail.users.getProfile({ userId: "me" });
+  const from = profileRes.data.emailAddress!;
+  const raw = buildMimeRaw(from, to, subject, body);
+  const message: any = { raw };
+  if (threadId) message.threadId = threadId;
+  if (draftId) {
+    const res = await gmail.users.drafts.update({ userId: "me", id: draftId, requestBody: { message } });
+    return res.data;
+  } else {
+    const res = await gmail.users.drafts.create({ userId: "me", requestBody: { message } });
+    return res.data;
+  }
+}
+
+export async function listDraftSummaries() {
+  const gmail = await getGmailClient();
+  const listRes = await gmail.users.drafts.list({ userId: "me", maxResults: 20 });
+  const drafts = listRes.data.drafts || [];
+  if (!drafts.length) return [];
+  const summaries = await Promise.all(
+    drafts.map(async ({ id }) => {
+      const d = await gmail.users.drafts.get({ userId: "me", id: id!, format: "metadata", metadataHeaders: ["To", "Subject", "Date"] } as any);
+      const msg = d.data.message!;
+      const headers: any[] = msg.payload?.headers || [];
+      const getH = (name: string) => headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value || "";
+      return {
+        id: d.data.id!,
+        to: getH("To"),
+        subject: getH("Subject"),
+        date: getH("Date"),
+        snippet: msg.snippet || "",
+        internalDate: msg.internalDate || "",
+      };
+    })
+  );
+  return summaries;
+}
+
+export async function getDraftContent(draftId: string) {
+  const gmail = await getGmailClient();
+  const d = await gmail.users.drafts.get({ userId: "me", id: draftId, format: "full" } as any);
+  const msg = d.data.message!;
+  const headers: any[] = msg.payload?.headers || [];
+  const getH = (name: string) => headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value || "";
+  const textBody = extractBody(msg.payload);
+  return {
+    id: d.data.id!,
+    to: getH("To"),
+    subject: getH("Subject"),
+    body: textBody,
+    threadId: (msg as any).threadId as string | undefined,
+  };
+}
+
+export async function deleteDraft(draftId: string) {
+  const gmail = await getGmailClient();
+  await gmail.users.drafts.delete({ userId: "me", id: draftId });
 }
 
 export async function getProfile() {

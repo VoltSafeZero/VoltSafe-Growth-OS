@@ -744,6 +744,20 @@ export const associationFeedback = pgTable("association_feedback", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const scheduledEmails = pgTable("scheduled_emails", {
+  id: serial("id").primaryKey(),
+  to: text("to").notNull(),
+  subject: text("subject"),
+  body: text("body").notNull(),
+  threadId: text("thread_id"),
+  scheduledAt: timestamp("scheduled_at").notNull(),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  sentAt: timestamp("sent_at"),
+  error: text("error"),
+});
+export type ScheduledEmail = typeof scheduledEmails.$inferSelect;
+
 export const emailFilters = pgTable("email_filters", {
   id: serial("id").primaryKey(),
   domain: text("domain").notNull().unique(),
