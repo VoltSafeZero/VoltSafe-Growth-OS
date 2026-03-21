@@ -119,41 +119,53 @@ export async function getMessageSummaries(maxResults: number = 50, query: string
   return summaries;
 }
 
+function mimeBase64(content: string): string {
+  const b64 = Buffer.from(content, "utf-8").toString("base64");
+  // MIME requires base64 lines wrapped at 76 chars
+  return b64.match(/.{1,76}/g)?.join("\r\n") ?? b64;
+}
+
 export async function sendEmail(to: string, subject: string, body: string, threadId?: string) {
   const gmail = await getGmailClient();
   const profileRes = await gmail.users.getProfile({ userId: "me" });
   const from = profileRes.data.emailAddress;
 
-  const boundary = `boundary_${Date.now()}_voltsafe`;
+  const boundary = `vs_${Date.now()}`;
+
   const plainText = body
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
     .replace(/<[^>]+>/g, "")
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
+    .replace(/&gt;/g, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 
-  const CRLF = "\r\n";
-  const rawMessage = [
+  const R = "\r\n";
+  const lines: string[] = [
     `From: ${from}`,
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${subject || ""}`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
     "",
     `--${boundary}`,
-    "Content-Type: text/plain; charset=utf-8",
+    "Content-Type: text/plain; charset=UTF-8",
+    "Content-Transfer-Encoding: base64",
     "",
-    plainText,
+    mimeBase64(plainText),
     "",
     `--${boundary}`,
-    "Content-Type: text/html; charset=utf-8",
+    "Content-Type: text/html; charset=UTF-8",
+    "Content-Transfer-Encoding: base64",
     "",
-    body,
+    mimeBase64(body),
     "",
     `--${boundary}--`,
-  ].join(CRLF);
+  ];
 
-  const raw = Buffer.from(rawMessage)
+  const raw = Buffer.from(lines.join(R))
     .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
