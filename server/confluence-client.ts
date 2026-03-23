@@ -1,7 +1,10 @@
 // Confluence integration — uses Replit connector (connection:conn_confluence_01KMDWJVXP6NNV51C1RJTSTXE7)
+// NOTE: Atlassian OAuth 2.0 tokens require api.atlassian.com/ex/confluence/{cloudId} as the host,
+// NOT the site URL (voltsafe.atlassian.net). Using the site URL causes 401 errors.
 import { ConfluenceClient } from 'confluence.js';
 
 let connectionSettings: any = null;
+let cloudId: string | null = null;
 
 async function fetchConnectionSettings() {
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
@@ -23,18 +26,28 @@ async function fetchConnectionSettings() {
   const accessToken =
     connectionSettings?.settings?.access_token ||
     connectionSettings?.settings?.oauth?.credentials?.access_token;
-  const hostName = connectionSettings?.settings?.site_url;
 
-  if (!connectionSettings || !accessToken || !hostName) {
+  if (!connectionSettings || !accessToken) {
     connectionSettings = null;
     throw new Error('Confluence not connected');
   }
 
+  // Resolve the cloud ID via Atlassian's accessible-resources if not yet cached
+  if (!cloudId) {
+    const resources = await fetch('https://api.atlassian.com/oauth/token/accessible-resources', {
+      headers: { Authorization: 'Bearer ' + accessToken, Accept: 'application/json' },
+    }).then((r) => r.json());
+    const site = Array.isArray(resources) ? resources[0] : null;
+    if (!site?.id) throw new Error('Confluence: could not resolve cloud ID');
+    cloudId = site.id;
+  }
+
+  // The correct host for OAuth 2.0 tokens is api.atlassian.com/ex/confluence/{cloudId}
+  const hostName = `https://api.atlassian.com/ex/confluence/${cloudId}`;
   return { accessToken, hostName };
 }
 
 async function getAccessToken() {
-  // Use cached token only if it hasn't expired yet
   if (
     connectionSettings &&
     connectionSettings.settings?.expires_at &&
@@ -43,16 +56,14 @@ async function getAccessToken() {
     const accessToken =
       connectionSettings.settings.access_token ||
       connectionSettings.settings?.oauth?.credentials?.access_token;
-    const hostName = connectionSettings.settings.site_url;
-    if (accessToken && hostName) return { accessToken, hostName };
+    if (accessToken && cloudId) {
+      return { accessToken, hostName: `https://api.atlassian.com/ex/confluence/${cloudId}` };
+    }
   }
-
-  // Cache is stale or missing — fetch fresh from Replit connectors
   return fetchConnectionSettings();
 }
 
 // WARNING: Never cache this client — tokens expire.
-// On 401, clears cache and retries once automatically.
 export async function getUncachableConfluenceClient() {
   const { accessToken, hostName } = await getAccessToken();
   return new ConfluenceClient({
@@ -64,4 +75,5 @@ export async function getUncachableConfluenceClient() {
 // Call this when a Confluence API call gets a 401 to force a token refresh on the next call
 export function invalidateConfluenceToken() {
   connectionSettings = null;
+  cloudId = null;
 }
