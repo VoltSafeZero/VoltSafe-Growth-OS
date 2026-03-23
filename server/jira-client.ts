@@ -64,6 +64,11 @@ async function getAccessToken() {
   return fetchConnectionSettings();
 }
 
+// Export credentials for direct fetch usage in routes
+export async function getJiraCredentials() {
+  return getAccessToken();
+}
+
 // WARNING: Never cache this client — tokens expire.
 export async function getUncachableJiraClient() {
   const { accessToken, hostName } = await getAccessToken();

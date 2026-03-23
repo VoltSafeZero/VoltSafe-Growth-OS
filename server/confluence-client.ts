@@ -63,6 +63,11 @@ async function getAccessToken() {
   return fetchConnectionSettings();
 }
 
+// Export credentials for direct fetch usage in routes
+export async function getConfluenceCredentials() {
+  return getAccessToken();
+}
+
 // WARNING: Never cache this client — tokens expire.
 export async function getUncachableConfluenceClient() {
   const { accessToken, hostName } = await getAccessToken();

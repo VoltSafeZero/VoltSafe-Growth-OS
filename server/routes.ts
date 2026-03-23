@@ -1850,26 +1850,28 @@ export function registerJiraRoutes(app: Express) {
 
   app.get("/api/jira/issues", requireAuth, async (req, res) => {
     try {
-      const { getUncachableJiraClient, invalidateJiraToken } = await import("./jira-client");
-      let client = await getUncachableJiraClient();
+      const { getJiraCredentials, invalidateJiraToken } = await import("./jira-client");
       const projectKey = req.query.project as string | undefined;
-      const jql = projectKey
-        ? `project = ${projectKey} ORDER BY updated DESC`
-        : `assignee = currentUser() ORDER BY updated DESC`;
-      const fields = ["summary", "status", "priority", "assignee", "updated", "issuetype", "project"];
-      let issues: any;
-      try {
-        issues = await client.issueSearch.searchForIssuesUsingJqlPost({ jql, maxResults: 50, fields });
-      } catch (err: any) {
-        const is401 = err?.response?.status === 401 || err?.status === 401 ||
-          (err?.message && (err.message.includes('401') || err.message.toLowerCase().includes('unauthorized')));
-        if (is401) {
-          invalidateJiraToken();
-          client = await getUncachableJiraClient();
-          issues = await client.issueSearch.searchForIssuesUsingJqlPost({ jql, maxResults: 50, fields });
-        } else throw err;
+      if (!projectKey) return res.json({ issues: [], isLast: true });
+
+      const doFetch = async () => {
+        const { accessToken, hostName } = await getJiraCredentials();
+        const jql = encodeURIComponent(`project = ${projectKey} ORDER BY updated DESC`);
+        const fields = "summary,status,priority,assignee,updated,issuetype,project";
+        const url = `${hostName}/rest/api/3/search/jql?jql=${jql}&maxResults=50&fields=${fields}`;
+        const r = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } });
+        if (r.status === 401) { invalidateJiraToken(); throw Object.assign(new Error("401"), { status: 401 }); }
+        if (!r.ok) throw new Error(`Jira API error: ${r.status}`);
+        return r.json();
+      };
+
+      let data: any;
+      try { data = await doFetch(); }
+      catch (err: any) {
+        if (err.status === 401) data = await doFetch();
+        else throw err;
       }
-      res.json(issues);
+      res.json(data);
     } catch (err: any) {
       res.status(503).json({ message: "Jira not connected", error: err.message });
     }
@@ -1911,24 +1913,39 @@ export function registerJiraRoutes(app: Express) {
 }
 
 // ── Confluence Routes ──────────────────────────────────────────────────────────
+// Uses direct fetch — confluence.js SDK calls deprecated endpoints (410 Gone).
+// Spaces are derived from recent page content (no dedicated spaces API available with current scopes).
 export function registerConfluenceRoutes(app: Express) {
+  async function confFetch(path: string, invalidate: () => void, getCredentials: () => Promise<{ accessToken: string; hostName: string }>) {
+    const doFetch = async () => {
+      const { accessToken, hostName } = await getCredentials();
+      const r = await fetch(`${hostName}${path}`, { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } });
+      if (r.status === 401) { invalidate(); throw Object.assign(new Error("401"), { status: 401 }); }
+      if (!r.ok) throw new Error(`Confluence API error: ${r.status}`);
+      return r.json();
+    };
+    try { return await doFetch(); }
+    catch (err: any) {
+      if (err.status === 401) return doFetch();
+      throw err;
+    }
+  }
+
   app.get("/api/confluence/spaces", requireAuth, async (req, res) => {
     try {
-      const { getUncachableConfluenceClient, invalidateConfluenceToken } = await import("./confluence-client");
-      let client = await getUncachableConfluenceClient();
-      let spaces: any;
-      try {
-        spaces = await client.space.getSpaces({ limit: 50 });
-      } catch (err: any) {
-        const is401 = err?.response?.status === 401 || err?.status === 401 ||
-          (err?.message && (err.message.includes('401') || err.message.toLowerCase().includes('unauthorized')));
-        if (is401) {
-          invalidateConfluenceToken();
-          client = await getUncachableConfluenceClient();
-          spaces = await client.space.getSpaces({ limit: 50 });
-        } else throw err;
+      const { getConfluenceCredentials, invalidateConfluenceToken } = await import("./confluence-client");
+      // Derive spaces from recent pages — no dedicated spaces endpoint is available
+      const data = await confFetch(
+        "/rest/api/content/search?cql=type%3Dpage+ORDER+BY+lastmodified+DESC&limit=50&expand=space",
+        invalidateConfluenceToken,
+        getConfluenceCredentials,
+      );
+      const spaceMap: Record<string, string> = {};
+      for (const page of data.results || []) {
+        if (page.space?.key && !spaceMap[page.space.key]) spaceMap[page.space.key] = page.space.name;
       }
-      res.json(spaces);
+      const results = Object.entries(spaceMap).map(([key, name]) => ({ key, name }));
+      res.json({ results, size: results.length });
     } catch (err: any) {
       res.status(503).json({ message: "Confluence not connected", error: err.message });
     }
@@ -1936,29 +1953,20 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.get("/api/confluence/pages", requireAuth, async (req, res) => {
     try {
-      const { getUncachableConfluenceClient, invalidateConfluenceToken } = await import("./confluence-client");
-      let client = await getUncachableConfluenceClient();
+      const { getConfluenceCredentials, invalidateConfluenceToken } = await import("./confluence-client");
       const spaceKey = req.query.space as string | undefined;
       const query = req.query.q as string | undefined;
       const cql = query
-        ? `type = page AND text ~ "${query.replace(/"/g, '')}"${spaceKey ? ` AND space = "${spaceKey}"` : ""} ORDER BY lastmodified DESC`
+        ? `type = page AND text ~ "${query.replace(/"/g, '')}"${spaceKey ? ` AND space.key = "${spaceKey}"` : ""} ORDER BY lastmodified DESC`
         : spaceKey
-        ? `type = page AND space = "${spaceKey}" ORDER BY lastmodified DESC`
+        ? `type = page AND space.key = "${spaceKey}" ORDER BY lastmodified DESC`
         : `type = page ORDER BY lastmodified DESC`;
-      const searchOptions = { cql, limit: 25, expand: ["space", "history.lastUpdated", "version"] };
-      let results: any;
-      try {
-        results = await client.contentSearch.searchByCQL(searchOptions);
-      } catch (err: any) {
-        const is401 = err?.response?.status === 401 || err?.status === 401 ||
-          (err?.message && (err.message.includes('401') || err.message.toLowerCase().includes('unauthorized')));
-        if (is401) {
-          invalidateConfluenceToken();
-          client = await getUncachableConfluenceClient();
-          results = await client.contentSearch.searchByCQL(searchOptions);
-        } else throw err;
-      }
-      res.json(results);
+      const data = await confFetch(
+        `/rest/api/content/search?cql=${encodeURIComponent(cql)}&limit=25&expand=space,history.lastUpdated,version`,
+        invalidateConfluenceToken,
+        getConfluenceCredentials,
+      );
+      res.json(data);
     } catch (err: any) {
       res.status(503).json({ message: "Confluence not connected", error: err.message });
     }

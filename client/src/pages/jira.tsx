@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -76,11 +76,20 @@ export default function JiraPage() {
     },
   });
 
-  const issuesQuery = useQuery<{ issues: JiraIssue[]; total: number }>({
+  // Auto-select first project once projects load
+  useEffect(() => {
+    const projects = projectsQuery.data?.values;
+    if (projects && projects.length > 0 && selectedProject === "all") {
+      setSelectedProject(projects[0].key);
+    }
+  }, [projectsQuery.data]);
+
+  const issuesQuery = useQuery<{ issues: JiraIssue[]; isLast: boolean }>({
     queryKey: ["/api/jira/issues", selectedProject],
+    enabled: selectedProject !== "all",
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (selectedProject !== "all") params.set("project", selectedProject);
+      params.set("project", selectedProject);
       const res = await fetch(`/api/jira/issues?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message || "Failed to load issues");
       return res.json();
@@ -187,7 +196,7 @@ export default function JiraPage() {
                 ))}
             </div>
             <span className="ml-auto text-xs text-muted-foreground">
-              {issuesQuery.data ? `${issuesQuery.data.total} issue${issuesQuery.data.total !== 1 ? "s" : ""}` : ""}
+              {issuesQuery.data?.issues ? `${issuesQuery.data.issues.length} issue${issuesQuery.data.issues.length !== 1 ? "s" : ""}${issuesQuery.data.isLast ? "" : "+"}` : ""}
             </span>
           </div>
 
