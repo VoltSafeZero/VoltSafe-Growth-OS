@@ -1,71 +1,99 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import {
-  CheckSquare, AlertCircle, RefreshCw, Plus, ExternalLink,
-  ChevronDown, User, Clock, Loader2,
-} from "lucide-react";
+import { Search, RefreshCw, Plus, ExternalLink, ChevronRight, Loader2, AlertTriangle, LayoutList } from "lucide-react";
 import { SiJira } from "react-icons/si";
 
+const SITE_URL = "https://voltsafe.atlassian.net";
+
 type JiraProject = {
-  id: string;
-  key: string;
-  name: string;
-  avatarUrls?: { "48x48": string };
+  id: string; key: string; name: string;
+  avatarUrls?: { "48x48": string; "24x24": string };
+  projectTypeKey?: string;
 };
 
 type JiraIssue = {
-  id: string;
-  key: string;
-  self: string;
+  id: string; key: string;
   fields: {
     summary: string;
-    status: { name: string; statusCategory: { colorName: string } };
+    status: { name: string; statusCategory: { colorName: string; key: string; name: string } };
     priority: { name: string; iconUrl: string } | null;
-    assignee: { displayName: string; avatarUrls: { "24x24": string } } | null;
+    assignee: { displayName: string; avatarUrls: { "24x24": string; "32x32": string } } | null;
     updated: string;
     issuetype: { name: string; iconUrl: string };
-    project: { key: string; name: string };
+    project: { key: string; name: string; avatarUrls?: { "24x24": string } };
+    labels?: string[];
   };
 };
 
-function statusColor(colorName: string) {
-  if (colorName === "green") return "text-green-400 bg-green-400/10 border-green-400/20";
-  if (colorName === "blue-grey") return "text-sky-400 bg-sky-400/10 border-sky-400/20";
-  if (colorName === "yellow") return "text-yellow-400 bg-yellow-400/10 border-yellow-400/20";
-  return "text-muted-foreground bg-muted border-border";
+function IssueTypeIcon({ iconUrl, name }: { iconUrl: string; name: string }) {
+  const colorMap: Record<string, string> = {
+    Bug: "bg-red-500", Story: "bg-green-500", Epic: "bg-purple-500",
+    Task: "bg-blue-500", Subtask: "bg-sky-400", "Sub-task": "bg-sky-400",
+  };
+  const labelMap: Record<string, string> = {
+    Bug: "B", Story: "S", Epic: "E", Task: "T", Subtask: "s",
+  };
+  const color = colorMap[name] || "bg-slate-500";
+  const letter = labelMap[name] || name[0] || "?";
+  if (iconUrl) {
+    return <img src={iconUrl} alt={name} className="h-4 w-4 flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />;
+  }
+  return (
+    <span className={`inline-flex items-center justify-center h-4 w-4 rounded-sm text-white text-[9px] font-bold flex-shrink-0 ${color}`}>
+      {letter}
+    </span>
+  );
 }
 
-function priorityColor(name: string) {
-  if (name === "Highest" || name === "High") return "text-red-400";
-  if (name === "Medium") return "text-yellow-400";
-  return "text-muted-foreground";
+function PriorityIcon({ name, iconUrl }: { name: string; iconUrl: string }) {
+  if (iconUrl) return <img src={iconUrl} alt={name} className="h-3.5 w-3.5 flex-shrink-0" title={name} />;
+  const colors: Record<string, string> = { Highest: "text-red-500", High: "text-orange-400", Medium: "text-yellow-400", Low: "text-blue-400", Lowest: "text-slate-400" };
+  return <span className={`text-[10px] font-bold ${colors[name] || "text-muted-foreground"}`} title={name}>{name[0]}</span>;
+}
+
+function StatusBadge({ status }: { status: JiraIssue["fields"]["status"] }) {
+  const key = status.statusCategory.key;
+  const styles: Record<string, string> = {
+    new: "bg-slate-500/20 text-slate-300 border-slate-500/30",
+    indeterminate: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+    done: "bg-green-500/20 text-green-300 border-green-500/30",
+  };
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium uppercase tracking-wide whitespace-nowrap ${styles[key] || "bg-muted text-muted-foreground border-border"}`}>
+      {status.name}
+    </span>
+  );
 }
 
 function timeAgo(dateStr: string) {
-  const d = new Date(dateStr);
-  const diff = Date.now() - d.getTime();
+  const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 export default function JiraPage() {
   const { toast } = useToast();
-  const [selectedProject, setSelectedProject] = useState<string>("all");
+  const [selectedProject, setSelectedProject] = useState<string>("");
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ projectKey: "", summary: "", description: "", issueType: "Task" });
+  const [search, setSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterType, setFilterType] = useState("all");
+  const [filterPriority, setFilterPriority] = useState("all");
 
   const projectsQuery = useQuery<{ values: JiraProject[] }>({
     queryKey: ["/api/jira/projects"],
@@ -76,21 +104,18 @@ export default function JiraPage() {
     },
   });
 
-  // Auto-select first project once projects load
   useEffect(() => {
     const projects = projectsQuery.data?.values;
-    if (projects && projects.length > 0 && selectedProject === "all") {
+    if (projects && projects.length > 0 && !selectedProject) {
       setSelectedProject(projects[0].key);
     }
   }, [projectsQuery.data]);
 
   const issuesQuery = useQuery<{ issues: JiraIssue[]; isLast: boolean }>({
     queryKey: ["/api/jira/issues", selectedProject],
-    enabled: selectedProject !== "all",
+    enabled: !!selectedProject,
     queryFn: async () => {
-      const params = new URLSearchParams();
-      params.set("project", selectedProject);
-      const res = await fetch(`/api/jira/issues?${params}`, { credentials: "include" });
+      const res = await fetch(`/api/jira/issues?project=${selectedProject}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message || "Failed to load issues");
       return res.json();
     },
@@ -111,236 +136,266 @@ export default function JiraPage() {
   });
 
   const projects = projectsQuery.data?.values || [];
-  const issues = issuesQuery.data?.issues || [];
+  const allIssues = issuesQuery.data?.issues || [];
+
+  const filteredIssues = useMemo(() => {
+    return allIssues.filter((issue) => {
+      if (search && !issue.fields.summary.toLowerCase().includes(search.toLowerCase()) && !issue.key.toLowerCase().includes(search.toLowerCase())) return false;
+      if (filterStatus !== "all" && issue.fields.status.statusCategory.key !== filterStatus) return false;
+      if (filterType !== "all" && issue.fields.issuetype.name !== filterType) return false;
+      if (filterPriority !== "all" && issue.fields.priority?.name !== filterPriority) return false;
+      return true;
+    });
+  }, [allIssues, search, filterStatus, filterType, filterPriority]);
+
+  const uniqueTypes = useMemo(() => [...new Set(allIssues.map(i => i.fields.issuetype.name))].sort(), [allIssues]);
+  const uniquePriorities = useMemo(() => [...new Set(allIssues.map(i => i.fields.priority?.name).filter(Boolean) as string[])].sort(), [allIssues]);
+
+  const selectedProjectData = projects.find(p => p.key === selectedProject);
   const isConnected = !projectsQuery.error;
 
-  const getSiteUrl = () => {
-    const p = projects[0];
-    if (!p) return "https://id.atlassian.com";
-    return `https://${new URL((p as any).self || "https://id.atlassian.com").hostname}`;
-  };
-
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
-      <div className="flex items-center gap-3 px-4 sm:px-6 py-3 border-b border-border/50 bg-card/50 flex-shrink-0">
-        <SiJira className="h-5 w-5 text-[#0052CC]" />
-        <div>
-          <h1 className="text-lg font-bold leading-tight" data-testid="text-page-title">Jira</h1>
-          <p className="text-xs text-muted-foreground">
-            {projectsQuery.isLoading ? "Loading..." : isConnected ? `${projects.length} project${projects.length !== 1 ? "s" : ""}` : "Not connected"}
-          </p>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          {isConnected && (
-            <a
-              href={getSiteUrl()}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              data-testid="link-jira-open"
-            >
-              <ExternalLink className="h-3.5 w-3.5" /> Open Jira
-            </a>
-          )}
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={() => {
-              queryClient.invalidateQueries({ queryKey: ["/api/jira/projects"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/jira/issues"] });
-            }}
+    <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
+      {/* Left: Project sidebar */}
+      <div className="w-52 flex-shrink-0 border-r border-border/50 bg-card/30 flex flex-col overflow-hidden">
+        <div className="px-3 py-2.5 border-b border-border/50 flex items-center gap-2">
+          <SiJira className="h-4 w-4 text-[#0052CC] flex-shrink-0" />
+          <span className="text-xs font-semibold text-foreground">Projects</span>
+          <button
+            className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => { queryClient.invalidateQueries({ queryKey: ["/api/jira/projects"] }); queryClient.invalidateQueries({ queryKey: ["/api/jira/issues"] }); }}
             data-testid="button-refresh-jira"
           >
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-          {isConnected && (
-            <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-create-issue">
-              <Plus className="h-4 w-4 mr-1" /> New Issue
-            </Button>
-          )}
+            <RefreshCw className="h-3.5 w-3.5" />
+          </button>
         </div>
+        <div className="flex-1 overflow-y-auto py-1">
+          {projectsQuery.isLoading
+            ? Array.from({ length: 6 }).map((_, i) => <div key={i} className="px-3 py-2"><Skeleton className="h-4 w-full" /></div>)
+            : projects.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => { setSelectedProject(p.key); setSearch(""); setFilterStatus("all"); setFilterType("all"); setFilterPriority("all"); }}
+                data-testid={`project-${p.key}`}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors ${selectedProject === p.key ? "bg-[#0052CC]/10 border-l-2 border-[#0052CC]" : "border-l-2 border-transparent"}`}
+              >
+                {p.avatarUrls?.["24x24"]
+                  ? <img src={p.avatarUrls["24x24"]} alt={p.name} className="h-5 w-5 rounded-sm flex-shrink-0" />
+                  : <div className="h-5 w-5 rounded-sm bg-[#0052CC] flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">{p.key[0]}</div>
+                }
+                <span className={`text-xs truncate ${selectedProject === p.key ? "text-foreground font-medium" : "text-muted-foreground"}`}>{p.name}</span>
+              </button>
+            ))
+          }
+        </div>
+        {isConnected && (
+          <div className="p-2 border-t border-border/50">
+            <a href={SITE_URL} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              data-testid="link-jira-open">
+              <ExternalLink className="h-3 w-3" /> Open in Jira
+            </a>
+          </div>
+        )}
       </div>
 
-      {!isConnected && !projectsQuery.isLoading && (
-        <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-8">
-          <SiJira className="h-12 w-12 text-[#0052CC] opacity-50" />
-          <p className="text-lg font-semibold">Jira not connected</p>
-          <p className="text-sm text-muted-foreground max-w-sm">{(projectsQuery.error as Error)?.message}</p>
-        </div>
-      )}
-
-      {isConnected && (
-        <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-          {/* Project filter bar */}
-          <div className="flex-shrink-0 px-4 sm:px-6 py-2 border-b border-border/50 flex items-center gap-3 bg-background/50">
-            <span className="text-xs text-muted-foreground font-medium">Project:</span>
-            <div className="flex gap-1 flex-wrap">
-              <button
-                onClick={() => setSelectedProject("all")}
-                data-testid="filter-project-all"
-                className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${selectedProject === "all" ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground hover:border-border"}`}
-              >
-                All assigned
-              </button>
-              {projectsQuery.isLoading
-                ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-6 w-20 rounded-full" />)
-                : projects.map((p) => (
-                  <button
-                    key={p.key}
-                    onClick={() => setSelectedProject(p.key)}
-                    data-testid={`filter-project-${p.key}`}
-                    className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${selectedProject === p.key ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground hover:border-border"}`}
-                  >
-                    {p.name}
-                  </button>
-                ))}
+      {/* Right: Issue list */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {!isConnected && !projectsQuery.isLoading ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-8">
+            <SiJira className="h-14 w-14 text-[#0052CC] opacity-30" />
+            <p className="text-lg font-semibold">Jira not connected</p>
+            <p className="text-sm text-muted-foreground max-w-sm">{(projectsQuery.error as Error)?.message}</p>
+          </div>
+        ) : (
+          <>
+            {/* Toolbar */}
+            <div className="flex-shrink-0 px-4 py-2.5 border-b border-border/50 bg-card/20">
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  {selectedProjectData?.avatarUrls?.["24x24"]
+                    ? <img src={selectedProjectData.avatarUrls["24x24"]} alt="" className="h-5 w-5 rounded-sm flex-shrink-0" />
+                    : <div className="h-5 w-5 rounded-sm bg-[#0052CC] flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">{selectedProject[0]}</div>
+                  }
+                  <h2 className="font-semibold text-sm truncate">{selectedProjectData?.name || selectedProject}</h2>
+                  <span className="text-xs text-muted-foreground font-mono">{selectedProject}</span>
+                  <span className="text-xs text-muted-foreground">·</span>
+                  <LayoutList className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">List</span>
+                </div>
+                <Button size="sm" onClick={() => { setForm(f => ({ ...f, projectKey: selectedProject })); setCreateOpen(true); }} data-testid="button-create-issue"
+                  className="bg-[#0052CC] hover:bg-[#0747A6] text-white flex-shrink-0">
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Create
+                </Button>
+              </div>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <div className="relative flex-1 min-w-40 max-w-xs">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                  <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search issues..."
+                    className="pl-8 h-7 text-xs bg-background/50" data-testid="input-search-issues" />
+                </div>
+                <Select value={filterStatus} onValueChange={setFilterStatus}>
+                  <SelectTrigger className="h-7 text-xs w-32" data-testid="filter-status"><SelectValue placeholder="Status" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All statuses</SelectItem>
+                    <SelectItem value="new">To Do</SelectItem>
+                    <SelectItem value="indeterminate">In Progress</SelectItem>
+                    <SelectItem value="done">Done</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={filterType} onValueChange={setFilterType}>
+                  <SelectTrigger className="h-7 text-xs w-32" data-testid="filter-type"><SelectValue placeholder="Type" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All types</SelectItem>
+                    {uniqueTypes.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={filterPriority} onValueChange={setFilterPriority}>
+                  <SelectTrigger className="h-7 text-xs w-32" data-testid="filter-priority"><SelectValue placeholder="Priority" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All priorities</SelectItem>
+                    {uniquePriorities.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {(search || filterStatus !== "all" || filterType !== "all" || filterPriority !== "all") && (
+                  <button onClick={() => { setSearch(""); setFilterStatus("all"); setFilterType("all"); setFilterPriority("all"); }}
+                    className="text-xs text-[#0052CC] hover:underline">Clear filters</button>
+                )}
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {issuesQuery.isLoading ? "Loading..." : `${filteredIssues.length} issue${filteredIssues.length !== 1 ? "s" : ""}`}
+                </span>
+              </div>
             </div>
-            <span className="ml-auto text-xs text-muted-foreground">
-              {issuesQuery.data?.issues ? `${issuesQuery.data.issues.length} issue${issuesQuery.data.issues.length !== 1 ? "s" : ""}${issuesQuery.data.isLast ? "" : "+"}` : ""}
-            </span>
-          </div>
 
-          {/* Issues list */}
-          <div className="flex-1 overflow-y-auto">
-            {issuesQuery.isLoading && (
-              <div className="p-4 space-y-2">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-3 p-3 rounded-lg border border-border/40">
-                    <Skeleton className="h-4 w-4 rounded" />
-                    <Skeleton className="h-4 flex-1" />
-                    <Skeleton className="h-4 w-20" />
-                  </div>
+            {/* Column headers */}
+            <div className="flex-shrink-0 flex items-center px-4 py-1.5 border-b border-border/50 bg-muted/20 text-[11px] text-muted-foreground font-medium uppercase tracking-wide gap-2">
+              <span className="w-5 flex-shrink-0" />
+              <span className="w-24 flex-shrink-0">Key</span>
+              <span className="flex-1 min-w-0">Summary</span>
+              <span className="w-28 flex-shrink-0 text-center">Status</span>
+              <span className="w-20 flex-shrink-0 text-center">Priority</span>
+              <span className="w-28 flex-shrink-0">Assignee</span>
+              <span className="w-24 flex-shrink-0 text-right">Updated</span>
+              <span className="w-6 flex-shrink-0" />
+            </div>
+
+            {/* Issue rows */}
+            <div className="flex-1 overflow-y-auto">
+              {issuesQuery.isLoading && (
+                <div className="divide-y divide-border/30">
+                  {Array.from({ length: 12 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-2 px-4 py-2.5">
+                      <Skeleton className="h-4 w-4 rounded-sm" />
+                      <Skeleton className="h-3 w-20" />
+                      <Skeleton className="h-3 flex-1" />
+                      <Skeleton className="h-5 w-20 rounded" />
+                      <Skeleton className="h-3 w-14" />
+                      <Skeleton className="h-5 w-5 rounded-full" />
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {issuesQuery.error && (
+                <div className="flex flex-col items-center justify-center p-12 gap-3 text-center">
+                  <AlertTriangle className="h-8 w-8 text-muted-foreground opacity-40" />
+                  <p className="text-sm text-muted-foreground">{(issuesQuery.error as Error).message}</p>
+                </div>
+              )}
+              {!issuesQuery.isLoading && !issuesQuery.error && filteredIssues.length === 0 && (
+                <div className="flex flex-col items-center justify-center p-12 gap-2 text-center">
+                  <LayoutList className="h-8 w-8 text-muted-foreground opacity-30" />
+                  <p className="text-sm text-muted-foreground">{search || filterStatus !== "all" || filterType !== "all" || filterPriority !== "all" ? "No issues match your filters" : "No issues in this project"}</p>
+                </div>
+              )}
+              <div className="divide-y divide-border/20">
+                {filteredIssues.map((issue) => (
+                  <a
+                    key={issue.id}
+                    href={`${SITE_URL}/browse/${issue.key}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-testid={`issue-row-${issue.key}`}
+                    className="flex items-center gap-2 px-4 py-2 hover:bg-muted/30 transition-colors group cursor-pointer"
+                  >
+                    <div className="w-5 flex-shrink-0 flex items-center justify-center">
+                      <IssueTypeIcon iconUrl={issue.fields.issuetype.iconUrl} name={issue.fields.issuetype.name} />
+                    </div>
+                    <span className="w-24 flex-shrink-0 text-xs text-muted-foreground font-mono group-hover:text-[#0052CC] transition-colors">{issue.key}</span>
+                    <span className="flex-1 min-w-0 text-sm truncate group-hover:text-foreground">{issue.fields.summary}</span>
+                    <div className="w-28 flex-shrink-0 flex justify-center">
+                      <StatusBadge status={issue.fields.status} />
+                    </div>
+                    <div className="w-20 flex-shrink-0 flex items-center justify-center gap-1">
+                      {issue.fields.priority
+                        ? <PriorityIcon name={issue.fields.priority.name} iconUrl={issue.fields.priority.iconUrl} />
+                        : <span className="text-[10px] text-muted-foreground">—</span>}
+                    </div>
+                    <div className="w-28 flex-shrink-0 flex items-center gap-1.5 overflow-hidden">
+                      {issue.fields.assignee ? (
+                        <>
+                          <img src={issue.fields.assignee.avatarUrls?.["24x24"]} alt="" className="h-5 w-5 rounded-full flex-shrink-0" />
+                          <span className="text-xs text-muted-foreground truncate">{issue.fields.assignee.displayName.split(" ")[0]}</span>
+                        </>
+                      ) : <span className="text-xs text-muted-foreground">Unassigned</span>}
+                    </div>
+                    <span className="w-24 flex-shrink-0 text-right text-xs text-muted-foreground">{timeAgo(issue.fields.updated)}</span>
+                    <div className="w-6 flex-shrink-0 flex items-center justify-center">
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  </a>
                 ))}
               </div>
-            )}
-            {issuesQuery.error && (
-              <div className="p-8 text-center">
-                <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                <p className="text-sm text-muted-foreground">{(issuesQuery.error as Error).message}</p>
-              </div>
-            )}
-            {!issuesQuery.isLoading && !issuesQuery.error && issues.length === 0 && (
-              <div className="p-8 text-center">
-                <CheckSquare className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                <p className="text-sm text-muted-foreground">No issues found</p>
-              </div>
-            )}
-            {issues.map((issue) => (
-              <div
-                key={issue.id}
-                className="flex items-start gap-3 px-4 sm:px-6 py-3 border-b border-border/30 hover:bg-muted/30 transition-colors group"
-                data-testid={`issue-row-${issue.key}`}
-              >
-                <div className="mt-0.5 flex-shrink-0">
-                  {issue.fields.issuetype?.iconUrl ? (
-                    <img src={issue.fields.issuetype.iconUrl} alt={issue.fields.issuetype.name} className="h-4 w-4" />
-                  ) : (
-                    <CheckSquare className="h-4 w-4 text-muted-foreground" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start gap-2 flex-wrap">
-                    <span className="text-xs text-muted-foreground font-mono flex-shrink-0">{issue.key}</span>
-                    <span className="text-sm leading-snug">{issue.fields.summary}</span>
-                  </div>
-                  <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                    <span className={`text-[11px] px-2 py-0.5 rounded-full border font-medium ${statusColor(issue.fields.status.statusCategory.colorName)}`}>
-                      {issue.fields.status.name}
-                    </span>
-                    {issue.fields.priority && (
-                      <span className={`text-[11px] flex items-center gap-1 ${priorityColor(issue.fields.priority.name)}`}>
-                        <AlertCircle className="h-3 w-3" />
-                        {issue.fields.priority.name}
-                      </span>
-                    )}
-                    {issue.fields.assignee && (
-                      <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                        <User className="h-3 w-3" />
-                        {issue.fields.assignee.displayName}
-                      </span>
-                    )}
-                    <span className="text-[11px] text-muted-foreground flex items-center gap-1 ml-auto">
-                      <Clock className="h-3 w-3" />
-                      {timeAgo(issue.fields.updated)}
-                    </span>
-                  </div>
-                </div>
-                <a
-                  href={`${getSiteUrl()}/browse/${issue.key}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-0.5"
-                  data-testid={`link-issue-${issue.key}`}
-                >
-                  <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-                </a>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Create Issue Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Create Jira Issue</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <SiJira className="h-4 w-4 text-[#0052CC]" /> Create Issue
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div>
-              <Label className="text-xs mb-1.5 block">Project</Label>
-              <Select value={form.projectKey} onValueChange={(v) => setForm((f) => ({ ...f, projectKey: v }))}>
-                <SelectTrigger data-testid="select-project">
-                  <SelectValue placeholder="Select project..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {projects.map((p) => (
-                    <SelectItem key={p.key} value={p.key}>{p.name} ({p.key})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs mb-1.5 block">Issue Type</Label>
-              <Select value={form.issueType} onValueChange={(v) => setForm((f) => ({ ...f, issueType: v }))}>
-                <SelectTrigger data-testid="select-issue-type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Task">Task</SelectItem>
-                  <SelectItem value="Bug">Bug</SelectItem>
-                  <SelectItem value="Story">Story</SelectItem>
-                  <SelectItem value="Epic">Epic</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs mb-1.5 block">Project</Label>
+                <Select value={form.projectKey} onValueChange={(v) => setForm((f) => ({ ...f, projectKey: v }))}>
+                  <SelectTrigger data-testid="select-project"><SelectValue placeholder="Select project..." /></SelectTrigger>
+                  <SelectContent>{projects.map((p) => <SelectItem key={p.key} value={p.key}>{p.name} ({p.key})</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs mb-1.5 block">Issue Type</Label>
+                <Select value={form.issueType} onValueChange={(v) => setForm((f) => ({ ...f, issueType: v }))}>
+                  <SelectTrigger data-testid="select-issue-type"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Task">Task</SelectItem>
+                    <SelectItem value="Bug">Bug</SelectItem>
+                    <SelectItem value="Story">Story</SelectItem>
+                    <SelectItem value="Epic">Epic</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div>
               <Label className="text-xs mb-1.5 block">Summary *</Label>
-              <Input
-                value={form.summary}
-                onChange={(e) => setForm((f) => ({ ...f, summary: e.target.value }))}
-                placeholder="Brief description of the issue"
-                data-testid="input-issue-summary"
-              />
+              <Input value={form.summary} onChange={(e) => setForm((f) => ({ ...f, summary: e.target.value }))}
+                placeholder="Brief description of the issue" data-testid="input-issue-summary" />
             </div>
             <div>
               <Label className="text-xs mb-1.5 block">Description</Label>
-              <Textarea
-                value={form.description}
-                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                placeholder="Detailed description..."
-                rows={4}
-                data-testid="input-issue-description"
-              />
+              <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="Detailed description..." rows={4} data-testid="input-issue-description" />
             </div>
             <div className="flex gap-2 pt-1">
               <Button variant="outline" className="flex-1" onClick={() => setCreateOpen(false)}>Cancel</Button>
-              <Button
-                className="flex-1"
+              <Button className="flex-1 bg-[#0052CC] hover:bg-[#0747A6]"
                 disabled={!form.projectKey || !form.summary || createMutation.isPending}
-                onClick={() => createMutation.mutate()}
-                data-testid="button-submit-issue"
-              >
+                onClick={() => createMutation.mutate()} data-testid="button-submit-issue">
                 {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
                 Create Issue
               </Button>
