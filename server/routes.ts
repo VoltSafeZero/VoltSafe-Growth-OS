@@ -1995,7 +1995,8 @@ export function registerConfluenceRoutes(app: Express) {
       page.children = { page: { results: childrenData.results || [], size: childrenData.size || 0 } };
       res.json(page);
     } catch (err: any) {
-      res.status(503).json({ message: "Confluence not connected", error: err.message });
+      console.error("[confluence] page detail error:", err.message);
+      res.status(503).json({ message: err.message || "Confluence not connected", error: err.message });
     }
   });
 

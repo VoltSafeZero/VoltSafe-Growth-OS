@@ -116,6 +116,9 @@ export default function ConfluencePage() {
   const pageDetailQuery = useQuery<ConfluencePageDetail>({
     queryKey: ["/api/confluence/pages", selectedPageId],
     enabled: !!selectedPageId,
+    staleTime: 0,
+    gcTime: 0,
+    retry: 1,
     queryFn: async () => {
       const res = await fetch(`/api/confluence/pages/${selectedPageId}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message || "Failed");
@@ -138,6 +141,8 @@ export default function ConfluencePage() {
   const childPages = detail?.children?.page?.results || [];
 
   function openPage(id: string) {
+    // Clear any cached error so the query always fires fresh on navigation
+    queryClient.removeQueries({ queryKey: ["/api/confluence/pages", id] });
     setSelectedPageId(id);
   }
 
