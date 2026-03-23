@@ -1823,3 +1823,101 @@ async function seedDatabase() {
     ]);
   }
 }
+
+// ── Jira Routes ────────────────────────────────────────────────────────────────
+export function registerJiraRoutes(app: Express) {
+  app.get("/api/jira/projects", requireAuth, async (req, res) => {
+    try {
+      const { getUncachableJiraClient } = await import("./jira-client");
+      const client = await getUncachableJiraClient();
+      const projects = await client.projects.searchProjects({ maxResults: 50 });
+      res.json(projects);
+    } catch (err: any) {
+      res.status(503).json({ message: "Jira not connected", error: err.message });
+    }
+  });
+
+  app.get("/api/jira/issues", requireAuth, async (req, res) => {
+    try {
+      const { getUncachableJiraClient } = await import("./jira-client");
+      const client = await getUncachableJiraClient();
+      const projectKey = req.query.project as string | undefined;
+      const jql = projectKey
+        ? `project = ${projectKey} ORDER BY updated DESC`
+        : `assignee = currentUser() ORDER BY updated DESC`;
+      const issues = await client.issueSearch.searchForIssuesUsingJqlPost({
+        jql,
+        maxResults: 50,
+        fields: ["summary", "status", "priority", "assignee", "updated", "issuetype", "project"],
+      });
+      res.json(issues);
+    } catch (err: any) {
+      res.status(503).json({ message: "Jira not connected", error: err.message });
+    }
+  });
+
+  app.post("/api/jira/issues", requireAuth, async (req, res) => {
+    try {
+      const { getUncachableJiraClient } = await import("./jira-client");
+      const client = await getUncachableJiraClient();
+      const { projectKey, summary, description, issueType = "Task" } = req.body;
+      const issue = await client.issues.createIssue({
+        fields: {
+          project: { key: projectKey },
+          summary,
+          description: description ? {
+            type: "doc", version: 1,
+            content: [{ type: "paragraph", content: [{ type: "text", text: description }] }],
+          } : undefined,
+          issuetype: { name: issueType },
+        },
+      });
+      res.json(issue);
+    } catch (err: any) {
+      res.status(503).json({ message: "Jira not connected", error: err.message });
+    }
+  });
+}
+
+// ── Confluence Routes ──────────────────────────────────────────────────────────
+export function registerConfluenceRoutes(app: Express) {
+  app.get("/api/confluence/spaces", requireAuth, async (req, res) => {
+    try {
+      const { getUncachableConfluenceClient } = await import("./confluence-client");
+      const client = await getUncachableConfluenceClient();
+      const spaces = await client.space.getSpaces({ limit: 50 });
+      res.json(spaces);
+    } catch (err: any) {
+      res.status(503).json({ message: "Confluence not connected", error: err.message });
+    }
+  });
+
+  app.get("/api/confluence/pages", requireAuth, async (req, res) => {
+    try {
+      const { getUncachableConfluenceClient } = await import("./confluence-client");
+      const client = await getUncachableConfluenceClient();
+      const spaceKey = req.query.space as string | undefined;
+      const query = req.query.q as string | undefined;
+      if (query) {
+        const results = await client.contentSearch.searchByCQL({
+          cql: `type = page AND text ~ "${query.replace(/"/g, '')}"${spaceKey ? ` AND space = "${spaceKey}"` : ""} ORDER BY lastmodified DESC`,
+          limit: 25,
+          expand: ["space", "history.lastUpdated", "version"],
+        });
+        res.json(results);
+      } else {
+        const cql = spaceKey
+          ? `type = page AND space = "${spaceKey}" ORDER BY lastmodified DESC`
+          : `type = page ORDER BY lastmodified DESC`;
+        const results = await client.contentSearch.searchByCQL({
+          cql,
+          limit: 25,
+          expand: ["space", "history.lastUpdated", "version"],
+        });
+        res.json(results);
+      }
+    } catch (err: any) {
+      res.status(503).json({ message: "Confluence not connected", error: err.message });
+    }
+  });
+}

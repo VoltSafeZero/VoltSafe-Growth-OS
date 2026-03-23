@@ -24,6 +24,7 @@ import {
   Mail,
   FolderOpen,
 } from "lucide-react";
+import { SiJira, SiConfluence } from "react-icons/si";
 import { Link, useLocation } from "wouter";
 import navLogo from "@assets/nav-logo.png";
 import {
@@ -41,6 +42,8 @@ import {
 const overviewItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Calendar", url: "/calendar", icon: CalendarClock },
+  { title: "Jira", url: "/jira", icon: SiJira },
+  { title: "Confluence", url: "/confluence", icon: SiConfluence },
   { title: "Team Workload", url: "/team-workload", icon: Users },
   { title: "Gmail Inbox", url: "/gmail", icon: Mail },
 ];

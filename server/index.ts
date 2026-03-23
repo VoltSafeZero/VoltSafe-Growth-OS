@@ -1,7 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
-import { registerRoutes } from "./routes";
+import { registerRoutes, registerJiraRoutes, registerConfluenceRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startHourlySyncScheduler } from "./services/gmail-sync";
@@ -103,6 +103,8 @@ app.use((req, res, next) => {
 
 (async () => {
   await registerRoutes(httpServer, app);
+  registerJiraRoutes(app);
+  registerConfluenceRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

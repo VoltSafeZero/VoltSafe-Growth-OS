@@ -32,6 +32,8 @@ import NotFound from "@/pages/not-found";
 import { VoiceAssistant } from "@/components/voice-assistant";
 import GmailInboxPage from "@/pages/gmail-inbox";
 import AssetsPage from "@/pages/assets";
+import JiraPage from "@/pages/jira";
+import ConfluencePage from "@/pages/confluence";
 
 type AuthUser = {
   id: number;
@@ -90,6 +92,8 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/settings">{() => <AppShell user={user} onLogout={onLogout}><SettingsPage /></AppShell>}</Route>
       <Route path="/gmail">{() => <AppShell user={user} onLogout={onLogout}><GmailInboxPage currentUserEmail={user.email} /></AppShell>}</Route>
       <Route path="/assets">{() => <AppShell user={user} onLogout={onLogout}><AssetsPage /></AppShell>}</Route>
+      <Route path="/jira">{() => <AppShell user={user} onLogout={onLogout}><JiraPage /></AppShell>}</Route>
+      <Route path="/confluence">{() => <AppShell user={user} onLogout={onLogout}><ConfluencePage /></AppShell>}</Route>
       <Route path="/integrations">{() => <AppShell user={user} onLogout={onLogout}><div className="p-8"><h1 className="text-2xl font-bold">Integrations</h1><p className="text-muted-foreground mt-2">HubSpot and Klaviyo integrations coming soon.</p></div></AppShell>}</Route>
       <Route component={NotFound} />
     </Switch>
