@@ -1828,9 +1828,20 @@ async function seedDatabase() {
 export function registerJiraRoutes(app: Express) {
   app.get("/api/jira/projects", requireAuth, async (req, res) => {
     try {
-      const { getUncachableJiraClient } = await import("./jira-client");
-      const client = await getUncachableJiraClient();
-      const projects = await client.projects.searchProjects({ maxResults: 50 });
+      const { getUncachableJiraClient, invalidateJiraToken } = await import("./jira-client");
+      let client = await getUncachableJiraClient();
+      let projects: any;
+      try {
+        projects = await client.projects.searchProjects({ maxResults: 50 });
+      } catch (err: any) {
+        const is401 = err?.response?.status === 401 || err?.status === 401 ||
+          (err?.message && (err.message.includes('401') || err.message.toLowerCase().includes('unauthorized')));
+        if (is401) {
+          invalidateJiraToken();
+          client = await getUncachableJiraClient();
+          projects = await client.projects.searchProjects({ maxResults: 50 });
+        } else throw err;
+      }
       res.json(projects);
     } catch (err: any) {
       res.status(503).json({ message: "Jira not connected", error: err.message });
@@ -1839,17 +1850,25 @@ export function registerJiraRoutes(app: Express) {
 
   app.get("/api/jira/issues", requireAuth, async (req, res) => {
     try {
-      const { getUncachableJiraClient } = await import("./jira-client");
-      const client = await getUncachableJiraClient();
+      const { getUncachableJiraClient, invalidateJiraToken } = await import("./jira-client");
+      let client = await getUncachableJiraClient();
       const projectKey = req.query.project as string | undefined;
       const jql = projectKey
         ? `project = ${projectKey} ORDER BY updated DESC`
         : `assignee = currentUser() ORDER BY updated DESC`;
-      const issues = await client.issueSearch.searchForIssuesUsingJqlPost({
-        jql,
-        maxResults: 50,
-        fields: ["summary", "status", "priority", "assignee", "updated", "issuetype", "project"],
-      });
+      const fields = ["summary", "status", "priority", "assignee", "updated", "issuetype", "project"];
+      let issues: any;
+      try {
+        issues = await client.issueSearch.searchForIssuesUsingJqlPost({ jql, maxResults: 50, fields });
+      } catch (err: any) {
+        const is401 = err?.response?.status === 401 || err?.status === 401 ||
+          (err?.message && (err.message.includes('401') || err.message.toLowerCase().includes('unauthorized')));
+        if (is401) {
+          invalidateJiraToken();
+          client = await getUncachableJiraClient();
+          issues = await client.issueSearch.searchForIssuesUsingJqlPost({ jql, maxResults: 50, fields });
+        } else throw err;
+      }
       res.json(issues);
     } catch (err: any) {
       res.status(503).json({ message: "Jira not connected", error: err.message });
@@ -1858,10 +1877,10 @@ export function registerJiraRoutes(app: Express) {
 
   app.post("/api/jira/issues", requireAuth, async (req, res) => {
     try {
-      const { getUncachableJiraClient } = await import("./jira-client");
-      const client = await getUncachableJiraClient();
+      const { getUncachableJiraClient, invalidateJiraToken } = await import("./jira-client");
+      let client = await getUncachableJiraClient();
       const { projectKey, summary, description, issueType = "Task" } = req.body;
-      const issue = await client.issues.createIssue({
+      const issueBody = {
         fields: {
           project: { key: projectKey },
           summary,
@@ -1871,7 +1890,19 @@ export function registerJiraRoutes(app: Express) {
           } : undefined,
           issuetype: { name: issueType },
         },
-      });
+      };
+      let issue: any;
+      try {
+        issue = await client.issues.createIssue(issueBody);
+      } catch (err: any) {
+        const is401 = err?.response?.status === 401 || err?.status === 401 ||
+          (err?.message && (err.message.includes('401') || err.message.toLowerCase().includes('unauthorized')));
+        if (is401) {
+          invalidateJiraToken();
+          client = await getUncachableJiraClient();
+          issue = await client.issues.createIssue(issueBody);
+        } else throw err;
+      }
       res.json(issue);
     } catch (err: any) {
       res.status(503).json({ message: "Jira not connected", error: err.message });
@@ -1883,9 +1914,20 @@ export function registerJiraRoutes(app: Express) {
 export function registerConfluenceRoutes(app: Express) {
   app.get("/api/confluence/spaces", requireAuth, async (req, res) => {
     try {
-      const { getUncachableConfluenceClient } = await import("./confluence-client");
-      const client = await getUncachableConfluenceClient();
-      const spaces = await client.space.getSpaces({ limit: 50 });
+      const { getUncachableConfluenceClient, invalidateConfluenceToken } = await import("./confluence-client");
+      let client = await getUncachableConfluenceClient();
+      let spaces: any;
+      try {
+        spaces = await client.space.getSpaces({ limit: 50 });
+      } catch (err: any) {
+        const is401 = err?.response?.status === 401 || err?.status === 401 ||
+          (err?.message && (err.message.includes('401') || err.message.toLowerCase().includes('unauthorized')));
+        if (is401) {
+          invalidateConfluenceToken();
+          client = await getUncachableConfluenceClient();
+          spaces = await client.space.getSpaces({ limit: 50 });
+        } else throw err;
+      }
       res.json(spaces);
     } catch (err: any) {
       res.status(503).json({ message: "Confluence not connected", error: err.message });
@@ -1894,28 +1936,29 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.get("/api/confluence/pages", requireAuth, async (req, res) => {
     try {
-      const { getUncachableConfluenceClient } = await import("./confluence-client");
-      const client = await getUncachableConfluenceClient();
+      const { getUncachableConfluenceClient, invalidateConfluenceToken } = await import("./confluence-client");
+      let client = await getUncachableConfluenceClient();
       const spaceKey = req.query.space as string | undefined;
       const query = req.query.q as string | undefined;
-      if (query) {
-        const results = await client.contentSearch.searchByCQL({
-          cql: `type = page AND text ~ "${query.replace(/"/g, '')}"${spaceKey ? ` AND space = "${spaceKey}"` : ""} ORDER BY lastmodified DESC`,
-          limit: 25,
-          expand: ["space", "history.lastUpdated", "version"],
-        });
-        res.json(results);
-      } else {
-        const cql = spaceKey
-          ? `type = page AND space = "${spaceKey}" ORDER BY lastmodified DESC`
-          : `type = page ORDER BY lastmodified DESC`;
-        const results = await client.contentSearch.searchByCQL({
-          cql,
-          limit: 25,
-          expand: ["space", "history.lastUpdated", "version"],
-        });
-        res.json(results);
+      const cql = query
+        ? `type = page AND text ~ "${query.replace(/"/g, '')}"${spaceKey ? ` AND space = "${spaceKey}"` : ""} ORDER BY lastmodified DESC`
+        : spaceKey
+        ? `type = page AND space = "${spaceKey}" ORDER BY lastmodified DESC`
+        : `type = page ORDER BY lastmodified DESC`;
+      const searchOptions = { cql, limit: 25, expand: ["space", "history.lastUpdated", "version"] };
+      let results: any;
+      try {
+        results = await client.contentSearch.searchByCQL(searchOptions);
+      } catch (err: any) {
+        const is401 = err?.response?.status === 401 || err?.status === 401 ||
+          (err?.message && (err.message.includes('401') || err.message.toLowerCase().includes('unauthorized')));
+        if (is401) {
+          invalidateConfluenceToken();
+          client = await getUncachableConfluenceClient();
+          results = await client.contentSearch.searchByCQL(searchOptions);
+        } else throw err;
       }
+      res.json(results);
     } catch (err: any) {
       res.status(503).json({ message: "Confluence not connected", error: err.message });
     }
