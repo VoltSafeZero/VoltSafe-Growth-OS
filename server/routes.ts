@@ -79,13 +79,7 @@ const ALLOWED_ASSET_MIME_TYPES = new Set([
 ]);
 
 const assetUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, ASSETS_DIR),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname);
-      cb(null, crypto.randomUUID() + ext);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (ALLOWED_ASSET_MIME_TYPES.has(file.mimetype) || file.mimetype.startsWith("image/")) {
@@ -1459,7 +1453,9 @@ export async function registerRoutes(
       if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
         const assetRows = await db.select().from(assets).where(inArray(assets.id, attachmentIds.map(Number)));
         for (const a of assetRows) {
-          if (fs.existsSync(a.filePath)) {
+          if (a.fileData) {
+            mimeAttachments.push({ name: a.originalName, mimeType: a.mimeType, data: Buffer.from(a.fileData, "base64") });
+          } else if (a.filePath && fs.existsSync(a.filePath)) {
             mimeAttachments.push({ name: a.originalName, mimeType: a.mimeType, data: fs.readFileSync(a.filePath) });
           }
         }
@@ -1699,7 +1695,12 @@ export async function registerRoutes(
   app.get("/api/assets", requireAuth, async (_req, res) => {
     try {
       const all = await db.select().from(assets).orderBy(assets.createdAt);
-      res.json(all.reverse());
+      // Include hasFile flag, but never return fileData in the list (too large)
+      const result = all.reverse().map(({ fileData, filePath, ...rest }) => ({
+        ...rest,
+        hasFile: !!(fileData || (filePath && fs.existsSync(filePath))),
+      }));
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -1717,18 +1718,20 @@ export async function registerRoutes(
       else if (["application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/csv"].includes(mimeType)) category = "spreadsheet";
       else if (["application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"].includes(mimeType)) category = "presentation";
 
+      const fileData = req.file.buffer.toString("base64");
       const [asset] = await db.insert(assets).values({
         name: name || req.file.originalname,
         originalName: req.file.originalname,
         mimeType,
         size: req.file.size,
-        filePath: req.file.path,
+        filePath: "",
+        fileData,
         category,
         description: description || null,
         tags: tags || "",
         uploadedBy: req.session.userId ?? null,
       }).returning();
-      res.json(asset);
+      res.json({ ...asset, fileData: undefined });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -1747,11 +1750,28 @@ export async function registerRoutes(
     }
   });
 
+  // Replace file data for an existing asset (re-upload flow)
+  app.post("/api/assets/:id/replace", requireAuth, assetUpload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file provided" });
+      const fileData = req.file.buffer.toString("base64");
+      const [updated] = await db.update(assets)
+        .set({ fileData, size: req.file.size, mimeType: req.file.mimetype, filePath: "" })
+        .where(eq(assets.id, Number(req.params.id)))
+        .returning();
+      if (!updated) return res.status(404).json({ message: "Asset not found" });
+      res.json({ ...updated, fileData: undefined });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.delete("/api/assets/:id", requireAuth, async (req, res) => {
     try {
       const [asset] = await db.select().from(assets).where(eq(assets.id, Number(req.params.id)));
       if (!asset) return res.status(404).json({ message: "Asset not found" });
-      if (fs.existsSync(asset.filePath)) fs.unlinkSync(asset.filePath);
+      // Clean up legacy disk file if it exists
+      if (asset.filePath && fs.existsSync(asset.filePath)) { try { fs.unlinkSync(asset.filePath); } catch {} }
       await db.delete(assets).where(eq(assets.id, Number(req.params.id)));
       res.json({ success: true });
     } catch (err: any) {
@@ -1759,14 +1779,25 @@ export async function registerRoutes(
     }
   });
 
+  function sendAssetFile(asset: { fileData?: string | null; filePath: string; mimeType: string; originalName: string }, res: any, disposition: "inline" | "attachment") {
+    res.setHeader("Content-Disposition", `${disposition}; filename="${encodeURIComponent(asset.originalName)}"`);
+    res.setHeader("Content-Type", asset.mimeType);
+    if (asset.fileData) {
+      const buf = Buffer.from(asset.fileData, "base64");
+      return res.send(buf);
+    }
+    // Legacy fallback: file was stored on disk
+    if (asset.filePath && fs.existsSync(asset.filePath)) {
+      return res.sendFile(path.resolve(asset.filePath));
+    }
+    return res.status(404).json({ message: "File data not found — please re-upload this asset" });
+  }
+
   app.get("/api/assets/:id/file", requireAuth, async (req, res) => {
     try {
       const [asset] = await db.select().from(assets).where(eq(assets.id, Number(req.params.id)));
       if (!asset) return res.status(404).json({ message: "Asset not found" });
-      if (!fs.existsSync(asset.filePath)) return res.status(404).json({ message: "File not found on disk" });
-      res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(asset.originalName)}"`);
-      res.setHeader("Content-Type", asset.mimeType);
-      res.sendFile(path.resolve(asset.filePath));
+      sendAssetFile(asset, res, "inline");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -1776,10 +1807,7 @@ export async function registerRoutes(
     try {
       const [asset] = await db.select().from(assets).where(eq(assets.id, Number(req.params.id)));
       if (!asset) return res.status(404).json({ message: "Asset not found" });
-      if (!fs.existsSync(asset.filePath)) return res.status(404).json({ message: "File not found on disk" });
-      res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(asset.originalName)}"`);
-      res.setHeader("Content-Type", asset.mimeType);
-      res.sendFile(path.resolve(asset.filePath));
+      sendAssetFile(asset, res, "attachment");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
