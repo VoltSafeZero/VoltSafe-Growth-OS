@@ -1971,4 +1971,157 @@ export function registerConfluenceRoutes(app: Express) {
       res.status(503).json({ message: "Confluence not connected", error: err.message });
     }
   });
+
+  app.get("/api/confluence/pages/:id", requireAuth, async (req, res) => {
+    try {
+      const { getConfluenceCredentials, invalidateConfluenceToken } = await import("./confluence-client");
+      const { id } = req.params;
+      const data = await confFetch(
+        `/rest/api/content/${id}?expand=body.view,body.storage,version,space,ancestors,children.page`,
+        invalidateConfluenceToken,
+        getConfluenceCredentials,
+      );
+      res.json(data);
+    } catch (err: any) {
+      res.status(503).json({ message: "Confluence not connected", error: err.message });
+    }
+  });
+
+  app.post("/api/confluence/pages", requireAuth, async (req, res) => {
+    try {
+      const { getConfluenceCredentials, invalidateConfluenceToken } = await import("./confluence-client");
+      const { title, spaceKey, parentId, body: bodyText } = req.body;
+      const payload: any = {
+        type: "page",
+        title,
+        space: { key: spaceKey },
+        body: {
+          storage: {
+            value: bodyText ? `<p>${bodyText.replace(/\n/g, "</p><p>")}</p>` : "",
+            representation: "storage",
+          },
+        },
+      };
+      if (parentId) payload.ancestors = [{ id: parentId }];
+      const { accessToken, hostName } = await getConfluenceCredentials();
+      const r = await fetch(`${hostName}/rest/api/content`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        return res.status(r.status).json({ message: err.message || `Confluence error: ${r.status}` });
+      }
+      const data = await r.json();
+      res.json(data);
+    } catch (err: any) {
+      res.status(503).json({ message: "Confluence not connected", error: err.message });
+    }
+  });
+
+  app.put("/api/confluence/pages/:id", requireAuth, async (req, res) => {
+    try {
+      const { getConfluenceCredentials, invalidateConfluenceToken } = await import("./confluence-client");
+      const { id } = req.params;
+      const { title, body: bodyText, version } = req.body;
+      const payload = {
+        version: { number: version },
+        title,
+        type: "page",
+        body: {
+          storage: {
+            value: bodyText ? `<p>${bodyText.replace(/\n/g, "</p><p>")}</p>` : "",
+            representation: "storage",
+          },
+        },
+      };
+      const { accessToken, hostName } = await getConfluenceCredentials();
+      const r = await fetch(`${hostName}/rest/api/content/${id}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        return res.status(r.status).json({ message: err.message || `Confluence error: ${r.status}` });
+      }
+      const data = await r.json();
+      res.json(data);
+    } catch (err: any) {
+      res.status(503).json({ message: "Confluence not connected", error: err.message });
+    }
+  });
+
+  app.get("/api/jira/issues/:key", requireAuth, async (req, res) => {
+    try {
+      const { getJiraCredentials, invalidateJiraToken } = await import("./jira-client");
+      const { key } = req.params;
+      const fields = "summary,description,status,priority,assignee,updated,created,issuetype,subtasks,labels,project,comment,attachment";
+      const doFetch = async () => {
+        const { accessToken, hostName } = await getJiraCredentials();
+        const r = await fetch(`${hostName}/rest/api/3/issue/${key}?fields=${fields}`, {
+          headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+        });
+        if (r.status === 401) { invalidateJiraToken(); throw Object.assign(new Error("401"), { status: 401 }); }
+        if (!r.ok) throw new Error(`Jira API error: ${r.status}`);
+        return r.json();
+      };
+      let data: any;
+      try { data = await doFetch(); } catch (err: any) {
+        if (err.status === 401) data = await doFetch(); else throw err;
+      }
+      res.json(data);
+    } catch (err: any) {
+      res.status(503).json({ message: "Jira not connected", error: err.message });
+    }
+  });
+
+  app.get("/api/jira/issues/:key/transitions", requireAuth, async (req, res) => {
+    try {
+      const { getJiraCredentials, invalidateJiraToken } = await import("./jira-client");
+      const { key } = req.params;
+      const doFetch = async () => {
+        const { accessToken, hostName } = await getJiraCredentials();
+        const r = await fetch(`${hostName}/rest/api/3/issue/${key}/transitions`, {
+          headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+        });
+        if (r.status === 401) { invalidateJiraToken(); throw Object.assign(new Error("401"), { status: 401 }); }
+        if (!r.ok) throw new Error(`Jira API error: ${r.status}`);
+        return r.json();
+      };
+      let data: any;
+      try { data = await doFetch(); } catch (err: any) {
+        if (err.status === 401) data = await doFetch(); else throw err;
+      }
+      res.json(data);
+    } catch (err: any) {
+      res.status(503).json({ message: "Jira not connected", error: err.message });
+    }
+  });
+
+  app.post("/api/jira/issues/:key/transitions", requireAuth, async (req, res) => {
+    try {
+      const { getJiraCredentials, invalidateJiraToken } = await import("./jira-client");
+      const { key } = req.params;
+      const { transitionId } = req.body;
+      const doFetch = async () => {
+        const { accessToken, hostName } = await getJiraCredentials();
+        const r = await fetch(`${hostName}/rest/api/3/issue/${key}/transitions`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ transition: { id: transitionId } }),
+        });
+        if (r.status === 401) { invalidateJiraToken(); throw Object.assign(new Error("401"), { status: 401 }); }
+        if (!r.ok) throw new Error(`Jira API error: ${r.status}`);
+        return { ok: true };
+      };
+      try { await doFetch(); } catch (err: any) {
+        if (err.status === 401) await doFetch(); else throw err;
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(503).json({ message: "Jira not connected", error: err.message });
+    }
+  });
 }

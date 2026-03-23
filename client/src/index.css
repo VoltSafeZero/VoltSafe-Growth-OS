@@ -215,3 +215,30 @@
   font-family: var(--font-sans);
   font-size: 12px;
 }
+
+/* Confluence Page Content Styles */
+.confluence-content h1, .confluence-content h2, .confluence-content h3, .confluence-content h4 {
+  font-weight: 700;
+  margin-top: 1.25em;
+  margin-bottom: 0.5em;
+  color: hsl(var(--foreground));
+}
+.confluence-content h1 { font-size: 1.5rem; }
+.confluence-content h2 { font-size: 1.25rem; }
+.confluence-content h3 { font-size: 1.1rem; }
+.confluence-content p { margin-bottom: 0.75em; line-height: 1.65; color: hsl(var(--foreground)); }
+.confluence-content ul, .confluence-content ol { padding-left: 1.5em; margin-bottom: 0.75em; }
+.confluence-content li { margin-bottom: 0.25em; line-height: 1.65; color: hsl(var(--foreground)); }
+.confluence-content a { color: #4da3ff; text-decoration: underline; }
+.confluence-content a:hover { color: #7dc2ff; }
+.confluence-content table { width: 100%; border-collapse: collapse; margin-bottom: 1em; font-size: 0.875rem; }
+.confluence-content th { background: hsl(var(--muted)); padding: 0.5em 0.75em; text-align: left; font-weight: 600; border: 1px solid hsl(var(--border)); color: hsl(var(--foreground)); }
+.confluence-content td { padding: 0.4em 0.75em; border: 1px solid hsl(var(--border)); color: hsl(var(--foreground)); }
+.confluence-content tr:nth-child(even) td { background: hsl(var(--muted) / 0.3); }
+.confluence-content code { background: hsl(var(--muted)); padding: 0.1em 0.35em; border-radius: 3px; font-family: monospace; font-size: 0.85em; color: hsl(var(--foreground)); }
+.confluence-content pre { background: hsl(var(--muted)); padding: 1em; border-radius: 6px; overflow-x: auto; margin-bottom: 1em; }
+.confluence-content pre code { background: none; padding: 0; }
+.confluence-content blockquote { border-left: 3px solid hsl(var(--border)); padding-left: 1em; color: hsl(var(--muted-foreground)); margin: 0.75em 0; }
+.confluence-content img { max-width: 100%; border-radius: 4px; }
+.confluence-content hr { border: none; border-top: 1px solid hsl(var(--border)); margin: 1.5em 0; }
+.confluence-content .confluence-information-macro { background: hsl(var(--muted) / 0.5); border: 1px solid hsl(var(--border)); border-radius: 6px; padding: 0.75em 1em; margin-bottom: 0.75em; }
