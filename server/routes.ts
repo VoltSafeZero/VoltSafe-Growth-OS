@@ -1976,12 +1976,24 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const { getConfluenceCredentials, invalidateConfluenceToken } = await import("./confluence-client");
       const { id } = req.params;
-      const data = await confFetch(
-        `/rest/api/content/${id}?expand=body.view,body.storage,version,space,ancestors,children.page`,
-        invalidateConfluenceToken,
-        getConfluenceCredentials,
-      );
-      res.json(data);
+      // Use CQL search — direct /content/{id} endpoint is 410 Gone
+      const [pageData, childrenData] = await Promise.all([
+        confFetch(
+          `/rest/api/content/search?cql=${encodeURIComponent(`id = ${id}`)}&expand=body.view,body.storage,version,space,ancestors&limit=1`,
+          invalidateConfluenceToken,
+          getConfluenceCredentials,
+        ),
+        confFetch(
+          `/rest/api/content/search?cql=${encodeURIComponent(`parent = ${id} AND type = page ORDER BY title`)}&limit=50`,
+          invalidateConfluenceToken,
+          getConfluenceCredentials,
+        ),
+      ]);
+      const page = pageData.results?.[0];
+      if (!page) return res.status(404).json({ message: "Page not found" });
+      // Attach children in the shape the frontend expects
+      page.children = { page: { results: childrenData.results || [], size: childrenData.size || 0 } };
+      res.json(page);
     } catch (err: any) {
       res.status(503).json({ message: "Confluence not connected", error: err.message });
     }

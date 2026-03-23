@@ -1,18 +1,12 @@
-import { useState, useMemo } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useToast } from "@/hooks/use-toast";
 import {
   Search, RefreshCw, ExternalLink, FileText, User, ChevronRight,
-  ChevronLeft, AlertTriangle, BookOpen, Plus, Pencil, X, Save,
-  Loader2, ArrowLeft, FolderOpen
+  AlertTriangle, BookOpen, Plus, Pencil, ArrowLeft, FolderOpen
 } from "lucide-react";
 import { SiConfluence } from "react-icons/si";
 
@@ -93,16 +87,10 @@ function PageRow({ page, onClick }: { page: ConfluencePage; onClick: () => void 
 }
 
 export default function ConfluencePage() {
-  const { toast } = useToast();
   const [selectedSpace, setSelectedSpace] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState("");
-  const [editBody, setEditBody] = useState("");
-  const [newPageOpen, setNewPageOpen] = useState(false);
-  const [newPage, setNewPage] = useState({ title: "", body: "", spaceKey: "", parentId: "" });
 
   const spacesQuery = useQuery<{ results: ConfluenceSpace[]; size: number }>({
     queryKey: ["/api/confluence/spaces"],
@@ -135,64 +123,22 @@ export default function ConfluencePage() {
     },
   });
 
-  const updateMutation = useMutation({
-    mutationFn: async () => {
-      const detail = pageDetailQuery.data!;
-      const res = await apiRequest("PUT", `/api/confluence/pages/${selectedPageId}`, {
-        title: editTitle,
-        body: editBody,
-        version: (detail.version?.number || 1) + 1,
-      });
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: "Page updated" });
-      setIsEditing(false);
-      queryClient.invalidateQueries({ queryKey: ["/api/confluence/pages", selectedPageId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/confluence/pages"] });
-    },
-    onError: (e: any) => toast({ title: "Failed to update", description: e.message, variant: "destructive" }),
-  });
-
-  const createMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/confluence/pages", {
-        title: newPage.title,
-        spaceKey: newPage.spaceKey || selectedSpace,
-        parentId: newPage.parentId || undefined,
-        body: newPage.body,
-      });
-      return res.json();
-    },
-    onSuccess: (data) => {
-      toast({ title: "Page created", description: data.title });
-      setNewPageOpen(false);
-      setNewPage({ title: "", body: "", spaceKey: "", parentId: "" });
-      queryClient.invalidateQueries({ queryKey: ["/api/confluence/pages"] });
-    },
-    onError: (e: any) => toast({ title: "Failed to create page", description: e.message, variant: "destructive" }),
-  });
-
   const spaces = spacesQuery.data?.results || [];
   const pages = pagesQuery.data?.results || [];
   const detail = pageDetailQuery.data;
   const isConnected = !spacesQuery.error;
   const pageUrl = detail ? `${SITE_URL}${detail._links?.webui || ""}` : SITE_URL;
+  const editUrl = detail && detail.space?.key
+    ? `${SITE_URL}/spaces/${detail.space.key}/pages/edit-v2/${detail.id}`
+    : pageUrl;
+  const createUrl = selectedSpace !== "all"
+    ? `${SITE_URL}/spaces/${selectedSpace}/pages/create`
+    : `${SITE_URL}`;
   const ancestors = detail?.ancestors || [];
   const childPages = detail?.children?.page?.results || [];
 
   function openPage(id: string) {
     setSelectedPageId(id);
-    setIsEditing(false);
-  }
-
-  function startEdit() {
-    if (!detail) return;
-    setEditTitle(detail.title);
-    const storage = detail.body?.storage?.value || "";
-    const plain = storage.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&nbsp;/g, " ");
-    setEditBody(plain);
-    setIsEditing(true);
   }
 
   return (
@@ -229,10 +175,10 @@ export default function ConfluencePage() {
           }
         </div>
         <div className="p-2 border-t border-border/50 space-y-1">
-          <button onClick={() => { setNewPage(p => ({ ...p, spaceKey: selectedSpace !== "all" ? selectedSpace : "" })); setNewPageOpen(true); }}
-            className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors" data-testid="button-new-page">
+          <a href={createUrl} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors" data-testid="link-new-page">
             <Plus className="h-3 w-3" /> New page
-          </button>
+          </a>
           <a href={SITE_URL} target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-1.5 px-2 py-1.5 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
             <ExternalLink className="h-3 w-3" /> Open in Confluence
@@ -251,51 +197,39 @@ export default function ConfluencePage() {
         ) : selectedPageId ? (
           /* ─── Page Detail View ─── */
           <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Detail toolbar */}
-            <div className="flex-shrink-0 px-4 py-2 border-b border-border/50 bg-card/20 flex items-center gap-2">
-              <button onClick={() => { setSelectedPageId(null); setIsEditing(false); }}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="button-back">
+            <div className="flex-shrink-0 px-4 py-2 border-b border-border/50 bg-card/20 flex items-center gap-2 min-w-0">
+              <button onClick={() => setSelectedPageId(null)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors flex-shrink-0" data-testid="button-back">
                 <ArrowLeft className="h-3.5 w-3.5" /> Back
               </button>
-              <span className="text-muted-foreground">/</span>
+              <span className="text-muted-foreground flex-shrink-0">/</span>
               {ancestors.map((a, i) => (
-                <span key={a.id} className="flex items-center gap-1">
-                  <button onClick={() => openPage(a.id)} className="text-xs text-muted-foreground hover:text-[#0052CC] transition-colors">{a.title}</button>
-                  {i < ancestors.length - 1 && <span className="text-muted-foreground">/</span>}
+                <span key={a.id} className="flex items-center gap-1 min-w-0">
+                  <button onClick={() => openPage(a.id)} className="text-xs text-muted-foreground hover:text-[#0052CC] transition-colors truncate max-w-24">{a.title}</button>
+                  {i < ancestors.length - 1 && <span className="text-muted-foreground flex-shrink-0">/</span>}
                 </span>
               ))}
-              {ancestors.length > 0 && <span className="text-muted-foreground">/</span>}
-              <span className="text-xs font-medium truncate flex-1">{detail?.title}</span>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                {!isEditing ? (
-                  <>
-                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={startEdit} data-testid="button-edit-page">
-                      <Pencil className="h-3 w-3" /> Edit
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-                      onClick={() => { setNewPage(p => ({ ...p, spaceKey: detail?.space?.key || "", parentId: selectedPageId })); setNewPageOpen(true); }}
-                      data-testid="button-add-child-page">
-                      <Plus className="h-3 w-3" /> Add child page
-                    </Button>
-                    <a href={pageUrl} target="_blank" rel="noopener noreferrer">
-                      <Button size="sm" variant="ghost" className="h-7 text-xs gap-1 text-muted-foreground">
-                        <ExternalLink className="h-3 w-3" /> Open in Confluence
-                      </Button>
-                    </a>
-                  </>
-                ) : (
-                  <>
-                    <Button size="sm" className="h-7 text-xs gap-1 bg-[#0052CC] hover:bg-[#0747A6]"
-                      onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending} data-testid="button-save-page">
-                      {updateMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />} Save
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setIsEditing(false)}>Cancel</Button>
-                  </>
-                )}
+              {ancestors.length > 0 && <span className="text-muted-foreground flex-shrink-0">/</span>}
+              <span className="text-xs font-medium truncate flex-1 min-w-0">{detail?.title}</span>
+              <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                <a href={editUrl} target="_blank" rel="noopener noreferrer">
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1" data-testid="button-edit-page">
+                    <Pencil className="h-3 w-3" /> Edit in Confluence
+                  </Button>
+                </a>
+                <a href={`${SITE_URL}/spaces/${detail?.space?.key || ""}/pages/create?parentPageId=${detail?.id}`} target="_blank" rel="noopener noreferrer">
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1" data-testid="button-add-child-page">
+                    <Plus className="h-3 w-3" /> Add child page
+                  </Button>
+                </a>
+                <a href={pageUrl} target="_blank" rel="noopener noreferrer">
+                  <Button size="sm" variant="ghost" className="h-7 text-xs gap-1 text-muted-foreground">
+                    <ExternalLink className="h-3 w-3" />
+                  </Button>
+                </a>
               </div>
             </div>
 
-            {/* Detail content */}
             <div className="flex-1 overflow-y-auto">
               {pageDetailQuery.isLoading ? (
                 <div className="max-w-3xl mx-auto px-8 py-8 space-y-3">
@@ -311,52 +245,42 @@ export default function ConfluencePage() {
                 </div>
               ) : (
                 <div className="max-w-3xl mx-auto px-8 py-8">
-                  {/* Space badge */}
                   {detail?.space && (
                     <div className="flex items-center gap-2 mb-4">
                       <SpaceAvatar spaceKey={detail.space.key} name={detail.space.name} size="sm" />
                       <span className="text-xs text-muted-foreground font-medium">{detail.space.name}</span>
                     </div>
                   )}
+                  <h1 className="text-2xl font-bold mb-2">{detail?.title}</h1>
+                  <div className="flex items-center gap-3 mb-6 text-xs text-muted-foreground border-b border-border/30 pb-4">
+                    {detail?.version?.by?.profilePicture?.path && (
+                      <img src={`https://voltsafe.atlassian.net${detail.version.by.profilePicture.path}`} alt="" className="h-5 w-5 rounded-full" />
+                    )}
+                    <span>Last edited by <span className="text-foreground">{detail?.version?.by?.displayName || "Unknown"}</span></span>
+                    <span>·</span>
+                    <span>{timeAgo(detail?.version?.when)}</span>
+                    <span>·</span>
+                    <span>Version {detail?.version?.number}</span>
+                  </div>
 
-                  {isEditing ? (
-                    <div className="space-y-3">
-                      <div>
-                        <Label className="text-xs mb-1 block">Title</Label>
-                        <Input value={editTitle} onChange={e => setEditTitle(e.target.value)} className="text-lg font-bold" data-testid="input-edit-title" />
-                      </div>
-                      <div>
-                        <Label className="text-xs mb-1 block">Content</Label>
-                        <Textarea value={editBody} onChange={e => setEditBody(e.target.value)} rows={20}
-                          className="font-mono text-sm resize-none" placeholder="Write your page content here..." data-testid="textarea-edit-body" />
-                      </div>
-                    </div>
+                  {detail?.body?.view?.value ? (
+                    <div
+                      className="confluence-content max-w-none text-foreground"
+                      dangerouslySetInnerHTML={{ __html: detail.body.view.value }}
+                    />
                   ) : (
-                    <>
-                      <h1 className="text-2xl font-bold mb-2">{detail?.title}</h1>
-                      <div className="flex items-center gap-3 mb-6 text-xs text-muted-foreground border-b border-border/30 pb-4">
-                        {detail?.version?.by?.profilePicture?.path && (
-                          <img src={`https://voltsafe.atlassian.net${detail.version.by.profilePicture.path}`} alt="" className="h-5 w-5 rounded-full" />
-                        )}
-                        <span>Last edited by <span className="text-foreground">{detail?.version?.by?.displayName || "Unknown"}</span></span>
-                        <span>·</span>
-                        <span>{timeAgo(detail?.version?.when)}</span>
-                        <span>·</span>
-                        <span>Version {detail?.version?.number}</span>
-                      </div>
-                      {detail?.body?.view?.value ? (
-                        <div
-                          className="confluence-content prose prose-sm prose-invert max-w-none text-foreground"
-                          dangerouslySetInnerHTML={{ __html: detail.body.view.value }}
-                        />
-                      ) : (
-                        <p className="text-muted-foreground italic text-sm">This page has no content yet. Click Edit to add content.</p>
-                      )}
-                    </>
+                    <div className="text-center py-12">
+                      <FileText className="h-10 w-10 text-muted-foreground opacity-30 mx-auto mb-3" />
+                      <p className="text-muted-foreground italic text-sm mb-3">This page has no content yet.</p>
+                      <a href={editUrl} target="_blank" rel="noopener noreferrer">
+                        <Button size="sm" variant="outline" className="gap-1.5">
+                          <Pencil className="h-3.5 w-3.5" /> Edit in Confluence
+                        </Button>
+                      </a>
+                    </div>
                   )}
 
-                  {/* Child pages */}
-                  {!isEditing && childPages.length > 0 && (
+                  {childPages.length > 0 && (
                     <div className="mt-10 border-t border-border/30 pt-6">
                       <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
                         <FolderOpen className="h-4 w-4 text-muted-foreground" />
@@ -382,7 +306,7 @@ export default function ConfluencePage() {
           /* ─── Page List View ─── */
           <>
             <div className="flex-shrink-0 px-4 py-2.5 border-b border-border/50 bg-card/20">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <div>
                   <h2 className="font-semibold text-sm">
                     {searchQuery ? `Results for "${searchQuery}"` : selectedSpace !== "all" ? (spaces.find(s => s.key === selectedSpace)?.name || selectedSpace) : "Recent pages"}
@@ -404,7 +328,6 @@ export default function ConfluencePage() {
               </div>
             </div>
 
-            {/* Column headers */}
             <div className="flex-shrink-0 flex items-center px-4 py-1.5 border-b border-border/50 bg-muted/20 text-[11px] text-muted-foreground font-medium uppercase tracking-wide gap-3">
               <span className="flex-1">Title</span>
               <span className="w-32 flex-shrink-0">Space</span>
@@ -439,52 +362,6 @@ export default function ConfluencePage() {
           </>
         )}
       </div>
-
-      {/* New Page Dialog */}
-      <Dialog open={newPageOpen} onOpenChange={setNewPageOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <SiConfluence className="h-4 w-4 text-[#0052CC]" /> Create page
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs mb-1.5 block">Space *</Label>
-                <Select value={newPage.spaceKey} onValueChange={v => setNewPage(p => ({ ...p, spaceKey: v }))}>
-                  <SelectTrigger data-testid="select-new-page-space"><SelectValue placeholder="Select space..." /></SelectTrigger>
-                  <SelectContent>{spaces.map(s => <SelectItem key={s.key} value={s.key}>{s.name}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs mb-1.5 block">Parent page ID (optional)</Label>
-                <Input value={newPage.parentId} onChange={e => setNewPage(p => ({ ...p, parentId: e.target.value }))}
-                  placeholder="e.g. 12345678" data-testid="input-parent-id" />
-              </div>
-            </div>
-            <div>
-              <Label className="text-xs mb-1.5 block">Title *</Label>
-              <Input value={newPage.title} onChange={e => setNewPage(p => ({ ...p, title: e.target.value }))}
-                placeholder="Page title" data-testid="input-new-page-title" />
-            </div>
-            <div>
-              <Label className="text-xs mb-1.5 block">Content</Label>
-              <Textarea value={newPage.body} onChange={e => setNewPage(p => ({ ...p, body: e.target.value }))}
-                placeholder="Write your page content..." rows={6} data-testid="textarea-new-page-body" />
-            </div>
-            <div className="flex gap-2 pt-1">
-              <Button variant="outline" className="flex-1" onClick={() => setNewPageOpen(false)}>Cancel</Button>
-              <Button className="flex-1 bg-[#0052CC] hover:bg-[#0747A6]"
-                disabled={!newPage.title || !newPage.spaceKey || createMutation.isPending}
-                onClick={() => createMutation.mutate()} data-testid="button-create-page">
-                {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
-                Create page
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
