@@ -63,6 +63,7 @@
     "framer-motion": "^11.13.1",
     "googleapis": "^148.0.0",
     "input-otp": "^1.4.2",
+    "jira.js": "^2.1.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.453.0",
     "memorystore": "^1.6.7",
