@@ -47,6 +47,7 @@
     "@types/dompurify": "^3.0.5",
     "@types/leaflet": "^1.9.21",
     "@types/multer": "^2.0.0",
+    "axios": "^1.14.0",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -123,6 +124,38 @@
   "overrides": {
     "drizzle-kit": {
       "@esbuild-kit/esm-loader": "npm:tsx@^4.20.4"
+    },
+    "axios": "^1.8.2",
+    "yaml": "^2.8.3",
+    "express": {
+      "path-to-regexp": "0.1.13"
+    },
+    "router": {
+      "path-to-regexp": "^8.4.0"
+    },
+    "micromatch": {
+      "picomatch": "^2.3.2"
+    },
+    "chokidar": {
+      "picomatch": "^2.3.2"
+    },
+    "anymatch": {
+      "picomatch": "^2.3.2"
+    },
+    "readdirp": {
+      "picomatch": "^2.3.2"
+    },
+    "fdir": {
+      "picomatch": "^4.0.4"
+    },
+    "tinyglobby": {
+      "picomatch": "^4.0.4"
+    },
+    "minimatch": {
+      "brace-expansion": "^1.1.13"
+    },
+    "readdir-glob": {
+      "brace-expansion": "^2.0.3"
     }
   },
   "optionalDependencies": {
