@@ -11,8 +11,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, FileText, Loader2, Trash2, DollarSign } from "lucide-react";
+import {
+  Plus, FileText, Loader2, Trash2, Download, Printer, ExternalLink,
+  ChevronDown, ChevronUp, Package, Cloud, Tag, Globe
+} from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
 import type { Quote, Account } from "@shared/schema";
@@ -25,8 +29,90 @@ const statusColors: Record<string, string> = {
   expired: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
 };
 
-type LineItem = { name: string; category: string; description: string; qty: number; unitPrice: number; unitType: string; lineTotal: number };
+type LineItem = {
+  name: string;
+  category: string;
+  description: string;
+  qty: number;
+  listPrice: number;
+  discountPercent: number;
+  unitPrice: number;
+  unitType: string;
+  lineTotal: number;
+  isRecurring: boolean;
+  sortOrder: number;
+};
+
 type ServiceLine = { role: string; hoursEstimate: number; hourlyRate: number; subtotal: number };
+
+const COUNTRY_OPTIONS = [
+  { code: "US", label: "United States", currency: "USD", taxRate: 0, taxLabel: "" },
+  { code: "CA", label: "Canada", currency: "CAD", taxRate: 0.05, taxLabel: "GST 5%" },
+  { code: "MX", label: "Mexico", currency: "MXN", taxRate: 0.16, taxLabel: "IVA 16%" },
+  { code: "GB", label: "United Kingdom", currency: "GBP", taxRate: 0.20, taxLabel: "VAT 20%" },
+  { code: "AU", label: "Australia", currency: "AUD", taxRate: 0.10, taxLabel: "GST 10%" },
+  { code: "EU", label: "European Union", currency: "EUR", taxRate: 0.21, taxLabel: "VAT 21%" },
+];
+
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: "$", CAD: "CA$", MXN: "MX$", GBP: "£", EUR: "€", AUD: "A$",
+};
+
+function currSym(c: string) { return CURRENCY_SYMBOLS[c] || "$"; }
+
+function fmtMoney(n: number, currency: string) {
+  return `${currSym(currency)}${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+interface CatalogItem {
+  sku: string;
+  name: string;
+  description: string;
+  category: "hardware" | "saas";
+  listPrice: number;
+  unitType: string;
+  isRecurring: boolean;
+}
+
+const HARDWARE_CATALOG: CatalogItem[] = [
+  { sku: "VS-P30A1", name: "VoltSafe Pedestal 30A/120V (1-outlet)", description: "Single-outlet 30A shore power pedestal with SmartSwitch", category: "hardware", listPrice: 795, unitType: "unit", isRecurring: false },
+  { sku: "VS-P30A2", name: "VoltSafe Pedestal 30A/120V (2-outlet)", description: "Dual-outlet 30A shore power pedestal with SmartSwitch", category: "hardware", listPrice: 945, unitType: "unit", isRecurring: false },
+  { sku: "VS-P50A1", name: "VoltSafe Pedestal 50A/240V (1-outlet)", description: "Single-outlet 50A shore power pedestal with SmartSwitch", category: "hardware", listPrice: 1095, unitType: "unit", isRecurring: false },
+  { sku: "VS-P50A2", name: "VoltSafe Pedestal 50A/240V (2-outlet)", description: "Dual-outlet 50A shore power pedestal with SmartSwitch", category: "hardware", listPrice: 1345, unitType: "unit", isRecurring: false },
+  { sku: "VS-P3050", name: "VoltSafe Pedestal 30A+50A Combo", description: "Combination 30A & 50A shore power pedestal", category: "hardware", listPrice: 1495, unitType: "unit", isRecurring: false },
+  { sku: "VS-GW", name: "VoltSafe Gateway (per marina)", description: "Marina edge gateway — connects pedestals to cloud platform", category: "hardware", listPrice: 2400, unitType: "unit", isRecurring: false },
+  { sku: "VS-CAB-30", name: "Shore Power Cable 30A 25ft", description: "NEMA TT-30 shore power cable, 25 foot", category: "hardware", listPrice: 145, unitType: "unit", isRecurring: false },
+  { sku: "VS-CAB-50", name: "Shore Power Cable 50A 25ft", description: "NEMA 14-50 shore power cable, 25 foot", category: "hardware", listPrice: 195, unitType: "unit", isRecurring: false },
+  { sku: "VS-GFI-30", name: "GFI Protection Module 30A", description: "Ground fault interrupter protection module for 30A circuits", category: "hardware", listPrice: 245, unitType: "unit", isRecurring: false },
+  { sku: "VS-GFI-50", name: "GFI Protection Module 50A", description: "Ground fault interrupter protection module for 50A circuits", category: "hardware", listPrice: 295, unitType: "unit", isRecurring: false },
+];
+
+const SOFTWARE_CATALOG: CatalogItem[] = [
+  { sku: "VS-CORE", name: "VoltSafe Core Platform (per slip/yr)", description: "Real-time monitoring, remote switching, usage analytics", category: "saas", listPrice: 120, unitType: "slip/yr", isRecurring: true },
+  { sku: "VS-ANALYTICS", name: "VoltSafe Analytics Module (per slip/yr)", description: "Advanced energy analytics, benchmarking, reporting", category: "saas", listPrice: 60, unitType: "slip/yr", isRecurring: true },
+  { sku: "VS-COMPLIANCE", name: "VoltSafe Compliance Engine (per marina/yr)", description: "ABYC/NFPA 303 compliance tracking, automated inspection logs", category: "saas", listPrice: 3600, unitType: "marina/yr", isRecurring: true },
+  { sku: "VS-BILLING", name: "VoltSafe Smart Billing (per marina/yr)", description: "Automated power billing, tenant invoicing, payment integrations", category: "saas", listPrice: 2400, unitType: "marina/yr", isRecurring: true },
+  { sku: "VS-API", name: "VoltSafe API Access (per marina/yr)", description: "REST API & webhooks for marina management system integration", category: "saas", listPrice: 1800, unitType: "marina/yr", isRecurring: true },
+  { sku: "VS-INSTALL", name: "Professional Installation (per pedestal)", description: "Factory-certified installation, commissioning, and testing", category: "saas", listPrice: 350, unitType: "unit", isRecurring: false },
+  { sku: "VS-COMMISSION", name: "System Commissioning (per site)", description: "Full system bring-up, staff training, go-live support", category: "saas", listPrice: 2500, unitType: "site", isRecurring: false },
+];
+
+function makeLineItem(catalog: CatalogItem, qty = 1, discPct = 0): LineItem {
+  const unitPrice = catalog.listPrice * (1 - discPct / 100);
+  return {
+    name: `${catalog.sku} — ${catalog.name}`,
+    description: catalog.description,
+    category: catalog.category,
+    qty,
+    listPrice: catalog.listPrice,
+    discountPercent: discPct,
+    unitPrice,
+    unitType: catalog.unitType,
+    lineTotal: unitPrice * qty,
+    isRecurring: catalog.isRecurring,
+    sortOrder: 0,
+  };
+}
 
 export default function QuotesPage() {
   const [statusFilter, setStatusFilter] = useState("all");
@@ -40,15 +126,9 @@ export default function QuotesPage() {
     const params = new URLSearchParams(window.location.search);
     const statusParam = params.get("status");
     const selectedId = params.get("selected");
-    if (statusParam) {
-      setStatusFilter(statusParam);
-    }
-    if (selectedId) {
-      setSelectedQuote(Number(selectedId));
-    }
-    if (statusParam || selectedId) {
-      window.history.replaceState({}, "", "/quotes");
-    }
+    if (statusParam) setStatusFilter(statusParam);
+    if (selectedId) setSelectedQuote(Number(selectedId));
+    if (statusParam || selectedId) window.history.replaceState({}, "", "/quotes");
   }, []);
 
   const PAGE_SIZE = 100;
@@ -96,11 +176,13 @@ export default function QuotesPage() {
       const res = await apiRequest("POST", "/api/quotes", d);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
       setCreateOpen(false);
-      toast({ title: "Quote created" });
+      toast({ title: "Quote created", description: `${(created as any).quoteNumber} — XLSX & HTML invoice generated` });
+      if (created?.id) setSelectedQuote(created.id);
     },
+    onError: () => toast({ title: "Failed to create quote", variant: "destructive" }),
   });
 
   return (
@@ -108,13 +190,11 @@ export default function QuotesPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Quotes</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Generate and manage quotes for marinas and professional services.</p>
+          <p className="text-muted-foreground mt-1 text-sm">Generate pro forma invoices with VoltSafe product catalog, multi-currency support, and automatic XLSX/HTML export.</p>
         </div>
         <div className="flex items-center gap-2">
           <ExportButton
-            endpoint={`/api/quotes/export?${new URLSearchParams({
-              ...(statusFilter !== "all" ? { status: statusFilter } : {}),
-            }).toString()}`}
+            endpoint={`/api/quotes/export?${new URLSearchParams({ ...(statusFilter !== "all" ? { status: statusFilter } : {}) }).toString()}`}
             filename="quotes_export.csv"
           />
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -123,17 +203,16 @@ export default function QuotesPage() {
                 <Plus className="mr-2 h-4 w-4" /> New Quote
               </Button>
             </DialogTrigger>
-          <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[90vh] sm:max-h-[85vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>Create Quote</DialogTitle></DialogHeader>
-            <QuoteBuilder accounts={accountsData?.data || []} onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
-          </DialogContent>
-        </Dialog>
+            <DialogContent className="max-w-[96vw] sm:max-w-5xl max-h-[92vh] overflow-y-auto p-0">
+              <QuoteBuilder accounts={accountsData?.data || []} onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
       <div className="flex gap-3">
-        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); }}>
-          <SelectTrigger className="w-full sm:w-40" data-testid="select-quote-status">
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-full sm:w-40" data-testid="select-quote-status-filter">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
@@ -152,30 +231,43 @@ export default function QuotesPage() {
       ) : (
         <Card className="border-border/50">
           <CardContent className="p-0 overflow-x-auto">
-            <table className="w-full min-w-[500px]">
+            <table className="w-full min-w-[560px]">
               <thead>
                 <tr className="border-b border-border/50">
                   <SortableHeader label="Quote #" sortKey="quoteNumber" sort={sort} onSort={handleSort} />
-                  <SortableHeader label="Type" sortKey="quoteType" sort={sort} onSort={handleSort} className="hidden md:table-cell" />
-                  <th className="text-left p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden lg:table-cell">Account</th>
+                  <SortableHeader label="Customer" sortKey="customerName" sort={sort} onSort={handleSort} className="hidden md:table-cell" />
                   <SortableHeader label="Status" sortKey="status" sort={sort} onSort={handleSort} />
+                  <SortableHeader label="Currency" sortKey="currency" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />
                   <SortableHeader label="Total" sortKey="total" sort={sort} onSort={handleSort} align="right" />
                   <SortableHeader label="Created" sortKey="createdAt" sort={sort} onSort={handleSort} className="hidden sm:table-cell" />
+                  <th className="p-3 sm:p-4 w-20"></th>
                 </tr>
               </thead>
               <tbody>
                 {allQuotes.map(quote => (
                   <tr key={quote.id} className="border-b border-border/30 hover:bg-muted/30 cursor-pointer" onClick={() => setSelectedQuote(quote.id)} data-testid={`row-quote-${quote.id}`}>
                     <td className="p-3 sm:p-4 font-medium font-mono text-sm">{quote.quoteNumber}</td>
-                    <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden md:table-cell">{quote.quoteType === "marina_solution" ? "Marina Solution" : "Professional Services"}</td>
-                    <td className="p-3 sm:p-4 text-sm hidden lg:table-cell">{accountMap.get(quote.accountId!) || "—"}</td>
+                    <td className="p-3 sm:p-4 text-sm hidden md:table-cell">{(quote as any).customerName || "—"}</td>
                     <td className="p-3 sm:p-4"><Badge variant="outline" className={statusColors[quote.status] || ""}>{quote.status}</Badge></td>
-                    <td className="p-3 sm:p-4 text-right font-medium">${quote.total?.toLocaleString() || "0"}</td>
+                    <td className="p-3 sm:p-4 text-sm hidden lg:table-cell">{quote.currency}</td>
+                    <td className="p-3 sm:p-4 text-right font-medium">{fmtMoney(quote.total || 0, quote.currency)}</td>
                     <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden sm:table-cell">{new Date(quote.createdAt).toLocaleDateString()}</td>
+                    <td className="p-3 sm:p-4 text-right">
+                      <div className="flex gap-1 justify-end">
+                        {(quote as any).xlsxAssetId && (
+                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); window.open(`/api/quotes/${quote.id}/download/xlsx`, "_blank"); }} title="Download XLSX" data-testid={`button-download-xlsx-${quote.id}`}>
+                            <Download className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); window.open(`/api/quotes/${quote.id}/print`, "_blank"); }} title="View Invoice" data-testid={`button-print-${quote.id}`}>
+                          <Printer className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {allQuotes.length === 0 && (
-                  <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No quotes found</td></tr>
+                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No quotes found</td></tr>
                 )}
               </tbody>
             </table>
@@ -185,9 +277,7 @@ export default function QuotesPage() {
 
       <div className="flex items-center justify-between py-2">
         <p className="text-sm text-muted-foreground">{allQuotes.length.toLocaleString()} of {totalCount.toLocaleString()} quotes loaded</p>
-        {isFetchingNextPage && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading more...</div>
-        )}
+        {isFetchingNextPage && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading more...</div>}
       </div>
       <div ref={scrollSentinelRef} className="h-4" />
 
@@ -199,7 +289,7 @@ export default function QuotesPage() {
 }
 
 function QuoteDetailDialog({ quoteId, accountMap, onClose }: { quoteId: number; accountMap: Map<number, string>; onClose: () => void }) {
-  const { data, isLoading } = useQuery<Quote & { lineItems: LineItem[]; servicesEstimates: ServiceLine[] }>({
+  const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/quotes", quoteId],
     queryFn: async () => {
       const res = await fetch(`/api/quotes/${quoteId}`);
@@ -212,37 +302,57 @@ function QuoteDetailDialog({ quoteId, accountMap, onClose }: { quoteId: number; 
       const res = await apiRequest("PUT", `/api/quotes/${quoteId}`, d);
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/quotes"] }),
   });
 
-  if (isLoading || !data) return <Dialog open onOpenChange={onClose}><DialogContent><Skeleton className="h-40" /></DialogContent></Dialog>;
+  if (isLoading || !data) return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent><Skeleton className="h-48 w-full" /></DialogContent>
+    </Dialog>
+  );
+
+  const q = data;
+  const sym = currSym(q.currency);
+  const hwItems = (q.lineItems || []).filter((i: any) => i.category === "hardware");
+  const swItems = (q.lineItems || []).filter((i: any) => i.category === "saas" || i.category === "software");
+  const otherItems = (q.lineItems || []).filter((i: any) => i.category !== "hardware" && i.category !== "saas" && i.category !== "software");
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] sm:max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-[96vw] sm:max-w-3xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <DialogTitle className="text-xl font-mono">{data.quoteNumber}</DialogTitle>
-              <p className="text-sm text-muted-foreground mt-1">
-                {data.quoteType === "marina_solution" ? "Marina Shore Power Solution" : "Professional Services Agreement"} · v{data.version}
+              <DialogTitle className="text-xl font-mono">{q.quoteNumber}</DialogTitle>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                {q.customerName || accountMap.get(q.accountId) || "—"} · v{q.version} · {q.currency}
               </p>
             </div>
-            <Badge variant="outline" className={statusColors[data.status] || ""}>{data.status}</Badge>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Button variant="outline" size="sm" onClick={() => window.open(`/api/quotes/${quoteId}/print`, "_blank")} data-testid="button-view-invoice">
+                <Printer className="h-3.5 w-3.5 mr-1" /> Invoice
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => window.open(`/api/quotes/${quoteId}/download/xlsx`, "_blank")} data-testid="button-download-xlsx">
+                <Download className="h-3.5 w-3.5 mr-1" /> XLSX
+              </Button>
+              <Badge variant="outline" className={statusColors[q.status] || ""}>{q.status}</Badge>
+            </div>
           </div>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div><Label className="text-xs text-muted-foreground">Account</Label><p className="text-sm">{accountMap.get(data.accountId!) || "—"}</p></div>
-            <div><Label className="text-xs text-muted-foreground">Currency</Label><p className="text-sm">{data.currency}</p></div>
-            <div><Label className="text-xs text-muted-foreground">Valid Until</Label><p className="text-sm">{data.validUntil ? new Date(data.validUntil).toLocaleDateString() : "—"}</p></div>
+        <div className="space-y-5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {q.customerName && <div><Label className="text-xs text-muted-foreground">Customer</Label><p className="text-sm font-medium">{q.customerName}</p></div>}
+            {q.customerEmail && <div><Label className="text-xs text-muted-foreground">Email</Label><p className="text-sm">{q.customerEmail}</p></div>}
+            {q.customerPhone && <div><Label className="text-xs text-muted-foreground">Phone</Label><p className="text-sm">{q.customerPhone}</p></div>}
+            {q.marinaAddress && <div className="col-span-2"><Label className="text-xs text-muted-foreground">Marina Address</Label><p className="text-sm whitespace-pre-wrap">{q.marinaAddress}</p></div>}
+            {q.validUntil && <div><Label className="text-xs text-muted-foreground">Valid Until</Label><p className="text-sm">{new Date(q.validUntil).toLocaleDateString()}</p></div>}
+            {q.entitlementNumber && <div><Label className="text-xs text-muted-foreground">Entitlement #</Label><p className="text-sm font-mono">{q.entitlementNumber}</p></div>}
+            {q.slipsCount && <div><Label className="text-xs text-muted-foreground">Slip Count</Label><p className="text-sm">{q.slipsCount}</p></div>}
             <div>
               <Label className="text-xs text-muted-foreground">Status</Label>
-              <Select value={data.status} onValueChange={(v) => updateMutation.mutate({ status: v })}>
-                <SelectTrigger className="mt-1" data-testid="select-quote-status"><SelectValue /></SelectTrigger>
+              <Select value={q.status} onValueChange={(v) => updateMutation.mutate({ status: v })}>
+                <SelectTrigger className="mt-1 h-8" data-testid="select-quote-status"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="draft">Draft</SelectItem>
                   <SelectItem value="sent">Sent</SelectItem>
@@ -254,243 +364,598 @@ function QuoteDetailDialog({ quoteId, accountMap, onClose }: { quoteId: number; 
             </div>
           </div>
 
-          {data.lineItems && data.lineItems.length > 0 && (
+          {hwItems.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold mb-2">Line Items</h3>
-              <div className="border border-border/50 rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead><tr className="border-b border-border/50 bg-muted/30">
-                    <th className="text-left p-2">Item</th>
-                    <th className="text-left p-2">Category</th>
-                    <th className="text-right p-2">Qty</th>
-                    <th className="text-right p-2">Unit Price</th>
-                    <th className="text-right p-2">Total</th>
-                  </tr></thead>
-                  <tbody>
-                    {data.lineItems.map((item: any, i: number) => (
-                      <tr key={i} className="border-b border-border/30">
-                        <td className="p-2">{item.name}</td>
-                        <td className="p-2 text-muted-foreground">{item.category}</td>
-                        <td className="p-2 text-right">{item.qty}</td>
-                        <td className="p-2 text-right">${item.unitPrice?.toLocaleString()}</td>
-                        <td className="p-2 text-right font-medium">${item.lineTotal?.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="flex items-center gap-2 mb-2">
+                <Package className="h-4 w-4 text-green-500" />
+                <h3 className="text-sm font-semibold">Hardware</h3>
               </div>
+              <LineItemTable items={hwItems} currency={q.currency} />
             </div>
           )}
 
-          {data.servicesEstimates && data.servicesEstimates.length > 0 && (
+          {swItems.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold mb-2">Services Estimates</h3>
-              <div className="border border-border/50 rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead><tr className="border-b border-border/50 bg-muted/30">
-                    <th className="text-left p-2">Role</th>
-                    <th className="text-right p-2">Hours</th>
-                    <th className="text-right p-2">Rate</th>
-                    <th className="text-right p-2">Subtotal</th>
-                  </tr></thead>
-                  <tbody>
-                    {data.servicesEstimates.map((est: any, i: number) => (
-                      <tr key={i} className="border-b border-border/30">
-                        <td className="p-2">{est.role}</td>
-                        <td className="p-2 text-right">{est.hoursEstimate}</td>
-                        <td className="p-2 text-right">${est.hourlyRate}</td>
-                        <td className="p-2 text-right font-medium">${est.subtotal?.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="flex items-center gap-2 mb-2">
+                <Cloud className="h-4 w-4 text-blue-500" />
+                <h3 className="text-sm font-semibold">Software / SaaS</h3>
               </div>
+              <LineItemTable items={swItems} currency={q.currency} />
+            </div>
+          )}
+
+          {otherItems.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Other</h3>
+              <LineItemTable items={otherItems} currency={q.currency} />
             </div>
           )}
 
           <Separator />
+
           <div className="flex justify-end">
-            <div className="space-y-1 text-right">
-              <p className="text-sm text-muted-foreground">Subtotal: <span className="text-foreground">${data.subtotal?.toLocaleString()}</span></p>
-              <p className="text-sm text-muted-foreground">Tax: <span className="text-foreground">${data.tax?.toLocaleString()}</span></p>
-              <p className="text-lg font-bold">Total: ${data.total?.toLocaleString()}</p>
+            <div className="space-y-1.5 text-right w-64">
+              {(q.hardwareSubtotal > 0) && <div className="flex justify-between text-sm"><span className="text-muted-foreground">Hardware</span><span>{fmtMoney(q.hardwareSubtotal, q.currency)}</span></div>}
+              {(q.softwareSubtotal > 0) && <div className="flex justify-between text-sm"><span className="text-muted-foreground">Software</span><span>{fmtMoney(q.softwareSubtotal, q.currency)}</span></div>}
+              <div className="flex justify-between text-sm"><span className="text-muted-foreground">Subtotal</span><span>{fmtMoney(q.subtotal || 0, q.currency)}</span></div>
+              {(q.taxRate > 0) && <div className="flex justify-between text-sm"><span className="text-muted-foreground">Tax ({((q.taxRate || 0) * 100).toFixed(0)}%)</span><span>{fmtMoney(q.taxAmount || 0, q.currency)}</span></div>}
+              <div className="flex justify-between text-lg font-bold border-t pt-2">
+                <span>Total</span><span>{fmtMoney(q.total || 0, q.currency)}</span>
+              </div>
             </div>
           </div>
 
-          {data.assumptions && <div><Label className="text-xs text-muted-foreground">Assumptions</Label><p className="text-sm whitespace-pre-wrap">{data.assumptions}</p></div>}
-          {data.exclusions && <div><Label className="text-xs text-muted-foreground">Exclusions</Label><p className="text-sm whitespace-pre-wrap">{data.exclusions}</p></div>}
-          {data.notes && <div><Label className="text-xs text-muted-foreground">Notes</Label><p className="text-sm whitespace-pre-wrap">{data.notes}</p></div>}
+          <div className="grid grid-cols-3 gap-3 bg-green-500/5 border border-green-500/20 rounded-lg p-4">
+            <div className="text-center">
+              <p className="text-lg font-bold text-green-600">{q.paymentTermDeposit}%</p>
+              <p className="text-xs text-muted-foreground">Deposit</p>
+              <p className="text-sm font-medium">{fmtMoney((q.total || 0) * (q.paymentTermDeposit || 10) / 100, q.currency)}</p>
+            </div>
+            <div className="text-center border-x border-green-500/20">
+              <p className="text-lg font-bold text-green-600">{q.paymentTermProduction}%</p>
+              <p className="text-xs text-muted-foreground">Production</p>
+              <p className="text-sm font-medium">{fmtMoney((q.total || 0) * (q.paymentTermProduction || 40) / 100, q.currency)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-lg font-bold text-green-600">{q.paymentTermInstall}%</p>
+              <p className="text-xs text-muted-foreground">Installation</p>
+              <p className="text-sm font-medium">{fmtMoney((q.total || 0) * (q.paymentTermInstall || 50) / 100, q.currency)}</p>
+            </div>
+          </div>
+
+          {q.notes && <div><Label className="text-xs text-muted-foreground">Notes</Label><p className="text-sm whitespace-pre-wrap mt-1">{q.notes}</p></div>}
+          {q.assumptions && <div><Label className="text-xs text-muted-foreground">Assumptions</Label><p className="text-sm whitespace-pre-wrap mt-1">{q.assumptions}</p></div>}
+          {q.exclusions && <div><Label className="text-xs text-muted-foreground">Exclusions</Label><p className="text-sm whitespace-pre-wrap mt-1">{q.exclusions}</p></div>}
+
+          {(q.htmlAssetId || q.xlsxAssetId) && (
+            <div className="flex gap-3 pt-1 border-t border-border/50">
+              <p className="text-xs text-muted-foreground self-center">Files stored in Assets — attach via Gmail</p>
+              <div className="flex gap-2 ml-auto">
+                <Button variant="outline" size="sm" onClick={() => window.open(`/api/quotes/${quoteId}/print`, "_blank")} data-testid="button-view-html">
+                  <ExternalLink className="h-3.5 w-3.5 mr-1" /> HTML Invoice
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => window.open(`/api/quotes/${quoteId}/download/xlsx`, "_blank")} data-testid="button-download-xlsx-detail">
+                  <Download className="h-3.5 w-3.5 mr-1" /> Download XLSX
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
   );
 }
 
+function LineItemTable({ items, currency }: { items: any[]; currency: string }) {
+  return (
+    <div className="border border-border/50 rounded-lg overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border/50 bg-muted/30">
+            <th className="text-left p-2 pl-3">Item</th>
+            <th className="text-right p-2">Qty</th>
+            <th className="text-right p-2">List</th>
+            <th className="text-right p-2">Disc</th>
+            <th className="text-right p-2">Unit Price</th>
+            <th className="text-right p-2 pr-3">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item: any, i: number) => (
+            <tr key={i} className="border-b border-border/20 last:border-0">
+              <td className="p-2 pl-3">
+                <p className="font-medium">{item.name}</p>
+                {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
+                {item.isRecurring && <span className="text-[10px] text-blue-400">annual</span>}
+              </td>
+              <td className="p-2 text-right">{item.qty}</td>
+              <td className="p-2 text-right text-muted-foreground">{item.listPrice > 0 ? fmtMoney(item.listPrice, currency) : "—"}</td>
+              <td className="p-2 text-right text-muted-foreground">{item.discountPercent > 0 ? `${item.discountPercent}%` : "—"}</td>
+              <td className="p-2 text-right">{fmtMoney(item.unitPrice, currency)}</td>
+              <td className="p-2 pr-3 text-right font-semibold">{fmtMoney(item.lineTotal, currency)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; onSubmit: (d: Record<string, unknown>) => void; isPending: boolean }) {
-  const [quoteType, setQuoteType] = useState("marina_solution");
+  const [tab, setTab] = useState("customer");
+  const [country, setCountry] = useState("US");
+  const [currency, setCurrency] = useState("USD");
   const [accountId, setAccountId] = useState("");
   const [validDays, setValidDays] = useState("30");
+  const [customerName, setCustomerName] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [marinaAddress, setMarinaAddress] = useState("");
+  const [siteAddress, setSiteAddress] = useState("");
+  const [slipsCount, setSlipsCount] = useState("");
+  const [entitlementNumber, setEntitlementNumber] = useState("");
+  const [licensedTo, setLicensedTo] = useState("");
+  const [billingPeriodStart, setBillingPeriodStart] = useState("");
+  const [billingPeriodEnd, setBillingPeriodEnd] = useState("");
+  const [taxRate, setTaxRate] = useState(0);
+  const [taxLabel, setTaxLabel] = useState("");
+  const [paymentTermDeposit, setPaymentTermDeposit] = useState(10);
+  const [paymentTermProduction, setPaymentTermProduction] = useState(40);
+  const [paymentTermInstall, setPaymentTermInstall] = useState(50);
+  const [lineItems, setLineItems] = useState<LineItem[]>([]);
+  const [notes, setNotes] = useState("");
   const [assumptions, setAssumptions] = useState("");
   const [exclusions, setExclusions] = useState("");
-  const [notes, setNotes] = useState("");
-  const [lineItems, setLineItems] = useState<LineItem[]>([]);
-  const [serviceLines, setServiceLines] = useState<ServiceLine[]>([]);
+  const [catalogTab, setCatalogTab] = useState<"hardware" | "saas">("hardware");
+  const [globalDiscount, setGlobalDiscount] = useState(0);
 
-  const addLineItem = () => setLineItems([...lineItems, { name: "", category: "hardware", description: "", qty: 1, unitPrice: 0, unitType: "unit", lineTotal: 0 }]);
-  const removeLineItem = (i: number) => setLineItems(lineItems.filter((_, idx) => idx !== i));
-  const updateLineItem = (i: number, field: string, value: unknown) => {
+  const handleCountryChange = (c: string) => {
+    setCountry(c);
+    const opt = COUNTRY_OPTIONS.find(o => o.code === c);
+    if (opt) {
+      setCurrency(opt.currency);
+      setTaxRate(opt.taxRate);
+      setTaxLabel(opt.taxLabel);
+    }
+  };
+
+  const addFromCatalog = (item: CatalogItem) => {
+    const existing = lineItems.findIndex(li => li.name.startsWith(item.sku));
+    if (existing >= 0) {
+      const updated = [...lineItems];
+      updated[existing].qty += 1;
+      updated[existing].lineTotal = updated[existing].qty * updated[existing].unitPrice;
+      setLineItems(updated);
+    } else {
+      setLineItems(prev => [...prev, makeLineItem(item, 1, globalDiscount)]);
+    }
+  };
+
+  const addBlankLine = (cat: "hardware" | "saas" | "other") => {
+    setLineItems(prev => [...prev, { name: "", description: "", category: cat, qty: 1, listPrice: 0, discountPercent: globalDiscount, unitPrice: 0, unitType: "unit", lineTotal: 0, isRecurring: false, sortOrder: prev.length }]);
+  };
+
+  const updateLine = (i: number, field: string, value: unknown) => {
     const updated = [...lineItems];
     (updated[i] as any)[field] = value;
     if (field === "qty" || field === "unitPrice") {
       updated[i].lineTotal = updated[i].qty * updated[i].unitPrice;
     }
+    if (field === "listPrice" || field === "discountPercent") {
+      updated[i].unitPrice = updated[i].listPrice * (1 - updated[i].discountPercent / 100);
+      updated[i].lineTotal = updated[i].qty * updated[i].unitPrice;
+    }
     setLineItems(updated);
   };
 
-  const addServiceLine = () => setServiceLines([...serviceLines, { role: "", hoursEstimate: 0, hourlyRate: 0, subtotal: 0 }]);
-  const removeServiceLine = (i: number) => setServiceLines(serviceLines.filter((_, idx) => idx !== i));
-  const updateServiceLine = (i: number, field: string, value: unknown) => {
-    const updated = [...serviceLines];
-    (updated[i] as any)[field] = value;
-    if (field === "hoursEstimate" || field === "hourlyRate") {
-      updated[i].subtotal = updated[i].hoursEstimate * updated[i].hourlyRate;
-    }
-    setServiceLines(updated);
-  };
+  const removeLine = (i: number) => setLineItems(lineItems.filter((_, idx) => idx !== i));
 
-  const subtotal = lineItems.reduce((s, li) => s + li.lineTotal, 0) + serviceLines.reduce((s, sl) => s + sl.subtotal, 0);
-  const total = subtotal;
+  const hwItems = lineItems.filter(i => i.category === "hardware");
+  const swItems = lineItems.filter(i => i.category === "saas" || i.category === "software");
+  const otherItems = lineItems.filter(i => i.category !== "hardware" && i.category !== "saas" && i.category !== "software");
+
+  const hwSubtotal = hwItems.reduce((s, i) => s + i.lineTotal, 0);
+  const swSubtotal = swItems.reduce((s, i) => s + i.lineTotal, 0);
+  const otherSubtotal = otherItems.reduce((s, i) => s + i.lineTotal, 0);
+  const subtotal = hwSubtotal + swSubtotal + otherSubtotal;
+  const taxAmount = subtotal * taxRate;
+  const total = subtotal + taxAmount;
+  const depositDue = total * (paymentTermDeposit / 100);
   const validUntil = new Date();
   validUntil.setDate(validUntil.getDate() + Number(validDays));
 
+  const applyGlobalDiscount = (pct: number) => {
+    setGlobalDiscount(pct);
+    setLineItems(prev => prev.map(li => {
+      if (li.listPrice > 0) {
+        const unitPrice = li.listPrice * (1 - pct / 100);
+        return { ...li, discountPercent: pct, unitPrice, lineTotal: li.qty * unitPrice };
+      }
+      return li;
+    }));
+  };
+
   const handleSubmit = () => {
     onSubmit({
-      quoteType,
       accountId: accountId ? Number(accountId) : undefined,
-      validUntil: validUntil.toISOString(),
+      country,
+      currency,
+      customerName: customerName || undefined,
+      customerEmail: customerEmail || undefined,
+      customerPhone: customerPhone || undefined,
+      marinaAddress: marinaAddress || undefined,
+      siteAddress: siteAddress || undefined,
+      slipsCount: slipsCount ? Number(slipsCount) : undefined,
+      entitlementNumber: entitlementNumber || undefined,
+      licensedTo: licensedTo || undefined,
+      billingPeriodStart: billingPeriodStart || undefined,
+      billingPeriodEnd: billingPeriodEnd || undefined,
+      paymentTermDeposit,
+      paymentTermProduction,
+      paymentTermInstall,
+      taxRate,
+      taxAmount,
+      hardwareSubtotal: hwSubtotal,
+      softwareSubtotal: swSubtotal,
       subtotal,
+      tax: taxAmount,
       total,
-      tax: 0,
-      assumptions,
-      exclusions,
-      notes,
+      depositDue,
+      validUntil: validUntil.toISOString(),
+      notes: notes || undefined,
+      assumptions: assumptions || undefined,
+      exclusions: exclusions || undefined,
       lineItems: lineItems.map((li, i) => ({ ...li, sortOrder: i })),
-      servicesEstimates: serviceLines.map((sl, i) => ({ ...sl, sortOrder: i })),
     });
   };
 
+  const inputCls = "h-8 text-sm";
+
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label>Quote Type *</Label>
-          <Select value={quoteType} onValueChange={setQuoteType}>
-            <SelectTrigger data-testid="select-quote-type"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="marina_solution">Marina Shore Power Solution</SelectItem>
-              <SelectItem value="professional_services">Professional Services Agreement</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label>Account</Label>
-          <Select value={accountId} onValueChange={setAccountId}>
-            <SelectTrigger data-testid="select-quote-account"><SelectValue placeholder="Select account" /></SelectTrigger>
-            <SelectContent>
-              {accounts.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
+    <div className="flex flex-col h-full">
+      <div className="px-6 pt-6 pb-0 border-b border-border/50">
+        <h2 className="text-lg font-bold mb-4">New Quote</h2>
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="mb-0">
+            <TabsTrigger value="customer" data-testid="tab-customer">Customer</TabsTrigger>
+            <TabsTrigger value="products" data-testid="tab-products">Products</TabsTrigger>
+            <TabsTrigger value="pricing" data-testid="tab-pricing">Pricing & Terms</TabsTrigger>
+            <TabsTrigger value="notes" data-testid="tab-notes">Notes</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
-      <div>
-        <Label>Valid For (days)</Label>
-        <Input type="number" value={validDays} onChange={(e) => setValidDays(e.target.value)} className="w-32" data-testid="input-valid-days" />
-      </div>
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        {tab === "customer" && (
+          <div className="space-y-5 max-w-2xl">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-xs">Country *</Label>
+                <Select value={country} onValueChange={handleCountryChange}>
+                  <SelectTrigger className={inputCls} data-testid="select-country">
+                    <Globe className="h-3 w-3 mr-1 text-muted-foreground" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COUNTRY_OPTIONS.map(o => <SelectItem key={o.code} value={o.code}>{o.label} ({o.currency})</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Currency</Label>
+                <Select value={currency} onValueChange={setCurrency}>
+                  <SelectTrigger className={inputCls} data-testid="select-currency"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(CURRENCY_SYMBOLS).map(([c, s]) => <SelectItem key={c} value={c}>{c} ({s})</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
-      {quoteType === "marina_solution" ? (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold">Line Items</h3>
-            <Button variant="outline" size="sm" onClick={addLineItem} data-testid="button-add-line-item"><Plus className="mr-1 h-3 w-3" /> Add Item</Button>
-          </div>
-          <div className="space-y-3">
-            {lineItems.map((item, i) => (
-              <div key={i} className="flex gap-2 items-start border border-border/50 rounded-lg p-3">
-                <div className="flex-1 grid grid-cols-5 gap-2">
-                  <Input placeholder="Item name" value={item.name} onChange={(e) => updateLineItem(i, "name", e.target.value)} className="col-span-2" data-testid={`input-line-name-${i}`} />
-                  <Select value={item.category} onValueChange={(v) => updateLineItem(i, "category", v)}>
-                    <SelectTrigger data-testid={`select-line-category-${i}`}><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="hardware">Hardware</SelectItem>
-                      <SelectItem value="saas">SaaS</SelectItem>
-                      <SelectItem value="services">Services</SelectItem>
-                      <SelectItem value="discount">Discount</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input type="number" placeholder="Qty" value={item.qty || ""} onChange={(e) => updateLineItem(i, "qty", Number(e.target.value))} data-testid={`input-line-qty-${i}`} />
-                  <Input type="number" placeholder="Price" value={item.unitPrice || ""} onChange={(e) => updateLineItem(i, "unitPrice", Number(e.target.value))} data-testid={`input-line-price-${i}`} />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-xs">Customer / Marina Name *</Label>
+                <Input value={customerName} onChange={e => setCustomerName(e.target.value)} className={inputCls} placeholder="Bluewater Marina Inc." data-testid="input-customer-name" />
+              </div>
+              <div>
+                <Label className="text-xs">Link to Account</Label>
+                <Select value={accountId} onValueChange={setAccountId}>
+                  <SelectTrigger className={inputCls} data-testid="select-account"><SelectValue placeholder="Select account (optional)" /></SelectTrigger>
+                  <SelectContent>
+                    {accounts.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Contact Email</Label>
+                <Input value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} className={inputCls} placeholder="gm@marina.com" type="email" data-testid="input-customer-email" />
+              </div>
+              <div>
+                <Label className="text-xs">Contact Phone</Label>
+                <Input value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} className={inputCls} placeholder="+1 604 555 0100" data-testid="input-customer-phone" />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">Marina / Billing Address</Label>
+              <Textarea value={marinaAddress} onChange={e => setMarinaAddress(e.target.value)} rows={3} placeholder={"100 Marina Way\nVancouver, BC V5K 0A1\nCanada"} data-testid="input-marina-address" className="text-sm" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-xs">Site / Install Address</Label>
+                <Textarea value={siteAddress} onChange={e => setSiteAddress(e.target.value)} rows={2} placeholder="Same as above (or different dock)" data-testid="input-site-address" className="text-sm" />
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Slip Count</Label>
+                  <Input value={slipsCount} onChange={e => setSlipsCount(e.target.value)} className={inputCls} type="number" min="1" placeholder="e.g. 120" data-testid="input-slips-count" />
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium w-20 text-right">${item.lineTotal.toLocaleString()}</span>
-                  <Button variant="ghost" size="sm" onClick={() => removeLineItem(i)} data-testid={`button-remove-line-${i}`}><Trash2 className="h-3 w-3" /></Button>
+                <div>
+                  <Label className="text-xs">Quote Valid (days)</Label>
+                  <Input value={validDays} onChange={e => setValidDays(e.target.value)} className={inputCls} type="number" min="1" data-testid="input-valid-days" />
                 </div>
               </div>
-            ))}
+            </div>
+
+            <Separator />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-xs">Entitlement #</Label>
+                <Input value={entitlementNumber} onChange={e => setEntitlementNumber(e.target.value)} className={inputCls} placeholder="ENT-2025-0001" data-testid="input-entitlement" />
+              </div>
+              <div>
+                <Label className="text-xs">Licensed To</Label>
+                <Input value={licensedTo} onChange={e => setLicensedTo(e.target.value)} className={inputCls} placeholder="Legal entity name" data-testid="input-licensed-to" />
+              </div>
+              <div>
+                <Label className="text-xs">Billing Period Start</Label>
+                <Input value={billingPeriodStart} onChange={e => setBillingPeriodStart(e.target.value)} className={inputCls} placeholder="2025-01-01" data-testid="input-billing-start" />
+              </div>
+              <div>
+                <Label className="text-xs">Billing Period End</Label>
+                <Input value={billingPeriodEnd} onChange={e => setBillingPeriodEnd(e.target.value)} className={inputCls} placeholder="2025-12-31" data-testid="input-billing-end" />
+              </div>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold">Services Workstreams</h3>
-            <Button variant="outline" size="sm" onClick={addServiceLine} data-testid="button-add-service-line"><Plus className="mr-1 h-3 w-3" /> Add Role</Button>
-          </div>
-          <div className="space-y-3">
-            {serviceLines.map((line, i) => (
-              <div key={i} className="flex gap-2 items-center border border-border/50 rounded-lg p-3">
-                <div className="flex-1 grid grid-cols-3 gap-2">
-                  <Select value={line.role} onValueChange={(v) => updateServiceLine(i, "role", v)}>
-                    <SelectTrigger data-testid={`select-service-role-${i}`}><SelectValue placeholder="Role" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="engineering">Engineering</SelectItem>
-                      <SelectItem value="firmware">Firmware</SelectItem>
-                      <SelectItem value="mechanical">Mechanical</SelectItem>
-                      <SelectItem value="electrical">Electrical</SelectItem>
-                      <SelectItem value="pm">Project Management</SelectItem>
-                      <SelectItem value="qa">QA</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input type="number" placeholder="Hours" value={line.hoursEstimate || ""} onChange={(e) => updateServiceLine(i, "hoursEstimate", Number(e.target.value))} data-testid={`input-service-hours-${i}`} />
-                  <Input type="number" placeholder="Rate $/hr" value={line.hourlyRate || ""} onChange={(e) => updateServiceLine(i, "hourlyRate", Number(e.target.value))} data-testid={`input-service-rate-${i}`} />
+        )}
+
+        {tab === "products" && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Tag className="h-4 w-4 text-muted-foreground" />
+                <Label className="text-xs">Global Discount %</Label>
+                <Input
+                  type="number" min="0" max="100" step="1"
+                  value={globalDiscount || ""}
+                  onChange={e => applyGlobalDiscount(Number(e.target.value))}
+                  className="h-7 w-16 text-sm"
+                  placeholder="0"
+                  data-testid="input-global-discount"
+                />
+              </div>
+              <span className="text-xs text-muted-foreground">Click catalog items below to add, or add blank rows manually</span>
+            </div>
+
+            <Tabs value={catalogTab} onValueChange={(v) => setCatalogTab(v as any)}>
+              <TabsList>
+                <TabsTrigger value="hardware" data-testid="tab-catalog-hardware"><Package className="h-3.5 w-3.5 mr-1" /> Hardware Catalog</TabsTrigger>
+                <TabsTrigger value="saas" data-testid="tab-catalog-saas"><Cloud className="h-3.5 w-3.5 mr-1" /> Software / Services</TabsTrigger>
+              </TabsList>
+              <TabsContent value="hardware" className="mt-3">
+                <div className="grid gap-1.5">
+                  {HARDWARE_CATALOG.map(item => (
+                    <button key={item.sku} onClick={() => addFromCatalog(item)} data-testid={`catalog-${item.sku}`}
+                      className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-border/50 hover:bg-green-500/5 hover:border-green-500/30 text-left transition-colors group">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{item.sku} — {item.name}</p>
+                        <p className="text-xs text-muted-foreground">{item.description}</p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-sm font-semibold">{fmtMoney(item.listPrice, currency)}<span className="text-xs text-muted-foreground">/{item.unitType}</span></p>
+                        <span className="text-xs text-green-500 opacity-0 group-hover:opacity-100">+ Add</span>
+                      </div>
+                    </button>
+                  ))}
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium w-20 text-right">${line.subtotal.toLocaleString()}</span>
-                  <Button variant="ghost" size="sm" onClick={() => removeServiceLine(i)} data-testid={`button-remove-service-${i}`}><Trash2 className="h-3 w-3" /></Button>
+              </TabsContent>
+              <TabsContent value="saas" className="mt-3">
+                <div className="grid gap-1.5">
+                  {SOFTWARE_CATALOG.map(item => (
+                    <button key={item.sku} onClick={() => addFromCatalog(item)} data-testid={`catalog-${item.sku}`}
+                      className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-border/50 hover:bg-blue-500/5 hover:border-blue-500/30 text-left transition-colors group">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{item.sku} — {item.name}</p>
+                        <p className="text-xs text-muted-foreground">{item.description}</p>
+                        {item.isRecurring && <span className="text-[10px] text-blue-400 font-medium">annual subscription</span>}
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-sm font-semibold">{fmtMoney(item.listPrice, currency)}<span className="text-xs text-muted-foreground">/{item.unitType}</span></p>
+                        <span className="text-xs text-blue-500 opacity-0 group-hover:opacity-100">+ Add</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </TabsContent>
+            </Tabs>
+
+            <Separator />
+
+            {lineItems.length > 0 && (
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold">Selected Line Items ({lineItems.length})</h3>
+                {["hardware", "saas", "other"].map(cat => {
+                  const catItems = lineItems.filter(li => li.category === cat || (cat === "saas" && li.category === "software"));
+                  if (catItems.length === 0 && cat !== "other") return null;
+                  const catLabel = cat === "hardware" ? "Hardware" : cat === "saas" ? "Software / SaaS" : "Other";
+                  const allItems = cat === "saas" ? lineItems.filter(li => li.category === "saas" || li.category === "software") : lineItems.filter(li => li.category === cat);
+                  if (allItems.length === 0 && cat !== "other") return null;
+                  return (
+                    <div key={cat}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{catLabel}</p>
+                        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => addBlankLine(cat as any)} data-testid={`button-add-blank-${cat}`}>
+                          <Plus className="h-3 w-3 mr-0.5" /> Blank Row
+                        </Button>
+                      </div>
+                      <div className="space-y-1">
+                        {lineItems.map((li, idx) => {
+                          const matches = li.category === cat || (cat === "saas" && li.category === "software");
+                          if (!matches) return null;
+                          return (
+                            <div key={idx} className="flex gap-2 items-center border border-border/50 rounded-lg px-3 py-2 bg-muted/10">
+                              <div className="flex-1 grid grid-cols-12 gap-1.5 items-center min-w-0">
+                                <Input value={li.name} onChange={e => updateLine(idx, "name", e.target.value)} className="h-7 text-xs col-span-4" placeholder="Item name" data-testid={`input-line-name-${idx}`} />
+                                <Input type="number" min="1" value={li.qty || ""} onChange={e => updateLine(idx, "qty", Number(e.target.value))} className="h-7 text-xs col-span-1 text-center" placeholder="Qty" data-testid={`input-line-qty-${idx}`} />
+                                <div className="col-span-2 relative">
+                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">{currSym(currency)}</span>
+                                  <Input type="number" min="0" value={li.listPrice || ""} onChange={e => updateLine(idx, "listPrice", Number(e.target.value))} className="h-7 text-xs pl-5" placeholder="List" data-testid={`input-line-list-${idx}`} />
+                                </div>
+                                <div className="col-span-2 relative">
+                                  <Input type="number" min="0" max="100" value={li.discountPercent || ""} onChange={e => updateLine(idx, "discountPercent", Number(e.target.value))} className="h-7 text-xs pr-4" placeholder="Disc%" data-testid={`input-line-disc-${idx}`} />
+                                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                                </div>
+                                <div className="col-span-2 text-right">
+                                  <p className="text-xs font-medium">{fmtMoney(li.lineTotal, currency)}</p>
+                                  <p className="text-[10px] text-muted-foreground">{fmtMoney(li.unitPrice, currency)}/ea</p>
+                                </div>
+                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 col-span-1 text-muted-foreground hover:text-destructive" onClick={() => removeLine(idx)} data-testid={`button-remove-line-${idx}`}>
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {lineItems.length === 0 && (
+                  <div className="text-center py-8 text-sm text-muted-foreground">No items yet. Add from catalog above.</div>
+                )}
+              </div>
+            )}
+
+            {lineItems.length === 0 && (
+              <div className="text-center py-6 text-sm text-muted-foreground border border-dashed border-border/50 rounded-lg">
+                Click items from the catalog above to add them to the quote
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => addBlankLine("hardware")} data-testid="button-add-hardware-row"><Plus className="h-3.5 w-3.5 mr-1" /> Hardware Row</Button>
+              <Button variant="outline" size="sm" onClick={() => addBlankLine("saas")} data-testid="button-add-saas-row"><Plus className="h-3.5 w-3.5 mr-1" /> Software Row</Button>
+              <Button variant="outline" size="sm" onClick={() => addBlankLine("other")} data-testid="button-add-other-row"><Plus className="h-3.5 w-3.5 mr-1" /> Other Row</Button>
+            </div>
+          </div>
+        )}
+
+        {tab === "pricing" && (
+          <div className="space-y-6 max-w-xl">
+            <div className="border border-border/50 rounded-lg p-4 space-y-3">
+              <h3 className="text-sm font-semibold">Tax</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs">Tax Rate</Label>
+                  <div className="relative">
+                    <Input type="number" min="0" max="100" step="0.1" value={(taxRate * 100).toFixed(1) || ""}
+                      onChange={e => setTaxRate(Number(e.target.value) / 100)}
+                      className={`${inputCls} pr-7`} data-testid="input-tax-rate" />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                  </div>
+                  {taxLabel && <p className="text-xs text-muted-foreground mt-1">{taxLabel} auto-set for {COUNTRY_OPTIONS.find(o => o.code === country)?.label}</p>}
+                </div>
+                <div>
+                  <Label className="text-xs">Tax Amount</Label>
+                  <p className="text-sm font-medium mt-2">{fmtMoney(taxAmount, currency)}</p>
                 </div>
               </div>
-            ))}
+            </div>
+
+            <div className="border border-border/50 rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold">Payment Terms</h3>
+                <span className="text-xs text-muted-foreground">{paymentTermDeposit + paymentTermProduction + paymentTermInstall}% total (must = 100%)</span>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <Label className="text-xs">Deposit %</Label>
+                  <Input type="number" min="0" max="100" value={paymentTermDeposit}
+                    onChange={e => setPaymentTermDeposit(Number(e.target.value))}
+                    className={inputCls} data-testid="input-deposit-pct" />
+                  <p className="text-xs text-muted-foreground mt-1">{fmtMoney(total * paymentTermDeposit / 100, currency)}</p>
+                </div>
+                <div>
+                  <Label className="text-xs">Production %</Label>
+                  <Input type="number" min="0" max="100" value={paymentTermProduction}
+                    onChange={e => setPaymentTermProduction(Number(e.target.value))}
+                    className={inputCls} data-testid="input-production-pct" />
+                  <p className="text-xs text-muted-foreground mt-1">{fmtMoney(total * paymentTermProduction / 100, currency)}</p>
+                </div>
+                <div>
+                  <Label className="text-xs">Installation %</Label>
+                  <Input type="number" min="0" max="100" value={paymentTermInstall}
+                    onChange={e => setPaymentTermInstall(Number(e.target.value))}
+                    className={inputCls} data-testid="input-install-pct" />
+                  <p className="text-xs text-muted-foreground mt-1">{fmtMoney(total * paymentTermInstall / 100, currency)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="border border-border/50 rounded-lg p-4 bg-muted/5">
+              <h3 className="text-sm font-semibold mb-3">Quote Summary</h3>
+              <div className="space-y-1.5 text-sm">
+                {hwSubtotal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Hardware subtotal</span><span>{fmtMoney(hwSubtotal, currency)}</span></div>}
+                {swSubtotal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Software subtotal</span><span>{fmtMoney(swSubtotal, currency)}</span></div>}
+                {otherSubtotal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Other subtotal</span><span>{fmtMoney(otherSubtotal, currency)}</span></div>}
+                <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{fmtMoney(subtotal, currency)}</span></div>
+                {taxRate > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Tax ({(taxRate * 100).toFixed(0)}%)</span><span>{fmtMoney(taxAmount, currency)}</span></div>}
+                <Separator className="my-2" />
+                <div className="flex justify-between text-base font-bold"><span>Total</span><span>{fmtMoney(total, currency)}</span></div>
+                <div className="flex justify-between text-sm text-green-600"><span>Deposit due</span><span>{fmtMoney(depositDue, currency)}</span></div>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <Separator />
-
-      <div className="grid grid-cols-2 gap-4">
-        <div><Label>Assumptions</Label><Textarea value={assumptions} onChange={(e) => setAssumptions(e.target.value)} rows={2} data-testid="input-assumptions" /></div>
-        <div><Label>Exclusions</Label><Textarea value={exclusions} onChange={(e) => setExclusions(e.target.value)} rows={2} data-testid="input-exclusions" /></div>
+        {tab === "notes" && (
+          <div className="space-y-4 max-w-xl">
+            <div>
+              <Label className="text-xs">Notes (shown on invoice)</Label>
+              <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={4} placeholder="Any special instructions, delivery notes, etc." data-testid="input-notes" className="mt-1 text-sm" />
+            </div>
+            <div>
+              <Label className="text-xs">Assumptions</Label>
+              <Textarea value={assumptions} onChange={e => setAssumptions(e.target.value)} rows={3} placeholder="e.g. Existing conduit in place, customer provides 3-phase power..." data-testid="input-assumptions" className="mt-1 text-sm" />
+            </div>
+            <div>
+              <Label className="text-xs">Exclusions</Label>
+              <Textarea value={exclusions} onChange={e => setExclusions(e.target.value)} rows={3} placeholder="e.g. Trenching, permitting, marine electrician labour..." data-testid="input-exclusions" className="mt-1 text-sm" />
+            </div>
+          </div>
+        )}
       </div>
-      <div><Label>Notes</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} data-testid="input-quote-notes" /></div>
 
-      <div className="flex items-center justify-between pt-4 border-t border-border/50">
-        <div>
-          <p className="text-2xl font-bold flex items-center gap-1"><DollarSign className="h-6 w-6 text-primary" />{total.toLocaleString()}</p>
-          <p className="text-xs text-muted-foreground">Valid until {validUntil.toLocaleDateString()}</p>
+      <div className="flex-shrink-0 border-t border-border/50 px-6 py-4 flex items-center justify-between bg-muted/5">
+        <div className="text-sm">
+          <span className="text-muted-foreground">{lineItems.length} item{lineItems.length !== 1 ? "s" : ""} · </span>
+          <span className="font-semibold">{fmtMoney(total, currency)}</span>
+          {taxRate > 0 && <span className="text-muted-foreground text-xs"> (incl. {(taxRate * 100).toFixed(0)}% tax)</span>}
         </div>
-        <Button onClick={handleSubmit} className="bg-primary text-primary-foreground" disabled={isPending} data-testid="button-submit-quote">
-          {isPending ? "Creating..." : "Create Quote"}
-        </Button>
+        <div className="flex gap-2">
+          {tab !== "customer" && <Button variant="ghost" size="sm" onClick={() => { const tabs = ["customer","products","pricing","notes"]; setTab(tabs[tabs.indexOf(tab)-1]); }}>← Back</Button>}
+          {tab !== "notes" && <Button variant="outline" size="sm" onClick={() => { const tabs = ["customer","products","pricing","notes"]; setTab(tabs[tabs.indexOf(tab)+1]); }}>Next →</Button>}
+          <Button
+            onClick={handleSubmit}
+            disabled={isPending || !customerName}
+            className="bg-primary text-primary-foreground"
+            data-testid="button-submit-quote"
+          >
+            {isPending ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Generating...</> : <>Generate Quote + Files</>}
+          </Button>
+        </div>
       </div>
     </div>
   );

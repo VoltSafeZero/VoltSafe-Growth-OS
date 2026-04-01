@@ -29,6 +29,7 @@ import {
 } from "./webauthn";
 import { eq, sql, and, inArray, lte } from "drizzle-orm";
 import { registerVoiceAssistantRoutes } from "./voice-assistant";
+import { generateInvoiceHtml, generateQuoteXlsx, type QuoteData } from "./quote-generator";
 import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead, saveDraft, listDraftSummaries, getDraftContent, deleteDraft } from "./gmail";
 import { getAuthUrl, exchangeCodeForTokens, isGmailConnected } from "./gmail-oauth";
 import { parseGmailMessage } from "./services/email-parser";
@@ -875,9 +876,11 @@ export async function registerRoutes(
 
     const quote = await storage.createQuote(parsed.data);
 
+    const savedItems: any[] = [];
     if (lineItems && Array.isArray(lineItems)) {
       for (const item of lineItems) {
-        await storage.createQuoteLineItem({ ...item, quoteId: quote.id });
+        const saved = await storage.createQuoteLineItem({ ...item, quoteId: quote.id });
+        savedItems.push(saved);
       }
     }
 
@@ -894,10 +897,193 @@ export async function registerRoutes(
       summary: `Quote ${quoteNumber} created`,
     });
 
+    // Generate XLSX + HTML assets asynchronously, don't block the response
     const fullQuote = await storage.getQuote(quote.id);
     const items = await storage.getQuoteLineItems(quote.id);
     const estimates = await storage.getServicesEstimates(quote.id);
-    res.status(201).json({ ...fullQuote, lineItems: items, servicesEstimates: estimates });
+
+    try {
+      const qd: QuoteData = {
+        quoteNumber: fullQuote!.quoteNumber,
+        version: fullQuote!.version,
+        status: fullQuote!.status,
+        country: fullQuote!.country || "US",
+        currency: fullQuote!.currency,
+        customerName: fullQuote!.customerName || undefined,
+        customerEmail: fullQuote!.customerEmail || undefined,
+        customerPhone: fullQuote!.customerPhone || undefined,
+        marinaAddress: fullQuote!.marinaAddress || undefined,
+        siteAddress: fullQuote!.siteAddress || undefined,
+        billingPeriodStart: fullQuote!.billingPeriodStart || undefined,
+        billingPeriodEnd: fullQuote!.billingPeriodEnd || undefined,
+        entitlementNumber: fullQuote!.entitlementNumber || undefined,
+        licensedTo: fullQuote!.licensedTo || undefined,
+        paymentTermDeposit: fullQuote!.paymentTermDeposit ?? 10,
+        paymentTermProduction: fullQuote!.paymentTermProduction ?? 40,
+        paymentTermInstall: fullQuote!.paymentTermInstall ?? 50,
+        taxRate: fullQuote!.taxRate ?? 0,
+        taxAmount: fullQuote!.taxAmount ?? 0,
+        hardwareSubtotal: fullQuote!.hardwareSubtotal ?? 0,
+        softwareSubtotal: fullQuote!.softwareSubtotal ?? 0,
+        subtotal: fullQuote!.subtotal ?? 0,
+        total: fullQuote!.total ?? 0,
+        depositDue: fullQuote!.depositDue ?? 0,
+        slipsCount: fullQuote!.slipsCount || undefined,
+        validUntil: fullQuote!.validUntil,
+        notes: fullQuote!.notes || undefined,
+        assumptions: fullQuote!.assumptions || undefined,
+        exclusions: fullQuote!.exclusions || undefined,
+        lineItems: items.map(i => ({
+          name: i.name,
+          description: i.description || undefined,
+          category: i.category,
+          qty: i.qty,
+          listPrice: i.listPrice ?? 0,
+          discountPercent: i.discountPercent ?? 0,
+          unitPrice: i.unitPrice,
+          lineTotal: i.lineTotal,
+          unitType: i.unitType || undefined,
+          isRecurring: i.isRecurring ?? false,
+        })),
+        createdAt: fullQuote!.createdAt,
+      };
+
+      const [xlsxBuf, htmlStr] = await Promise.all([
+        generateQuoteXlsx(qd),
+        Promise.resolve(generateInvoiceHtml(qd)),
+      ]);
+
+      const xlsxB64 = xlsxBuf.toString("base64");
+      const htmlB64 = Buffer.from(htmlStr, "utf-8").toString("base64");
+      const xlsxName = `Quote-${quoteNumber}.xlsx`;
+      const htmlName = `Invoice-${quoteNumber}.html`;
+
+      const [xlsxAsset] = await db.insert(assets).values({
+        name: xlsxName,
+        originalName: xlsxName,
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        size: xlsxBuf.length,
+        filePath: "",
+        fileData: xlsxB64,
+        category: "quotes",
+        description: `XLSX Quote for ${quoteNumber}`,
+        tags: "quote,xlsx",
+      }).returning();
+
+      const [htmlAsset] = await db.insert(assets).values({
+        name: htmlName,
+        originalName: htmlName,
+        mimeType: "text/html",
+        size: htmlStr.length,
+        filePath: "",
+        fileData: htmlB64,
+        category: "quotes",
+        description: `HTML Invoice for ${quoteNumber}`,
+        tags: "quote,html,invoice",
+      }).returning();
+
+      await storage.updateQuote(quote.id, {
+        xlsxAssetId: xlsxAsset.id,
+        htmlAssetId: htmlAsset.id,
+      } as any);
+
+      const refreshedQuote = await storage.getQuote(quote.id);
+      res.status(201).json({ ...refreshedQuote, lineItems: items, servicesEstimates: estimates });
+    } catch (genErr) {
+      console.error("Quote asset generation error:", genErr);
+      res.status(201).json({ ...fullQuote, lineItems: items, servicesEstimates: estimates });
+    }
+  });
+
+  app.get("/api/quotes/:id/print", async (req, res) => {
+    const quote = await storage.getQuote(Number(req.params.id));
+    if (!quote) return res.status(404).send("Quote not found");
+    const items = await storage.getQuoteLineItems(quote.id);
+    const qd: QuoteData = {
+      quoteNumber: quote.quoteNumber,
+      version: quote.version,
+      status: quote.status,
+      country: quote.country || "US",
+      currency: quote.currency,
+      customerName: quote.customerName || undefined,
+      customerEmail: quote.customerEmail || undefined,
+      customerPhone: quote.customerPhone || undefined,
+      marinaAddress: quote.marinaAddress || undefined,
+      siteAddress: quote.siteAddress || undefined,
+      billingPeriodStart: quote.billingPeriodStart || undefined,
+      billingPeriodEnd: quote.billingPeriodEnd || undefined,
+      entitlementNumber: quote.entitlementNumber || undefined,
+      licensedTo: quote.licensedTo || undefined,
+      paymentTermDeposit: quote.paymentTermDeposit ?? 10,
+      paymentTermProduction: quote.paymentTermProduction ?? 40,
+      paymentTermInstall: quote.paymentTermInstall ?? 50,
+      taxRate: quote.taxRate ?? 0,
+      taxAmount: quote.taxAmount ?? 0,
+      hardwareSubtotal: quote.hardwareSubtotal ?? 0,
+      softwareSubtotal: quote.softwareSubtotal ?? 0,
+      subtotal: quote.subtotal ?? 0,
+      total: quote.total ?? 0,
+      depositDue: quote.depositDue ?? 0,
+      slipsCount: quote.slipsCount || undefined,
+      validUntil: quote.validUntil,
+      notes: quote.notes || undefined,
+      assumptions: quote.assumptions || undefined,
+      exclusions: quote.exclusions || undefined,
+      lineItems: items.map(i => ({
+        name: i.name, description: i.description || undefined, category: i.category,
+        qty: i.qty, listPrice: i.listPrice ?? 0, discountPercent: i.discountPercent ?? 0,
+        unitPrice: i.unitPrice, lineTotal: i.lineTotal, unitType: i.unitType || undefined,
+        isRecurring: i.isRecurring ?? false,
+      })),
+      createdAt: quote.createdAt,
+    };
+    const html = generateInvoiceHtml(qd);
+    res.setHeader("Content-Type", "text/html");
+    res.send(html);
+  });
+
+  app.get("/api/quotes/:id/download/xlsx", async (req, res) => {
+    const quote = await storage.getQuote(Number(req.params.id));
+    if (!quote) return res.status(404).json({ message: "Quote not found" });
+
+    if (quote.xlsxAssetId) {
+      const [assetRow] = await db.select().from(assets).where(eq(assets.id, quote.xlsxAssetId));
+      if (assetRow?.fileData) {
+        const buf = Buffer.from(assetRow.fileData, "base64");
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename="Quote-${quote.quoteNumber}.xlsx"`);
+        return res.send(buf);
+      }
+    }
+
+    const items = await storage.getQuoteLineItems(quote.id);
+    const qd: QuoteData = {
+      quoteNumber: quote.quoteNumber, version: quote.version, status: quote.status,
+      country: quote.country || "US", currency: quote.currency,
+      customerName: quote.customerName || undefined, customerEmail: quote.customerEmail || undefined,
+      customerPhone: quote.customerPhone || undefined, marinaAddress: quote.marinaAddress || undefined,
+      siteAddress: quote.siteAddress || undefined, billingPeriodStart: quote.billingPeriodStart || undefined,
+      billingPeriodEnd: quote.billingPeriodEnd || undefined, entitlementNumber: quote.entitlementNumber || undefined,
+      licensedTo: quote.licensedTo || undefined,
+      paymentTermDeposit: quote.paymentTermDeposit ?? 10, paymentTermProduction: quote.paymentTermProduction ?? 40,
+      paymentTermInstall: quote.paymentTermInstall ?? 50, taxRate: quote.taxRate ?? 0,
+      taxAmount: quote.taxAmount ?? 0, hardwareSubtotal: quote.hardwareSubtotal ?? 0,
+      softwareSubtotal: quote.softwareSubtotal ?? 0, subtotal: quote.subtotal ?? 0,
+      total: quote.total ?? 0, depositDue: quote.depositDue ?? 0, slipsCount: quote.slipsCount || undefined,
+      validUntil: quote.validUntil, notes: quote.notes || undefined,
+      assumptions: quote.assumptions || undefined, exclusions: quote.exclusions || undefined,
+      lineItems: items.map(i => ({
+        name: i.name, description: i.description || undefined, category: i.category,
+        qty: i.qty, listPrice: i.listPrice ?? 0, discountPercent: i.discountPercent ?? 0,
+        unitPrice: i.unitPrice, lineTotal: i.lineTotal, unitType: i.unitType || undefined,
+        isRecurring: i.isRecurring ?? false,
+      })),
+      createdAt: quote.createdAt,
+    };
+    const buf = await generateQuoteXlsx(qd);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="Quote-${quote.quoteNumber}.xlsx"`);
+    res.send(buf);
   });
 
   app.put("/api/quotes/:id", async (req, res) => {
