@@ -784,6 +784,16 @@ export const scheduledEmails = pgTable("scheduled_emails", {
 });
 export type ScheduledEmail = typeof scheduledEmails.$inferSelect;
 
+export const assetFolders = pgTable("asset_folders", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  parentFolderId: integer("parent_folder_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export const insertAssetFolderSchema = createInsertSchema(assetFolders).omit({ id: true, createdAt: true });
+export type AssetFolder = typeof assetFolders.$inferSelect;
+export type InsertAssetFolder = z.infer<typeof insertAssetFolderSchema>;
+
 export const assets = pgTable("assets", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -795,6 +805,7 @@ export const assets = pgTable("assets", {
   category: text("category").notNull().default("general"),
   description: text("description"),
   tags: text("tags").default(""),
+  folderId: integer("folder_id").references(() => assetFolders.id),
   uploadedBy: integer("uploaded_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

@@ -37,7 +37,7 @@ import { runAssociationEngine } from "./services/association-engine";
 import { runGmailSync } from "./services/gmail-sync";
 import {
   emailMessages, emailThreads, emailAssociations, associationFeedback, emailFilters, scheduledEmails,
-  assets,
+  assets, assetFolders,
 } from "@shared/schema";
 
 const UPLOADS_DIR = path.resolve("uploads");
@@ -1917,6 +1917,7 @@ export async function registerRoutes(
       else if (["application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"].includes(mimeType)) category = "presentation";
 
       const fileData = req.file.buffer.toString("base64");
+      const { folderId } = req.body;
       const [asset] = await db.insert(assets).values({
         name: name || req.file.originalname,
         originalName: req.file.originalname,
@@ -1927,6 +1928,7 @@ export async function registerRoutes(
         category,
         description: description || null,
         tags: tags || "",
+        folderId: folderId ? Number(folderId) : null,
         uploadedBy: req.session.userId ?? null,
       }).returning();
       res.json({ ...asset, fileData: undefined });
@@ -1937,9 +1939,14 @@ export async function registerRoutes(
 
   app.patch("/api/assets/:id", requireAuth, async (req, res) => {
     try {
-      const { name, description, tags } = req.body;
+      const { name, description, tags, folderId } = req.body;
+      const updateData: any = {};
+      if (name !== undefined) updateData.name = name;
+      if (description !== undefined) updateData.description = description;
+      if (tags !== undefined) updateData.tags = tags;
+      if (folderId !== undefined) updateData.folderId = folderId === null ? null : Number(folderId);
       const [updated] = await db.update(assets)
-        .set({ name, description, tags })
+        .set(updateData)
         .where(eq(assets.id, Number(req.params.id)))
         .returning();
       res.json(updated);
@@ -1971,6 +1978,59 @@ export async function registerRoutes(
       // Clean up legacy disk file if it exists
       if (asset.filePath && fs.existsSync(asset.filePath)) { try { fs.unlinkSync(asset.filePath); } catch {} }
       await db.delete(assets).where(eq(assets.id, Number(req.params.id)));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Asset Folder CRUD
+  app.get("/api/asset-folders", requireAuth, async (_req, res) => {
+    try {
+      const folders = await db.select().from(assetFolders).orderBy(assetFolders.name);
+      res.json(folders);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/asset-folders", requireAuth, async (req, res) => {
+    try {
+      const { name, parentFolderId } = req.body;
+      if (!name?.trim()) return res.status(400).json({ message: "Folder name is required" });
+      const [folder] = await db.insert(assetFolders).values({
+        name: name.trim(),
+        parentFolderId: parentFolderId ? Number(parentFolderId) : null,
+      }).returning();
+      res.status(201).json(folder);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/asset-folders/:id", requireAuth, async (req, res) => {
+    try {
+      const { name } = req.body;
+      if (!name?.trim()) return res.status(400).json({ message: "Folder name is required" });
+      const [updated] = await db.update(assetFolders)
+        .set({ name: name.trim() })
+        .where(eq(assetFolders.id, Number(req.params.id)))
+        .returning();
+      if (!updated) return res.status(404).json({ message: "Folder not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/asset-folders/:id", requireAuth, async (req, res) => {
+    try {
+      const fId = Number(req.params.id);
+      // Move assets in this folder back to root (null)
+      await db.update(assets).set({ folderId: null }).where(eq(assets.folderId, fId));
+      // Move sub-folders to root
+      await db.update(assetFolders).set({ parentFolderId: null }).where(eq(assetFolders.parentFolderId, fId));
+      await db.delete(assetFolders).where(eq(assetFolders.id, fId));
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
