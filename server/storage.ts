@@ -404,6 +404,8 @@ export class DatabaseStorage implements IStorage {
       { company: "Club de Yates de Yucatán", city: "Progreso", state: "Yucatan", slips: "150" },
       { company: "Marina Playa", city: "Progreso", state: "Yucatan", slips: "80" },
       { company: "Marina Turística Yucalpetén", city: "Progreso", state: "Yucatan", slips: "250" },
+      { company: "Marina Fonatur Cozumel", city: "San Miguel de Cozumel", state: "Quintana Roo", slips: "333" },
+      { company: "Marina Puerto Aventuras", city: "Puerto Aventuras", state: "Quintana Roo", slips: "250" },
     ];
 
     const existingMxCompanies = await db
