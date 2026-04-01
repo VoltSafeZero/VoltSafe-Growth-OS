@@ -37,7 +37,7 @@ import { runAssociationEngine } from "./services/association-engine";
 import { runGmailSync } from "./services/gmail-sync";
 import {
   emailMessages, emailThreads, emailAssociations, associationFeedback, emailFilters, scheduledEmails,
-  assets, assetFolders,
+  assets, assetFolders, priceLists, priceListItems,
 } from "@shared/schema";
 
 const UPLOADS_DIR = path.resolve("uploads");
@@ -1978,6 +1978,108 @@ export async function registerRoutes(
       // Clean up legacy disk file if it exists
       if (asset.filePath && fs.existsSync(asset.filePath)) { try { fs.unlinkSync(asset.filePath); } catch {} }
       await db.delete(assets).where(eq(assets.id, Number(req.params.id)));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Price Lists ──────────────────────────────────────────────────────────
+  app.get("/api/price-lists", requireAuth, async (_req, res) => {
+    try {
+      const lists = await db.select().from(priceLists).orderBy(priceLists.id);
+      const items = await db.select().from(priceListItems).orderBy(priceListItems.sortOrder, priceListItems.id);
+      const result = lists.map(list => ({
+        ...list,
+        items: items.filter(i => i.priceListId === list.id),
+      }));
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/price-lists", requireAuth, async (req, res) => {
+    try {
+      const { name, currency, description } = req.body;
+      if (!name?.trim()) return res.status(400).json({ message: "Name is required" });
+      const [list] = await db.insert(priceLists).values({ name: name.trim(), currency: currency || "USD", description: description || null }).returning();
+      res.status(201).json({ ...list, items: [] });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/price-lists/:id", requireAuth, async (req, res) => {
+    try {
+      const { name, currency, description } = req.body;
+      const updateData: any = { updatedAt: new Date() };
+      if (name !== undefined) updateData.name = name;
+      if (currency !== undefined) updateData.currency = currency;
+      if (description !== undefined) updateData.description = description;
+      const [updated] = await db.update(priceLists).set(updateData).where(eq(priceLists.id, Number(req.params.id))).returning();
+      if (!updated) return res.status(404).json({ message: "Price list not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/price-lists/:id", requireAuth, async (req, res) => {
+    try {
+      await db.delete(priceLists).where(eq(priceLists.id, Number(req.params.id)));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Price List Items
+  app.post("/api/price-lists/:id/items", requireAuth, async (req, res) => {
+    try {
+      const priceListId = Number(req.params.id);
+      const { sku, name, description, category, listPrice, unitType, isRecurring, sortOrder } = req.body;
+      if (!name?.trim()) return res.status(400).json({ message: "Name is required" });
+      const [item] = await db.insert(priceListItems).values({
+        priceListId,
+        sku: sku?.trim() || "",
+        name: name.trim(),
+        description: description?.trim() || "",
+        category: category || "hardware",
+        listPrice: Number(listPrice) || 0,
+        unitType: unitType?.trim() || "unit",
+        isRecurring: !!isRecurring,
+        sortOrder: Number(sortOrder) || 0,
+      }).returning();
+      res.status(201).json(item);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/price-list-items/:id", requireAuth, async (req, res) => {
+    try {
+      const { sku, name, description, category, listPrice, unitType, isRecurring, sortOrder } = req.body;
+      const updateData: any = {};
+      if (sku !== undefined) updateData.sku = sku;
+      if (name !== undefined) updateData.name = name;
+      if (description !== undefined) updateData.description = description;
+      if (category !== undefined) updateData.category = category;
+      if (listPrice !== undefined) updateData.listPrice = Number(listPrice);
+      if (unitType !== undefined) updateData.unitType = unitType;
+      if (isRecurring !== undefined) updateData.isRecurring = !!isRecurring;
+      if (sortOrder !== undefined) updateData.sortOrder = Number(sortOrder);
+      const [updated] = await db.update(priceListItems).set(updateData).where(eq(priceListItems.id, Number(req.params.id))).returning();
+      if (!updated) return res.status(404).json({ message: "Item not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/price-list-items/:id", requireAuth, async (req, res) => {
+    try {
+      await db.delete(priceListItems).where(eq(priceListItems.id, Number(req.params.id)));
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

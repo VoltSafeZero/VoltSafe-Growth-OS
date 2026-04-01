@@ -481,8 +481,25 @@ function LineItemTable({ items, currency }: { items: any[]; currency: string }) 
   );
 }
 
+type PriceListItemAPI = { id: number; priceListId: number; sku: string; name: string; description: string; category: string; listPrice: number; unitType: string; isRecurring: boolean; sortOrder: number; };
+type PriceListAPI = { id: number; name: string; currency: string; description: string | null; items: PriceListItemAPI[] };
+
+function priceListItemToCatalog(item: PriceListItemAPI): CatalogItem {
+  return {
+    sku: item.sku,
+    name: item.name,
+    description: item.description || "",
+    category: item.category === "saas" ? "saas" : "hardware",
+    listPrice: item.listPrice,
+    unitType: item.unitType || "unit",
+    isRecurring: item.isRecurring,
+  };
+}
+
 function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; onSubmit: (d: Record<string, unknown>) => void; isPending: boolean }) {
   const [tab, setTab] = useState("customer");
+
+  const priceListsQuery = useQuery<PriceListAPI[]>({ queryKey: ["/api/price-lists"] });
   const [country, setCountry] = useState("US");
   const [currency, setCurrency] = useState("USD");
   const [accountId, setAccountId] = useState("");
@@ -508,6 +525,16 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
   const [exclusions, setExclusions] = useState("");
   const [catalogTab, setCatalogTab] = useState<"hardware" | "saas">("hardware");
   const [globalDiscount, setGlobalDiscount] = useState(0);
+
+  // Resolve active price list based on current currency
+  const allPriceLists = priceListsQuery.data ?? [];
+  const activePriceList = allPriceLists.find(l => l.currency === currency) ?? null;
+  const catalogHardware: CatalogItem[] = activePriceList
+    ? activePriceList.items.filter(i => i.category === "hardware").map(priceListItemToCatalog)
+    : HARDWARE_CATALOG;
+  const catalogSaas: CatalogItem[] = activePriceList
+    ? activePriceList.items.filter(i => i.category === "saas").map(priceListItemToCatalog)
+    : SOFTWARE_CATALOG;
 
   const handleCountryChange = (c: string) => {
     setCountry(c);
@@ -743,13 +770,20 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
                 <TabsTrigger value="hardware" data-testid="tab-catalog-hardware"><Package className="h-3.5 w-3.5 mr-1" /> Hardware Catalog</TabsTrigger>
                 <TabsTrigger value="saas" data-testid="tab-catalog-saas"><Cloud className="h-3.5 w-3.5 mr-1" /> Software / Services</TabsTrigger>
               </TabsList>
+              {activePriceList && (
+                <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
+                  <Globe className="h-3 w-3" /> Using <strong>{activePriceList.name}</strong>
+                </p>
+              )}
               <TabsContent value="hardware" className="mt-3">
                 <div className="grid gap-1.5">
-                  {HARDWARE_CATALOG.map(item => (
-                    <button key={item.sku} onClick={() => addFromCatalog(item)} data-testid={`catalog-${item.sku}`}
+                  {catalogHardware.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-4 text-center">No hardware products in this price list</p>
+                  ) : catalogHardware.map((item, idx) => (
+                    <button key={item.sku || idx} onClick={() => addFromCatalog(item)} data-testid={`catalog-${item.sku}`}
                       className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-border/50 hover:bg-green-500/5 hover:border-green-500/30 text-left transition-colors group">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium">{item.sku} — {item.name}</p>
+                        <p className="text-sm font-medium">{item.sku ? `${item.sku} — ` : ""}{item.name}</p>
                         <p className="text-xs text-muted-foreground">{item.description}</p>
                       </div>
                       <div className="text-right flex-shrink-0">
@@ -762,11 +796,13 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
               </TabsContent>
               <TabsContent value="saas" className="mt-3">
                 <div className="grid gap-1.5">
-                  {SOFTWARE_CATALOG.map(item => (
-                    <button key={item.sku} onClick={() => addFromCatalog(item)} data-testid={`catalog-${item.sku}`}
+                  {catalogSaas.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-4 text-center">No software products in this price list</p>
+                  ) : catalogSaas.map((item, idx) => (
+                    <button key={item.sku || idx} onClick={() => addFromCatalog(item)} data-testid={`catalog-${item.sku}`}
                       className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-border/50 hover:bg-blue-500/5 hover:border-blue-500/30 text-left transition-colors group">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium">{item.sku} — {item.name}</p>
+                        <p className="text-sm font-medium">{item.sku ? `${item.sku} — ` : ""}{item.name}</p>
                         <p className="text-xs text-muted-foreground">{item.description}</p>
                         {item.isRecurring && <span className="text-[10px] text-blue-400 font-medium">annual subscription</span>}
                       </div>

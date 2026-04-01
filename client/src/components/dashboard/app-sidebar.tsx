@@ -23,6 +23,7 @@ import {
   MapPin,
   Mail,
   FolderOpen,
+  Tags,
 } from "lucide-react";
 import { SiJira, SiConfluence } from "react-icons/si";
 import { Link, useLocation } from "wouter";
@@ -52,6 +53,7 @@ const salesItems = [
   { title: "Marina Accounts", url: "/accounts", icon: Building2 },
   { title: "Marina Leads", url: "/leads", icon: UserPlus },
   { title: "Quotes", url: "/quotes", icon: FileText },
+  { title: "Price Lists", url: "/price-lists", icon: Tags },
   { title: "Assets", url: "/assets", icon: FolderOpen },
 ];
 

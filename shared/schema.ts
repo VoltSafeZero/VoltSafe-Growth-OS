@@ -784,6 +784,36 @@ export const scheduledEmails = pgTable("scheduled_emails", {
 });
 export type ScheduledEmail = typeof scheduledEmails.$inferSelect;
 
+export const priceLists = pgTable("price_lists", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  currency: text("currency").notNull().default("USD"),
+  description: text("description"),
+  isDefault: boolean("is_default").default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export const insertPriceListSchema = createInsertSchema(priceLists).omit({ id: true, createdAt: true, updatedAt: true });
+export type PriceList = typeof priceLists.$inferSelect;
+export type InsertPriceList = z.infer<typeof insertPriceListSchema>;
+
+export const priceListItems = pgTable("price_list_items", {
+  id: serial("id").primaryKey(),
+  priceListId: integer("price_list_id").notNull().references(() => priceLists.id, { onDelete: "cascade" }),
+  sku: text("sku").notNull().default(""),
+  name: text("name").notNull(),
+  description: text("description").default(""),
+  category: text("category").notNull().default("hardware"),
+  listPrice: doublePrecision("list_price").notNull().default(0),
+  unitType: text("unit_type").notNull().default("unit"),
+  isRecurring: boolean("is_recurring").default(false),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export const insertPriceListItemSchema = createInsertSchema(priceListItems).omit({ id: true, createdAt: true });
+export type PriceListItem = typeof priceListItems.$inferSelect;
+export type InsertPriceListItem = z.infer<typeof insertPriceListItemSchema>;
+
 export const assetFolders = pgTable("asset_folders", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
