@@ -44,9 +44,9 @@ const CA_PROVINCES = [
 ];
 
 const MX_STATES = [
-  "Baja California","Baja California Sur","Colima","Jalisco","Nayarit",
-  "Oaxaca","Quintana Roo","Sinaloa","Sonora","Yucatan","Guerrero",
-  "Veracruz","Tamaulipas","Campeche","Tabasco",
+  "Baja California","Baja California Sur","Campeche","Chiapas","Colima",
+  "Guerrero","Jalisco","Nayarit","Oaxaca","Quintana Roo","Sinaloa","Sonora",
+  "Tabasco","Tamaulipas","Veracruz","Yucatan",
 ];
 
 const COUNTRIES = [
