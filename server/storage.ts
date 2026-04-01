@@ -320,28 +320,113 @@ export class DatabaseStorage implements IStorage {
     const allMarinas = await db.select().from(marinas);
     const toImport = allMarinas.filter(m => !existingIds.has(m.id));
 
-    if (toImport.length === 0) return 0;
-
-    const batchSize = 500;
     let imported = 0;
-    for (let i = 0; i < toImport.length; i += batchSize) {
-      const batch = toImport.slice(i, i + batchSize);
-      await db.insert(leads).values(batch.map(m => ({
-        company: m.name,
-        contactName: "Marina Contact",
-        contactPhone: m.phone || undefined,
+    if (toImport.length > 0) {
+      const batchSize = 500;
+      for (let i = 0; i < toImport.length; i += batchSize) {
+        const batch = toImport.slice(i, i + batchSize);
+        await db.insert(leads).values(batch.map(m => ({
+          company: m.name,
+          contactName: "Marina Contact",
+          contactPhone: m.phone || undefined,
+          source: "marina_directory",
+          status: "new",
+          marinaId: m.id,
+          country: detectCountryFromState(m.state) || "US",
+          state: m.state,
+          city: m.city,
+          slips: m.slips || undefined,
+          segment: m.segment || undefined,
+          streetAddress: m.streetAddress || undefined,
+          zipCode: m.zipCode || undefined,
+        })));
+        imported += batch.length;
+      }
+    }
+
+    // Import hardcoded Mexico marina leads (not in marinas table)
+    const mxMarinas = [
+      { company: "Baja Naval", city: "Ensenada", state: "Baja California", slips: "50" },
+      { company: "Ensenada Cruiseport Village Marina", city: "Ensenada", state: "Baja California", slips: "197" },
+      { company: "Gasolinera Coral & Marina", city: "Ensenada", state: "Baja California", slips: "350" },
+      { company: "Hotel Coral & Marina", city: "Ensenada", state: "Baja California", slips: "353" },
+      { company: "Marina Puerto Salina", city: "Ensenada", state: "Baja California", slips: "168" },
+      { company: "Marina Fonatur San Filipe", city: "San Felipe", state: "Baja California", slips: "10" },
+      { company: "Marina Fonatur - La Paz", city: "El Conchalito, La Paz, B.C.S.", state: "Baja California Sur", slips: "36" },
+      { company: "Marina de La Paz", city: "La Paz", state: "Baja California Sur", slips: "110" },
+      { company: "Costa Palmas Marina", city: "La Ribera", state: "Baja California Sur", slips: "250" },
+      { company: "Marina Puerto Escondido", city: "Puerto Escondido", state: "Baja California Sur", slips: "" },
+      { company: "Marina Puerto Los Cabos", city: "San Jose del Cabo", state: "Baja California Sur", slips: "200" },
+      { company: "Marina Puerto Santa Rosalia", city: "Santa Rosalia", state: "Baja California Sur", slips: "80" },
+      { company: "Club de Yates Palmira", city: "La Paz", state: "Baja California Sur", slips: "" },
+      { company: "Marina Cortez", city: "La Paz", state: "Baja California Sur", slips: "" },
+      { company: "Marina Costa Baja", city: "La Paz", state: "Baja California Sur", slips: "250" },
+      { company: "Marina Campeche Country Club", city: "Campeche", state: "Campeche", slips: "90" },
+      { company: "Marina Bucanero", city: "Ciudad del Carmen", state: "Campeche", slips: "60" },
+      { company: "Marina Chiapas", city: "Puerto Madero", state: "Chiapas", slips: "125" },
+      { company: "Marina Las Hadas", city: "Manzanillo", state: "Colima", slips: "70" },
+      { company: "Marina Puerto de la Navidad", city: "Barra de Navidad", state: "Colima", slips: "207" },
+      { company: "Marina Ixtapa", city: "Ixtapa", state: "Guerrero", slips: "150" },
+      { company: "Marina Bahia Navidad", city: "Barra de Navidad", state: "Jalisco", slips: "300" },
+      { company: "Opequimar Centro Marino", city: "Puerto Vallarta", state: "Jalisco", slips: "" },
+      { company: "IGY Marina Cabo San Lucas", city: "Cabo San Lucas", state: "Baja California Sur", slips: "380" },
+      { company: "Marina El Cid Cancun", city: "Cancun", state: "Quintana Roo", slips: "300" },
+      { company: "Marina El Cid Mazatlan", city: "Mazatlan", state: "Sinaloa", slips: "120" },
+      { company: "Paradise Village Marina", city: "Nuevo Vallarta", state: "Nayarit", slips: "" },
+      { company: "Marina Vallarta BVG", city: "Puerto Vallarta", state: "Jalisco", slips: "354" },
+      { company: "Marina San Carlos", city: "San Carlos", state: "Sonora", slips: "309" },
+      { company: "Marina La Cruz", city: "La Cruz de Huanacaxtle", state: "Nayarit", slips: "250" },
+      { company: "Marina Nuevo Vallarta", city: "Nuevo Vallarta", state: "Nayarit", slips: "" },
+      { company: "Marina Riviera Nayarit", city: "La Cruz de Huanacaxtle", state: "Nayarit", slips: "340" },
+      { company: "Marina Fonatur - San Blas", city: "San Blas", state: "Nayarit", slips: "" },
+      { company: "Marina Chahue", city: "Santa Maria Huatulco", state: "Oaxaca", slips: "" },
+      { company: "Marina Santa Cruz Huatulco", city: "Santa María Huatulco", state: "Oaxaca", slips: "60" },
+      { company: "GOS Marina", city: "Cancun", state: "Quintana Roo", slips: "110" },
+      { company: "Novo Marina", city: "Cancun", state: "Quintana Roo", slips: "24" },
+      { company: "Renaissance Cancun Resort & Marina", city: "Cancun", state: "Quintana Roo", slips: "" },
+      { company: "V & V Marina", city: "Cancun", state: "Quintana Roo", slips: "176" },
+      { company: "Aquaworld Marina", city: "Cancún", state: "Quintana Roo", slips: "40" },
+      { company: "Marina Puerto Cancún", city: "Cancún", state: "Quintana Roo", slips: "175" },
+      { company: "Puerto de Abrigo Cozumel", city: "Cozumel", state: "Quintana Roo", slips: "" },
+      { company: "Marina Club Makax", city: "Isla Mujeres", state: "Quintana Roo", slips: "" },
+      { company: "Club Náutico de Mazatlán", city: "Mazatlán", state: "Sinaloa", slips: "100" },
+      { company: "Marina Club Topolobampo", city: "Topolobampo", state: "Sinaloa", slips: "31" },
+      { company: "Don Pelícanos Marina", city: "Topolobampo", state: "Sinaloa", slips: "42" },
+      { company: "Marina & Club de Yates Isla Cortés", city: "Altata", state: "Sinaloa", slips: "" },
+      { company: "Marina Mazatlan", city: "Mazatlán", state: "Sinaloa", slips: "430" },
+      { company: "Marina Fonatur Guaymas", city: "Heroica Guaymas", state: "Sonora", slips: "294" },
+      { company: "Marina Guaymas", city: "Heroica Guaymas", state: "Sonora", slips: "" },
+      { company: "Marina Seca Guaymas", city: "Heroica Guaymas", state: "Sonora", slips: "" },
+      { company: "Sonora Yacht Club", city: "Heroica Guaymas", state: "Sonora", slips: "80" },
+      { company: "Marina Puerto Penasco", city: "Puerto Peñasco", state: "Sonora", slips: "30" },
+      { company: "Marina Real San Carlos", city: "San Carlos", state: "Sonora", slips: "220" },
+      { company: "Marina Veramar", city: "Veracruz", state: "Veracruz", slips: "200" },
+      { company: "Club de Yates de Yucatán", city: "Progreso", state: "Yucatan", slips: "150" },
+      { company: "Marina Playa", city: "Progreso", state: "Yucatan", slips: "80" },
+      { company: "Marina Turística Yucalpetén", city: "Progreso", state: "Yucatan", slips: "250" },
+    ];
+
+    const existingMxCompanies = await db
+      .select({ company: leads.company, state: leads.state })
+      .from(leads)
+      .where(eq(leads.country, "MX"));
+    const existingMxKeys = new Set(existingMxCompanies.map(r => `${r.company?.toLowerCase()}|${r.state?.toLowerCase()}`));
+
+    const mxToImport = mxMarinas.filter(m => !existingMxKeys.has(`${m.company.toLowerCase()}|${m.state.toLowerCase()}`));
+
+    if (mxToImport.length > 0) {
+      await db.insert(leads).values(mxToImport.map(m => ({
+        company: m.company,
+        contactName: "",
         source: "marina_directory",
-        status: "new",
-        marinaId: m.id,
-        country: detectCountryFromState(m.state) || "US",
+        status: "new" as const,
+        country: "MX",
         state: m.state,
         city: m.city,
         slips: m.slips || undefined,
-        segment: m.segment || undefined,
-        streetAddress: m.streetAddress || undefined,
-        zipCode: m.zipCode || undefined,
+        segment: "marina",
       })));
-      imported += batch.length;
+      imported += mxToImport.length;
     }
 
     return imported;
