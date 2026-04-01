@@ -43,14 +43,22 @@ const CA_PROVINCES = [
   "Quebec","Saskatchewan","Yukon",
 ];
 
+const MX_STATES = [
+  "Baja California","Baja California Sur","Colima","Jalisco","Nayarit",
+  "Oaxaca","Quintana Roo","Sinaloa","Sonora","Yucatan","Guerrero",
+  "Veracruz","Tamaulipas","Campeche","Tabasco",
+];
+
 const COUNTRIES = [
   { value: "CA", label: "Canada" },
+  { value: "MX", label: "Mexico" },
   { value: "US", label: "United States" },
 ];
 
 function getRegionsForCountry(country: string): string[] {
   if (country === "US") return US_STATES;
   if (country === "CA") return CA_PROVINCES;
+  if (country === "MX") return MX_STATES;
   return [];
 }
 
@@ -1085,11 +1093,11 @@ function CreateLeadForm({ onSubmit, isPending }: { onSubmit: (data: Record<strin
           <Input value={form.city} onChange={(e) => setForm(f => ({ ...f, city: e.target.value }))} data-testid="input-city" />
         </div>
         <div>
-          <Label>{form.country === "CA" ? "Province / Territory" : "State"}</Label>
+          <Label>{form.country === "CA" ? "Province / Territory" : form.country === "MX" ? "State (Mexico)" : "State"}</Label>
           {formRegions.length > 0 ? (
             <Select value={form.state || "none"} onValueChange={(v) => setForm(f => ({ ...f, state: v === "none" ? "" : v }))}>
               <SelectTrigger data-testid="select-state">
-                <SelectValue placeholder={form.country === "CA" ? "Select province" : "Select state"} />
+                <SelectValue placeholder={form.country === "CA" ? "Select province" : form.country === "MX" ? "Select state" : "Select state"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">{form.country === "CA" ? "Select province" : "Select state"}</SelectItem>
