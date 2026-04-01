@@ -86,6 +86,8 @@ export const leads = pgTable("leads", {
   roiStory: text("roi_story"),
   closedLostReason: text("closed_lost_reason"),
   closedWonNotes: text("closed_won_notes"),
+  leadLat: real("lead_lat"),
+  leadLng: real("lead_lng"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

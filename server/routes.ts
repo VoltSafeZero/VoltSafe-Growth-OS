@@ -473,6 +473,18 @@ export async function registerRoutes(
         WHERE m.latitude IS NOT NULL AND m.longitude IS NOT NULL
           AND m.latitude BETWEEN ${minLat} AND ${maxLat}
           AND m.longitude BETWEEN ${minLng} AND ${maxLng}
+        UNION ALL
+        SELECT l.*, l.lead_lat as marina_lat, l.lead_lng as marina_lng, l.street_address as marina_address,
+          (6371 * acos(
+            LEAST(1.0, cos(radians(${lat})) * cos(radians(l.lead_lat)) *
+            cos(radians(l.lead_lng) - radians(${lng})) +
+            sin(radians(${lat})) * sin(radians(l.lead_lat)))
+          )) AS distance_km
+        FROM leads l
+        WHERE l.marina_id IS NULL
+          AND l.lead_lat IS NOT NULL AND l.lead_lng IS NOT NULL
+          AND l.lead_lat BETWEEN ${minLat} AND ${maxLat}
+          AND l.lead_lng BETWEEN ${minLng} AND ${maxLng}
       ) sub
       WHERE distance_km <= ${radiusKm}
       ORDER BY distance_km ASC
