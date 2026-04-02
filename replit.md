@@ -29,69 +29,47 @@ The project is organized as a monorepo containing `client/` (React SPA), `server
 
 ### Core CMS Modules
 - **Authentication:** Session-based authentication with `bcryptjs` for password hashing and `express-session`. Supports WebAuthn for biometric login. All API endpoints are protected.
-- **Sales:** Manages leads (including a marina directory import) with integrated deal/financial fields (amount, probability, value breakdown, value driver, competitors, ROI story, close date), accounts, contacts, infrastructure profiles, and quotes. Features Kanban, list, and map views for pipeline management. Opportunities fields are integrated directly into leads (no separate Opportunities page).
-- **Address Autocomplete:** Reusable `AddressAutocomplete` component (`client/src/components/address-autocomplete.tsx`) used in both maps. Debounced (300ms) type-ahead search against Nominatim via `/api/geocode/search?limit=5`. Shows dropdown of suggestions with formatted names. Backend endpoint supports `?limit=N` (max 8) to return multiple results for autocomplete.
-- **Nearby Marinas Map:** Interactive Leaflet map view on the Leads page with dynamic viewport-based loading — marinas load automatically as you pan/zoom (debounced 400ms, AbortController for request cancellation). Uses CARTO Voyager basemap tiles (lighter, more readable), small 12px color-coded stage markers with hover tooltips showing marina name, click for popup with details and "Get Directions" button. Address autocomplete search bar. Never blocks on GPS — shows map immediately with saved/default location, GPS updates asynchronously. Backend uses Haversine formula for distance calculation via `/api/leads/nearby` endpoint. Auto-geocodes missing addresses via `/api/leads/:id/geocode-address` (reverse geocoding with Nominatim) and updates the marina record. Directions open via Google Maps (desktop) or Apple Maps (iOS). Leaflet scale control shows km/mi at bottom-left. Default zoom level 13 (~10km visible radius).
-- **Dashboard Map Widget:** Large Leaflet map on the Dashboard with dynamic viewport-based loading. Lazy-loaded via React.lazy/Suspense. Uses CARTO Voyager tiles, small 12px color-coded stage markers with hover tooltips, XSS-safe DOM-node popups with "Get Directions" button. Features 5-closest marinas sidebar panel (with name, distance, stage dot, directions button), address autocomplete search bar, never blocks on GPS (shows map immediately with saved/default location), auto-geocode of missing addresses, Leaflet scale control (km/mi), proper cleanup on unmount. Default zoom level 13 (~10km visible radius). Component: `client/src/components/dashboard/dashboard-map.tsx`.
-- **Calendar:** Internal calendar system with day/week/month views on a dedicated `/calendar` page. User-specific events (meetings, calls, tasks, reminders) with full CRUD via dialogs. Color-coded event types. Time-slot click to create. Dashboard widget (`client/src/components/dashboard/dashboard-calendar.tsx`) shows "Today's Schedule" card. API: `GET/POST /api/calendar/events` (supports `?start=&end=` date range), `GET/PUT/DELETE /api/calendar/events/:id`. Schema: `calendar_events` table with userId, title, description, eventType, startTime, endTime, allDay, location, meetingUrl, linkedObjectType/Id, color, status. Apple iCal-style fields: invitees (text array of emails), timeZone, repeat (none/daily/weekly/monthly/yearly), travelTime, alert & secondAlert (none/at_time/1min/5min/10min/15min/30min/45min/1hr/2hr/1day/2day), showAs (busy/free), visibility (default/public/private). Form uses date picker popovers and time Select dropdowns (15-min intervals, 12h AM/PM format). Location uses AddressAutocomplete component. Meeting URL labeled as "Zoom Meeting URL". Invitees section allows adding/removing emails.
-- **Support:** Provides a ticketing system with Kanban board and list views for tracking support issues.
+- **Sales:** Manages leads (including a marina directory import) with integrated deal/financial fields, accounts, contacts, infrastructure profiles, and quotes. Features Kanban, list, and map views for pipeline management. Opportunities fields are integrated directly into leads.
+- **Address Autocomplete:** Reusable `AddressAutocomplete` component with debounced type-ahead search against Nominatim.
+- **Nearby Marinas Map & Dashboard Map Widget:** Interactive Leaflet maps with dynamic viewport-based loading, CARTO Voyager basemaps, color-coded stage markers, and address autocomplete. Supports auto-geocoding of missing addresses.
+- **Calendar:** Internal calendar system with day/week/month views, user-specific events (CRUD operations), and color-coded event types.
+- **Support:** Provides a ticketing system with Kanban board and list views.
 - **Communications:** Manages broadcast lists and campaign drafts.
-- **Comments & Collaboration:** Features a threaded comments feed, user assignment for leads/accounts, and action item creation.
-- **Partnerships:** Tracks 7 partnership categories via a single `partnerships` table with a `category` discriminator. Each category has specific fields:
-  - **Strategic Industry** (`strategic_industry`): organizationType, membershipStatus, strategicImportance, influenceScore, marinasRepresented, keyContacts, eventsHosted, speakingOpportunities
-  - **Technology** (`technology`): technologyCategory, integrationStatus, apiAvailable, integrationType, technicalContact, jointRoadmapNotes, priorityLevel, integrationDocLink
-  - **Distribution** (`distribution`): channelType, territory, salesReach, certificationStatus, trainingCompletedDate, dealRegistrationEnabled, activeOpportunities, revenueGenerated
-  - **OEM** (`oem`): industry, licenseType, territory, royaltyStructure, contractStatus, productIntegrationDescription, expectedRevenuePotential, strategicImportance
-  - **Government** (`government`): agencyBody, grantType, fundingAmount, applicationStatus, reportingRequirements, startDate, endDate, deliverables
-  - **Research** (`research`): institutionType, researchFocus, programName, projectDescription, participationStatus, ipConsiderations, keyResearchers
-  - **Pilot** (`pilot`): slipCount, pilotStatus, deploymentSize, productVersionInstalled, startDate, caseStudyStatus, testimonialStatus, operationalFeedback
-  - UI: Single reusable `PartnershipsPage` component (`client/src/pages/partnerships.tsx`) that accepts a `category` prop. 7 sidebar links, 7 routes in App.tsx.
-  - API: `GET/POST /api/partnerships`, `GET/PUT/DELETE /api/partnerships/:id` (filter by `?category=X`)
-- **Ecosystem:** Manages 5 entity types across separate tables with full CRUD:
-  - **Organizations** (`ecosystem_organizations`): name, organizationType, region, country, website, marinasOrLocations, totalSlipCount, strategicTier, influenceScore, notes
-  - **People** (`ecosystem_people`): fullName, title, organizationId, organizationName, roleType, linkedinProfile, email, phone, influenceScore, relationshipStrength, notes
-  - **Relationships** (`ecosystem_relationships`): sourceEntityType/Id/Name, targetEntityType/Id/Name, relationshipType, startDate, strategicImportance, notes
-  - **Events** (`ecosystem_events`): name, organizer, location, eventDate, industryCategory, voltsafeParticipation, keyContactsMet, notes
-  - **Regions** (`ecosystem_regions`): name, country, stateProvince, numberOfMarinas, electricalCodeVersion, regulatoryNotes, strategicImportance
-  - UI: 5 separate page components in `client/src/pages/ecosystem-*.tsx`
-  - API: `GET/POST /api/ecosystem/{organizations|people|relationships|events|regions}`, `GET/PUT/DELETE /api/ecosystem/{...}/:id`
-- **Activity & Tasks:** Provides a universal timeline for activities linked to various objects and a task management system with due dates and assignments.
-- **Cortex AI Voice Assistant:** Full-height slide-out sidebar panel (right side, `sm:w-[440px]`) powered by OpenAI via Replit AI Integrations. Supports both voice (microphone recording with gpt-audio speech-to-speech) and text input modes. Features: markdown rendering (`react-markdown`/`remark-gfm`), conversation history (browse/load/delete), suggestion chips, new chat button, auto-loads most recent conversation on reopen (`hasLoadedMostRecent` ref resets on close), stop button to interrupt TTS playback, ChatGPT-style barge-in (mic click during speech stops playback and starts recording), AbortController-based request cancellation with turn-scoped guards to prevent stale stream events. Has full access to ALL CRM database tables with smart intent detection. Also has internet access via web search. Uses SSE streaming for responses. User-scoped conversations (`conversations.userId` column) with ownership checks on all endpoints. **CRM Write Capabilities:** Voice-controlled CRM editing via OpenAI tool calling (function calling). Tools: `find_lead`, `update_lead`, `find_account`, `update_account`, `update_ticket`, `add_comment`. Write intent detected via regex on user message, triggers non-streaming tool-calling loop (up to 5 rounds) with `gpt-5-nano`, then streams final response. For voice mode, tool calls execute first via `gpt-5-nano`, results injected as system context, then `gpt-audio` generates spoken confirmation. Allowlisted fields per entity prevent arbitrary writes. Auth-protected endpoints: `POST /api/voice-assistant/ask` (voice), `POST /api/voice-assistant/text` (text), `GET /api/voice-assistant/conversations`, `GET /api/voice-assistant/conversations/:id/messages`, `DELETE /api/voice-assistant/conversations/:id`. Component: `client/src/components/voice-assistant.tsx`. Backend: `server/voice-assistant.ts`. Storage: `server/replit_integrations/chat/storage.ts`. Schema: `shared/models/chat.ts`. Integration files in `server/replit_integrations/` and `client/replit_integrations/`.
+- **Comments & Collaboration:** Features a threaded comments feed, user assignment, and action item creation.
+- **Partnerships:** Tracks 7 partnership categories (Strategic Industry, Technology, Distribution, OEM, Government, Research, Pilot) via a single `partnerships` table with category-specific fields.
+- **Ecosystem:** Manages 5 entity types (Organizations, People, Relationships, Events, Regions) across separate tables with full CRUD.
+- **Activity & Tasks:** Provides a universal timeline for activities and a task management system.
+- **Cortex AI Voice Assistant:** Full-height slide-out sidebar panel powered by OpenAI via Replit AI Integrations. Supports voice and text input, markdown rendering, conversation history, and CRM write capabilities via OpenAI tool calling (function calling) with access to all CRM database tables. Uses SSE streaming for responses.
 
 ### Quoting System (Pro Forma Invoice Generator)
-- **Location:** `/quotes` page, `client/src/pages/quotes.tsx`
-- **Server generator:** `server/quote-generator.ts` — exports `generateInvoiceHtml(QuoteData)` and `generateQuoteXlsx(QuoteData): Promise<Buffer>`
-- **Multi-tab QuoteBuilder dialog:** Customer → Products → Pricing & Terms → Notes
-- **Country/Currency:** 6 countries (US/CA/MX/GB/AU/EU) → auto-sets currency (USD/CAD/MXN/GBP/AUD/EUR) and tax rate (5% CA, 16% MX, 20% GB, 10% AU, 21% EU, 0% US)
-- **Product Catalog:** VoltSafe hardware (VS-P30A1/2, VS-P50A1/2, VS-P3050, VS-GW, cables, GFI) and software/services (VS-CORE, VS-ANALYTICS, VS-COMPLIANCE, VS-BILLING, VS-API, VS-INSTALL, VS-COMMISSION) with list prices
-- **Global discount:** Applies `discountPercent` to all catalog items at once; per-line overrides supported
-- **Line items:** `listPrice`, `discountPercent`, computed `unitPrice` and `lineTotal`; `isRecurring` flag for SaaS items
-- **Auto-file generation on quote create:** On `POST /api/quotes`, after saving line items, automatically generates XLSX + HTML invoice, stores both as base64 in `assets` table (`category="quotes"`), saves `xlsxAssetId` + `htmlAssetId` on quote record
-- **Print/download endpoints:** `GET /api/quotes/:id/print` → styled HTML invoice (with "Print / Save PDF" button); `GET /api/quotes/:id/download/xlsx` → Excel workbook download
-- **Detail dialog:** Shows payment terms breakdown (10/40/50% deposit/production/install), customer info, line items by category, download buttons
-- **New quote fields:** `country`, `customerName/Email/Phone`, `marinaAddress`, `siteAddress`, `billingPeriodStart/End`, `entitlementNumber`, `licensedTo`, `paymentTermDeposit/Production/Install`, `taxRate/Amount`, `hardwareSubtotal`, `softwareSubtotal`, `depositDue`, `slipsCount`, `xlsxAssetId`, `htmlAssetId`
-- **New line item fields:** `listPrice`, `discountPercent`, `isRecurring`
-- **Gmail integration:** Quote XLSX/HTML files automatically appear in asset picker (category="quotes" filter tab added to ComposeDialog)
+- **Features:** Multi-tab QuoteBuilder dialog for customer, products, pricing & terms, and notes. Supports 6 countries with auto-set currency and tax rates. Includes a product catalog for VoltSafe hardware and software/services with list prices and global/per-line discounts.
+- **Automation:** Automatically generates XLSX and HTML invoices on quote creation, storing them as base64 assets.
+- **Functionality:** Provides print/download endpoints for styled HTML invoices and Excel workbooks. Includes payment terms breakdown, customer info, and line items.
+- **Integration:** Quote XLSX/HTML files automatically appear in asset picker for Gmail integration.
 
 ### Database
 - **Type:** PostgreSQL.
 - **ORM:** Drizzle ORM.
 - **Schema:** Comprehensive schema covering users, leads, accounts, contacts, opportunities, tickets, quotes, activities, tasks, comments, attachments, communication lists, campaign drafts, partnerships, and ecosystem entities.
-- **File Attachments:** `attachments` table supports polymorphic file uploads (images/videos) linked to any object (lead, account, partnership) via `objectType`/`objectId`. Files stored on disk in `uploads/` directory, served via `/api/attachments/file/:fileName`. Reusable `AttachmentsSection` component (`client/src/components/attachments-section.tsx`) integrated into lead, account, and partnership detail dialogs. Uses `multer` for multipart upload handling (50MB max, images and videos only).
-- **Sales & Marketing Assets CMS:** Full asset library at `/assets` route. `assets` table stores name, description, category, mimeType, size, and `file_data` (base64 text column — file binary stored in DB for persistence across restarts and deployments). Uses `multer.memoryStorage()` — no disk writes. CRUD API: `GET/POST /api/assets`, `GET/PATCH/DELETE /api/assets/:id`, `POST /api/assets/:id/replace` (re-upload file for existing asset), `GET /api/assets/:id/file` (inline), `GET /api/assets/:id/download` (force download). List endpoint returns `hasFile` flag (never returns `fileData` to keep responses small). UI: upload/re-upload dialog with drag-and-drop, missing-file warning banner, amber card state for assets needing re-upload, category tabs, search, grid view. Asset picker integrated into ComposeDialog in Gmail Inbox (paperclip button, with category filter tabs including "Quotes") — select assets as email attachments. Gmail `buildMimeRaw` supports `multipart/mixed` with binary attachments. Sidebar link under "Sales" section.
-- **Gmail CRM Integration:** OAuth 2.0 flow via Google APIs. Sync runs hourly (and on-demand). Inbox, Sent, Drafts, Scheduled, and domain-filtered tabs. ComposeDialog supports To, Subject, Body, CC/BCC, reply/forward, draft edit, and asset attachments. Drafts can be clicked to re-open in ComposeDialog. Scheduled emails can be cancelled. All gmail write actions gated to `trevor@voltsafe.com` (`canSend`). Refresh token stored in `system_settings` DB table. Gmail send endpoint: `POST /api/gmail/send` accepts `to, subject, body, cc, bcc, replyToMessageId, threadId, draftId, scheduledAt, attachmentIds`.
+- **File Attachments:** `attachments` table supports polymorphic file uploads (images/videos) linked to any object. Files stored on disk in `uploads/` directory, served via `/api/attachments/file/:fileName`. Uses `multer` for multipart upload handling (50MB max, images and videos only).
+- **Sales & Marketing Assets CMS:** Full asset library at `/assets` route with `assets` table storing name, description, category, mimeType, size, and `file_data` (base64 text column). Uses `multer.memoryStorage()`. Provides CRUD API and an asset picker integrated into the Gmail Inbox ComposeDialog.
+- **Gmail CRM Integration:** OAuth 2.0 flow via Google APIs. Features hourly and on-demand sync of Inbox, Sent, Drafts, Scheduled, and domain-filtered tabs. ComposeDialog supports full email functionality and asset attachments. All Gmail write actions are gated to `trevor@voltsafe.com`. Refresh token stored in `system_settings` DB table.
 
 ## External Dependencies
 
-- **PostgreSQL:** Primary database for all application data.
-- **Drizzle ORM:** Used for interacting with the PostgreSQL database.
-- **`bcryptjs`:** For secure password hashing.
-- **`express-session` and `connect-pg-simple`:** For session management with a PostgreSQL store.
-- **`@simplewebauthn/server` & `@simplewebauthn/browser`:** For WebAuthn (biometric login) functionality.
-- **`TanStack React Query`:** For data fetching and state management in the frontend.
-- **`shadcn/ui` & `Radix UI`:** UI component libraries for the frontend.
-- **`Tailwind CSS`:** For styling the frontend.
-- **`Recharts`:** For charting and data visualization.
-- **`Lucide React`:** For icons.
-- **`Wouter`:** For frontend routing.
-- **`Leaflet`:** For interactive maps (Nearby Marinas Map view).
+- **PostgreSQL:** Primary database.
+- **Drizzle ORM:** Database interaction.
+- **`bcryptjs`:** Password hashing.
+- **`express-session` & `connect-pg-simple`:** Session management.
+- **`@simplewebauthn/server` & `@simplewebauthn/browser`:** WebAuthn for biometric login.
+- **`TanStack React Query`:** Frontend data fetching and state management.
+- **`shadcn/ui` & `Radix UI`:** UI component libraries.
+- **`Tailwind CSS`:** Frontend styling.
+- **`Recharts`:** Data visualization.
+- **`Lucide React`:** Icons.
+- **`Wouter`:** Frontend routing.
+- **`Leaflet`:** Interactive maps.
+- **OpenAI:** Powering Cortex AI Voice Assistant (via Replit AI Integrations).
+- **Google APIs:** For Gmail CRM Integration.
+- **Nominatim:** For address geocoding and autocomplete.
+- **CARTO Voyager:** Basemap tiles for Leaflet maps.

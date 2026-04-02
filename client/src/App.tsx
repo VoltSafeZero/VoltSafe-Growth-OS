@@ -37,6 +37,7 @@ import PriceListsPage from "@/pages/price-lists";
 import JiraPage from "@/pages/jira";
 import ConfluencePage from "@/pages/confluence";
 import AdminIntegrationsPage from "@/pages/admin-integrations";
+import ProjectsPage from "@/pages/projects";
 
 type AuthUser = {
   id: number;
@@ -102,6 +103,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       {/* ── EXECUTION ─────────────────────────────────────────────── */}
       <Route path="/gmail">{() => wrap(<GmailInboxPage currentUserEmail={user.email} />)}</Route>
       <Route path="/execution/calendar">{() => wrap(<CalendarPage />)}</Route>
+      <Route path="/execution/projects">{() => wrap(<ProjectsPage />)}</Route>
       <Route path="/execution/communications">{() => wrap(<CommunicationsPage />)}</Route>
       <Route path="/execution/team-workload">{() => wrap(<TeamWorkloadPage />)}</Route>
 

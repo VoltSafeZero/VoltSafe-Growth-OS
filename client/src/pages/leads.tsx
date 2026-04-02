@@ -238,7 +238,7 @@ export default function LeadsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Leads Pipeline</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Opportunities</h1>
             <p className="text-muted-foreground mt-1 text-sm">
               {totalCount > 0 ? `${totalCount.toLocaleString()} leads` : "Manage your sales pipeline"}
               {(() => { const pv = allLeads.reduce((s, l) => s + (l.dealAmount || 0), 0); return pv > 0 ? ` · $${pv.toLocaleString()} pipeline` : ""; })()}

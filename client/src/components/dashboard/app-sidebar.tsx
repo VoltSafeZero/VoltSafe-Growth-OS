@@ -26,6 +26,7 @@ import {
   ChevronRight,
   Users2,
   ClipboardList,
+  Layers,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import navLogo from "@assets/nav-logo.png";
@@ -86,6 +87,7 @@ const sections: NavSection[] = [
     items: [
       { title: "Gmail", url: "/gmail", icon: Mail },
       { title: "Calendar", url: "/execution/calendar", icon: CalendarClock },
+      { title: "Projects", url: "/execution/projects", icon: Layers },
       { title: "Communications", url: "/execution/communications", icon: Megaphone },
       { title: "Team Workload", url: "/execution/team-workload", icon: Users2 },
     ],

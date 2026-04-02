@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,7 +15,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, FileText, Loader2, Trash2, Download, Printer, ExternalLink,
-  ChevronDown, ChevronUp, Package, Cloud, Tag, Globe
+  Package, Cloud, Tag, Globe, Mail, DollarSign, Send, CheckCircle2,
+  AlertCircle, BarChart2,
 } from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
@@ -118,6 +119,8 @@ export default function QuotesPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedQuote, setSelectedQuote] = useState<number | null>(null);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeDefaults, setComposeDefaults] = useState<{ to?: string; subject?: string; body?: string; quoteId?: number }>({});
   const { toast } = useToast();
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
   const { sort, handleSort } = useSortState();
@@ -185,12 +188,40 @@ export default function QuotesPage() {
     onError: () => toast({ title: "Failed to create quote", variant: "destructive" }),
   });
 
+  // KPI derived data
+  const draft = allQuotes.filter(q => q.status === "draft");
+  const sent = allQuotes.filter(q => q.status === "sent");
+  const accepted = allQuotes.filter(q => q.status === "accepted");
+  const pipelineValue = [...draft, ...sent].reduce((s, q) => s + (q.total || 0), 0);
+  const acceptedValue = accepted.reduce((s, q) => s + (q.total || 0), 0);
+
+  const kpiCards = [
+    {
+      label: "Pipeline Value",
+      value: pipelineValue > 0 ? (pipelineValue >= 1000 ? `${currSym(draft[0]?.currency || sent[0]?.currency || "USD")}${(pipelineValue / 1000).toFixed(0)}k` : fmtMoney(pipelineValue, draft[0]?.currency || "USD")) : "$0",
+      icon: BarChart2,
+      color: "text-blue-400",
+      bg: "bg-blue-500/10",
+    },
+    { label: "Draft", value: allQuotes.filter(q => q.status === "draft").length, icon: FileText, color: "text-gray-400", bg: "bg-gray-500/10" },
+    { label: "Sent", value: allQuotes.filter(q => q.status === "sent").length, icon: Send, color: "text-blue-400", bg: "bg-blue-500/10" },
+    { label: "Accepted", value: allQuotes.filter(q => q.status === "accepted").length, icon: CheckCircle2, color: "text-green-400", bg: "bg-green-500/10" },
+    { label: "Rejected", value: allQuotes.filter(q => q.status === "rejected").length, icon: AlertCircle, color: "text-red-400", bg: "bg-red-500/10" },
+    {
+      label: "Won Value",
+      value: acceptedValue > 0 ? (acceptedValue >= 1000 ? `${currSym(accepted[0]?.currency || "USD")}${(acceptedValue / 1000).toFixed(0)}k` : fmtMoney(acceptedValue, accepted[0]?.currency || "USD")) : "$0",
+      icon: DollarSign,
+      color: "text-green-400",
+      bg: "bg-green-500/10",
+    },
+  ];
+
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Quotes</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Generate pro forma invoices with VoltSafe product catalog, multi-currency support, and automatic XLSX/HTML export.</p>
+          <p className="text-muted-foreground mt-1 text-sm">Pro forma invoices with VoltSafe product catalog, multi-currency support, and XLSX/HTML export.</p>
         </div>
         <div className="flex items-center gap-2">
           <ExportButton
@@ -209,6 +240,25 @@ export default function QuotesPage() {
           </Dialog>
         </div>
       </div>
+
+      {/* KPI Cards */}
+      {!isLoading && allQuotes.length > 0 && (
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+          {kpiCards.map(card => (
+            <Card key={card.label} className="border-border/50 bg-card/50" data-testid={`card-quote-kpi-${card.label.toLowerCase().replace(/\s+/g,'-')}`}>
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className={`w-6 h-6 rounded-md ${card.bg} flex items-center justify-center shrink-0`}>
+                    <card.icon className={`w-3 h-3 ${card.color}`} />
+                  </div>
+                  <span className="text-[11px] text-muted-foreground truncate">{card.label}</span>
+                </div>
+                <div className="text-lg font-bold">{card.value}</div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <div className="flex gap-3">
         <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -240,7 +290,7 @@ export default function QuotesPage() {
                   <SortableHeader label="Currency" sortKey="currency" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />
                   <SortableHeader label="Total" sortKey="total" sort={sort} onSort={handleSort} align="right" />
                   <SortableHeader label="Created" sortKey="createdAt" sort={sort} onSort={handleSort} className="hidden sm:table-cell" />
-                  <th className="p-3 sm:p-4 w-20"></th>
+                  <th className="p-3 sm:p-4 w-28 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -252,15 +302,21 @@ export default function QuotesPage() {
                     <td className="p-3 sm:p-4 text-sm hidden lg:table-cell">{quote.currency}</td>
                     <td className="p-3 sm:p-4 text-right font-medium">{fmtMoney(quote.total || 0, quote.currency)}</td>
                     <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden sm:table-cell">{new Date(quote.createdAt).toLocaleDateString()}</td>
-                    <td className="p-3 sm:p-4 text-right">
+                    <td className="p-3 sm:p-4 text-right" onClick={e => e.stopPropagation()}>
                       <div className="flex gap-1 justify-end">
                         {(quote as any).xlsxAssetId && (
-                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); window.open(`/api/quotes/${quote.id}/download/xlsx`, "_blank"); }} title="Download XLSX" data-testid={`button-download-xlsx-${quote.id}`}>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => window.open(`/api/quotes/${quote.id}/download/xlsx`, "_blank")} title="Download XLSX" data-testid={`button-download-xlsx-${quote.id}`}>
                             <Download className="h-3.5 w-3.5" />
                           </Button>
                         )}
-                        <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); window.open(`/api/quotes/${quote.id}/print`, "_blank"); }} title="View Invoice" data-testid={`button-print-${quote.id}`}>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => window.open(`/api/quotes/${quote.id}/print`, "_blank")} title="View Invoice" data-testid={`button-print-${quote.id}`}>
                           <Printer className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400 hover:text-blue-300" onClick={() => {
+                          setComposeDefaults({ to: (quote as any).customerEmail || "", subject: `VoltSafe Quote ${quote.quoteNumber}`, body: `Hi,\n\nPlease find attached your VoltSafe quote ${quote.quoteNumber} for ${fmtMoney(quote.total || 0, quote.currency)}.\n\nPlease don't hesitate to reach out with any questions.\n\nBest regards,\nTrevor\nVoltSafe Inc.`, quoteId: quote.id });
+                          setComposeOpen(true);
+                        }} title="Send via Gmail" data-testid={`button-send-gmail-${quote.id}`}>
+                          <Mail className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     </td>
@@ -282,13 +338,109 @@ export default function QuotesPage() {
       <div ref={scrollSentinelRef} className="h-4" />
 
       {selectedQuote && (
-        <QuoteDetailDialog quoteId={selectedQuote} accountMap={accountMap} onClose={() => setSelectedQuote(null)} />
+        <QuoteDetailDialog
+          quoteId={selectedQuote}
+          accountMap={accountMap}
+          onClose={() => setSelectedQuote(null)}
+          onSendViaGmail={(q) => {
+            setComposeDefaults({
+              to: q.customerEmail || "",
+              subject: `VoltSafe Quote ${q.quoteNumber}`,
+              body: `Hi,\n\nPlease find attached your VoltSafe quote ${q.quoteNumber} for ${fmtMoney(q.total || 0, q.currency)}.\n\nPlease don't hesitate to reach out with any questions.\n\nBest regards,\nTrevor\nVoltSafe Inc.`,
+              quoteId: q.id,
+            });
+            setSelectedQuote(null);
+            setComposeOpen(true);
+          }}
+        />
+      )}
+
+      {composeOpen && (
+        <QuoteEmailCompose
+          defaults={composeDefaults}
+          onClose={() => setComposeOpen(false)}
+        />
       )}
     </div>
   );
 }
 
-function QuoteDetailDialog({ quoteId, accountMap, onClose }: { quoteId: number; accountMap: Map<number, string>; onClose: () => void }) {
+function QuoteEmailCompose({ defaults, onClose }: { defaults: { to?: string; subject?: string; body?: string; quoteId?: number }; onClose: () => void }) {
+  const [to, setTo] = useState(defaults.to || "");
+  const [subject, setSubject] = useState(defaults.subject || "");
+  const [body, setBody] = useState(defaults.body || "");
+  const [attachXlsx, setAttachXlsx] = useState(true);
+  const { toast } = useToast();
+
+  const { data: quoteData } = useQuery<any>({
+    queryKey: ["/api/quotes", defaults.quoteId],
+    queryFn: async () => {
+      if (!defaults.quoteId) return null;
+      const res = await fetch(`/api/quotes/${defaults.quoteId}`);
+      return res.json();
+    },
+    enabled: !!defaults.quoteId,
+  });
+
+  const sendMutation = useMutation({
+    mutationFn: async () => {
+      const attachmentIds: number[] = [];
+      if (quoteData && attachXlsx && quoteData.xlsxAssetId) attachmentIds.push(quoteData.xlsxAssetId);
+      if (quoteData && quoteData.htmlAssetId) attachmentIds.push(quoteData.htmlAssetId);
+      const res = await apiRequest("POST", "/api/gmail/send", {
+        to, subject, body: `<pre style="font-family:sans-serif;white-space:pre-wrap">${body}</pre>`, attachmentIds,
+      });
+      return res.json();
+    },
+    onSuccess: () => { toast({ title: "Quote email sent" }); onClose(); },
+    onError: (err: any) => toast({ title: "Failed to send", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><Mail className="w-4 h-4 text-blue-400" /> Send Quote via Gmail</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <div><Label className="text-xs">To</Label><Input value={to} onChange={e => setTo(e.target.value)} className="mt-1" placeholder="recipient@email.com" data-testid="input-compose-to" /></div>
+          <div><Label className="text-xs">Subject</Label><Input value={subject} onChange={e => setSubject(e.target.value)} className="mt-1" data-testid="input-compose-subject" /></div>
+          <div><Label className="text-xs">Message</Label><Textarea value={body} onChange={e => setBody(e.target.value)} rows={7} className="mt-1 text-sm" data-testid="input-compose-body" /></div>
+          {quoteData && (quoteData.xlsxAssetId || quoteData.htmlAssetId) && (
+            <div className="rounded-lg border border-border/50 bg-secondary/10 p-3 space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Attachments</p>
+              {quoteData.xlsxAssetId && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={attachXlsx} onChange={e => setAttachXlsx(e.target.checked)} className="rounded" data-testid="checkbox-attach-xlsx" />
+                  <span className="text-sm">{quoteData.quoteNumber}.xlsx</span>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 ml-auto">XLSX</Badge>
+                </label>
+              )}
+              {quoteData.htmlAssetId && (
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" defaultChecked disabled className="rounded opacity-50" />
+                  <span className="text-sm text-muted-foreground">{quoteData.quoteNumber}-Invoice.html</span>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 ml-auto">HTML</Badge>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="flex gap-2 justify-end pt-1">
+            <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+            <Button size="sm" className="bg-primary text-primary-foreground" disabled={sendMutation.isPending || !to} onClick={() => sendMutation.mutate()} data-testid="button-send-quote-email">
+              {sendMutation.isPending ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Sending...</> : <><Send className="w-3.5 h-3.5 mr-2" />Send</>}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function QuoteDetailDialog({ quoteId, accountMap, onClose, onSendViaGmail }: {
+  quoteId: number;
+  accountMap: Map<number, string>;
+  onClose: () => void;
+  onSendViaGmail: (q: any) => void;
+}) {
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/quotes", quoteId],
     queryFn: async () => {
@@ -321,14 +473,17 @@ function QuoteDetailDialog({ quoteId, accountMap, onClose }: { quoteId: number; 
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-[96vw] sm:max-w-3xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
             <div>
               <DialogTitle className="text-xl font-mono">{q.quoteNumber}</DialogTitle>
               <p className="text-sm text-muted-foreground mt-0.5">
                 {q.customerName || accountMap.get(q.accountId) || "—"} · v{q.version} · {q.currency}
               </p>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={() => onSendViaGmail(q)} className="text-blue-400 border-blue-500/30 hover:bg-blue-500/10" data-testid="button-send-gmail">
+                <Mail className="h-3.5 w-3.5 mr-1" /> Send via Gmail
+              </Button>
               <Button variant="outline" size="sm" onClick={() => window.open(`/api/quotes/${quoteId}/print`, "_blank")} data-testid="button-view-invoice">
                 <Printer className="h-3.5 w-3.5 mr-1" /> Invoice
               </Button>
@@ -429,7 +584,7 @@ function QuoteDetailDialog({ quoteId, accountMap, onClose }: { quoteId: number; 
 
           {(q.htmlAssetId || q.xlsxAssetId) && (
             <div className="flex gap-3 pt-1 border-t border-border/50">
-              <p className="text-xs text-muted-foreground self-center">Files stored in Assets — attach via Gmail</p>
+              <p className="text-xs text-muted-foreground self-center">Files available — attach via Send via Gmail</p>
               <div className="flex gap-2 ml-auto">
                 <Button variant="outline" size="sm" onClick={() => window.open(`/api/quotes/${quoteId}/print`, "_blank")} data-testid="button-view-html">
                   <ExternalLink className="h-3.5 w-3.5 mr-1" /> HTML Invoice
@@ -525,6 +680,7 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
   const [exclusions, setExclusions] = useState("");
   const [catalogTab, setCatalogTab] = useState<"hardware" | "saas">("hardware");
   const [globalDiscount, setGlobalDiscount] = useState(0);
+  const { toast } = useToast();
 
   // Resolve active price list based on current currency
   const allPriceLists = priceListsQuery.data ?? [];
@@ -591,6 +747,8 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
   const validUntil = new Date();
   validUntil.setDate(validUntil.getDate() + Number(validDays));
 
+  const paymentTermsSum = paymentTermDeposit + paymentTermProduction + paymentTermInstall;
+
   const applyGlobalDiscount = (pct: number) => {
     setGlobalDiscount(pct);
     setLineItems(prev => prev.map(li => {
@@ -603,6 +761,11 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
   };
 
   const handleSubmit = () => {
+    if (paymentTermsSum !== 100) {
+      toast({ title: "Payment terms must total 100%", description: `Currently ${paymentTermsSum}%`, variant: "destructive" });
+      setTab("pricing");
+      return;
+    }
     onSubmit({
       accountId: accountId ? Number(accountId) : undefined,
       country,
@@ -641,355 +804,383 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
   return (
     <div className="flex flex-col h-full">
       <div className="px-6 pt-6 pb-0 border-b border-border/50">
-        <h2 className="text-lg font-bold mb-4">New Quote</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold">New Quote</h2>
+          {lineItems.length > 0 && (
+            <div className="flex items-center gap-3 text-sm">
+              <span className="text-muted-foreground">{lineItems.length} items</span>
+              <span className="font-bold text-base">{fmtMoney(total, currency)}</span>
+              {taxRate > 0 && <span className="text-xs text-muted-foreground">incl. {taxLabel}</span>}
+            </div>
+          )}
+        </div>
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="mb-0">
             <TabsTrigger value="customer" data-testid="tab-customer">Customer</TabsTrigger>
-            <TabsTrigger value="products" data-testid="tab-products">Products</TabsTrigger>
-            <TabsTrigger value="pricing" data-testid="tab-pricing">Pricing & Terms</TabsTrigger>
+            <TabsTrigger value="products" data-testid="tab-products">
+              Products {lineItems.length > 0 && <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 py-0 h-4">{lineItems.length}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="pricing" data-testid="tab-pricing">
+              Pricing & Terms
+              {paymentTermsSum !== 100 && tab !== "pricing" && <AlertCircle className="w-3 h-3 ml-1 text-orange-400" />}
+            </TabsTrigger>
             <TabsTrigger value="notes" data-testid="tab-notes">Notes</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        {tab === "customer" && (
-          <div className="space-y-5 max-w-2xl">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-xs">Country *</Label>
-                <Select value={country} onValueChange={handleCountryChange}>
-                  <SelectTrigger className={inputCls} data-testid="select-country">
-                    <Globe className="h-3 w-3 mr-1 text-muted-foreground" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {COUNTRY_OPTIONS.map(o => <SelectItem key={o.code} value={o.code}>{o.label} ({o.currency})</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs">Currency</Label>
-                <Select value={currency} onValueChange={setCurrency}>
-                  <SelectTrigger className={inputCls} data-testid="select-currency"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(CURRENCY_SYMBOLS).map(([c, s]) => <SelectItem key={c} value={c}>{c} ({s})</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-xs">Customer / Marina Name *</Label>
-                <Input value={customerName} onChange={e => setCustomerName(e.target.value)} className={inputCls} placeholder="Bluewater Marina Inc." data-testid="input-customer-name" />
-              </div>
-              <div>
-                <Label className="text-xs">Link to Account</Label>
-                <Select value={accountId} onValueChange={setAccountId}>
-                  <SelectTrigger className={inputCls} data-testid="select-account"><SelectValue placeholder="Select account (optional)" /></SelectTrigger>
-                  <SelectContent>
-                    {accounts.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs">Contact Email</Label>
-                <Input value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} className={inputCls} placeholder="gm@marina.com" type="email" data-testid="input-customer-email" />
-              </div>
-              <div>
-                <Label className="text-xs">Contact Phone</Label>
-                <Input value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} className={inputCls} placeholder="+1 604 555 0100" data-testid="input-customer-phone" />
-              </div>
-            </div>
-
-            <div>
-              <Label className="text-xs">Marina / Billing Address</Label>
-              <Textarea value={marinaAddress} onChange={e => setMarinaAddress(e.target.value)} rows={3} placeholder={"100 Marina Way\nVancouver, BC V5K 0A1\nCanada"} data-testid="input-marina-address" className="text-sm" />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-xs">Site / Install Address</Label>
-                <Textarea value={siteAddress} onChange={e => setSiteAddress(e.target.value)} rows={2} placeholder="Same as above (or different dock)" data-testid="input-site-address" className="text-sm" />
-              </div>
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs">Slip Count</Label>
-                  <Input value={slipsCount} onChange={e => setSlipsCount(e.target.value)} className={inputCls} type="number" min="1" placeholder="e.g. 120" data-testid="input-slips-count" />
-                </div>
-                <div>
-                  <Label className="text-xs">Quote Valid (days)</Label>
-                  <Input value={validDays} onChange={e => setValidDays(e.target.value)} className={inputCls} type="number" min="1" data-testid="input-valid-days" />
-                </div>
-              </div>
-            </div>
-
-            <Separator />
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-xs">Entitlement #</Label>
-                <Input value={entitlementNumber} onChange={e => setEntitlementNumber(e.target.value)} className={inputCls} placeholder="ENT-2025-0001" data-testid="input-entitlement" />
-              </div>
-              <div>
-                <Label className="text-xs">Licensed To</Label>
-                <Input value={licensedTo} onChange={e => setLicensedTo(e.target.value)} className={inputCls} placeholder="Legal entity name" data-testid="input-licensed-to" />
-              </div>
-              <div>
-                <Label className="text-xs">Billing Period Start</Label>
-                <Input value={billingPeriodStart} onChange={e => setBillingPeriodStart(e.target.value)} className={inputCls} placeholder="2025-01-01" data-testid="input-billing-start" />
-              </div>
-              <div>
-                <Label className="text-xs">Billing Period End</Label>
-                <Input value={billingPeriodEnd} onChange={e => setBillingPeriodEnd(e.target.value)} className={inputCls} placeholder="2025-12-31" data-testid="input-billing-end" />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {tab === "products" && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2">
-                <Tag className="h-4 w-4 text-muted-foreground" />
-                <Label className="text-xs">Global Discount %</Label>
-                <Input
-                  type="number" min="0" max="100" step="1"
-                  value={globalDiscount || ""}
-                  onChange={e => applyGlobalDiscount(Number(e.target.value))}
-                  className="h-7 w-16 text-sm"
-                  placeholder="0"
-                  data-testid="input-global-discount"
-                />
-              </div>
-              <span className="text-xs text-muted-foreground">Click catalog items below to add, or add blank rows manually</span>
-            </div>
-
-            <Tabs value={catalogTab} onValueChange={(v) => setCatalogTab(v as any)}>
-              <TabsList>
-                <TabsTrigger value="hardware" data-testid="tab-catalog-hardware"><Package className="h-3.5 w-3.5 mr-1" /> Hardware Catalog</TabsTrigger>
-                <TabsTrigger value="saas" data-testid="tab-catalog-saas"><Cloud className="h-3.5 w-3.5 mr-1" /> Software / Services</TabsTrigger>
-              </TabsList>
-              {activePriceList && (
-                <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
-                  <Globe className="h-3 w-3" /> Using <strong>{activePriceList.name}</strong>
-                </p>
-              )}
-              <TabsContent value="hardware" className="mt-3">
-                <div className="grid gap-1.5">
-                  {catalogHardware.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-4 text-center">No hardware products in this price list</p>
-                  ) : catalogHardware.map((item, idx) => (
-                    <button key={item.sku || idx} onClick={() => addFromCatalog(item)} data-testid={`catalog-${item.sku}`}
-                      className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-border/50 hover:bg-green-500/5 hover:border-green-500/30 text-left transition-colors group">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">{item.sku ? `${item.sku} — ` : ""}{item.name}</p>
-                        <p className="text-xs text-muted-foreground">{item.description}</p>
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        <p className="text-sm font-semibold">{fmtMoney(item.listPrice, currency)}<span className="text-xs text-muted-foreground">/{item.unitType}</span></p>
-                        <span className="text-xs text-green-500 opacity-0 group-hover:opacity-100">+ Add</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </TabsContent>
-              <TabsContent value="saas" className="mt-3">
-                <div className="grid gap-1.5">
-                  {catalogSaas.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-4 text-center">No software products in this price list</p>
-                  ) : catalogSaas.map((item, idx) => (
-                    <button key={item.sku || idx} onClick={() => addFromCatalog(item)} data-testid={`catalog-${item.sku}`}
-                      className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-border/50 hover:bg-blue-500/5 hover:border-blue-500/30 text-left transition-colors group">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">{item.sku ? `${item.sku} — ` : ""}{item.name}</p>
-                        <p className="text-xs text-muted-foreground">{item.description}</p>
-                        {item.isRecurring && <span className="text-[10px] text-blue-400 font-medium">annual subscription</span>}
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        <p className="text-sm font-semibold">{fmtMoney(item.listPrice, currency)}<span className="text-xs text-muted-foreground">/{item.unitType}</span></p>
-                        <span className="text-xs text-blue-500 opacity-0 group-hover:opacity-100">+ Add</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </TabsContent>
-            </Tabs>
-
-            <Separator />
-
-            {lineItems.length > 0 && (
-              <div className="space-y-4">
-                <h3 className="text-sm font-semibold">Selected Line Items ({lineItems.length})</h3>
-                {["hardware", "saas", "other"].map(cat => {
-                  const catItems = lineItems.filter(li => li.category === cat || (cat === "saas" && li.category === "software"));
-                  if (catItems.length === 0 && cat !== "other") return null;
-                  const catLabel = cat === "hardware" ? "Hardware" : cat === "saas" ? "Software / SaaS" : "Other";
-                  const allItems = cat === "saas" ? lineItems.filter(li => li.category === "saas" || li.category === "software") : lineItems.filter(li => li.category === cat);
-                  if (allItems.length === 0 && cat !== "other") return null;
-                  return (
-                    <div key={cat}>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{catLabel}</p>
-                        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => addBlankLine(cat as any)} data-testid={`button-add-blank-${cat}`}>
-                          <Plus className="h-3 w-3 mr-0.5" /> Blank Row
-                        </Button>
-                      </div>
-                      <div className="space-y-1">
-                        {lineItems.map((li, idx) => {
-                          const matches = li.category === cat || (cat === "saas" && li.category === "software");
-                          if (!matches) return null;
-                          return (
-                            <div key={idx} className="flex gap-2 items-center border border-border/50 rounded-lg px-3 py-2 bg-muted/10">
-                              <div className="flex-1 grid grid-cols-12 gap-1.5 items-center min-w-0">
-                                <Input value={li.name} onChange={e => updateLine(idx, "name", e.target.value)} className="h-7 text-xs col-span-4" placeholder="Item name" data-testid={`input-line-name-${idx}`} />
-                                <Input type="number" min="1" value={li.qty || ""} onChange={e => updateLine(idx, "qty", Number(e.target.value))} className="h-7 text-xs col-span-1 text-center" placeholder="Qty" data-testid={`input-line-qty-${idx}`} />
-                                <div className="col-span-2 relative">
-                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">{currSym(currency)}</span>
-                                  <Input type="number" min="0" value={li.listPrice || ""} onChange={e => updateLine(idx, "listPrice", Number(e.target.value))} className="h-7 text-xs pl-5" placeholder="List" data-testid={`input-line-list-${idx}`} />
-                                </div>
-                                <div className="col-span-2 relative">
-                                  <Input type="number" min="0" max="100" value={li.discountPercent || ""} onChange={e => updateLine(idx, "discountPercent", Number(e.target.value))} className="h-7 text-xs pr-4" placeholder="Disc%" data-testid={`input-line-disc-${idx}`} />
-                                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
-                                </div>
-                                <div className="col-span-2 text-right">
-                                  <p className="text-xs font-medium">{fmtMoney(li.lineTotal, currency)}</p>
-                                  <p className="text-[10px] text-muted-foreground">{fmtMoney(li.unitPrice, currency)}/ea</p>
-                                </div>
-                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 col-span-1 text-muted-foreground hover:text-destructive" onClick={() => removeLine(idx)} data-testid={`button-remove-line-${idx}`}>
-                                  <Trash2 className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {lineItems.length === 0 && (
-                  <div className="text-center py-8 text-sm text-muted-foreground">No items yet. Add from catalog above.</div>
-                )}
-              </div>
-            )}
-
-            {lineItems.length === 0 && (
-              <div className="text-center py-6 text-sm text-muted-foreground border border-dashed border-border/50 rounded-lg">
-                Click items from the catalog above to add them to the quote
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => addBlankLine("hardware")} data-testid="button-add-hardware-row"><Plus className="h-3.5 w-3.5 mr-1" /> Hardware Row</Button>
-              <Button variant="outline" size="sm" onClick={() => addBlankLine("saas")} data-testid="button-add-saas-row"><Plus className="h-3.5 w-3.5 mr-1" /> Software Row</Button>
-              <Button variant="outline" size="sm" onClick={() => addBlankLine("other")} data-testid="button-add-other-row"><Plus className="h-3.5 w-3.5 mr-1" /> Other Row</Button>
-            </div>
-          </div>
-        )}
-
-        {tab === "pricing" && (
-          <div className="space-y-6 max-w-xl">
-            <div className="border border-border/50 rounded-lg p-4 space-y-3">
-              <h3 className="text-sm font-semibold">Tax</h3>
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {tab === "customer" && (
+            <div className="space-y-5 max-w-2xl">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label className="text-xs">Tax Rate</Label>
-                  <div className="relative">
-                    <Input type="number" min="0" max="100" step="0.1" value={(taxRate * 100).toFixed(1) || ""}
-                      onChange={e => setTaxRate(Number(e.target.value) / 100)}
-                      className={`${inputCls} pr-7`} data-testid="input-tax-rate" />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                  <Label className="text-xs">Country *</Label>
+                  <Select value={country} onValueChange={handleCountryChange}>
+                    <SelectTrigger className={inputCls} data-testid="select-country">
+                      <Globe className="h-3 w-3 mr-1 text-muted-foreground" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {COUNTRY_OPTIONS.map(o => <SelectItem key={o.code} value={o.code}>{o.label} ({o.currency})</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Currency</Label>
+                  <Select value={currency} onValueChange={setCurrency}>
+                    <SelectTrigger className={inputCls} data-testid="select-currency"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(CURRENCY_SYMBOLS).map(([c, s]) => <SelectItem key={c} value={c}>{c} ({s})</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs">Customer / Marina Name *</Label>
+                  <Input value={customerName} onChange={e => setCustomerName(e.target.value)} className={inputCls} placeholder="Bluewater Marina Inc." data-testid="input-customer-name" />
+                </div>
+                <div>
+                  <Label className="text-xs">Link to Account</Label>
+                  <Select value={accountId} onValueChange={setAccountId}>
+                    <SelectTrigger className={inputCls} data-testid="select-account"><SelectValue placeholder="Select account (optional)" /></SelectTrigger>
+                    <SelectContent>
+                      {accounts.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Contact Email</Label>
+                  <Input value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} className={inputCls} placeholder="gm@marina.com" type="email" data-testid="input-customer-email" />
+                </div>
+                <div>
+                  <Label className="text-xs">Contact Phone</Label>
+                  <Input value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} className={inputCls} placeholder="+1 604 555 0100" data-testid="input-customer-phone" />
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-xs">Marina / Billing Address</Label>
+                <Textarea value={marinaAddress} onChange={e => setMarinaAddress(e.target.value)} rows={3} placeholder={"100 Marina Way\nVancouver, BC V5K 0A1\nCanada"} data-testid="input-marina-address" className="text-sm" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs">Site / Install Address</Label>
+                  <Textarea value={siteAddress} onChange={e => setSiteAddress(e.target.value)} rows={2} placeholder="Same as above (or different dock)" data-testid="input-site-address" className="text-sm" />
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-xs">Slip Count</Label>
+                    <Input value={slipsCount} onChange={e => setSlipsCount(e.target.value)} className={inputCls} type="number" min="1" placeholder="e.g. 120" data-testid="input-slips-count" />
                   </div>
-                  {taxLabel && <p className="text-xs text-muted-foreground mt-1">{taxLabel} auto-set for {COUNTRY_OPTIONS.find(o => o.code === country)?.label}</p>}
-                </div>
-                <div>
-                  <Label className="text-xs">Tax Amount</Label>
-                  <p className="text-sm font-medium mt-2">{fmtMoney(taxAmount, currency)}</p>
+                  <div>
+                    <Label className="text-xs">Quote Valid (days)</Label>
+                    <Input value={validDays} onChange={e => setValidDays(e.target.value)} className={inputCls} type="number" min="1" data-testid="input-valid-days" />
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="border border-border/50 rounded-lg p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold">Payment Terms</h3>
-                <span className="text-xs text-muted-foreground">{paymentTermDeposit + paymentTermProduction + paymentTermInstall}% total (must = 100%)</span>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
+              <Separator />
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label className="text-xs">Deposit %</Label>
-                  <Input type="number" min="0" max="100" value={paymentTermDeposit}
-                    onChange={e => setPaymentTermDeposit(Number(e.target.value))}
-                    className={inputCls} data-testid="input-deposit-pct" />
-                  <p className="text-xs text-muted-foreground mt-1">{fmtMoney(total * paymentTermDeposit / 100, currency)}</p>
+                  <Label className="text-xs">Entitlement #</Label>
+                  <Input value={entitlementNumber} onChange={e => setEntitlementNumber(e.target.value)} className={inputCls} placeholder="ENT-2025-0001" data-testid="input-entitlement" />
                 </div>
                 <div>
-                  <Label className="text-xs">Production %</Label>
-                  <Input type="number" min="0" max="100" value={paymentTermProduction}
-                    onChange={e => setPaymentTermProduction(Number(e.target.value))}
-                    className={inputCls} data-testid="input-production-pct" />
-                  <p className="text-xs text-muted-foreground mt-1">{fmtMoney(total * paymentTermProduction / 100, currency)}</p>
+                  <Label className="text-xs">Licensed To</Label>
+                  <Input value={licensedTo} onChange={e => setLicensedTo(e.target.value)} className={inputCls} placeholder="Legal entity name" data-testid="input-licensed-to" />
                 </div>
                 <div>
-                  <Label className="text-xs">Installation %</Label>
-                  <Input type="number" min="0" max="100" value={paymentTermInstall}
-                    onChange={e => setPaymentTermInstall(Number(e.target.value))}
-                    className={inputCls} data-testid="input-install-pct" />
-                  <p className="text-xs text-muted-foreground mt-1">{fmtMoney(total * paymentTermInstall / 100, currency)}</p>
+                  <Label className="text-xs">Billing Period Start</Label>
+                  <Input value={billingPeriodStart} onChange={e => setBillingPeriodStart(e.target.value)} className={inputCls} placeholder="2025-01-01" data-testid="input-billing-start" />
+                </div>
+                <div>
+                  <Label className="text-xs">Billing Period End</Label>
+                  <Input value={billingPeriodEnd} onChange={e => setBillingPeriodEnd(e.target.value)} className={inputCls} placeholder="2025-12-31" data-testid="input-billing-end" />
                 </div>
               </div>
             </div>
+          )}
 
-            <div className="border border-border/50 rounded-lg p-4 bg-muted/5">
-              <h3 className="text-sm font-semibold mb-3">Quote Summary</h3>
-              <div className="space-y-1.5 text-sm">
-                {hwSubtotal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Hardware subtotal</span><span>{fmtMoney(hwSubtotal, currency)}</span></div>}
-                {swSubtotal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Software subtotal</span><span>{fmtMoney(swSubtotal, currency)}</span></div>}
-                {otherSubtotal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Other subtotal</span><span>{fmtMoney(otherSubtotal, currency)}</span></div>}
-                <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{fmtMoney(subtotal, currency)}</span></div>
-                {taxRate > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Tax ({(taxRate * 100).toFixed(0)}%)</span><span>{fmtMoney(taxAmount, currency)}</span></div>}
-                <Separator className="my-2" />
-                <div className="flex justify-between text-base font-bold"><span>Total</span><span>{fmtMoney(total, currency)}</span></div>
-                <div className="flex justify-between text-sm text-green-600"><span>Deposit due</span><span>{fmtMoney(depositDue, currency)}</span></div>
+          {tab === "products" && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Tag className="h-4 w-4 text-muted-foreground" />
+                  <Label className="text-xs">Global Discount %</Label>
+                  <Input
+                    type="number" min="0" max="100" step="1"
+                    value={globalDiscount || ""}
+                    onChange={e => applyGlobalDiscount(Number(e.target.value))}
+                    className="h-7 w-16 text-sm"
+                    placeholder="0"
+                    data-testid="input-global-discount"
+                  />
+                </div>
+                <span className="text-xs text-muted-foreground">Click catalog items below to add, or add blank rows manually</span>
+              </div>
+
+              <Tabs value={catalogTab} onValueChange={(v) => setCatalogTab(v as any)}>
+                <TabsList>
+                  <TabsTrigger value="hardware" data-testid="tab-catalog-hardware"><Package className="h-3.5 w-3.5 mr-1" /> Hardware Catalog</TabsTrigger>
+                  <TabsTrigger value="saas" data-testid="tab-catalog-saas"><Cloud className="h-3.5 w-3.5 mr-1" /> Software / Services</TabsTrigger>
+                </TabsList>
+                {activePriceList && (
+                  <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
+                    <Globe className="h-3 w-3" /> Using <strong>{activePriceList.name}</strong>
+                  </p>
+                )}
+                <TabsContent value="hardware" className="mt-3">
+                  <div className="grid gap-1.5">
+                    {catalogHardware.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-4 text-center">No hardware products in this price list</p>
+                    ) : catalogHardware.map((item, idx) => (
+                      <button key={item.sku || idx} onClick={() => addFromCatalog(item)} data-testid={`catalog-${item.sku}`}
+                        className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-border/50 hover:bg-green-500/5 hover:border-green-500/30 text-left transition-colors group">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">{item.sku ? `${item.sku} — ` : ""}{item.name}</p>
+                          <p className="text-xs text-muted-foreground">{item.description}</p>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-sm font-semibold">{fmtMoney(item.listPrice, currency)}<span className="text-xs text-muted-foreground">/{item.unitType}</span></p>
+                          <span className="text-xs text-green-500 opacity-0 group-hover:opacity-100">+ Add</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </TabsContent>
+                <TabsContent value="saas" className="mt-3">
+                  <div className="grid gap-1.5">
+                    {catalogSaas.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-4 text-center">No software products in this price list</p>
+                    ) : catalogSaas.map((item, idx) => (
+                      <button key={item.sku || idx} onClick={() => addFromCatalog(item)} data-testid={`catalog-${item.sku}`}
+                        className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-border/50 hover:bg-blue-500/5 hover:border-blue-500/30 text-left transition-colors group">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">{item.sku ? `${item.sku} — ` : ""}{item.name}</p>
+                          <p className="text-xs text-muted-foreground">{item.description}</p>
+                          {item.isRecurring && <span className="text-[10px] text-blue-400 font-medium">annual subscription</span>}
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-sm font-semibold">{fmtMoney(item.listPrice, currency)}<span className="text-xs text-muted-foreground">/{item.unitType}</span></p>
+                          <span className="text-xs text-blue-500 opacity-0 group-hover:opacity-100">+ Add</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </TabsContent>
+              </Tabs>
+
+              <Separator />
+
+              {lineItems.length > 0 && (
+                <div className="space-y-4">
+                  <h3 className="text-sm font-semibold">Selected Line Items ({lineItems.length})</h3>
+                  {["hardware", "saas", "other"].map(cat => {
+                    const catLabel = cat === "hardware" ? "Hardware" : cat === "saas" ? "Software / SaaS" : "Other";
+                    const allItems = cat === "saas" ? lineItems.filter(li => li.category === "saas" || li.category === "software") : lineItems.filter(li => li.category === cat);
+                    if (allItems.length === 0 && cat !== "other") return null;
+                    return (
+                      <div key={cat}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{catLabel}</p>
+                          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => addBlankLine(cat as any)} data-testid={`button-add-blank-${cat}`}>
+                            <Plus className="h-3 w-3 mr-0.5" /> Blank Row
+                          </Button>
+                        </div>
+                        <div className="space-y-1">
+                          {lineItems.map((li, idx) => {
+                            const matches = li.category === cat || (cat === "saas" && li.category === "software");
+                            if (!matches) return null;
+                            return (
+                              <div key={idx} className="flex gap-2 items-center border border-border/50 rounded-lg px-3 py-2 bg-muted/10">
+                                <div className="flex-1 grid grid-cols-12 gap-1.5 items-center min-w-0">
+                                  <Input value={li.name} onChange={e => updateLine(idx, "name", e.target.value)} className="h-7 text-xs col-span-4" placeholder="Item name" data-testid={`input-line-name-${idx}`} />
+                                  <Input type="number" min="1" value={li.qty || ""} onChange={e => updateLine(idx, "qty", Number(e.target.value))} className="h-7 text-xs col-span-1 text-center" placeholder="Qty" data-testid={`input-line-qty-${idx}`} />
+                                  <div className="col-span-2 relative">
+                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">{currSym(currency)}</span>
+                                    <Input type="number" min="0" value={li.listPrice || ""} onChange={e => updateLine(idx, "listPrice", Number(e.target.value))} className="h-7 text-xs pl-5" placeholder="List" data-testid={`input-line-list-${idx}`} />
+                                  </div>
+                                  <div className="col-span-2 relative">
+                                    <Input type="number" min="0" max="100" value={li.discountPercent || ""} onChange={e => updateLine(idx, "discountPercent", Number(e.target.value))} className="h-7 text-xs pr-4" placeholder="Disc%" data-testid={`input-line-disc-${idx}`} />
+                                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                                  </div>
+                                  <div className="col-span-2 text-right">
+                                    <p className="text-xs font-medium">{fmtMoney(li.lineTotal, currency)}</p>
+                                    <p className="text-[10px] text-muted-foreground">{fmtMoney(li.unitPrice, currency)}/ea</p>
+                                  </div>
+                                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 col-span-1 text-muted-foreground hover:text-destructive" onClick={() => removeLine(idx)} data-testid={`button-remove-line-${idx}`}>
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {lineItems.length === 0 && (
+                <div className="text-center py-6 text-sm text-muted-foreground border border-dashed border-border/50 rounded-lg">
+                  Click items from the catalog above to add them to the quote
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => addBlankLine("hardware")} data-testid="button-add-hardware-row"><Plus className="h-3.5 w-3.5 mr-1" /> Hardware Row</Button>
+                <Button variant="outline" size="sm" onClick={() => addBlankLine("saas")} data-testid="button-add-saas-row"><Plus className="h-3.5 w-3.5 mr-1" /> Software Row</Button>
+                <Button variant="outline" size="sm" onClick={() => addBlankLine("other")} data-testid="button-add-other-row"><Plus className="h-3.5 w-3.5 mr-1" /> Other Row</Button>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {tab === "notes" && (
-          <div className="space-y-4 max-w-xl">
-            <div>
-              <Label className="text-xs">Notes (shown on invoice)</Label>
-              <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={4} placeholder="Any special instructions, delivery notes, etc." data-testid="input-notes" className="mt-1 text-sm" />
+          {tab === "pricing" && (
+            <div className="space-y-6 max-w-xl">
+              <div className="border border-border/50 rounded-lg p-4 space-y-3">
+                <h3 className="text-sm font-semibold">Tax</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-xs">Tax Rate</Label>
+                    <div className="relative">
+                      <Input type="number" min="0" max="100" step="0.1" value={(taxRate * 100).toFixed(1) || ""}
+                        onChange={e => setTaxRate(Number(e.target.value) / 100)}
+                        className={`${inputCls} pr-7`} data-testid="input-tax-rate" />
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                    </div>
+                    {taxLabel && <p className="text-xs text-muted-foreground mt-1">{taxLabel} auto-set for {COUNTRY_OPTIONS.find(o => o.code === country)?.label}</p>}
+                  </div>
+                  <div>
+                    <Label className="text-xs">Tax Amount</Label>
+                    <p className="text-sm font-medium mt-2">{fmtMoney(taxAmount, currency)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border border-border/50 rounded-lg p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold">Payment Terms</h3>
+                  <span className={`text-xs font-medium ${paymentTermsSum === 100 ? "text-green-400" : "text-orange-400"}`}>
+                    {paymentTermsSum}% {paymentTermsSum !== 100 ? `(needs ${100 - paymentTermsSum > 0 ? "+" : ""}${100 - paymentTermsSum}% more)` : "✓"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <Label className="text-xs">Deposit %</Label>
+                    <Input type="number" min="0" max="100" value={paymentTermDeposit}
+                      onChange={e => setPaymentTermDeposit(Number(e.target.value))}
+                      className={inputCls} data-testid="input-deposit-pct" />
+                    <p className="text-xs text-muted-foreground mt-1">{fmtMoney(total * paymentTermDeposit / 100, currency)}</p>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Production %</Label>
+                    <Input type="number" min="0" max="100" value={paymentTermProduction}
+                      onChange={e => setPaymentTermProduction(Number(e.target.value))}
+                      className={inputCls} data-testid="input-production-pct" />
+                    <p className="text-xs text-muted-foreground mt-1">{fmtMoney(total * paymentTermProduction / 100, currency)}</p>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Installation %</Label>
+                    <Input type="number" min="0" max="100" value={paymentTermInstall}
+                      onChange={e => setPaymentTermInstall(Number(e.target.value))}
+                      className={inputCls} data-testid="input-install-pct" />
+                    <p className="text-xs text-muted-foreground mt-1">{fmtMoney(total * paymentTermInstall / 100, currency)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border border-border/50 rounded-lg p-4 bg-muted/5">
+                <h3 className="text-sm font-semibold mb-3">Quote Summary</h3>
+                <div className="space-y-1.5 text-sm">
+                  {hwSubtotal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Hardware subtotal</span><span>{fmtMoney(hwSubtotal, currency)}</span></div>}
+                  {swSubtotal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Software subtotal</span><span>{fmtMoney(swSubtotal, currency)}</span></div>}
+                  {otherSubtotal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Other subtotal</span><span>{fmtMoney(otherSubtotal, currency)}</span></div>}
+                  <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{fmtMoney(subtotal, currency)}</span></div>
+                  {taxRate > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Tax ({(taxRate * 100).toFixed(0)}%)</span><span>{fmtMoney(taxAmount, currency)}</span></div>}
+                  <Separator className="my-2" />
+                  <div className="flex justify-between text-base font-bold"><span>Total</span><span>{fmtMoney(total, currency)}</span></div>
+                  <div className="flex justify-between text-sm text-green-600"><span>Deposit due</span><span>{fmtMoney(depositDue, currency)}</span></div>
+                </div>
+              </div>
             </div>
-            <div>
-              <Label className="text-xs">Assumptions</Label>
-              <Textarea value={assumptions} onChange={e => setAssumptions(e.target.value)} rows={3} placeholder="e.g. Existing conduit in place, customer provides 3-phase power..." data-testid="input-assumptions" className="mt-1 text-sm" />
+          )}
+
+          {tab === "notes" && (
+            <div className="space-y-5 max-w-2xl">
+              <div>
+                <Label className="text-xs">Notes (shown on invoice)</Label>
+                <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={4} className="mt-1.5 text-sm" placeholder="Additional notes for the customer..." data-testid="input-notes" />
+              </div>
+              <div>
+                <Label className="text-xs">Assumptions</Label>
+                <Textarea value={assumptions} onChange={e => setAssumptions(e.target.value)} rows={4} className="mt-1.5 text-sm" placeholder="Quote assumes standard electrical panel accessible within 10 feet of pedestal locations..." data-testid="input-assumptions" />
+              </div>
+              <div>
+                <Label className="text-xs">Exclusions</Label>
+                <Textarea value={exclusions} onChange={e => setExclusions(e.target.value)} rows={4} className="mt-1.5 text-sm" placeholder="Excludes: conduit, trenching, permits, engineering stamps, utility work..." data-testid="input-exclusions" />
+              </div>
             </div>
-            <div>
-              <Label className="text-xs">Exclusions</Label>
-              <Textarea value={exclusions} onChange={e => setExclusions(e.target.value)} rows={3} placeholder="e.g. Trenching, permitting, marine electrician labour..." data-testid="input-exclusions" className="mt-1 text-sm" />
-            </div>
+          )}
+        </div>
+
+        {/* Sticky right totals panel when on products tab */}
+        {tab === "products" && lineItems.length > 0 && (
+          <div className="hidden lg:flex flex-col w-52 shrink-0 border-l border-border/40 bg-muted/5 p-4 gap-2 text-sm overflow-y-auto">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Live Totals</p>
+            {hwSubtotal > 0 && <div className="flex justify-between gap-2"><span className="text-muted-foreground text-xs truncate">Hardware</span><span className="text-xs font-medium shrink-0">{fmtMoney(hwSubtotal, currency)}</span></div>}
+            {swSubtotal > 0 && <div className="flex justify-between gap-2"><span className="text-muted-foreground text-xs truncate">Software</span><span className="text-xs font-medium shrink-0">{fmtMoney(swSubtotal, currency)}</span></div>}
+            {otherSubtotal > 0 && <div className="flex justify-between gap-2"><span className="text-muted-foreground text-xs truncate">Other</span><span className="text-xs font-medium shrink-0">{fmtMoney(otherSubtotal, currency)}</span></div>}
+            <Separator className="my-1" />
+            <div className="flex justify-between gap-2"><span className="text-muted-foreground text-xs">Subtotal</span><span className="text-xs font-medium shrink-0">{fmtMoney(subtotal, currency)}</span></div>
+            {taxRate > 0 && <div className="flex justify-between gap-2"><span className="text-muted-foreground text-xs truncate">{taxLabel || "Tax"}</span><span className="text-xs font-medium shrink-0">{fmtMoney(taxAmount, currency)}</span></div>}
+            <Separator className="my-1" />
+            <div className="flex justify-between gap-2 font-bold"><span className="text-sm">Total</span><span className="text-sm shrink-0">{fmtMoney(total, currency)}</span></div>
+            <div className="flex justify-between gap-2 text-green-400"><span className="text-xs truncate">Deposit ({paymentTermDeposit}%)</span><span className="text-xs shrink-0">{fmtMoney(depositDue, currency)}</span></div>
+            <Separator className="my-1" />
+            <p className="text-[10px] text-muted-foreground">{lineItems.length} line item{lineItems.length !== 1 ? "s" : ""}</p>
           </div>
         )}
       </div>
 
-      <div className="flex-shrink-0 border-t border-border/50 px-6 py-4 flex items-center justify-between bg-muted/5">
-        <div className="text-sm">
-          <span className="text-muted-foreground">{lineItems.length} item{lineItems.length !== 1 ? "s" : ""} · </span>
-          <span className="font-semibold">{fmtMoney(total, currency)}</span>
-          {taxRate > 0 && <span className="text-muted-foreground text-xs"> (incl. {(taxRate * 100).toFixed(0)}% tax)</span>}
-        </div>
+      <div className="flex items-center justify-between px-6 py-4 border-t border-border/50 bg-card/50">
         <div className="flex gap-2">
           {tab !== "customer" && <Button variant="ghost" size="sm" onClick={() => { const tabs = ["customer","products","pricing","notes"]; setTab(tabs[tabs.indexOf(tab)-1]); }}>← Back</Button>}
           {tab !== "notes" && <Button variant="outline" size="sm" onClick={() => { const tabs = ["customer","products","pricing","notes"]; setTab(tabs[tabs.indexOf(tab)+1]); }}>Next →</Button>}
+        </div>
+        <div className="flex items-center gap-3">
+          {total > 0 && <span className="text-sm font-bold">{fmtMoney(total, currency)}</span>}
           <Button
             onClick={handleSubmit}
             disabled={isPending || !customerName}
             className="bg-primary text-primary-foreground"
             data-testid="button-submit-quote"
           >
-            {isPending ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Generating...</> : <>Generate Quote + Files</>}
+            {isPending ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Generating...</> : "Generate Quote & Files"}
           </Button>
         </div>
       </div>
