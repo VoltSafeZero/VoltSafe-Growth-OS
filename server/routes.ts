@@ -31,7 +31,7 @@ import { eq, sql, and, inArray, lte } from "drizzle-orm";
 import { registerVoiceAssistantRoutes } from "./voice-assistant";
 import { generateInvoiceHtml, generateQuoteXlsx, type QuoteData } from "./quote-generator";
 import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead, saveDraft, listDraftSummaries, getDraftContent, deleteDraft } from "./gmail";
-import { getAuthUrl, exchangeCodeForTokens, isGmailConnected } from "./gmail-oauth";
+import { getAuthUrl, exchangeCodeForTokens, isGmailConnected, getGmailClient } from "./gmail-oauth";
 import { parseGmailMessage } from "./services/email-parser";
 import { runAssociationEngine } from "./services/association-engine";
 import { runGmailSync } from "./services/gmail-sync";
@@ -1631,6 +1631,24 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (err: any) {
       res.status(503).json({ message: "Failed to mark as read", error: err.message });
+    }
+  });
+
+  app.post("/api/gmail/messages/:id/toggle-star", requireAuth, async (req, res) => {
+    try {
+      const gmail = await getGmailClient();
+      const { id } = req.params;
+      const msg = await gmail.users.messages.get({ userId: "me", id, format: "minimal" });
+      const labelIds: string[] = msg.data.labelIds || [];
+      const isStarred = labelIds.includes("STARRED");
+      if (isStarred) {
+        await gmail.users.messages.modify({ userId: "me", id, requestBody: { removeLabelIds: ["STARRED"] } });
+      } else {
+        await gmail.users.messages.modify({ userId: "me", id, requestBody: { addLabelIds: ["STARRED"] } });
+      }
+      res.json({ starred: !isStarred });
+    } catch (err: any) {
+      res.status(503).json({ message: "Failed to toggle star", error: err.message });
     }
   });
 

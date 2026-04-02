@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useToast } from "@/hooks/use-toast";
 import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
-  Clock, FileText, CalendarClock, CalendarX, Paperclip,
+  Clock, FileText, CalendarClock, CalendarX, Paperclip, Star, Users, Newspaper, Bell,
 } from "lucide-react";
 import DOMPurify from "dompurify";
 
@@ -75,9 +75,20 @@ function parseSenderDomain(from: string): string {
 }
 
 type EmailFilter = { id: number; domain: string; createdAt: string };
+type InboxCategory = "all" | "people" | "newsletters" | "updates" | "priority";
 
 function isUnread(labelIds: string[]) {
   return labelIds.includes("UNREAD");
+}
+
+function isStarred(labelIds: string[]) {
+  return labelIds.includes("STARRED");
+}
+
+function getEmailCategory(labelIds: string[]): "people" | "newsletters" | "updates" {
+  if (labelIds.includes("CATEGORY_PROMOTIONS") || labelIds.includes("CATEGORY_FORUMS")) return "newsletters";
+  if (labelIds.includes("CATEGORY_UPDATES") || labelIds.includes("CATEGORY_SOCIAL")) return "updates";
+  return "people";
 }
 
 const EMAIL_SIGNATURE_HTML = `<div style="font-family: OpenSans, Arial, sans-serif; font-size: 13px; color: #222; line-height: 1.5;">
@@ -467,6 +478,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
   const [composeOpen, setComposeOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<{ to: string; subject: string; threadId: string } | null>(null);
   const [tab, setTab] = useState<"inbox" | "sent" | "other" | "drafts" | "scheduled">("inbox");
+  const [inboxCategory, setInboxCategory] = useState<InboxCategory>("all");
   const [editingDraft, setEditingDraft] = useState<{ to: string; subject: string; body: string; draftId: string; threadId?: string } | null>(null);
   const [loadingDraftId, setLoadingDraftId] = useState<string | null>(null);
   const [inboxExtra, setInboxExtra] = useState<MessageSummary[]>([]);
@@ -523,6 +535,26 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
     onError: (err: any) => {
       toast({ title: "Sync failed", description: err.message, variant: "destructive" });
     },
+  });
+
+  const toggleStarMutation = useMutation({
+    mutationFn: async (msgId: string) => {
+      const res = await apiRequest("POST", `/api/gmail/messages/${msgId}/toggle-star`);
+      return res.json() as Promise<{ starred: boolean }>;
+    },
+    onSuccess: (data, msgId) => {
+      const update = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
+        old ? { ...old, messages: old.messages.map((m) =>
+          m.id === msgId ? { ...m, labelIds: data.starred
+            ? [...m.labelIds.filter(l => l !== "STARRED"), "STARRED"]
+            : m.labelIds.filter(l => l !== "STARRED") } : m
+        ) } : old;
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery], update);
+      setInboxExtra((prev) => prev.map((m) => m.id === msgId ? { ...m, labelIds: data.starred
+        ? [...m.labelIds.filter(l => l !== "STARRED"), "STARRED"]
+        : m.labelIds.filter(l => l !== "STARRED") } : m));
+    },
+    onError: (err: any) => toast({ title: "Failed to update star", description: err.message, variant: "destructive" }),
   });
 
   const canSend = currentUserEmail === "trevor@voltsafe.com";
@@ -687,8 +719,18 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
     ? allInboxMessages.filter((m) => blockedDomains.has(parseSenderDomain(m.from)))
     : [];
 
+  const categorizedInbox =
+    inboxCategory === "priority" ? inboxMain.filter((m) => isStarred(m.labelIds)) :
+    inboxCategory === "all"      ? inboxMain :
+    inboxMain.filter((m) => getEmailCategory(m.labelIds) === inboxCategory);
+
+  const priorityCount = inboxMain.filter((m) => isStarred(m.labelIds)).length;
+  const peopleCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "people").length;
+  const newslettersCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "newsletters").length;
+  const updatesCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "updates").length;
+
   const activeMessages =
-    tab === "inbox" ? inboxMain :
+    tab === "inbox" ? categorizedInbox :
     tab === "sent"  ? allSentMessages :
     inboxOther;
   const isLoading = tab === "other" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : sentQuery.isLoading;
@@ -857,6 +899,34 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                 </Button>
               </div>
             )}
+            {tab === "inbox" && (
+              <div className="flex gap-1 flex-wrap">
+                {([
+                  { key: "all",         label: "All",         icon: <Inbox className="h-3 w-3" />,     count: inboxMain.length },
+                  { key: "priority",    label: "Priority",    icon: <Star className="h-3 w-3" />,      count: priorityCount },
+                  { key: "people",      label: "People",      icon: <Users className="h-3 w-3" />,     count: peopleCount },
+                  { key: "newsletters", label: "Newsletters", icon: <Newspaper className="h-3 w-3" />, count: newslettersCount },
+                  { key: "updates",     label: "Updates",     icon: <Bell className="h-3 w-3" />,      count: updatesCount },
+                ] as { key: InboxCategory; label: string; icon: React.ReactNode; count: number }[]).map(({ key, label, icon, count }) => (
+                  <button
+                    key={key}
+                    onClick={() => setInboxCategory(key)}
+                    data-testid={`inbox-category-${key}`}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${
+                      inboxCategory === key
+                        ? key === "priority"
+                          ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                          : "bg-primary/15 text-primary border border-primary/30"
+                        : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    {icon}
+                    {label}
+                    {count > 0 && <span className="ml-0.5 opacity-70">{count}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
             <form onSubmit={handleSearch} className="flex gap-1">
               <div className="relative flex-1">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -989,6 +1059,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
             )}
             {tab !== "drafts" && tab !== "scheduled" && activeMessages?.map((msg) => {
               const unread = isUnread(msg.labelIds);
+              const starred = isStarred(msg.labelIds);
               const isSelected = msg.threadId === selectedThreadId;
               const domain = parseSenderDomain(msg.from);
               const blocked = blockedDomains.has(domain);
@@ -1000,7 +1071,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                   <button
                     onClick={() => handleSelectMessage(msg)}
                     data-testid={`email-row-${msg.id}`}
-                    className="w-full text-left px-3 py-2.5 pr-8 transition-colors hover:bg-muted/50"
+                    className="w-full text-left px-3 py-2.5 pr-14 transition-colors hover:bg-muted/50"
                   >
                     <div className="flex items-start justify-between gap-2 mb-0.5">
                       <span className={`text-sm truncate ${unread ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
@@ -1016,24 +1087,43 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                     <p className="text-xs text-muted-foreground truncate mt-0.5">{msg.snippet}</p>
                     {unread && <div className="w-1.5 h-1.5 rounded-full bg-primary mt-1" />}
                   </button>
-                  {canSend && tab !== "sent" && (
+                  <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                    {/* Star / Priority button — always visible if starred, else on hover */}
                     <button
-                      title={blocked ? `Unblock @${domain}` : `Block all email from @${domain}`}
-                      data-testid={`button-flag-${msg.id}`}
+                      title={starred ? "Remove priority" : "Mark as priority"}
+                      data-testid={`button-star-${msg.id}`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (blocked) {
-                          const filter = (filtersQuery.data || []).find((f) => f.domain === domain);
-                          if (filter) unblockMutation.mutate(filter.id);
-                        } else {
-                          flagMutation.mutate(domain);
-                        }
+                        toggleStarMutation.mutate(msg.id);
                       }}
-                      className={`absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity ${blocked ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/50 hover:text-destructive"}`}
+                      className={`p-1 rounded transition-all ${
+                        starred
+                          ? "text-amber-400 hover:text-amber-300"
+                          : "text-muted-foreground/30 opacity-0 group-hover:opacity-100 hover:text-amber-400"
+                      }`}
                     >
-                      {blocked ? <Trash2 className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />}
+                      <Star className={`h-3.5 w-3.5 ${starred ? "fill-amber-400" : ""}`} />
                     </button>
-                  )}
+                    {/* Block/unblock button */}
+                    {canSend && tab !== "sent" && (
+                      <button
+                        title={blocked ? `Unblock @${domain}` : `Block all email from @${domain}`}
+                        data-testid={`button-flag-${msg.id}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (blocked) {
+                            const filter = (filtersQuery.data || []).find((f) => f.domain === domain);
+                            if (filter) unblockMutation.mutate(filter.id);
+                          } else {
+                            flagMutation.mutate(domain);
+                          }
+                        }}
+                        className={`p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity ${blocked ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/50 hover:text-destructive"}`}
+                      >
+                        {blocked ? <Trash2 className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />}
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -1072,6 +1162,16 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                   <h2 className="font-semibold text-sm truncate">{focusedMsg?.subject || "(no subject)"}</h2>
                 )}
               </div>
+              {focusedMsg && (
+                <button
+                  title={isStarred(focusedMsg.labelIds) ? "Remove priority" : "Mark as priority"}
+                  data-testid="button-star-thread"
+                  onClick={() => toggleStarMutation.mutate(focusedMsg.id)}
+                  className={`p-1.5 rounded transition-colors ${isStarred(focusedMsg.labelIds) ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/40 hover:text-amber-400"}`}
+                >
+                  <Star className={`h-4 w-4 ${isStarred(focusedMsg.labelIds) ? "fill-amber-400" : ""}`} />
+                </button>
+              )}
               {canSend && focusedMsg && (
                 <Button size="sm" variant="outline" onClick={() => handleReply(focusedMsg)} data-testid="button-reply">
                   Reply
