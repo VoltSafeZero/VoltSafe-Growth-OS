@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -14,6 +14,7 @@ import Dashboard from "@/pages/dashboard";
 import MarinasPage from "@/pages/marinas";
 import LeadsPage from "@/pages/leads";
 import AccountsPage from "@/pages/accounts";
+import ContactsPage from "@/pages/contacts";
 import QuotesPage from "@/pages/quotes";
 import TicketsPage from "@/pages/tickets";
 import CommunicationsPage from "@/pages/communications";
@@ -35,6 +36,7 @@ import AssetsPage from "@/pages/assets";
 import PriceListsPage from "@/pages/price-lists";
 import JiraPage from "@/pages/jira";
 import ConfluencePage from "@/pages/confluence";
+import AdminIntegrationsPage from "@/pages/admin-integrations";
 
 type AuthUser = {
   id: number;
@@ -43,6 +45,14 @@ type AuthUser = {
   role: string;
   mustChangePassword: boolean;
 };
+
+function Redirect({ to }: { to: string }) {
+  const [, navigate] = useLocation();
+  useEffect(() => {
+    navigate(to, { replace: true });
+  }, [to, navigate]);
+  return null;
+}
 
 function AppShell({ children, user, onLogout }: { children: React.ReactNode; user: AuthUser; onLogout: () => void }) {
   const sidebarStyle = {
@@ -67,36 +77,71 @@ function AppShell({ children, user, onLogout }: { children: React.ReactNode; use
 }
 
 function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
+  const wrap = (children: React.ReactNode) => (
+    <AppShell user={user} onLogout={onLogout}>{children}</AppShell>
+  );
+
   return (
     <Switch>
-      <Route path="/">{() => <AppShell user={user} onLogout={onLogout}><Dashboard /></AppShell>}</Route>
-      <Route path="/marinas">{() => <AppShell user={user} onLogout={onLogout}><MarinasPage /></AppShell>}</Route>
-      <Route path="/leads">{() => <AppShell user={user} onLogout={onLogout}><LeadsPage /></AppShell>}</Route>
-      <Route path="/accounts">{() => <AppShell user={user} onLogout={onLogout}><AccountsPage /></AppShell>}</Route>
-      <Route path="/quotes">{() => <AppShell user={user} onLogout={onLogout}><QuotesPage /></AppShell>}</Route>
-      <Route path="/tickets">{() => <AppShell user={user} onLogout={onLogout}><TicketsPage /></AppShell>}</Route>
-      <Route path="/communications">{() => <AppShell user={user} onLogout={onLogout}><CommunicationsPage /></AppShell>}</Route>
-      <Route path="/calendar">{() => <AppShell user={user} onLogout={onLogout}><CalendarPage /></AppShell>}</Route>
-      <Route path="/team-workload">{() => <AppShell user={user} onLogout={onLogout}><TeamWorkloadPage /></AppShell>}</Route>
-      <Route path="/partnerships/strategic-industry">{() => <AppShell user={user} onLogout={onLogout}><PartnershipsPage category="strategic_industry" /></AppShell>}</Route>
-      <Route path="/partnerships/technology">{() => <AppShell user={user} onLogout={onLogout}><PartnershipsPage category="technology" /></AppShell>}</Route>
-      <Route path="/partnerships/distribution">{() => <AppShell user={user} onLogout={onLogout}><PartnershipsPage category="distribution" /></AppShell>}</Route>
-      <Route path="/partnerships/oem">{() => <AppShell user={user} onLogout={onLogout}><PartnershipsPage category="oem" /></AppShell>}</Route>
-      <Route path="/partnerships/government">{() => <AppShell user={user} onLogout={onLogout}><PartnershipsPage category="government" /></AppShell>}</Route>
-      <Route path="/partnerships/research">{() => <AppShell user={user} onLogout={onLogout}><PartnershipsPage category="research" /></AppShell>}</Route>
-      <Route path="/partnerships/pilot">{() => <AppShell user={user} onLogout={onLogout}><PartnershipsPage category="pilot" /></AppShell>}</Route>
-      <Route path="/ecosystem/organizations">{() => <AppShell user={user} onLogout={onLogout}><EcosystemOrganizationsPage /></AppShell>}</Route>
-      <Route path="/ecosystem/people">{() => <AppShell user={user} onLogout={onLogout}><EcosystemPeoplePage /></AppShell>}</Route>
-      <Route path="/ecosystem/relationships">{() => <AppShell user={user} onLogout={onLogout}><EcosystemRelationshipsPage /></AppShell>}</Route>
-      <Route path="/ecosystem/events">{() => <AppShell user={user} onLogout={onLogout}><EcosystemEventsPage /></AppShell>}</Route>
-      <Route path="/ecosystem/regions">{() => <AppShell user={user} onLogout={onLogout}><EcosystemRegionsPage /></AppShell>}</Route>
-      <Route path="/settings">{() => <AppShell user={user} onLogout={onLogout}><SettingsPage /></AppShell>}</Route>
-      <Route path="/gmail">{() => <AppShell user={user} onLogout={onLogout}><GmailInboxPage currentUserEmail={user.email} /></AppShell>}</Route>
-      <Route path="/assets">{() => <AppShell user={user} onLogout={onLogout}><AssetsPage /></AppShell>}</Route>
-      <Route path="/price-lists">{() => <AppShell user={user} onLogout={onLogout}><PriceListsPage /></AppShell>}</Route>
-      <Route path="/jira">{() => <AppShell user={user} onLogout={onLogout}><JiraPage /></AppShell>}</Route>
-      <Route path="/confluence">{() => <AppShell user={user} onLogout={onLogout}><ConfluencePage /></AppShell>}</Route>
-      <Route path="/integrations">{() => <AppShell user={user} onLogout={onLogout}><div className="p-8"><h1 className="text-2xl font-bold">Integrations</h1><p className="text-muted-foreground mt-2">HubSpot and Klaviyo integrations coming soon.</p></div></AppShell>}</Route>
+      {/* ── HOME ──────────────────────────────────────────────────── */}
+      <Route path="/">{() => wrap(<Dashboard />)}</Route>
+
+      {/* ── CRM ───────────────────────────────────────────────────── */}
+      <Route path="/accounts">{() => wrap(<AccountsPage />)}</Route>
+      <Route path="/contacts">{() => wrap(<ContactsPage />)}</Route>
+      <Route path="/opportunities">{() => wrap(<LeadsPage />)}</Route>
+      <Route path="/quotes">{() => wrap(<QuotesPage />)}</Route>
+
+      {/* ── STRATEGY ──────────────────────────────────────────────── */}
+      <Route path="/strategy/industry">{() => wrap(<PartnershipsPage category="strategic_industry" />)}</Route>
+      <Route path="/strategy/partnerships">{() => wrap(<PartnershipsPage category="distribution" />)}</Route>
+      <Route path="/strategy/oem">{() => wrap(<PartnershipsPage category="oem" />)}</Route>
+      <Route path="/strategy/government">{() => wrap(<PartnershipsPage category="government" />)}</Route>
+      <Route path="/strategy/research">{() => wrap(<PartnershipsPage category="research" />)}</Route>
+
+      {/* ── EXECUTION ─────────────────────────────────────────────── */}
+      <Route path="/gmail">{() => wrap(<GmailInboxPage currentUserEmail={user.email} />)}</Route>
+      <Route path="/execution/calendar">{() => wrap(<CalendarPage />)}</Route>
+      <Route path="/execution/communications">{() => wrap(<CommunicationsPage />)}</Route>
+      <Route path="/execution/team-workload">{() => wrap(<TeamWorkloadPage />)}</Route>
+
+      {/* ── KNOWLEDGE ─────────────────────────────────────────────── */}
+      <Route path="/knowledge/assets">{() => wrap(<AssetsPage />)}</Route>
+      <Route path="/price-lists">{() => wrap(<PriceListsPage />)}</Route>
+
+      {/* ── SUPPORT ───────────────────────────────────────────────── */}
+      <Route path="/support/tickets">{() => wrap(<TicketsPage />)}</Route>
+
+      {/* ── ADMIN ─────────────────────────────────────────────────── */}
+      <Route path="/admin/integrations">{() => wrap(<AdminIntegrationsPage />)}</Route>
+      <Route path="/jira">{() => wrap(<JiraPage />)}</Route>
+      <Route path="/confluence">{() => wrap(<ConfluencePage />)}</Route>
+      <Route path="/settings">{() => wrap(<SettingsPage />)}</Route>
+
+      {/* ── LEGACY REDIRECTS (migration-safe, never 404) ──────────── */}
+      <Route path="/leads">{() => <Redirect to="/opportunities" />}</Route>
+      <Route path="/tickets">{() => <Redirect to="/support/tickets" />}</Route>
+      <Route path="/calendar">{() => <Redirect to="/execution/calendar" />}</Route>
+      <Route path="/communications">{() => <Redirect to="/execution/communications" />}</Route>
+      <Route path="/team-workload">{() => <Redirect to="/execution/team-workload" />}</Route>
+      <Route path="/assets">{() => <Redirect to="/knowledge/assets" />}</Route>
+      <Route path="/integrations">{() => <Redirect to="/admin/integrations" />}</Route>
+      <Route path="/partnerships/strategic-industry">{() => <Redirect to="/strategy/industry" />}</Route>
+      <Route path="/partnerships/technology">{() => <Redirect to="/admin/integrations" />}</Route>
+      <Route path="/partnerships/distribution">{() => <Redirect to="/strategy/partnerships" />}</Route>
+      <Route path="/partnerships/oem">{() => <Redirect to="/strategy/oem" />}</Route>
+      <Route path="/partnerships/government">{() => <Redirect to="/strategy/government" />}</Route>
+      <Route path="/partnerships/research">{() => <Redirect to="/strategy/research" />}</Route>
+      <Route path="/partnerships/pilot">{() => <Redirect to="/accounts" />}</Route>
+      <Route path="/ecosystem/organizations">{() => wrap(<EcosystemOrganizationsPage />)}</Route>
+      <Route path="/ecosystem/people">{() => wrap(<EcosystemPeoplePage />)}</Route>
+      <Route path="/ecosystem/relationships">{() => wrap(<EcosystemRelationshipsPage />)}</Route>
+      <Route path="/ecosystem/events">{() => wrap(<EcosystemEventsPage />)}</Route>
+      <Route path="/ecosystem/regions">{() => wrap(<EcosystemRegionsPage />)}</Route>
+
+      {/* ── MISC ──────────────────────────────────────────────────── */}
+      <Route path="/marinas">{() => wrap(<MarinasPage />)}</Route>
+
       <Route component={NotFound} />
     </Switch>
   );

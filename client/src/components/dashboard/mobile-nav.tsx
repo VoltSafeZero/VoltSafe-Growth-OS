@@ -1,93 +1,90 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
-  LayoutDashboard,
-  UserPlus,
-  Building2,
-  Mail,
-  MoreHorizontal,
-  X,
-  FileText,
-  LifeBuoy,
-  Megaphone,
-  Settings,
-  Zap,
+  Home,
   Users,
+  TrendingUp,
+  Activity,
+  BookOpen,
+  LifeBuoy,
+  Settings2,
+  Building2,
+  Contact,
+  UserPlus,
+  FileText,
   Handshake,
-  Cpu,
   Truck,
   Factory,
   Landmark,
   FlaskConical,
-  Ship,
-  Globe,
-  Contact,
-  GitBranch,
-  CalendarDays,
+  Mail,
   CalendarClock,
-  MapPin,
+  Megaphone,
+  FolderOpen,
+  Tags,
+  Zap,
+  Settings,
+  MoreHorizontal,
+  X,
+  Users2,
+  ClipboardList,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 const primaryNav = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Leads", url: "/leads", icon: UserPlus },
-  { title: "Accounts", url: "/accounts", icon: Building2 },
-  { title: "Gmail", url: "/gmail", icon: Mail },
+  { title: "Home", url: "/", icon: Home },
+  { title: "CRM", url: "/accounts", icon: Users },
+  { title: "Execution", url: "/gmail", icon: Activity },
+  { title: "Support", url: "/support/tickets", icon: LifeBuoy },
 ];
 
 const allNavGroups = [
   {
-    label: "Overview",
+    label: "CRM",
     items: [
-      { title: "Dashboard", url: "/", icon: LayoutDashboard },
-      { title: "Calendar", url: "/calendar", icon: CalendarClock },
-      { title: "Team Workload", url: "/team-workload", icon: Users },
-    ],
-  },
-  {
-    label: "Sales",
-    items: [
-      { title: "Marina Leads", url: "/leads", icon: UserPlus },
-      { title: "Marina Accounts", url: "/accounts", icon: Building2 },
+      { title: "Accounts", url: "/accounts", icon: Building2 },
+      { title: "Contacts", url: "/contacts", icon: Contact },
+      { title: "Opportunities", url: "/opportunities", icon: UserPlus },
       { title: "Quotes", url: "/quotes", icon: FileText },
     ],
   },
   {
-    label: "Communications",
+    label: "Strategy",
     items: [
-      { title: "Gmail Inbox", url: "/gmail", icon: Mail },
-      { title: "Communications", url: "/communications", icon: Megaphone },
+      { title: "Industry", url: "/strategy/industry", icon: Handshake },
+      { title: "Partnerships", url: "/strategy/partnerships", icon: Truck },
+      { title: "OEM & Licensing", url: "/strategy/oem", icon: Factory },
+      { title: "Government & Grants", url: "/strategy/government", icon: Landmark },
+      { title: "Research", url: "/strategy/research", icon: FlaskConical },
     ],
   },
   {
-    label: "Partnerships",
+    label: "Execution",
     items: [
-      { title: "Strategic Industry", url: "/partnerships/strategic-industry", icon: Handshake },
-      { title: "Technology & Integrations", url: "/partnerships/technology", icon: Cpu },
-      { title: "Distribution & Channel", url: "/partnerships/distribution", icon: Truck },
-      { title: "OEM & Licensing", url: "/partnerships/oem", icon: Factory },
-      { title: "Government & Grants", url: "/partnerships/government", icon: Landmark },
-      { title: "Research & Innovation", url: "/partnerships/research", icon: FlaskConical },
-      { title: "Pilot & Lighthouse Marinas", url: "/partnerships/pilot", icon: Ship },
+      { title: "Gmail", url: "/gmail", icon: Mail },
+      { title: "Calendar", url: "/execution/calendar", icon: CalendarClock },
+      { title: "Communications", url: "/execution/communications", icon: Megaphone },
+      { title: "Team Workload", url: "/execution/team-workload", icon: Users2 },
     ],
   },
   {
-    label: "Ecosystem",
+    label: "Knowledge",
     items: [
-      { title: "Organizations", url: "/ecosystem/organizations", icon: Globe },
-      { title: "People", url: "/ecosystem/people", icon: Contact },
-      { title: "Relationships", url: "/ecosystem/relationships", icon: GitBranch },
-      { title: "Events", url: "/ecosystem/events", icon: CalendarDays },
-      { title: "Regions", url: "/ecosystem/regions", icon: MapPin },
+      { title: "Assets", url: "/knowledge/assets", icon: FolderOpen },
+      { title: "Price Lists", url: "/price-lists", icon: Tags },
     ],
   },
   {
-    label: "Support & Config",
+    label: "Support",
     items: [
-      { title: "Tickets", url: "/tickets", icon: LifeBuoy },
+      { title: "Tickets", url: "/support/tickets", icon: ClipboardList },
+    ],
+  },
+  {
+    label: "Admin",
+    items: [
+      { title: "Integrations", url: "/admin/integrations", icon: Zap },
       { title: "Settings", url: "/settings", icon: Settings },
-      { title: "Integrations", url: "/integrations", icon: Zap },
     ],
   },
 ];
@@ -135,7 +132,9 @@ export function MobileNav() {
                 </div>
                 <div className="grid grid-cols-2 gap-1 px-3">
                   {group.items.map((item) => {
-                    const isActive = location === item.url || (item.url !== "/" && location.startsWith(item.url));
+                    const isActive =
+                      location === item.url ||
+                      (item.url !== "/" && location.startsWith(item.url));
                     return (
                       <button
                         key={item.url}
@@ -162,7 +161,14 @@ export function MobileNav() {
       <nav className="fixed bottom-0 left-0 right-0 z-40 bg-background/95 border-t border-border/50 safe-area-bottom">
         <div className="flex items-stretch h-16">
           {primaryNav.map((item) => {
-            const isActive = location === item.url || (item.url !== "/" && location.startsWith(item.url));
+            const isActive =
+              item.url === "/"
+                ? location === "/"
+                : location.startsWith(item.url) ||
+                  (item.title === "CRM" &&
+                    ["/accounts", "/contacts", "/opportunities", "/quotes"].some((u) =>
+                      location.startsWith(u)
+                    ));
             return (
               <Link
                 key={item.url}
