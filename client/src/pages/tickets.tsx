@@ -17,6 +17,7 @@ import {
   Search, LifeBuoy, CheckCircle2, Timer, XCircle,
 } from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
+import { NotesPanel } from "@/components/notes-panel";
 import type { Ticket } from "@shared/schema";
 
 const STATUSES = [
@@ -365,10 +366,8 @@ function TicketDetailDialog({ ticket, statuses, onUpdate, onClose }: {
             </div>
           </TabsContent>
 
-          <TabsContent value="notes" className="space-y-3 mt-4">
-            <Label className="text-xs text-muted-foreground">Internal Notes</Label>
-            <Textarea value={internalNotes} onChange={(e) => setInternalNotes(e.target.value)} rows={6} placeholder="Add internal notes here..." data-testid="input-internal-notes" />
-            <Button size="sm" variant="outline" onClick={() => onUpdate({ internalNotes })} data-testid="button-save-notes">Save Notes</Button>
+          <TabsContent value="notes" className="mt-4">
+            <NotesPanel linkedObjectType="ticket" linkedObjectId={ticket.id} />
           </TabsContent>
 
           <TabsContent value="resolution" className="space-y-3 mt-4">

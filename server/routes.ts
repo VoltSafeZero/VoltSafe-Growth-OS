@@ -2543,4 +2543,238 @@ export function registerConfluenceRoutes(app: Express) {
       res.status(503).json({ message: "Jira not connected", error: err.message });
     }
   });
+
+  // ─── Stage 3 — Projects ─────────────────────────────────────────────────
+  app.get("/api/projects", requireAuth, async (req, res) => {
+    try {
+      const { type, status, accountId } = req.query as Record<string, string>;
+      const data = await storage.getProjects({
+        type: type || undefined,
+        status: status || undefined,
+        accountId: accountId ? Number(accountId) : undefined,
+      });
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/projects/:id", requireAuth, async (req, res) => {
+    try {
+      const p = await storage.getProject(Number(req.params.id));
+      if (!p) return res.status(404).json({ message: "Not found" });
+      res.json(p);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/projects", requireAuth, async (req, res) => {
+    try {
+      const p = await storage.createProject(req.body);
+      res.status(201).json(p);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/projects/:id", requireAuth, async (req, res) => {
+    try {
+      const p = await storage.updateProject(Number(req.params.id), req.body);
+      if (!p) return res.status(404).json({ message: "Not found" });
+      res.json(p);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/projects/:id", requireAuth, async (req, res) => {
+    try {
+      const ok = await storage.deleteProject(Number(req.params.id));
+      if (!ok) return res.status(404).json({ message: "Not found" });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Stage 3 — Notes ────────────────────────────────────────────────────
+  app.get("/api/notes", requireAuth, async (req, res) => {
+    try {
+      const { linkedObjectType, linkedObjectId } = req.query as Record<string, string>;
+      if (!linkedObjectType || !linkedObjectId) return res.status(400).json({ message: "linkedObjectType and linkedObjectId required" });
+      const data = await storage.getNotes(linkedObjectType, Number(linkedObjectId));
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/notes", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const note = await storage.createNote({
+        ...req.body,
+        authorId: user?.id,
+        authorName: user?.name || "System",
+      });
+      res.status(201).json(note);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/notes/:id", requireAuth, async (req, res) => {
+    try {
+      const note = await storage.updateNote(Number(req.params.id), req.body);
+      if (!note) return res.status(404).json({ message: "Not found" });
+      res.json(note);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/notes/:id", requireAuth, async (req, res) => {
+    try {
+      const ok = await storage.deleteNote(Number(req.params.id));
+      if (!ok) return res.status(404).json({ message: "Not found" });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Stage 3 — Tags ─────────────────────────────────────────────────────
+  app.get("/api/tags", requireAuth, async (req, res) => {
+    try {
+      const { category } = req.query as Record<string, string>;
+      const data = await storage.getTags(category || undefined);
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/tags", requireAuth, async (req, res) => {
+    try {
+      const tag = await storage.createTag(req.body);
+      res.status(201).json(tag);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/tags/:id", requireAuth, async (req, res) => {
+    try {
+      const ok = await storage.deleteTag(Number(req.params.id));
+      if (!ok) return res.status(404).json({ message: "Not found" });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/record-tags", requireAuth, async (req, res) => {
+    try {
+      const { recordType, recordId } = req.query as Record<string, string>;
+      if (!recordType || !recordId) return res.status(400).json({ message: "recordType and recordId required" });
+      const data = await storage.getRecordTags(recordType, Number(recordId));
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/record-tags", requireAuth, async (req, res) => {
+    try {
+      const rt = await storage.addRecordTag(req.body);
+      res.status(201).json(rt);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/record-tags", requireAuth, async (req, res) => {
+    try {
+      const { tagId, recordType, recordId } = req.query as Record<string, string>;
+      if (!tagId || !recordType || !recordId) return res.status(400).json({ message: "tagId, recordType, recordId required" });
+      const ok = await storage.removeRecordTag(Number(tagId), recordType, Number(recordId));
+      if (!ok) return res.status(404).json({ message: "Not found" });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Stage 3 — Saved Views ───────────────────────────────────────────────
+  app.get("/api/saved-views", requireAuth, async (req, res) => {
+    try {
+      const { pageKey } = req.query as Record<string, string>;
+      if (!pageKey) return res.status(400).json({ message: "pageKey required" });
+      const user = (req as any).user;
+      const data = await storage.getSavedViews(pageKey, user?.id);
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/saved-views", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const view = await storage.createSavedView({ ...req.body, userId: user?.id });
+      res.status(201).json(view);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/saved-views/:id", requireAuth, async (req, res) => {
+    try {
+      const view = await storage.updateSavedView(Number(req.params.id), req.body);
+      if (!view) return res.status(404).json({ message: "Not found" });
+      res.json(view);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/saved-views/:id", requireAuth, async (req, res) => {
+    try {
+      const ok = await storage.deleteSavedView(Number(req.params.id));
+      if (!ok) return res.status(404).json({ message: "Not found" });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Stage 3 — Opportunity Contacts ────────────────────────────────────
+  app.get("/api/opportunities/:id/contacts", requireAuth, async (req, res) => {
+    try {
+      const data = await storage.getOpportunityContacts(Number(req.params.id));
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/opportunities/:id/contacts", requireAuth, async (req, res) => {
+    try {
+      const oc = await storage.addOpportunityContact({ ...req.body, opportunityId: Number(req.params.id) });
+      res.status(201).json(oc);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/opportunities/:id/contacts/:contactId", requireAuth, async (req, res) => {
+    try {
+      const ok = await storage.removeOpportunityContact(Number(req.params.id), Number(req.params.contactId));
+      if (!ok) return res.status(404).json({ message: "Not found" });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 }

@@ -18,6 +18,7 @@ import {
   ArrowRight, CheckCircle2, XCircle, Target, ShieldAlert, Zap, MessageSquare
 } from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
+import { NotesPanel } from "@/components/notes-panel";
 import type { Opportunity, Account } from "@shared/schema";
 
 const DEAL_STAGES = [
@@ -462,10 +463,11 @@ function DealDetailDialog({ deal, accountName, onUpdate, onClose }: {
         )}
 
         <Tabs defaultValue="details" className="mt-2">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="details">Details</TabsTrigger>
             <TabsTrigger value="qualification">Qualification</TabsTrigger>
             <TabsTrigger value="outcome">Outcome</TabsTrigger>
+            <TabsTrigger value="notes">Notes</TabsTrigger>
           </TabsList>
 
           <TabsContent value="details" className="space-y-4 mt-4">
@@ -635,6 +637,10 @@ function DealDetailDialog({ deal, accountName, onUpdate, onClose }: {
             {deal.stage !== "closed_won" && deal.stage !== "closed_lost" && (
               <p className="text-sm text-muted-foreground text-center py-4">Deal is still active. Outcome details appear when a deal is closed.</p>
             )}
+          </TabsContent>
+
+          <TabsContent value="notes" className="mt-4">
+            <NotesPanel linkedObjectType="opportunity" linkedObjectId={deal.id} />
           </TabsContent>
         </Tabs>
       </DialogContent>

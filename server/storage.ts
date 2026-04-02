@@ -7,6 +7,7 @@ import {
   infrastructureProfiles, comments, users,
   partnerships, ecosystemOrganizations, ecosystemPeople,
   ecosystemRelationships, ecosystemEvents, ecosystemRegions,
+  projects, notes, tags, recordTags, savedViews, opportunityContacts,
   type Metric, type Sale, type ChartData, type Marina,
   type Lead, type InsertLead,
   type Account, type InsertAccount,
@@ -34,6 +35,12 @@ import {
   type EcosystemRegion, type InsertEcosystemRegion,
   calendarEvents,
   type CalendarEvent, type InsertCalendarEvent,
+  type Project, type InsertProject,
+  type Note, type InsertNote,
+  type Tag, type InsertTag,
+  type RecordTag, type InsertRecordTag,
+  type SavedView, type InsertSavedView,
+  type OpportunityContact, type InsertOpportunityContact,
 } from "@shared/schema";
 import { ilike, eq, or, sql, asc, desc, and, type AnyColumn } from "drizzle-orm";
 
@@ -202,6 +209,38 @@ export interface IStorage {
   createCalendarEvent(data: InsertCalendarEvent): Promise<CalendarEvent>;
   updateCalendarEvent(id: number, data: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined>;
   deleteCalendarEvent(id: number): Promise<boolean>;
+
+  // Stage 3 — Projects
+  getProjects(options?: { type?: string; status?: string; accountId?: number }): Promise<Project[]>;
+  getProject(id: number): Promise<Project | undefined>;
+  createProject(data: InsertProject): Promise<Project>;
+  updateProject(id: number, data: Partial<InsertProject>): Promise<Project | undefined>;
+  deleteProject(id: number): Promise<boolean>;
+
+  // Stage 3 — Notes
+  getNotes(linkedObjectType: string, linkedObjectId: number): Promise<Note[]>;
+  createNote(data: InsertNote): Promise<Note>;
+  updateNote(id: number, data: Partial<InsertNote>): Promise<Note | undefined>;
+  deleteNote(id: number): Promise<boolean>;
+
+  // Stage 3 — Tags
+  getTags(category?: string): Promise<Tag[]>;
+  createTag(data: InsertTag): Promise<Tag>;
+  deleteTag(id: number): Promise<boolean>;
+  getRecordTags(recordType: string, recordId: number): Promise<(RecordTag & { tag: Tag })[]>;
+  addRecordTag(data: InsertRecordTag): Promise<RecordTag>;
+  removeRecordTag(tagId: number, recordType: string, recordId: number): Promise<boolean>;
+
+  // Stage 3 — Saved Views
+  getSavedViews(pageKey: string, userId?: number): Promise<SavedView[]>;
+  createSavedView(data: InsertSavedView): Promise<SavedView>;
+  updateSavedView(id: number, data: Partial<InsertSavedView>): Promise<SavedView | undefined>;
+  deleteSavedView(id: number): Promise<boolean>;
+
+  // Stage 3 — Opportunity Contacts
+  getOpportunityContacts(opportunityId: number): Promise<(OpportunityContact & { contact: any })[]>;
+  addOpportunityContact(data: InsertOpportunityContact): Promise<OpportunityContact>;
+  removeOpportunityContact(opportunityId: number, contactId: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1069,6 +1108,142 @@ export class DatabaseStorage implements IStorage {
   }
   async deleteCalendarEvent(id: number): Promise<boolean> {
     const [r] = await db.delete(calendarEvents).where(eq(calendarEvents.id, id)).returning();
+    return !!r;
+  }
+
+  // ─── Stage 3 — Projects ──────────────────────────────────────────────────
+  async getProjects(options: { type?: string; status?: string; accountId?: number } = {}): Promise<Project[]> {
+    const conditions = [];
+    if (options.type) conditions.push(eq(projects.type, options.type));
+    if (options.status) conditions.push(eq(projects.status, options.status));
+    if (options.accountId) conditions.push(eq(projects.accountId, options.accountId));
+    const q = db.select().from(projects);
+    if (conditions.length > 0) return await q.where(and(...conditions)).orderBy(desc(projects.createdAt));
+    return await q.orderBy(desc(projects.createdAt));
+  }
+
+  async getProject(id: number): Promise<Project | undefined> {
+    const [r] = await db.select().from(projects).where(eq(projects.id, id));
+    return r;
+  }
+
+  async createProject(data: InsertProject): Promise<Project> {
+    const [r] = await db.insert(projects).values(data).returning();
+    return r;
+  }
+
+  async updateProject(id: number, data: Partial<InsertProject>): Promise<Project | undefined> {
+    const [r] = await db.update(projects).set({ ...data, updatedAt: new Date() }).where(eq(projects.id, id)).returning();
+    return r;
+  }
+
+  async deleteProject(id: number): Promise<boolean> {
+    const [r] = await db.delete(projects).where(eq(projects.id, id)).returning();
+    return !!r;
+  }
+
+  // ─── Stage 3 — Notes ─────────────────────────────────────────────────────
+  async getNotes(linkedObjectType: string, linkedObjectId: number): Promise<Note[]> {
+    return await db.select().from(notes)
+      .where(and(eq(notes.linkedObjectType, linkedObjectType), eq(notes.linkedObjectId, linkedObjectId)))
+      .orderBy(desc(notes.createdAt));
+  }
+
+  async createNote(data: InsertNote): Promise<Note> {
+    const [r] = await db.insert(notes).values(data).returning();
+    return r;
+  }
+
+  async updateNote(id: number, data: Partial<InsertNote>): Promise<Note | undefined> {
+    const [r] = await db.update(notes).set({ ...data, updatedAt: new Date() }).where(eq(notes.id, id)).returning();
+    return r;
+  }
+
+  async deleteNote(id: number): Promise<boolean> {
+    const [r] = await db.delete(notes).where(eq(notes.id, id)).returning();
+    return !!r;
+  }
+
+  // ─── Stage 3 — Tags ──────────────────────────────────────────────────────
+  async getTags(category?: string): Promise<Tag[]> {
+    if (category) return await db.select().from(tags).where(eq(tags.category, category)).orderBy(asc(tags.name));
+    return await db.select().from(tags).orderBy(asc(tags.name));
+  }
+
+  async createTag(data: InsertTag): Promise<Tag> {
+    const [r] = await db.insert(tags).values(data).returning();
+    return r;
+  }
+
+  async deleteTag(id: number): Promise<boolean> {
+    await db.delete(recordTags).where(eq(recordTags.tagId, id));
+    const [r] = await db.delete(tags).where(eq(tags.id, id)).returning();
+    return !!r;
+  }
+
+  async getRecordTags(recordType: string, recordId: number): Promise<(RecordTag & { tag: Tag })[]> {
+    const rows = await db.select().from(recordTags)
+      .where(and(eq(recordTags.recordType, recordType), eq(recordTags.recordId, recordId)));
+    const tagIds = rows.map(r => r.tagId);
+    if (tagIds.length === 0) return [];
+    const tagRows = await db.select().from(tags).where(sql`${tags.id} = ANY(${tagIds})`);
+    const tagMap = new Map(tagRows.map(t => [t.id, t]));
+    return rows.map(r => ({ ...r, tag: tagMap.get(r.tagId)! })).filter(r => r.tag);
+  }
+
+  async addRecordTag(data: InsertRecordTag): Promise<RecordTag> {
+    const [r] = await db.insert(recordTags).values(data).onConflictDoNothing().returning();
+    return r;
+  }
+
+  async removeRecordTag(tagId: number, recordType: string, recordId: number): Promise<boolean> {
+    const [r] = await db.delete(recordTags)
+      .where(and(eq(recordTags.tagId, tagId), eq(recordTags.recordType, recordType), eq(recordTags.recordId, recordId)))
+      .returning();
+    return !!r;
+  }
+
+  // ─── Stage 3 — Saved Views ───────────────────────────────────────────────
+  async getSavedViews(pageKey: string, userId?: number): Promise<SavedView[]> {
+    const conditions = [eq(savedViews.pageKey, pageKey)];
+    if (userId) conditions.push(or(eq(savedViews.userId, userId), eq(savedViews.isShared, true))!);
+    return await db.select().from(savedViews).where(and(...conditions)).orderBy(asc(savedViews.name));
+  }
+
+  async createSavedView(data: InsertSavedView): Promise<SavedView> {
+    const [r] = await db.insert(savedViews).values(data).returning();
+    return r;
+  }
+
+  async updateSavedView(id: number, data: Partial<InsertSavedView>): Promise<SavedView | undefined> {
+    const [r] = await db.update(savedViews).set({ ...data, updatedAt: new Date() }).where(eq(savedViews.id, id)).returning();
+    return r;
+  }
+
+  async deleteSavedView(id: number): Promise<boolean> {
+    const [r] = await db.delete(savedViews).where(eq(savedViews.id, id)).returning();
+    return !!r;
+  }
+
+  // ─── Stage 3 — Opportunity Contacts ──────────────────────────────────────
+  async getOpportunityContacts(opportunityId: number): Promise<(OpportunityContact & { contact: any })[]> {
+    const rows = await db.select().from(opportunityContacts).where(eq(opportunityContacts.opportunityId, opportunityId));
+    const contactIds = rows.map(r => r.contactId);
+    if (contactIds.length === 0) return [];
+    const contactRows = await db.select().from(contacts).where(sql`${contacts.id} = ANY(${contactIds})`);
+    const contactMap = new Map(contactRows.map(c => [c.id, c]));
+    return rows.map(r => ({ ...r, contact: contactMap.get(r.contactId) }));
+  }
+
+  async addOpportunityContact(data: InsertOpportunityContact): Promise<OpportunityContact> {
+    const [r] = await db.insert(opportunityContacts).values(data).onConflictDoNothing().returning();
+    return r;
+  }
+
+  async removeOpportunityContact(opportunityId: number, contactId: number): Promise<boolean> {
+    const [r] = await db.delete(opportunityContacts)
+      .where(and(eq(opportunityContacts.opportunityId, opportunityId), eq(opportunityContacts.contactId, contactId)))
+      .returning();
     return !!r;
   }
 }

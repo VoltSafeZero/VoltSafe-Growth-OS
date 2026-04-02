@@ -18,6 +18,7 @@ import {
   Settings2, Wrench, Shield, Wifi, LinkIcon, List, LayoutGrid, Map
 } from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
+import { NotesPanel } from "@/components/notes-panel";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { CommentsFeed } from "@/components/comments-feed";
@@ -627,6 +628,7 @@ function AccountDetailDialog({ account: initialAccount, onClose }: { account: Ac
             <TabsTrigger value="tickets" data-testid="tab-tickets">Tickets ({ticketsData?.data?.length || 0})</TabsTrigger>
             <TabsTrigger value="infrastructure" data-testid="tab-infrastructure">Infrastructure</TabsTrigger>
             <TabsTrigger value="emails" data-testid="tab-emails">Emails</TabsTrigger>
+            <TabsTrigger value="notes" data-testid="tab-notes">Notes</TabsTrigger>
           </TabsList>
 
           <TabsContent value="details" className="space-y-4 mt-4">
@@ -812,6 +814,10 @@ function AccountDetailDialog({ account: initialAccount, onClose }: { account: Ac
 
           <TabsContent value="emails" className="mt-4">
             <EmailsTab objectType="account" objectId={account.id} />
+          </TabsContent>
+
+          <TabsContent value="notes" className="mt-4">
+            <NotesPanel linkedObjectType="account" linkedObjectId={account.id} />
           </TabsContent>
         </Tabs>
       </DialogContent>

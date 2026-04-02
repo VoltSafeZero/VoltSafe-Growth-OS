@@ -1,16 +1,24 @@
 import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { NotesPanel } from "@/components/notes-panel";
+import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Layers, Anchor, Handshake, Landmark, FlaskConical,
-  CalendarDays, Megaphone, Users2, Building2, Clock, Star,
+  CalendarDays, Megaphone, Star, Pencil, Trash2, Building2, DollarSign,
 } from "lucide-react";
+import type { Project } from "@shared/schema";
 
 const PROJECT_TYPES = [
   { key: "pilot", label: "Pilot", icon: Anchor, color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/20" },
@@ -31,108 +39,91 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "bg-red-500/10 text-red-400 border-red-500/20",
 };
 
-type Project = {
-  id: number;
-  name: string;
-  type: string;
-  status: string;
-  owner: string;
-  account?: string;
-  description?: string;
-  startDate?: string;
-  endDate?: string;
-};
-
-const SAMPLE_PROJECTS: Project[] = [
-  {
-    id: 1,
-    name: "RVYC Jericho Pilot",
-    type: "pilot",
-    status: "active",
-    owner: "Trevor",
-    account: "RVYC",
-    description: "Pilot data collection and results — white paper. Innovate BC grant reporting.",
-    startDate: "2026-01-01",
-    endDate: "2026-12-31",
-  },
-];
+function getTypeConfig(type: string) {
+  return PROJECT_TYPES.find(t => t.key === type) || PROJECT_TYPES[PROJECT_TYPES.length - 1];
+}
 
 export default function ProjectsPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [createOpen, setCreateOpen] = useState(false);
-  const [projects, setProjects] = useState<Project[]>(SAMPLE_PROJECTS);
   const [selected, setSelected] = useState<Project | null>(null);
+  const { toast } = useToast();
 
-  const filtered = projects.filter(p => {
-    if (typeFilter !== "all" && p.type !== typeFilter) return false;
-    if (statusFilter !== "all" && p.status !== statusFilter) return false;
-    return true;
+  const { data: projectsData, isLoading } = useQuery<Project[]>({
+    queryKey: ["/api/projects", { type: typeFilter, status: statusFilter }],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (typeFilter !== "all") params.set("type", typeFilter);
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      const res = await fetch(`/api/projects?${params}`, { credentials: "include" });
+      return res.json();
+    },
   });
+
+  const allProjects = projectsData || [];
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/projects/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      toast({ title: "Project deleted" });
+      setSelected(null);
+    },
+  });
+
+  const typeCounts = PROJECT_TYPES.reduce((acc, t) => {
+    acc[t.key] = allProjects.filter(p => p.type === t.key).length;
+    return acc;
+  }, {} as Record<string, number>);
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
       <div className="px-6 py-5 border-b border-border/50">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Projects</h1>
-            <p className="text-muted-foreground text-sm mt-0.5">Coordinated workstreams and internal initiatives</p>
+            <p className="text-muted-foreground text-sm mt-0.5">Coordinated workstreams and internal initiatives · {allProjects.length} total</p>
           </div>
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
-              <Button className="bg-primary text-primary-foreground h-9" data-testid="button-create-project">
-                <Plus className="w-4 h-4 mr-2" />New Project
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg">
-              <DialogHeader><DialogTitle>New Project</DialogTitle></DialogHeader>
-              <CreateProjectForm
-                onSubmit={(d) => {
-                  const newProject: Project = { ...d, id: Date.now() };
-                  setProjects(prev => [...prev, newProject]);
-                  setCreateOpen(false);
-                }}
-              />
-            </DialogContent>
-          </Dialog>
+          <Button
+            className="bg-primary text-primary-foreground shrink-0"
+            onClick={() => setCreateOpen(true)}
+            data-testid="button-create-project"
+          >
+            <Plus className="h-4 w-4 mr-2" /> New Project
+          </Button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-6 space-y-5">
-        {/* Type cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
-          {PROJECT_TYPES.map(type => {
-            const count = projects.filter(p => p.type === type.key).length;
-            const TypeIcon = type.icon;
-            const isActive = typeFilter === type.key;
-            return (
-              <button
-                key={type.key}
-                onClick={() => setTypeFilter(isActive ? "all" : type.key)}
-                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all text-center ${
-                  isActive
-                    ? `${type.bg} ${type.border} border`
-                    : "bg-secondary/10 border-border/30 hover:border-border/60 hover:bg-secondary/20"
-                }`}
-                data-testid={`filter-type-${type.key}`}
-              >
-                <TypeIcon className={`w-4 h-4 ${isActive ? type.color : "text-muted-foreground"}`} />
-                <span className={`text-[10px] font-medium leading-tight ${isActive ? type.color : "text-muted-foreground"}`}>{type.label}</span>
-                {count > 0 && <span className={`text-xs font-bold ${isActive ? type.color : "text-foreground"}`}>{count}</span>}
-              </button>
-            );
-          })}
+      <div className="px-6 py-4 border-b border-border/30">
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          <button
+            onClick={() => setTypeFilter("all")}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${typeFilter === "all" ? "bg-primary/20 text-primary border-primary/30" : "border-border/50 text-muted-foreground hover:border-border"}`}
+            data-testid="filter-type-all"
+          >
+            All Types ({allProjects.length})
+          </button>
+          {PROJECT_TYPES.map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTypeFilter(t.key === typeFilter ? "all" : t.key)}
+              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${typeFilter === t.key ? `${t.bg} ${t.color} ${t.border}` : "border-border/50 text-muted-foreground hover:border-border"}`}
+              data-testid={`filter-type-${t.key}`}
+            >
+              {t.label} {typeCounts[t.key] > 0 && `(${typeCounts[t.key]})`}
+            </button>
+          ))}
         </div>
-
-        {/* Status filter */}
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-40 h-9 bg-secondary/30 border-transparent" data-testid="select-status-filter">
+            <SelectTrigger className="h-8 w-40 text-xs" data-testid="select-status-filter">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="planning">Planning</SelectItem>
               <SelectItem value="active">Active</SelectItem>
               <SelectItem value="paused">Paused</SelectItem>
@@ -140,56 +131,67 @@ export default function ProjectsPage() {
               <SelectItem value="cancelled">Cancelled</SelectItem>
             </SelectContent>
           </Select>
-          <span className="text-sm text-muted-foreground">{filtered.length} project{filtered.length !== 1 ? "s" : ""}</span>
         </div>
+      </div>
 
-        {/* Projects grid */}
-        {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center border border-dashed border-border/40 rounded-xl">
-            <Layers className="w-12 h-12 text-muted-foreground/30 mb-3" />
-            <p className="text-muted-foreground font-medium">No projects yet</p>
-            <p className="text-muted-foreground/60 text-sm mt-1">Create your first project to track strategic initiatives</p>
-            <Button variant="outline" size="sm" className="mt-4" onClick={() => setCreateOpen(true)}>
-              <Plus className="w-3.5 h-3.5 mr-1.5" />New Project
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        {isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-36" />)}
+          </div>
+        ) : allProjects.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <Layers className="h-12 w-12 text-muted-foreground/40 mb-4" />
+            <h3 className="text-lg font-medium text-muted-foreground mb-2">No projects yet</h3>
+            <p className="text-sm text-muted-foreground/70 mb-4">Create your first project to track pilots, grants, partnerships and more</p>
+            <Button onClick={() => setCreateOpen(true)} data-testid="button-empty-create">
+              <Plus className="h-4 w-4 mr-2" /> New Project
             </Button>
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map(project => {
-              const typeConfig = PROJECT_TYPES.find(t => t.key === project.type) || PROJECT_TYPES[7];
-              const TypeIcon = typeConfig.icon;
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {allProjects.map(project => {
+              const typeConfig = getTypeConfig(project.type);
+              const Icon = typeConfig.icon;
               return (
                 <Card
                   key={project.id}
-                  className="border-border/50 hover:border-border/80 bg-card/50 cursor-pointer transition-all hover:bg-card/80"
+                  className="border-border/50 hover:border-border cursor-pointer transition-all hover:shadow-md group"
                   onClick={() => setSelected(project)}
-                  data-testid={`project-card-${project.id}`}
+                  data-testid={`card-project-${project.id}`}
                 >
                   <CardContent className="p-4">
-                    <div className="flex items-start gap-3 mb-3">
-                      <div className={`w-9 h-9 rounded-lg ${typeConfig.bg} border ${typeConfig.border} flex items-center justify-center shrink-0`}>
-                        <TypeIcon className={`w-4 h-4 ${typeConfig.color}`} />
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <div className={`w-8 h-8 rounded-lg ${typeConfig.bg} ${typeConfig.border} border flex items-center justify-center shrink-0`}>
+                        <Icon className={`h-4 w-4 ${typeConfig.color}`} />
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm truncate">{project.name}</p>
-                        <p className="text-xs text-muted-foreground">{typeConfig.label}</p>
-                      </div>
-                      <Badge variant="outline" className={`text-[10px] px-1.5 py-0 capitalize shrink-0 ${STATUS_COLORS[project.status] || ""}`}>
+                      <Badge variant="outline" className={`text-[11px] px-1.5 py-0 ${STATUS_COLORS[project.status] || ""}`}>
                         {project.status}
                       </Badge>
                     </div>
+                    <h3 className="font-semibold text-sm leading-tight mb-1">{project.name}</h3>
                     {project.description && (
-                      <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2 mb-3">{project.description}</p>
+                      <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{project.description}</p>
                     )}
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                      {project.account && (
-                        <span className="flex items-center gap-1"><Building2 className="w-3 h-3" />{project.account}</span>
-                      )}
-                      <span className="flex items-center gap-1"><Users2 className="w-3 h-3" />{project.owner}</span>
-                      {project.endDate && (
-                        <span className="flex items-center gap-1 ml-auto"><Clock className="w-3 h-3" />{new Date(project.endDate).toLocaleDateString()}</span>
+                    <div className="flex items-center gap-2 flex-wrap mt-2">
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${typeConfig.bg} ${typeConfig.color} ${typeConfig.border}`}>
+                        {typeConfig.label}
+                      </span>
+                      {project.phase && (
+                        <span className="text-[10px] text-muted-foreground">Phase: {project.phase}</span>
                       )}
                     </div>
+                    {(project.startDate || project.endDate) && (
+                      <p className="text-[10px] text-muted-foreground mt-2">
+                        {project.startDate ? new Date(project.startDate).getFullYear() : "?"} – {project.endDate ? new Date(project.endDate).getFullYear() : "ongoing"}
+                      </p>
+                    )}
+                    {project.budget && (
+                      <div className="flex items-center gap-1 mt-1.5">
+                        <DollarSign className="h-3 w-3 text-green-400" />
+                        <span className="text-xs text-green-400">{Number(project.budget).toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               );
@@ -198,101 +200,262 @@ export default function ProjectsPage() {
         )}
       </div>
 
+      {createOpen && (
+        <ProjectFormDialog onClose={() => setCreateOpen(false)} />
+      )}
+
       {selected && (
-        <ProjectDetailDialog project={selected} onClose={() => setSelected(null)} />
+        <ProjectDetailDialog
+          project={selected}
+          onClose={() => setSelected(null)}
+          onDelete={() => deleteMutation.mutate(selected.id)}
+          onRefresh={(updated) => setSelected(updated)}
+        />
       )}
     </div>
   );
 }
 
-function ProjectDetailDialog({ project, onClose }: { project: Project; onClose: () => void }) {
-  const typeConfig = PROJECT_TYPES.find(t => t.key === project.type) || PROJECT_TYPES[7];
-  const TypeIcon = typeConfig.icon;
+function ProjectFormDialog({ project, onClose }: { project?: Project; onClose: () => void }) {
+  const { toast } = useToast();
+  const [name, setName] = useState(project?.name || "");
+  const [type, setType] = useState(project?.type || "pilot");
+  const [status, setStatus] = useState(project?.status || "planning");
+  const [phase, setPhase] = useState(project?.phase || "");
+  const [description, setDescription] = useState(project?.description || "");
+  const [budget, setBudget] = useState(project?.budget ? String(project.budget) : "");
+  const [currency, setCurrency] = useState(project?.currency || "USD");
+  const [startDate, setStartDate] = useState(project?.startDate ? new Date(project.startDate).toISOString().split("T")[0] : "");
+  const [endDate, setEndDate] = useState(project?.endDate ? new Date(project.endDate).toISOString().split("T")[0] : "");
+
+  const mutation = useMutation({
+    mutationFn: async (d: Record<string, unknown>) => {
+      if (project) {
+        const res = await apiRequest("PUT", `/api/projects/${project.id}`, d);
+        return res.json();
+      }
+      const res = await apiRequest("POST", "/api/projects", d);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      toast({ title: project ? "Project updated" : "Project created" });
+      onClose();
+    },
+    onError: () => toast({ title: "Failed to save", variant: "destructive" }),
+  });
+
+  const handleSubmit = () => {
+    if (!name.trim()) return;
+    mutation.mutate({
+      name: name.trim(),
+      type,
+      status,
+      phase: phase || undefined,
+      description: description || undefined,
+      budget: budget ? Number(budget) : undefined,
+      currency,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+    });
+  };
 
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <div className="flex items-center gap-3">
-            <div className={`w-9 h-9 rounded-lg ${typeConfig.bg} border ${typeConfig.border} flex items-center justify-center shrink-0`}>
-              <TypeIcon className={`w-4 h-4 ${typeConfig.color}`} />
-            </div>
-            <div>
-              <DialogTitle className="text-base">{project.name}</DialogTitle>
-              <p className="text-xs text-muted-foreground">{typeConfig.label}</p>
-            </div>
-          </div>
-        </DialogHeader>
+        <DialogHeader><DialogTitle>{project ? "Edit Project" : "New Project"}</DialogTitle></DialogHeader>
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-secondary/20 rounded-lg p-3">
-              <p className="text-xs text-muted-foreground">Status</p>
-              <Badge variant="outline" className={`mt-1 text-xs capitalize ${STATUS_COLORS[project.status] || ""}`}>{project.status}</Badge>
-            </div>
-            <div className="bg-secondary/20 rounded-lg p-3">
-              <p className="text-xs text-muted-foreground">Owner</p>
-              <p className="text-sm font-medium mt-0.5">{project.owner}</p>
-            </div>
-            {project.account && (
-              <div className="bg-secondary/20 rounded-lg p-3">
-                <p className="text-xs text-muted-foreground">Account</p>
-                <p className="text-sm font-medium mt-0.5">{project.account}</p>
-              </div>
-            )}
-            {project.endDate && (
-              <div className="bg-secondary/20 rounded-lg p-3">
-                <p className="text-xs text-muted-foreground">Target Date</p>
-                <p className="text-sm font-medium mt-0.5">{new Date(project.endDate).toLocaleDateString()}</p>
-              </div>
-            )}
+          <div>
+            <Label className="text-xs">Project Name *</Label>
+            <Input value={name} onChange={e => setName(e.target.value)} className="mt-1" placeholder="e.g. RVYC Jericho Pilot" data-testid="input-project-name" />
           </div>
-          {project.description && (
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Description</p>
-              <p className="text-sm leading-relaxed">{project.description}</p>
+              <Label className="text-xs">Type</Label>
+              <Select value={type} onValueChange={setType}>
+                <SelectTrigger className="mt-1 h-8 text-sm" data-testid="select-project-type"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PROJECT_TYPES.map(t => <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-          )}
+            <div>
+              <Label className="text-xs">Status</Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger className="mt-1 h-8 text-sm" data-testid="select-project-status"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="planning">Planning</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="paused">Paused</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="cancelled">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs">Phase</Label>
+            <Input value={phase} onChange={e => setPhase(e.target.value)} className="mt-1 h-8 text-sm" placeholder="e.g. Data collection" data-testid="input-project-phase" />
+          </div>
+          <div>
+            <Label className="text-xs">Description</Label>
+            <Textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} className="mt-1 text-sm" placeholder="What is this project about?" data-testid="input-project-description" />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <Label className="text-xs">Budget</Label>
+              <Input value={budget} onChange={e => setBudget(e.target.value)} type="number" className="mt-1 h-8 text-sm" placeholder="0" data-testid="input-project-budget" />
+            </div>
+            <div>
+              <Label className="text-xs">Currency</Label>
+              <Select value={currency} onValueChange={setCurrency}>
+                <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="USD">USD</SelectItem>
+                  <SelectItem value="CAD">CAD</SelectItem>
+                  <SelectItem value="GBP">GBP</SelectItem>
+                  <SelectItem value="EUR">EUR</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Start Date</Label>
+              <Input value={startDate} onChange={e => setStartDate(e.target.value)} type="date" className="mt-1 h-8 text-sm" data-testid="input-project-start" />
+            </div>
+            <div>
+              <Label className="text-xs">End Date</Label>
+              <Input value={endDate} onChange={e => setEndDate(e.target.value)} type="date" className="mt-1 h-8 text-sm" data-testid="input-project-end" />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end pt-1">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button onClick={handleSubmit} disabled={!name.trim() || mutation.isPending} data-testid="button-save-project">
+              {mutation.isPending ? "Saving..." : project ? "Update" : "Create Project"}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-function CreateProjectForm({ onSubmit }: { onSubmit: (d: any) => void }) {
-  const [form, setForm] = useState({ name: "", type: "pilot", status: "planning", owner: "", account: "", description: "", endDate: "" });
+function ProjectDetailDialog({ project, onClose, onDelete, onRefresh }: {
+  project: Project;
+  onClose: () => void;
+  onDelete: () => void;
+  onRefresh: (p: Project) => void;
+}) {
+  const [editOpen, setEditOpen] = useState(false);
+  const [tab, setTab] = useState("overview");
+  const typeConfig = getTypeConfig(project.type);
+  const Icon = typeConfig.icon;
+
+  const updateMutation = useMutation({
+    mutationFn: async (d: Partial<Project>) => {
+      const res = await apiRequest("PUT", `/api/projects/${project.id}`, d);
+      return res.json();
+    },
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      onRefresh(updated);
+    },
+  });
+
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onSubmit(form); }} className="space-y-4">
-      <div><Label>Project Name *</Label><Input value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} required className="mt-1.5" data-testid="input-project-name" /></div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label>Type</Label>
-          <Select value={form.type} onValueChange={(v) => setForm(f => ({ ...f, type: v }))}>
-            <SelectTrigger className="mt-1.5" data-testid="select-project-type"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {PROJECT_TYPES.map(t => <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label>Status</Label>
-          <Select value={form.status} onValueChange={(v) => setForm(f => ({ ...f, status: v }))}>
-            <SelectTrigger className="mt-1.5" data-testid="select-project-status"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="planning">Planning</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="paused">Paused</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div><Label>Owner</Label><Input value={form.owner} onChange={(e) => setForm(f => ({ ...f, owner: e.target.value }))} className="mt-1.5" data-testid="input-project-owner" /></div>
-        <div><Label>Account</Label><Input value={form.account} onChange={(e) => setForm(f => ({ ...f, account: e.target.value }))} className="mt-1.5" placeholder="Optional" data-testid="input-project-account" /></div>
-      </div>
-      <div><Label>Target Date</Label><Input type="date" value={form.endDate} onChange={(e) => setForm(f => ({ ...f, endDate: e.target.value }))} className="mt-1.5" data-testid="input-project-date" /></div>
-      <div><Label>Description</Label><Textarea value={form.description} onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))} rows={3} className="mt-1.5" data-testid="input-project-description" /></div>
-      <Button type="submit" className="w-full bg-primary text-primary-foreground" data-testid="button-submit-project">Create Project</Button>
-    </form>
+    <>
+      <Dialog open onOpenChange={onClose}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl ${typeConfig.bg} ${typeConfig.border} border flex items-center justify-center`}>
+                  <Icon className={`h-5 w-5 ${typeConfig.color}`} />
+                </div>
+                <div>
+                  <DialogTitle className="text-xl">{project.name}</DialogTitle>
+                  <p className={`text-xs mt-0.5 ${typeConfig.color}`}>{typeConfig.label}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditOpen(true)} data-testid="button-edit-project">
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={onDelete} data-testid="button-delete-project">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <Tabs value={tab} onValueChange={setTab}>
+            <TabsList>
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="notes">Notes</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="overview" className="space-y-4 mt-3">
+              <div className="flex gap-2 flex-wrap">
+                <Badge variant="outline" className={STATUS_COLORS[project.status] || ""}>{project.status}</Badge>
+                {project.phase && <Badge variant="outline" className="text-muted-foreground">{project.phase}</Badge>}
+              </div>
+
+              {project.description && (
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap">{project.description}</p>
+              )}
+
+              <Separator />
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {project.budget && (
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Budget</Label>
+                    <div className="flex items-center gap-1 mt-1">
+                      <DollarSign className="h-3.5 w-3.5 text-green-400" />
+                      <p className="text-sm font-medium">{Number(project.budget).toLocaleString()} {project.currency}</p>
+                    </div>
+                  </div>
+                )}
+                {project.startDate && (
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Start</Label>
+                    <p className="text-sm mt-1">{new Date(project.startDate).toLocaleDateString()}</p>
+                  </div>
+                )}
+                {project.endDate && (
+                  <div>
+                    <Label className="text-xs text-muted-foreground">End</Label>
+                    <p className="text-sm mt-1">{new Date(project.endDate).toLocaleDateString()}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-2">
+                <Label className="text-xs text-muted-foreground">Status</Label>
+                <Select value={project.status} onValueChange={(v) => updateMutation.mutate({ status: v })}>
+                  <SelectTrigger className="mt-1 h-8 w-40 text-sm" data-testid="select-detail-status"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="planning">Planning</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="paused">Paused</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="notes" className="mt-3">
+              <NotesPanel linkedObjectType="project" linkedObjectId={project.id} />
+            </TabsContent>
+          </Tabs>
+        </DialogContent>
+      </Dialog>
+
+      {editOpen && (
+        <ProjectFormDialog project={project} onClose={() => setEditOpen(false)} />
+      )}
+    </>
   );
 }

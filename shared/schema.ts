@@ -217,11 +217,16 @@ export const dealStageHistory = pgTable("deal_stage_history", {
 
 export const tickets = pgTable("tickets", {
   id: serial("id").primaryKey(),
+  ticketNumber: text("ticket_number"),
   accountId: integer("account_id"),
   contactId: integer("contact_id"),
   category: text("category").notNull().default("general"),
   severity: text("severity").notNull().default("medium"),
+  priority: text("priority").notNull().default("medium"),
   status: text("status").notNull().default("new"),
+  source: text("source").default("email"),
+  escalationStatus: text("escalation_status"),
+  slaDueAt: timestamp("sla_due_at"),
   requesterName: text("requester_name").notNull(),
   requesterEmail: text("requester_email"),
   requesterPhone: text("requester_phone"),
@@ -866,3 +871,110 @@ export type EmailAssociation = typeof emailAssociations.$inferSelect;
 export type InsertEmailAssociation = z.infer<typeof insertEmailAssociationSchema>;
 export type AssociationFeedback = typeof associationFeedback.$inferSelect;
 export type InsertAssociationFeedback = z.infer<typeof insertAssociationFeedbackSchema>;
+
+// ─── Stage 3 Additive Schema ───────────────────────────────────────────────
+
+export const projects = pgTable("projects", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  type: text("type").notNull().default("pilot"),
+  status: text("status").notNull().default("active"),
+  phase: text("phase"),
+  description: text("description"),
+  accountId: integer("account_id"),
+  linkedOpportunityId: integer("linked_opportunity_id"),
+  ownerUserId: integer("owner_user_id"),
+  budget: real("budget"),
+  currency: text("currency").default("USD"),
+  startDate: timestamp("start_date"),
+  endDate: timestamp("end_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertProjectSchema = createInsertSchema(projects).omit({ id: true, createdAt: true, updatedAt: true });
+export type Project = typeof projects.$inferSelect;
+export type InsertProject = z.infer<typeof insertProjectSchema>;
+
+export const notes = pgTable("notes", {
+  id: serial("id").primaryKey(),
+  linkedObjectType: text("linked_object_type").notNull(),
+  linkedObjectId: integer("linked_object_id").notNull(),
+  authorId: integer("author_id"),
+  authorName: text("author_name").notNull().default("System"),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertNoteSchema = createInsertSchema(notes).omit({ id: true, createdAt: true, updatedAt: true });
+export type Note = typeof notes.$inferSelect;
+export type InsertNote = z.infer<typeof insertNoteSchema>;
+
+export const tags = pgTable("tags", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  color: text("color").notNull().default("blue"),
+  category: text("category"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertTagSchema = createInsertSchema(tags).omit({ id: true, createdAt: true });
+export type Tag = typeof tags.$inferSelect;
+export type InsertTag = z.infer<typeof insertTagSchema>;
+
+export const recordTags = pgTable("record_tags", {
+  id: serial("id").primaryKey(),
+  tagId: integer("tag_id").notNull(),
+  recordType: text("record_type").notNull(),
+  recordId: integer("record_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertRecordTagSchema = createInsertSchema(recordTags).omit({ id: true, createdAt: true });
+export type RecordTag = typeof recordTags.$inferSelect;
+export type InsertRecordTag = z.infer<typeof insertRecordTagSchema>;
+
+export const savedViews = pgTable("saved_views", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  pageKey: text("page_key").notNull(),
+  filtersJson: text("filters_json"),
+  columnsJson: text("columns_json"),
+  sortBy: text("sort_by"),
+  sortOrder: text("sort_order").default("asc"),
+  userId: integer("user_id"),
+  isShared: boolean("is_shared").default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSavedViewSchema = createInsertSchema(savedViews).omit({ id: true, createdAt: true, updatedAt: true });
+export type SavedView = typeof savedViews.$inferSelect;
+export type InsertSavedView = z.infer<typeof insertSavedViewSchema>;
+
+export const opportunityContacts = pgTable("opportunity_contacts", {
+  id: serial("id").primaryKey(),
+  opportunityId: integer("opportunity_id").notNull(),
+  contactId: integer("contact_id").notNull(),
+  role: text("role"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertOpportunityContactSchema = createInsertSchema(opportunityContacts).omit({ id: true, createdAt: true });
+export type OpportunityContact = typeof opportunityContacts.$inferSelect;
+export type InsertOpportunityContact = z.infer<typeof insertOpportunityContactSchema>;
+
+export const migrationMap = pgTable("migration_map", {
+  id: serial("id").primaryKey(),
+  legacyTable: text("legacy_table").notNull(),
+  legacyRecordId: integer("legacy_record_id").notNull(),
+  newTable: text("new_table").notNull(),
+  newRecordId: integer("new_record_id").notNull(),
+  migratedAt: timestamp("migrated_at").defaultNow().notNull(),
+  notes: text("notes"),
+});
+
+export const insertMigrationMapSchema = createInsertSchema(migrationMap).omit({ id: true, migratedAt: true });
+export type MigrationMap = typeof migrationMap.$inferSelect;
+export type InsertMigrationMap = z.infer<typeof insertMigrationMapSchema>;
