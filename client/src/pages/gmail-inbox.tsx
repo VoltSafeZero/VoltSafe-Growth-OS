@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useToast } from "@/hooks/use-toast";
 import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
-  Clock, FileText, CalendarClock, CalendarX, Paperclip, Star, Users, Newspaper, Bell,
+  Clock, FileText, CalendarClock, CalendarX, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
 } from "lucide-react";
 import DOMPurify from "dompurify";
 
@@ -167,10 +167,21 @@ function ComposeDialog({
   const [attachedAssets, setAttachedAssets] = useState<{ id: number; name: string }[]>([]);
   const [showAssetPicker, setShowAssetPicker] = useState(false);
   const [assetCategoryFilter, setAssetCategoryFilter] = useState<string>("all");
+  const [showQuotePicker, setShowQuotePicker] = useState(false);
 
   const assetsQuery = useQuery<{ id: number; name: string; mimeType: string; size: number; category: string }[]>({
     queryKey: ["/api/assets"],
     enabled: showAssetPicker,
+  });
+
+  type QuoteSummary = { id: number; quoteNumber: string; customerName: string | null; total: number | null; currency: string; status: string; xlsxAssetId: number | null; htmlAssetId: number | null };
+  const quotesQuery = useQuery<{ data: QuoteSummary[] }>({
+    queryKey: ["/api/quotes", "picker"],
+    queryFn: async () => {
+      const res = await fetch("/api/quotes?limit=100&sortBy=createdAt&sortOrder=desc", { credentials: "include" });
+      return res.json();
+    },
+    enabled: showQuotePicker,
   });
 
   const sendMutation = useMutation({
@@ -338,6 +349,18 @@ function ComposeDialog({
                   )}
                 </Button>
               )}
+              {canSend && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-primary"
+                  onClick={() => setShowQuotePicker(true)}
+                  title="Attach a quote"
+                  data-testid="button-attach-quote"
+                >
+                  <Receipt className="h-4 w-4" />
+                </Button>
+              )}
             </div>
             {canSend && (
               <div className="flex items-center gap-1">
@@ -448,6 +471,90 @@ function ComposeDialog({
         <div className="flex-shrink-0 pt-3 flex justify-between items-center border-t border-border/50">
           <span className="text-xs text-muted-foreground">{attachedAssets.length} attached</span>
           <Button size="sm" onClick={() => setShowAssetPicker(false)} data-testid="button-done-assets">Done</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+
+    {/* Quote Attach Picker */}
+    <Dialog open={showQuotePicker} onOpenChange={(v) => !v && setShowQuotePicker(false)}>
+      <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Receipt className="h-4 w-4 text-primary" />
+            Attach a Quote
+          </DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground -mt-2">Select XLSX or HTML invoice files to attach to your email.</p>
+        <div className="flex-1 overflow-y-auto space-y-1.5 py-1">
+          {quotesQuery.isLoading && (
+            <div className="space-y-2 p-2">
+              {[1,2,3].map(i => <Skeleton key={i} className="h-14 w-full" />)}
+            </div>
+          )}
+          {!quotesQuery.isLoading && (quotesQuery.data?.data || []).length === 0 && (
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              <Receipt className="h-8 w-8 mx-auto mb-2 opacity-30" />
+              <p>No quotes yet.</p>
+              <a href="/quotes" target="_blank" className="text-primary hover:underline text-xs mt-1 block">Go to Quotes →</a>
+            </div>
+          )}
+          {(quotesQuery.data?.data || []).map((q) => {
+            const sym = q.currency === "CAD" ? "CA$" : q.currency === "GBP" ? "£" : q.currency === "EUR" ? "€" : q.currency === "AUD" ? "A$" : q.currency === "MXN" ? "MX$" : "$";
+            const xlsxAttached = q.xlsxAssetId ? attachedAssets.some(a => a.id === q.xlsxAssetId) : false;
+            const htmlAttached = q.htmlAssetId ? attachedAssets.some(a => a.id === q.htmlAssetId) : false;
+            return (
+              <div key={q.id} className="border border-border/50 rounded-lg px-3 py-2.5 bg-muted/10" data-testid={`quote-picker-row-${q.id}`}>
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-mono font-semibold">{q.quoteNumber}</p>
+                    <p className="text-xs text-muted-foreground truncate">{q.customerName || "—"}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-semibold">{sym}{(q.total || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                    <p className="text-xs text-muted-foreground">{q.currency} · {q.status}</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  {q.xlsxAssetId ? (
+                    <button
+                      onClick={() => setAttachedAssets(prev =>
+                        xlsxAttached ? prev.filter(a => a.id !== q.xlsxAssetId) : [...prev, { id: q.xlsxAssetId!, name: `${q.quoteNumber}.xlsx` }]
+                      )}
+                      data-testid={`button-attach-xlsx-${q.id}`}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors border ${
+                        xlsxAttached ? "bg-primary/15 border-primary/40 text-primary" : "border-border/50 hover:border-green-500/40 hover:bg-green-500/5 text-muted-foreground"
+                      }`}
+                    >
+                      <Download className="h-3 w-3" />
+                      {xlsxAttached ? "✓ XLSX" : "XLSX"}
+                    </button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground/40 px-2.5 py-1">No XLSX</span>
+                  )}
+                  {q.htmlAssetId ? (
+                    <button
+                      onClick={() => setAttachedAssets(prev =>
+                        htmlAttached ? prev.filter(a => a.id !== q.htmlAssetId) : [...prev, { id: q.htmlAssetId!, name: `${q.quoteNumber}-Invoice.html` }]
+                      )}
+                      data-testid={`button-attach-html-${q.id}`}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors border ${
+                        htmlAttached ? "bg-blue-500/15 border-blue-500/40 text-blue-400" : "border-border/50 hover:border-blue-500/40 hover:bg-blue-500/5 text-muted-foreground"
+                      }`}
+                    >
+                      <FileText className="h-3 w-3" />
+                      {htmlAttached ? "✓ HTML Invoice" : "HTML Invoice"}
+                    </button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground/40 px-2.5 py-1">No HTML</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex-shrink-0 pt-3 flex justify-between items-center border-t border-border/50">
+          <span className="text-xs text-muted-foreground">{attachedAssets.length} file{attachedAssets.length !== 1 ? "s" : ""} attached</span>
+          <Button size="sm" onClick={() => setShowQuotePicker(false)} data-testid="button-done-quotes">Done</Button>
         </div>
       </DialogContent>
     </Dialog>
