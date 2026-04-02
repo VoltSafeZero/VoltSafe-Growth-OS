@@ -490,67 +490,130 @@ function PipelineView({
   onSelect: (lead: Lead) => void;
   onUpdateStatus: (id: number, status: string) => void;
 }) {
+  const [dragOverStage, setDragOverStage] = useState<string | null>(null);
+  const dragLeadId = useRef<number | null>(null);
+  const dragFromStage = useRef<string | null>(null);
+
   const stageGroups = PIPELINE_STAGES.map(stage => ({
     ...stage,
     leads: leads.filter(l => l.status === stage.value),
   }));
 
+  const handleDragStart = (e: React.DragEvent, lead: Lead) => {
+    dragLeadId.current = lead.id;
+    dragFromStage.current = lead.status;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(lead.id));
+  };
+
+  const handleDragOver = (e: React.DragEvent, stageValue: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragOverStage !== stageValue) setDragOverStage(stageValue);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDragOverStage(null);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent, stageValue: string) => {
+    e.preventDefault();
+    setDragOverStage(null);
+    if (dragLeadId.current !== null && dragFromStage.current !== stageValue) {
+      onUpdateStatus(dragLeadId.current, stageValue);
+    }
+    dragLeadId.current = null;
+    dragFromStage.current = null;
+  };
+
+  const handleDragEnd = () => {
+    setDragOverStage(null);
+    dragLeadId.current = null;
+    dragFromStage.current = null;
+  };
+
   return (
     <div className="flex gap-4 overflow-x-auto pb-4">
-      {stageGroups.map(stage => (
-        <div key={stage.value} className={`flex-shrink-0 w-[260px] sm:w-72 border border-border/50 rounded-xl bg-card/50 border-t-2 ${stage.columnColor}`}>
-          <div className="p-3 border-b border-border/30">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold">{stage.label}</h3>
-              <Badge variant="outline" className="text-xs px-1.5 py-0">{stage.leads.length}</Badge>
-            </div>
-            {(() => { const total = stage.leads.reduce((sum, l) => sum + (l.dealAmount || 0), 0); return total > 0 ? <p className="text-xs text-emerald-400 mt-1">${total.toLocaleString()}</p> : null; })()}
-          </div>
-          <div className="p-2 space-y-2 max-h-[calc(100vh-320px)] overflow-y-auto">
-            {stage.leads.length === 0 && (
-              <p className="text-xs text-muted-foreground text-center py-4">No leads</p>
-            )}
-            {stage.leads.slice(0, 50).map(lead => (
-              <div
-                key={lead.id}
-                className="p-3 bg-background/80 border border-border/30 rounded-lg cursor-pointer hover:border-primary/30 transition-colors"
-                onClick={() => onSelect(lead)}
-                data-testid={`pipeline-card-${lead.id}`}
-              >
-                <div className="flex items-start gap-2 mb-1">
-                  {lead.marinaId && <Anchor className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />}
-                  <p className="text-sm font-medium leading-tight line-clamp-2">{lead.company}</p>
-                </div>
-                {(lead.city || lead.state) && (
-                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
-                    <MapPin className="h-3 w-3" />
-                    {lead.city && lead.state ? `${lead.city}, ${lead.state}` : lead.state}
-                  </p>
-                )}
-                {lead.slips && lead.slips !== "-" && (
-                  <p className="text-xs text-muted-foreground mt-0.5">{lead.slips} slips</p>
-                )}
-                {lead.dealAmount != null && lead.dealAmount > 0 && (
-                  <p className="text-xs text-emerald-400 font-medium mt-0.5 flex items-center gap-1">
-                    <DollarSign className="h-3 w-3" />
-                    ${Number(lead.dealAmount).toLocaleString()}
-                    {lead.dealProbability != null && <span className="text-muted-foreground font-normal">({lead.dealProbability}%)</span>}
-                  </p>
-                )}
-                {lead.contactPhone && (
-                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                    <Phone className="h-3 w-3" />
-                    {lead.contactPhone}
-                  </p>
-                )}
+      {stageGroups.map(stage => {
+        const isOver = dragOverStage === stage.value;
+        return (
+          <div
+            key={stage.value}
+            className={`flex-shrink-0 w-[260px] sm:w-72 border rounded-xl bg-card/50 border-t-2 ${stage.columnColor} transition-all duration-150 ${
+              isOver ? "border-primary/60 bg-primary/5 shadow-lg shadow-primary/10" : "border-border/50"
+            }`}
+            onDragOver={(e) => handleDragOver(e, stage.value)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, stage.value)}
+          >
+            <div className="p-3 border-b border-border/30">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold">{stage.label}</h3>
+                <Badge variant="outline" className="text-xs px-1.5 py-0">{stage.leads.length}</Badge>
               </div>
-            ))}
-            {stage.leads.length > 50 && (
-              <p className="text-xs text-muted-foreground text-center py-2">+{stage.leads.length - 50} more</p>
-            )}
+              {(() => { const total = stage.leads.reduce((sum, l) => sum + (l.dealAmount || 0), 0); return total > 0 ? <p className="text-xs text-emerald-400 mt-1">${total.toLocaleString()}</p> : null; })()}
+            </div>
+            <div className="p-2 space-y-2 max-h-[calc(100vh-320px)] overflow-y-auto">
+              {isOver && stage.leads.length === 0 && (
+                <div className="border-2 border-dashed border-primary/40 rounded-lg py-6 text-center text-xs text-primary/60">
+                  Drop here
+                </div>
+              )}
+              {!isOver && stage.leads.length === 0 && (
+                <p className="text-xs text-muted-foreground text-center py-4">No leads</p>
+              )}
+              {stage.leads.slice(0, 50).map(lead => (
+                <div
+                  key={lead.id}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, lead)}
+                  onDragEnd={handleDragEnd}
+                  className="p-3 bg-background/80 border border-border/30 rounded-lg cursor-grab active:cursor-grabbing active:opacity-50 active:scale-95 hover:border-primary/30 transition-all select-none"
+                  onClick={() => onSelect(lead)}
+                  data-testid={`pipeline-card-${lead.id}`}
+                >
+                  <div className="flex items-start gap-2 mb-1">
+                    {lead.marinaId && <Anchor className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />}
+                    <p className="text-sm font-medium leading-tight line-clamp-2">{lead.company}</p>
+                  </div>
+                  {(lead.city || lead.state) && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                      <MapPin className="h-3 w-3" />
+                      {lead.city && lead.state ? `${lead.city}, ${lead.state}` : lead.state}
+                    </p>
+                  )}
+                  {lead.slips && lead.slips !== "-" && (
+                    <p className="text-xs text-muted-foreground mt-0.5">{lead.slips} slips</p>
+                  )}
+                  {lead.dealAmount != null && lead.dealAmount > 0 && (
+                    <p className="text-xs text-emerald-400 font-medium mt-0.5 flex items-center gap-1">
+                      <DollarSign className="h-3 w-3" />
+                      ${Number(lead.dealAmount).toLocaleString()}
+                      {lead.dealProbability != null && <span className="text-muted-foreground font-normal">({lead.dealProbability}%)</span>}
+                    </p>
+                  )}
+                  {lead.contactPhone && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                      <Phone className="h-3 w-3" />
+                      {lead.contactPhone}
+                    </p>
+                  )}
+                </div>
+              ))}
+              {stage.leads.length > 50 && (
+                <p className="text-xs text-muted-foreground text-center py-2">+{stage.leads.length - 50} more</p>
+              )}
+              {isOver && stage.leads.length > 0 && (
+                <div className="border-2 border-dashed border-primary/40 rounded-lg py-3 text-center text-xs text-primary/60">
+                  Drop here
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

@@ -15,9 +15,11 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Search, Building2, Users, Loader2, Phone, Mail, Trash2,
   ArrowUpDown, MapPin, Globe, Zap, Star, AlertTriangle, Calendar,
-  Settings2, Wrench, Shield, Wifi, LinkIcon
+  Settings2, Wrench, Shield, Wifi, LinkIcon, List, LayoutGrid, Map
 } from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import { CommentsFeed } from "@/components/comments-feed";
 import { AttachmentsSection } from "@/components/attachments-section";
 import { AssignUserSelect } from "@/components/assign-user-select";
@@ -64,6 +66,7 @@ export default function AccountsPage() {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
+  const [view, setView] = useState<"list" | "pipeline" | "map">("list");
   const { toast } = useToast();
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
   const [sortOption, setSortOption] = useState("default");
@@ -124,12 +127,30 @@ export default function AccountsPage() {
     },
   });
 
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ id, leadStatus }: { id: number; leadStatus: string }) => {
+      const res = await apiRequest("PUT", `/api/accounts/${id}`, { leadStatus });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      toast({ title: "Account stage updated" });
+    },
+  });
+
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Accounts</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Manage marinas and corporate accounts.</p>
+        <div className="flex items-center gap-4">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Accounts</h1>
+            <p className="text-muted-foreground mt-1 text-sm">Manage marinas and corporate accounts.</p>
+          </div>
+          <div className="flex items-center border border-border/50 rounded-xl overflow-hidden">
+            <Button variant={view === "list" ? "secondary" : "ghost"} size="default" onClick={() => setView("list")} className="rounded-none px-3" data-testid="button-list-view"><List className="h-5 w-5" /></Button>
+            <Button variant={view === "pipeline" ? "secondary" : "ghost"} size="default" onClick={() => setView("pipeline")} className="rounded-none px-3" data-testid="button-pipeline-view"><LayoutGrid className="h-5 w-5" /></Button>
+            <Button variant={view === "map" ? "secondary" : "ghost"} size="default" onClick={() => setView("map")} className="rounded-none px-3" data-testid="button-map-view"><Map className="h-5 w-5" /></Button>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <ExportButton
@@ -209,71 +230,285 @@ export default function AccountsPage() {
         </Select>
       </div>
 
-      {isLoading ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-40" />)}
-        </div>
+      {view === "map" ? (
+        <AccountsMapView accounts={allAccounts} onSelect={setSelectedAccount} />
+      ) : view === "pipeline" ? (
+        isLoading ? (
+          <div className="flex gap-4 overflow-x-auto pb-4">
+            {[...Array(4)].map((_, i) => <Skeleton key={i} className="flex-shrink-0 w-72 h-96" />)}
+          </div>
+        ) : (
+          <AccountsPipelineView
+            accounts={allAccounts}
+            onSelect={setSelectedAccount}
+            onUpdateStatus={(id, leadStatus) => updateStatusMutation.mutate({ id, leadStatus })}
+          />
+        )
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {allAccounts.map((account) => (
-            <Card key={account.id} className="border-border/50 hover:border-primary/30 cursor-pointer transition-colors" onClick={() => setSelectedAccount(account)} data-testid={`card-account-${account.id}`}>
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                      <Building2 className="w-5 h-5 text-primary" />
+        <>
+          {isLoading ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-40" />)}
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {allAccounts.map((account) => (
+                <Card key={account.id} className="border-border/50 hover:border-primary/30 cursor-pointer transition-colors" onClick={() => setSelectedAccount(account)} data-testid={`card-account-${account.id}`}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                          <Building2 className="w-5 h-5 text-primary" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-base">{account.name}</CardTitle>
+                          <p className="text-xs text-muted-foreground">
+                            {[account.city, account.stateProvince, account.country].filter(Boolean).join(", ") || account.region || "No location"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge variant="outline" className={segmentColors[account.segment] || ""}>{account.segment}</Badge>
+                        <Badge variant="outline" className={priorityColors[account.priority] || ""}>{account.priority}</Badge>
+                      </div>
                     </div>
-                    <div>
-                      <CardTitle className="text-base">{account.name}</CardTitle>
-                      <p className="text-xs text-muted-foreground">
-                        {[account.city, account.stateProvince, account.country].filter(Boolean).join(", ") || account.region || "No location"}
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center justify-between text-sm text-muted-foreground">
+                      <Badge variant="outline" className={statusColors[account.leadStatus] || ""}>{getStageLabel(account.leadStatus)}</Badge>
+                      <div className="flex items-center gap-3">
+                        {account.slipCount && <span>{account.slipCount} slips</span>}
+                        {account.pilotCandidateScore && (
+                          <span className="flex items-center gap-0.5">
+                            <Star className="h-3 w-3 text-yellow-500" />
+                            {account.pilotCandidateScore}/5
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {account.nextAction && (
+                      <p className="text-xs text-muted-foreground mt-2 truncate">
+                        Next: {account.nextAction}
                       </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <Badge variant="outline" className={segmentColors[account.segment] || ""}>{account.segment}</Badge>
-                    <Badge variant="outline" className={priorityColors[account.priority] || ""}>{account.priority}</Badge>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between text-sm text-muted-foreground">
-                  <Badge variant="outline" className={statusColors[account.leadStatus] || ""}>{getStageLabel(account.leadStatus)}</Badge>
-                  <div className="flex items-center gap-3">
-                    {account.slipCount && <span>{account.slipCount} slips</span>}
-                    {account.pilotCandidateScore && (
-                      <span className="flex items-center gap-0.5">
-                        <Star className="h-3 w-3 text-yellow-500" />
-                        {account.pilotCandidateScore}/5
-                      </span>
                     )}
-                  </div>
-                </div>
-                {account.nextAction && (
-                  <p className="text-xs text-muted-foreground mt-2 truncate">
-                    Next: {account.nextAction}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-          {allAccounts.length === 0 && (
-            <div className="col-span-full p-8 text-center text-muted-foreground">No accounts found</div>
+                  </CardContent>
+                </Card>
+              ))}
+              {allAccounts.length === 0 && (
+                <div className="col-span-full p-8 text-center text-muted-foreground">No accounts found</div>
+              )}
+            </div>
           )}
-        </div>
+          <div className="flex items-center justify-between py-2">
+            <p className="text-sm text-muted-foreground">{allAccounts.length.toLocaleString()} of {totalCount.toLocaleString()} accounts loaded</p>
+            {isFetchingNextPage && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading more...</div>
+            )}
+          </div>
+          <div ref={scrollSentinelRef} className="h-4" />
+        </>
       )}
-
-      <div className="flex items-center justify-between py-2">
-        <p className="text-sm text-muted-foreground">{allAccounts.length.toLocaleString()} of {totalCount.toLocaleString()} accounts loaded</p>
-        {isFetchingNextPage && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading more...</div>
-        )}
-      </div>
-      <div ref={scrollSentinelRef} className="h-4" />
 
       {selectedAccount && (
         <AccountDetailDialog account={selectedAccount} onClose={() => setSelectedAccount(null)} />
       )}
+    </div>
+  );
+}
+
+const ACCOUNTS_PIPELINE_STAGES = [
+  { value: "new", label: "New", columnColor: "border-t-slate-500", hoverColor: "bg-slate-500/5 border-slate-500/30" },
+  { value: "contacted", label: "Contacted", columnColor: "border-t-blue-500", hoverColor: "bg-blue-500/5 border-blue-500/30" },
+  { value: "meeting_scheduled", label: "Meeting Scheduled", columnColor: "border-t-purple-500", hoverColor: "bg-purple-500/5 border-purple-500/30" },
+  { value: "qualified", label: "Qualified", columnColor: "border-t-cyan-500", hoverColor: "bg-cyan-500/5 border-cyan-500/30" },
+  { value: "proposal_sent", label: "Proposal Sent", columnColor: "border-t-amber-500", hoverColor: "bg-amber-500/5 border-amber-500/30" },
+  { value: "negotiation", label: "Negotiation", columnColor: "border-t-orange-500", hoverColor: "bg-orange-500/5 border-orange-500/30" },
+  { value: "converted", label: "Closed Won", columnColor: "border-t-green-500", hoverColor: "bg-green-500/5 border-green-500/30" },
+  { value: "lost", label: "Closed Lost", columnColor: "border-t-red-500", hoverColor: "bg-red-500/5 border-red-500/30" },
+];
+
+function AccountsPipelineView({
+  accounts,
+  onSelect,
+  onUpdateStatus,
+}: {
+  accounts: Account[];
+  onSelect: (account: Account) => void;
+  onUpdateStatus: (id: number, leadStatus: string) => void;
+}) {
+  const [dragOverStage, setDragOverStage] = useState<string | null>(null);
+  const dragAccountId = useRef<number | null>(null);
+  const dragFromStage = useRef<string | null>(null);
+
+  const stageGroups = ACCOUNTS_PIPELINE_STAGES.map(stage => ({
+    ...stage,
+    accounts: accounts.filter(a => a.leadStatus === stage.value),
+  }));
+
+  const handleDragStart = (e: React.DragEvent, account: Account) => {
+    dragAccountId.current = account.id;
+    dragFromStage.current = account.leadStatus;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(account.id));
+  };
+
+  const handleDragOver = (e: React.DragEvent, stageValue: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragOverStage !== stageValue) setDragOverStage(stageValue);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverStage(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, stageValue: string) => {
+    e.preventDefault();
+    setDragOverStage(null);
+    if (dragAccountId.current !== null && dragFromStage.current !== stageValue) {
+      onUpdateStatus(dragAccountId.current, stageValue);
+    }
+    dragAccountId.current = null;
+    dragFromStage.current = null;
+  };
+
+  const handleDragEnd = () => {
+    setDragOverStage(null);
+    dragAccountId.current = null;
+    dragFromStage.current = null;
+  };
+
+  return (
+    <div className="flex gap-4 overflow-x-auto pb-4">
+      {stageGroups.map(stage => {
+        const isOver = dragOverStage === stage.value;
+        return (
+          <div
+            key={stage.value}
+            className={`flex-shrink-0 w-[260px] sm:w-72 border rounded-xl bg-card/50 border-t-2 ${stage.columnColor} transition-all duration-150 ${
+              isOver ? `${stage.hoverColor} shadow-lg` : "border-border/50"
+            }`}
+            onDragOver={(e) => handleDragOver(e, stage.value)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, stage.value)}
+          >
+            <div className="p-3 border-b border-border/30">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold">{stage.label}</h3>
+                <Badge variant="outline" className="text-xs px-1.5 py-0">{stage.accounts.length}</Badge>
+              </div>
+            </div>
+            <div className="p-2 space-y-2 max-h-[calc(100vh-320px)] overflow-y-auto">
+              {isOver && stage.accounts.length === 0 && (
+                <div className="border-2 border-dashed border-primary/40 rounded-lg py-6 text-center text-xs text-primary/60">Drop here</div>
+              )}
+              {!isOver && stage.accounts.length === 0 && (
+                <p className="text-xs text-muted-foreground text-center py-4">No accounts</p>
+              )}
+              {stage.accounts.map(account => (
+                <div
+                  key={account.id}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, account)}
+                  onDragEnd={handleDragEnd}
+                  className="p-3 bg-background/80 border border-border/30 rounded-lg cursor-grab active:cursor-grabbing active:opacity-50 active:scale-95 hover:border-primary/30 transition-all select-none"
+                  onClick={() => onSelect(account)}
+                  data-testid={`pipeline-card-account-${account.id}`}
+                >
+                  <div className="flex items-start gap-2 mb-1">
+                    <Building2 className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
+                    <p className="text-sm font-medium leading-tight line-clamp-2">{account.name}</p>
+                  </div>
+                  {(account.city || account.stateProvince) && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                      <MapPin className="h-3 w-3" />
+                      {[account.city, account.stateProvince].filter(Boolean).join(", ")}
+                    </p>
+                  )}
+                  {account.slipCount && (
+                    <p className="text-xs text-muted-foreground mt-0.5">{account.slipCount} slips</p>
+                  )}
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    <Badge variant="outline" className={`text-[10px] px-1 py-0 ${segmentColors[account.segment] || ""}`}>{account.segment}</Badge>
+                    {account.pilotCandidateScore && (
+                      <span className="text-xs text-yellow-400 flex items-center gap-0.5">
+                        <Star className="h-3 w-3" />{account.pilotCandidateScore}/5
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {isOver && stage.accounts.length > 0 && (
+                <div className="border-2 border-dashed border-primary/40 rounded-lg py-3 text-center text-xs text-primary/60">Drop here</div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AccountsMapView({ accounts, onSelect }: { accounts: Account[]; onSelect: (account: Account) => void }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<ReturnType<typeof L.map> | null>(null);
+  const accountsWithCoords = accounts.filter(a => a.latitude != null && a.longitude != null);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; }
+
+    const defaultIcon = L.icon({
+      iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+      shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+      iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
+    });
+
+    const center: [number, number] = accountsWithCoords.length > 0
+      ? [accountsWithCoords.reduce((s, a) => s + a.latitude!, 0) / accountsWithCoords.length,
+         accountsWithCoords.reduce((s, a) => s + a.longitude!, 0) / accountsWithCoords.length]
+      : [39.8283, -98.5795];
+
+    const map = L.map(mapRef.current, { zoomControl: true }).setView(center, accountsWithCoords.length > 0 ? 5 : 4);
+    mapInstanceRef.current = map;
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap contributors",
+      maxZoom: 18,
+    }).addTo(map);
+
+    accountsWithCoords.forEach((account) => {
+      const marker = L.marker([account.latitude!, account.longitude!], { icon: defaultIcon }).addTo(map);
+      marker.bindPopup(`
+        <div style="min-width:180px">
+          <strong style="font-size:13px">${account.name}</strong><br/>
+          <span style="font-size:11px;color:#888">${[account.city, account.stateProvince, account.country].filter(Boolean).join(", ") || ""}</span><br/>
+          ${account.slipCount ? `<span style="font-size:11px">${account.slipCount} slips</span><br/>` : ""}
+          <span style="font-size:11px;color:#10b981">${getStageLabel(account.leadStatus)}</span>
+        </div>
+      `);
+      marker.on("click", () => onSelect(account));
+    });
+
+    return () => { if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; } };
+  }, [accounts]);
+
+  if (accountsWithCoords.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center gap-3">
+        <MapPin className="h-10 w-10 text-muted-foreground/40" />
+        <p className="text-muted-foreground">No accounts have location coordinates yet.</p>
+        <p className="text-xs text-muted-foreground">Accounts converted from marina leads will appear on the map once coordinates are available.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative rounded-xl overflow-hidden border border-border/50" style={{ height: "calc(100vh - 260px)" }}>
+      <div ref={mapRef} className="w-full h-full" />
+      <div className="absolute bottom-3 left-3 bg-background/90 backdrop-blur-sm rounded-lg px-3 py-1.5 text-xs text-muted-foreground border border-border/50">
+        {accountsWithCoords.length} account{accountsWithCoords.length !== 1 ? "s" : ""} on map
+      </div>
     </div>
   );
 }
