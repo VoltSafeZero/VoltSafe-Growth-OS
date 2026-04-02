@@ -48,8 +48,8 @@ const allNavGroups = [
   {
     label: "Sales",
     items: [
-      { title: "Marina Accounts", url: "/accounts", icon: Building2 },
       { title: "Marina Leads", url: "/leads", icon: UserPlus },
+      { title: "Marina Accounts", url: "/accounts", icon: Building2 },
       { title: "Quotes", url: "/quotes", icon: FileText },
     ],
   },

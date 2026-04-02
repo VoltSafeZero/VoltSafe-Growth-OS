@@ -50,8 +50,8 @@ const overviewItems = [
 ];
 
 const salesItems = [
-  { title: "Marina Accounts", url: "/accounts", icon: Building2 },
   { title: "Marina Leads", url: "/leads", icon: UserPlus },
+  { title: "Marina Accounts", url: "/accounts", icon: Building2 },
   { title: "Quotes", url: "/quotes", icon: FileText },
   { title: "Price Lists", url: "/price-lists", icon: Tags },
   { title: "Assets", url: "/assets", icon: FolderOpen },
