@@ -15,9 +15,10 @@ export default function ContactsPage() {
     queryKey: ["/api/contacts"],
   });
 
-  const { data: accounts = [] } = useQuery<Account[]>({
+  const { data: accountsResp } = useQuery<{ data: Account[] }>({
     queryKey: ["/api/accounts"],
   });
+  const accounts = accountsResp?.data ?? [];
 
   const accountMap = Object.fromEntries(accounts.map((a) => [a.id, a.name]));
 
