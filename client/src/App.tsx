@@ -37,6 +37,7 @@ import PriceListsPage from "@/pages/price-lists";
 import JiraPage from "@/pages/jira";
 import ConfluencePage from "@/pages/confluence";
 import AdminIntegrationsPage from "@/pages/admin-integrations";
+import AdminUsersPage from "@/pages/admin-users";
 import ProjectsPage from "@/pages/projects";
 
 type AuthUser = {
@@ -44,6 +45,8 @@ type AuthUser = {
   name: string;
   email: string;
   role: string;
+  globalRole: string;
+  status: string;
   mustChangePassword: boolean;
 };
 
@@ -64,7 +67,7 @@ function AppShell({ children, user, onLogout }: { children: React.ReactNode; use
   return (
     <SidebarProvider style={sidebarStyle}>
       <div className="flex min-h-screen w-full bg-background text-foreground overflow-hidden">
-        <div className="hidden md:flex"><AppSidebar /></div>
+        <div className="hidden md:flex"><AppSidebar userGlobalRole={user.globalRole || "sales"} /></div>
         <div className="flex flex-col flex-1 w-full overflow-hidden">
           <Header user={user} onLogout={onLogout} />
           <main className="flex-1 overflow-y-auto overflow-x-hidden relative scroll-smooth pb-16 md:pb-0">
@@ -115,6 +118,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/support/tickets">{() => wrap(<TicketsPage />)}</Route>
 
       {/* ── ADMIN ─────────────────────────────────────────────────── */}
+      <Route path="/admin/users">{() => wrap(<AdminUsersPage currentUserGlobalRole={user.globalRole || "sales"} />)}</Route>
       <Route path="/admin/integrations">{() => wrap(<AdminIntegrationsPage />)}</Route>
       <Route path="/jira">{() => wrap(<JiraPage />)}</Route>
       <Route path="/confluence">{() => wrap(<ConfluencePage />)}</Route>

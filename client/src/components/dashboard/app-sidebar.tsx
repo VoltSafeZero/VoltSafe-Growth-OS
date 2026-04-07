@@ -27,6 +27,7 @@ import {
   Users2,
   ClipboardList,
   Layers,
+  ShieldCheck,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import navLogo from "@assets/nav-logo.png";
@@ -40,6 +41,7 @@ type NavItem = {
   title: string;
   url: string;
   icon: React.ElementType;
+  adminOnly?: boolean;
 };
 
 type NavSection = {
@@ -114,6 +116,7 @@ const sections: NavSection[] = [
     label: "Admin",
     icon: Settings2,
     items: [
+      { title: "Users", url: "/admin/users", icon: ShieldCheck, adminOnly: true },
       { title: "Integrations", url: "/admin/integrations", icon: Zap },
       { title: "Settings", url: "/settings", icon: Settings },
     ],
@@ -131,7 +134,8 @@ function getActiveSectionId(location: string): string {
   return "";
 }
 
-export function AppSidebar() {
+export function AppSidebar({ userGlobalRole = "sales" }: { userGlobalRole?: string }) {
+  const isAdmin = ["master_admin", "admin"].includes(userGlobalRole);
   const [location, navigate] = useLocation();
   const [openSection, setOpenSection] = useState<string>(() =>
     getActiveSectionId(location)
@@ -216,7 +220,7 @@ export function AppSidebar() {
 
                 {section.items && isSectionOpen && (
                   <div className="ml-3 mt-0.5 mb-1 pl-3 border-l border-border/40 flex flex-col gap-0.5">
-                    {section.items.map((item) => {
+                    {section.items.filter(item => !item.adminOnly || isAdmin).map((item) => {
                       const isItemActive =
                         location === item.url ||
                         (item.url !== "/" && location.startsWith(item.url));

@@ -115,12 +115,15 @@ export async function registerRoutes(
     req.session.role = user.role;
     req.session.name = user.name;
     req.session.mustChangePassword = user.mustChangePassword;
+    (req.session as any).globalRole = user.globalRole;
 
     res.json({
       id: user.id,
       name: user.name,
       email: user.email,
       role: user.role,
+      globalRole: user.globalRole,
+      status: user.status,
       mustChangePassword: user.mustChangePassword,
     });
   });
@@ -131,16 +134,20 @@ export async function registerRoutes(
     });
   });
 
-  app.get("/api/auth/me", (req, res) => {
+  app.get("/api/auth/me", async (req, res) => {
     if (!req.session?.userId) {
       return res.status(401).json({ message: "Not authenticated" });
     }
+    const [user] = await db.select().from(users).where(eq(users.id, req.session.userId));
+    if (!user) return res.status(401).json({ message: "Not authenticated" });
     res.json({
-      id: req.session.userId,
-      name: req.session.name,
-      email: req.session.email,
-      role: req.session.role,
-      mustChangePassword: req.session.mustChangePassword,
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      globalRole: user.globalRole,
+      status: user.status,
+      mustChangePassword: user.mustChangePassword,
     });
   });
 
@@ -1279,9 +1286,161 @@ export async function registerRoutes(
     res.json({ message: "Deleted" });
   });
 
-  // ── Users List ──────────────────────────────────────────────────
+  // ── Users List (simple, for dropdowns) ─────────────────────────
   app.get("/api/users", async (_req, res) => {
     res.json(await storage.getUsers());
+  });
+
+  // ── Admin User Management ────────────────────────────────────────
+  function requireAdmin(req: any, res: any, next: any) {
+    if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
+    const role = (req.session as any).globalRole || "";
+    if (!["master_admin", "admin"].includes(role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    next();
+  }
+
+  app.get("/api/admin/users", requireAuth, async (req, res) => {
+    const allUsers = await db.select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+      globalRole: users.globalRole,
+      status: users.status,
+      userType: users.userType,
+      department: users.department,
+      jobTitle: users.jobTitle,
+      mustChangePassword: users.mustChangePassword,
+      createdAt: users.createdAt,
+      lastLogin: users.lastLogin,
+      suspendedAt: users.suspendedAt,
+      suspendedReason: users.suspendedReason,
+    }).from(users).orderBy(users.id);
+    res.json(allUsers);
+  });
+
+  app.put("/api/admin/users/:id", requireAuth, async (req, res) => {
+    const userId = parseInt(req.params.id);
+    const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
+    if (!sessionUser[0]) return res.status(401).json({ message: "Not authenticated" });
+    const actorRole = sessionUser[0].globalRole;
+    if (!["master_admin", "admin"].includes(actorRole)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const { name, email, globalRole, status, userType, department, jobTitle, suspendedReason } = req.body;
+
+    // Only master_admin can set master_admin role
+    if (globalRole === "master_admin" && actorRole !== "master_admin") {
+      return res.status(403).json({ message: "Only Master Admin can assign Master Admin role" });
+    }
+
+    // Prevent removing the last master_admin
+    if (status === "suspended" || globalRole !== "master_admin") {
+      const [existing] = await db.select().from(users).where(eq(users.id, userId));
+      if (existing?.globalRole === "master_admin") {
+        const masterAdmins = await db.select().from(users).where(eq(users.globalRole as any, "master_admin"));
+        if (masterAdmins.length <= 1) {
+          return res.status(400).json({ message: "Cannot demote or suspend the last Master Admin" });
+        }
+      }
+    }
+
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = name;
+    if (email !== undefined) updateData.email = email.toLowerCase().trim();
+    if (globalRole !== undefined) updateData.globalRole = globalRole;
+    if (userType !== undefined) updateData.userType = userType;
+    if (department !== undefined) updateData.department = department;
+    if (jobTitle !== undefined) updateData.jobTitle = jobTitle;
+    if (status !== undefined) {
+      updateData.status = status;
+      if (status === "suspended") {
+        updateData.suspendedAt = new Date();
+        updateData.suspendedReason = suspendedReason || null;
+      } else if (status === "active") {
+        updateData.suspendedAt = null;
+        updateData.suspendedReason = null;
+      }
+    }
+
+    const [updated] = await db.update(users).set(updateData).where(eq(users.id, userId)).returning();
+    res.json(updated);
+  });
+
+  app.post("/api/admin/users", requireAuth, async (req, res) => {
+    const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
+    if (!sessionUser[0]) return res.status(401).json({ message: "Not authenticated" });
+    const actorRole = sessionUser[0].globalRole;
+    if (!["master_admin", "admin"].includes(actorRole)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const { name, email, globalRole = "sales", userType = "internal", department, jobTitle } = req.body;
+    if (!name || !email) return res.status(400).json({ message: "Name and email required" });
+
+    const existing = await db.select().from(users).where(eq(users.email, email.toLowerCase().trim()));
+    if (existing.length > 0) return res.status(409).json({ message: "Email already in use" });
+
+    const tempPassword = Math.random().toString(36).slice(-10) + "Aa1!";
+    const hashed = await hashPassword(tempPassword);
+
+    const [created] = await db.insert(users).values({
+      name,
+      email: email.toLowerCase().trim(),
+      password: hashed,
+      role: "read-only",
+      globalRole,
+      status: "invited",
+      userType,
+      department: department || null,
+      jobTitle: jobTitle || null,
+      invitedBy: req.session.userId,
+      mustChangePassword: true,
+    }).returning();
+
+    res.json({ ...created, tempPassword });
+  });
+
+  app.post("/api/admin/users/:id/suspend", requireAuth, async (req, res) => {
+    const userId = parseInt(req.params.id);
+    const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
+    if (!sessionUser[0] || !["master_admin", "admin"].includes(sessionUser[0].globalRole)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    const [target] = await db.select().from(users).where(eq(users.id, userId));
+    if (!target) return res.status(404).json({ message: "User not found" });
+    if (target.globalRole === "master_admin") {
+      const masters = await db.select().from(users).where(eq(users.globalRole as any, "master_admin"));
+      if (masters.length <= 1) return res.status(400).json({ message: "Cannot suspend the last Master Admin" });
+    }
+    const [updated] = await db.update(users).set({ status: "suspended", suspendedAt: new Date(), suspendedReason: req.body.reason || null }).where(eq(users.id, userId)).returning();
+    res.json(updated);
+  });
+
+  app.post("/api/admin/users/:id/activate", requireAuth, async (req, res) => {
+    const userId = parseInt(req.params.id);
+    const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
+    if (!sessionUser[0] || !["master_admin", "admin"].includes(sessionUser[0].globalRole)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    const [updated] = await db.update(users).set({ status: "active", suspendedAt: null, suspendedReason: null }).where(eq(users.id, userId)).returning();
+    res.json(updated);
+  });
+
+  app.post("/api/admin/users/:id/reset-password", requireAuth, async (req, res) => {
+    const userId = parseInt(req.params.id);
+    const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
+    if (!sessionUser[0] || !["master_admin", "admin"].includes(sessionUser[0].globalRole)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    const newPass = req.body.newPassword;
+    if (!newPass || newPass.length < 6) return res.status(400).json({ message: "Password must be at least 6 characters" });
+    const hashed = await hashPassword(newPass);
+    await db.update(users).set({ password: hashed, mustChangePassword: true }).where(eq(users.id, userId));
+    res.json({ message: "Password reset" });
   });
 
   // ── Team Workload ───────────────────────────────────────────────

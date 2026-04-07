@@ -2,7 +2,7 @@
 
 ## Overview
 
-VoltSafe Cortex is an internal Central Management System designed for VoltSafe, focusing on sales, support, and relationship management. It features a comprehensive sales pipeline (Leads to Quotes), support ticketing, a marina directory, communication tools, and an analytics dashboard. The system aims to streamline VoltSafe's internal operations, enhance customer relationship management, and provide valuable insights into sales and support activities.
+VoltSafe Cortex is an internal Central Management System designed for VoltSafe, focusing on sales, support, and relationship management. Login: `trevor@voltsafe.com` / `alberni1444` (Master Admin). It features a comprehensive sales pipeline (Leads to Quotes), support ticketing, a marina directory, communication tools, and an analytics dashboard. The system aims to streamline VoltSafe's internal operations, enhance customer relationship management, and provide valuable insights into sales and support activities.
 
 ## User Preferences
 

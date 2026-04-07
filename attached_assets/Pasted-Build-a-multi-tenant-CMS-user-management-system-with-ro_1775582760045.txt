@@ -1,0 +1,353 @@
+Build a multi-tenant CMS user management system with role-based access control (RBAC) plus organization scoping.
+
+CORE REQUIREMENTS
+
+1. SYSTEM MODEL
+- The platform supports multiple organizations.
+- Users can belong to one or more organizations.
+- Some users are internal to an organization.
+- Some users are external collaborators/consultants.
+- One user can have different roles in different organizations.
+- There must also be platform-level roles above the organization level.
+
+2. PLATFORM-LEVEL ROLES
+Create these global roles:
+
+A. MASTER_ADMIN
+- Full access to the entire system
+- Can view, create, edit, suspend, impersonate, and delete any user
+- Can manage all organizations
+- Can assign or remove any role except cannot remove own last MASTER_ADMIN access
+- Can view all audit logs
+- Can configure system-wide settings, permissions, modules, and billing
+- Can force password reset, MFA reset, and revoke all sessions
+- Can transfer organization ownership/admin control
+- Can enable or disable impersonation
+- This is my role
+
+B. PLATFORM_ADMIN
+- Can manage all organizations and users
+- Cannot modify MASTER_ADMIN accounts
+- Can view audit logs
+- Can manage platform settings except security-critical root settings
+
+C. SUPPORT_ADMIN
+- Can view users and organizations
+- Can assist with support actions
+- Can impersonate only if explicitly enabled by MASTER_ADMIN
+- Cannot change billing, ownership, or security-critical settings
+- Cannot delete organizations
+
+D. READ_ONLY_AUDITOR
+- Read-only access across the platform
+- Can view users, organizations, logs, permissions, and reports
+- Cannot edit anything
+
+3. ORGANIZATION-LEVEL ROLES
+Inside each organization, create these roles:
+
+A. ORG_OWNER
+- Full control of that organization
+- Can manage users, roles, content, settings, and integrations for that org
+- Can invite/remove users
+- Can manage consultants/external users for that org
+- Cannot access other organizations unless assigned there too
+- Cannot override MASTER_ADMIN
+
+B. ORG_ADMIN
+- Can manage most organization settings
+- Can create/edit/archive content
+- Can invite users
+- Can assign lower roles
+- Cannot transfer org ownership
+- Cannot delete org
+- Cannot assign ORG_OWNER unless explicitly allowed by MASTER_ADMIN
+
+C. CONTENT_MANAGER
+- Can create, edit, publish, archive content
+- Can manage media, tags, categories, campaigns, pages, posts, forms
+- Cannot manage users or org billing/security settings
+
+D. EDITOR
+- Can create and edit content
+- Can submit for approval
+- Can publish only if publish permission is granted
+- No user management
+
+E. CONTRIBUTOR
+- Can create draft content only
+- Can edit own drafts
+- Cannot publish
+- Cannot edit others’ content unless explicitly granted
+
+F. ANALYST
+- Read access to dashboards, analytics, CRM views, exports if allowed
+- Cannot edit content or manage users
+
+G. FINANCE_MANAGER
+- Can view billing, invoices, subscriptions, usage reports, financial exports
+- Cannot manage users unless separately granted
+
+H. SUPPORT_STAFF
+- Can view customer records, tickets, selected CRM fields
+- Can update operational records
+- Cannot access sensitive admin/security settings
+
+I. VIEWER
+- Read-only access to assigned modules and records
+
+J. EXTERNAL_COLLABORATOR
+- Same as VIEWER, CONTRIBUTOR, EDITOR, or ANALYST depending on assignment
+- Must always be marked external=true
+- Must be restricted from org-wide settings by default
+- Must only see records, folders, projects, pipelines, or modules explicitly assigned
+
+4. ACCESS MODEL
+Implement access using:
+- role-based permissions
+- organization scoping
+- optional record-level restrictions for external users
+- module-level permissions
+
+Permission pattern:
+- view
+- create
+- edit
+- delete
+- publish
+- approve
+- export
+- manage_users
+- manage_roles
+- manage_settings
+- manage_billing
+- impersonate
+- view_audit_logs
+
+5. RECOMMENDED PERMISSION SETS
+
+MASTER_ADMIN
+- all permissions across all organizations and platform
+
+PLATFORM_ADMIN
+- all except modify MASTER_ADMIN and root security settings
+
+ORG_OWNER
+- all permissions within own organization
+
+ORG_ADMIN
+- view/create/edit/delete/publish/export/manage_users/manage_roles/manage_settings within own org
+- no ownership transfer
+- no billing unless granted
+
+CONTENT_MANAGER
+- content view/create/edit/delete/publish/approve/export
+- no manage_users
+- no org settings
+
+EDITOR
+- content view/create/edit
+- publish optional
+- no delete unless granted
+
+CONTRIBUTOR
+- content view/create/edit own only
+- no publish
+- no approval
+- no user management
+
+ANALYST
+- view/export analytics and reports only
+
+FINANCE_MANAGER
+- billing/reports/export only
+
+SUPPORT_STAFF
+- customer/ticket/operational modules only
+
+VIEWER
+- view only
+
+EXTERNAL_COLLABORATOR
+- strict least-privilege access
+- no user management
+- no org settings
+- no billing
+- no security settings
+- record-level scope required
+
+6. USER TYPES
+Every user must have:
+- id
+- full_name
+- email
+- status (active, invited, suspended, deactivated)
+- user_type (internal, external)
+- global_role
+- mfa_enabled
+- last_login
+- created_at
+- updated_at
+
+For organization membership:
+- membership_id
+- user_id
+- organization_id
+- org_role
+- team/department
+- scoped_modules[]
+- scoped_records[] or scoped_projects[]
+- can_export boolean
+- can_publish boolean
+- can_approve boolean
+- is_external boolean
+
+7. SECURITY RULES
+- Master Admin can see and manage all users
+- No user can edit or delete their own highest-level admin role if it would leave the system without a MASTER_ADMIN
+- External users must default to least privilege
+- All role changes must be logged
+- All impersonation must be logged
+- Require MFA for MASTER_ADMIN, PLATFORM_ADMIN, ORG_OWNER
+- Support session revocation
+- Support account suspension without deletion
+- Soft delete users, do not hard delete by default
+- Prevent privilege escalation
+- Only MASTER_ADMIN can assign platform-level roles
+- Only ORG_OWNER or higher can assign org roles, subject to hierarchy
+- A user cannot assign a role higher than their own
+- Sensitive actions require confirmation and audit log entry
+
+8. AUDIT LOG
+Create immutable audit logs for:
+- login/logout
+- failed login
+- invite sent
+- user created
+- user updated
+- user suspended
+- role changed
+- permission changed
+- impersonation started/stopped
+- export performed
+- billing/settings/security changes
+- deleted/restored records
+
+Audit log fields:
+- id
+- actor_user_id
+- target_user_id nullable
+- organization_id nullable
+- action
+- entity_type
+- entity_id
+- metadata JSON
+- ip_address
+- user_agent
+- created_at
+
+9. ADMIN UI
+Build these screens:
+
+A. Platform Admin Console
+- all users
+- all organizations
+- global roles
+- audit logs
+- impersonation
+- security controls
+
+B. Organization User Management
+- active users
+- invited users
+- suspended users
+- external collaborators
+- role assignment
+- module access assignment
+- record/project access assignment
+
+C. Role & Permission Matrix
+- table view of roles vs permissions
+- allow custom overrides only for org-level roles
+- show warnings for risky permissions
+
+D. User Profile Page
+- user details
+- org memberships
+- last login
+- MFA status
+- assigned roles
+- audit history
+- suspend/reactivate/reset password/revoke sessions
+
+10. INVITE FLOW
+- Admin invites user by email
+- User selects password or SSO
+- User accepts invite
+- User is assigned to organization and role
+- If external, require expiration date option and scoped access selection
+- Allow re-send invite
+- Allow invite cancellation
+
+11. OPTIONAL BUT RECOMMENDED
+- SSO support
+- SCIM sync for enterprise orgs
+- temporary access expiry
+- approval workflows for publish/delete/export
+- custom permission bundles per organization
+- data room mode for consultants
+- IP allowlisting for admin roles
+
+12. DEFAULT HIERARCHY TO IMPLEMENT
+Global hierarchy:
+MASTER_ADMIN > PLATFORM_ADMIN > SUPPORT_ADMIN > READ_ONLY_AUDITOR
+
+Organization hierarchy:
+ORG_OWNER > ORG_ADMIN > CONTENT_MANAGER > EDITOR > CONTRIBUTOR > ANALYST > SUPPORT_STAFF > VIEWER
+
+External users:
+EXTERNAL_COLLABORATOR with mapped permission profile:
+- External Viewer
+- External Contributor
+- External Editor
+- External Analyst
+
+13. IMPORTANT LOGIC RULES
+- I as MASTER_ADMIN can view and manage every user in the system
+- I can enter any organization and manage its users
+- I can override organization admins
+- I can see internal and external users separately
+- I can filter users by organization, role, status, and external/internal
+- I can impersonate users for troubleshooting
+- I can revoke access instantly
+- I can create custom permission templates but system must keep the default hierarchy above
+
+14. DATABASE TABLES
+Create tables or models for:
+- users
+- organizations
+- organization_memberships
+- roles
+- permissions
+- role_permissions
+- membership_permissions_override
+- audit_logs
+- sessions
+- invites
+
+15. IMPLEMENTATION STYLE
+- Use secure server-side permission checks, not frontend-only checks
+- Use reusable middleware:
+  requireAuth()
+  requireGlobalRole()
+  requireOrgRole()
+  requirePermission()
+  requireScopedRecordAccess()
+- Return 403 for unauthorized actions
+- Add clean admin dashboard UI for managing this
+
+16. SEED DEFAULT ROLES
+Seed all default global roles and org roles automatically on setup.
+
+17. FIRST USER
+The first account created should be assigned MASTER_ADMIN automatically.
