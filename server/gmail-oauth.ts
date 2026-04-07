@@ -69,11 +69,25 @@ export async function getGmailClient() {
   return google.gmail({ version: "v1", auth: oauth2Client });
 }
 
-export async function isGmailConnected(): Promise<boolean> {
+export async function isGmailConnected(): Promise<{ connected: boolean; tokenValid: boolean }> {
   try {
     const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, "gmail_refresh_token"));
-    return !!row;
+    if (!row) return { connected: false, tokenValid: false };
+
+    // Validate the token actually works by attempting a refresh
+    try {
+      const clientId = process.env.GOOGLE_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+      if (!clientId || !clientSecret) return { connected: true, tokenValid: false };
+
+      const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+      oauth2Client.setCredentials({ refresh_token: row.value });
+      await oauth2Client.refreshAccessToken();
+      return { connected: true, tokenValid: true };
+    } catch {
+      return { connected: true, tokenValid: false };
+    }
   } catch {
-    return false;
+    return { connected: false, tokenValid: false };
   }
 }

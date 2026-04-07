@@ -666,11 +666,11 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
 
   const canSend = currentUserEmail === "trevor@voltsafe.com";
 
-  const statusQuery = useQuery<{ connected: boolean; hasCredentials: boolean }>({
+  const statusQuery = useQuery<{ connected: boolean; tokenValid: boolean; hasCredentials: boolean }>({
     queryKey: ["/api/gmail/status"],
     queryFn: async () => {
       const res = await fetch("/api/gmail/status", { credentials: "include" });
-      if (!res.ok) return { connected: false, hasCredentials: false };
+      if (!res.ok) return { connected: false, tokenValid: false, hasCredentials: false };
       return res.json();
     },
     retry: false,
@@ -938,6 +938,23 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
         </div>
       </div>
 
+      {/* Token expired warning banner */}
+      {statusQuery.data?.connected && !statusQuery.data?.tokenValid && (
+        <div className="flex-shrink-0 flex items-center gap-3 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-sm">
+          <Mail className="h-4 w-4 flex-shrink-0" />
+          <span className="flex-1">Gmail session has expired. Your emails cannot be loaded until you reconnect.</span>
+          {canSend && (
+            <a
+              href="/api/auth/gmail/connect"
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium transition-colors whitespace-nowrap"
+              data-testid="button-reconnect-gmail-banner"
+            >
+              Reconnect Gmail →
+            </a>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-1 min-h-0">
         {/* Left panel: message list */}
         <div className={`flex flex-col min-h-0 border-r border-border/50 bg-background ${selectedThreadId ? "hidden md:flex md:w-80 lg:w-96 flex-shrink-0" : "flex-1 md:w-80 lg:w-96 md:flex-initial"}`}>
@@ -1130,23 +1147,26 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               <div className="p-8 text-center">
                 <Mail className="h-10 w-10 mx-auto mb-3 opacity-30" />
                 <p className="text-sm font-medium text-foreground mb-1">Could not load emails.</p>
-                {statusQuery.data && !statusQuery.data.connected ? (
+                {statusQuery.data?.hasCredentials && (!statusQuery.data.connected || !statusQuery.data.tokenValid) ? (
                   <>
-                    <p className="text-xs text-muted-foreground mb-4">Gmail is not connected to VoltSafe Cortex.</p>
-                    {canSend && statusQuery.data.hasCredentials && (
+                    <p className="text-xs text-muted-foreground mb-4">
+                      {statusQuery.data.connected && !statusQuery.data.tokenValid
+                        ? "Gmail session has expired. Please reconnect your account."
+                        : "Gmail is not connected to VoltSafe Cortex."}
+                    </p>
+                    {canSend && (
                       <a
                         href="/api/auth/gmail/connect"
                         className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
                         data-testid="button-connect-gmail"
                       >
                         <Mail className="w-4 h-4" />
-                        Connect Gmail Account
+                        {statusQuery.data.connected && !statusQuery.data.tokenValid ? "Reconnect Gmail Account" : "Connect Gmail Account"}
                       </a>
                     )}
-                    {canSend && !statusQuery.data.hasCredentials && (
-                      <p className="text-xs text-red-400">Google credentials not configured. Ask your admin to set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</p>
-                    )}
                   </>
+                ) : statusQuery.data && !statusQuery.data.hasCredentials ? (
+                  <p className="text-xs text-red-400">Google credentials not configured. Ask your admin to set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</p>
                 ) : (
                   <p className="text-xs mt-1 text-red-400">{(error as Error).message}</p>
                 )}

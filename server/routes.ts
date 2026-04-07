@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { metrics, sales, chartData, users } from "@shared/schema";
+import { metrics, sales, chartData, users, systemSettings } from "@shared/schema";
 import {
   insertLeadSchema, insertAccountSchema, insertContactSchema,
   insertOpportunitySchema, insertTicketSchema, insertQuoteSchema,
@@ -1852,9 +1852,19 @@ export async function registerRoutes(
 
   // ── Gmail OAuth connect/callback ─────────────────────────────────────────
   app.get("/api/gmail/status", requireAuth, async (_req, res) => {
-    const connected = await isGmailConnected();
+    const { connected, tokenValid } = await isGmailConnected();
     const hasCredentials = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
-    res.json({ connected, hasCredentials });
+    res.json({ connected, tokenValid, hasCredentials });
+  });
+
+  app.post("/api/gmail/disconnect", requireAuth, async (_req, res) => {
+    try {
+      await db.delete(systemSettings).where(eq(systemSettings.key, "gmail_refresh_token"));
+      await db.delete(systemSettings).where(eq(systemSettings.key, "gmail_access_token"));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.get("/api/auth/gmail/connect", requireAuth, (_req, res) => {
