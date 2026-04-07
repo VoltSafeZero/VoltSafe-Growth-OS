@@ -6,6 +6,29 @@ import * as fs from "fs";
 
 const EXPECTED_LEAD_COUNT = 10871;
 
+export async function migrateUserSchema(): Promise<void> {
+  try {
+    // Ensure new user management columns exist (idempotent)
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS global_role text NOT NULL DEFAULT 'sales'`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active'`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS user_type text NOT NULL DEFAULT 'internal'`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS department text`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS job_title text`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_by integer`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_at timestamp`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_reason text`);
+
+    // Set correct roles for known users (idempotent — only sets if still default 'sales')
+    await db.execute(sql`UPDATE users SET global_role = 'master_admin', status = 'active' WHERE email = 'trevor@voltsafe.com' AND global_role != 'master_admin'`);
+    await db.execute(sql`UPDATE users SET global_role = 'admin', status = 'active' WHERE email = 'terri@voltsafe.com' AND global_role = 'sales'`);
+    await db.execute(sql`UPDATE users SET status = 'active' WHERE status = ''`);
+
+    console.log("[migration] User schema migration complete.");
+  } catch (err) {
+    console.error("[migration] User schema migration error (non-fatal):", err);
+  }
+}
+
 export async function seedProductionData(): Promise<void> {
   try {
     const result = await db.execute(sql`SELECT COUNT(*) as cnt FROM leads`);

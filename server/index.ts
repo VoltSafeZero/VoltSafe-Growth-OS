@@ -137,7 +137,8 @@ app.use((req, res, next) => {
       log(`Listening on 0.0.0.0:${port}`);
 
       try {
-        const { seedProductionData } = await import("./seed-production");
+        const { migrateUserSchema, seedProductionData } = await import("./seed-production");
+        await migrateUserSchema();
         await seedProductionData();
       } catch (err) {
         console.error("Seed error (non-fatal):", err);

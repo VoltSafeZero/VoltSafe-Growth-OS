@@ -1322,52 +1322,60 @@ export async function registerRoutes(
   });
 
   app.put("/api/admin/users/:id", requireAuth, async (req, res) => {
-    const userId = parseInt(req.params.id);
-    const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
-    if (!sessionUser[0]) return res.status(401).json({ message: "Not authenticated" });
-    const actorRole = sessionUser[0].globalRole;
-    if (!["master_admin", "admin"].includes(actorRole)) {
-      return res.status(403).json({ message: "Admin access required" });
-    }
+    try {
+      const userId = parseInt(req.params.id);
+      if (isNaN(userId)) return res.status(400).json({ message: "Invalid user ID" });
 
-    const { name, email, globalRole, status, userType, department, jobTitle, suspendedReason } = req.body;
+      const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
+      if (!sessionUser[0]) return res.status(401).json({ message: "Not authenticated" });
+      const actorRole = sessionUser[0].globalRole;
+      if (!["master_admin", "admin"].includes(actorRole)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
 
-    // Only master_admin can set master_admin role
-    if (globalRole === "master_admin" && actorRole !== "master_admin") {
-      return res.status(403).json({ message: "Only Master Admin can assign Master Admin role" });
-    }
+      const { name, email, globalRole, status, userType, department, jobTitle, suspendedReason } = req.body;
 
-    // Prevent removing the last master_admin
-    if (status === "suspended" || globalRole !== "master_admin") {
-      const [existing] = await db.select().from(users).where(eq(users.id, userId));
-      if (existing?.globalRole === "master_admin") {
-        const masterAdmins = await db.select().from(users).where(eq(users.globalRole as any, "master_admin"));
-        if (masterAdmins.length <= 1) {
-          return res.status(400).json({ message: "Cannot demote or suspend the last Master Admin" });
+      // Only master_admin can set master_admin role
+      if (globalRole === "master_admin" && actorRole !== "master_admin") {
+        return res.status(403).json({ message: "Only Master Admin can assign Master Admin role" });
+      }
+
+      // Prevent demoting or suspending the last master_admin
+      if (globalRole && globalRole !== "master_admin") {
+        const [existing] = await db.select({ id: users.id, globalRole: users.globalRole }).from(users).where(eq(users.id, userId));
+        if (existing?.globalRole === "master_admin") {
+          const masterAdmins = await db.select({ id: users.id }).from(users).where(sql`global_role = 'master_admin'`);
+          if (masterAdmins.length <= 1) {
+            return res.status(400).json({ message: "Cannot demote the last Master Admin" });
+          }
         }
       }
-    }
 
-    const updateData: any = {};
-    if (name !== undefined) updateData.name = name;
-    if (email !== undefined) updateData.email = email.toLowerCase().trim();
-    if (globalRole !== undefined) updateData.globalRole = globalRole;
-    if (userType !== undefined) updateData.userType = userType;
-    if (department !== undefined) updateData.department = department;
-    if (jobTitle !== undefined) updateData.jobTitle = jobTitle;
-    if (status !== undefined) {
-      updateData.status = status;
-      if (status === "suspended") {
-        updateData.suspendedAt = new Date();
-        updateData.suspendedReason = suspendedReason || null;
-      } else if (status === "active") {
-        updateData.suspendedAt = null;
-        updateData.suspendedReason = null;
+      const updateData: Record<string, unknown> = {};
+      if (name !== undefined) updateData.name = name;
+      if (email !== undefined) updateData.email = email.toLowerCase().trim();
+      if (globalRole !== undefined) updateData.globalRole = globalRole;
+      if (userType !== undefined) updateData.userType = userType;
+      if (department !== undefined) updateData.department = department || null;
+      if (jobTitle !== undefined) updateData.jobTitle = jobTitle || null;
+      if (status !== undefined) {
+        updateData.status = status;
+        if (status === "suspended") {
+          updateData.suspendedAt = new Date();
+          updateData.suspendedReason = suspendedReason || null;
+        } else if (status === "active") {
+          updateData.suspendedAt = null;
+          updateData.suspendedReason = null;
+        }
       }
-    }
 
-    const [updated] = await db.update(users).set(updateData).where(eq(users.id, userId)).returning();
-    res.json(updated);
+      const [updated] = await db.update(users).set(updateData as any).where(eq(users.id, userId)).returning();
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      res.json(updated);
+    } catch (err: any) {
+      console.error("[admin/users PUT]", err);
+      res.status(500).json({ message: err?.message || "Failed to update user" });
+    }
   });
 
   app.post("/api/admin/users", requireAuth, async (req, res) => {
