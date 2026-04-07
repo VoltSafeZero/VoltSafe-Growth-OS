@@ -49,6 +49,7 @@ export default function TicketsPage() {
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [search, setSearch] = useState("");
   const [filterSeverity, setFilterSeverity] = useState("all");
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -101,25 +102,31 @@ export default function TicketsPage() {
     const q = search.toLowerCase();
     const matchSearch = !q || t.subject.toLowerCase().includes(q) || t.requesterName.toLowerCase().includes(q);
     const matchSeverity = filterSeverity === "all" || t.severity === filterSeverity;
-    return matchSearch && matchSeverity;
+    const matchStatus = !filterStatus
+      ? true
+      : filterStatus === "open_all"
+        ? ["new","open","in_progress"].includes(t.status)
+        : filterStatus === "critical_sev"
+          ? t.severity === "critical"
+          : t.status === filterStatus;
+    return matchSearch && matchSeverity && matchStatus;
   });
 
-  const open = filtered.filter(t => ["new","open","in_progress"].includes(t.status));
-  const critical = filtered.filter(t => t.severity === "critical");
-  const resolved = filtered.filter(t => t.status === "resolved");
-  const closed = filtered.filter(t => t.status === "closed");
-
   const summaryCards = [
-    { label: "Open", value: allTickets.filter(t => ["new","open","in_progress"].includes(t.status)).length, icon: LifeBuoy, color: "text-blue-400", bg: "bg-blue-500/10" },
-    { label: "Critical", value: allTickets.filter(t => t.severity === "critical").length, icon: AlertTriangle, color: "text-red-400", bg: "bg-red-500/10" },
-    { label: "In Progress", value: allTickets.filter(t => t.status === "in_progress").length, icon: Timer, color: "text-orange-400", bg: "bg-orange-500/10" },
-    { label: "Resolved", value: allTickets.filter(t => t.status === "resolved").length, icon: CheckCircle2, color: "text-green-400", bg: "bg-green-500/10" },
+    { label: "Open", filterKey: "open_all", value: allTickets.filter(t => ["new","open","in_progress"].includes(t.status)).length, icon: LifeBuoy, color: "text-blue-400", bg: "bg-blue-500/10", ring: "ring-blue-500/40" },
+    { label: "Critical", filterKey: "critical_sev", value: allTickets.filter(t => t.severity === "critical").length, icon: AlertTriangle, color: "text-red-400", bg: "bg-red-500/10", ring: "ring-red-500/40" },
+    { label: "In Progress", filterKey: "in_progress", value: allTickets.filter(t => t.status === "in_progress").length, icon: Timer, color: "text-orange-400", bg: "bg-orange-500/10", ring: "ring-orange-500/40" },
+    { label: "Resolved", filterKey: "resolved", value: allTickets.filter(t => t.status === "resolved").length, icon: CheckCircle2, color: "text-green-400", bg: "bg-green-500/10", ring: "ring-green-500/40" },
   ];
 
   const groupedByStatus = STATUSES.map(s => ({
     ...s,
     items: filtered.filter(t => t.status === s.key),
   }));
+
+  function toggleStatusFilter(key: string) {
+    setFilterStatus(prev => prev === key ? null : key);
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -158,23 +165,32 @@ export default function TicketsPage() {
       <div className="flex-1 overflow-auto p-6 space-y-5">
         {/* Summary Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {summaryCards.map(card => (
-            <Card key={card.label} className="border-border/50 bg-card/50" data-testid={`card-ticket-summary-${card.label.toLowerCase()}`}>
-              <CardContent className="p-4 flex items-center gap-3">
-                <div className={`w-9 h-9 rounded-lg ${card.bg} flex items-center justify-center shrink-0`}>
-                  <card.icon className={`w-4 h-4 ${card.color}`} />
-                </div>
-                <div>
-                  <div className="text-2xl font-bold">{card.value}</div>
-                  <div className="text-xs text-muted-foreground">{card.label}</div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+          {summaryCards.map(card => {
+            const isActive = filterStatus === card.filterKey;
+            return (
+              <Card
+                key={card.label}
+                className={`border-border/50 bg-card/50 cursor-pointer transition-all hover:border-primary/40 hover:bg-card/80 ${isActive ? `ring-2 ${card.ring} border-transparent` : ""}`}
+                onClick={() => toggleStatusFilter(card.filterKey)}
+                data-testid={`card-ticket-summary-${card.label.toLowerCase().replace(" ","-")}`}
+              >
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-lg ${card.bg} flex items-center justify-center shrink-0`}>
+                    <card.icon className={`w-4 h-4 ${card.color}`} />
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold">{card.value}</div>
+                    <div className="text-xs text-muted-foreground">{card.label}</div>
+                  </div>
+                  {isActive && <XCircle className={`w-4 h-4 ml-auto ${card.color} opacity-60`} />}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
 
         {/* Filters */}
-        <div className="flex gap-3 flex-wrap">
+        <div className="flex gap-3 flex-wrap items-center">
           <div className="relative flex-1 min-w-[180px] max-w-xs">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -197,6 +213,18 @@ export default function TicketsPage() {
               <SelectItem value="critical">Critical</SelectItem>
             </SelectContent>
           </Select>
+          {filterStatus && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 text-xs gap-1.5 border-primary/40 text-primary"
+              onClick={() => setFilterStatus(null)}
+              data-testid="button-clear-status-filter"
+            >
+              <XCircle className="w-3.5 h-3.5" />
+              {summaryCards.find(c => c.filterKey === filterStatus)?.label ?? STATUSES.find(s => s.key === filterStatus)?.label ?? filterStatus}
+            </Button>
+          )}
         </div>
 
         {/* Content */}
@@ -208,9 +236,13 @@ export default function TicketsPage() {
           <div className="flex gap-4 overflow-x-auto pb-4">
             {groupedByStatus.map(status => (
               <div key={status.key} className="min-w-[240px] sm:min-w-[260px] flex-shrink-0" data-testid={`column-${status.key}`}>
-                <div className="flex items-center gap-2 mb-3 px-1">
+                <div
+                  className="flex items-center gap-2 mb-3 px-1 cursor-pointer group"
+                  onClick={() => { toggleStatusFilter(status.key); setViewMode("list"); }}
+                  title={`Filter to ${status.label}`}
+                >
                   <div className={`w-2 h-2 rounded-full ${status.color}`} />
-                  <h3 className="text-sm font-semibold">{status.label}</h3>
+                  <h3 className="text-sm font-semibold group-hover:text-primary transition-colors">{status.label}</h3>
                   <Badge variant="outline" className="ml-auto text-xs">{status.items.length}</Badge>
                 </div>
                 <div className="space-y-2">
