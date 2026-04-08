@@ -666,11 +666,11 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
 
   const canSend = currentUserEmail === "trevor@voltsafe.com";
 
-  const statusQuery = useQuery<{ connected: boolean; tokenValid: boolean; hasCredentials: boolean }>({
+  const statusQuery = useQuery<{ connected: boolean; tokenValid: boolean; apiEnabled: boolean; hasCredentials: boolean }>({
     queryKey: ["/api/gmail/status"],
     queryFn: async () => {
       const res = await fetch("/api/gmail/status", { credentials: "include" });
-      if (!res.ok) return { connected: false, tokenValid: false, hasCredentials: false };
+      if (!res.ok) return { connected: false, tokenValid: false, apiEnabled: true, hasCredentials: false };
       return res.json();
     },
     retry: false,
@@ -938,6 +938,22 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
         </div>
       </div>
 
+      {/* API disabled warning banner */}
+      {statusQuery.data?.connected && statusQuery.data?.tokenValid && !statusQuery.data?.apiEnabled && (
+        <div className="flex-shrink-0 flex items-center gap-3 px-4 py-2.5 bg-red-500/10 border-b border-red-500/30 text-red-400 text-sm">
+          <Mail className="h-4 w-4 flex-shrink-0" />
+          <span className="flex-1">Gmail API is disabled in Google Cloud. Enable it to restore access.</span>
+          <a
+            href="https://console.developers.google.com/apis/api/gmail.googleapis.com/overview?project=262239468400"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs font-medium transition-colors whitespace-nowrap"
+            data-testid="button-enable-gmail-api"
+          >
+            Enable Gmail API →
+          </a>
+        </div>
+      )}
       {/* Token expired warning banner */}
       {statusQuery.data?.connected && !statusQuery.data?.tokenValid && (
         <div className="flex-shrink-0 flex items-center gap-3 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-sm">
@@ -1147,7 +1163,21 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               <div className="p-8 text-center">
                 <Mail className="h-10 w-10 mx-auto mb-3 opacity-30" />
                 <p className="text-sm font-medium text-foreground mb-1">Could not load emails.</p>
-                {statusQuery.data?.hasCredentials && (!statusQuery.data.connected || !statusQuery.data.tokenValid) ? (
+                {statusQuery.data?.connected && statusQuery.data?.tokenValid && !statusQuery.data?.apiEnabled ? (
+                  <>
+                    <p className="text-xs text-muted-foreground mb-4">The Gmail API is disabled in your Google Cloud project. Enable it to restore access.</p>
+                    <a
+                      href="https://console.developers.google.com/apis/api/gmail.googleapis.com/overview?project=262239468400"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600/80 text-white text-sm font-medium hover:bg-red-600 transition-colors"
+                      data-testid="button-enable-gmail-api-inline"
+                    >
+                      <Mail className="w-4 h-4" />
+                      Enable Gmail API in Google Cloud →
+                    </a>
+                  </>
+                ) : statusQuery.data?.hasCredentials && (!statusQuery.data.connected || !statusQuery.data.tokenValid) ? (
                   <>
                     <p className="text-xs text-muted-foreground mb-4">
                       {statusQuery.data.connected && !statusQuery.data.tokenValid

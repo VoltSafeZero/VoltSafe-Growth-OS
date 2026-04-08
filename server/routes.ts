@@ -1852,9 +1852,9 @@ export async function registerRoutes(
 
   // ── Gmail OAuth connect/callback ─────────────────────────────────────────
   app.get("/api/gmail/status", requireAuth, async (_req, res) => {
-    const { connected, tokenValid } = await isGmailConnected();
+    const { connected, tokenValid, apiEnabled } = await isGmailConnected();
     const hasCredentials = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
-    res.json({ connected, tokenValid, hasCredentials });
+    res.json({ connected, tokenValid, apiEnabled, hasCredentials });
   });
 
   app.post("/api/gmail/disconnect", requireAuth, async (_req, res) => {

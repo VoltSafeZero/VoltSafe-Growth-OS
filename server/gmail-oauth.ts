@@ -69,25 +69,33 @@ export async function getGmailClient() {
   return google.gmail({ version: "v1", auth: oauth2Client });
 }
 
-export async function isGmailConnected(): Promise<{ connected: boolean; tokenValid: boolean }> {
+export async function isGmailConnected(): Promise<{ connected: boolean; tokenValid: boolean; apiEnabled: boolean }> {
   try {
     const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, "gmail_refresh_token"));
-    if (!row) return { connected: false, tokenValid: false };
+    if (!row) return { connected: false, tokenValid: false, apiEnabled: true };
 
-    // Validate the token actually works by attempting a refresh
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    if (!clientId || !clientSecret) return { connected: true, tokenValid: false, apiEnabled: true };
+
+    // Validate token AND API access by making a lightweight Gmail API call
     try {
-      const clientId = process.env.GOOGLE_CLIENT_ID;
-      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-      if (!clientId || !clientSecret) return { connected: true, tokenValid: false };
-
       const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
       oauth2Client.setCredentials({ refresh_token: row.value });
-      await oauth2Client.refreshAccessToken();
-      return { connected: true, tokenValid: true };
-    } catch {
-      return { connected: true, tokenValid: false };
+      const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+      await gmail.users.getProfile({ userId: "me" });
+      return { connected: true, tokenValid: true, apiEnabled: true };
+    } catch (err: any) {
+      const msg = err?.message || "";
+      if (msg.includes("API has not been used") || msg.includes("disabled")) {
+        return { connected: true, tokenValid: true, apiEnabled: false };
+      }
+      if (msg.includes("unauthorized_client") || msg.includes("invalid_grant") || msg.includes("Token has been expired")) {
+        return { connected: true, tokenValid: false, apiEnabled: true };
+      }
+      return { connected: true, tokenValid: false, apiEnabled: true };
     }
   } catch {
-    return { connected: false, tokenValid: false };
+    return { connected: false, tokenValid: false, apiEnabled: true };
   }
 }
