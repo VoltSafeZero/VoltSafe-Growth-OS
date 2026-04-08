@@ -144,6 +144,17 @@ export async function migrateEmailSchema(): Promise<void> {
       `);
     }
 
+    // ── Phase 2: Per-user token storage in email_accounts ────────────────────
+    await db.execute(sql`ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS refresh_token text`);
+    await db.execute(sql`ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS access_token text`);
+    // Backfill Trevor's refresh token from system_settings (Phase 1→2 migration)
+    await db.execute(sql`
+      UPDATE email_accounts
+      SET refresh_token = (SELECT value FROM system_settings WHERE key = 'gmail_refresh_token' LIMIT 1)
+      WHERE user_id = 4 AND refresh_token IS NULL
+        AND EXISTS (SELECT 1 FROM system_settings WHERE key = 'gmail_refresh_token')
+    `);
+
     // ── S1 — Backfill source_account_id on all Trevor's emails ───────────────
     await db.execute(sql`
       UPDATE email_messages

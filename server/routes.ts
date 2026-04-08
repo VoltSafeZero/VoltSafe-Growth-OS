@@ -1691,7 +1691,7 @@ export async function registerRoutes(
     const acct = await getUserGmailAccount(userId);
     if (!acct) return res.status(403).json({ message: "No Gmail account connected" });
     try {
-      const profile = await getProfile();
+      const profile = await getProfile(userId);
       res.json(profile);
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
@@ -1706,7 +1706,7 @@ export async function registerRoutes(
       const q = (req.query.q as string) || "";
       const maxResults = Math.min(Number(req.query.limit) || 50, 100);
       const pageToken = (req.query.pageToken as string) || undefined;
-      const { summaries, nextPageToken } = await getMessageSummaries(maxResults, q, pageToken);
+      const { summaries, nextPageToken } = await getMessageSummaries(userId, maxResults, q, pageToken);
       res.json({ messages: summaries, nextPageToken });
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
@@ -1720,7 +1720,7 @@ export async function registerRoutes(
     try {
       const q = (req.query.q as string) || "";
       const maxResults = Math.min(Number(req.query.limit) || 30, 100);
-      const threads = await listThreads(q, maxResults);
+      const threads = await listThreads(userId, q, maxResults);
       res.json(threads);
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
@@ -1732,7 +1732,7 @@ export async function registerRoutes(
     const acct = await getUserGmailAccount(userId);
     if (!acct) return res.status(403).json({ message: "No Gmail account connected" });
     try {
-      const thread = await getThread(req.params.id);
+      const thread = await getThread(userId, req.params.id);
       res.json(thread);
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
@@ -1745,7 +1745,7 @@ export async function registerRoutes(
     const acct = await getUserGmailAccount(userId);
     if (!acct) return res.json([]);
     try {
-      const drafts = await listDraftSummaries();
+      const drafts = await listDraftSummaries(userId);
       res.json(drafts);
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
@@ -1757,7 +1757,7 @@ export async function registerRoutes(
     const acct = await getUserGmailAccount(userId);
     if (!acct) return res.status(403).json({ message: "No Gmail account connected" });
     try {
-      const content = await getDraftContent(req.params.id);
+      const content = await getDraftContent(userId, req.params.id);
       res.json(content);
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
@@ -1771,7 +1771,7 @@ export async function registerRoutes(
     try {
       const { to, subject, body, threadId, draftId } = req.body;
       if (!body) return res.status(400).json({ message: "body is required" });
-      const draft = await saveDraft(to || "", subject || "", body, threadId, draftId);
+      const draft = await saveDraft(userId, to || "", subject || "", body, threadId, draftId);
       res.json(draft);
     } catch (err: any) {
       res.status(503).json({ message: "Failed to save draft", error: err.message });
@@ -1783,7 +1783,7 @@ export async function registerRoutes(
     const acct = await getUserGmailAccount(userId);
     if (!acct) return res.status(403).json({ message: "No Gmail account connected" });
     try {
-      await deleteDraft(req.params.id);
+      await deleteDraft(userId, req.params.id);
       res.json({ success: true });
     } catch (err: any) {
       res.status(503).json({ message: "Failed to delete draft", error: err.message });
@@ -1841,7 +1841,7 @@ export async function registerRoutes(
     const acct = await getUserGmailAccount(userId);
     if (!acct) return res.status(403).json({ message: "No Gmail account connected" });
     try {
-      await markMessageRead(req.params.id);
+      await markMessageRead(userId, req.params.id);
       res.json({ success: true });
     } catch (err: any) {
       res.status(503).json({ message: "Failed to mark as read", error: err.message });
@@ -1853,7 +1853,7 @@ export async function registerRoutes(
     const acct = await getUserGmailAccount(userId);
     if (!acct) return res.status(403).json({ message: "No Gmail account connected" });
     try {
-      const gmail = await getGmailClient();
+      const gmail = await getGmailClient(userId);
       const { id } = req.params;
       const msg = await gmail.users.messages.get({ userId: "me", id, format: "minimal" });
       const labelIds: string[] = msg.data.labelIds || [];
@@ -1870,10 +1870,9 @@ export async function registerRoutes(
   });
 
   app.post("/api/gmail/send", requireAuth, async (req, res) => {
-    const [user] = await db.select().from(users).where(eq(users.id, req.session.userId!));
-    if (!user || user.email !== "trevor@voltsafe.com") {
-      return res.status(403).json({ message: "Only the connected Gmail account owner can send emails." });
-    }
+    const userId = (req.session as any).userId;
+    const acct = await getUserGmailAccount(userId);
+    if (!acct) return res.status(403).json({ message: "No Gmail account connected. Connect your Gmail to send emails." });
     try {
       const { to, subject, body, threadId, attachmentIds } = req.body;
       if (!to || !body) {
@@ -1893,7 +1892,7 @@ export async function registerRoutes(
           }
         }
       }
-      const result = await sendEmail(to, subject || "", body, threadId, mimeAttachments);
+      const result = await sendEmail(userId, to, subject || "", body, threadId, mimeAttachments);
       res.json(result);
     } catch (err: any) {
       res.status(503).json({ message: "Failed to send email", error: err.message });
@@ -1905,11 +1904,7 @@ export async function registerRoutes(
   app.get("/api/gmail/status", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const hasCredentials = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
-    const acct = await getUserGmailAccount(userId);
-    if (!acct) {
-      return res.json({ connected: false, tokenValid: false, apiEnabled: true, hasCredentials });
-    }
-    const { connected, tokenValid, apiEnabled } = await isGmailConnected();
+    const { connected, tokenValid, apiEnabled } = await isGmailConnected(userId);
     res.json({ connected, tokenValid, apiEnabled, hasCredentials });
   });
 
@@ -2010,12 +2005,23 @@ export async function registerRoutes(
   app.get("/api/auth/google/callback", async (req, res) => {
     const code = req.query.code as string;
     if (!code) return res.status(400).send("Missing authorization code");
+    // Use the session to identify which user is connecting their Gmail
+    const userId: number | undefined = (req.session as any)?.userId;
+    if (!userId) {
+      return res.status(401).send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+        <div style="text-align:center">
+          <h2 style="color:#ef4444">Session Expired</h2>
+          <p>Please log in again and try connecting Gmail.</p>
+          <a href="/login" style="color:#14b8a6">← Back to Login</a>
+        </div>
+      </body></html>`);
+    }
     try {
-      await exchangeCodeForTokens(code);
+      const { emailAddress } = await exchangeCodeForTokens(code, userId);
       res.send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
         <div style="text-align:center">
           <h2 style="color:#22c55e">✓ Gmail Connected</h2>
-          <p>Your Gmail account has been connected to VoltSafe Cortex.</p>
+          <p>${emailAddress ? emailAddress + " has been" : "Your Gmail account has been"} connected to VoltSafe Cortex.</p>
           <a href="/gmail" style="color:#14b8a6">Go to Gmail Inbox →</a>
         </div>
       </body></html>`);

@@ -1002,6 +1002,8 @@ export const emailAccounts = pgTable("email_accounts", {
   authStatus: text("auth_status").notNull().default("active"),
   isActive: boolean("is_active").default(true),
   scopesJson: text("scopes_json"),
+  refreshToken: text("refresh_token"),
+  accessToken: text("access_token"),
   syncEnabled: boolean("sync_enabled").notNull().default(true),
   lastSyncAt: timestamp("last_sync_at"),
   lastHistoryId: text("last_history_id"),

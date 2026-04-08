@@ -1,5 +1,5 @@
 // Gmail integration via Google OAuth2 (GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET)
-// Refresh token stored in system_settings DB table
+// Per-user token lookup via email_accounts table (Phase 2).
 import { getGmailClient } from "./gmail-oauth";
 
 function decodeBase64(data: string) {
@@ -46,8 +46,8 @@ function getHeader(headers: any[], name: string): string {
   return headers?.find((h: any) => h.name.toLowerCase() === name.toLowerCase())?.value || "";
 }
 
-export async function listThreads(query: string = "", maxResults: number = 30) {
-  const gmail = await getGmailClient();
+export async function listThreads(userId: number, query: string = "", maxResults: number = 30) {
+  const gmail = await getGmailClient(userId);
   const res = await gmail.users.threads.list({
     userId: "me",
     maxResults,
@@ -56,8 +56,8 @@ export async function listThreads(query: string = "", maxResults: number = 30) {
   return res.data.threads || [];
 }
 
-export async function getThread(threadId: string) {
-  const gmail = await getGmailClient();
+export async function getThread(userId: number, threadId: string) {
+  const gmail = await getGmailClient(userId);
   const res = await gmail.users.threads.get({
     userId: "me",
     id: threadId,
@@ -86,8 +86,8 @@ export async function getThread(threadId: string) {
   return { id: thread.id, historyId: thread.historyId, messages };
 }
 
-export async function getMessageSummaries(maxResults: number = 50, query: string = "", pageToken?: string) {
-  const gmail = await getGmailClient();
+export async function getMessageSummaries(userId: number, maxResults: number = 50, query: string = "", pageToken?: string) {
+  const gmail = await getGmailClient(userId);
   const listRes = await gmail.users.messages.list({
     userId: "me",
     maxResults,
@@ -121,8 +121,8 @@ export async function getMessageSummaries(maxResults: number = 50, query: string
   return { summaries, nextPageToken };
 }
 
-export async function markMessageRead(messageId: string) {
-  const gmail = await getGmailClient();
+export async function markMessageRead(userId: number, messageId: string) {
+  const gmail = await getGmailClient(userId);
   await gmail.users.messages.modify({
     userId: "me",
     id: messageId,
@@ -222,13 +222,14 @@ function buildMimeRaw(
 }
 
 export async function sendEmail(
+  userId: number,
   to: string,
   subject: string,
   body: string,
   threadId?: string,
   attachments: MimeAttachment[] = []
 ) {
-  const gmail = await getGmailClient();
+  const gmail = await getGmailClient(userId);
   const profileRes = await gmail.users.getProfile({ userId: "me" });
   const from = profileRes.data.emailAddress!;
   const raw = buildMimeRaw(from, to, subject, body, attachments);
@@ -238,8 +239,8 @@ export async function sendEmail(
   return res.data;
 }
 
-export async function saveDraft(to: string, subject: string, body: string, threadId?: string, draftId?: string) {
-  const gmail = await getGmailClient();
+export async function saveDraft(userId: number, to: string, subject: string, body: string, threadId?: string, draftId?: string) {
+  const gmail = await getGmailClient(userId);
   const profileRes = await gmail.users.getProfile({ userId: "me" });
   const from = profileRes.data.emailAddress!;
   const raw = buildMimeRaw(from, to, subject, body);
@@ -254,8 +255,8 @@ export async function saveDraft(to: string, subject: string, body: string, threa
   }
 }
 
-export async function listDraftSummaries() {
-  const gmail = await getGmailClient();
+export async function listDraftSummaries(userId: number) {
+  const gmail = await getGmailClient(userId);
   const listRes = await gmail.users.drafts.list({ userId: "me", maxResults: 20 });
   const drafts = listRes.data.drafts || [];
   if (!drafts.length) return [];
@@ -278,8 +279,8 @@ export async function listDraftSummaries() {
   return summaries;
 }
 
-export async function getDraftContent(draftId: string) {
-  const gmail = await getGmailClient();
+export async function getDraftContent(userId: number, draftId: string) {
+  const gmail = await getGmailClient(userId);
   const d = await gmail.users.drafts.get({ userId: "me", id: draftId, format: "full" } as any);
   const msg = d.data.message!;
   const headers: any[] = msg.payload?.headers || [];
@@ -294,13 +295,13 @@ export async function getDraftContent(draftId: string) {
   };
 }
 
-export async function deleteDraft(draftId: string) {
-  const gmail = await getGmailClient();
+export async function deleteDraft(userId: number, draftId: string) {
+  const gmail = await getGmailClient(userId);
   await gmail.users.drafts.delete({ userId: "me", id: draftId });
 }
 
-export async function getProfile() {
-  const gmail = await getGmailClient();
+export async function getProfile(userId: number) {
+  const gmail = await getGmailClient(userId);
   const res = await gmail.users.getProfile({ userId: "me" });
   return res.data;
 }

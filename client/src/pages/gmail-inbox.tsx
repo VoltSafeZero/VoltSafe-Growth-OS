@@ -788,8 +788,6 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
     onError: (err: any) => toast({ title: "Failed to update star", description: err.message, variant: "destructive" }),
   });
 
-  const canSend = currentUserEmail === "trevor@voltsafe.com";
-
   type ConnectedAccount = {
     id: number; userId: number; provider: string; emailAddress: string;
     displayName: string | null; authStatus: string; syncEnabled: boolean;
@@ -818,6 +816,9 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
     retry: false,
   });
   const connectedAccount = accountsQuery.data?.[0] ?? null;
+
+  // Any user with an active connected Gmail account can send
+  const canSend = connectedAccount?.authStatus === "active";
 
   const inboxQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
     queryKey: ["/api/gmail/messages", "inbox", searchQuery],
@@ -1447,16 +1448,14 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                         ? "Gmail session has expired. Please reconnect your account."
                         : "Gmail is not connected to VoltSafe Cortex."}
                     </p>
-                    {canSend && (
-                      <a
-                        href="/api/auth/gmail/connect"
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-                        data-testid="button-connect-gmail"
-                      >
-                        <Mail className="w-4 h-4" />
-                        {statusQuery.data.connected && !statusQuery.data.tokenValid ? "Reconnect Gmail Account" : "Connect Gmail Account"}
-                      </a>
-                    )}
+                    <a
+                      href="/api/auth/gmail/connect"
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                      data-testid="button-connect-gmail"
+                    >
+                      <Mail className="w-4 h-4" />
+                      {statusQuery.data.connected && !statusQuery.data.tokenValid ? "Reconnect Gmail Account" : "Connect Gmail Account"}
+                    </a>
                   </>
                 ) : statusQuery.data && !statusQuery.data.hasCredentials ? (
                   <p className="text-xs text-red-400">Google credentials not configured. Ask your admin to set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</p>
@@ -1466,10 +1465,32 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               </div>
             )}
             {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && !isLoading && !error && tab !== "other" && activeMessages?.length === 0 && (
-              <div className="p-6 text-center text-sm text-muted-foreground">
-                <Inbox className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                <p>No messages found</p>
-              </div>
+              statusQuery.data && !statusQuery.data.connected ? (
+                <div className="p-8 text-center">
+                  <Mail className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                  <p className="text-sm font-medium text-foreground mb-1">Connect Your Gmail Account</p>
+                  <p className="text-xs text-muted-foreground mb-5">
+                    Link your Google account to see your inbox inside VoltSafe Cortex.
+                  </p>
+                  {statusQuery.data.hasCredentials ? (
+                    <a
+                      href="/api/auth/gmail/connect"
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                      data-testid="button-connect-gmail"
+                    >
+                      <Mail className="w-4 h-4" />
+                      Connect Gmail Account
+                    </a>
+                  ) : (
+                    <p className="text-xs text-red-400">Google credentials not configured. Ask your admin to set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</p>
+                  )}
+                </div>
+              ) : (
+                <div className="p-6 text-center text-sm text-muted-foreground">
+                  <Inbox className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p>No messages found</p>
+                </div>
+              )
             )}
             {tab === "other" && inboxOther.length === 0 && !isLoading && (
               <div className="p-6 text-center text-sm text-muted-foreground">

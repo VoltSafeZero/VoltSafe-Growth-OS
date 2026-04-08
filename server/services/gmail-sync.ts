@@ -35,11 +35,11 @@ export async function syncEmailAccount(
 
   const ownerUserId = account.userId;
 
-  // 2. Get Gmail client — Phase 1: always Trevor's system_settings token
+  // 2. Get Gmail client — per-user token from email_accounts
   let gmailClient: any;
   try {
     const { getGmailClient } = await import("../gmail-oauth");
-    gmailClient = await getGmailClient();
+    gmailClient = await getGmailClient(ownerUserId);
   } catch (err: any) {
     log(`[gmail-sync] account ${accountId} token error: ${err.message}`);
     await db.update(emailAccounts)

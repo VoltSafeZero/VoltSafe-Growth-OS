@@ -1,19 +1,15 @@
 // Gmail OAuth2 using Google Cloud credentials (GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET)
-// Refresh token stored in system_settings DB table under key "gmail_refresh_token"
-// email_accounts is updated after every successful OAuth exchange (Step 2).
+// Per-user tokens stored in email_accounts.refresh_token / access_token (Phase 2).
 import { google } from "googleapis";
 import { db } from "./db";
-import { systemSettings, emailAccounts } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { systemSettings, emailAccounts, users } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/gmail.modify",
 ];
-
-// Trevor's user_id — the only connected Gmail user in Phase 1
-const TREVOR_USER_ID = 4;
 
 function getOAuth2Client() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -39,82 +35,121 @@ export function getAuthUrl(): string {
   });
 }
 
-export async function exchangeCodeForTokens(code: string): Promise<{ emailAddress: string }> {
+export async function exchangeCodeForTokens(code: string, userId: number): Promise<{ emailAddress: string }> {
   const oauth2Client = getOAuth2Client();
   const { tokens } = await oauth2Client.getToken(code);
 
   if (!tokens.refresh_token) {
-    throw new Error("No refresh token returned. Try revoking access and reconnecting.");
+    throw new Error("No refresh token returned. Try revoking access at myaccount.google.com/permissions and reconnecting.");
   }
 
-  // ── Keep backward-compat: still store in system_settings ─────────────────
-  await db.insert(systemSettings)
-    .values({ key: "gmail_refresh_token", value: tokens.refresh_token })
-    .onConflictDoUpdate({ target: systemSettings.key, set: { value: tokens.refresh_token, updatedAt: new Date() } });
-
-  if (tokens.access_token) {
-    await db.insert(systemSettings)
-      .values({ key: "gmail_access_token", value: tokens.access_token })
-      .onConflictDoUpdate({ target: systemSettings.key, set: { value: tokens.access_token!, updatedAt: new Date() } });
-  }
-
-  // ── S2: Get Gmail profile to stamp email_accounts ─────────────────────────
+  // Get Gmail profile for the connecting user
   oauth2Client.setCredentials(tokens);
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-  let emailAddress = "trevor@voltsafe.com";
+  let emailAddress = "";
   try {
     const profile = await gmail.users.getProfile({ userId: "me" });
-    emailAddress = profile.data.emailAddress || emailAddress;
-    // Also persist in system_settings for quick lookup
-    await db.insert(systemSettings)
-      .values({ key: "gmail_address", value: emailAddress })
-      .onConflictDoUpdate({ target: systemSettings.key, set: { value: emailAddress, updatedAt: new Date() } });
+    emailAddress = profile.data.emailAddress || "";
   } catch {}
 
-  // ── S2: Upsert email_accounts for this user ───────────────────────────────
-  const existing = await db
+  // Get the CRM user's display name
+  let displayName = emailAddress;
+  try {
+    const [user] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
+    if (user?.name) displayName = user.name;
+  } catch {}
+
+  // Upsert email_accounts for this user with per-user tokens
+  const [existing] = await db
     .select({ id: emailAccounts.id })
     .from(emailAccounts)
-    .where(eq(emailAccounts.userId, TREVOR_USER_ID))
+    .where(eq(emailAccounts.userId, userId))
     .limit(1);
 
-  if (existing.length > 0) {
+  if (existing) {
     await db.update(emailAccounts)
       .set({
-        emailAddress,
+        emailAddress: emailAddress || undefined,
+        displayName,
         authStatus: "active",
+        refreshToken: tokens.refresh_token,
+        accessToken: tokens.access_token || null,
         syncEnabled: true,
         disconnectedAt: null,
         syncErrorMessage: null,
         updatedAt: new Date(),
       })
-      .where(eq(emailAccounts.userId, TREVOR_USER_ID));
+      .where(eq(emailAccounts.userId, userId));
   } else {
     await db.insert(emailAccounts)
       .values({
         workspaceId: 1,
-        userId: TREVOR_USER_ID,
+        userId,
         provider: "gmail",
-        emailAddress,
-        displayName: "Trevor Burgess",
+        emailAddress: emailAddress || `user_${userId}@unknown`,
+        displayName,
         authStatus: "active",
         isActive: true,
+        refreshToken: tokens.refresh_token,
+        accessToken: tokens.access_token || null,
         syncEnabled: true,
       })
       .onConflictDoNothing();
   }
 
+  // Backward compat: also store in system_settings for any code that still reads from there
+  if (tokens.refresh_token) {
+    await db.insert(systemSettings)
+      .values({ key: "gmail_refresh_token", value: tokens.refresh_token })
+      .onConflictDoUpdate({ target: systemSettings.key, set: { value: tokens.refresh_token, updatedAt: new Date() } });
+  }
+  if (tokens.access_token) {
+    await db.insert(systemSettings)
+      .values({ key: "gmail_access_token", value: tokens.access_token })
+      .onConflictDoUpdate({ target: systemSettings.key, set: { value: tokens.access_token!, updatedAt: new Date() } });
+  }
+  if (emailAddress) {
+    await db.insert(systemSettings)
+      .values({ key: "gmail_address", value: emailAddress })
+      .onConflictDoUpdate({ target: systemSettings.key, set: { value: emailAddress, updatedAt: new Date() } });
+  }
+
   return { emailAddress };
 }
 
-export async function getGmailClient() {
-  const [refreshRow] = await db.select().from(systemSettings).where(eq(systemSettings.key, "gmail_refresh_token"));
-  if (!refreshRow) {
-    throw new Error("Gmail not connected");
+// Trevor's user_id — only user whose token falls back to system_settings for Phase 1 compat
+const TREVOR_USER_ID = 4;
+
+export async function getGmailClient(userId: number) {
+  // Primary: per-user token from email_accounts
+  const [acct] = await db
+    .select({ refreshToken: emailAccounts.refreshToken })
+    .from(emailAccounts)
+    .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isActive, true)))
+    .limit(1);
+
+  let refreshToken: string | null = acct?.refreshToken ?? null;
+
+  // Fallback ONLY for Trevor: read from system_settings if email_accounts.refresh_token is empty
+  if (!refreshToken && userId === TREVOR_USER_ID) {
+    const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, "gmail_refresh_token"));
+    if (row?.value) {
+      refreshToken = row.value;
+      // Opportunistically backfill email_accounts so fallback isn't needed next time
+      if (acct) {
+        await db.update(emailAccounts)
+          .set({ refreshToken, updatedAt: new Date() })
+          .where(eq(emailAccounts.userId, userId));
+      }
+    }
+  }
+
+  if (!refreshToken) {
+    throw new Error("Gmail not connected for this user");
   }
 
   const oauth2Client = getOAuth2Client();
-  oauth2Client.setCredentials({ refresh_token: refreshRow.value });
+  oauth2Client.setCredentials({ refresh_token: refreshToken });
 
   const { credentials } = await oauth2Client.refreshAccessToken();
   oauth2Client.setCredentials(credentials);
@@ -122,19 +157,31 @@ export async function getGmailClient() {
   return google.gmail({ version: "v1", auth: oauth2Client });
 }
 
-export async function isGmailConnected(): Promise<{ connected: boolean; tokenValid: boolean; apiEnabled: boolean }> {
+export async function isGmailConnected(userId: number): Promise<{ connected: boolean; tokenValid: boolean; apiEnabled: boolean }> {
   try {
-    const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, "gmail_refresh_token"));
-    if (!row) return { connected: false, tokenValid: false, apiEnabled: true };
+    // Check if this user has an active email_accounts record with a token
+    const [acct] = await db
+      .select({ refreshToken: emailAccounts.refreshToken, authStatus: emailAccounts.authStatus })
+      .from(emailAccounts)
+      .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isActive, true)))
+      .limit(1);
+
+    let hasToken = !!acct?.refreshToken;
+
+    // Fallback ONLY for Trevor: check system_settings if email_accounts has no token yet
+    if (!hasToken && userId === TREVOR_USER_ID) {
+      const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, "gmail_refresh_token"));
+      hasToken = !!row?.value;
+    }
+
+    if (!hasToken) return { connected: false, tokenValid: false, apiEnabled: true };
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
     if (!clientId || !clientSecret) return { connected: true, tokenValid: false, apiEnabled: true };
 
     try {
-      const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-      oauth2Client.setCredentials({ refresh_token: row.value });
-      const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+      const gmail = await getGmailClient(userId);
       await gmail.users.getProfile({ userId: "me" });
       return { connected: true, tokenValid: true, apiEnabled: true };
     } catch (err: any) {
@@ -142,8 +189,8 @@ export async function isGmailConnected(): Promise<{ connected: boolean; tokenVal
       if (msg.includes("API has not been used") || msg.includes("disabled")) {
         return { connected: true, tokenValid: true, apiEnabled: false };
       }
-      if (msg.includes("unauthorized_client") || msg.includes("invalid_grant") || msg.includes("Token has been expired")) {
-        return { connected: true, tokenValid: false, apiEnabled: true };
+      if (msg.includes("unauthorized_client") || msg.includes("invalid_grant") || msg.includes("Token has been expired") || msg.includes("not connected")) {
+        return { connected: false, tokenValid: false, apiEnabled: true };
       }
       return { connected: true, tokenValid: false, apiEnabled: true };
     }
