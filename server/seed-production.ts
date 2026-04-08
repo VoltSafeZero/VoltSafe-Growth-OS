@@ -174,6 +174,9 @@ export async function migrateEmailSchema(): Promise<void> {
       WHERE owner_user_id IS NULL
     `);
 
+    // ── Partnerships: add industry_types array column ─────────────────────────
+    await db.execute(sql`ALTER TABLE partnerships ADD COLUMN IF NOT EXISTS industry_types text[]`);
+
     console.log("[migration] Email schema migration complete (Step 1: data model + backfill).");
   } catch (err) {
     console.error("[migration] Email schema migration error (non-fatal):", err);

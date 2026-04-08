@@ -12,10 +12,6 @@ import {
   UserPlus,
   FileText,
   Handshake,
-  Truck,
-  Factory,
-  Landmark,
-  FlaskConical,
   Mail,
   CalendarClock,
   Megaphone,
@@ -72,14 +68,10 @@ const sections: NavSection[] = [
   },
   {
     id: "strategy",
-    label: "Strategy",
+    label: "Industry Contacts & Partnerships",
     icon: TrendingUp,
     items: [
-      { title: "Industry", url: "/strategy/industry", icon: Handshake },
-      { title: "Partnerships", url: "/strategy/partnerships", icon: Truck },
-      { title: "OEM & Licensing", url: "/strategy/oem", icon: Factory },
-      { title: "Government & Grants", url: "/strategy/government", icon: Landmark },
-      { title: "Research", url: "/strategy/research", icon: FlaskConical },
+      { title: "ALL Partnerships", url: "/strategy/partnerships", icon: Handshake },
     ],
   },
   {

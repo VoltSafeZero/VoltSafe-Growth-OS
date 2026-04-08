@@ -559,6 +559,7 @@ export const partnerships = pgTable("partnerships", {
   caseStudyStatus: text("case_study_status"),
   testimonialStatus: text("testimonial_status"),
   operationalFeedback: text("operational_feedback"),
+  industryTypes: text("industry_types").array(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

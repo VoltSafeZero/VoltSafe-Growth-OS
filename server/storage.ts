@@ -938,10 +938,13 @@ export class DatabaseStorage implements IStorage {
       recentActivities: recentActs,
     };
   }
-  async getPartnerships(options?: { category?: string; search?: string }): Promise<Partnership[]> {
+  async getPartnerships(options?: { category?: string; search?: string; industryType?: string }): Promise<Partnership[]> {
     const conditions = [];
     if (options?.category) conditions.push(eq(partnerships.category, options.category));
     if (options?.search) conditions.push(ilike(partnerships.name, `%${options.search}%`));
+    if (options?.industryType) {
+      conditions.push(sql`${partnerships.industryTypes} @> ARRAY[${options.industryType}]::text[]`);
+    }
     const where = conditions.length > 0 ? and(...conditions) : undefined;
     return db.select().from(partnerships).where(where).orderBy(desc(partnerships.createdAt));
   }

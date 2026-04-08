@@ -97,11 +97,11 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/quotes">{() => wrap(<QuotesPage />)}</Route>
 
       {/* ── STRATEGY ──────────────────────────────────────────────── */}
-      <Route path="/strategy/industry">{() => wrap(<PartnershipsPage category="strategic_industry" />)}</Route>
-      <Route path="/strategy/partnerships">{() => wrap(<PartnershipsPage category="distribution" />)}</Route>
-      <Route path="/strategy/oem">{() => wrap(<PartnershipsPage category="oem" />)}</Route>
-      <Route path="/strategy/government">{() => wrap(<PartnershipsPage category="government" />)}</Route>
-      <Route path="/strategy/research">{() => wrap(<PartnershipsPage category="research" />)}</Route>
+      <Route path="/strategy/partnerships">{() => wrap(<PartnershipsPage />)}</Route>
+      <Route path="/strategy/industry">{() => <Redirect to="/strategy/partnerships" />}</Route>
+      <Route path="/strategy/oem">{() => <Redirect to="/strategy/partnerships" />}</Route>
+      <Route path="/strategy/government">{() => <Redirect to="/strategy/partnerships" />}</Route>
+      <Route path="/strategy/research">{() => <Redirect to="/strategy/partnerships" />}</Route>
 
       {/* ── EXECUTION ─────────────────────────────────────────────── */}
       <Route path="/gmail">{() => wrap(<GmailInboxPage currentUserEmail={user.email} />)}</Route>

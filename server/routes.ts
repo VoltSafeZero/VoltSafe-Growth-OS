@@ -1459,10 +1459,11 @@ export async function registerRoutes(
 
   // ── Partnerships ───────────────────────────────────────────────
   app.get("/api/partnerships", async (req, res) => {
-    const { category, search } = req.query;
+    const { category, search, industryType } = req.query;
     res.json(await storage.getPartnerships({
       category: category as string | undefined,
       search: search as string | undefined,
+      industryType: industryType as string | undefined,
     }));
   });
   app.get("/api/partnerships/:id", async (req, res) => {
