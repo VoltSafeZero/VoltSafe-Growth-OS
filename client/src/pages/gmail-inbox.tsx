@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -575,16 +575,51 @@ function ComposeDialog({
 }
 
 function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  const handleIframeLoad = () => {
+    const iframe = iframeRef.current;
+    if (iframe?.contentDocument?.body) {
+      const h = iframe.contentDocument.documentElement.scrollHeight;
+      iframe.style.height = `${h + 16}px`;
+    }
+  };
+
   if (!body) return <p className="text-muted-foreground text-sm italic">No content</p>;
+
   if (isHtml) {
     const clean = DOMPurify.sanitize(body, { USE_PROFILES: { html: true } });
+    const srcDoc = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html, body { margin: 0; padding: 8px 12px; background: #ffffff; color: #1a1a1a;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    font-size: 14px; line-height: 1.5; word-break: break-word; }
+  a { color: #0066cc; }
+  img { max-width: 100%; height: auto; }
+  pre { white-space: pre-wrap; word-break: break-word; }
+  blockquote { border-left: 3px solid #ccc; margin: 8px 0; padding-left: 12px; color: #555; }
+</style>
+</head>
+<body>${clean}</body>
+</html>`;
     return (
-      <div
-        className="prose prose-sm dark:prose-invert max-w-none text-sm overflow-auto"
-        dangerouslySetInnerHTML={{ __html: clean }}
+      <iframe
+        ref={iframeRef}
+        srcDoc={srcDoc}
+        sandbox="allow-same-origin allow-popups"
+        onLoad={handleIframeLoad}
+        title="Email content"
+        className="w-full border-0 rounded bg-white"
+        style={{ minHeight: 200 }}
+        data-testid="iframe-email-body"
       />
     );
   }
+
   return <pre className="text-sm whitespace-pre-wrap font-sans text-foreground">{body}</pre>;
 }
 
