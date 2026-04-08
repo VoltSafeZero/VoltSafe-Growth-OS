@@ -97,7 +97,8 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/quotes">{() => wrap(<QuotesPage />)}</Route>
 
       {/* ── STRATEGY ──────────────────────────────────────────────── */}
-      <Route path="/strategy/partnerships">{() => wrap(<PartnershipsPage />)}</Route>
+      <Route path="/strategy/partnerships/:typeSlug">{(params) => wrap(<PartnershipsPage typeSlug={(params as any)?.typeSlug || ""} />)}</Route>
+      <Route path="/strategy/partnerships">{() => wrap(<PartnershipsPage typeSlug="" />)}</Route>
       <Route path="/strategy/industry">{() => <Redirect to="/strategy/partnerships" />}</Route>
       <Route path="/strategy/oem">{() => <Redirect to="/strategy/partnerships" />}</Route>
       <Route path="/strategy/government">{() => <Redirect to="/strategy/partnerships" />}</Route>

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { AttachmentsSection } from "@/components/attachments-section";
 import { Card, CardContent } from "@/components/ui/card";
@@ -34,6 +35,28 @@ const INDUSTRY_TYPES = [
 ] as const;
 
 type IndustryType = typeof INDUSTRY_TYPES[number];
+
+const SLUG_TO_TYPE: Record<string, IndustryType> = {
+  "associations": "Associations & Industry Groups",
+  "government": "Government Agencies",
+  "accelerators": "Startup Accelerators/Incubators",
+  "utilities": "Utility Providers",
+  "distributors": "Distributors / Resellers",
+  "installation": "Installation Partners",
+  "manufacturers": "Manufacturers",
+  "research": "Research Institutions",
+  "nonprofits": "Nonprofits",
+  "media": "Media / Press",
+  "consultants": "Consultants / Advisory Firms",
+  "military": "Military / Defense",
+  "standards": "Standards & Certification Bodies",
+  "ahj": "AHJ's (Authority Having Jurisdiction)",
+  "other": "Other",
+};
+
+const TYPE_TO_SLUG: Record<string, string> = Object.fromEntries(
+  Object.entries(SLUG_TO_TYPE).map(([slug, type]) => [type, slug])
+);
 
 const TYPE_COLORS: Record<string, string> = {
   "Associations & Industry Groups": "bg-blue-500/10 text-blue-400 border-blue-500/20",
@@ -409,12 +432,28 @@ function PartnerDetailDialog({
   );
 }
 
-export default function PartnershipsPage() {
+export default function PartnershipsPage({ typeSlug = "" }: { typeSlug?: string }) {
+  const [, navigate] = useLocation();
+  const initialType: IndustryType | "all" = SLUG_TO_TYPE[typeSlug] || "all";
   const [search, setSearch] = useState("");
-  const [activeType, setActiveType] = useState<IndustryType | "all">("all");
+  const [activeType, setActiveType] = useState<IndustryType | "all">(initialType);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState<Partnership | null>(null);
   const { toast } = useToast();
+
+  // Sync activeType when the slug changes (user clicks sidebar)
+  useEffect(() => {
+    setActiveType(SLUG_TO_TYPE[typeSlug] || "all");
+  }, [typeSlug]);
+
+  const handleTabClick = (type: IndustryType | "all") => {
+    setActiveType(type);
+    if (type === "all") {
+      navigate("/strategy/partnerships");
+    } else {
+      navigate(`/strategy/partnerships/${TYPE_TO_SLUG[type]}`);
+    }
+  };
 
   const { data: allPartners, isLoading } = useQuery<Partnership[]>({
     queryKey: ["/api/partnerships", { industryType: activeType === "all" ? undefined : activeType, search }],
@@ -538,7 +577,7 @@ export default function PartnershipsPage() {
       <div className="overflow-x-auto pb-1 -mx-1 px-1">
         <div className="flex gap-2 min-w-max">
           <button
-            onClick={() => setActiveType("all")}
+            onClick={() => handleTabClick("all")}
             data-testid="tab-all-partnerships"
             className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all border whitespace-nowrap ${
               activeType === "all"
@@ -551,7 +590,7 @@ export default function PartnershipsPage() {
           {INDUSTRY_TYPES.map((type) => (
             <button
               key={type}
-              onClick={() => setActiveType(type === activeType ? "all" : type)}
+              onClick={() => handleTabClick(type === activeType ? "all" : type)}
               data-testid={`tab-${type.replace(/[^a-z0-9]/gi, "-").toLowerCase()}`}
               className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all border whitespace-nowrap ${
                 activeType === type
@@ -572,7 +611,7 @@ export default function PartnershipsPage() {
           <Badge
             variant="outline"
             className={`${TYPE_COLORS[activeType] || ""} cursor-pointer`}
-            onClick={() => setActiveType("all")}
+            onClick={() => handleTabClick("all")}
             data-testid="badge-active-filter"
           >
             {activeType}

@@ -24,6 +24,19 @@ import {
   ClipboardList,
   Layers,
   ShieldCheck,
+  Circle,
+  Truck,
+  Factory,
+  FlaskConical,
+  Landmark,
+  Shield,
+  Newspaper,
+  Briefcase,
+  Wrench,
+  Rocket,
+  Heart,
+  Scale,
+  BadgeCheck,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import navLogo from "@assets/nav-logo.png";
@@ -38,6 +51,7 @@ type NavItem = {
   url: string;
   icon: React.ElementType;
   adminOnly?: boolean;
+  exactMatch?: boolean;
 };
 
 type NavSection = {
@@ -71,7 +85,22 @@ const sections: NavSection[] = [
     label: "Industry Partnerships",
     icon: TrendingUp,
     items: [
-      { title: "ALL Partnerships", url: "/strategy/partnerships", icon: Handshake },
+      { title: "ALL Partnerships", url: "/strategy/partnerships", icon: Handshake, exactMatch: true },
+      { title: "Associations & Industry Groups", url: "/strategy/partnerships/associations", icon: Users2 },
+      { title: "Government Agencies", url: "/strategy/partnerships/government", icon: Landmark },
+      { title: "Startup Accelerators/Incubators", url: "/strategy/partnerships/accelerators", icon: Rocket },
+      { title: "Utility Providers", url: "/strategy/partnerships/utilities", icon: Zap },
+      { title: "Distributors / Resellers", url: "/strategy/partnerships/distributors", icon: Truck },
+      { title: "Installation Partners", url: "/strategy/partnerships/installation", icon: Wrench },
+      { title: "Manufacturers", url: "/strategy/partnerships/manufacturers", icon: Factory },
+      { title: "Research Institutions", url: "/strategy/partnerships/research", icon: FlaskConical },
+      { title: "Nonprofits", url: "/strategy/partnerships/nonprofits", icon: Heart },
+      { title: "Media / Press", url: "/strategy/partnerships/media", icon: Newspaper },
+      { title: "Consultants / Advisory Firms", url: "/strategy/partnerships/consultants", icon: Briefcase },
+      { title: "Military / Defense", url: "/strategy/partnerships/military", icon: Shield },
+      { title: "Standards & Certification Bodies", url: "/strategy/partnerships/standards", icon: BadgeCheck },
+      { title: "AHJ's (Authority Having Jurisdiction)", url: "/strategy/partnerships/ahj", icon: Scale },
+      { title: "Other", url: "/strategy/partnerships/other", icon: Circle },
     ],
   },
   {
@@ -213,9 +242,10 @@ export function AppSidebar({ userGlobalRole = "sales" }: { userGlobalRole?: stri
                 {section.items && isSectionOpen && (
                   <div className="ml-3 mt-0.5 mb-1 pl-3 border-l border-border/40 flex flex-col gap-0.5">
                     {section.items.filter(item => !item.adminOnly || isAdmin).map((item) => {
-                      const isItemActive =
-                        location === item.url ||
-                        (item.url !== "/" && location.startsWith(item.url));
+                      const isItemActive = item.exactMatch
+                        ? location === item.url
+                        : location === item.url ||
+                          (item.url !== "/" && location.startsWith(item.url));
                       const ItemIcon = item.icon;
                       return (
                         <Link
