@@ -742,6 +742,8 @@ export const emailMessages = pgTable("email_messages", {
   ignoredReason: text("ignored_reason"),
   labelIds: text("label_ids"),
   snippet: text("snippet"),
+  ownerUserId: integer("owner_user_id"),
+  sourceAccountId: integer("source_account_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -986,3 +988,61 @@ export const migrationMap = pgTable("migration_map", {
 export const insertMigrationMapSchema = createInsertSchema(migrationMap).omit({ id: true, migratedAt: true });
 export type MigrationMap = typeof migrationMap.$inferSelect;
 export type InsertMigrationMap = z.infer<typeof insertMigrationMapSchema>;
+
+// ─── Email Accounts (multi-user ready) ─────────────────────────────────────
+
+export const emailAccounts = pgTable("email_accounts", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull().default("gmail"),
+  emailAddress: text("email_address").notNull(),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertEmailAccountSchema = createInsertSchema(emailAccounts).omit({ id: true, createdAt: true, updatedAt: true });
+export type EmailAccount = typeof emailAccounts.$inferSelect;
+export type InsertEmailAccount = z.infer<typeof insertEmailAccountSchema>;
+
+// ─── Mail Folders ───────────────────────────────────────────────────────────
+
+export const mailFolders = pgTable("mail_folders", {
+  id: serial("id").primaryKey(),
+  ownerUserId: integer("owner_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  color: text("color").notNull().default("teal"),
+  sourceAccountId: integer("source_account_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertMailFolderSchema = createInsertSchema(mailFolders).omit({ id: true, createdAt: true, updatedAt: true });
+export type MailFolder = typeof mailFolders.$inferSelect;
+export type InsertMailFolder = z.infer<typeof insertMailFolderSchema>;
+
+export const mailFolderDomains = pgTable("mail_folder_domains", {
+  id: serial("id").primaryKey(),
+  folderId: integer("folder_id").notNull().references(() => mailFolders.id, { onDelete: "cascade" }),
+  domain: text("domain").notNull(),
+  matchType: text("match_type").notNull().default("ends_with"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertMailFolderDomainSchema = createInsertSchema(mailFolderDomains).omit({ id: true, createdAt: true });
+export type MailFolderDomain = typeof mailFolderDomains.$inferSelect;
+export type InsertMailFolderDomain = z.infer<typeof insertMailFolderDomainSchema>;
+
+export const emailFolderAssignments = pgTable("email_folder_assignments", {
+  id: serial("id").primaryKey(),
+  emailId: integer("email_id").notNull().references(() => emailMessages.id, { onDelete: "cascade" }),
+  folderId: integer("folder_id").notNull().references(() => mailFolders.id, { onDelete: "cascade" }),
+  ownerUserId: integer("owner_user_id").notNull(),
+  assignedBy: text("assigned_by").notNull().default("system"),
+  assignmentReason: text("assignment_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertEmailFolderAssignmentSchema = createInsertSchema(emailFolderAssignments).omit({ id: true, createdAt: true });
+export type EmailFolderAssignment = typeof emailFolderAssignments.$inferSelect;
+export type InsertEmailFolderAssignment = z.infer<typeof insertEmailFolderAssignmentSchema>;

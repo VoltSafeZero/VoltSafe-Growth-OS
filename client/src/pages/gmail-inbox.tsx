@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
   Clock, FileText, CalendarClock, CalendarX, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
+  FolderOpen, FolderPlus, Settings2, Globe, Plus, ChevronDown, ChevronRight, Folder,
 } from "lucide-react";
 import DOMPurify from "dompurify";
 
@@ -76,6 +77,17 @@ function parseSenderDomain(from: string): string {
 
 type EmailFilter = { id: number; domain: string; createdAt: string };
 type InboxCategory = "all" | "people" | "newsletters" | "updates" | "priority";
+
+type MailFolderDomain = { id: number; folderId: number; domain: string; matchType: string };
+type MailFolder = {
+  id: number; name: string; color: string; ownerUserId: number; sourceAccountId: number | null;
+  domains: MailFolderDomain[]; emailCount: number; unreadCount: number;
+};
+type FolderEmail = {
+  id: number; gmailMessageId: string; gmailThreadId: string; subject: string | null;
+  fromEmail: string | null; fromName: string | null; sentAt: string | null; snippet: string | null;
+  labelIds: string | null; direction: string | null;
+};
 
 function isUnread(labelIds: string[]) {
   return labelIds.includes("UNREAD");
@@ -584,8 +596,16 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<{ to: string; subject: string; threadId: string } | null>(null);
-  const [tab, setTab] = useState<"inbox" | "sent" | "other" | "drafts" | "scheduled">("inbox");
+  const [tab, setTab] = useState<"inbox" | "sent" | "other" | "drafts" | "scheduled" | "folder">("inbox");
   const [inboxCategory, setInboxCategory] = useState<InboxCategory>("all");
+  const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
+  const [showFolderSettings, setShowFolderSettings] = useState<number | null>(null);
+  const [showCreateFolder, setShowCreateFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderDomainInput, setNewFolderDomainInput] = useState("");
+  const [foldersExpanded, setFoldersExpanded] = useState(true);
+  const [editingDomainFolderId, setEditingDomainFolderId] = useState<number | null>(null);
+  const [addDomainInput, setAddDomainInput] = useState("");
   const [editingDraft, setEditingDraft] = useState<{ to: string; subject: string; body: string; draftId: string; threadId?: string } | null>(null);
   const [loadingDraftId, setLoadingDraftId] = useState<string | null>(null);
   const [inboxExtra, setInboxExtra] = useState<MessageSummary[]>([]);
@@ -605,6 +625,110 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
   });
 
   const blockedDomains = new Set((filtersQuery.data || []).map((f) => f.domain));
+
+  const foldersQuery = useQuery<MailFolder[]>({
+    queryKey: ["/api/mail-folders"],
+    queryFn: async () => {
+      const res = await fetch("/api/mail-folders", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const folderEmailsQuery = useQuery<FolderEmail[]>({
+    queryKey: ["/api/mail-folders", selectedFolderId, "emails"],
+    queryFn: async () => {
+      if (!selectedFolderId) return [];
+      const res = await fetch(`/api/mail-folders/${selectedFolderId}/emails?limit=100`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: tab === "folder" && !!selectedFolderId,
+  });
+
+  const createFolderMutation = useMutation({
+    mutationFn: async (data: { name: string; domains: string[] }) => {
+      const res = await apiRequest("POST", "/api/mail-folders", { name: data.name, color: "teal" });
+      const folder = await res.json();
+      for (const domain of data.domains) {
+        if (domain.trim()) {
+          await apiRequest("POST", `/api/mail-folders/${folder.id}/domains`, { domain: domain.trim() });
+        }
+      }
+      return folder;
+    },
+    onSuccess: (folder) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mail-folders"] });
+      setShowCreateFolder(false);
+      setNewFolderName("");
+      setNewFolderDomainInput("");
+      setSelectedFolderId(folder.id);
+      setTab("folder");
+      toast({ title: "Folder created", description: `"${folder.name}" is ready. Run Reprocess to populate it.` });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteFolderMutation = useMutation({
+    mutationFn: async (folderId: number) => {
+      const res = await apiRequest("DELETE", `/api/mail-folders/${folderId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mail-folders"] });
+      setSelectedFolderId(null);
+      setTab("inbox");
+      setShowFolderSettings(null);
+      toast({ title: "Folder deleted" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const addDomainMutation = useMutation({
+    mutationFn: async ({ folderId, domain }: { folderId: number; domain: string }) => {
+      const res = await apiRequest("POST", `/api/mail-folders/${folderId}/domains`, { domain });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mail-folders"] });
+      setAddDomainInput("");
+      setEditingDomainFolderId(null);
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const removeDomainMutation = useMutation({
+    mutationFn: async ({ folderId, domainId }: { folderId: number; domainId: number }) => {
+      const res = await apiRequest("DELETE", `/api/mail-folders/${folderId}/domains/${domainId}`);
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/mail-folders"] }),
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const backfillMutation = useMutation({
+    mutationFn: async (folderId: number) => {
+      const res = await apiRequest("POST", `/api/mail-folders/${folderId}/backfill`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Reprocessing started", description: "Existing emails are being scanned. Refresh in a moment." });
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ["/api/mail-folders"] }), 3000);
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const removeEmailFromFolderMutation = useMutation({
+    mutationFn: async ({ folderId, emailId }: { folderId: number; emailId: number }) => {
+      const res = await apiRequest("DELETE", `/api/mail-folders/${folderId}/emails/${emailId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mail-folders", selectedFolderId, "emails"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/mail-folders"] });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
 
   const flagMutation = useMutation({
     mutationFn: async (domain: string) => {
@@ -1086,6 +1210,72 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
             </form>
           </div>
 
+          {/* Custom Folders section */}
+          <div className="flex-shrink-0 border-b border-border/30">
+            <div className="px-3 py-1.5 flex items-center justify-between">
+              <button
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setFoldersExpanded(!foldersExpanded)}
+                data-testid="button-toggle-folders"
+              >
+                {foldersExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                <span className="font-medium tracking-wide uppercase" style={{ fontSize: "10px", letterSpacing: "0.08em" }}>Custom Folders</span>
+              </button>
+              <button
+                className="text-muted-foreground hover:text-foreground transition-colors rounded p-0.5 hover:bg-muted/60"
+                onClick={() => setShowCreateFolder(true)}
+                title="New folder"
+                data-testid="button-new-folder"
+              >
+                <FolderPlus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {foldersExpanded && (
+              <div className="pb-1.5 px-1 space-y-0.5 max-h-48 overflow-y-auto">
+                {foldersQuery.isLoading && (
+                  <div className="px-2 py-1.5 space-y-1">
+                    {[1, 2].map(i => <Skeleton key={i} className="h-6 w-full rounded" />)}
+                  </div>
+                )}
+                {!foldersQuery.isLoading && (foldersQuery.data || []).length === 0 && (
+                  <div className="px-2 py-2 text-xs text-muted-foreground/60 italic">
+                    No folders yet. Create one to auto-sort emails by domain.
+                  </div>
+                )}
+                {(foldersQuery.data || []).map((folder) => {
+                  const isActive = tab === "folder" && selectedFolderId === folder.id;
+                  return (
+                    <div
+                      key={folder.id}
+                      className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer transition-colors ${isActive ? "bg-primary/15 text-primary" : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"}`}
+                      onClick={() => { setTab("folder"); setSelectedFolderId(folder.id); setSelectedThreadId(null); setSelectedMessageId(null); }}
+                      data-testid={`folder-row-${folder.id}`}
+                    >
+                      <Folder className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? "text-primary" : "text-teal-500/70"}`} />
+                      <span className="text-xs flex-1 truncate font-medium">{folder.name}</span>
+                      {folder.unreadCount > 0 && (
+                        <span className="text-[10px] px-1 py-0.5 rounded-full bg-primary/20 text-primary font-medium min-w-4 text-center">
+                          {folder.unreadCount}
+                        </span>
+                      )}
+                      {folder.emailCount > 0 && folder.unreadCount === 0 && (
+                        <span className="text-[10px] text-muted-foreground/50">{folder.emailCount}</span>
+                      )}
+                      <button
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground ml-0.5 flex-shrink-0"
+                        onClick={(e) => { e.stopPropagation(); setShowFolderSettings(folder.id); }}
+                        title="Folder settings"
+                        data-testid={`button-folder-settings-${folder.id}`}
+                      >
+                        <Settings2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           {/* Message list */}
           <div className="flex-1 overflow-y-auto">
             {/* Drafts tab */}
@@ -1148,7 +1338,61 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               )
             )}
 
-            {tab !== "drafts" && tab !== "scheduled" && isLoading && (
+            {/* Folder tab — show emails from DB assigned to this folder */}
+            {tab === "folder" && (
+              folderEmailsQuery.isLoading ? (
+                <div className="p-3 space-y-2">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="space-y-1 p-2"><Skeleton className="h-3.5 w-2/3" /><Skeleton className="h-3 w-full" /></div>)}</div>
+              ) : (folderEmailsQuery.data || []).length === 0 ? (
+                <div className="p-8 text-center">
+                  <FolderOpen className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm font-medium text-foreground mb-1">No emails yet</p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Add domain rules in folder settings, then click Reprocess to populate this folder.
+                  </p>
+                  <button
+                    onClick={() => { if (selectedFolderId) setShowFolderSettings(selectedFolderId); }}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    Open folder settings →
+                  </button>
+                </div>
+              ) : (
+                (folderEmailsQuery.data || []).map((email) => {
+                  const isSelected = email.gmailThreadId === selectedThreadId;
+                  const senderName = email.fromName || email.fromEmail?.split("@")[0] || "Unknown";
+                  const dateStr = email.sentAt ? new Date(email.sentAt).toLocaleDateString([], { month: "short", day: "numeric" }) : "";
+                  return (
+                    <div
+                      key={email.id}
+                      className={`group relative border-b border-border/30 ${isSelected ? "bg-primary/10 border-l-2 border-l-primary" : ""}`}
+                    >
+                      <button
+                        onClick={() => { setSelectedThreadId(email.gmailThreadId); setSelectedMessageId(null); }}
+                        data-testid={`folder-email-row-${email.id}`}
+                        className="w-full text-left px-3 py-2.5 pr-10 transition-colors hover:bg-muted/50"
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-0.5">
+                          <span className="text-sm truncate font-medium text-foreground">{senderName}</span>
+                          <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">{dateStr}</span>
+                        </div>
+                        <p className="text-xs truncate text-foreground/80">{email.subject || "(no subject)"}</p>
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">{email.snippet}</p>
+                      </button>
+                      <button
+                        className="absolute right-2 top-2.5 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/40 hover:text-destructive"
+                        title="Remove from folder"
+                        data-testid={`button-remove-from-folder-${email.id}`}
+                        onClick={() => selectedFolderId && removeEmailFromFolderMutation.mutate({ folderId: selectedFolderId, emailId: email.id })}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  );
+                })
+              )
+            )}
+
+            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && isLoading && (
               <div className="p-3 space-y-2">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <div key={i} className="space-y-1 p-2">
@@ -1159,7 +1403,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                 ))}
               </div>
             )}
-            {error && (
+            {error && tab !== "folder" && (
               <div className="p-8 text-center">
                 <Mail className="h-10 w-10 mx-auto mb-3 opacity-30" />
                 <p className="text-sm font-medium text-foreground mb-1">Could not load emails.</p>
@@ -1202,7 +1446,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                 )}
               </div>
             )}
-            {tab !== "drafts" && tab !== "scheduled" && !isLoading && !error && tab !== "other" && activeMessages?.length === 0 && (
+            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && !isLoading && !error && tab !== "other" && activeMessages?.length === 0 && (
               <div className="p-6 text-center text-sm text-muted-foreground">
                 <Inbox className="h-8 w-8 mx-auto mb-2 opacity-30" />
                 <p>No messages found</p>
@@ -1214,7 +1458,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                 <p>No filtered emails</p>
               </div>
             )}
-            {tab !== "drafts" && tab !== "scheduled" && activeMessages?.map((msg) => {
+            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && activeMessages?.map((msg) => {
               const unread = isUnread(msg.labelIds);
               const starred = isStarred(msg.labelIds);
               const isSelected = msg.threadId === selectedThreadId;
@@ -1402,6 +1646,189 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
         draftId={editingDraft?.draftId}
         threadId={editingDraft?.threadId || replyTo?.threadId}
       />
+
+      {/* Create Folder dialog */}
+      <Dialog open={showCreateFolder} onOpenChange={(v) => !v && setShowCreateFolder(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FolderPlus className="h-5 w-5 text-teal-400" />
+              Create Inbox Folder
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div>
+              <Label htmlFor="folder-name" className="text-sm font-medium">Folder Name</Label>
+              <Input
+                id="folder-name"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                placeholder="e.g. NMMA, Investors, Media"
+                className="mt-1"
+                data-testid="input-new-folder-name"
+              />
+            </div>
+            <div>
+              <Label htmlFor="folder-domains" className="text-sm font-medium">Domains</Label>
+              <p className="text-xs text-muted-foreground mb-1">
+                Emails from these domains will be automatically sorted into this folder. Separate multiple with commas or new lines.
+              </p>
+              <Textarea
+                id="folder-domains"
+                value={newFolderDomainInput}
+                onChange={(e) => setNewFolderDomainInput(e.target.value)}
+                placeholder="e.g. nmma.org, events.nmma.org"
+                className="mt-1 h-20 text-sm"
+                data-testid="input-new-folder-domains"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Subdomains match automatically (e.g. nmma.org also matches events.nmma.org)</p>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="ghost" onClick={() => setShowCreateFolder(false)} data-testid="button-cancel-create-folder">Cancel</Button>
+              <Button
+                disabled={!newFolderName.trim() || createFolderMutation.isPending}
+                onClick={() => {
+                  const domains = newFolderDomainInput
+                    .split(/[\n,]+/)
+                    .map(d => d.trim())
+                    .filter(Boolean);
+                  createFolderMutation.mutate({ name: newFolderName.trim(), domains });
+                }}
+                data-testid="button-confirm-create-folder"
+              >
+                {createFolderMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create Folder"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Folder Settings dialog */}
+      {showFolderSettings && (() => {
+        const folder = (foldersQuery.data || []).find(f => f.id === showFolderSettings);
+        if (!folder) return null;
+        return (
+          <Dialog open={true} onOpenChange={(v) => !v && setShowFolderSettings(null)}>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Folder className="h-5 w-5 text-teal-400" />
+                  {folder.name} — Folder Settings
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-5 pt-2">
+                {/* Domain rules */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-medium">Domain Rules</p>
+                    <span className="text-xs text-muted-foreground">{folder.domains.length} rule{folder.domains.length !== 1 ? "s" : ""}</span>
+                  </div>
+                  {folder.domains.length === 0 ? (
+                    <p className="text-xs text-muted-foreground italic">No domains yet. Emails won't be sorted until you add one.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {folder.domains.map(d => (
+                        <div key={d.id} className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-muted/40 group" data-testid={`domain-rule-${d.id}`}>
+                          <Globe className="h-3.5 w-3.5 text-teal-500/70 flex-shrink-0" />
+                          <span className="text-sm flex-1 font-mono">{d.domain}</span>
+                          <span className="text-xs text-muted-foreground">{d.matchType === "ends_with" ? "& subdomains" : "exact"}</span>
+                          <button
+                            onClick={() => removeDomainMutation.mutate({ folderId: folder.id, domainId: d.id })}
+                            disabled={removeDomainMutation.isPending}
+                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                            data-testid={`button-remove-domain-${d.id}`}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Add domain */}
+                  {editingDomainFolderId === folder.id ? (
+                    <div className="flex gap-2 mt-2">
+                      <Input
+                        value={addDomainInput}
+                        onChange={(e) => setAddDomainInput(e.target.value)}
+                        placeholder="e.g. nmma.org"
+                        className="h-8 text-sm flex-1"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && addDomainInput.trim()) {
+                            addDomainMutation.mutate({ folderId: folder.id, domain: addDomainInput.trim() });
+                          }
+                          if (e.key === "Escape") { setEditingDomainFolderId(null); setAddDomainInput(""); }
+                        }}
+                        autoFocus
+                        data-testid="input-add-domain"
+                      />
+                      <Button
+                        size="sm"
+                        disabled={!addDomainInput.trim() || addDomainMutation.isPending}
+                        onClick={() => addDomainMutation.mutate({ folderId: folder.id, domain: addDomainInput.trim() })}
+                        data-testid="button-confirm-add-domain"
+                      >
+                        {addDomainMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Add"}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => { setEditingDomainFolderId(null); setAddDomainInput(""); }}>Cancel</Button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setEditingDomainFolderId(folder.id)}
+                      className="mt-2 flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
+                      data-testid="button-add-domain"
+                    >
+                      <Plus className="h-3 w-3" /> Add domain
+                    </button>
+                  )}
+                </div>
+
+                {/* Reprocess */}
+                <div className="border-t border-border/30 pt-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">Reprocess Existing Emails</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Scan all your past emails and assign any that match the domain rules above to this folder.
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={backfillMutation.isPending}
+                      onClick={() => backfillMutation.mutate(folder.id)}
+                      data-testid="button-reprocess-folder"
+                    >
+                      {backfillMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                      <span className="ml-1.5">Reprocess</span>
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    <span className="font-medium">{folder.emailCount}</span> email{folder.emailCount !== 1 ? "s" : ""} currently in this folder.
+                  </p>
+                </div>
+
+                {/* Danger zone */}
+                <div className="border-t border-border/30 pt-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-destructive/80">Delete Folder</p>
+                    <p className="text-xs text-muted-foreground">Emails are not deleted, only the folder and domain rules.</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => deleteFolderMutation.mutate(folder.id)}
+                    disabled={deleteFolderMutation.isPending}
+                    data-testid="button-delete-folder"
+                  >
+                    {deleteFolderMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    <span className="ml-1.5">Delete</span>
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
     </div>
   );
 }

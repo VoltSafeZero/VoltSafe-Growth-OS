@@ -3,7 +3,11 @@ import { emailMessages, scheduledEmails } from "../../shared/schema";
 import { eq, and, lte } from "drizzle-orm";
 import { parseGmailMessage } from "./email-parser";
 import { runAssociationEngine } from "./association-engine";
+import { routeEmailToFolders } from "./email-folder-router";
 import { log } from "../index";
+
+// Trevor's user ID — the only Gmail user currently connected
+const TREVOR_USER_ID = 4;
 
 async function isGmailConnected(): Promise<boolean> {
   try {
@@ -50,10 +54,14 @@ export async function runGmailSync(limit = 100): Promise<{ processed: number; ne
       userId: "me", id, format: "full",
     });
     const parsed = parseGmailMessage(msgRes.data as any, myDomain);
-    const [inserted] = await db.insert(emailMessages).values(parsed)
+    const [inserted] = await db.insert(emailMessages)
+      .values({ ...parsed, ownerUserId: TREVOR_USER_ID })
       .onConflictDoNothing().returning();
     if (inserted) {
+      // CRM matching first (order matters)
       await runAssociationEngine(inserted.id);
+      // Folder routing second
+      await routeEmailToFolders(inserted.id, TREVOR_USER_ID, inserted.fromEmail ?? "");
       newCount++;
     }
     processedCount++;

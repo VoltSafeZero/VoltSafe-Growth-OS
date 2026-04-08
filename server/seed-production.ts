@@ -29,6 +29,97 @@ export async function migrateUserSchema(): Promise<void> {
   }
 }
 
+export async function migrateEmailSchema(): Promise<void> {
+  try {
+    // Add ownership columns to email_messages
+    await db.execute(sql`ALTER TABLE email_messages ADD COLUMN IF NOT EXISTS owner_user_id integer`);
+    await db.execute(sql`ALTER TABLE email_messages ADD COLUMN IF NOT EXISTS source_account_id integer`);
+
+    // email_accounts table — one row per connected Gmail account per user
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS email_accounts (
+        id serial PRIMARY KEY,
+        user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider text NOT NULL DEFAULT 'gmail',
+        email_address text NOT NULL,
+        is_active boolean DEFAULT true,
+        created_at timestamp DEFAULT now() NOT NULL,
+        updated_at timestamp DEFAULT now() NOT NULL
+      )
+    `);
+
+    // mail_folders table
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS mail_folders (
+        id serial PRIMARY KEY,
+        owner_user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name text NOT NULL,
+        color text NOT NULL DEFAULT 'teal',
+        source_account_id integer,
+        created_at timestamp DEFAULT now() NOT NULL,
+        updated_at timestamp DEFAULT now() NOT NULL
+      )
+    `);
+
+    // mail_folder_domains — domain rules per folder
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS mail_folder_domains (
+        id serial PRIMARY KEY,
+        folder_id integer NOT NULL REFERENCES mail_folders(id) ON DELETE CASCADE,
+        domain text NOT NULL,
+        match_type text NOT NULL DEFAULT 'ends_with',
+        created_at timestamp DEFAULT now() NOT NULL,
+        UNIQUE(folder_id, domain)
+      )
+    `);
+
+    // email_folder_assignments — which emails belong to which folders
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS email_folder_assignments (
+        id serial PRIMARY KEY,
+        email_id integer NOT NULL REFERENCES email_messages(id) ON DELETE CASCADE,
+        folder_id integer NOT NULL REFERENCES mail_folders(id) ON DELETE CASCADE,
+        owner_user_id integer NOT NULL,
+        assigned_by text NOT NULL DEFAULT 'system',
+        assignment_reason text,
+        created_at timestamp DEFAULT now() NOT NULL,
+        UNIQUE(email_id, folder_id)
+      )
+    `);
+
+    // Indexes for performance
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_email_messages_owner ON email_messages(owner_user_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_email_folder_assignments_folder ON email_folder_assignments(folder_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_email_folder_assignments_email ON email_folder_assignments(email_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_mail_folder_domains_folder ON mail_folder_domains(folder_id)`);
+
+    // Backfill: assign all existing emails to Trevor (user_id = 4)
+    await db.execute(sql`
+      UPDATE email_messages SET owner_user_id = 4 WHERE owner_user_id IS NULL
+    `);
+
+    // Create email_accounts record for Trevor if none exists
+    const existing = await db.execute(sql`SELECT id FROM email_accounts WHERE user_id = 4 LIMIT 1`);
+    if ((existing.rows as any[]).length === 0) {
+      // Get Trevor's email from system_settings or use known value
+      let trevorsEmail = "trevor@voltsafe.com";
+      try {
+        const ss = await db.execute(sql`SELECT value FROM system_settings WHERE key = 'gmail_address' LIMIT 1`);
+        if ((ss.rows as any[]).length > 0) trevorsEmail = (ss.rows[0] as any).value;
+      } catch {}
+      await db.execute(sql`
+        INSERT INTO email_accounts (user_id, provider, email_address, is_active)
+        VALUES (4, 'gmail', ${trevorsEmail}, true)
+        ON CONFLICT DO NOTHING
+      `);
+    }
+
+    console.log("[migration] Email schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Email schema migration error (non-fatal):", err);
+  }
+}
+
 export async function seedProductionData(): Promise<void> {
   try {
     const result = await db.execute(sql`SELECT COUNT(*) as cnt FROM leads`);

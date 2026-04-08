@@ -1,0 +1,265 @@
+We are upgrading our email system to support:
+
+1) Domain-based auto folder routing
+2) Future multi-user Gmail support (without breaking current single-user setup)
+
+IMPORTANT:
+We currently only have ONE Gmail connected (Trevor). This must continue to work exactly as-is.
+All changes must be backward compatible and not break current functionality.
+
+========================
+PHASE 1 — DATA MODEL (SAFE + FUTURE-PROOF)
+========================
+
+We need to introduce the concept of "email ownership".
+
+Update emails table:
+
+Add:
+- owner_user_id (nullable initially, then required later)
+- source_account_id (nullable)
+
+Backfill:
+- Set all existing emails to owner_user_id = Trevor's user id
+
+Create table: email_accounts
+Fields:
+- id
+- workspace_id
+- user_id (owner of the Gmail account)
+- provider (e.g. 'gmail')
+- email_address
+- access_token (encrypted)
+- refresh_token (encrypted)
+- token_expiry
+- is_active (boolean)
+- created_at
+
+For now:
+- Create ONE record for Trevor’s Gmail
+- Link all incoming emails to this account
+
+========================
+PHASE 2 — DOMAIN FOLDER SYSTEM
+========================
+
+Create table: mail_folders
+- id
+- workspace_id
+- owner_user_id (IMPORTANT: folders belong to a user for now)
+- name
+- color
+- created_at
+- updated_at
+
+Create table: mail_folder_domains
+- id
+- folder_id
+- domain (lowercase, normalized)
+- match_type ('ends_with' default)
+- created_at
+
+Create table: email_folder_assignments
+- id
+- email_id
+- folder_id
+- owner_user_id (critical for multi-user future)
+- assigned_by ('system' or 'user')
+- assignment_reason
+- created_at
+
+Unique constraints:
+- (email_id, folder_id)
+- (folder_id, domain)
+
+========================
+PHASE 3 — DOMAIN MATCHING ENGINE
+========================
+
+Create utility: normalizeDomain(input)
+- lowercase
+- trim
+- remove '@'
+- strip protocol if present
+- return clean domain
+
+Create utility: extractSenderDomain(fromField)
+- parse email string
+- extract actual email
+- split at '@'
+- return domain
+
+Create service: routeEmailToFolders(email)
+
+Steps:
+1. Get email.owner_user_id
+2. Extract sender domain
+3. Load ALL folder domain rules for that owner_user_id
+4. Match using:
+   - exact match OR
+   - ends_with (domain OR .domain)
+
+Example:
+nmma.org matches:
+- nmma.org
+- events.nmma.org
+
+But NOT:
+- nmma.org.fake.com
+- fake-nmma.org
+
+5. Insert into email_folder_assignments:
+- owner_user_id = email.owner_user_id
+- assigned_by = 'system'
+- assignment_reason = 'domain match: {domain}'
+
+Must be idempotent (no duplicates)
+
+========================
+PHASE 4 — EMAIL INGEST PIPELINE UPDATE
+========================
+
+When syncing Gmail:
+
+FOR EACH EMAIL:
+- attach owner_user_id (Trevor for now)
+- attach source_account_id
+- run existing CRM matching (DO NOT TOUCH)
+- AFTER CRM matching → call routeEmailToFolders(email)
+
+Order matters:
+CRM first, routing second
+
+========================
+PHASE 5 — UI / UX
+========================
+
+Sidebar structure:
+
+Inbox
+Sent
+Drafts
+Scheduled
+Other
+
+--- divider ---
+
+Custom Folders
+- NMMA
+- Investors
+- Marinas
+- Media
+
+Folder behavior:
+- clicking folder shows emails assigned to it
+- emails can belong to multiple folders
+- show unread count
+
+Folder settings UI:
+- name
+- domains list
+- button: "Reprocess existing emails"
+
+========================
+PHASE 6 — BACKFILL JOB
+========================
+
+When user adds a domain rule:
+
+Optional:
+- run async job:
+    scan all emails for that owner_user_id
+    match domain
+    assign folder
+
+Must:
+- run in batches
+- not block UI
+- log progress
+
+========================
+PHASE 7 — MANUAL OVERRIDE
+========================
+
+Allow:
+- add email to folder manually
+- remove email from folder
+
+V1 simplification:
+- removal allowed
+- system may re-add on future reprocessing (acceptable for now)
+
+========================
+PHASE 8 — MULTI-USER READY (DO NOT SKIP)
+========================
+
+We are NOT enabling multi-user Gmail yet, but we MUST prepare for it.
+
+Rules:
+
+1. ALL emails must have owner_user_id
+2. ALL folder queries must filter by owner_user_id
+3. ALL folder rules must filter by owner_user_id
+4. NEVER mix emails across users
+
+Future behavior:
+- Each user sees their own inbox + folders
+- Later we can introduce shared inboxes
+
+========================
+PHASE 9 — SAFETY RULES
+========================
+
+DO NOT BREAK:
+- existing Gmail sync
+- existing email-to-contact/account matching
+- existing UI
+
+Ensure:
+- no duplicate assignments
+- safe parsing of malformed emails
+- fast queries (index owner_user_id, email_id, folder_id)
+
+========================
+PHASE 10 — TEST CASES
+========================
+
+Test:
+- nmma.org matches subdomains
+- nmma.org does NOT match fake domains
+- multiple folders can match one email
+- duplicate assignment prevented
+- existing CRM linking still works
+- all emails tied to correct owner_user_id
+
+========================
+PHASE 11 — FUTURE EXTENSIONS (DESIGN ONLY)
+========================
+
+Structure system so we can later support:
+
+- shared inboxes
+- routing by:
+    - recipient domain
+    - subject keywords
+    - specific sender
+    - CRM account tags
+    - deal stage
+- team folders vs personal folders
+
+========================
+DELIVERABLE
+========================
+
+Implement:
+- DB migrations
+- routing engine
+- Gmail ingestion update
+- UI for folders + domains
+- folder email views
+- backfill job
+- tests
+
+Maintain full backward compatibility.
+Do NOT refactor unrelated systems.
+Keep implementation modular and clean.

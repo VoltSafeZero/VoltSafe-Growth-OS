@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Search, Building2, Users, Loader2, Phone, Mail, Trash2,
   ArrowUpDown, MapPin, Globe, Zap, Star, AlertTriangle, Calendar,
-  Settings2, Wrench, Shield, Wifi, LinkIcon, List, LayoutGrid, Map
+  Settings2, Wrench, Shield, Wifi, LinkIcon, List, LayoutGrid, Map, FolderPlus
 } from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
 import { NotesPanel } from "@/components/notes-panel";
@@ -514,10 +514,22 @@ function AccountsMapView({ accounts, onSelect }: { accounts: Account[]; onSelect
   );
 }
 
+function extractDomainFromWebsite(website: string | null | undefined): string {
+  if (!website) return "";
+  let d = website.trim().toLowerCase();
+  d = d.replace(/^https?:\/\//, "");
+  d = d.replace(/^www\./, "");
+  d = d.split("/")[0];
+  return d;
+}
+
 function AccountDetailDialog({ account: initialAccount, onClose }: { account: Account; onClose: () => void }) {
   const { toast } = useToast();
   const [addContactOpen, setAddContactOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [showFolderDialog, setShowFolderDialog] = useState(false);
+  const [folderName, setFolderName] = useState("");
+  const [folderDomainInput, setFolderDomainInput] = useState("");
 
   const { data: freshAccount } = useQuery<Account>({
     queryKey: ["/api/accounts", initialAccount.id],
@@ -595,7 +607,34 @@ function AccountDetailDialog({ account: initialAccount, onClose }: { account: Ac
     },
   });
 
+  const createFolderFromAccountMutation = useMutation({
+    mutationFn: async ({ name, domains }: { name: string; domains: string[] }) => {
+      const res = await apiRequest("POST", "/api/mail-folders/from-account", {
+        accountId: account.id,
+        name,
+        domains,
+      });
+      return res.json();
+    },
+    onSuccess: (folder) => {
+      setShowFolderDialog(false);
+      toast({
+        title: "Inbox folder created",
+        description: `"${folder.name}" is ready in your Gmail inbox. Go to Gmail → Custom Folders to reprocess existing emails.`,
+      });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  function openFolderDialog() {
+    setFolderName(account.name || "");
+    const domain = extractDomainFromWebsite(account.website);
+    setFolderDomainInput(domain);
+    setShowFolderDialog(true);
+  }
+
   return (
+    <>
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[90vh] sm:max-h-[85vh] overflow-y-auto">
         <DialogHeader>
@@ -636,7 +675,17 @@ function AccountDetailDialog({ account: initialAccount, onClose }: { account: Ac
               <EditAccountForm account={account} onSubmit={(d) => updateAccountMutation.mutate(d)} onCancel={() => setEditMode(false)} isPending={updateAccountMutation.isPending} />
             ) : (
               <>
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={openFolderDialog}
+                    className="text-teal-600 border-teal-500/30 hover:bg-teal-500/10"
+                    data-testid="button-create-inbox-folder"
+                  >
+                    <FolderPlus className="h-3.5 w-3.5 mr-1.5" />
+                    Create Inbox Folder
+                  </Button>
                   <Button variant="outline" size="sm" onClick={() => setEditMode(true)} data-testid="button-edit-account">Edit</Button>
                 </div>
 
@@ -822,6 +871,59 @@ function AccountDetailDialog({ account: initialAccount, onClose }: { account: Ac
         </Tabs>
       </DialogContent>
     </Dialog>
+
+    {/* Create Inbox Folder from Account dialog */}
+    <Dialog open={showFolderDialog} onOpenChange={(v) => !v && setShowFolderDialog(false)}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FolderPlus className="h-5 w-5 text-teal-400" />
+            Create Inbox Folder from Account
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          <p className="text-sm text-muted-foreground">
+            Create a Gmail folder for <strong>{account.name}</strong>. Emails from this account's domain will be automatically sorted here.
+          </p>
+          <div>
+            <Label htmlFor="acct-folder-name" className="text-sm font-medium">Folder Name</Label>
+            <Input
+              id="acct-folder-name"
+              value={folderName}
+              onChange={(e) => setFolderName(e.target.value)}
+              className="mt-1"
+              data-testid="input-folder-name-from-account"
+            />
+          </div>
+          <div>
+            <Label htmlFor="acct-folder-domain" className="text-sm font-medium">Domain</Label>
+            <p className="text-xs text-muted-foreground mb-1">Emails from this domain (and subdomains) will auto-sort into this folder.</p>
+            <Input
+              id="acct-folder-domain"
+              value={folderDomainInput}
+              onChange={(e) => setFolderDomainInput(e.target.value)}
+              placeholder="e.g. nmma.org"
+              className="mt-1 font-mono text-sm"
+              data-testid="input-folder-domain-from-account"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="ghost" onClick={() => setShowFolderDialog(false)} data-testid="button-cancel-folder-from-account">Cancel</Button>
+            <Button
+              disabled={!folderName.trim() || createFolderFromAccountMutation.isPending}
+              onClick={() => {
+                const domains = folderDomainInput.split(/[\n,]+/).map(d => d.trim()).filter(Boolean);
+                createFolderFromAccountMutation.mutate({ name: folderName.trim(), domains });
+              }}
+              data-testid="button-confirm-folder-from-account"
+            >
+              {createFolderFromAccountMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create Folder"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  </>
   );
 }
 

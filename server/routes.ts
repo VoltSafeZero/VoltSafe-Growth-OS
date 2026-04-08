@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { metrics, sales, chartData, users, systemSettings } from "@shared/schema";
+import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments } from "@shared/schema";
 import {
   insertLeadSchema, insertAccountSchema, insertContactSchema,
   insertOpportunitySchema, insertTicketSchema, insertQuoteSchema,
@@ -2950,6 +2950,219 @@ export function registerConfluenceRoutes(app: Express) {
       const ok = await storage.removeOpportunityContact(Number(req.params.id), Number(req.params.contactId));
       if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Mail Folders ────────────────────────────────────────────────────────
+
+  app.get("/api/mail-folders", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const folders = await db.select().from(mailFolders).where(eq(mailFolders.ownerUserId, userId));
+      // Attach domain count + unread count per folder
+      const enriched = await Promise.all(folders.map(async (f) => {
+        const domains = await db.select().from(mailFolderDomains).where(eq(mailFolderDomains.folderId, f.id));
+        const assignments = await db.select({ emailId: emailFolderAssignments.emailId })
+          .from(emailFolderAssignments).where(eq(emailFolderAssignments.folderId, f.id));
+        const emailIds = assignments.map(a => a.emailId);
+        let unreadCount = 0;
+        if (emailIds.length > 0) {
+          const unread = await db.select({ id: emailMessages.id }).from(emailMessages)
+            .where(and(
+              inArray(emailMessages.id, emailIds),
+              sql`email_messages.label_ids ILIKE '%UNREAD%'`
+            ));
+          unreadCount = unread.length;
+        }
+        return { ...f, domains, emailCount: emailIds.length, unreadCount };
+      }));
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/mail-folders", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { name, color, sourceAccountId } = req.body;
+      if (!name?.trim()) return res.status(400).json({ message: "Name is required" });
+      const [folder] = await db.insert(mailFolders).values({
+        ownerUserId: userId,
+        name: name.trim(),
+        color: color || "teal",
+        sourceAccountId: sourceAccountId ?? null,
+      }).returning();
+      res.status(201).json(folder);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/mail-folders/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const folderId = Number(req.params.id);
+      const { name, color } = req.body;
+      const [updated] = await db.update(mailFolders)
+        .set({ name: name?.trim(), color, updatedAt: new Date() })
+        .where(and(eq(mailFolders.id, folderId), eq(mailFolders.ownerUserId, userId)))
+        .returning();
+      if (!updated) return res.status(404).json({ message: "Folder not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/mail-folders/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const folderId = Number(req.params.id);
+      await db.delete(mailFolders)
+        .where(and(eq(mailFolders.id, folderId), eq(mailFolders.ownerUserId, userId)));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Folder domain rules
+  app.get("/api/mail-folders/:id/domains", requireAuth, async (req, res) => {
+    try {
+      const domains = await db.select().from(mailFolderDomains)
+        .where(eq(mailFolderDomains.folderId, Number(req.params.id)));
+      res.json(domains);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/mail-folders/:id/domains", requireAuth, async (req, res) => {
+    try {
+      const folderId = Number(req.params.id);
+      const { domain, matchType } = req.body;
+      if (!domain?.trim()) return res.status(400).json({ message: "Domain is required" });
+      const { normalizeDomain } = await import("./services/email-folder-router");
+      const normalized = normalizeDomain(domain);
+      const [d] = await db.insert(mailFolderDomains).values({
+        folderId,
+        domain: normalized,
+        matchType: matchType || "ends_with",
+      }).onConflictDoNothing().returning();
+      res.status(201).json(d || { folderId, domain: normalized, matchType: matchType || "ends_with" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/mail-folders/:id/domains/:domainId", requireAuth, async (req, res) => {
+    try {
+      await db.delete(mailFolderDomains).where(eq(mailFolderDomains.id, Number(req.params.domainId)));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Folder emails view
+  app.get("/api/mail-folders/:id/emails", requireAuth, async (req, res) => {
+    try {
+      const folderId = Number(req.params.id);
+      const userId = (req.session as any).userId;
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const offset = Number(req.query.offset) || 0;
+
+      const assignments = await db.select({ emailId: emailFolderAssignments.emailId })
+        .from(emailFolderAssignments)
+        .where(and(
+          eq(emailFolderAssignments.folderId, folderId),
+          eq(emailFolderAssignments.ownerUserId, userId)
+        ));
+
+      const emailIds = assignments.map(a => a.emailId);
+      if (emailIds.length === 0) return res.json([]);
+
+      const emails = await db.select().from(emailMessages)
+        .where(inArray(emailMessages.id, emailIds.slice(offset, offset + limit)))
+        .orderBy(sql`sent_at DESC`);
+
+      res.json(emails);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Backfill existing emails into a folder
+  app.post("/api/mail-folders/:id/backfill", requireAuth, async (req, res) => {
+    try {
+      const folderId = Number(req.params.id);
+      const userId = (req.session as any).userId;
+
+      const folder = await db.select().from(mailFolders)
+        .where(and(eq(mailFolders.id, folderId), eq(mailFolders.ownerUserId, userId)))
+        .limit(1);
+      if (!folder.length) return res.status(404).json({ message: "Folder not found" });
+
+      // Run async so UI gets immediate response
+      res.json({ ok: true, message: "Backfill started" });
+
+      // Fire-and-forget after response
+      import("./services/email-folder-router").then(({ backfillFolderEmails }) => {
+        backfillFolderEmails(folderId, userId).then(result => {
+          console.log(`[backfill] Folder ${folderId}: processed=${result.processed}, assigned=${result.assigned}`);
+        });
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Manual remove email from folder
+  app.delete("/api/mail-folders/:id/emails/:emailId", requireAuth, async (req, res) => {
+    try {
+      await db.delete(emailFolderAssignments).where(
+        and(
+          eq(emailFolderAssignments.folderId, Number(req.params.id)),
+          eq(emailFolderAssignments.emailId, Number(req.params.emailId))
+        )
+      );
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Create folder from account (pre-filled)
+  app.post("/api/mail-folders/from-account", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { accountId, name, domains } = req.body;
+      if (!name?.trim()) return res.status(400).json({ message: "Name is required" });
+
+      const [folder] = await db.insert(mailFolders).values({
+        ownerUserId: userId,
+        name: name.trim(),
+        color: "teal",
+        sourceAccountId: accountId ?? null,
+      }).returning();
+
+      const { normalizeDomain } = await import("./services/email-folder-router");
+      const insertedDomains = [];
+      for (const rawDomain of (domains || [])) {
+        const nd = normalizeDomain(rawDomain);
+        if (!nd) continue;
+        const [d] = await db.insert(mailFolderDomains).values({
+          folderId: folder.id,
+          domain: nd,
+          matchType: "ends_with",
+        }).onConflictDoNothing().returning();
+        if (d) insertedDomains.push(d);
+      }
+
+      res.status(201).json({ ...folder, domains: insertedDomains });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
