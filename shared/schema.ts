@@ -993,10 +993,20 @@ export type InsertMigrationMap = z.infer<typeof insertMigrationMapSchema>;
 
 export const emailAccounts = pgTable("email_accounts", {
   id: serial("id").primaryKey(),
+  workspaceId: integer("workspace_id").notNull().default(1),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   provider: text("provider").notNull().default("gmail"),
   emailAddress: text("email_address").notNull(),
+  displayName: text("display_name"),
+  // auth_status: active | expired | revoked | error
+  authStatus: text("auth_status").notNull().default("active"),
   isActive: boolean("is_active").default(true),
+  scopesJson: text("scopes_json"),
+  syncEnabled: boolean("sync_enabled").notNull().default(true),
+  lastSyncAt: timestamp("last_sync_at"),
+  lastHistoryId: text("last_history_id"),
+  syncErrorMessage: text("sync_error_message"),
+  disconnectedAt: timestamp("disconnected_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1009,6 +1019,7 @@ export type InsertEmailAccount = z.infer<typeof insertEmailAccountSchema>;
 
 export const mailFolders = pgTable("mail_folders", {
   id: serial("id").primaryKey(),
+  workspaceId: integer("workspace_id").notNull().default(1),
   ownerUserId: integer("owner_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   color: text("color").notNull().default("teal"),
@@ -1035,6 +1046,7 @@ export type InsertMailFolderDomain = z.infer<typeof insertMailFolderDomainSchema
 
 export const emailFolderAssignments = pgTable("email_folder_assignments", {
   id: serial("id").primaryKey(),
+  workspaceId: integer("workspace_id").notNull().default(1),
   emailId: integer("email_id").notNull().references(() => emailMessages.id, { onDelete: "cascade" }),
   folderId: integer("folder_id").notNull().references(() => mailFolders.id, { onDelete: "cascade" }),
   ownerUserId: integer("owner_user_id").notNull(),

@@ -98,23 +98,72 @@ export async function migrateEmailSchema(): Promise<void> {
       UPDATE email_messages SET owner_user_id = 4 WHERE owner_user_id IS NULL
     `);
 
-    // Create email_accounts record for Trevor if none exists
+    // ── Step 1 (S1) — Expand email_accounts with tracking fields ─────────────
+    await db.execute(sql`ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS workspace_id integer NOT NULL DEFAULT 1`);
+    await db.execute(sql`ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS display_name text`);
+    await db.execute(sql`ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS auth_status text NOT NULL DEFAULT 'active'`);
+    await db.execute(sql`ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS scopes_json text`);
+    await db.execute(sql`ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS sync_enabled boolean NOT NULL DEFAULT true`);
+    await db.execute(sql`ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS last_sync_at timestamp`);
+    await db.execute(sql`ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS last_history_id text`);
+    await db.execute(sql`ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS sync_error_message text`);
+    await db.execute(sql`ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS disconnected_at timestamp`);
+
+    // ── S1 — workspace_id sentinels on mail tables (= 1, single-tenant now) ──
+    await db.execute(sql`ALTER TABLE mail_folders ADD COLUMN IF NOT EXISTS workspace_id integer NOT NULL DEFAULT 1`);
+    await db.execute(sql`ALTER TABLE email_folder_assignments ADD COLUMN IF NOT EXISTS workspace_id integer NOT NULL DEFAULT 1`);
+
+    // ── S1 — Indexes for isolation queries ───────────────────────────────────
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_email_accounts_workspace_user ON email_accounts(workspace_id, user_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_email_accounts_auth_status ON email_accounts(auth_status)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_mail_folders_owner ON mail_folders(workspace_id, owner_user_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_efa_workspace_owner ON email_folder_assignments(workspace_id, owner_user_id)`);
+
+    // ── S1 — Create Trevor's email_accounts record if missing ────────────────
     const existing = await db.execute(sql`SELECT id FROM email_accounts WHERE user_id = 4 LIMIT 1`);
     if ((existing.rows as any[]).length === 0) {
-      // Get Trevor's email from system_settings or use known value
       let trevorsEmail = "trevor@voltsafe.com";
       try {
         const ss = await db.execute(sql`SELECT value FROM system_settings WHERE key = 'gmail_address' LIMIT 1`);
         if ((ss.rows as any[]).length > 0) trevorsEmail = (ss.rows[0] as any).value;
       } catch {}
       await db.execute(sql`
-        INSERT INTO email_accounts (user_id, provider, email_address, is_active)
-        VALUES (4, 'gmail', ${trevorsEmail}, true)
+        INSERT INTO email_accounts (workspace_id, user_id, provider, email_address, display_name, auth_status, is_active, sync_enabled)
+        VALUES (1, 4, 'gmail', ${trevorsEmail}, 'Trevor Burgess', 'active', true, true)
         ON CONFLICT DO NOTHING
+      `);
+    } else {
+      // Ensure Trevor's existing record has the new fields populated
+      await db.execute(sql`
+        UPDATE email_accounts
+        SET workspace_id = 1,
+            auth_status = COALESCE(auth_status, 'active'),
+            sync_enabled = COALESCE(sync_enabled, true),
+            display_name = COALESCE(display_name, 'Trevor Burgess')
+        WHERE user_id = 4
       `);
     }
 
-    console.log("[migration] Email schema migration complete.");
+    // ── S1 — Backfill source_account_id on all Trevor's emails ───────────────
+    await db.execute(sql`
+      UPDATE email_messages
+      SET source_account_id = (
+        SELECT id FROM email_accounts WHERE user_id = 4 ORDER BY id ASC LIMIT 1
+      )
+      WHERE source_account_id IS NULL
+        AND owner_user_id = 4
+    `);
+    // Also catch any that still have no owner (belt + suspenders)
+    await db.execute(sql`
+      UPDATE email_messages
+      SET owner_user_id = 4,
+          source_account_id = (
+            SELECT id FROM email_accounts WHERE user_id = 4 ORDER BY id ASC LIMIT 1
+          )
+      WHERE owner_user_id IS NULL
+    `);
+
+    console.log("[migration] Email schema migration complete (Step 1: data model + backfill).");
   } catch (err) {
     console.error("[migration] Email schema migration error (non-fatal):", err);
   }

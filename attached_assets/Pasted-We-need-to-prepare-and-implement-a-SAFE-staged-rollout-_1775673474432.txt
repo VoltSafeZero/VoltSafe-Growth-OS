@@ -1,0 +1,429 @@
+We need to prepare and implement a SAFE staged rollout plan for multi-user Gmail support in our CMS/CRM.
+
+IMPORTANT CONTEXT:
+- Right now the system supports only ONE connected Gmail account (Trevor’s)
+- This current setup must NOT break
+- We are already adding owner_user_id and source_account_id to email records
+- We are already adding domain-based custom folders
+- Existing CRM email-to-account/contact/lead matching must continue working exactly as it does now
+
+GOAL:
+Allow additional users to connect their own Gmail accounts in the future, while keeping mailbox data isolated per user unless explicitly shared by permission.
+
+GENERAL RULE:
+We are NOT building a shared free-for-all inbox.
+By default, each connected Gmail account is private to the connected user.
+Later we may add shared inboxes, but not in v1.
+
+========================================
+PHASE A — FOUNDATIONAL RULES
+========================================
+
+Implement and enforce these system rules everywhere:
+
+1. Every email must belong to:
+- a workspace_id
+- an owner_user_id
+- a source_account_id
+
+2. Every connected Gmail account must belong to:
+- one workspace
+- one user
+
+3. Every mailbox/folder/routing query must filter by:
+- workspace_id
+- owner_user_id
+unless explicitly handling a future shared mailbox
+
+4. No user should ever see another user’s private emails unless there is an explicit permission model allowing it
+
+5. Existing Trevor Gmail functionality must continue working without any manual data loss or migration mistakes
+
+========================================
+PHASE B — EMAIL ACCOUNT MODEL
+========================================
+
+Create or update table: email_accounts
+
+Fields:
+- id
+- workspace_id
+- user_id
+- provider ('gmail')
+- email_address
+- display_name (nullable)
+- auth_status ('active', 'expired', 'revoked', 'error')
+- access_token (encrypted)
+- refresh_token (encrypted)
+- token_expiry
+- scopes_json (nullable)
+- sync_enabled (boolean default true)
+- last_sync_at (nullable)
+- last_history_id (nullable if using Gmail incremental sync)
+- sync_error_message (nullable)
+- created_at
+- updated_at
+- disconnected_at (nullable)
+
+Constraints:
+- one active gmail account per email address
+- one email account belongs to one user only
+
+Indexes:
+- workspace_id
+- user_id
+- email_address
+- auth_status
+
+Behavior:
+- Trevor’s current Gmail must become the first record in this table
+- All current emails should be backfilled to Trevor’s account as source_account_id
+
+========================================
+PHASE C — USER MAILBOX ISOLATION
+========================================
+
+Update mailbox logic so that all mailbox screens, folder screens, and email queries only show emails where:
+
+- emails.owner_user_id = current_user.id
+AND
+- emails.workspace_id = current_user.workspace_id
+
+Do NOT rely only on frontend filtering.
+This must be enforced in backend queries and API access.
+
+Apply this rule to:
+- Inbox
+- Sent
+- Drafts
+- Scheduled
+- Other
+- Custom folders
+- Search
+- Email detail view
+- Unread counts
+- Sync status
+
+========================================
+PHASE D — GMAIL CONNECT FLOW
+========================================
+
+Implement a Gmail connect flow for each user.
+
+Requirements:
+1. A logged-in user can connect their own Gmail account
+2. OAuth tokens must be stored encrypted
+3. The connection creates an email_accounts record tied to that user
+4. Initial sync only imports that user’s mailbox into that user’s email scope
+5. Disconnecting Gmail must not delete historical emails by default
+6. If reconnecting the same Gmail later, preserve linkage where possible
+
+UI:
+- Add “Connect Gmail” in user settings or inbox settings
+- Show connected account email address
+- Show status:
+  - Connected
+  - Syncing
+  - Error
+  - Reconnect required
+- Add Disconnect button
+- Add Resync button
+
+========================================
+PHASE E — PER-ACCOUNT SYNC PIPELINE
+========================================
+
+Refactor sync logic so sync runs per email account, not globally.
+
+Create service:
+syncEmailAccount(emailAccountId)
+
+Behavior:
+1. Load email account
+2. Refresh token if needed
+3. Pull Gmail messages for that account only
+4. Store imported emails with:
+   - workspace_id
+   - owner_user_id = email_accounts.user_id
+   - source_account_id = email_accounts.id
+5. Run existing CRM matching logic
+6. Run domain folder routing logic
+7. Update sync metadata:
+   - last_sync_at
+   - last_history_id
+   - auth_status / sync error state
+
+Critical:
+- One user’s sync job must never import emails into another user’s inbox
+- Failures in one account must not break other accounts
+
+========================================
+PHASE F — EMAIL TABLE REQUIREMENTS
+========================================
+
+Ensure emails table includes:
+
+- id
+- workspace_id
+- owner_user_id
+- source_account_id
+- gmail_message_id or provider_message_id
+- thread_id
+- subject
+- from_address
+- to_addresses
+- cc_addresses
+- bcc_addresses
+- sent_at
+- received_at
+- body_text
+- body_html
+- snippet
+- is_read
+- is_starred
+- system_folder or mailbox_category
+- created_at
+- updated_at
+
+Indexes:
+- workspace_id + owner_user_id
+- source_account_id
+- sent_at
+- gmail_message_id/provider_message_id unique per account if appropriate
+
+Recommended uniqueness:
+- unique(source_account_id, provider_message_id)
+
+========================================
+PHASE G — AUTHORIZATION MODEL
+========================================
+
+Implement a mailbox authorization policy.
+
+V1 policy:
+- Users can only access their own mailbox data
+- Admins can manage system settings but do NOT automatically get permission to read another user’s private mailbox
+- Mailbox privacy is the default
+
+Create permissions structure that can later support:
+- can_connect_gmail
+- can_disconnect_own_gmail
+- can_view_own_mailbox
+- can_manage_shared_mailboxes
+- can_view_team_mailbox
+- can_administer_mail_routing
+
+Do not implement shared mailbox visibility yet unless explicitly requested.
+
+========================================
+PHASE H — BACKWARD COMPATIBLE MIGRATION PLAN
+========================================
+
+Migration must be staged safely.
+
+Step 1:
+Add nullable columns:
+- owner_user_id
+- source_account_id
+
+Step 2:
+Create email_accounts table
+
+Step 3:
+Insert Trevor’s current Gmail as first email_accounts record
+
+Step 4:
+Backfill all existing emails:
+- owner_user_id = Trevor user id
+- source_account_id = Trevor email account id
+- workspace_id verified and filled if needed
+
+Step 5:
+Update sync pipeline to populate these fields for all new incoming emails
+
+Step 6:
+Update backend queries to filter by owner_user_id
+
+Step 7:
+After successful backfill and validation, make owner_user_id non-null if safe
+
+Do not force hard constraints until data is verified.
+
+========================================
+PHASE I — UI CHANGES
+========================================
+
+Mailbox UI should now be designed around the current logged-in user.
+
+Inbox page should show:
+- current connected Gmail account
+- connection status
+- sync status
+- personal custom folders only
+- personal email counts only
+
+Future-ready UI idea:
+Top area could eventually support mailbox switching, but do NOT expose it yet unless there are multiple mailbox types implemented safely.
+
+For now:
+- each user sees only their own Gmail inbox
+- Trevor’s existing view should remain familiar
+
+========================================
+PHASE J — SEARCH AND COUNTS
+========================================
+
+All search and counters must be scoped.
+
+This includes:
+- unread badge
+- folder counts
+- search results
+- recent email lists
+- dashboard widgets involving email
+
+Every query must include:
+- workspace_id
+- owner_user_id
+
+Do not trust frontend filtering.
+Do not return all emails and then filter in memory.
+
+========================================
+PHASE K — DOMAIN FOLDERS IN MULTI-USER CONTEXT
+========================================
+
+Custom folders and domain rules must remain user-scoped for v1.
+
+mail_folders:
+- workspace_id
+- owner_user_id
+
+mail_folder_domains:
+- folder_id
+- domain
+
+email_folder_assignments:
+- email_id
+- folder_id
+- owner_user_id
+
+Behavior:
+- Trevor’s custom folders only route Trevor’s emails
+- Another user’s custom folders only route that user’s emails
+- Same domain can exist in multiple users’ folders independently
+
+========================================
+PHASE L — ERROR HANDLING
+========================================
+
+Handle these cases gracefully:
+- Gmail token expired
+- Gmail access revoked
+- quota/rate limit issues
+- malformed email payload
+- duplicate provider message
+- failed sync for one user
+
+Requirements:
+- mark account auth_status correctly
+- show clear UI state
+- do not crash whole email system
+- log enough detail for debugging
+- allow reconnect and retry
+
+========================================
+PHASE M — AUDIT + LOGGING
+========================================
+
+Add structured logs for:
+- Gmail account connected
+- Gmail account disconnected
+- sync started
+- sync completed
+- sync failed
+- emails imported count
+- CRM matches count
+- folder routing assignments count
+
+Log with:
+- workspace_id
+- user_id
+- source_account_id
+
+========================================
+PHASE N — TESTS
+========================================
+
+Add tests for:
+
+1. Backward compatibility
+- Trevor’s current mailbox still works after migration
+
+2. Isolation
+- user A cannot see user B emails
+- user A search does not return user B emails
+- folder counts are isolated
+
+3. Sync correctness
+- emails imported from Gmail account A belong only to owner A
+- emails imported from Gmail account B belong only to owner B
+
+4. CRM linking
+- existing email-to-contact/account linking still works
+
+5. Folder routing
+- domain folder routing works per user
+- same sender domain can route into different users’ folders independently
+
+6. Disconnect/reconnect
+- disconnecting stops sync
+- historical emails remain unless explicit deletion logic is added later
+
+========================================
+PHASE O — DO NOT IMPLEMENT YET
+========================================
+
+Do NOT implement these yet unless explicitly requested:
+- shared inboxes
+- admin visibility into private mailboxes
+- send mail from multiple connected accounts inside app
+- delegation
+- team mailbox merging
+- cross-user search
+
+Design for them, but do not enable them.
+
+========================================
+PHASE P — FUTURE ROADMAP NOTES
+========================================
+
+Design code so we can later add:
+- shared inboxes
+- role-based mailbox visibility
+- account assignment rules
+- send/reply using connected Gmail per user
+- team folders
+- organization-wide routing rules
+- account ownership transfer when employees leave
+
+========================================
+DELIVERABLES
+========================================
+
+Please implement in a safe staged way:
+1. migrations
+2. email_accounts model
+3. Trevor backfill
+4. per-user mailbox query isolation
+5. per-account Gmail connect/disconnect flow
+6. per-account sync service
+7. scoped custom folder support
+8. UI status for connected Gmail
+9. tests
+
+Priority:
+- preserve current Trevor Gmail setup
+- avoid breaking CRM linking
+- make multi-user support safe and modular
+- do not over-refactor unrelated systems

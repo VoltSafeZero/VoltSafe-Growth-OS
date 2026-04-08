@@ -790,6 +790,12 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
 
   const canSend = currentUserEmail === "trevor@voltsafe.com";
 
+  type ConnectedAccount = {
+    id: number; userId: number; provider: string; emailAddress: string;
+    displayName: string | null; authStatus: string; syncEnabled: boolean;
+    lastSyncAt: string | null; syncErrorMessage: string | null; disconnectedAt: string | null;
+  };
+
   const statusQuery = useQuery<{ connected: boolean; tokenValid: boolean; apiEnabled: boolean; hasCredentials: boolean }>({
     queryKey: ["/api/gmail/status"],
     queryFn: async () => {
@@ -799,6 +805,19 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
     },
     retry: false,
   });
+
+  // S2: Per-user connected account(s) with live auth_status and sync metadata
+  const accountsQuery = useQuery<ConnectedAccount[]>({
+    queryKey: ["/api/gmail/accounts"],
+    queryFn: async () => {
+      const res = await fetch("/api/gmail/accounts", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    refetchInterval: 30_000,
+    retry: false,
+  });
+  const connectedAccount = accountsQuery.data?.[0] ?? null;
 
   const inboxQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
     queryKey: ["/api/gmail/messages", "inbox", searchQuery],
@@ -1546,6 +1565,68 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               </div>
             )}
           </div>
+
+          {/* ── S2: Connected account status footer ────────────────────── */}
+          {connectedAccount && (
+            <div className="flex-shrink-0 border-t border-border/40 bg-card/30 px-3 py-2">
+              <div className="flex items-center gap-2">
+                {/* Status dot */}
+                <span
+                  className={`flex-shrink-0 h-2 w-2 rounded-full ${
+                    connectedAccount.authStatus === "active"
+                      ? "bg-emerald-400"
+                      : connectedAccount.authStatus === "expired"
+                      ? "bg-amber-400"
+                      : "bg-red-400"
+                  }`}
+                />
+                <div className="flex-1 min-w-0">
+                  <p
+                    className="text-xs font-medium text-foreground truncate"
+                    data-testid="text-connected-email"
+                  >
+                    {connectedAccount.emailAddress}
+                  </p>
+                  {connectedAccount.lastSyncAt ? (
+                    <p className="text-[10px] text-muted-foreground truncate">
+                      Synced {new Date(connectedAccount.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </p>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground">
+                      {connectedAccount.authStatus === "active" ? "Never synced" : connectedAccount.authStatus}
+                    </p>
+                  )}
+                </div>
+                {/* Actions */}
+                {connectedAccount.authStatus !== "active" && canSend ? (
+                  <a
+                    href="/api/auth/gmail/connect"
+                    className="flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors whitespace-nowrap"
+                    data-testid="button-reconnect-account-footer"
+                  >
+                    Reconnect
+                  </a>
+                ) : (
+                  <button
+                    title="Resync this account"
+                    data-testid="button-resync-account-footer"
+                    onClick={async () => {
+                      try {
+                        await fetch(`/api/gmail/accounts/${connectedAccount.id}/resync?limit=100`, {
+                          method: "POST",
+                          credentials: "include",
+                        });
+                        syncMutation.mutate(undefined);
+                      } catch {}
+                    }}
+                    className="flex-shrink-0 p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/50 transition-colors"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right panel: thread view */}

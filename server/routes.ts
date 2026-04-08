@@ -34,9 +34,10 @@ import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, mar
 import { getAuthUrl, exchangeCodeForTokens, isGmailConnected, getGmailClient } from "./gmail-oauth";
 import { parseGmailMessage } from "./services/email-parser";
 import { runAssociationEngine } from "./services/association-engine";
-import { runGmailSync } from "./services/gmail-sync";
+import { runGmailSync, syncEmailAccount } from "./services/gmail-sync";
 import {
   emailMessages, emailThreads, emailAssociations, associationFeedback, emailFilters, scheduledEmails,
+  emailAccounts,
   assets, assetFolders, priceLists, priceListItems,
 } from "@shared/schema";
 
@@ -1857,10 +1858,85 @@ export async function registerRoutes(
     res.json({ connected, tokenValid, apiEnabled, hasCredentials });
   });
 
-  app.post("/api/gmail/disconnect", requireAuth, async (_req, res) => {
+  // ── S1: Per-user email accounts with status ───────────────────────────────
+  // Returns the current user's connected Gmail accounts with full tracking data.
+  // Enforces owner isolation: users only see their own accounts.
+  app.get("/api/gmail/accounts", requireAuth, async (req, res) => {
     try {
+      const userId = (req.session as any).userId;
+      const accounts = await db
+        .select()
+        .from(emailAccounts)
+        .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.workspaceId, 1)));
+      res.json(accounts);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── S2: Per-account on-demand resync ─────────────────────────────────────
+  app.post("/api/gmail/accounts/:id/resync", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const accountId = Number(req.params.id);
+      // Enforce ownership — only resync your own account
+      const [acct] = await db
+        .select()
+        .from(emailAccounts)
+        .where(and(eq(emailAccounts.id, accountId), eq(emailAccounts.userId, userId)))
+        .limit(1);
+      if (!acct) return res.status(404).json({ message: "Account not found" });
+      const limit = Number(req.query.limit) || 100;
+      const result = await syncEmailAccount(accountId, limit);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── S2: Per-account disconnect ────────────────────────────────────────────
+  // Sets auth_status = 'revoked', disconnected_at = now, sync_enabled = false.
+  // Historical emails are preserved.
+  app.post("/api/gmail/accounts/:id/disconnect", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const accountId = Number(req.params.id);
+      const [acct] = await db
+        .select()
+        .from(emailAccounts)
+        .where(and(eq(emailAccounts.id, accountId), eq(emailAccounts.userId, userId)))
+        .limit(1);
+      if (!acct) return res.status(404).json({ message: "Account not found" });
+
+      await db.update(emailAccounts)
+        .set({
+          authStatus: "revoked",
+          syncEnabled: false,
+          disconnectedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(emailAccounts.id, accountId));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/gmail/disconnect", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      // Clear legacy system_settings tokens
       await db.delete(systemSettings).where(eq(systemSettings.key, "gmail_refresh_token"));
       await db.delete(systemSettings).where(eq(systemSettings.key, "gmail_access_token"));
+      // S2: Also stamp the email_accounts record for this user
+      await db.update(emailAccounts)
+        .set({
+          authStatus: "revoked",
+          syncEnabled: false,
+          disconnectedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(emailAccounts.userId, userId));
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -1946,7 +2022,9 @@ export async function registerRoutes(
 
   app.get("/api/email-messages", requireAuth, async (req, res) => {
     try {
+      const userId = (req.session as any).userId;
       const msgs = await db.select().from(emailMessages)
+        .where(eq(emailMessages.ownerUserId, userId))
         .orderBy(emailMessages.sentAt)
         .limit(100);
       const reversed = msgs.reverse();

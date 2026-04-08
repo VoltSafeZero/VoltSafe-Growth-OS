@@ -64,6 +64,7 @@ export async function routeEmailToFolders(emailId: number, ownerUserId: number, 
         await db
           .insert(emailFolderAssignments)
           .values({
+            workspaceId: 1,
             emailId,
             folderId: rule.folderId,
             ownerUserId,
@@ -116,6 +117,7 @@ export async function backfillFolderEmails(folderId: number, ownerUserId: number
             const result = await db
               .insert(emailFolderAssignments)
               .values({
+                workspaceId: 1,
                 emailId: email.id,
                 folderId,
                 ownerUserId,

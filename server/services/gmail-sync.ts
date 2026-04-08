@@ -1,39 +1,57 @@
 import { db } from "../db";
-import { emailMessages, scheduledEmails } from "../../shared/schema";
+import { emailMessages, emailAccounts, scheduledEmails } from "../../shared/schema";
 import { eq, and, lte } from "drizzle-orm";
 import { parseGmailMessage } from "./email-parser";
 import { runAssociationEngine } from "./association-engine";
 import { routeEmailToFolders } from "./email-folder-router";
 import { log } from "../index";
 
-// Trevor's user ID — the only Gmail user currently connected
+// Trevor's user ID — the only Gmail user connected in Phase 1
 const TREVOR_USER_ID = 4;
 
-async function isGmailConnected(): Promise<boolean> {
-  try {
-    const { getGmailClient } = await import("../gmail-oauth");
-    const client = await getGmailClient();
-    await client.users.getProfile({ userId: "me" });
-    return true;
-  } catch {
-    return false;
-  }
-}
+// ─── Per-account sync (S2 core) ──────────────────────────────────────────────
+// Syncs one email_accounts row. All emails inserted are stamped with that
+// account's owner_user_id and source_account_id so isolation is guaranteed.
+export async function syncEmailAccount(
+  accountId: number,
+  limit = 100
+): Promise<{ processed: number; newMessages: number }> {
+  // 1. Load the account record
+  const [account] = await db
+    .select()
+    .from(emailAccounts)
+    .where(and(eq(emailAccounts.id, accountId), eq(emailAccounts.syncEnabled, true)))
+    .limit(1);
 
-export async function runGmailSync(limit = 100): Promise<{ processed: number; newMessages: number }> {
-  const connected = await isGmailConnected();
-  if (!connected) {
-    log("[gmail-sync] Gmail not connected — skipping");
+  if (!account) {
+    log(`[gmail-sync] account ${accountId} not found or sync disabled — skipping`);
     return { processed: 0, newMessages: 0 };
   }
 
-  const gmail = await import("../gmail");
-  const profileData = await gmail.getProfile();
-  const myDomain = profileData.emailAddress?.split("@")[1] || "voltsafe.com";
+  if (account.authStatus === "revoked" || account.authStatus === "error") {
+    log(`[gmail-sync] account ${accountId} (${account.emailAddress}) auth_status=${account.authStatus} — skipping`);
+    return { processed: 0, newMessages: 0 };
+  }
 
-  const { getGmailClient } = await import("../gmail-oauth");
-  const gmailClient = await getGmailClient();
+  const ownerUserId = account.userId;
 
+  // 2. Get Gmail client — Phase 1: always Trevor's system_settings token
+  let gmailClient: any;
+  try {
+    const { getGmailClient } = await import("../gmail-oauth");
+    gmailClient = await getGmailClient();
+  } catch (err: any) {
+    log(`[gmail-sync] account ${accountId} token error: ${err.message}`);
+    await db.update(emailAccounts)
+      .set({ authStatus: "expired", syncErrorMessage: err.message, updatedAt: new Date() })
+      .where(eq(emailAccounts.id, accountId));
+    return { processed: 0, newMessages: 0 };
+  }
+
+  // 3. Get my domain for direction classification
+  let myDomain = account.emailAddress.split("@")[1] || "voltsafe.com";
+
+  // 4. Fetch message list
   const listRes = await gmailClient.users.messages.list({
     userId: "me",
     maxResults: limit,
@@ -46,31 +64,80 @@ export async function runGmailSync(limit = 100): Promise<{ processed: number; ne
 
   for (const { id } of messageIds) {
     if (!id) continue;
-    const existing = await db.select({ id: emailMessages.id })
-      .from(emailMessages).where(eq(emailMessages.gmailMessageId, id)).limit(1);
+    const existing = await db
+      .select({ id: emailMessages.id })
+      .from(emailMessages)
+      .where(eq(emailMessages.gmailMessageId, id))
+      .limit(1);
     if (existing.length > 0) { processedCount++; continue; }
 
-    const msgRes = await gmailClient.users.messages.get({
-      userId: "me", id, format: "full",
-    });
-    const parsed = parseGmailMessage(msgRes.data as any, myDomain);
-    const [inserted] = await db.insert(emailMessages)
-      .values({ ...parsed, ownerUserId: TREVOR_USER_ID })
-      .onConflictDoNothing().returning();
-    if (inserted) {
-      // CRM matching first (order matters)
-      await runAssociationEngine(inserted.id);
-      // Folder routing second
-      await routeEmailToFolders(inserted.id, TREVOR_USER_ID, inserted.fromEmail ?? "");
-      newCount++;
+    try {
+      const msgRes = await gmailClient.users.messages.get({
+        userId: "me", id, format: "full",
+      });
+      const parsed = parseGmailMessage(msgRes.data as any, myDomain);
+      const [inserted] = await db
+        .insert(emailMessages)
+        .values({
+          ...parsed,
+          ownerUserId,
+          sourceAccountId: account.id,
+        })
+        .onConflictDoNothing()
+        .returning();
+
+      if (inserted) {
+        await runAssociationEngine(inserted.id);
+        await routeEmailToFolders(inserted.id, ownerUserId, inserted.fromEmail ?? "");
+        newCount++;
+      }
+    } catch (msgErr: any) {
+      log(`[gmail-sync] Error processing message ${id}: ${msgErr.message}`);
     }
     processedCount++;
   }
 
-  log(`[gmail-sync] Done — processed: ${processedCount}, new: ${newCount}`);
+  // 5. Stamp last_sync_at on success
+  await db.update(emailAccounts)
+    .set({
+      lastSyncAt: new Date(),
+      authStatus: "active",
+      syncErrorMessage: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(emailAccounts.id, accountId));
+
+  log(`[gmail-sync] account ${accountId} (${account.emailAddress}) — processed: ${processedCount}, new: ${newCount}`);
   return { processed: processedCount, newMessages: newCount };
 }
 
+// ─── runGmailSync: backwards-compat wrapper ───────────────────────────────────
+// Finds all active email_accounts and delegates to syncEmailAccount.
+// Phase 1: only one account exists (Trevor's). Phase 2: iterates all.
+export async function runGmailSync(limit = 100): Promise<{ processed: number; newMessages: number }> {
+  const accounts = await db
+    .select()
+    .from(emailAccounts)
+    .where(and(eq(emailAccounts.isActive, true), eq(emailAccounts.syncEnabled, true)));
+
+  if (accounts.length === 0) {
+    log("[gmail-sync] No active email accounts — skipping");
+    return { processed: 0, newMessages: 0 };
+  }
+
+  let totalProcessed = 0;
+  let totalNew = 0;
+
+  for (const acct of accounts) {
+    const result = await syncEmailAccount(acct.id, limit);
+    totalProcessed += result.processed;
+    totalNew += result.newMessages;
+  }
+
+  return { processed: totalProcessed, newMessages: totalNew };
+}
+
+// ─── Scheduled email sender ───────────────────────────────────────────────────
 async function runScheduledEmailSender() {
   const now = new Date();
   const due = await db.select().from(scheduledEmails).where(
@@ -105,7 +172,6 @@ export function startHourlySyncScheduler() {
     }
   }, HOUR_MS);
 
-  // Check for scheduled emails every minute
   setInterval(async () => {
     try { await runScheduledEmailSender(); } catch {}
   }, MIN_MS);
