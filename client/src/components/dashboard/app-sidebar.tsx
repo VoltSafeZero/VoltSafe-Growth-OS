@@ -68,7 +68,7 @@ const sections: NavSection[] = [
   },
   {
     id: "strategy",
-    label: "Industry Contacts & Partnerships",
+    label: "Industry Partnerships",
     icon: TrendingUp,
     items: [
       { title: "ALL Partnerships", url: "/strategy/partnerships", icon: Handshake },

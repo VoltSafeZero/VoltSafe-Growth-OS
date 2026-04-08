@@ -46,7 +46,7 @@ const allNavGroups = [
     ],
   },
   {
-    label: "Industry Contacts & Partnerships",
+    label: "Industry Partnerships",
     items: [
       { title: "ALL Partnerships", url: "/strategy/partnerships", icon: Handshake },
     ],

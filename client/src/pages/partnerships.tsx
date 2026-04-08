@@ -500,7 +500,7 @@ export default function PartnershipsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">
-            Industry Contacts & Partnerships
+            Industry Partnerships
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
             Manage all strategic industry partners, contacts, and collaborators.
