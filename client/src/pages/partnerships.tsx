@@ -18,24 +18,24 @@ import type { Partnership } from "@shared/schema";
 
 const INDUSTRY_TYPES = [
   "Industry & Associations",
-  "Government & Public Sector",
-  "Channel & Commercial Partners",
-  "Technology & Manufacturing",
+  "Govt & Public Sector",
+  "Channel Partners",
+  "Manufacturing",
   "Innovation & Research",
-  "Advisory & Professional Services",
-  "Media & Ecosystem",
+  "Media & Tradeshows",
+  "Other",
 ] as const;
 
 type IndustryType = typeof INDUSTRY_TYPES[number];
 
 const SLUG_TO_TYPE: Record<string, IndustryType> = {
   "industry-associations": "Industry & Associations",
-  "government-public": "Government & Public Sector",
-  "channel-commercial": "Channel & Commercial Partners",
-  "technology-manufacturing": "Technology & Manufacturing",
+  "government-public": "Govt & Public Sector",
+  "channel-commercial": "Channel Partners",
+  "manufacturing": "Manufacturing",
   "innovation-research": "Innovation & Research",
-  "advisory-professional": "Advisory & Professional Services",
-  "media-ecosystem": "Media & Ecosystem",
+  "media-tradeshows": "Media & Tradeshows",
+  "other": "Other",
 };
 
 const TYPE_TO_SLUG: Record<string, string> = Object.fromEntries(
@@ -44,12 +44,12 @@ const TYPE_TO_SLUG: Record<string, string> = Object.fromEntries(
 
 const TYPE_COLORS: Record<string, string> = {
   "Industry & Associations": "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  "Government & Public Sector": "bg-purple-500/10 text-purple-400 border-purple-500/20",
-  "Channel & Commercial Partners": "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
-  "Technology & Manufacturing": "bg-teal-500/10 text-teal-400 border-teal-500/20",
+  "Govt & Public Sector": "bg-purple-500/10 text-purple-400 border-purple-500/20",
+  "Channel Partners": "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
+  "Manufacturing": "bg-teal-500/10 text-teal-400 border-teal-500/20",
   "Innovation & Research": "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
-  "Advisory & Professional Services": "bg-violet-500/10 text-violet-400 border-violet-500/20",
-  "Media & Ecosystem": "bg-pink-500/10 text-pink-400 border-pink-500/20",
+  "Media & Tradeshows": "bg-pink-500/10 text-pink-400 border-pink-500/20",
+  "Other": "bg-gray-500/10 text-gray-400 border-gray-500/20",
 };
 
 function IndustryTypePicker({
