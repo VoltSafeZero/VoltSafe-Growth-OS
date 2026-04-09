@@ -17,41 +17,25 @@ import { Plus, Search, Trash2, Loader2, Globe, MapPin, Pencil, X } from "lucide-
 import type { Partnership } from "@shared/schema";
 
 const INDUSTRY_TYPES = [
-  "Associations & Industry Groups",
-  "Government Agencies",
-  "Startup Accelerators/Incubators",
-  "Utility Providers",
-  "Distributors / Resellers",
-  "Installation Partners",
-  "Manufacturers",
-  "Research Institutions",
-  "Nonprofits",
-  "Media / Press",
-  "Consultants / Advisory Firms",
-  "Military / Defense",
-  "Standards & Certification Bodies",
-  "AHJ's (Authority Having Jurisdiction)",
-  "Other",
+  "Industry & Associations",
+  "Government & Public Sector",
+  "Channel & Commercial Partners",
+  "Technology & Manufacturing",
+  "Innovation & Research",
+  "Advisory & Professional Services",
+  "Media & Ecosystem",
 ] as const;
 
 type IndustryType = typeof INDUSTRY_TYPES[number];
 
 const SLUG_TO_TYPE: Record<string, IndustryType> = {
-  "associations": "Associations & Industry Groups",
-  "government": "Government Agencies",
-  "accelerators": "Startup Accelerators/Incubators",
-  "utilities": "Utility Providers",
-  "distributors": "Distributors / Resellers",
-  "installation": "Installation Partners",
-  "manufacturers": "Manufacturers",
-  "research": "Research Institutions",
-  "nonprofits": "Nonprofits",
-  "media": "Media / Press",
-  "consultants": "Consultants / Advisory Firms",
-  "military": "Military / Defense",
-  "standards": "Standards & Certification Bodies",
-  "ahj": "AHJ's (Authority Having Jurisdiction)",
-  "other": "Other",
+  "industry-associations": "Industry & Associations",
+  "government-public": "Government & Public Sector",
+  "channel-commercial": "Channel & Commercial Partners",
+  "technology-manufacturing": "Technology & Manufacturing",
+  "innovation-research": "Innovation & Research",
+  "advisory-professional": "Advisory & Professional Services",
+  "media-ecosystem": "Media & Ecosystem",
 };
 
 const TYPE_TO_SLUG: Record<string, string> = Object.fromEntries(
@@ -59,21 +43,13 @@ const TYPE_TO_SLUG: Record<string, string> = Object.fromEntries(
 );
 
 const TYPE_COLORS: Record<string, string> = {
-  "Associations & Industry Groups": "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  "Government Agencies": "bg-purple-500/10 text-purple-400 border-purple-500/20",
-  "Startup Accelerators/Incubators": "bg-orange-500/10 text-orange-400 border-orange-500/20",
-  "Utility Providers": "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
-  "Distributors / Resellers": "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
-  "Installation Partners": "bg-green-500/10 text-green-400 border-green-500/20",
-  "Manufacturers": "bg-teal-500/10 text-teal-400 border-teal-500/20",
-  "Research Institutions": "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
-  "Nonprofits": "bg-pink-500/10 text-pink-400 border-pink-500/20",
-  "Media / Press": "bg-red-500/10 text-red-400 border-red-500/20",
-  "Consultants / Advisory Firms": "bg-violet-500/10 text-violet-400 border-violet-500/20",
-  "Military / Defense": "bg-slate-500/10 text-slate-400 border-slate-500/20",
-  "Standards & Certification Bodies": "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-  "AHJ's (Authority Having Jurisdiction)": "bg-amber-500/10 text-amber-400 border-amber-500/20",
-  "Other": "bg-gray-500/10 text-gray-400 border-gray-500/20",
+  "Industry & Associations": "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  "Government & Public Sector": "bg-purple-500/10 text-purple-400 border-purple-500/20",
+  "Channel & Commercial Partners": "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
+  "Technology & Manufacturing": "bg-teal-500/10 text-teal-400 border-teal-500/20",
+  "Innovation & Research": "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
+  "Advisory & Professional Services": "bg-violet-500/10 text-violet-400 border-violet-500/20",
+  "Media & Ecosystem": "bg-pink-500/10 text-pink-400 border-pink-500/20",
 };
 
 function IndustryTypePicker({
