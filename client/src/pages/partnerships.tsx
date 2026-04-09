@@ -1,6 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { AttachmentsSection } from "@/components/attachments-section";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Search, Trash2, Loader2, Globe, MapPin, Pencil, X } from "lucide-react";
+import { Plus, Search, Trash2, Loader2, Globe, MapPin, Pencil } from "lucide-react";
 import type { Partnership } from "@shared/schema";
 
 const INDUSTRY_TYPES = [
@@ -409,7 +408,6 @@ function PartnerDetailDialog({
 }
 
 export default function PartnershipsPage({ typeSlug = "" }: { typeSlug?: string }) {
-  const [, navigate] = useLocation();
   const initialType: IndustryType | "all" = SLUG_TO_TYPE[typeSlug] || "all";
   const [search, setSearch] = useState("");
   const [activeType, setActiveType] = useState<IndustryType | "all">(initialType);
@@ -422,25 +420,30 @@ export default function PartnershipsPage({ typeSlug = "" }: { typeSlug?: string 
     setActiveType(SLUG_TO_TYPE[typeSlug] || "all");
   }, [typeSlug]);
 
-  const handleTabClick = (type: IndustryType | "all") => {
-    setActiveType(type);
-    if (type === "all") {
-      navigate("/strategy/partnerships");
-    } else {
-      navigate(`/strategy/partnerships/${TYPE_TO_SLUG[type]}`);
-    }
-  };
-
   const { data: allPartners, isLoading } = useQuery<Partnership[]>({
-    queryKey: ["/api/partnerships", { industryType: activeType === "all" ? undefined : activeType, search }],
+    queryKey: ["/api/partnerships", { industryType: activeType === "all" ? undefined : activeType }],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (activeType !== "all") params.set("industryType", activeType);
-      if (search) params.set("search", search);
       const res = await fetch(`/api/partnerships?${params}`, { credentials: "include" });
       return res.json();
     },
   });
+
+  const filtered = useMemo(() => {
+    if (!allPartners) return [];
+    const q = search.trim().toLowerCase();
+    if (!q) return allPartners;
+    return allPartners.filter((p) =>
+      [
+        p.name, p.notes, p.region, p.country, p.website,
+        p.keyContacts, p.organizationType, p.membershipStatus,
+        p.strategicImportance, p.territory, p.channelType,
+        p.technologyCategory, p.researchFocus, p.programName,
+        ...(p.industryTypes || []),
+      ].some((f) => f && String(f).toLowerCase().includes(q))
+    );
+  }, [allPartners, search]);
 
   const createMutation = useMutation({
     mutationFn: async (data: FormState) => {
@@ -541,60 +544,13 @@ export default function PartnershipsPage({ typeSlug = "" }: { typeSlug?: string 
       <div className="relative w-full sm:max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search partners..."
+          placeholder="Search by name, notes, region, contacts..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-10"
           data-testid="input-search-partners"
         />
       </div>
-
-      {/* Category filter tabs */}
-      <div className="overflow-x-auto pb-1 -mx-1 px-1">
-        <div className="flex gap-2 min-w-max">
-          <button
-            onClick={() => handleTabClick("all")}
-            data-testid="tab-all-partnerships"
-            className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all border whitespace-nowrap ${
-              activeType === "all"
-                ? "bg-primary text-primary-foreground border-primary"
-                : "border-border/50 text-muted-foreground hover:border-primary/50 hover:text-foreground"
-            }`}
-          >
-            ALL Partnerships
-          </button>
-          {INDUSTRY_TYPES.map((type) => (
-            <button
-              key={type}
-              onClick={() => handleTabClick(type === activeType ? "all" : type)}
-              data-testid={`tab-${type.replace(/[^a-z0-9]/gi, "-").toLowerCase()}`}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all border whitespace-nowrap ${
-                activeType === type
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "border-border/50 text-muted-foreground hover:border-primary/50 hover:text-foreground"
-              }`}
-            >
-              {type}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Active filter badge */}
-      {activeType !== "all" && (
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Filtered by:</span>
-          <Badge
-            variant="outline"
-            className={`${TYPE_COLORS[activeType] || ""} cursor-pointer`}
-            onClick={() => handleTabClick("all")}
-            data-testid="badge-active-filter"
-          >
-            {activeType}
-            <X className="h-3 w-3 ml-1.5" />
-          </Badge>
-        </div>
-      )}
 
       {/* Partners grid */}
       {isLoading ? (
@@ -603,7 +559,7 @@ export default function PartnershipsPage({ typeSlug = "" }: { typeSlug?: string 
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {allPartners?.map((partner) => (
+          {filtered.map((partner) => (
             <Card
               key={partner.id}
               className="border-border/50 cursor-pointer transition-colors hover-elevate"
@@ -659,11 +615,13 @@ export default function PartnershipsPage({ typeSlug = "" }: { typeSlug?: string 
               </CardContent>
             </Card>
           ))}
-          {(!allPartners || allPartners.length === 0) && (
+          {filtered.length === 0 && (
             <div className="col-span-full p-8 text-center text-muted-foreground" data-testid="text-empty-state">
-              {activeType === "all"
-                ? `No partners found. Click "New Partner" to add one.`
-                : `No partners found for "${activeType}". Click "New Partner" to add one.`}
+              {search.trim()
+                ? `No partners match "${search}".`
+                : activeType === "all"
+                  ? `No partners found. Click "New Partner" to add one.`
+                  : `No partners found for "${activeType}". Click "New Partner" to add one.`}
             </div>
           )}
         </div>
