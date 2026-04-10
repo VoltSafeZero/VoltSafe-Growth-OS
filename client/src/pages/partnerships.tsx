@@ -11,8 +11,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Search, Trash2, Loader2, Globe, MapPin, Pencil } from "lucide-react";
+import { Plus, Search, Trash2, Loader2, Globe, MapPin, Pencil, ChevronDown } from "lucide-react";
 import type { Partnership } from "@shared/schema";
 
 const INDUSTRY_TYPES = [
@@ -89,182 +90,492 @@ function IndustryTypePicker({
 }
 
 interface FormState {
-  name: string;
-  region: string;
-  country: string;
-  website: string;
+  // Core
+  name: string; organizationType: string; region: string; country: string; website: string; industryTypes: string[];
+  // Relationship
+  strategicImportance: string; priorityLevel: string; participationStatus: string; membershipStatus: string; contractStatus: string; startDate: string; endDate: string;
+  // Contacts & Engagement
+  keyContacts: string; influenceScore: string; marinasRepresented: string; eventsHosted: string; speakingOpportunities: string;
+  // Business & Revenue
+  territory: string; channelType: string; salesReach: string; activeOpportunities: string; expectedRevenuePotential: string; revenueGenerated: string; dealRegistrationEnabled: boolean;
+  // Technology & Integration
+  technologyCategory: string; integrationStatus: string; apiAvailable: boolean; integrationType: string; technicalContact: string; integrationDocLink: string; jointRoadmapNotes: string;
+  // Research & Innovation
+  institutionType: string; researchFocus: string; programName: string; projectDescription: string; keyResearchers: string; ipConsiderations: string;
+  // Government & Grants
+  agencyBody: string; grantType: string; fundingAmount: string; applicationStatus: string; deliverables: string; reportingRequirements: string;
+  // Pilot & Deployment
+  pilotStatus: string; slipCount: string; deploymentSize: string; productVersionInstalled: string; caseStudyStatus: string; testimonialStatus: string; operationalFeedback: string;
+  // Notes
   notes: string;
-  industryTypes: string[];
-  strategicImportance: string;
-  keyContacts: string;
-  membershipStatus: string;
 }
 
 function emptyForm(): FormState {
   return {
-    name: "",
-    region: "",
-    country: "",
-    website: "",
+    name: "", organizationType: "", region: "", country: "", website: "", industryTypes: [],
+    strategicImportance: "", priorityLevel: "", participationStatus: "", membershipStatus: "", contractStatus: "", startDate: "", endDate: "",
+    keyContacts: "", influenceScore: "", marinasRepresented: "", eventsHosted: "", speakingOpportunities: "",
+    territory: "", channelType: "", salesReach: "", activeOpportunities: "", expectedRevenuePotential: "", revenueGenerated: "", dealRegistrationEnabled: false,
+    technologyCategory: "", integrationStatus: "", apiAvailable: false, integrationType: "", technicalContact: "", integrationDocLink: "", jointRoadmapNotes: "",
+    institutionType: "", researchFocus: "", programName: "", projectDescription: "", keyResearchers: "", ipConsiderations: "",
+    agencyBody: "", grantType: "", fundingAmount: "", applicationStatus: "", deliverables: "", reportingRequirements: "",
+    pilotStatus: "", slipCount: "", deploymentSize: "", productVersionInstalled: "", caseStudyStatus: "", testimonialStatus: "", operationalFeedback: "",
     notes: "",
-    industryTypes: [],
-    strategicImportance: "",
-    keyContacts: "",
-    membershipStatus: "",
   };
 }
 
 function formFromPartner(p: Partnership): FormState {
   return {
-    name: p.name,
-    region: p.region || "",
-    country: p.country || "",
-    website: p.website || "",
+    name: p.name, organizationType: p.organizationType || "", region: p.region || "", country: p.country || "", website: p.website || "", industryTypes: p.industryTypes || [],
+    strategicImportance: p.strategicImportance || "", priorityLevel: p.priorityLevel || "", participationStatus: p.participationStatus || "", membershipStatus: p.membershipStatus || "", contractStatus: p.contractStatus || "",
+    startDate: p.startDate ? String(p.startDate).slice(0, 10) : "", endDate: p.endDate ? String(p.endDate).slice(0, 10) : "",
+    keyContacts: p.keyContacts || "", influenceScore: p.influenceScore != null ? String(p.influenceScore) : "", marinasRepresented: p.marinasRepresented != null ? String(p.marinasRepresented) : "", eventsHosted: p.eventsHosted || "", speakingOpportunities: p.speakingOpportunities || "",
+    territory: p.territory || "", channelType: p.channelType || "", salesReach: p.salesReach != null ? String(p.salesReach) : "", activeOpportunities: p.activeOpportunities != null ? String(p.activeOpportunities) : "", expectedRevenuePotential: p.expectedRevenuePotential || "", revenueGenerated: p.revenueGenerated != null ? String(p.revenueGenerated) : "", dealRegistrationEnabled: p.dealRegistrationEnabled || false,
+    technologyCategory: p.technologyCategory || "", integrationStatus: p.integrationStatus || "", apiAvailable: p.apiAvailable || false, integrationType: p.integrationType || "", technicalContact: p.technicalContact || "", integrationDocLink: p.integrationDocLink || "", jointRoadmapNotes: p.jointRoadmapNotes || "",
+    institutionType: p.institutionType || "", researchFocus: p.researchFocus || "", programName: p.programName || "", projectDescription: p.projectDescription || "", keyResearchers: p.keyResearchers || "", ipConsiderations: p.ipConsiderations || "",
+    agencyBody: p.agencyBody || "", grantType: p.grantType || "", fundingAmount: p.fundingAmount != null ? String(p.fundingAmount) : "", applicationStatus: p.applicationStatus || "", deliverables: p.deliverables || "", reportingRequirements: p.reportingRequirements || "",
+    pilotStatus: p.pilotStatus || "", slipCount: p.slipCount != null ? String(p.slipCount) : "", deploymentSize: p.deploymentSize != null ? String(p.deploymentSize) : "", productVersionInstalled: p.productVersionInstalled || "", caseStudyStatus: p.caseStudyStatus || "", testimonialStatus: p.testimonialStatus || "", operationalFeedback: p.operationalFeedback || "",
     notes: p.notes || "",
-    industryTypes: p.industryTypes || [],
-    strategicImportance: p.strategicImportance || "",
-    keyContacts: p.keyContacts || "",
-    membershipStatus: p.membershipStatus || "",
   };
 }
 
-function PartnerForm({
-  initialData,
-  onSubmit,
-  isPending,
-  onCancel,
-}: {
+function formToPayload(data: FormState, extra: Record<string, unknown> = {}) {
+  return {
+    ...data, ...extra,
+    industryTypes: data.industryTypes.length > 0 ? data.industryTypes : null,
+    influenceScore: data.influenceScore ? parseInt(data.influenceScore) : null,
+    marinasRepresented: data.marinasRepresented ? parseInt(data.marinasRepresented) : null,
+    salesReach: data.salesReach ? parseInt(data.salesReach) : null,
+    activeOpportunities: data.activeOpportunities ? parseInt(data.activeOpportunities) : null,
+    revenueGenerated: data.revenueGenerated ? parseFloat(data.revenueGenerated) : null,
+    fundingAmount: data.fundingAmount ? parseFloat(data.fundingAmount) : null,
+    slipCount: data.slipCount ? parseInt(data.slipCount) : null,
+    deploymentSize: data.deploymentSize ? parseInt(data.deploymentSize) : null,
+    startDate: data.startDate || null, endDate: data.endDate || null,
+    organizationType: data.organizationType || null, region: data.region || null, country: data.country || null, website: data.website || null,
+    strategicImportance: data.strategicImportance || null, priorityLevel: data.priorityLevel || null, participationStatus: data.participationStatus || null,
+    membershipStatus: data.membershipStatus || null, contractStatus: data.contractStatus || null, keyContacts: data.keyContacts || null,
+    eventsHosted: data.eventsHosted || null, speakingOpportunities: data.speakingOpportunities || null, territory: data.territory || null,
+    channelType: data.channelType || null, expectedRevenuePotential: data.expectedRevenuePotential || null,
+    technologyCategory: data.technologyCategory || null, integrationStatus: data.integrationStatus || null, integrationType: data.integrationType || null,
+    technicalContact: data.technicalContact || null, integrationDocLink: data.integrationDocLink || null, jointRoadmapNotes: data.jointRoadmapNotes || null,
+    institutionType: data.institutionType || null, researchFocus: data.researchFocus || null, programName: data.programName || null,
+    projectDescription: data.projectDescription || null, keyResearchers: data.keyResearchers || null, ipConsiderations: data.ipConsiderations || null,
+    agencyBody: data.agencyBody || null, grantType: data.grantType || null, applicationStatus: data.applicationStatus || null,
+    deliverables: data.deliverables || null, reportingRequirements: data.reportingRequirements || null,
+    pilotStatus: data.pilotStatus || null, productVersionInstalled: data.productVersionInstalled || null,
+    caseStudyStatus: data.caseStudyStatus || null, testimonialStatus: data.testimonialStatus || null, operationalFeedback: data.operationalFeedback || null,
+    notes: data.notes || null,
+  };
+}
+
+function SectionHeader({ title, open, onToggle }: { title: string; open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="w-full flex items-center justify-between py-2 text-sm font-semibold text-muted-foreground uppercase tracking-wider border-t border-border/50 mt-4 hover:text-foreground transition-colors"
+    >
+      {title}
+      <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
+    </button>
+  );
+}
+
+function PartnerForm({ initialData, onSubmit, isPending, onCancel }: {
   initialData?: Partnership;
   onSubmit: (data: FormState) => void;
   isPending: boolean;
   onCancel?: () => void;
 }) {
-  const [form, setForm] = useState<FormState>(
-    initialData ? formFromPartner(initialData) : emptyForm()
-  );
-
-  const set = (k: keyof FormState, v: unknown) =>
-    setForm((prev) => ({ ...prev, [k]: v }));
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.name.trim()) return;
-    onSubmit(form);
-  };
+  const [form, setForm] = useState<FormState>(initialData ? formFromPartner(initialData) : emptyForm());
+  const [open, setOpen] = useState({ contacts: false, business: false, tech: false, research: false, govt: false, pilot: false });
+  const set = (k: keyof FormState, v: unknown) => setForm((p) => ({ ...p, [k]: v }));
+  const tog = (k: keyof typeof open) => setOpen((p) => ({ ...p, [k]: !p[k] }));
+  const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); if (!form.name.trim()) return; onSubmit(form); };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-3">
+
+      {/* ── CORE ─────────────────────────────────────────── */}
       <div className="space-y-3">
         <div>
-          <Label htmlFor="name">Name *</Label>
-          <Input
-            id="name"
-            value={form.name}
-            onChange={(e) => set("name", e.target.value)}
-            required
-            data-testid="input-partner-name"
-          />
+          <Label htmlFor="pf-name">Organization Name *</Label>
+          <Input id="pf-name" value={form.name} onChange={(e) => set("name", e.target.value)} required data-testid="input-partner-name" />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label htmlFor="region">Region</Label>
-            <Input
-              id="region"
-              value={form.region}
-              onChange={(e) => set("region", e.target.value)}
-              data-testid="input-partner-region"
-            />
+            <Label htmlFor="pf-orgtype">Organization Type</Label>
+            <Select value={form.organizationType} onValueChange={(v) => set("organizationType", v)}>
+              <SelectTrigger id="pf-orgtype" data-testid="select-org-type"><SelectValue placeholder="Select type" /></SelectTrigger>
+              <SelectContent>
+                {["Association","Standards Body","AHJ","Government Agency","Military / Defense","Distributor","Reseller","Installation Partner","Manufacturer","Utility Provider","Research Institution","Accelerator / Incubator","Consultant","Advisory Firm","Media / Press","Nonprofit","Other"].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
           <div>
-            <Label htmlFor="country">Country</Label>
-            <Input
-              id="country"
-              value={form.country}
-              onChange={(e) => set("country", e.target.value)}
-              data-testid="input-partner-country"
-            />
+            <Label htmlFor="pf-website">Website</Label>
+            <Input id="pf-website" value={form.website} onChange={(e) => set("website", e.target.value)} placeholder="https://" data-testid="input-partner-website" />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label htmlFor="pf-region">Region / Province</Label>
+            <Input id="pf-region" value={form.region} onChange={(e) => set("region", e.target.value)} data-testid="input-partner-region" />
+          </div>
+          <div>
+            <Label htmlFor="pf-country">Country</Label>
+            <Input id="pf-country" value={form.country} onChange={(e) => set("country", e.target.value)} data-testid="input-partner-country" />
           </div>
         </div>
         <div>
-          <Label htmlFor="website">Website</Label>
-          <Input
-            id="website"
-            value={form.website}
-            onChange={(e) => set("website", e.target.value)}
-            data-testid="input-partner-website"
-          />
+          <Label className="block mb-2">Industry Category <span className="text-muted-foreground font-normal">(select one or more)</span></Label>
+          <IndustryTypePicker selected={form.industryTypes} onChange={(v) => set("industryTypes", v)} />
         </div>
       </div>
 
+      {/* ── RELATIONSHIP & STATUS ─────────────────────────── */}
       <div className="border-t border-border/50 pt-3 space-y-3">
-        <div>
-          <Label className="block mb-2">
-            Industry Type{" "}
-            <span className="text-muted-foreground font-normal">(select one or more)</span>
-          </Label>
-          <IndustryTypePicker
-            selected={form.industryTypes}
-            onChange={(v) => set("industryTypes", v)}
-          />
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Relationship & Status</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Strategic Importance</Label>
+            <Select value={form.strategicImportance} onValueChange={(v) => set("strategicImportance", v)}>
+              <SelectTrigger data-testid="select-strategic-importance"><SelectValue placeholder="Select" /></SelectTrigger>
+              <SelectContent>
+                {["Low","Medium","High","Critical"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Priority Level</Label>
+            <Select value={form.priorityLevel} onValueChange={(v) => set("priorityLevel", v)}>
+              <SelectTrigger data-testid="select-priority-level"><SelectValue placeholder="Select" /></SelectTrigger>
+              <SelectContent>
+                {["Low","Medium","High"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Partnership Status</Label>
+            <Select value={form.participationStatus} onValueChange={(v) => set("participationStatus", v)}>
+              <SelectTrigger data-testid="select-participation-status"><SelectValue placeholder="Select" /></SelectTrigger>
+              <SelectContent>
+                {["Prospect","Active","On Hold","Inactive","Dormant"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Membership Status</Label>
+            <Select value={form.membershipStatus} onValueChange={(v) => set("membershipStatus", v)}>
+              <SelectTrigger data-testid="select-membership-status"><SelectValue placeholder="Select" /></SelectTrigger>
+              <SelectContent>
+                {["None","Member","Sponsor","Board Member","Advisory Board"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Agreement / Contract</Label>
+            <Select value={form.contractStatus} onValueChange={(v) => set("contractStatus", v)}>
+              <SelectTrigger data-testid="select-contract-status"><SelectValue placeholder="Select" /></SelectTrigger>
+              <SelectContent>
+                {["None","MOU","NDA","Letter of Intent","Formal Agreement","Expired"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label htmlFor="pf-start">Start Date</Label>
+              <Input id="pf-start" type="date" value={form.startDate} onChange={(e) => set("startDate", e.target.value)} data-testid="input-partner-start-date" />
+            </div>
+            <div>
+              <Label htmlFor="pf-end">End Date</Label>
+              <Input id="pf-end" type="date" value={form.endDate} onChange={(e) => set("endDate", e.target.value)} data-testid="input-partner-end-date" />
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="border-t border-border/50 pt-3 space-y-3">
-        <div>
-          <Label htmlFor="strategicImportance">Strategic Importance</Label>
-          <Input
-            id="strategicImportance"
-            value={form.strategicImportance}
-            onChange={(e) => set("strategicImportance", e.target.value)}
-            placeholder="Low / Medium / High / Critical"
-            data-testid="input-partner-strategic-importance"
-          />
+      {/* ── CONTACTS & ENGAGEMENT (collapsible) ─────────── */}
+      <SectionHeader title="Contacts & Engagement" open={open.contacts} onToggle={() => tog("contacts")} />
+      {open.contacts && (
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="pf-contacts">Key Contacts <span className="text-muted-foreground font-normal text-xs">(names, emails, roles)</span></Label>
+            <Textarea id="pf-contacts" value={form.keyContacts} onChange={(e) => set("keyContacts", e.target.value)} rows={2} placeholder="e.g. Jane Smith, Executive Director, jane@org.com" data-testid="input-partner-key-contacts" />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <Label htmlFor="pf-influence">Influence Score <span className="text-xs text-muted-foreground">(1–10)</span></Label>
+              <Input id="pf-influence" type="number" min="1" max="10" value={form.influenceScore} onChange={(e) => set("influenceScore", e.target.value)} data-testid="input-partner-influence-score" />
+            </div>
+            <div>
+              <Label htmlFor="pf-marinas">Marinas Represented</Label>
+              <Input id="pf-marinas" type="number" value={form.marinasRepresented} onChange={(e) => set("marinasRepresented", e.target.value)} data-testid="input-partner-marinas-represented" />
+            </div>
+            <div>
+              <Label htmlFor="pf-events">Events Hosted / yr</Label>
+              <Input id="pf-events" value={form.eventsHosted} onChange={(e) => set("eventsHosted", e.target.value)} data-testid="input-partner-events-hosted" />
+            </div>
+          </div>
+          <div>
+            <Label>Speaking Opportunities</Label>
+            <Select value={form.speakingOpportunities} onValueChange={(v) => set("speakingOpportunities", v)}>
+              <SelectTrigger data-testid="select-speaking-opportunities"><SelectValue placeholder="Select" /></SelectTrigger>
+              <SelectContent>
+                {["Yes","No","Pending","Past"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
-        <div>
-          <Label htmlFor="keyContacts">Key Contacts</Label>
-          <Input
-            id="keyContacts"
-            value={form.keyContacts}
-            onChange={(e) => set("keyContacts", e.target.value)}
-            data-testid="input-partner-key-contacts"
-          />
+      )}
+
+      {/* ── BUSINESS & REVENUE (collapsible) ────────────── */}
+      <SectionHeader title="Business & Revenue" open={open.business} onToggle={() => tog("business")} />
+      {open.business && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="pf-territory">Territory</Label>
+              <Input id="pf-territory" value={form.territory} onChange={(e) => set("territory", e.target.value)} placeholder="e.g. Western Canada" data-testid="input-partner-territory" />
+            </div>
+            <div>
+              <Label>Channel Type</Label>
+              <Select value={form.channelType} onValueChange={(v) => set("channelType", v)}>
+                <SelectTrigger data-testid="select-channel-type"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {["Distributor","Reseller","VAR","Installer","OEM","Referral Partner","Other"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <Label htmlFor="pf-salesreach">Sales Reach</Label>
+              <Input id="pf-salesreach" type="number" value={form.salesReach} onChange={(e) => set("salesReach", e.target.value)} placeholder="# customers" data-testid="input-partner-sales-reach" />
+            </div>
+            <div>
+              <Label htmlFor="pf-activeopps">Active Opportunities</Label>
+              <Input id="pf-activeopps" type="number" value={form.activeOpportunities} onChange={(e) => set("activeOpportunities", e.target.value)} data-testid="input-partner-active-opportunities" />
+            </div>
+            <div>
+              <Label htmlFor="pf-revenue">Revenue Generated ($)</Label>
+              <Input id="pf-revenue" type="number" value={form.revenueGenerated} onChange={(e) => set("revenueGenerated", e.target.value)} data-testid="input-partner-revenue-generated" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Revenue Potential</Label>
+              <Select value={form.expectedRevenuePotential} onValueChange={(v) => set("expectedRevenuePotential", v)}>
+                <SelectTrigger data-testid="select-revenue-potential"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {["None","Low","Medium","High","Very High"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2 pt-6">
+              <Checkbox id="pf-dealreg" checked={form.dealRegistrationEnabled} onCheckedChange={(v) => set("dealRegistrationEnabled", !!v)} data-testid="checkbox-deal-registration" />
+              <Label htmlFor="pf-dealreg" className="cursor-pointer">Deal Registration Enabled</Label>
+            </div>
+          </div>
         </div>
-        <div>
-          <Label htmlFor="membershipStatus">Membership Status</Label>
-          <Input
-            id="membershipStatus"
-            value={form.membershipStatus}
-            onChange={(e) => set("membershipStatus", e.target.value)}
-            placeholder="Member / Sponsor / Board / None"
-            data-testid="input-partner-membership-status"
-          />
+      )}
+
+      {/* ── TECHNOLOGY & INTEGRATION (collapsible) ──────── */}
+      <SectionHeader title="Technology & Integration" open={open.tech} onToggle={() => tog("tech")} />
+      {open.tech && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="pf-techcat">Technology Category</Label>
+              <Input id="pf-techcat" value={form.technologyCategory} onChange={(e) => set("technologyCategory", e.target.value)} placeholder="e.g. Power Management" data-testid="input-partner-tech-category" />
+            </div>
+            <div>
+              <Label>Integration Status</Label>
+              <Select value={form.integrationStatus} onValueChange={(v) => set("integrationStatus", v)}>
+                <SelectTrigger data-testid="select-integration-status"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {["None","Planned","In Progress","Integrated","Deprecated"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="pf-integtype">Integration Type</Label>
+              <Input id="pf-integtype" value={form.integrationType} onChange={(e) => set("integrationType", e.target.value)} placeholder="e.g. REST API, SDK" data-testid="input-partner-integration-type" />
+            </div>
+            <div>
+              <Label htmlFor="pf-techcontact">Technical Contact</Label>
+              <Input id="pf-techcontact" value={form.technicalContact} onChange={(e) => set("technicalContact", e.target.value)} data-testid="input-partner-technical-contact" />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="pf-integdoc">Integration Doc Link</Label>
+            <Input id="pf-integdoc" value={form.integrationDocLink} onChange={(e) => set("integrationDocLink", e.target.value)} placeholder="https://" data-testid="input-partner-integration-doc" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox id="pf-api" checked={form.apiAvailable} onCheckedChange={(v) => set("apiAvailable", !!v)} data-testid="checkbox-api-available" />
+            <Label htmlFor="pf-api" className="cursor-pointer">API Available</Label>
+          </div>
+          <div>
+            <Label htmlFor="pf-roadmap">Joint Roadmap Notes</Label>
+            <Textarea id="pf-roadmap" value={form.jointRoadmapNotes} onChange={(e) => set("jointRoadmapNotes", e.target.value)} rows={2} data-testid="textarea-partner-roadmap-notes" />
+          </div>
         </div>
-        <div>
-          <Label htmlFor="notes">Notes</Label>
-          <Textarea
-            id="notes"
-            value={form.notes}
-            onChange={(e) => set("notes", e.target.value)}
-            rows={3}
-            data-testid="textarea-partner-notes"
-          />
+      )}
+
+      {/* ── RESEARCH & INNOVATION (collapsible) ─────────── */}
+      <SectionHeader title="Research & Innovation" open={open.research} onToggle={() => tog("research")} />
+      {open.research && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Institution Type</Label>
+              <Select value={form.institutionType} onValueChange={(v) => set("institutionType", v)}>
+                <SelectTrigger data-testid="select-institution-type"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {["University","Research Lab","Accelerator","Incubator","Think Tank","Standards Body","Other"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="pf-program">Program Name</Label>
+              <Input id="pf-program" value={form.programName} onChange={(e) => set("programName", e.target.value)} data-testid="input-partner-program-name" />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="pf-research-focus">Research Focus</Label>
+            <Input id="pf-research-focus" value={form.researchFocus} onChange={(e) => set("researchFocus", e.target.value)} placeholder="e.g. Marine electrification, EV charging" data-testid="input-partner-research-focus" />
+          </div>
+          <div>
+            <Label htmlFor="pf-projdesc">Project Description</Label>
+            <Textarea id="pf-projdesc" value={form.projectDescription} onChange={(e) => set("projectDescription", e.target.value)} rows={2} data-testid="textarea-partner-project-description" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="pf-researchers">Key Researchers</Label>
+              <Input id="pf-researchers" value={form.keyResearchers} onChange={(e) => set("keyResearchers", e.target.value)} data-testid="input-partner-key-researchers" />
+            </div>
+            <div>
+              <Label htmlFor="pf-ip">IP Considerations</Label>
+              <Input id="pf-ip" value={form.ipConsiderations} onChange={(e) => set("ipConsiderations", e.target.value)} placeholder="e.g. Joint IP, VoltSafe owns" data-testid="input-partner-ip-considerations" />
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* ── GOVERNMENT & GRANTS (collapsible) ───────────── */}
+      <SectionHeader title="Government & Grants" open={open.govt} onToggle={() => tog("govt")} />
+      {open.govt && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="pf-agency">Agency / Body</Label>
+              <Input id="pf-agency" value={form.agencyBody} onChange={(e) => set("agencyBody", e.target.value)} data-testid="input-partner-agency-body" />
+            </div>
+            <div>
+              <Label htmlFor="pf-granttype">Grant Type</Label>
+              <Input id="pf-granttype" value={form.grantType} onChange={(e) => set("grantType", e.target.value)} placeholder="e.g. Subsidy, R&D Grant" data-testid="input-partner-grant-type" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="pf-funding">Funding Amount ($)</Label>
+              <Input id="pf-funding" type="number" value={form.fundingAmount} onChange={(e) => set("fundingAmount", e.target.value)} data-testid="input-partner-funding-amount" />
+            </div>
+            <div>
+              <Label>Application Status</Label>
+              <Select value={form.applicationStatus} onValueChange={(v) => set("applicationStatus", v)}>
+                <SelectTrigger data-testid="select-application-status"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {["Not Started","In Progress","Submitted","Under Review","Approved","Rejected","Closed"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="pf-deliverables">Deliverables</Label>
+            <Textarea id="pf-deliverables" value={form.deliverables} onChange={(e) => set("deliverables", e.target.value)} rows={2} data-testid="textarea-partner-deliverables" />
+          </div>
+          <div>
+            <Label htmlFor="pf-reporting">Reporting Requirements</Label>
+            <Textarea id="pf-reporting" value={form.reportingRequirements} onChange={(e) => set("reportingRequirements", e.target.value)} rows={2} data-testid="textarea-partner-reporting-requirements" />
+          </div>
+        </div>
+      )}
+
+      {/* ── PILOT & DEPLOYMENT (collapsible) ────────────── */}
+      <SectionHeader title="Pilot & Deployment" open={open.pilot} onToggle={() => tog("pilot")} />
+      {open.pilot && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Pilot Status</Label>
+              <Select value={form.pilotStatus} onValueChange={(v) => set("pilotStatus", v)}>
+                <SelectTrigger data-testid="select-pilot-status"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {["None","Proposed","Planning","Active","Complete","On Hold"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="pf-slips">Slip Count</Label>
+              <Input id="pf-slips" type="number" value={form.slipCount} onChange={(e) => set("slipCount", e.target.value)} data-testid="input-partner-slip-count" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="pf-deployment">Deployment Size (units)</Label>
+              <Input id="pf-deployment" type="number" value={form.deploymentSize} onChange={(e) => set("deploymentSize", e.target.value)} data-testid="input-partner-deployment-size" />
+            </div>
+            <div>
+              <Label htmlFor="pf-version">Product Version Installed</Label>
+              <Input id="pf-version" value={form.productVersionInstalled} onChange={(e) => set("productVersionInstalled", e.target.value)} data-testid="input-partner-product-version" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Case Study Status</Label>
+              <Select value={form.caseStudyStatus} onValueChange={(v) => set("caseStudyStatus", v)}>
+                <SelectTrigger data-testid="select-case-study-status"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {["None","Planned","In Progress","Published"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Testimonial Status</Label>
+              <Select value={form.testimonialStatus} onValueChange={(v) => set("testimonialStatus", v)}>
+                <SelectTrigger data-testid="select-testimonial-status"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {["None","Requested","Received","Published"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="pf-opfeedback">Operational Feedback</Label>
+            <Textarea id="pf-opfeedback" value={form.operationalFeedback} onChange={(e) => set("operationalFeedback", e.target.value)} rows={2} data-testid="textarea-partner-operational-feedback" />
+          </div>
+        </div>
+      )}
+
+      {/* ── NOTES ────────────────────────────────────────── */}
+      <div className="border-t border-border/50 pt-3">
+        <Label htmlFor="pf-notes">Notes</Label>
+        <Textarea id="pf-notes" value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={3} placeholder="General notes, context, history..." data-testid="textarea-partner-notes" />
       </div>
 
-      <div className="flex items-center justify-between gap-2 pt-1">
-        {onCancel && (
-          <Button type="button" variant="outline" size="sm" onClick={onCancel}>
-            Cancel
-          </Button>
-        )}
-        <Button
-          type="submit"
-          disabled={isPending || !form.name.trim()}
-          className="ml-auto"
-          data-testid="button-submit-partner"
-        >
+      <div className="flex items-center justify-between gap-2 pt-2">
+        {onCancel && <Button type="button" variant="outline" size="sm" onClick={onCancel}>Cancel</Button>}
+        <Button type="submit" disabled={isPending || !form.name.trim()} className="ml-auto" data-testid="button-submit-partner">
           {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-          {initialData ? "Save Changes" : "Create"}
+          {initialData ? "Save Changes" : "Create Partner"}
         </Button>
       </div>
     </form>
@@ -447,18 +758,7 @@ export default function PartnershipsPage({ typeSlug = "" }: { typeSlug?: string 
 
   const createMutation = useMutation({
     mutationFn: async (data: FormState) => {
-      const payload = {
-        ...data,
-        category: "all_partnerships",
-        industryTypes: data.industryTypes.length > 0 ? data.industryTypes : null,
-        region: data.region || null,
-        country: data.country || null,
-        website: data.website || null,
-        notes: data.notes || null,
-        strategicImportance: data.strategicImportance || null,
-        keyContacts: data.keyContacts || null,
-        membershipStatus: data.membershipStatus || null,
-      };
+      const payload = formToPayload(data, { category: "all_partnerships" });
       const res = await apiRequest("POST", "/api/partnerships", payload);
       return res.json();
     },
@@ -474,17 +774,7 @@ export default function PartnershipsPage({ typeSlug = "" }: { typeSlug?: string 
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: FormState }) => {
-      const payload = {
-        ...data,
-        industryTypes: data.industryTypes.length > 0 ? data.industryTypes : null,
-        region: data.region || null,
-        country: data.country || null,
-        website: data.website || null,
-        notes: data.notes || null,
-        strategicImportance: data.strategicImportance || null,
-        keyContacts: data.keyContacts || null,
-        membershipStatus: data.membershipStatus || null,
-      };
+      const payload = formToPayload(data);
       const res = await apiRequest("PUT", `/api/partnerships/${id}`, payload);
       return res.json();
     },
