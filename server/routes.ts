@@ -1410,6 +1410,29 @@ export async function registerRoutes(
       mustChangePassword: true,
     }).returning();
 
+    // Send welcome email (non-blocking — user is created regardless of email success)
+    const SYSTEM_SENDER_ID = 4; // Trevor's account used as the system sender
+    const loginUrl = process.env.APP_URL || "https://image-linker-burgesstrevor76.replit.app";
+    const welcomeHtml = `
+<div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
+  <h2 style="margin-bottom: 4px;">Welcome to VoltSafe Cortex</h2>
+  <p style="color: #555; margin-top: 0;">Hi ${name}, your account has been created.</p>
+  <div style="background: #f5f5f5; border-radius: 8px; padding: 16px 20px; margin: 20px 0;">
+    <p style="margin: 0 0 8px;"><strong>Login URL:</strong><br>
+      <a href="${loginUrl}" style="color: #0066cc;">${loginUrl}</a>
+    </p>
+    <p style="margin: 0 0 8px;"><strong>Email:</strong><br>${email.toLowerCase().trim()}</p>
+    <p style="margin: 0;"><strong>Temporary Password:</strong><br>
+      <code style="background: #e0e0e0; padding: 2px 6px; border-radius: 4px; font-size: 15px;">${tempPassword}</code>
+    </p>
+  </div>
+  <p style="color: #555; font-size: 14px;">When you log in for the first time, you will be prompted to set a new password of your choice.</p>
+  <p style="color: #999; font-size: 12px;">If you were not expecting this email, please ignore it or contact your administrator.</p>
+</div>`;
+
+    sendEmail(SYSTEM_SENDER_ID, email.toLowerCase().trim(), "Welcome to VoltSafe Cortex — Your Login Details", welcomeHtml)
+      .catch((err) => console.error("[welcome-email] Failed to send welcome email to", email, err?.message));
+
     res.json({ ...created, tempPassword });
   });
 
