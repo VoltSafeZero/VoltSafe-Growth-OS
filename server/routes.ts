@@ -1475,6 +1475,24 @@ export async function registerRoutes(
     res.json({ message: "Password reset" });
   });
 
+  app.delete("/api/admin/users/:id", requireAuth, async (req, res) => {
+    const userId = parseInt(req.params.id);
+    const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
+    if (!sessionUser[0] || !["master_admin", "admin"].includes(sessionUser[0].globalRole)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    if (userId === req.session.userId) {
+      return res.status(400).json({ message: "You cannot delete your own account" });
+    }
+    const [target] = await db.select().from(users).where(eq(users.id, userId));
+    if (!target) return res.status(404).json({ message: "User not found" });
+    if (target.globalRole === "master_admin" && sessionUser[0].globalRole !== "master_admin") {
+      return res.status(403).json({ message: "Only a master admin can delete another master admin" });
+    }
+    await db.delete(users).where(eq(users.id, userId));
+    res.json({ message: "User deleted" });
+  });
+
   // ── Team Workload ───────────────────────────────────────────────
   app.get("/api/team-workload", async (_req, res) => {
     res.json(await storage.getTeamWorkload());

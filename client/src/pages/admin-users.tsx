@@ -14,7 +14,7 @@ import {
   Users, Plus, Search, ShieldCheck,
   UserCheck, UserX, KeyRound, Edit2, X, Mail, Briefcase,
   Clock, ChevronRight, AlertTriangle, CheckCircle2,
-  UserCog, Crown, Eye, Lock, Unlock,
+  UserCog, Crown, Eye, Lock, Unlock, Trash2,
 } from "lucide-react";
 
 type AdminUser = {
@@ -160,6 +160,19 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
       return res.json();
     },
     onSuccess: () => toast({ title: "Password reset", description: "User will need to change it on next login" }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/admin/users/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      setSelectedUser(null);
+      toast({ title: "User deleted" });
+    },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
@@ -313,14 +326,15 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
           onSuspend={(reason) => suspendMutation.mutate({ id: selectedUser.id, reason })}
           onActivate={() => activateMutation.mutate(selectedUser.id)}
           onResetPassword={(newPassword) => resetPasswordMutation.mutate({ id: selectedUser.id, newPassword })}
-          isPending={updateMutation.isPending || suspendMutation.isPending || activateMutation.isPending}
+          onDelete={() => deleteMutation.mutate(selectedUser.id)}
+          isPending={updateMutation.isPending || suspendMutation.isPending || activateMutation.isPending || deleteMutation.isPending}
         />
       )}
     </div>
   );
 }
 
-function UserDetailPanel({ user, isMasterAdmin, onClose, onUpdate, onSuspend, onActivate, onResetPassword, isPending }: {
+function UserDetailPanel({ user, isMasterAdmin, onClose, onUpdate, onSuspend, onActivate, onResetPassword, onDelete, isPending }: {
   user: AdminUser;
   isMasterAdmin: boolean;
   onClose: () => void;
@@ -328,12 +342,14 @@ function UserDetailPanel({ user, isMasterAdmin, onClose, onUpdate, onSuspend, on
   onSuspend: (reason?: string) => void;
   onActivate: () => void;
   onResetPassword: (pw: string) => void;
+  onDelete: () => void;
   isPending: boolean;
 }) {
   const [editMode, setEditMode] = useState(false);
   const [form, setForm] = useState({ name: user.name, email: user.email, globalRole: user.globalRole, userType: user.userType, department: user.department || "", jobTitle: user.jobTitle || "" });
   const [suspendReason, setSuspendReason] = useState("");
   const [showSuspendDialog, setShowSuspendDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const { toast } = useToast();
@@ -484,9 +500,40 @@ function UserDetailPanel({ user, isMasterAdmin, onClose, onUpdate, onSuspend, on
             <Button variant="outline" size="sm" className="justify-start gap-2 h-9" onClick={() => setShowResetDialog(true)} data-testid="button-reset-password">
               <KeyRound className="w-4 h-4" />Reset Password
             </Button>
+
+            <Button
+              variant="outline" size="sm"
+              className="justify-start gap-2 h-9 text-red-400 border-red-500/30 hover:bg-red-500/10 mt-2"
+              onClick={() => setShowDeleteDialog(true)}
+              data-testid="button-delete-user"
+            >
+              <Trash2 className="w-4 h-4" />Delete User
+            </Button>
           </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle className="text-red-400">Delete {user.name}?</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently delete the user account for <strong>{user.email}</strong>. This action cannot be undone.
+          </p>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" size="sm" onClick={() => setShowDeleteDialog(false)}>Cancel</Button>
+            <Button
+              size="sm"
+              className="bg-red-500 hover:bg-red-600 text-white"
+              disabled={isPending}
+              onClick={() => { onDelete(); setShowDeleteDialog(false); }}
+              data-testid="button-confirm-delete-user"
+            >
+              Delete Permanently
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Suspend Dialog */}
       <Dialog open={showSuspendDialog} onOpenChange={setShowSuspendDialog}>
