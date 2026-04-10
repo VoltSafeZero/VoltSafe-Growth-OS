@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Search, Trash2, Loader2, Globe, MapPin, Pencil, ChevronDown } from "lucide-react";
+import { Plus, Search, Trash2, Loader2, Globe, MapPin, Pencil, ChevronDown, SlidersHorizontal, X } from "lucide-react";
 import type { Partnership } from "@shared/schema";
 
 const INDUSTRY_TYPES = [
@@ -721,6 +721,11 @@ function PartnerDetailDialog({
 export default function PartnershipsPage({ typeSlug = "" }: { typeSlug?: string }) {
   const initialType: IndustryType | "all" = SLUG_TO_TYPE[typeSlug] || "all";
   const [search, setSearch] = useState("");
+  const [filterImportance, setFilterImportance] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterOrgType, setFilterOrgType] = useState("all");
+  const [filterCountry, setFilterCountry] = useState("all");
+  const [sortBy, setSortBy] = useState("name-asc");
   const [activeType, setActiveType] = useState<IndustryType | "all">(initialType);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState<Partnership | null>(null);
@@ -741,20 +746,57 @@ export default function PartnershipsPage({ typeSlug = "" }: { typeSlug?: string 
     },
   });
 
+  // Derive unique filter options from actual data
+  const countryOptions = useMemo(() => {
+    if (!allPartners) return [];
+    return [...new Set(allPartners.map((p) => p.country).filter(Boolean) as string[])].sort();
+  }, [allPartners]);
+
+  const orgTypeOptions = useMemo(() => {
+    if (!allPartners) return [];
+    return [...new Set(allPartners.map((p) => p.organizationType).filter(Boolean) as string[])].sort();
+  }, [allPartners]);
+
+  const hasActiveFilters = filterImportance !== "all" || filterStatus !== "all" || filterOrgType !== "all" || filterCountry !== "all" || search.trim() !== "";
+
+  const clearFilters = () => {
+    setSearch(""); setFilterImportance("all"); setFilterStatus("all"); setFilterOrgType("all"); setFilterCountry("all");
+  };
+
+  const IMPORTANCE_ORDER: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+
   const filtered = useMemo(() => {
     if (!allPartners) return [];
+    let list = [...allPartners];
+
+    // Text search
     const q = search.trim().toLowerCase();
-    if (!q) return allPartners;
-    return allPartners.filter((p) =>
-      [
-        p.name, p.notes, p.region, p.country, p.website,
-        p.keyContacts, p.organizationType, p.membershipStatus,
-        p.strategicImportance, p.territory, p.channelType,
-        p.technologyCategory, p.researchFocus, p.programName,
-        ...(p.industryTypes || []),
-      ].some((f) => f && String(f).toLowerCase().includes(q))
-    );
-  }, [allPartners, search]);
+    if (q) {
+      list = list.filter((p) =>
+        [p.name, p.notes, p.region, p.country, p.website, p.keyContacts, p.organizationType,
+         p.membershipStatus, p.strategicImportance, p.territory, p.channelType,
+         p.technologyCategory, p.researchFocus, p.programName, p.agencyBody,
+         ...(p.industryTypes || [])].some((f) => f && String(f).toLowerCase().includes(q))
+      );
+    }
+
+    // Dropdown filters
+    if (filterImportance !== "all") list = list.filter((p) => p.strategicImportance === filterImportance);
+    if (filterStatus !== "all") list = list.filter((p) => p.participationStatus === filterStatus);
+    if (filterOrgType !== "all") list = list.filter((p) => p.organizationType === filterOrgType);
+    if (filterCountry !== "all") list = list.filter((p) => p.country === filterCountry);
+
+    // Sort
+    list.sort((a, b) => {
+      if (sortBy === "name-asc") return a.name.localeCompare(b.name);
+      if (sortBy === "name-desc") return b.name.localeCompare(a.name);
+      if (sortBy === "importance") return (IMPORTANCE_ORDER[a.strategicImportance || ""] ?? 9) - (IMPORTANCE_ORDER[b.strategicImportance || ""] ?? 9);
+      if (sortBy === "newest") return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      return 0;
+    });
+
+    return list;
+  }, [allPartners, search, filterImportance, filterStatus, filterOrgType, filterCountry, sortBy]);
 
   const createMutation = useMutation({
     mutationFn: async (data: FormState) => {
@@ -830,16 +872,93 @@ export default function PartnershipsPage({ typeSlug = "" }: { typeSlug?: string 
         </Dialog>
       </div>
 
-      {/* Search */}
-      <div className="relative w-full sm:max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search by name, notes, region, contacts..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-10"
-          data-testid="input-search-partners"
-        />
+      {/* Search + Filters */}
+      <div className="space-y-2">
+        {/* Row 1: text search + result count */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative flex-1 min-w-[220px] max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, notes, region, contacts..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-10"
+              data-testid="input-search-partners"
+            />
+          </div>
+          {!isLoading && (
+            <span className="text-xs text-muted-foreground shrink-0">
+              {filtered.length} {filtered.length === 1 ? "partner" : "partners"}
+            </span>
+          )}
+          {hasActiveFilters && (
+            <Button variant="ghost" size="sm" onClick={clearFilters} className="text-muted-foreground h-8 px-2 gap-1" data-testid="button-clear-filters">
+              <X className="h-3.5 w-3.5" /> Clear filters
+            </Button>
+          )}
+        </div>
+
+        {/* Row 2: dropdown filters + sort */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <SlidersHorizontal className="h-4 w-4 text-muted-foreground shrink-0" />
+
+          {/* Strategic Importance */}
+          <Select value={filterImportance} onValueChange={setFilterImportance}>
+            <SelectTrigger className={`h-8 text-xs w-auto min-w-[148px] ${filterImportance !== "all" ? "border-primary text-primary" : ""}`} data-testid="filter-importance">
+              <SelectValue placeholder="Importance" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Importances</SelectItem>
+              {["Critical","High","Medium","Low"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+            </SelectContent>
+          </Select>
+
+          {/* Partnership Status */}
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className={`h-8 text-xs w-auto min-w-[148px] ${filterStatus !== "all" ? "border-primary text-primary" : ""}`} data-testid="filter-status">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              {["Prospect","Active","On Hold","Inactive","Dormant"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+            </SelectContent>
+          </Select>
+
+          {/* Organization Type — dynamic from data */}
+          <Select value={filterOrgType} onValueChange={setFilterOrgType}>
+            <SelectTrigger className={`h-8 text-xs w-auto min-w-[148px] ${filterOrgType !== "all" ? "border-primary text-primary" : ""}`} data-testid="filter-org-type">
+              <SelectValue placeholder="Org Type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Org Types</SelectItem>
+              {orgTypeOptions.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+            </SelectContent>
+          </Select>
+
+          {/* Country — dynamic from data */}
+          <Select value={filterCountry} onValueChange={setFilterCountry}>
+            <SelectTrigger className={`h-8 text-xs w-auto min-w-[120px] ${filterCountry !== "all" ? "border-primary text-primary" : ""}`} data-testid="filter-country">
+              <SelectValue placeholder="Country" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Countries</SelectItem>
+              {countryOptions.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+            </SelectContent>
+          </Select>
+
+          {/* Sort */}
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger className="h-8 text-xs w-auto min-w-[148px] ml-auto" data-testid="sort-partners">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="name-asc">Name A → Z</SelectItem>
+              <SelectItem value="name-desc">Name Z → A</SelectItem>
+              <SelectItem value="importance">Strategic Importance</SelectItem>
+              <SelectItem value="newest">Newest First</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Partners grid */}
