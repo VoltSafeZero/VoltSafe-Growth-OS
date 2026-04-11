@@ -2591,7 +2591,7 @@ export async function registerRoutes(
   app.patch("/api/gmail/accounts/:id/share", requireAuth, async (req, res) => {
     try {
       const currentUser = (req.session as any).userId;
-      const [me] = await db.select({ role: users.role }).from(users).where(eq(users.id, currentUser)).limit(1);
+      const [me] = await db.select({ role: users.globalRole }).from(users).where(eq(users.id, currentUser)).limit(1);
       if (!me || me.role !== "master_admin") {
         return res.status(403).json({ message: "Only master admins can share mailboxes." });
       }
@@ -2697,7 +2697,7 @@ export async function registerRoutes(
   app.get("/api/auth/gmail/connect-shared", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId;
-      const [me] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+      const [me] = await db.select({ role: users.globalRole }).from(users).where(eq(users.id, userId)).limit(1);
       if (!me || me.role !== "master_admin") {
         return res.status(403).send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
           <div style="text-align:center"><h2 style="color:#ef4444">Access Denied</h2><p>Only master admins can connect shared team inboxes.</p><a href="/gmail" style="color:#14b8a6">← Back</a></div>
