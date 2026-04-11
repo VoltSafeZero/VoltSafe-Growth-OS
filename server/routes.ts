@@ -27,7 +27,7 @@ import {
   getAuthenticationOptions, verifyAuthentication,
   getUserCredentials, deleteCredential,
 } from "./webauthn";
-import { eq, sql, and, inArray, lte } from "drizzle-orm";
+import { eq, sql, and, or, inArray, lte, ilike } from "drizzle-orm";
 import { registerVoiceAssistantRoutes } from "./voice-assistant";
 import { generateInvoiceHtml, generateQuoteXlsx, type QuoteData } from "./quote-generator";
 import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead, saveDraft, listDraftSummaries, getDraftContent, deleteDraft } from "./gmail";
@@ -39,6 +39,7 @@ import {
   emailMessages, emailThreads, emailAssociations, associationFeedback, emailFilters, scheduledEmails,
   emailAccounts,
   assets, assetFolders, priceLists, priceListItems,
+  contacts, accounts, leads, opportunities, partnerships,
 } from "@shared/schema";
 
 const UPLOADS_DIR = path.resolve("uploads");
@@ -1831,6 +1832,266 @@ export async function registerRoutes(
         await db.update(emailThreads).set(updates as any).where(eq(emailThreads.gmailThreadId, threadId));
       }
       res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ── Thread Association Review API ─────────────────────────────────────────
+  // GET /api/gmail/thread-associations/:threadId
+  // Returns all email_associations for any message in this thread,
+  // enriched with entity display data and grouped by objectType.
+  app.get("/api/gmail/thread-associations/:threadId", requireAuth, async (req, res) => {
+    const threadId = String(req.params.threadId);
+    try {
+      // Find all messages for this thread in our DB
+      const msgs = await db
+        .select({ id: emailMessages.id })
+        .from(emailMessages)
+        .where(eq(emailMessages.gmailThreadId, threadId));
+
+      if (!msgs.length) return res.json({ candidates: [] });
+
+      const msgIds = msgs.map(m => m.id);
+
+      // Get all associations for these messages
+      const assocs = await db
+        .select()
+        .from(emailAssociations)
+        .where(inArray(emailAssociations.emailMessageId, msgIds));
+
+      // Deduplicate by objectType+objectId, keeping highest score
+      const best = new Map<string, typeof assocs[0]>();
+      for (const a of assocs) {
+        const key = `${a.objectType}:${a.objectId}`;
+        const existing = best.get(key);
+        if (!existing || (a.confidenceScore ?? 0) > (existing.confidenceScore ?? 0)) {
+          best.set(key, a);
+        }
+      }
+
+      const deduped = Array.from(best.values()).sort((a, b) => (b.confidenceScore ?? 0) - (a.confidenceScore ?? 0));
+
+      // Enrich with entity detail (name already stored in objectName, but load fresh data)
+      const enriched = await Promise.all(deduped.map(async (a) => {
+        let entityDetail: Record<string, any> = {};
+        try {
+          if (a.objectType === "contact") {
+            const [r] = await db.select({ id: contacts.id, name: contacts.name, email: contacts.email, accountId: contacts.accountId }).from(contacts).where(eq(contacts.id, a.objectId)).limit(1);
+            if (r) entityDetail = { name: r.name, email: r.email, accountId: r.accountId };
+          } else if (a.objectType === "account") {
+            const [r] = await db.select({ id: accounts.id, name: accounts.name, website: accounts.website }).from(accounts).where(eq(accounts.id, a.objectId)).limit(1);
+            if (r) entityDetail = { name: r.name, website: r.website };
+          } else if (a.objectType === "lead") {
+            const [r] = await db.select({ id: leads.id, company: leads.company, contactEmail: leads.contactEmail, leadStatus: leads.leadStatus }).from(leads).where(eq(leads.id, a.objectId)).limit(1);
+            if (r) entityDetail = { name: r.company, email: r.contactEmail, status: r.leadStatus };
+          } else if (a.objectType === "opportunity") {
+            const [r] = await db.select({ id: opportunities.id, title: opportunities.title, stage: opportunities.stage, amount: opportunities.amount }).from(opportunities).where(eq(opportunities.id, a.objectId)).limit(1);
+            if (r) entityDetail = { name: r.title, stage: r.stage, amount: r.amount };
+          } else if (a.objectType === "partner") {
+            const [r] = await db.select({ id: partnerships.id, name: partnerships.name, category: partnerships.category }).from(partnerships).where(eq(partnerships.id, a.objectId)).limit(1);
+            if (r) entityDetail = { name: r.name, category: r.category };
+          }
+        } catch {}
+        return {
+          ...a,
+          reasons: a.associationReasonJson ? JSON.parse(a.associationReasonJson) : [],
+          entityDetail,
+        };
+      }));
+
+      res.json({ candidates: enriched });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // POST /api/gmail/thread-associations/confirm
+  // User confirms an association — marks isUserConfirmed=true and updates the thread's primary pointers.
+  app.post("/api/gmail/thread-associations/confirm", requireAuth, async (req, res) => {
+    const { associationId, threadId } = req.body;
+    if (!associationId) return res.status(400).json({ message: "associationId required" });
+    try {
+      const [assoc] = await db
+        .select()
+        .from(emailAssociations)
+        .where(eq(emailAssociations.id, Number(associationId)));
+
+      if (!assoc) return res.status(404).json({ message: "Association not found" });
+
+      await db.update(emailAssociations)
+        .set({ isUserConfirmed: true, updatedAt: new Date() })
+        .where(eq(emailAssociations.id, assoc.id));
+
+      // If threadId provided, update the thread's primary pointer for this objectType
+      if (threadId) {
+        const updates: Record<string, any> = { associationStatus: "associated", updatedAt: new Date() };
+        if (assoc.objectType === "contact") updates.primaryContactId = assoc.objectId;
+        else if (assoc.objectType === "account") updates.primaryAccountId = assoc.objectId;
+        else if (assoc.objectType === "lead") updates.primaryLeadId = assoc.objectId;
+        else if (assoc.objectType === "opportunity") updates.primaryOpportunityId = assoc.objectId;
+        else if (assoc.objectType === "partner") updates.primaryPartnerId = assoc.objectId;
+
+        const [existing] = await db.select({ id: emailThreads.id }).from(emailThreads).where(eq(emailThreads.gmailThreadId, String(threadId)));
+        if (existing) {
+          await db.update(emailThreads).set(updates).where(eq(emailThreads.gmailThreadId, String(threadId)));
+        } else {
+          await db.insert(emailThreads).values({ gmailThreadId: String(threadId), ...updates });
+        }
+      }
+
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // POST /api/gmail/thread-associations/reject
+  // User rejects an association — removes it and logs feedback.
+  app.post("/api/gmail/thread-associations/reject", requireAuth, async (req, res) => {
+    const { associationId, emailMessageId } = req.body;
+    if (!associationId) return res.status(400).json({ message: "associationId required" });
+    try {
+      const [assoc] = await db
+        .select()
+        .from(emailAssociations)
+        .where(eq(emailAssociations.id, Number(associationId)));
+
+      if (!assoc) return res.status(404).json({ message: "Association not found" });
+
+      // Log feedback
+      await db.insert(associationFeedback).values({
+        emailMessageId: emailMessageId || assoc.emailMessageId,
+        originalObjectType: assoc.objectType,
+        originalObjectId: assoc.objectId,
+        feedbackType: "rejected",
+      });
+
+      // Delete the association
+      await db.delete(emailAssociations).where(eq(emailAssociations.id, assoc.id));
+
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // POST /api/gmail/thread-associations/manual
+  // Manually link a thread to any CRM entity — creates an association + updates thread primary pointer.
+  app.post("/api/gmail/thread-associations/manual", requireAuth, async (req, res) => {
+    const { threadId, objectType, objectId, objectName, emailMessageId } = req.body;
+    if (!threadId || !objectType || !objectId) {
+      return res.status(400).json({ message: "threadId, objectType, objectId required" });
+    }
+    try {
+      const msgId = emailMessageId || null;
+
+      // Find a real message ID for this thread if not provided
+      let resolvedMsgId = msgId;
+      if (!resolvedMsgId) {
+        const [firstMsg] = await db
+          .select({ id: emailMessages.id })
+          .from(emailMessages)
+          .where(eq(emailMessages.gmailThreadId, String(threadId)))
+          .limit(1);
+        resolvedMsgId = firstMsg?.id || null;
+      }
+
+      if (resolvedMsgId) {
+        // Check if association already exists
+        const [existing] = await db
+          .select({ id: emailAssociations.id })
+          .from(emailAssociations)
+          .where(and(
+            eq(emailAssociations.emailMessageId, resolvedMsgId),
+            eq(emailAssociations.objectType, objectType),
+            eq(emailAssociations.objectId, Number(objectId))
+          ));
+
+        if (!existing) {
+          await db.insert(emailAssociations).values({
+            emailMessageId: resolvedMsgId,
+            objectType,
+            objectId: Number(objectId),
+            objectName: objectName || String(objectId),
+            confidenceScore: 100,
+            associationReasonJson: JSON.stringify(["Manually linked by user"]),
+            isAuto: false,
+            isUserConfirmed: true,
+          });
+        } else {
+          await db.update(emailAssociations)
+            .set({ isUserConfirmed: true, confidenceScore: 100, updatedAt: new Date() })
+            .where(eq(emailAssociations.id, existing.id));
+        }
+      }
+
+      // Update email_threads primary pointer
+      const updates: Record<string, any> = { associationStatus: "associated", updatedAt: new Date() };
+      if (objectType === "contact") updates.primaryContactId = Number(objectId);
+      else if (objectType === "account") updates.primaryAccountId = Number(objectId);
+      else if (objectType === "lead") updates.primaryLeadId = Number(objectId);
+      else if (objectType === "opportunity") updates.primaryOpportunityId = Number(objectId);
+      else if (objectType === "partner") updates.primaryPartnerId = Number(objectId);
+
+      const [existingThread] = await db
+        .select({ id: emailThreads.id })
+        .from(emailThreads)
+        .where(eq(emailThreads.gmailThreadId, String(threadId)));
+
+      if (existingThread) {
+        await db.update(emailThreads).set(updates).where(eq(emailThreads.gmailThreadId, String(threadId)));
+      } else {
+        await db.insert(emailThreads).values({ gmailThreadId: String(threadId), ...updates });
+      }
+
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // GET /api/gmail/crm-search?q=...&types=contact,account,lead,opportunity,partner
+  // Unified CRM search used for manual association linking.
+  app.get("/api/gmail/crm-search", requireAuth, async (req, res) => {
+    const q = String(req.query.q || "").trim();
+    const types = String(req.query.types || "contact,account,lead,opportunity,partner").split(",");
+    if (q.length < 2) return res.json([]);
+
+    try {
+      const results: Array<{ objectType: string; objectId: number; objectName: string; meta: string }> = [];
+
+      if (types.includes("contact")) {
+        const rows = await db.select({ id: contacts.id, name: contacts.name, email: contacts.email }).from(contacts)
+          .where(or(ilike(contacts.name, `%${q}%`), ilike(contacts.email, `%${q}%`))).limit(8);
+        rows.forEach(r => results.push({ objectType: "contact", objectId: r.id, objectName: r.name, meta: r.email || "" }));
+      }
+
+      if (types.includes("account")) {
+        const rows = await db.select({ id: accounts.id, name: accounts.name, website: accounts.website }).from(accounts)
+          .where(ilike(accounts.name, `%${q}%`)).limit(8);
+        rows.forEach(r => results.push({ objectType: "account", objectId: r.id, objectName: r.name, meta: r.website || "" }));
+      }
+
+      if (types.includes("lead")) {
+        const rows = await db.select({ id: leads.id, company: leads.company, contactEmail: leads.contactEmail }).from(leads)
+          .where(or(ilike(leads.company, `%${q}%`), ilike(leads.contactEmail, `%${q}%`))).limit(8);
+        rows.forEach(r => results.push({ objectType: "lead", objectId: r.id, objectName: r.company, meta: r.contactEmail || "" }));
+      }
+
+      if (types.includes("opportunity")) {
+        const rows = await db.select({ id: opportunities.id, title: opportunities.title, stage: opportunities.stage }).from(opportunities)
+          .where(ilike(opportunities.title, `%${q}%`)).limit(8);
+        rows.forEach(r => results.push({ objectType: "opportunity", objectId: r.id, objectName: r.title, meta: r.stage }));
+      }
+
+      if (types.includes("partner")) {
+        const rows = await db.select({ id: partnerships.id, name: partnerships.name, category: partnerships.category }).from(partnerships)
+          .where(ilike(partnerships.name, `%${q}%`)).limit(8);
+        rows.forEach(r => results.push({ objectType: "partner", objectId: r.id, objectName: r.name, meta: r.category }));
+      }
+
+      res.json(results.slice(0, 20));
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

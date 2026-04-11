@@ -15,6 +15,7 @@ import {
   Clock, FileText, CalendarClock, CalendarX, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
   FolderOpen, FolderPlus, Settings2, Globe, Plus, ChevronDown, ChevronRight, Folder,
   Reply, Pencil, User, Building2, Zap,
+  CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag,
 } from "lucide-react";
 import DOMPurify from "dompurify";
 
@@ -631,23 +632,62 @@ type ThreadRecord = {
     id: number; workflowState: string | null; snoozedUntil: string | null;
     followUpAt: string | null; primaryContactId: number | null;
     primaryAccountId: number | null; primaryLeadId: number | null;
-    associationStatus: string;
+    primaryPartnerId: number | null; associationStatus: string;
   };
-  contact?: { id: number; firstName: string; lastName: string; email: string; } | null;
-  account?: { id: number; name: string; } | null;
-  lead?: { id: number; firstName: string; lastName: string; company: string; status: string; } | null;
+  contact?: { id: number; name: string; firstName: string; lastName: string; email: string; } | null;
+  account?: { id: number; name: string; website: string; } | null;
+  lead?: { id: number; name: string; firstName: string; lastName: string; company: string; status: string; } | null;
 };
 
-const WORKFLOW_OPTIONS = [
-  { value: "none",            label: "— No status",      color: "text-muted-foreground" },
-  { value: "needs_reply",     label: "Needs Reply",       color: "text-amber-400" },
-  { value: "waiting_on_them", label: "Waiting On Them",   color: "text-blue-400" },
-  { value: "follow_up",       label: "Follow Up",         color: "text-orange-400" },
-  { value: "done",            label: "Done",              color: "text-emerald-400" },
+type AssocCandidate = {
+  id: number;
+  emailMessageId: number;
+  objectType: "contact" | "account" | "lead" | "opportunity" | "partner";
+  objectId: number;
+  objectName: string | null;
+  confidenceScore: number | null;
+  isAuto: boolean | null;
+  isUserConfirmed: boolean | null;
+  reasons: string[];
+  entityDetail: Record<string, any>;
+};
+
+type CrmSearchResult = {
+  objectType: string;
+  objectId: number;
+  objectName: string;
+  meta: string;
+};
+
+const TYPE_CFG = {
+  contact:     { label: "Contact",     Icon: User,       bg: "bg-sky-500/10",     text: "text-sky-400",     border: "border-sky-500/25",     href: "/contacts" },
+  account:     { label: "Account",     Icon: Building2,  bg: "bg-violet-500/10",  text: "text-violet-400",  border: "border-violet-500/25",  href: "/accounts" },
+  lead:        { label: "Lead",        Icon: Zap,        bg: "bg-emerald-500/10", text: "text-emerald-400", border: "border-emerald-500/25", href: "/leads" },
+  opportunity: { label: "Opp",         Icon: TrendingUp, bg: "bg-amber-500/10",   text: "text-amber-400",   border: "border-amber-500/25",   href: "/opportunities" },
+  partner:     { label: "Partner",     Icon: Handshake,  bg: "bg-fuchsia-500/10", text: "text-fuchsia-400", border: "border-fuchsia-500/25", href: "/partnerships" },
+} as const;
+
+const WORKFLOW_PILLS = [
+  { value: "needs_reply",     label: "Needs Reply", activeClass: "bg-amber-500/15 text-amber-400 border-amber-500/40" },
+  { value: "waiting_on_them", label: "Waiting",     activeClass: "bg-blue-500/15 text-blue-400 border-blue-500/40" },
+  { value: "follow_up",       label: "Follow Up",   activeClass: "bg-orange-500/15 text-orange-400 border-orange-500/40" },
+  { value: "done",            label: "Done",        activeClass: "bg-emerald-500/15 text-emerald-400 border-emerald-500/40" },
 ];
+
+function ScoreBadge({ score }: { score: number | null }) {
+  const s = score ?? 0;
+  const color = s >= 75 ? "text-emerald-400 bg-emerald-500/10" : s >= 45 ? "text-amber-400 bg-amber-500/10" : "text-muted-foreground bg-muted/30";
+  return (
+    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${color}`}>{s}%</span>
+  );
+}
 
 function CrmContextPanel({ threadId }: { threadId: string }) {
   const { toast } = useToast();
+  const [showManualLink, setShowManualLink] = useState(false);
+  const [manualSearch, setManualSearch] = useState("");
+  const [manualLinkPending, setManualLinkPending] = useState(false);
+  const [showCandidates, setShowCandidates] = useState(true);
 
   const threadRecordQuery = useQuery<ThreadRecord>({
     queryKey: ["/api/gmail/thread-record", threadId],
@@ -657,6 +697,27 @@ function CrmContextPanel({ threadId }: { threadId: string }) {
       return res.json();
     },
     enabled: !!threadId,
+  });
+
+  const assocQuery = useQuery<{ candidates: AssocCandidate[] }>({
+    queryKey: ["/api/gmail/thread-associations", threadId],
+    queryFn: async () => {
+      const res = await fetch(`/api/gmail/thread-associations/${threadId}`, { credentials: "include" });
+      if (!res.ok) return { candidates: [] };
+      return res.json();
+    },
+    enabled: !!threadId,
+  });
+
+  const searchQuery = useQuery<CrmSearchResult[]>({
+    queryKey: ["/api/gmail/crm-search", manualSearch],
+    queryFn: async () => {
+      if (manualSearch.length < 2) return [];
+      const res = await fetch(`/api/gmail/crm-search?q=${encodeURIComponent(manualSearch)}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: manualSearch.length >= 2,
   });
 
   const workflowMutation = useMutation({
@@ -670,21 +731,65 @@ function CrmContextPanel({ threadId }: { threadId: string }) {
     onError: (err: any) => toast({ title: "Failed to update status", description: err.message, variant: "destructive" }),
   });
 
+  const confirmMutation = useMutation({
+    mutationFn: async (associationId: number) => {
+      const res = await apiRequest("POST", "/api/gmail/thread-associations/confirm", { associationId, threadId });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-associations", threadId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", threadId] });
+      toast({ title: "Association confirmed" });
+    },
+    onError: (err: any) => toast({ title: "Failed to confirm", description: err.message, variant: "destructive" }),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async (associationId: number) => {
+      const res = await apiRequest("POST", "/api/gmail/thread-associations/reject", { associationId });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-associations", threadId] });
+      toast({ title: "Association removed" });
+    },
+    onError: (err: any) => toast({ title: "Failed to remove", description: err.message, variant: "destructive" }),
+  });
+
+  async function handleManualLink(result: CrmSearchResult) {
+    setManualLinkPending(true);
+    try {
+      const res = await apiRequest("POST", "/api/gmail/thread-associations/manual", {
+        threadId,
+        objectType: result.objectType,
+        objectId: result.objectId,
+        objectName: result.objectName,
+      });
+      if (!res.ok) throw new Error("Failed");
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-associations", threadId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", threadId] });
+      setShowManualLink(false);
+      setManualSearch("");
+      toast({ title: `Linked to ${result.objectName}` });
+    } catch (err: any) {
+      toast({ title: "Failed to link", description: err.message, variant: "destructive" });
+    } finally {
+      setManualLinkPending(false);
+    }
+  }
+
   const data = threadRecordQuery.data;
   const thread = data?.thread;
   const workflowState = thread?.workflowState ?? "none";
-
-  const WORKFLOW_PILLS = [
-    { value: "needs_reply",     label: "Needs Reply",     activeClass: "bg-amber-500/15 text-amber-400 border-amber-500/40" },
-    { value: "waiting_on_them", label: "Waiting",         activeClass: "bg-blue-500/15 text-blue-400 border-blue-500/40" },
-    { value: "follow_up",       label: "Follow Up",       activeClass: "bg-orange-500/15 text-orange-400 border-orange-500/40" },
-    { value: "done",            label: "Done",            activeClass: "bg-emerald-500/15 text-emerald-400 border-emerald-500/40" },
-  ];
+  const candidates = assocQuery.data?.candidates ?? [];
+  const confirmedCandidates = candidates.filter(c => c.isUserConfirmed);
+  const unconfirmedCandidates = candidates.filter(c => !c.isUserConfirmed);
+  const hasAnyCandidates = candidates.length > 0;
 
   return (
     <div className="flex-shrink-0 border-t border-border/30 bg-background/60" data-testid="crm-context-panel">
+      {/* Workflow state pills */}
       <div className="px-4 pt-2.5 pb-1.5 flex items-center gap-2 flex-wrap">
-        {/* Workflow state pills — click to toggle */}
         {WORKFLOW_PILLS.map(pill => {
           const isActive = workflowState === pill.value;
           return (
@@ -706,52 +811,172 @@ function CrmContextPanel({ threadId }: { threadId: string }) {
         {workflowMutation.isPending && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/50" />}
       </div>
 
-      {/* CRM record chips */}
-      <div className="px-4 pb-2.5 flex items-center gap-1.5 flex-wrap min-h-[28px]">
-        {threadRecordQuery.isLoading ? (
-          <>
-            <Skeleton className="h-5 w-24 rounded-full" />
-            <Skeleton className="h-5 w-20 rounded-full" />
-          </>
-        ) : data?.found ? (
-          <>
-            {data.contact && (
-              <a
-                href={`/contacts`}
-                data-testid="crm-chip-contact"
-                className="flex items-center gap-1 text-[11px] px-2 py-[2px] rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/25 hover:bg-sky-500/20 hover:border-sky-500/40 transition-colors"
-              >
-                <User className="h-2.5 w-2.5" />
-                {data.contact.firstName} {data.contact.lastName}
-              </a>
+      {/* CRM Association Review Panel */}
+      <div className="px-4 pb-3">
+        {/* Section header */}
+        <div className="flex items-center justify-between mb-1.5">
+          <button
+            onClick={() => setShowCandidates(v => !v)}
+            className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
+            data-testid="crm-assoc-toggle"
+          >
+            <Tag className="h-3 w-3" />
+            <span className="font-medium">CRM Links</span>
+            {hasAnyCandidates && (
+              <span className="ml-0.5 text-[10px] bg-muted/40 px-1.5 py-0 rounded-full">{candidates.length}</span>
             )}
-            {data.account && (
-              <a
-                href={`/accounts`}
-                data-testid="crm-chip-account"
-                className="flex items-center gap-1 text-[11px] px-2 py-[2px] rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/25 hover:bg-violet-500/20 hover:border-violet-500/40 transition-colors"
-              >
-                <Building2 className="h-2.5 w-2.5" />
-                {data.account.name}
-              </a>
+            {showCandidates ? <ChevronDown className="h-2.5 w-2.5 ml-0.5" /> : <ChevronRight className="h-2.5 w-2.5 ml-0.5" />}
+          </button>
+          <button
+            onClick={() => { setShowManualLink(v => !v); setManualSearch(""); }}
+            data-testid="crm-manual-link-btn"
+            className="flex items-center gap-1 text-[10px] text-muted-foreground/50 hover:text-muted-foreground border border-border/30 hover:border-border/60 px-2 py-[2px] rounded transition-all"
+          >
+            <Plus className="h-2.5 w-2.5" />
+            Link
+          </button>
+        </div>
+
+        {/* Manual link search */}
+        {showManualLink && (
+          <div className="mb-2 space-y-1" data-testid="manual-link-search">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50" />
+              <input
+                autoFocus
+                value={manualSearch}
+                onChange={e => setManualSearch(e.target.value)}
+                placeholder="Search contacts, accounts, leads…"
+                data-testid="manual-link-input"
+                className="w-full pl-7 pr-2 py-1 text-[11px] bg-muted/20 border border-border/30 rounded focus:outline-none focus:border-border/70 placeholder:text-muted-foreground/40"
+              />
+            </div>
+            {manualSearch.length >= 2 && (
+              <div className="max-h-32 overflow-y-auto space-y-0.5 border border-border/20 rounded bg-background/80">
+                {searchQuery.isLoading && (
+                  <div className="flex items-center justify-center py-2">
+                    <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/50" />
+                  </div>
+                )}
+                {!searchQuery.isLoading && (searchQuery.data?.length ?? 0) === 0 && (
+                  <p className="text-[10px] text-muted-foreground/40 text-center py-2">No matches</p>
+                )}
+                {(searchQuery.data ?? []).map(r => {
+                  const cfg = TYPE_CFG[r.objectType as keyof typeof TYPE_CFG];
+                  if (!cfg) return null;
+                  const { Icon } = cfg;
+                  return (
+                    <button
+                      key={`${r.objectType}:${r.objectId}`}
+                      onClick={() => handleManualLink(r)}
+                      disabled={manualLinkPending}
+                      data-testid={`manual-link-result-${r.objectId}`}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-muted/30 transition-colors text-left"
+                    >
+                      <span className={`flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded ${cfg.bg} ${cfg.text} border ${cfg.border}`}>
+                        <Icon className="h-2.5 w-2.5" />
+                        {cfg.label}
+                      </span>
+                      <span className="text-[11px] text-foreground flex-1 truncate">{r.objectName}</span>
+                      {r.meta && <span className="text-[10px] text-muted-foreground/50 truncate max-w-[80px]">{r.meta}</span>}
+                    </button>
+                  );
+                })}
+              </div>
             )}
-            {data.lead && (
-              <a
-                href={`/leads`}
-                data-testid="crm-chip-lead"
-                className="flex items-center gap-1 text-[11px] px-2 py-[2px] rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 hover:bg-emerald-500/20 hover:border-emerald-500/40 transition-colors"
-              >
-                <Zap className="h-2.5 w-2.5" />
-                {data.lead.firstName} {data.lead.lastName}
-                {data.lead.status && <span className="opacity-60 ml-0.5">· {data.lead.status}</span>}
-              </a>
+          </div>
+        )}
+
+        {/* Association candidates list */}
+        {showCandidates && (
+          <div className="space-y-0.5" data-testid="crm-candidates-list">
+            {assocQuery.isLoading && (
+              <div className="space-y-1">
+                <Skeleton className="h-5 w-full rounded" />
+                <Skeleton className="h-5 w-4/5 rounded" />
+              </div>
             )}
-            {!data.contact && !data.account && !data.lead && (
-              <span className="text-[11px] text-muted-foreground/40 italic">No linked CRM records — run Sync to attach</span>
+
+            {!assocQuery.isLoading && candidates.length === 0 && (
+              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/35 italic py-0.5">
+                <AlertCircle className="h-3 w-3 flex-shrink-0" />
+                No CRM matches found — sync or link manually
+              </div>
             )}
-          </>
-        ) : (
-          <span className="text-[11px] text-muted-foreground/40 italic">Sync to CRM to link this thread</span>
+
+            {/* Confirmed associations */}
+            {confirmedCandidates.map(cand => {
+              const cfg = TYPE_CFG[cand.objectType as keyof typeof TYPE_CFG];
+              if (!cfg) return null;
+              const { Icon } = cfg;
+              return (
+                <div
+                  key={cand.id}
+                  data-testid={`crm-assoc-confirmed-${cand.id}`}
+                  className="flex items-center gap-1.5 group"
+                >
+                  <span className={`flex items-center gap-0.5 text-[10px] px-1.5 py-[2px] rounded border flex-shrink-0 ${cfg.bg} ${cfg.text} ${cfg.border}`}>
+                    <Icon className="h-2.5 w-2.5" />
+                    {cfg.label}
+                  </span>
+                  <a href={cfg.href} className={`text-[11px] font-medium flex-1 truncate hover:underline ${cfg.text}`}>
+                    {cand.objectName ?? cand.entityDetail?.name ?? "Unknown"}
+                  </a>
+                  <ShieldCheck className="h-3 w-3 text-emerald-400/70 flex-shrink-0" />
+                  <button
+                    onClick={() => rejectMutation.mutate(cand.id)}
+                    disabled={rejectMutation.isPending}
+                    data-testid={`crm-reject-${cand.id}`}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/40 hover:text-red-400"
+                    title="Remove link"
+                  >
+                    <XCircle className="h-3 w-3" />
+                  </button>
+                </div>
+              );
+            })}
+
+            {/* Unconfirmed / suggested associations */}
+            {unconfirmedCandidates.map(cand => {
+              const cfg = TYPE_CFG[cand.objectType as keyof typeof TYPE_CFG];
+              if (!cfg) return null;
+              const { Icon } = cfg;
+              return (
+                <div
+                  key={cand.id}
+                  data-testid={`crm-assoc-candidate-${cand.id}`}
+                  className="flex items-center gap-1.5 group"
+                >
+                  <span className={`flex items-center gap-0.5 text-[10px] px-1.5 py-[2px] rounded border flex-shrink-0 opacity-60 ${cfg.bg} ${cfg.text} ${cfg.border}`}>
+                    <Icon className="h-2.5 w-2.5" />
+                    {cfg.label}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground flex-1 truncate">
+                    {cand.objectName ?? cand.entityDetail?.name ?? "Unknown"}
+                  </span>
+                  <ScoreBadge score={cand.confidenceScore} />
+                  <button
+                    onClick={() => confirmMutation.mutate(cand.id)}
+                    disabled={confirmMutation.isPending}
+                    data-testid={`crm-confirm-${cand.id}`}
+                    className="text-muted-foreground/30 hover:text-emerald-400 transition-colors"
+                    title="Confirm this link"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => rejectMutation.mutate(cand.id)}
+                    disabled={rejectMutation.isPending}
+                    data-testid={`crm-reject-${cand.id}`}
+                    className="text-muted-foreground/30 hover:text-red-400 transition-colors"
+                    title="Dismiss this suggestion"
+                  >
+                    <XCircle className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>
@@ -1938,7 +2163,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               </div>
             )}
             {/* CRM Context Panel */}
-            <CrmContextPanel threadId={selectedThreadId!} />
+            <CrmContextPanel key={selectedThreadId} threadId={selectedThreadId!} />
           </div>
         )}
 

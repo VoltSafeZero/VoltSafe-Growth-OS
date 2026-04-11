@@ -64,6 +64,15 @@ The project is organized as a monorepo containing `client/` (React SPA), `server
   - **Schema:** `email_threads` table extended with `workflow_state` (text), `snoozed_until` (timestamp), `follow_up_at` (timestamp), `assigned_user_id` (integer), `primary_partner_id` (integer). Migrations via `seed-production.ts`.
   - **Backend:** `GET /api/gmail/thread-record/:threadId` returns DB record + linked contact/account/lead. `PATCH /api/gmail/thread-record/:threadId` upserts workflow_state, snoozed_until, follow_up_at.
   - **Frontend:** `gmail-inbox.tsx` restructured from 2-pane to 3-pane layout: (1) Left nav sidebar (w-52, hidden on mobile) with nav items for Inbox/Sent/Drafts/Scheduled/Other, custom folder list, and account status footer; (2) Center thread list (w-72) with category pills + search + all existing message list content; (3) Right panel (flex-1) with thread view + new `CrmContextPanel` component at bottom. `CrmContextPanel` shows workflow status dropdown (Needs Reply / Waiting On Them / Follow Up / Done) and linked CRM records (contact, account, lead). All existing compose/draft/star/filter/sync functionality preserved.
+- **Association Engine v2 + Association Review API (Phase 2):**
+  - **Engine (`server/services/association-engine.ts`):** Rewritten with 6 signal types: (1) Exact email→Contact +50 bonus, (2) Contact→Account +35, (3) Contact→open Opportunity +20/+30, (4) Domain→Account +20, (5) Exact email→Lead +50, (6) Domain→Lead +30 (NEW), (7) Partnership domain match +35 (NEW), (8) Lead company name in subject +25 (NEW). Thread history bonus +25 if thread already associated. Bulk/auto-generated penalties -60/-50. Primary keys in `email_threads` updated: primaryContactId, primaryAccountId, primaryLeadId, primaryOpportunityId, primaryPartnerId (NEW). Confidence threshold: contact≥45, account≥30, lead≥35, opp≥40, partner≥35.
+  - **New Routes (all `requireAuth`):**
+    - `GET /api/gmail/thread-associations/:threadId` — returns all `email_associations` for any message in the thread, deduplicated by entity, sorted by confidence score, enriched with live entity detail from CRM tables.
+    - `POST /api/gmail/thread-associations/confirm` — marks `isUserConfirmed=true`, updates `email_threads` primary pointers.
+    - `POST /api/gmail/thread-associations/reject` — deletes association, logs to `association_feedback`.
+    - `POST /api/gmail/thread-associations/manual` — upserts manual association at 100% confidence, updates thread primary pointers.
+    - `GET /api/gmail/crm-search?q=...` — unified search across contacts, accounts, leads, opportunities, partnerships.
+  - **CRM Context Panel (Phase 2):** `CrmContextPanel` in `gmail-inbox.tsx` fully rewritten. Shows: workflow pills (preserved), CRM Links section (collapsible), all auto-detected candidates with type badge + confidence score badge (green≥75, amber≥45, grey<45), confirm (✓) / reject (✗) buttons per candidate, confirmed associations with green shield icon + on-hover remove button, manual link search popover (type to search all CRM entities), `key={threadId}` prop resets state on thread switch.
 
 ## External Dependencies
 
