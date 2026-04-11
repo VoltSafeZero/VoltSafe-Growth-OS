@@ -1654,180 +1654,183 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
           <nav className="flex-1 overflow-y-auto py-1 px-2 space-y-0.5">
 
-            {/* ── Inbox section: personal + shared accounts ────────────── */}
+            {/* ── INBOX section label ───────────────────────────────── */}
             <div className="pb-0.5 pt-1 px-1">
               <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Inbox</span>
             </div>
 
-            {/* Personal account row */}
+            {/* Personal account row + subtabs when active */}
             {personalAccount ? (
-              <button
-                onClick={() => { setActiveAccountId(null); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                data-testid="btn-account-personal"
-                className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors group ${activeAccountId === null && tab === "inbox" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
-              >
-                <span className={`flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${activeAccountId === null && tab === "inbox" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
-                  {(personalAccount.displayName || personalAccount.emailAddress)[0].toUpperCase()}
-                </span>
-                <span className="flex-1 text-left text-[12px] font-medium truncate">{personalAccount.emailAddress}</span>
-                {activeAccountId === null && inboxUnreadCount > 0 && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{inboxUnreadCount}</span>
+              <>
+                <button
+                  onClick={() => { setActiveAccountId(null); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                  data-testid="btn-account-personal"
+                  className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors ${activeAccountId === null ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+                >
+                  <span className={`flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${activeAccountId === null ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                    {(personalAccount.displayName || personalAccount.emailAddress)[0].toUpperCase()}
+                  </span>
+                  <span className="flex-1 text-left text-[12px] font-medium truncate">{personalAccount.emailAddress}</span>
+                  {activeAccountId === null && inboxUnreadCount > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{inboxUnreadCount}</span>
+                  )}
+                </button>
+                {/* Personal account subtabs */}
+                {activeAccountId === null && (
+                  <div className="ml-3 pl-2 border-l border-border/40 space-y-0.5 mt-0.5 mb-1">
+                    <button onClick={() => { setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-inbox"
+                      className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "inbox" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                      <Inbox className="h-3.5 w-3.5" /><span className="flex-1 text-left">Inbox</span>
+                      {inboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{inboxUnreadCount}</span>}
+                    </button>
+                    <button onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-sent"
+                      className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                      <Send className="h-3.5 w-3.5" /><span className="flex-1 text-left">Sent</span>
+                    </button>
+                    {canSend && <>
+                      <button onClick={() => { setTab("drafts"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-drafts"
+                        className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "drafts" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                        <FileText className="h-3.5 w-3.5" /><span className="flex-1 text-left">Drafts</span>
+                        {(draftsQuery.data?.length ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "drafts" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{draftsQuery.data?.length}</span>}
+                      </button>
+                      <button onClick={() => { setTab("scheduled"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-scheduled"
+                        className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "scheduled" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                        <CalendarClock className="h-3.5 w-3.5" /><span className="flex-1 text-left">Scheduled</span>
+                        {(scheduledQuery.data?.length ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "scheduled" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{scheduledQuery.data?.length}</span>}
+                      </button>
+                    </>}
+                    <button onClick={() => { setTab("other"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-other"
+                      className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "other" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                      <FolderX className="h-3.5 w-3.5" /><span className="flex-1 text-left">Other</span>
+                      {inboxOther.length > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-muted text-muted-foreground">{inboxOther.length}</span>}
+                    </button>
+                    {((reviewStatsQuery.data?.needsReview ?? 0) > 0 || tab === "review") && (
+                      <button onClick={() => { setTab("review"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-review"
+                        className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "review" ? "bg-amber-500/15 text-amber-400" : "text-amber-500/80 hover:bg-amber-500/10 hover:text-amber-400"}`}>
+                        <ShieldCheck className="h-3.5 w-3.5" /><span className="flex-1 text-left">CRM Review</span>
+                        {(reviewStatsQuery.data?.needsReview ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "review" ? "bg-amber-500/30 text-amber-300" : "bg-amber-500/20 text-amber-400"}`}>{reviewStatsQuery.data!.needsReview}</span>}
+                      </button>
+                    )}
+                    {/* Folders under personal */}
+                    <div className="pt-1.5 pb-0.5 flex items-center justify-between pr-1">
+                      <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Folders</span>
+                      <button className="text-muted-foreground hover:text-foreground transition-colors rounded p-0.5 hover:bg-muted/60" onClick={() => setShowCreateFolder(true)} title="New folder" data-testid="button-new-folder">
+                        <FolderPlus className="h-3 w-3" />
+                      </button>
+                    </div>
+                    {foldersQuery.isLoading && <div className="space-y-1">{[1,2].map(i => <Skeleton key={i} className="h-5 w-full rounded" />)}</div>}
+                    {!foldersQuery.isLoading && (foldersQuery.data || []).length === 0 && <p className="px-2 py-0.5 text-[11px] text-muted-foreground/50 italic">No folders yet</p>}
+                    {(foldersQuery.data || []).map((folder) => {
+                      const isFolderActive = tab === "folder" && selectedFolderId === folder.id;
+                      return (
+                        <div key={folder.id} className={`group flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer transition-colors text-[12px] font-medium ${isFolderActive ? "bg-primary/15 text-primary" : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"}`}
+                          onClick={() => { setTab("folder"); setSelectedFolderId(folder.id); setSelectedThreadId(null); setSelectedMessageId(null); }} data-testid={`folder-row-${folder.id}`}>
+                          <Folder className={`h-3.5 w-3.5 flex-shrink-0 ${isFolderActive ? "text-primary" : "text-teal-500/70"}`} />
+                          <span className="flex-1 truncate">{folder.name}</span>
+                          {folder.unreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${isFolderActive ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{folder.unreadCount}</span>}
+                          <button className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground flex-shrink-0 ml-auto"
+                            onClick={(e) => { e.stopPropagation(); setShowFolderSettings(folder.id); }} title="Folder settings" data-testid={`button-folder-settings-${folder.id}`}>
+                            <Settings2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
-              </button>
+              </>
             ) : (
-              <button
-                onClick={() => { setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                data-testid="nav-tab-inbox"
-                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === "inbox" && activeAccountId === null ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
-              >
-                <Inbox className="h-4 w-4" />
-                <span className="flex-1 text-left">Inbox</span>
-                {inboxUnreadCount > 0 && (
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{inboxUnreadCount}</span>
-                )}
+              <button onClick={() => { setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-inbox"
+                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === "inbox" && activeAccountId === null ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                <Inbox className="h-4 w-4" /><span className="flex-1 text-left">Inbox</span>
+                {inboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{inboxUnreadCount}</span>}
               </button>
             )}
 
-            {/* Team inbox account rows */}
+            {/* ── TEAM INBOXES section ──────────────────────────────────── */}
             {sharedAccounts.length > 0 && (
               <>
                 <div className="pt-3 pb-0.5 px-1">
                   <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Team Inboxes</span>
                 </div>
                 {sharedAccounts.map((acct) => {
-                  const isActive = activeAccountId === acct.id && tab === "inbox";
+                  const isThisActive = activeAccountId === acct.id;
                   const letter = acct.emailAddress[0].toUpperCase();
                   return (
-                    <button
-                      key={acct.id}
-                      onClick={() => { setActiveAccountId(acct.id); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                      data-testid={`btn-account-shared-${acct.id}`}
-                      title={acct.emailAddress}
-                      className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
-                    >
-                      <span className={`flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${isActive ? "bg-primary text-primary-foreground" : "bg-teal-900/60 text-teal-300"}`}>
-                        {letter}
-                      </span>
-                      <span className="flex-1 text-left text-[12px] font-medium truncate">{acct.emailAddress}</span>
-                      {isActive && inboxUnreadCount > 0 && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{inboxUnreadCount}</span>
+                    <div key={acct.id}>
+                      <button
+                        onClick={() => { setActiveAccountId(acct.id); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                        data-testid={`btn-account-shared-${acct.id}`}
+                        title={acct.emailAddress}
+                        className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors ${isThisActive ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+                      >
+                        <span className={`flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${isThisActive ? "bg-teal-500 text-white" : "bg-teal-900/60 text-teal-300"}`}>
+                          {letter}
+                        </span>
+                        <span className="flex-1 text-left text-[12px] font-medium truncate">{acct.emailAddress}</span>
+                        {isThisActive && inboxUnreadCount > 0 && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{inboxUnreadCount}</span>
+                        )}
+                      </button>
+                      {/* Subtabs for this team inbox when active */}
+                      {isThisActive && (
+                        <div className="ml-3 pl-2 border-l border-border/40 space-y-0.5 mt-0.5 mb-1">
+                          <button onClick={() => { setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-inbox-${acct.id}`}
+                            className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "inbox" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                            <Inbox className="h-3.5 w-3.5" /><span className="flex-1 text-left">Inbox</span>
+                            {inboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{inboxUnreadCount}</span>}
+                          </button>
+                          <button onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-sent-${acct.id}`}
+                            className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                            <Send className="h-3.5 w-3.5" /><span className="flex-1 text-left">Sent</span>
+                          </button>
+                          {canSend && <>
+                            <button onClick={() => { setTab("drafts"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-drafts-${acct.id}`}
+                              className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "drafts" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                              <FileText className="h-3.5 w-3.5" /><span className="flex-1 text-left">Drafts</span>
+                              {(draftsQuery.data?.length ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "drafts" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{draftsQuery.data?.length}</span>}
+                            </button>
+                            <button onClick={() => { setTab("scheduled"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-scheduled-${acct.id}`}
+                              className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "scheduled" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                              <CalendarClock className="h-3.5 w-3.5" /><span className="flex-1 text-left">Scheduled</span>
+                              {(scheduledQuery.data?.length ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "scheduled" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{scheduledQuery.data?.length}</span>}
+                            </button>
+                          </>}
+                          <button onClick={() => { setTab("other"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-other-${acct.id}`}
+                            className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "other" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                            <FolderX className="h-3.5 w-3.5" /><span className="flex-1 text-left">Other</span>
+                            {inboxOther.length > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-muted text-muted-foreground">{inboxOther.length}</span>}
+                          </button>
+                          {/* Folders under each team inbox */}
+                          <div className="pt-1.5 pb-0.5 flex items-center justify-between pr-1">
+                            <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Folders</span>
+                            <button className="text-muted-foreground hover:text-foreground transition-colors rounded p-0.5 hover:bg-muted/60" onClick={() => setShowCreateFolder(true)} title="New folder" data-testid={`button-new-folder-${acct.id}`}>
+                              <FolderPlus className="h-3 w-3" />
+                            </button>
+                          </div>
+                          {foldersQuery.isLoading && <div className="space-y-1">{[1,2].map(i => <Skeleton key={i} className="h-5 w-full rounded" />)}</div>}
+                          {!foldersQuery.isLoading && (foldersQuery.data || []).length === 0 && <p className="px-2 py-0.5 text-[11px] text-muted-foreground/50 italic">No folders yet</p>}
+                          {(foldersQuery.data || []).map((folder) => {
+                            const isFolderActive = tab === "folder" && selectedFolderId === folder.id;
+                            return (
+                              <div key={folder.id} className={`group flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer transition-colors text-[12px] font-medium ${isFolderActive ? "bg-primary/15 text-primary" : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"}`}
+                                onClick={() => { setTab("folder"); setSelectedFolderId(folder.id); setSelectedThreadId(null); setSelectedMessageId(null); }} data-testid={`folder-row-${acct.id}-${folder.id}`}>
+                                <Folder className={`h-3.5 w-3.5 flex-shrink-0 ${isFolderActive ? "text-primary" : "text-teal-500/70"}`} />
+                                <span className="flex-1 truncate">{folder.name}</span>
+                                {folder.unreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${isFolderActive ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{folder.unreadCount}</span>}
+                                <button className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground flex-shrink-0 ml-auto"
+                                  onClick={(e) => { e.stopPropagation(); setShowFolderSettings(folder.id); }} title="Folder settings" data-testid={`button-folder-settings-${acct.id}-${folder.id}`}>
+                                  <Settings2 className="h-3 w-3" />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               </>
             )}
-
-            {/* ── Other mailbox views ──────────────────────────────────── */}
-            <div className="pt-3 pb-0.5 px-1">
-              <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Mail</span>
-            </div>
-            <button
-              onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }}
-              data-testid="nav-tab-sent"
-              className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
-            >
-              <Send className="h-4 w-4" />
-              <span className="flex-1 text-left">Sent</span>
-            </button>
-            {canSend && (
-              <>
-                <button
-                  onClick={() => { setTab("drafts"); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                  data-testid="nav-tab-drafts"
-                  className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === "drafts" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
-                >
-                  <FileText className="h-4 w-4" />
-                  <span className="flex-1 text-left">Drafts</span>
-                  {(draftsQuery.data?.length ?? 0) > 0 && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "drafts" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{draftsQuery.data?.length}</span>
-                  )}
-                </button>
-                <button
-                  onClick={() => { setTab("scheduled"); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                  data-testid="nav-tab-scheduled"
-                  className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === "scheduled" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
-                >
-                  <CalendarClock className="h-4 w-4" />
-                  <span className="flex-1 text-left">Scheduled</span>
-                  {(scheduledQuery.data?.length ?? 0) > 0 && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "scheduled" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{scheduledQuery.data?.length}</span>
-                  )}
-                </button>
-              </>
-            )}
-            <button
-              onClick={() => { setTab("other"); setSelectedMessageId(null); setSelectedThreadId(null); }}
-              data-testid="nav-tab-other"
-              className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === "other" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
-            >
-              <FolderX className="h-4 w-4" />
-              <span className="flex-1 text-left">Other</span>
-              {inboxOther.length > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-muted text-muted-foreground">{inboxOther.length}</span>
-              )}
-            </button>
-
-            {/* CRM Review queue */}
-            {(reviewStatsQuery.data?.needsReview ?? 0) > 0 || tab === "review" ? (
-              <button
-                onClick={() => { setTab("review"); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                data-testid="nav-tab-review"
-                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === "review" ? "bg-amber-500/15 text-amber-400" : "text-amber-500/80 hover:bg-amber-500/10 hover:text-amber-400"}`}
-              >
-                <ShieldCheck className="h-4 w-4" />
-                <span className="flex-1 text-left">CRM Review</span>
-                {(reviewStatsQuery.data?.needsReview ?? 0) > 0 && (
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "review" ? "bg-amber-500/30 text-amber-300" : "bg-amber-500/20 text-amber-400"}`}>
-                    {reviewStatsQuery.data!.needsReview}
-                  </span>
-                )}
-              </button>
-            ) : null}
-
-            {/* ── Custom Folders ───────────────────────────────────────── */}
-            <div className="pt-3 pb-1 px-1 flex items-center justify-between">
-              <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Folders</span>
-              <button
-                className="text-muted-foreground hover:text-foreground transition-colors rounded p-0.5 hover:bg-muted/60"
-                onClick={() => setShowCreateFolder(true)}
-                title="New folder"
-                data-testid="button-new-folder"
-              >
-                <FolderPlus className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            {foldersQuery.isLoading && (
-              <div className="px-2 py-1 space-y-1">{[1,2].map(i => <Skeleton key={i} className="h-6 w-full rounded" />)}</div>
-            )}
-            {!foldersQuery.isLoading && (foldersQuery.data || []).length === 0 && (
-              <p className="px-2 py-1 text-[11px] text-muted-foreground/50 italic">No folders yet</p>
-            )}
-            {(foldersQuery.data || []).map((folder) => {
-              const isActive = tab === "folder" && selectedFolderId === folder.id;
-              return (
-                <div
-                  key={folder.id}
-                  className={`group flex items-center gap-2 px-2.5 py-1.5 rounded-md cursor-pointer transition-colors text-sm font-medium ${isActive ? "bg-primary/15 text-primary" : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"}`}
-                  onClick={() => { setTab("folder"); setSelectedFolderId(folder.id); setSelectedThreadId(null); setSelectedMessageId(null); }}
-                  data-testid={`folder-row-${folder.id}`}
-                >
-                  <Folder className={`h-4 w-4 flex-shrink-0 ${isActive ? "text-primary" : "text-teal-500/70"}`} />
-                  <span className="flex-1 truncate">{folder.name}</span>
-                  {folder.unreadCount > 0 && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${isActive ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{folder.unreadCount}</span>
-                  )}
-                  <button
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground flex-shrink-0 ml-auto"
-                    onClick={(e) => { e.stopPropagation(); setShowFolderSettings(folder.id); }}
-                    title="Folder settings"
-                    data-testid={`button-folder-settings-${folder.id}`}
-                  >
-                    <Settings2 className="h-3 w-3" />
-                  </button>
-                </div>
-              );
-            })}
           </nav>
 
           {/* Account status footer */}
