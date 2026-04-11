@@ -756,7 +756,12 @@ export const emailThreads = pgTable("email_threads", {
   primaryAccountId: integer("primary_account_id"),
   primaryLeadId: integer("primary_lead_id"),
   primaryOpportunityId: integer("primary_opportunity_id"),
+  primaryPartnerId: integer("primary_partner_id"),
   associationStatus: text("association_status").default("unassociated"),
+  workflowState: text("workflow_state"),
+  snoozedUntil: timestamp("snoozed_until"),
+  followUpAt: timestamp("follow_up_at"),
+  assignedUserId: integer("assigned_user_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

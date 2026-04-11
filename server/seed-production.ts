@@ -35,6 +35,13 @@ export async function migrateEmailSchema(): Promise<void> {
     await db.execute(sql`ALTER TABLE email_messages ADD COLUMN IF NOT EXISTS owner_user_id integer`);
     await db.execute(sql`ALTER TABLE email_messages ADD COLUMN IF NOT EXISTS source_account_id integer`);
 
+    // Add workflow / snooze / CRM-partner columns to email_threads
+    await db.execute(sql`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS primary_partner_id integer`);
+    await db.execute(sql`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS workflow_state text`);
+    await db.execute(sql`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS snoozed_until timestamp`);
+    await db.execute(sql`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS follow_up_at timestamp`);
+    await db.execute(sql`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS assigned_user_id integer`);
+
     // email_accounts table — one row per connected Gmail account per user
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS email_accounts (

@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
@@ -623,6 +624,137 @@ function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
   return <pre className="text-sm whitespace-pre-wrap font-sans text-foreground">{body}</pre>;
 }
 
+type ThreadRecord = {
+  found: boolean;
+  thread?: {
+    id: number; workflowState: string | null; snoozedUntil: string | null;
+    followUpAt: string | null; primaryContactId: number | null;
+    primaryAccountId: number | null; primaryLeadId: number | null;
+    associationStatus: string;
+  };
+  contact?: { id: number; firstName: string; lastName: string; email: string; } | null;
+  account?: { id: number; name: string; } | null;
+  lead?: { id: number; firstName: string; lastName: string; company: string; status: string; } | null;
+};
+
+const WORKFLOW_OPTIONS = [
+  { value: "none",            label: "— No status",      color: "text-muted-foreground" },
+  { value: "needs_reply",     label: "Needs Reply",       color: "text-amber-400" },
+  { value: "waiting_on_them", label: "Waiting On Them",   color: "text-blue-400" },
+  { value: "follow_up",       label: "Follow Up",         color: "text-orange-400" },
+  { value: "done",            label: "Done",              color: "text-emerald-400" },
+];
+
+function CrmContextPanel({ threadId }: { threadId: string }) {
+  const { toast } = useToast();
+
+  const threadRecordQuery = useQuery<ThreadRecord>({
+    queryKey: ["/api/gmail/thread-record", threadId],
+    queryFn: async () => {
+      const res = await fetch(`/api/gmail/thread-record/${threadId}`, { credentials: "include" });
+      if (!res.ok) return { found: false };
+      return res.json();
+    },
+    enabled: !!threadId,
+  });
+
+  const workflowMutation = useMutation({
+    mutationFn: async (state: string | null) => {
+      const res = await apiRequest("PATCH", `/api/gmail/thread-record/${threadId}`, { workflowState: state });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", threadId] });
+    },
+    onError: (err: any) => toast({ title: "Failed to update status", description: err.message, variant: "destructive" }),
+  });
+
+  const data = threadRecordQuery.data;
+  const thread = data?.thread;
+  const workflowState = thread?.workflowState ?? "none";
+  const currentOption = WORKFLOW_OPTIONS.find(o => o.value === workflowState) || WORKFLOW_OPTIONS[0];
+
+  return (
+    <div className="flex-shrink-0 border-t border-border/50 bg-card/20" data-testid="crm-context-panel">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-border/30">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">CRM Context</span>
+        {data?.found && data.thread?.associationStatus && data.thread.associationStatus !== "unassociated" && (
+          <Badge variant="outline" className="text-[10px] h-4 px-1.5 text-emerald-400 border-emerald-500/30">Linked</Badge>
+        )}
+      </div>
+      <div className="px-4 py-3 space-y-3">
+        {/* Workflow status */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground w-16 flex-shrink-0">Status</span>
+          <Select
+            value={workflowState}
+            onValueChange={(v) => workflowMutation.mutate(v === "none" ? null : v)}
+            disabled={workflowMutation.isPending}
+          >
+            <SelectTrigger className="h-7 text-xs flex-1" data-testid="select-workflow-state">
+              <SelectValue>
+                <span className={currentOption.color}>{currentOption.label}</span>
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {WORKFLOW_OPTIONS.map(opt => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  <span className={opt.color}>{opt.label}</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {workflowMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground flex-shrink-0" />}
+        </div>
+        {/* CRM links */}
+        {threadRecordQuery.isLoading ? (
+          <div className="space-y-1.5">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-2/3" />
+          </div>
+        ) : !data?.found ? (
+          <p className="text-xs text-muted-foreground/60 italic">Thread not yet synced. Run Sync to CRM to link it.</p>
+        ) : (
+          <div className="space-y-2">
+            {data.contact ? (
+              <div className="flex items-start gap-2">
+                <span className="text-xs text-muted-foreground w-16 flex-shrink-0 pt-0.5">Contact</span>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium">{data.contact.firstName} {data.contact.lastName}</p>
+                  {data.contact.email && <p className="text-xs text-muted-foreground truncate">{data.contact.email}</p>}
+                </div>
+              </div>
+            ) : null}
+            {data.account ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-16 flex-shrink-0">Account</span>
+                <p className="text-xs font-medium truncate">{data.account.name}</p>
+              </div>
+            ) : null}
+            {data.lead ? (
+              <div className="flex items-start gap-2">
+                <span className="text-xs text-muted-foreground w-16 flex-shrink-0 pt-0.5">Lead</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="text-xs font-medium">{data.lead.firstName} {data.lead.lastName}</p>
+                    {data.lead.status && (
+                      <Badge variant="outline" className="text-[10px] h-4 px-1.5">{data.lead.status}</Badge>
+                    )}
+                  </div>
+                  {data.lead.company && <p className="text-xs text-muted-foreground truncate">{data.lead.company}</p>}
+                </div>
+              </div>
+            ) : null}
+            {!data.contact && !data.account && !data.lead && (
+              <p className="text-xs text-muted-foreground/60 italic">No CRM records linked to this thread.</p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail: string }) {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
@@ -1014,6 +1146,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
   const peopleCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "people").length;
   const newslettersCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "newsletters").length;
   const updatesCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "updates").length;
+  const inboxUnreadCount = inboxMain.filter((m) => isUnread(m.labelIds)).length;
 
   const activeMessages =
     tab === "inbox" ? categorizedInbox :
@@ -1151,73 +1284,137 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
       )}
 
       <div className="flex flex-1 min-h-0">
-        {/* Left panel: message list */}
-        <div className={`flex flex-col min-h-0 border-r border-border/50 bg-background ${selectedThreadId ? "hidden md:flex md:w-80 lg:w-96 flex-shrink-0" : "flex-1 md:w-80 lg:w-96 md:flex-initial"}`}>
-          {/* Tabs + Search */}
-          <div className="flex-shrink-0 p-3 space-y-2 border-b border-border/50">
-            <div className="flex gap-1">
-              <Button
-                size="sm"
-                variant={tab === "inbox" ? "default" : "ghost"}
-                className="flex-1"
-                onClick={() => { setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                data-testid="tab-inbox"
+        {/* ── LEFT NAV SIDEBAR ───────────────────────────────────────────── */}
+        <aside className="hidden md:flex flex-col w-52 flex-shrink-0 border-r border-border/50 bg-background">
+          <nav className="flex-1 overflow-y-auto py-1.5 px-2 space-y-0.5">
+            {/* Main mailbox nav */}
+            {([
+              { id: "inbox" as const,  label: "Inbox",  icon: <Inbox className="h-4 w-4" />,   badge: inboxUnreadCount || null },
+              { id: "sent"  as const,  label: "Sent",   icon: <Send className="h-4 w-4" />,    badge: null },
+            ]).map(({ id, label, icon, badge }) => (
+              <button
+                key={id}
+                onClick={() => { setTab(id); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                data-testid={`nav-tab-${id}`}
+                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === id ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
               >
-                <Inbox className="h-4 w-4 mr-1" /> Inbox
-              </Button>
-              <Button
-                size="sm"
-                variant={tab === "sent" ? "default" : "ghost"}
-                className="flex-1"
-                onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                data-testid="tab-sent"
-              >
-                <Send className="h-4 w-4 mr-1" /> Sent
-              </Button>
-              {canSend && (
-                <Button
-                  size="sm"
-                  variant={tab === "other" ? "default" : "ghost"}
-                  className="flex-1 relative"
-                  onClick={() => { setTab("other"); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                  data-testid="tab-other"
-                >
-                  <FolderX className="h-4 w-4 mr-1" /> Other
-                  {inboxOther.length > 0 && (
-                    <span className="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 rounded-full bg-muted-foreground/40 text-[10px] flex items-center justify-center">
-                      {inboxOther.length}
-                    </span>
-                  )}
-                </Button>
-              )}
-            </div>
+                {icon}
+                <span className="flex-1 text-left truncate">{label}</span>
+                {badge ? <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === id ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{badge}</span> : null}
+              </button>
+            ))}
             {canSend && (
-              <div className="flex gap-1">
-                <Button
-                  size="sm"
-                  variant={tab === "drafts" ? "default" : "ghost"}
-                  className="flex-1"
+              <>
+                <button
                   onClick={() => { setTab("drafts"); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                  data-testid="tab-drafts"
+                  data-testid="nav-tab-drafts"
+                  className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === "drafts" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
                 >
-                  <FileText className="h-4 w-4 mr-1" /> Drafts
-                </Button>
-                <Button
-                  size="sm"
-                  variant={tab === "scheduled" ? "default" : "ghost"}
-                  className="flex-1 relative"
-                  onClick={() => { setTab("scheduled"); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                  data-testid="tab-scheduled"
-                >
-                  <CalendarClock className="h-4 w-4 mr-1" /> Scheduled
-                  {(scheduledQuery.data?.length ?? 0) > 0 && (
-                    <span className="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 rounded-full bg-primary/60 text-[10px] flex items-center justify-center">
-                      {scheduledQuery.data?.length}
-                    </span>
+                  <FileText className="h-4 w-4" />
+                  <span className="flex-1 text-left">Drafts</span>
+                  {(draftsQuery.data?.length ?? 0) > 0 && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "drafts" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{draftsQuery.data?.length}</span>
                   )}
-                </Button>
-              </div>
+                </button>
+                <button
+                  onClick={() => { setTab("scheduled"); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                  data-testid="nav-tab-scheduled"
+                  className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === "scheduled" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+                >
+                  <CalendarClock className="h-4 w-4" />
+                  <span className="flex-1 text-left">Scheduled</span>
+                  {(scheduledQuery.data?.length ?? 0) > 0 && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "scheduled" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{scheduledQuery.data?.length}</span>
+                  )}
+                </button>
+              </>
             )}
+            <button
+              onClick={() => { setTab("other"); setSelectedMessageId(null); setSelectedThreadId(null); }}
+              data-testid="nav-tab-other"
+              className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === "other" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+            >
+              <FolderX className="h-4 w-4" />
+              <span className="flex-1 text-left">Other</span>
+              {inboxOther.length > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-muted text-muted-foreground">{inboxOther.length}</span>
+              )}
+            </button>
+
+            {/* Custom Folders */}
+            <div className="pt-3 pb-1 px-1 flex items-center justify-between">
+              <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/50">Folders</span>
+              <button
+                className="text-muted-foreground hover:text-foreground transition-colors rounded p-0.5 hover:bg-muted/60"
+                onClick={() => setShowCreateFolder(true)}
+                title="New folder"
+                data-testid="button-new-folder"
+              >
+                <FolderPlus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {foldersQuery.isLoading && (
+              <div className="px-2 py-1 space-y-1">{[1,2].map(i => <Skeleton key={i} className="h-6 w-full rounded" />)}</div>
+            )}
+            {!foldersQuery.isLoading && (foldersQuery.data || []).length === 0 && (
+              <p className="px-2 py-1 text-[11px] text-muted-foreground/50 italic">No folders yet</p>
+            )}
+            {(foldersQuery.data || []).map((folder) => {
+              const isActive = tab === "folder" && selectedFolderId === folder.id;
+              return (
+                <div
+                  key={folder.id}
+                  className={`group flex items-center gap-2 px-2.5 py-1.5 rounded-md cursor-pointer transition-colors text-sm font-medium ${isActive ? "bg-primary/15 text-primary" : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"}`}
+                  onClick={() => { setTab("folder"); setSelectedFolderId(folder.id); setSelectedThreadId(null); setSelectedMessageId(null); }}
+                  data-testid={`folder-row-${folder.id}`}
+                >
+                  <Folder className={`h-4 w-4 flex-shrink-0 ${isActive ? "text-primary" : "text-teal-500/70"}`} />
+                  <span className="flex-1 truncate">{folder.name}</span>
+                  {folder.unreadCount > 0 && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${isActive ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{folder.unreadCount}</span>
+                  )}
+                  <button
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground flex-shrink-0 ml-auto"
+                    onClick={(e) => { e.stopPropagation(); setShowFolderSettings(folder.id); }}
+                    title="Folder settings"
+                    data-testid={`button-folder-settings-${folder.id}`}
+                  >
+                    <Settings2 className="h-3 w-3" />
+                  </button>
+                </div>
+              );
+            })}
+          </nav>
+
+          {/* Account status footer */}
+          {connectedAccount && (
+            <div className="flex-shrink-0 border-t border-border/40 bg-card/30 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className={`flex-shrink-0 h-2 w-2 rounded-full ${connectedAccount.authStatus === "active" ? "bg-emerald-400" : connectedAccount.authStatus === "expired" ? "bg-amber-400" : "bg-red-400"}`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-foreground truncate" data-testid="text-connected-email">{connectedAccount.emailAddress}</p>
+                  {connectedAccount.lastSyncAt ? (
+                    <p className="text-[10px] text-muted-foreground truncate">Synced {new Date(connectedAccount.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground">{connectedAccount.authStatus === "active" ? "Never synced" : connectedAccount.authStatus}</p>
+                  )}
+                </div>
+                {connectedAccount.authStatus !== "active" && canSend ? (
+                  <a href="/api/auth/gmail/connect" className="flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors whitespace-nowrap" data-testid="button-reconnect-account-footer">Reconnect</a>
+                ) : (
+                  <button title="Resync this account" data-testid="button-resync-account-footer" onClick={async () => { try { await fetch(`/api/gmail/accounts/${connectedAccount.id}/resync?limit=100`, { method: "POST", credentials: "include" }); syncMutation.mutate(undefined); } catch {} }} className="flex-shrink-0 p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/50 transition-colors">
+                    <RefreshCw className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </aside>
+
+        {/* ── CENTER PANEL: thread list ───────────────────────────────────── */}
+        <div className={`flex flex-col min-h-0 border-r border-border/50 bg-background ${selectedThreadId ? "hidden md:flex md:w-72 flex-shrink-0" : "flex-1 md:w-72 md:flex-initial"}`}>
+          {/* Category pills + Search */}
+          <div className="flex-shrink-0 p-3 space-y-2 border-b border-border/50">
             {tab === "inbox" && (
               <div className="flex gap-1 flex-wrap">
                 {([
@@ -1263,72 +1460,6 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                 </Button>
               )}
             </form>
-          </div>
-
-          {/* Custom Folders section */}
-          <div className="flex-shrink-0 border-b border-border/30">
-            <div className="px-3 py-1.5 flex items-center justify-between">
-              <button
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => setFoldersExpanded(!foldersExpanded)}
-                data-testid="button-toggle-folders"
-              >
-                {foldersExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                <span className="font-medium tracking-wide uppercase" style={{ fontSize: "10px", letterSpacing: "0.08em" }}>Custom Folders</span>
-              </button>
-              <button
-                className="text-muted-foreground hover:text-foreground transition-colors rounded p-0.5 hover:bg-muted/60"
-                onClick={() => setShowCreateFolder(true)}
-                title="New folder"
-                data-testid="button-new-folder"
-              >
-                <FolderPlus className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            {foldersExpanded && (
-              <div className="pb-1.5 px-1 space-y-0.5 max-h-48 overflow-y-auto">
-                {foldersQuery.isLoading && (
-                  <div className="px-2 py-1.5 space-y-1">
-                    {[1, 2].map(i => <Skeleton key={i} className="h-6 w-full rounded" />)}
-                  </div>
-                )}
-                {!foldersQuery.isLoading && (foldersQuery.data || []).length === 0 && (
-                  <div className="px-2 py-2 text-xs text-muted-foreground/60 italic">
-                    No folders yet. Create one to auto-sort emails by domain.
-                  </div>
-                )}
-                {(foldersQuery.data || []).map((folder) => {
-                  const isActive = tab === "folder" && selectedFolderId === folder.id;
-                  return (
-                    <div
-                      key={folder.id}
-                      className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer transition-colors ${isActive ? "bg-primary/15 text-primary" : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"}`}
-                      onClick={() => { setTab("folder"); setSelectedFolderId(folder.id); setSelectedThreadId(null); setSelectedMessageId(null); }}
-                      data-testid={`folder-row-${folder.id}`}
-                    >
-                      <Folder className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? "text-primary" : "text-teal-500/70"}`} />
-                      <span className="text-xs flex-1 truncate font-medium">{folder.name}</span>
-                      {folder.unreadCount > 0 && (
-                        <span className="text-[10px] px-1 py-0.5 rounded-full bg-primary/20 text-primary font-medium min-w-4 text-center">
-                          {folder.unreadCount}
-                        </span>
-                      )}
-                      {folder.emailCount > 0 && folder.unreadCount === 0 && (
-                        <span className="text-[10px] text-muted-foreground/50">{folder.emailCount}</span>
-                      )}
-                      <button
-                        className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground ml-0.5 flex-shrink-0"
-                        onClick={(e) => { e.stopPropagation(); setShowFolderSettings(folder.id); }}
-                        title="Folder settings"
-                        data-testid={`button-folder-settings-${folder.id}`}
-                      >
-                        <Settings2 className="h-3 w-3" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
 
           {/* Message list */}
@@ -1622,72 +1753,12 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
             )}
           </div>
 
-          {/* ── S2: Connected account status footer ────────────────────── */}
-          {connectedAccount && (
-            <div className="flex-shrink-0 border-t border-border/40 bg-card/30 px-3 py-2">
-              <div className="flex items-center gap-2">
-                {/* Status dot */}
-                <span
-                  className={`flex-shrink-0 h-2 w-2 rounded-full ${
-                    connectedAccount.authStatus === "active"
-                      ? "bg-emerald-400"
-                      : connectedAccount.authStatus === "expired"
-                      ? "bg-amber-400"
-                      : "bg-red-400"
-                  }`}
-                />
-                <div className="flex-1 min-w-0">
-                  <p
-                    className="text-xs font-medium text-foreground truncate"
-                    data-testid="text-connected-email"
-                  >
-                    {connectedAccount.emailAddress}
-                  </p>
-                  {connectedAccount.lastSyncAt ? (
-                    <p className="text-[10px] text-muted-foreground truncate">
-                      Synced {new Date(connectedAccount.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </p>
-                  ) : (
-                    <p className="text-[10px] text-muted-foreground">
-                      {connectedAccount.authStatus === "active" ? "Never synced" : connectedAccount.authStatus}
-                    </p>
-                  )}
-                </div>
-                {/* Actions */}
-                {connectedAccount.authStatus !== "active" && canSend ? (
-                  <a
-                    href="/api/auth/gmail/connect"
-                    className="flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors whitespace-nowrap"
-                    data-testid="button-reconnect-account-footer"
-                  >
-                    Reconnect
-                  </a>
-                ) : (
-                  <button
-                    title="Resync this account"
-                    data-testid="button-resync-account-footer"
-                    onClick={async () => {
-                      try {
-                        await fetch(`/api/gmail/accounts/${connectedAccount.id}/resync?limit=100`, {
-                          method: "POST",
-                          credentials: "include",
-                        });
-                        syncMutation.mutate(undefined);
-                      } catch {}
-                    }}
-                    className="flex-shrink-0 p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/50 transition-colors"
-                  >
-                    <RefreshCw className="h-3 w-3" />
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* Right panel: thread view */}
+        {/* ── RIGHT PANEL: thread view + CRM context ─────────────────────── */}
+        <div className="flex-1 flex flex-col min-h-0 min-w-0">
         {selectedThreadId && tab !== "drafts" && tab !== "scheduled" && (
-          <div className="flex-1 flex flex-col min-h-0 min-w-0">
+          <div className="flex-1 flex flex-col min-h-0">
             {/* Thread header */}
             <div className="flex-shrink-0 flex items-center gap-2 px-4 py-3 border-b border-border/50 bg-card/30">
               <Button variant="ghost" size="icon" className="md:hidden" onClick={handleBack}>
@@ -1757,6 +1828,8 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                 </div>
               ))}
             </div>
+            {/* CRM Context Panel */}
+            <CrmContextPanel threadId={selectedThreadId!} />
           </div>
         )}
 
@@ -1769,6 +1842,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
             </div>
           </div>
         )}
+        </div>
       </div>
 
       {/* Compose / Reply dialog */}

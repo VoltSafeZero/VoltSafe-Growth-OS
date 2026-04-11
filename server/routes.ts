@@ -1781,6 +1781,61 @@ export async function registerRoutes(
     }
   });
 
+  // ── Gmail Thread CRM Record ───────────────────────────────────────────────
+  // GET /api/gmail/thread-record/:threadId — fetch DB record + linked CRM entities
+  app.get("/api/gmail/thread-record/:threadId", requireAuth, async (req, res) => {
+    const threadId = String(req.params.threadId);
+    try {
+      const [thread] = await db
+        .select()
+        .from(emailThreads)
+        .where(eq(emailThreads.gmailThreadId, threadId));
+
+      if (!thread) return res.json({ found: false });
+
+      const [contact, account, lead] = await Promise.all([
+        thread.primaryContactId ? storage.getContact(thread.primaryContactId) : Promise.resolve(undefined),
+        thread.primaryAccountId ? storage.getAccount(thread.primaryAccountId) : Promise.resolve(undefined),
+        thread.primaryLeadId ? storage.getLead(thread.primaryLeadId) : Promise.resolve(undefined),
+      ]);
+
+      res.json({ found: true, thread, contact: contact || null, account: account || null, lead: lead || null });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // PATCH /api/gmail/thread-record/:threadId — upsert workflow state / snooze / follow-up
+  app.patch("/api/gmail/thread-record/:threadId", requireAuth, async (req, res) => {
+    const threadId = String(req.params.threadId);
+    const { workflowState, snoozedUntil, followUpAt } = req.body;
+    try {
+      const existing = await db
+        .select({ id: emailThreads.id })
+        .from(emailThreads)
+        .where(eq(emailThreads.gmailThreadId, threadId));
+
+      if (existing.length === 0) {
+        await db.insert(emailThreads).values({
+          gmailThreadId: threadId,
+          workflowState: workflowState ?? null,
+          snoozedUntil: snoozedUntil ? new Date(snoozedUntil) : null,
+          followUpAt: followUpAt ? new Date(followUpAt) : null,
+          associationStatus: "unassociated",
+        });
+      } else {
+        const updates: Record<string, unknown> = { updatedAt: new Date() };
+        if (workflowState !== undefined) updates.workflowState = workflowState || null;
+        if (snoozedUntil !== undefined) updates.snoozedUntil = snoozedUntil ? new Date(snoozedUntil) : null;
+        if (followUpAt !== undefined) updates.followUpAt = followUpAt ? new Date(followUpAt) : null;
+        await db.update(emailThreads).set(updates as any).where(eq(emailThreads.gmailThreadId, threadId));
+      }
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // ── Gmail Drafts ─────────────────────────────────────────────────────────
   app.get("/api/gmail/drafts", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;

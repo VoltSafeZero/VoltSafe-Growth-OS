@@ -1,0 +1,906 @@
+You are working on VoltSafe Cortex, our internal CMS/CRM built in Replit.
+
+I want you to redesign and rebuild the email module so I can comfortably live inside VoltSafe Cortex for email instead of needing Spark Mail or Apple Mail.
+
+This is not a small UI cleanup. This is a product redesign.
+
+CORE OBJECTIVE
+Build a premium, fast, modern email workspace inside VoltSafe Cortex that feels as convenient as Spark/Superhuman/Apple Mail, but is better because it is deeply connected to our CRM and can intelligently auto-attach emails to the correct records.
+
+The current email integration is not enough. It may sync email, but it does not yet function like a polished mail client or a relationship-aware CRM workspace. I want this fixed.
+
+==================================================
+1. PRODUCT GOAL
+==================================================
+
+Transform the current email area from a basic synced message view into a full email command center.
+
+The rebuilt email module must let me:
+- read emails comfortably
+- manage inbox quickly
+- reply and send with ease
+- search fast
+- organize with labels/folders/statuses
+- triage work efficiently
+- view CRM/account/contact/lead/partner/deal context beside every thread
+- automatically attach emails to the correct records
+- create tasks, notes, opportunities, and links directly from email
+- eventually support multiple user mailboxes without breaking the current single Gmail setup
+
+The UX must feel premium, clean, intuitive, and fast.
+
+==================================================
+2. NON-NEGOTIABLE UX REQUIREMENTS
+==================================================
+
+The email system must use a 3-pane layout on desktop:
+
+LEFT SIDEBAR
+- Inbox
+- Unread
+- Sent
+- Drafts
+- Snoozed
+- Follow Up
+- Waiting On Reply
+- Archived
+- Trash
+- Unlinked
+- Needs Review
+- custom labels/folders
+
+CENTER PANE
+- conversation/thread list
+- each row must be easy to scan quickly
+
+RIGHT PANE
+- full thread view
+- CRM context panel
+- related records panel
+- quick actions
+- composer when replying
+
+The current system should no longer feel like a raw admin table or message dump.
+
+==================================================
+3. EMAIL LIST / THREAD LIST REQUIREMENTS
+==================================================
+
+Each email thread row in the center pane must show:
+- sender name
+- sender email on hover or secondary view
+- subject
+- short message preview snippet
+- timestamp
+- unread state
+- attachment icon
+- linked contact badge
+- linked account badge
+- linked lead badge
+- linked partner badge
+- linked opportunity badge where applicable
+- thread status badge
+- priority badge
+- follow-up due badge
+- assigned owner
+- waiting-on-me / waiting-on-them indicator
+- auto-linked / manually-linked indicator
+- confidence indicator for smart attachment if helpful
+
+The thread list must support:
+- sort by newest
+- sort by oldest
+- sort by priority
+- sort by follow-up date
+- unread-only filter
+- assigned-owner filter
+- linked-account filter
+- linked-lead filter
+- linked-partner filter
+- label filter
+- date range filter
+- quick search
+- bulk select actions
+- pagination or infinite scroll with high performance
+
+Unread messages should be visually obvious.
+The list must be easy to scan quickly.
+
+==================================================
+4. THREAD VIEW REQUIREMENTS
+==================================================
+
+When opening a conversation, show a real threaded conversation view, not isolated messages.
+
+Must support:
+- threaded messages grouped together
+- show newest at bottom
+- collapse/expand older quoted sections
+- jump to latest unread message
+- show sender/recipient/cc/bcc/timestamps
+- inline attachment previews where possible
+- attachment download/open actions
+- reply
+- reply all
+- forward
+
+At the top of each open thread, provide a thread action bar with:
+- archive
+- mark unread
+- snooze
+- move
+- apply label
+- assign owner
+- link to CRM record
+- relink to different CRM record
+- approve or reject smart attachment suggestions
+- create task
+- add note
+- mark as done
+- mark as needs reply
+- mark as waiting on them
+- AI summarize
+- AI draft response
+- send later
+
+==================================================
+5. CRM CONTEXT PANEL REQUIREMENTS
+==================================================
+
+The right-side context panel must make Cortex better than Spark.
+
+When I open a thread, the system must automatically attempt to show:
+- linked contact
+- linked company/account
+- linked lead
+- linked partner
+- linked opportunity/deal
+- recent activity timeline
+- recent notes
+- open tasks
+- last contact date
+- last reply date
+- pipeline stage
+- contact/account owner
+- organization type/classification
+- any existing tags
+- all related records the thread is attached to
+- attachment source reasoning if auto-linked
+
+The context panel must allow one-click actions:
+- create new contact
+- create new company/account
+- create new lead
+- create new partner
+- link to existing contact
+- link to existing account
+- link to existing lead
+- link to existing partner
+- create opportunity/deal from thread
+- create task
+- create note
+- assign owner
+- change pipeline stage
+- add tags
+- save thread to CRM timeline
+- exclude thread from CRM logging if needed
+- override smart attachment
+- confirm suggested matches
+
+This is critical. This is the main advantage over Spark and Apple Mail.
+
+==================================================
+6. SMART AUTO-ATTACHMENT / RELATIONSHIP LINKING SYSTEM
+==================================================
+
+This is a core feature and must be designed properly.
+
+I want emails and threads to be smartly and automatically attached to the correct records inside VoltSafe Cortex, including:
+- Accounts
+- Leads
+- Contacts
+- Partners
+- Opportunities/Deals
+- Suppliers/Vendors where applicable
+- Projects or other related entities if they exist in the data model
+
+The system must not rely only on exact email match. It needs multi-layer smart linking.
+
+AUTO-ATTACHMENT PRIORITY LOGIC
+
+PRIORITY 1: EXACT CONTACT MATCH
+- If sender or recipient email exactly matches an existing contact email, attach thread to that contact
+- If that contact belongs to an account, also attach to that account
+- If that contact belongs to a lead, also attach to that lead if lead record still active
+- If that contact belongs to a partner organization, also surface that relationship
+
+PRIORITY 2: ACCOUNT DOMAIN MATCH
+- If no exact contact match exists, check sender domain and recipient domain
+- If domain matches a known account domain, attach thread to that account
+- If multiple records share the same domain, use strongest contextual match and lower confidence until reviewed
+
+PRIORITY 3: LEAD DOMAIN OR LEAD EMAIL MATCH
+- If thread participants match a lead email or lead company domain, attach to that lead
+- If lead is later converted into account/contact, preserve historical linkage and map forward cleanly
+
+PRIORITY 4: PARTNER DOMAIN OR KNOWN PARTNER CONTACT MATCH
+- If domain or participant matches a known partner or partner contact, attach thread to that partner record
+
+PRIORITY 5: OPPORTUNITY / DEAL INFERENCE
+- If thread is already attached to an account/lead/contact and there is exactly one open relevant opportunity/deal, suggest or auto-link to that opportunity
+- If there are multiple possible deals, show suggestions for user confirmation
+- If subject line or labels contain strong signals like pilot, proposal, PO, quote, certification, grant, investor, etc., use those to rank related opportunities
+
+PRIORITY 6: MANUAL REVIEW QUEUE
+- If confidence is too low, place the thread in Unlinked or Needs Review
+- Show best candidate suggestions with confidence score and reason
+
+ADDITIONAL SMART LINKING RULES
+- Support many-to-many linking where appropriate
+- A thread may belong to a contact and account together
+- A thread may also be attached to a partner, deal, or project if appropriate
+- Preserve both primary record and secondary related records
+- Maintain audit trail of how thread was linked: auto, suggested, or manual
+- Allow manual override at any time
+- Remember manual overrides and use them to improve future linking logic
+
+SMART MATCHING SIGNALS TO USE
+- exact email address
+- alternate contact emails
+- company domain
+- known aliases/domains
+- prior thread participants
+- thread subject keywords
+- reply chain history
+- existing CRM ownership relationships
+- linked calendar invite participants if available
+- manual user corrections from past matches
+
+CONFIDENCE MODEL
+Each auto-attachment should have:
+- confidence score
+- match reason
+- linked_by type: auto / suggested / manual / imported
+- reviewed flag
+
+Example confidence logic:
+- exact contact email = very high confidence
+- direct domain-to-account match = high confidence
+- weak keyword-only match = low confidence
+- multiple possible matches = suggestion only, not auto-finalize
+
+==================================================
+7. RELATED RECORDS / ASSOCIATIONS UI
+==================================================
+
+Each open thread must have a clear Related Records area showing:
+- Primary Account
+- Primary Contact
+- Lead
+- Partner
+- Opportunity/Deal
+- Other associated records
+
+The user must be able to:
+- approve suggested associations
+- remove association
+- change primary record
+- add secondary associations
+- create new record from thread
+- bulk attach selected threads to a record
+
+Also add bulk actions from inbox/thread list:
+- attach selected emails to account
+- attach selected emails to lead
+- attach selected emails to partner
+- mark selected emails as unlinked
+- approve suggested matches in bulk if confidence is above threshold
+
+==================================================
+8. TRIAGE / WORKFLOW SYSTEM
+==================================================
+
+Every thread must support workflow statuses.
+
+Create the following thread workflow states:
+- Done
+- Needs Reply
+- Waiting On Them
+- Follow Up Later
+- Delegated
+- Important
+- Needs CRM Review
+
+Also add:
+- follow-up date
+- reminder date
+- snooze until date/time
+- assigned owner
+- internal comment/note
+
+The system should help me process work rather than just read messages.
+
+Example logic:
+- if I sent the last message and there has been no reply, thread can be marked Waiting On Them
+- if inbound email arrives and needs a reply, mark Needs Reply
+- if auto-link confidence is low or multiple possible records exist, mark Needs CRM Review
+- if I snooze a thread, hide from Inbox until snooze date unless manually viewed
+
+==================================================
+9. COMPOSER REQUIREMENTS
+==================================================
+
+Build a polished composer inside Cortex.
+
+The composer must support:
+- new email
+- reply
+- reply all
+- forward
+- rich text formatting
+- bold / italic / underline
+- bullet lists
+- numbered lists
+- links
+- signatures
+- reusable snippets/templates
+- drag-and-drop attachments
+- file picker from VoltSafe Cortex file storage/documents
+- inline images
+- draft autosave
+- send later / schedule send
+- undo send delay
+- keyboard shortcut send (Cmd/Ctrl+Enter)
+
+AI features in composer:
+- draft response from thread
+- summarize thread
+- shorten draft
+- make more professional
+- make warmer
+- make firmer
+- extract action items
+
+The composer must feel smooth and modern.
+
+==================================================
+10. SEARCH REQUIREMENTS
+==================================================
+
+Global email search must be much stronger.
+
+Search must support:
+- sender name
+- sender email
+- recipient
+- subject
+- body text
+- account/company
+- contact
+- lead
+- partner
+- labels
+- date ranges
+- attachment names
+- deal/opportunity association
+- thread status
+- assigned owner
+- linked/unlinked status
+- auto-linked/manual-linked state
+
+Search must be fast and debounced.
+
+==================================================
+11. SMART VIEWS / SMART INBOXES
+==================================================
+
+Build smart views with saved rules.
+
+Default smart views:
+- Unread
+- Today
+- Follow Up Today
+- Waiting On Reply
+- Unlinked
+- Needs CRM Review
+- Investor Emails
+- Marina Leads
+- Ports / Harbours
+- Partners
+- Vendors / Manufacturing
+- Certification / Standards
+- Government / Grants
+- Internal Team
+- Low Priority / Newsletters
+
+Smart view rules should be configurable by:
+- sender email
+- sender domain
+- subject keywords
+- contact type
+- account type
+- lead type
+- partner type
+- pipeline stage
+- label
+- assigned owner
+- unread status
+- linked/unlinked state
+- confidence threshold
+- date rules
+- thread workflow state
+
+==================================================
+12. VOLTSAFE-SPECIFIC CATEGORIZATION
+==================================================
+
+Add smart categorization options relevant to VoltSafe.
+
+Thread/account/contact/lead/partner classifications should support:
+- Marina
+- Port / Harbour
+- Dealer / Distributor
+- Installation Partner
+- Manufacturing / Supplier
+- Certification / Standards
+- Utility / Energy
+- Government / Grant
+- Investor
+- Media / Press
+- Industry Partner
+- Internal
+- Other
+
+Thread statuses/tags should support:
+- Hot
+- Pilot Discussion
+- Waiting on Quote
+- Waiting on PO
+- Certification Related
+- Investor Follow-Up
+- Partnership Discussion
+- Vendor Issue
+- Low Priority
+
+==================================================
+13. CURRENT EMAIL MATCHING LOGIC MUST BE PRESERVED AND UPGRADED
+==================================================
+
+I already have email integrated into VoltSafe Cortex.
+I also already have some logic where emails can match contacts/accounts by email or domain.
+
+Do not break this.
+
+Preserve and upgrade the current matching logic into a smarter relationship attachment engine.
+
+BASE RULES
+1. If exact email address matches an existing contact, attach thread to that contact
+2. If that contact belongs to an account, attach to that account too
+3. If sender domain matches an existing account domain, attach to that account
+4. If sender or domain matches an existing lead, attach to that lead
+5. If sender or domain matches an existing partner, attach to that partner
+6. If multiple matches exist, score them and either auto-link or suggest based on confidence
+7. If confidence is too low, place thread into Unlinked or Needs Review
+8. Allow manual linking from thread view
+9. Once manually linked, remember the relationship going forward where appropriate
+
+==================================================
+14. IMPORTANT ARCHITECTURE REQUIREMENT
+==================================================
+
+Very important:
+The system currently only supports one connected Gmail account (mine).
+Do not break that.
+
+However, the architecture must be redesigned so that in the future multiple users can each connect their own mailbox.
+
+So build this in a mailbox-safe way now.
+
+ALL EMAIL DATA TABLES MUST SUPPORT mailbox_id.
+
+Even if only one mailbox is currently connected, the architecture must support:
+- one mailbox today
+- multiple user-specific mailboxes later
+- separate permissions later
+- no data collisions
+
+==================================================
+15. REQUIRED DATABASE / DATA MODEL
+==================================================
+
+Please create or refactor database schema to include the following entities, or equivalent improved versions if needed:
+
+TABLES / MODELS
+- users
+- mailboxes
+- mailbox_connections
+- email_threads
+- email_messages
+- email_participants
+- email_addresses
+- email_labels
+- email_thread_labels
+- email_attachments
+- email_drafts
+- email_thread_status
+- email_thread_assignments
+- email_thread_links
+- email_sync_jobs
+- email_templates
+- email_signatures
+- email_smart_views
+- email_internal_notes
+- contacts
+- accounts
+- leads
+- partners
+- opportunities or deals
+- optionally projects if supported
+
+For email_thread_links or equivalent association table, support:
+- thread_id
+- mailbox_id
+- linked_entity_type
+- linked_entity_id
+- relationship_role (primary, secondary, suggested, historical)
+- confidence_score
+- match_reason
+- linked_by_type (auto, suggested, manual, imported)
+- reviewed_by_user_id
+- reviewed_at
+- is_active
+- created_at
+- updated_at
+
+Required concepts/fields:
+- mailbox_id
+- external_provider (gmail)
+- external_message_id
+- external_thread_id
+- message_id_header
+- in_reply_to
+- references_header
+- subject
+- snippet
+- body_html
+- body_text
+- from
+- to
+- cc
+- bcc
+- sent_at
+- received_at
+- is_unread
+- is_archived
+- is_starred
+- has_attachments
+- snoozed_until
+- follow_up_at
+- reminder_at
+- workflow_state
+- waiting_on
+- assigned_user_id
+- exclude_from_crm_timeline
+- created_at
+- updated_at
+
+==================================================
+16. REQUIRED API / BACKEND ENDPOINTS
+==================================================
+
+Create clean backend endpoints or equivalent service layer for:
+
+MAIL THREADS
+- GET /api/mail/threads
+- GET /api/mail/threads/:id
+- GET /api/mail/search
+- POST /api/mail/threads/:id/archive
+- POST /api/mail/threads/:id/unarchive
+- POST /api/mail/threads/:id/mark-unread
+- POST /api/mail/threads/:id/mark-read
+- POST /api/mail/threads/:id/snooze
+- POST /api/mail/threads/:id/status
+- POST /api/mail/threads/:id/assign
+- POST /api/mail/threads/:id/link
+- POST /api/mail/threads/:id/unlink
+- POST /api/mail/threads/:id/review-match
+- POST /api/mail/threads/:id/note
+- POST /api/mail/threads/:id/label
+- POST /api/mail/threads/bulk-link
+- POST /api/mail/threads/bulk-review-matches
+
+COMPOSER / DRAFTS
+- POST /api/mail/compose/send
+- POST /api/mail/drafts
+- PUT /api/mail/drafts/:id
+- DELETE /api/mail/drafts/:id
+- POST /api/mail/send-later
+
+SETTINGS / SMART VIEWS
+- GET /api/mail/settings
+- PUT /api/mail/settings
+- GET /api/mail/smart-views
+- POST /api/mail/smart-views
+- PUT /api/mail/smart-views/:id
+
+SYNC / BACKGROUND JOBS
+- POST /api/mail/sync/run
+- GET /api/mail/sync/status
+- POST /api/mail/linking/run
+- GET /api/mail/linking/review-queue
+
+==================================================
+17. BACKGROUND JOBS / SYNC ENGINE
+==================================================
+
+Implement background sync jobs for:
+- initial mailbox sync
+- incremental new mail sync
+- thread summary updates
+- attachment metadata sync
+- label sync
+- draft sync where appropriate
+- scheduled send processing
+- smart linking to CRM
+- stale thread follow-up detection
+- waiting-on-reply detection
+- relinking when CRM records are updated
+- lead-to-account/contact conversion remapping
+- periodic retry of unlinked threads when new CRM records are created
+
+The UI must not wait on Gmail every time.
+Use background jobs/caching where possible.
+
+==================================================
+18. FRONTEND COMPONENTS TO BUILD
+==================================================
+
+Create or refactor the frontend into reusable components.
+
+Suggested components:
+- MailLayout
+- MailSidebar
+- MailThreadList
+- MailThreadRow
+- MailToolbar
+- MailSearchBar
+- MailThreadView
+- MailMessageCard
+- MailAttachmentList
+- MailContextPanel
+- MailRelatedRecordsPanel
+- MailComposer
+- MailTemplatePicker
+- MailLabelPicker
+- MailSnoozePicker
+- MailStatusPicker
+- MailAssignPicker
+- MailLinkRecordModal
+- MailSuggestedMatchesPanel
+- MailCreateTaskModal
+- MailCreateNoteModal
+- MailSmartViewList
+- MailSettingsPanel
+- MailReviewQueue
+
+Use component structure that is easy to maintain and scale.
+
+==================================================
+19. PERFORMANCE REQUIREMENTS
+==================================================
+
+This email module must feel fast.
+
+Implement:
+- lazy loading of full thread content
+- cached thread snippets
+- optimistic UI updates for archive/label/snooze/status changes
+- debounced search
+- pagination or efficient virtualized list
+- minimal unnecessary rerenders
+- efficient polling or webhook-driven sync if available
+- loading skeletons instead of clunky spinners where appropriate
+
+The module should feel noticeably faster and more polished than it is now.
+
+==================================================
+20. PERMISSIONS / ACCESS
+==================================================
+
+Design permission-aware architecture.
+
+Even if only I am using the mailbox now, support future rules such as:
+- master admin can see all mailboxes
+- users can only see their own mailbox unless granted access
+- some internal users may have delegated/shared mailbox access later
+- mail thread assignment can be separate from mailbox ownership
+- CRM record linking permissions can be role-based later
+
+Do not fully implement advanced sharing if it is too much right now, but architect for it.
+
+==================================================
+21. KEYBOARD SHORTCUTS
+==================================================
+
+Add keyboard shortcuts for speed.
+
+Minimum shortcuts:
+- E archive
+- R reply
+- A reply all
+- F forward
+- S snooze
+- L label
+- T create task
+- M mark unread
+- / focus search
+- Cmd/Ctrl+Enter send
+- J move down thread list
+- K move up thread list
+
+Add a shortcut help modal.
+
+==================================================
+22. SETTINGS
+==================================================
+
+Create mail settings UI for:
+- signature
+- undo send duration
+- default inbox view
+- preview density
+- compact vs comfortable layout
+- thread display settings
+- keyboard shortcuts on/off
+- send later defaults
+- CRM auto-linking preferences
+- auto-attach review thresholds
+- whether high-confidence matches auto-apply immediately
+
+==================================================
+23. CRM TIMELINE LOGGING
+==================================================
+
+For linked emails, automatically support CRM timeline logging.
+
+Requirements:
+- inbound and outbound emails can be displayed on contact/account/lead/partner/opportunity timeline
+- update last_contacted and last_replied fields where applicable
+- allow excluding some threads from CRM timeline logging
+- show communication history from CRM records
+- maintain clean association logic
+- preserve relationship history when leads convert to contacts/accounts
+
+==================================================
+24. MOBILE / RESPONSIVE BEHAVIOR
+==================================================
+
+Desktop is the priority, but mobile cannot be broken.
+
+On mobile:
+- sidebar collapses
+- thread list and thread view become stacked or switchable
+- composer remains usable
+- action buttons stay accessible
+
+==================================================
+25. DESIGN DIRECTION
+==================================================
+
+Design style:
+- premium
+- minimal
+- not cluttered
+- high signal-to-noise
+- obvious unread states
+- polished hover states
+- professional but modern
+- clean typography
+- strong spacing
+- smooth interactions
+- feels like a real daily-use email product, not an admin dashboard
+
+==================================================
+26. IMPLEMENTATION PHASES
+==================================================
+
+Build this in 4 phases.
+
+PHASE 1
+Focus first on:
+- 3-pane mail layout
+- thread list redesign
+- threaded conversation view
+- rich composer
+- archive / mark read-unread / labels / snooze
+- fast search
+- preserve current Gmail integration
+- mailbox-safe schema refactor with mailbox_id
+- do not break current single mailbox setup
+
+PHASE 2
+Then build:
+- CRM context panel
+- related records panel
+- workflow statuses
+- task/note/deal linking
+- smart views
+- unlinked queue
+- needs review queue
+- timeline logging
+- keyboard shortcuts
+
+PHASE 3
+Then build:
+- smart auto-attachment engine
+- confidence scoring
+- suggested matches UI
+- bulk review / bulk attach tools
+- lead/account/partner linking upgrades
+- relinking jobs
+
+PHASE 4
+Then build:
+- AI email actions
+- templates/snippets
+- scheduled send
+- advanced automations
+- future-ready multi-mailbox connection support
+
+==================================================
+27. REQUIRED DELIVERABLES
+==================================================
+
+I want you to do the following and present all of it clearly:
+
+1. Audit the current email implementation
+- identify current components
+- identify current Gmail integration method
+- identify current schema
+- identify current routes/services
+- identify what can be reused vs replaced
+
+2. Produce a build plan
+- exact step-by-step execution order
+- frontend changes
+- backend changes
+- schema migrations
+- sync logic changes
+- CRM auto-attachment logic changes
+
+3. Implement Phase 1 immediately
+
+4. While implementing, design the smart auto-attachment engine structure so it can be plugged into later phases cleanly
+
+5. After Phase 1, provide:
+- summary of what was changed
+- list of files created/modified
+- migration notes
+- next steps for Phase 2
+- proposed data flow for Phase 3 smart attachment system
+
+==================================================
+28. IMPORTANT GUARDRAILS
+==================================================
+
+- Do not break the current single Gmail integration
+- Do not remove current working functionality unless replacing it with better functionality
+- Preserve existing contact/account matching logic and improve it
+- Add proper support for auto-attaching emails to accounts, leads, contacts, partners, and deals
+- Build architecture now so multiple mailboxes can be supported later
+- Avoid making this look like a generic table-heavy enterprise panel
+- Optimize for usability, speed, relationship context, and daily convenience
+- Keep code clean and maintainable
+- Use consistent naming and modular structure
+- Manual user overrides must always win over auto-linking logic
+
+==================================================
+29. FINAL INSTRUCTION
+==================================================
+
+Treat this as a serious product rebuild, not a cosmetic patch.
+
+The target outcome is:
+VoltSafe Cortex becomes a place where I actually prefer to manage email because it combines premium mail UX with CRM-native workflow, context, and smart automatic attachment of emails to the right records.
+
+Start by auditing the current implementation and then immediately begin Phase 1.
