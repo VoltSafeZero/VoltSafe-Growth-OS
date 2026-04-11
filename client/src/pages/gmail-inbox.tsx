@@ -162,6 +162,7 @@ function ComposeDialog({
   defaultBody = "",
   threadId,
   draftId,
+  asAccountId,
 }: {
   open: boolean;
   onClose: () => void;
@@ -171,6 +172,7 @@ function ComposeDialog({
   defaultBody?: string;
   threadId?: string;
   draftId?: string;
+  asAccountId?: number;
 }) {
   const { toast } = useToast();
   const [to, setTo] = useState(defaultTo);
@@ -205,6 +207,7 @@ function ComposeDialog({
       const res = await apiRequest("POST", "/api/gmail/send", {
         to, subject, body: htmlBody, threadId,
         attachmentIds: attachedAssets.map((a) => a.id),
+        ...(asAccountId ? { asAccountId } : {}),
       });
       return res.json();
     },
@@ -1170,7 +1173,8 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
 
   const toggleStarMutation = useMutation({
     mutationFn: async (msgId: string) => {
-      const res = await apiRequest("POST", `/api/gmail/messages/${msgId}/toggle-star`);
+      const body = activeAccountId ? { asAccountId: activeAccountId } : {};
+      const res = await apiRequest("POST", `/api/gmail/messages/${msgId}/toggle-star`, body);
       return res.json() as Promise<{ starred: boolean }>;
     },
     onSuccess: (data, msgId) => {
@@ -1192,7 +1196,11 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
     id: number; userId: number; provider: string; emailAddress: string;
     displayName: string | null; authStatus: string; syncEnabled: boolean;
     lastSyncAt: string | null; syncErrorMessage: string | null; disconnectedAt: string | null;
+    isShared: boolean; isOwner: boolean;
   };
+
+  // null = user's personal account (default); number = shared account id
+  const [activeAccountId, setActiveAccountId] = useState<number | null>(null);
 
   const statusQuery = useQuery<{ connected: boolean; tokenValid: boolean; apiEnabled: boolean; hasCredentials: boolean }>({
     queryKey: ["/api/gmail/status"],
@@ -1215,17 +1223,30 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
     refetchInterval: 30_000,
     retry: false,
   });
-  const connectedAccount = accountsQuery.data?.[0] ?? null;
+  // Resolve which account is "active" — the selected shared account or the user's personal one
+  const connectedAccount = activeAccountId
+    ? (accountsQuery.data?.find((a) => a.id === activeAccountId) ?? accountsQuery.data?.[0] ?? null)
+    : (accountsQuery.data?.find((a) => a.isOwner) ?? accountsQuery.data?.[0] ?? null);
+
+  // Shared accounts visible to this user (not owned by them)
+  const sharedAccounts = (accountsQuery.data ?? []).filter((a) => !a.isOwner);
+  const personalAccount = (accountsQuery.data ?? []).find((a) => a.isOwner) ?? null;
+
+  // Helper to append asAccountId to URLSearchParams when viewing a shared account
+  const appendAccountId = (params: URLSearchParams) => {
+    if (activeAccountId) params.set("asAccountId", String(activeAccountId));
+  };
 
   // Any user with an active connected Gmail account can send
   const canSend = connectedAccount?.authStatus === "active";
 
   const inboxQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
-    queryKey: ["/api/gmail/messages", "inbox", searchQuery],
+    queryKey: ["/api/gmail/messages", "inbox", searchQuery, activeAccountId],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", "50");
       params.set("q", searchQuery ? `in:inbox ${searchQuery}` : "in:inbox");
+      appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
       return res.json();
@@ -1233,11 +1254,12 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
   });
 
   const sentQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
-    queryKey: ["/api/gmail/messages", "sent", searchQuery],
+    queryKey: ["/api/gmail/messages", "sent", searchQuery, activeAccountId],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", "50");
       params.set("q", searchQuery ? `in:sent ${searchQuery}` : "in:sent");
+      appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
       return res.json();
@@ -1245,7 +1267,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
     enabled: tab === "sent",
   });
 
-  // Reset extra pages when the base query data refreshes (e.g. search change)
+  // Reset extra pages when the base query data refreshes (e.g. search change or account switch)
   const inboxBaseToken = inboxQuery.data?.nextPageToken ?? null;
   const sentBaseToken = sentQuery.data?.nextPageToken ?? null;
   useEffect(() => { setInboxExtra([]); setInboxNextToken(inboxBaseToken); }, [inboxQuery.data]);
@@ -1259,6 +1281,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
       params.set("limit", "50");
       params.set("q", searchQuery ? `in:inbox ${searchQuery}` : "in:inbox");
       params.set("pageToken", inboxNextToken);
+      appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error();
       const data: { messages: MessageSummary[]; nextPageToken: string | null } = await res.json();
@@ -1279,6 +1302,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
       params.set("limit", "50");
       params.set("q", searchQuery ? `in:sent ${searchQuery}` : "in:sent");
       params.set("pageToken", sentNextToken);
+      appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error();
       const data: { messages: MessageSummary[]; nextPageToken: string | null } = await res.json();
@@ -1292,9 +1316,12 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
   };
 
   const threadQuery = useQuery<Thread>({
-    queryKey: ["/api/gmail/threads", selectedThreadId],
+    queryKey: ["/api/gmail/threads", selectedThreadId, activeAccountId],
     queryFn: async () => {
-      const res = await fetch(`/api/gmail/threads/${selectedThreadId}`, { credentials: "include" });
+      const params = new URLSearchParams();
+      if (activeAccountId) params.set("asAccountId", String(activeAccountId));
+      const qs = params.toString() ? `?${params}` : "";
+      const res = await fetch(`/api/gmail/threads/${selectedThreadId}${qs}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
       return res.json();
     },
@@ -1302,9 +1329,12 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
   });
 
   const profileQuery = useQuery({
-    queryKey: ["/api/gmail/profile"],
+    queryKey: ["/api/gmail/profile", activeAccountId],
     queryFn: async () => {
-      const res = await fetch("/api/gmail/profile", { credentials: "include" });
+      const params = new URLSearchParams();
+      if (activeAccountId) params.set("asAccountId", String(activeAccountId));
+      const qs = params.toString() ? `?${params}` : "";
+      const res = await fetch(`/api/gmail/profile${qs}`, { credentials: "include" });
       if (!res.ok) return null;
       return res.json();
     },
@@ -1315,9 +1345,12 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
   type ScheduledEmail = { id: number; to: string; subject: string | null; scheduledAt: string; createdAt: string };
 
   const draftsQuery = useQuery<DraftSummary[]>({
-    queryKey: ["/api/gmail/drafts"],
+    queryKey: ["/api/gmail/drafts", activeAccountId],
     queryFn: async () => {
-      const res = await fetch("/api/gmail/drafts", { credentials: "include" });
+      const params = new URLSearchParams();
+      if (activeAccountId) params.set("asAccountId", String(activeAccountId));
+      const qs = params.toString() ? `?${params}` : "";
+      const res = await fetch(`/api/gmail/drafts${qs}`, { credentials: "include" });
       if (!res.ok) return [];
       return res.json();
     },
@@ -1461,6 +1494,8 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
       fetch(`/api/gmail/messages/${msg.id}/mark-read`, {
         method: "POST",
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(activeAccountId ? { asAccountId: activeAccountId } : {}),
       }).catch(() => {/* silent — cache already updated */});
     }
   };
@@ -1616,6 +1651,37 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               </button>
             </div>
           )}
+          {/* Account switcher — only visible when there are shared team inboxes */}
+          {sharedAccounts.length > 0 && (
+            <div className="px-3 pb-2 flex flex-col gap-1">
+              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider font-medium px-0.5">Mailbox</p>
+              <div className="flex flex-wrap gap-1">
+                {/* Personal account pill */}
+                {personalAccount && (
+                  <button
+                    onClick={() => setActiveAccountId(null)}
+                    data-testid="btn-account-personal"
+                    className={`flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium transition-colors border ${activeAccountId === null ? "bg-primary/20 border-primary/40 text-primary" : "bg-muted/40 border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/70"}`}
+                  >
+                    <span className="max-w-[100px] truncate">{personalAccount.displayName || personalAccount.emailAddress.split("@")[0]}</span>
+                  </button>
+                )}
+                {/* Shared account pills */}
+                {sharedAccounts.map((acct) => (
+                  <button
+                    key={acct.id}
+                    onClick={() => setActiveAccountId(acct.id)}
+                    data-testid={`btn-account-shared-${acct.id}`}
+                    title={acct.emailAddress}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium transition-colors border ${activeAccountId === acct.id ? "bg-primary/20 border-primary/40 text-primary" : "bg-muted/40 border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/70"}`}
+                  >
+                    <span className="max-w-[100px] truncate">{acct.displayName || acct.emailAddress.split("@")[0]}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <nav className="flex-1 overflow-y-auto py-1 px-2 space-y-0.5">
             {/* Main mailbox nav */}
             {([
@@ -2337,6 +2403,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
         defaultBody={editingDraft?.body || ""}
         draftId={editingDraft?.draftId}
         threadId={editingDraft?.threadId || replyTo?.threadId}
+        asAccountId={activeAccountId ?? undefined}
       />
 
       {/* Create Folder dialog */}

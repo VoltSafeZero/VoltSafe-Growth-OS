@@ -120,26 +120,41 @@ export async function exchangeCodeForTokens(code: string, userId: number): Promi
 // Trevor's user_id — only user whose token falls back to system_settings for Phase 1 compat
 const TREVOR_USER_ID = 4;
 
-export async function getGmailClient(userId: number) {
-  // Primary: per-user token from email_accounts
-  const [acct] = await db
-    .select({ refreshToken: emailAccounts.refreshToken })
-    .from(emailAccounts)
-    .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isActive, true)))
-    .limit(1);
+// getGmailClient resolves a Gmail API client for either a userId or a specific accountId.
+// When accountId is provided (for shared mailbox access), it looks up by accountId directly,
+// bypassing the userId constraint so any workspace user can access shared inboxes.
+export async function getGmailClient(userId: number, accountId?: number) {
+  let refreshToken: string | null = null;
 
-  let refreshToken: string | null = acct?.refreshToken ?? null;
+  if (accountId !== undefined) {
+    // Shared account access — look up by specific accountId
+    const [acct] = await db
+      .select({ refreshToken: emailAccounts.refreshToken })
+      .from(emailAccounts)
+      .where(eq(emailAccounts.id, accountId))
+      .limit(1);
+    refreshToken = acct?.refreshToken ?? null;
+    if (!refreshToken) throw new Error("Shared account has no token — please reconnect it.");
+  } else {
+    // Standard: per-user token from email_accounts
+    const [acct] = await db
+      .select({ refreshToken: emailAccounts.refreshToken })
+      .from(emailAccounts)
+      .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isActive, true)))
+      .limit(1);
+    refreshToken = acct?.refreshToken ?? null;
 
-  // Fallback ONLY for Trevor: read from system_settings if email_accounts.refresh_token is empty
-  if (!refreshToken && userId === TREVOR_USER_ID) {
-    const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, "gmail_refresh_token"));
-    if (row?.value) {
-      refreshToken = row.value;
-      // Opportunistically backfill email_accounts so fallback isn't needed next time
-      if (acct) {
-        await db.update(emailAccounts)
-          .set({ refreshToken, updatedAt: new Date() })
-          .where(eq(emailAccounts.userId, userId));
+    // Fallback ONLY for Trevor: read from system_settings if email_accounts.refresh_token is empty
+    if (!refreshToken && userId === TREVOR_USER_ID) {
+      const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, "gmail_refresh_token"));
+      if (row?.value) {
+        refreshToken = row.value;
+        // Opportunistically backfill email_accounts so fallback isn't needed next time
+        if (acct) {
+          await db.update(emailAccounts)
+            .set({ refreshToken, updatedAt: new Date() })
+            .where(eq(emailAccounts.userId, userId));
+        }
       }
     }
   }

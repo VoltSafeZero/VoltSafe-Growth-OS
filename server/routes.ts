@@ -1787,9 +1787,7 @@ export async function registerRoutes(
   });
 
   // ── Gmail mailbox isolation helper (Phase 1) ─────────────────────────────
-  // Returns the user's active email_accounts record, or null if they have none.
-  // Phase 1: only Trevor has a record. Non-Trevor users get null → blocked from
-  // live Gmail API calls so they never see another user's private emails.
+  // Returns the user's own active email_accounts record (first one found).
   async function getUserGmailAccount(userId: number) {
     const [acct] = await db
       .select()
@@ -1799,13 +1797,52 @@ export async function registerRoutes(
     return acct ?? null;
   }
 
+  // Returns all accounts visible to this user: their own accounts + workspace-shared accounts.
+  async function getAccessibleAccounts(userId: number) {
+    return db
+      .select()
+      .from(emailAccounts)
+      .where(
+        and(
+          eq(emailAccounts.isActive, true),
+          or(
+            eq(emailAccounts.userId, userId),
+            eq(emailAccounts.isShared, true)
+          )
+        )
+      );
+  }
+
+  // Resolves which account to use for a Gmail API request.
+  // If asAccountId is provided AND the account is accessible (owned OR shared), use it.
+  // Returns { userId, accountId } — userId is used only as a fallback context,
+  // accountId drives getGmailClient when set.
+  async function resolveAccount(currentUserId: number, asAccountId?: number) {
+    if (asAccountId) {
+      const [acct] = await db
+        .select()
+        .from(emailAccounts)
+        .where(eq(emailAccounts.id, asAccountId))
+        .limit(1);
+      if (!acct || !acct.isActive) return null;
+      // Allow access if owned by this user OR it's a shared account
+      if (acct.userId !== currentUserId && !acct.isShared) return null;
+      return { userId: acct.userId, accountId: acct.id, acct };
+    }
+    // Default: user's own account
+    const acct = await getUserGmailAccount(currentUserId);
+    if (!acct) return null;
+    return { userId: currentUserId, accountId: undefined as number | undefined, acct };
+  }
+
   // ── Gmail routes (per-user isolated) ─────────────────────────────────────
   app.get("/api/gmail/profile", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
-    const acct = await getUserGmailAccount(userId);
-    if (!acct) return res.status(403).json({ message: "No Gmail account connected" });
+    const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
+    const resolved = await resolveAccount(userId, asAccountId);
+    if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     try {
-      const profile = await getProfile(userId);
+      const profile = await getProfile(resolved.userId, resolved.accountId);
       res.json(profile);
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
@@ -1814,13 +1851,14 @@ export async function registerRoutes(
 
   app.get("/api/gmail/messages", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
-    const acct = await getUserGmailAccount(userId);
-    if (!acct) return res.json({ messages: [], nextPageToken: null });
+    const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
+    const resolved = await resolveAccount(userId, asAccountId);
+    if (!resolved) return res.json({ messages: [], nextPageToken: null });
     try {
       const q = (req.query.q as string) || "";
       const maxResults = Math.min(Number(req.query.limit) || 50, 100);
       const pageToken = (req.query.pageToken as string) || undefined;
-      const { summaries, nextPageToken } = await getMessageSummaries(userId, maxResults, q, pageToken);
+      const { summaries, nextPageToken } = await getMessageSummaries(resolved.userId, maxResults, q, pageToken, resolved.accountId);
       res.json({ messages: summaries, nextPageToken });
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
@@ -1829,12 +1867,13 @@ export async function registerRoutes(
 
   app.get("/api/gmail/threads", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
-    const acct = await getUserGmailAccount(userId);
-    if (!acct) return res.json([]);
+    const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
+    const resolved = await resolveAccount(userId, asAccountId);
+    if (!resolved) return res.json([]);
     try {
       const q = (req.query.q as string) || "";
       const maxResults = Math.min(Number(req.query.limit) || 30, 100);
-      const threads = await listThreads(userId, q, maxResults);
+      const threads = await listThreads(resolved.userId, q, maxResults, resolved.accountId);
       res.json(threads);
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
@@ -1843,10 +1882,11 @@ export async function registerRoutes(
 
   app.get("/api/gmail/threads/:id", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
-    const acct = await getUserGmailAccount(userId);
-    if (!acct) return res.status(403).json({ message: "No Gmail account connected" });
+    const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
+    const resolved = await resolveAccount(userId, asAccountId);
+    if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     try {
-      const thread = await getThread(userId, req.params.id);
+      const thread = await getThread(resolved.userId, req.params.id, resolved.accountId);
       res.json(thread);
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
@@ -2359,10 +2399,11 @@ export async function registerRoutes(
   // ── Gmail Drafts ─────────────────────────────────────────────────────────
   app.get("/api/gmail/drafts", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
-    const acct = await getUserGmailAccount(userId);
-    if (!acct) return res.json([]);
+    const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
+    const resolved = await resolveAccount(userId, asAccountId);
+    if (!resolved) return res.json([]);
     try {
-      const drafts = await listDraftSummaries(userId);
+      const drafts = await listDraftSummaries(resolved.userId, resolved.accountId);
       res.json(drafts);
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
@@ -2371,10 +2412,11 @@ export async function registerRoutes(
 
   app.get("/api/gmail/drafts/:id", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
-    const acct = await getUserGmailAccount(userId);
-    if (!acct) return res.status(403).json({ message: "No Gmail account connected" });
+    const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
+    const resolved = await resolveAccount(userId, asAccountId);
+    if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     try {
-      const content = await getDraftContent(userId, req.params.id);
+      const content = await getDraftContent(resolved.userId, req.params.id, resolved.accountId);
       res.json(content);
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
@@ -2383,12 +2425,13 @@ export async function registerRoutes(
 
   app.post("/api/gmail/drafts", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
-    const acct = await getUserGmailAccount(userId);
-    if (!acct) return res.status(403).json({ message: "No Gmail account connected" });
+    const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;
+    const resolved = await resolveAccount(userId, asAccountId);
+    if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     try {
       const { to, subject, body, threadId, draftId } = req.body;
       if (!body) return res.status(400).json({ message: "body is required" });
-      const draft = await saveDraft(userId, to || "", subject || "", body, threadId, draftId);
+      const draft = await saveDraft(resolved.userId, to || "", subject || "", body, threadId, draftId, resolved.accountId);
       res.json(draft);
     } catch (err: any) {
       res.status(503).json({ message: "Failed to save draft", error: err.message });
@@ -2397,10 +2440,11 @@ export async function registerRoutes(
 
   app.delete("/api/gmail/drafts/:id", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
-    const acct = await getUserGmailAccount(userId);
-    if (!acct) return res.status(403).json({ message: "No Gmail account connected" });
+    const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
+    const resolved = await resolveAccount(userId, asAccountId);
+    if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     try {
-      await deleteDraft(userId, req.params.id);
+      await deleteDraft(resolved.userId, req.params.id, resolved.accountId);
       res.json({ success: true });
     } catch (err: any) {
       res.status(503).json({ message: "Failed to delete draft", error: err.message });
@@ -2455,10 +2499,11 @@ export async function registerRoutes(
 
   app.post("/api/gmail/messages/:id/mark-read", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
-    const acct = await getUserGmailAccount(userId);
-    if (!acct) return res.status(403).json({ message: "No Gmail account connected" });
+    const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;
+    const resolved = await resolveAccount(userId, asAccountId);
+    if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     try {
-      await markMessageRead(userId, req.params.id);
+      await markMessageRead(resolved.userId, req.params.id, resolved.accountId);
       res.json({ success: true });
     } catch (err: any) {
       res.status(503).json({ message: "Failed to mark as read", error: err.message });
@@ -2467,10 +2512,11 @@ export async function registerRoutes(
 
   app.post("/api/gmail/messages/:id/toggle-star", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
-    const acct = await getUserGmailAccount(userId);
-    if (!acct) return res.status(403).json({ message: "No Gmail account connected" });
+    const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;
+    const resolved = await resolveAccount(userId, asAccountId);
+    if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     try {
-      const gmail = await getGmailClient(userId);
+      const gmail = await getGmailClient(resolved.userId, resolved.accountId);
       const { id } = req.params;
       const msg = await gmail.users.messages.get({ userId: "me", id, format: "minimal" });
       const labelIds: string[] = msg.data.labelIds || [];
@@ -2488,8 +2534,9 @@ export async function registerRoutes(
 
   app.post("/api/gmail/send", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
-    const acct = await getUserGmailAccount(userId);
-    if (!acct) return res.status(403).json({ message: "No Gmail account connected. Connect your Gmail to send emails." });
+    const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;
+    const resolved = await resolveAccount(userId, asAccountId);
+    if (!resolved) return res.status(403).json({ message: "No Gmail account connected. Connect your Gmail to send emails." });
     try {
       const { to, subject, body, threadId, attachmentIds } = req.body;
       if (!to || !body) {
@@ -2509,7 +2556,7 @@ export async function registerRoutes(
           }
         }
       }
-      const result = await sendEmail(userId, to, subject || "", body, threadId, mimeAttachments);
+      const result = await sendEmail(resolved.userId, to, subject || "", body, threadId, mimeAttachments, resolved.accountId);
       res.json(result);
     } catch (err: any) {
       res.status(503).json({ message: "Failed to send email", error: err.message });
@@ -2526,16 +2573,40 @@ export async function registerRoutes(
   });
 
   // ── S1: Per-user email accounts with status ───────────────────────────────
-  // Returns the current user's connected Gmail accounts with full tracking data.
-  // Enforces owner isolation: users only see their own accounts.
+  // Returns the current user's accounts PLUS any workspace-shared accounts.
+  // Each account is annotated with isOwner so the frontend can distinguish.
   app.get("/api/gmail/accounts", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId;
-      const accounts = await db
-        .select()
-        .from(emailAccounts)
-        .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.workspaceId, 1)));
-      res.json(accounts);
+      const accounts = await getAccessibleAccounts(userId);
+      const annotated = accounts.map((a) => ({ ...a, isOwner: a.userId === userId }));
+      res.json(annotated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Toggle shared mailbox (master_admin only) ─────────────────────────────
+  // PATCH /api/gmail/accounts/:id/share { isShared: boolean }
+  app.patch("/api/gmail/accounts/:id/share", requireAuth, async (req, res) => {
+    try {
+      const currentUser = (req.session as any).userId;
+      const [me] = await db.select({ role: users.role }).from(users).where(eq(users.id, currentUser)).limit(1);
+      if (!me || me.role !== "master_admin") {
+        return res.status(403).json({ message: "Only master admins can share mailboxes." });
+      }
+      const accountId = Number(req.params.id);
+      const { isShared } = req.body;
+      if (typeof isShared !== "boolean") {
+        return res.status(400).json({ message: "isShared must be a boolean" });
+      }
+      const [updated] = await db
+        .update(emailAccounts)
+        .set({ isShared, updatedAt: new Date() })
+        .where(eq(emailAccounts.id, accountId))
+        .returning();
+      if (!updated) return res.status(404).json({ message: "Account not found" });
+      res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

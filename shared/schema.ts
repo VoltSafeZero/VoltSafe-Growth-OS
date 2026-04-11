@@ -1007,6 +1007,8 @@ export const emailAccounts = pgTable("email_accounts", {
   // auth_status: active | expired | revoked | error
   authStatus: text("auth_status").notNull().default("active"),
   isActive: boolean("is_active").default(true),
+  // isShared: if true, all workspace users can read and send from this inbox
+  isShared: boolean("is_shared").default(false),
   scopesJson: text("scopes_json"),
   refreshToken: text("refresh_token"),
   accessToken: text("access_token"),

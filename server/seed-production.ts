@@ -120,6 +120,9 @@ export async function migrateEmailSchema(): Promise<void> {
     await db.execute(sql`ALTER TABLE mail_folders ADD COLUMN IF NOT EXISTS workspace_id integer NOT NULL DEFAULT 1`);
     await db.execute(sql`ALTER TABLE email_folder_assignments ADD COLUMN IF NOT EXISTS workspace_id integer NOT NULL DEFAULT 1`);
 
+    // ── Shared mailbox support ────────────────────────────────────────────────
+    await db.execute(sql`ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS is_shared boolean NOT NULL DEFAULT false`);
+
     // ── S1 — Indexes for isolation queries ───────────────────────────────────
     await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_email_accounts_workspace_user ON email_accounts(workspace_id, user_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_email_accounts_auth_status ON email_accounts(auth_status)`);
