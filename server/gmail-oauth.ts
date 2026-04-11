@@ -26,16 +26,27 @@ function getOAuth2Client() {
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
-export function getAuthUrl(): string {
+// getAuthUrl — generates the Google OAuth consent URL.
+// Pass state="shared" to flag this as a shared workspace inbox connection.
+export function getAuthUrl(state?: string): string {
   const oauth2Client = getOAuth2Client();
   return oauth2Client.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
     prompt: "consent",
+    ...(state ? { state } : {}),
   });
 }
 
-export async function exchangeCodeForTokens(code: string, userId: number): Promise<{ emailAddress: string }> {
+// exchangeCodeForTokens — handles the OAuth callback.
+// When isShared=true (state="shared" in the callback), the account is upserted by
+// emailAddress so a single admin can hold multiple shared accounts without overwriting
+// their personal account. The isShared flag makes it accessible workspace-wide.
+export async function exchangeCodeForTokens(
+  code: string,
+  userId: number,
+  isShared = false
+): Promise<{ emailAddress: string }> {
   const oauth2Client = getOAuth2Client();
   const { tokens } = await oauth2Client.getToken(code);
 
@@ -43,7 +54,7 @@ export async function exchangeCodeForTokens(code: string, userId: number): Promi
     throw new Error("No refresh token returned. Try revoking access at myaccount.google.com/permissions and reconnecting.");
   }
 
-  // Get Gmail profile for the connecting user
+  // Get Gmail profile for the connecting account
   oauth2Client.setCredentials(tokens);
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
   let emailAddress = "";
@@ -52,66 +63,107 @@ export async function exchangeCodeForTokens(code: string, userId: number): Promi
     emailAddress = profile.data.emailAddress || "";
   } catch {}
 
-  // Get the CRM user's display name
-  let displayName = emailAddress;
-  try {
-    const [user] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
-    if (user?.name) displayName = user.name;
-  } catch {}
+  const displayName = emailAddress; // for shared accounts, use email as display name
 
-  // Upsert email_accounts for this user with per-user tokens
-  const [existing] = await db
-    .select({ id: emailAccounts.id })
-    .from(emailAccounts)
-    .where(eq(emailAccounts.userId, userId))
-    .limit(1);
+  if (isShared) {
+    // Shared workspace inbox: upsert by emailAddress so the admin can connect
+    // multiple shared accounts without overwriting their personal record.
+    const [existing] = await db
+      .select({ id: emailAccounts.id })
+      .from(emailAccounts)
+      .where(eq(emailAccounts.emailAddress, emailAddress))
+      .limit(1);
 
-  if (existing) {
-    await db.update(emailAccounts)
-      .set({
-        emailAddress: emailAddress || undefined,
-        displayName,
-        authStatus: "active",
-        refreshToken: tokens.refresh_token,
-        accessToken: tokens.access_token || null,
-        syncEnabled: true,
-        disconnectedAt: null,
-        syncErrorMessage: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(emailAccounts.userId, userId));
-  } else {
-    await db.insert(emailAccounts)
-      .values({
+    if (existing) {
+      await db.update(emailAccounts)
+        .set({
+          authStatus: "active",
+          refreshToken: tokens.refresh_token,
+          accessToken: tokens.access_token || null,
+          isShared: true,
+          syncEnabled: true,
+          disconnectedAt: null,
+          syncErrorMessage: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(emailAccounts.id, existing.id));
+    } else {
+      await db.insert(emailAccounts).values({
         workspaceId: 1,
-        userId,
+        userId, // connected-by user id (admin)
         provider: "gmail",
-        emailAddress: emailAddress || `user_${userId}@unknown`,
+        emailAddress: emailAddress || `shared_${Date.now()}@unknown`,
         displayName,
         authStatus: "active",
         isActive: true,
+        isShared: true,
         refreshToken: tokens.refresh_token,
         accessToken: tokens.access_token || null,
         syncEnabled: true,
-      })
-      .onConflictDoNothing();
-  }
+      });
+    }
+  } else {
+    // Personal account: upsert by userId (original behaviour)
+    let displayNamePersonal = emailAddress;
+    try {
+      const [user] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
+      if (user?.name) displayNamePersonal = user.name;
+    } catch {}
 
-  // Backward compat: also store in system_settings for any code that still reads from there
-  if (tokens.refresh_token) {
-    await db.insert(systemSettings)
-      .values({ key: "gmail_refresh_token", value: tokens.refresh_token })
-      .onConflictDoUpdate({ target: systemSettings.key, set: { value: tokens.refresh_token, updatedAt: new Date() } });
-  }
-  if (tokens.access_token) {
-    await db.insert(systemSettings)
-      .values({ key: "gmail_access_token", value: tokens.access_token })
-      .onConflictDoUpdate({ target: systemSettings.key, set: { value: tokens.access_token!, updatedAt: new Date() } });
-  }
-  if (emailAddress) {
-    await db.insert(systemSettings)
-      .values({ key: "gmail_address", value: emailAddress })
-      .onConflictDoUpdate({ target: systemSettings.key, set: { value: emailAddress, updatedAt: new Date() } });
+    const [existing] = await db
+      .select({ id: emailAccounts.id })
+      .from(emailAccounts)
+      .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isShared, false)))
+      .limit(1);
+
+    if (existing) {
+      await db.update(emailAccounts)
+        .set({
+          emailAddress: emailAddress || undefined,
+          displayName: displayNamePersonal,
+          authStatus: "active",
+          refreshToken: tokens.refresh_token,
+          accessToken: tokens.access_token || null,
+          syncEnabled: true,
+          disconnectedAt: null,
+          syncErrorMessage: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(emailAccounts.id, existing.id));
+    } else {
+      await db.insert(emailAccounts)
+        .values({
+          workspaceId: 1,
+          userId,
+          provider: "gmail",
+          emailAddress: emailAddress || `user_${userId}@unknown`,
+          displayName: displayNamePersonal,
+          authStatus: "active",
+          isActive: true,
+          isShared: false,
+          refreshToken: tokens.refresh_token,
+          accessToken: tokens.access_token || null,
+          syncEnabled: true,
+        })
+        .onConflictDoNothing();
+    }
+
+    // Backward compat: also store in system_settings (Trevor's personal account only)
+    if (tokens.refresh_token) {
+      await db.insert(systemSettings)
+        .values({ key: "gmail_refresh_token", value: tokens.refresh_token })
+        .onConflictDoUpdate({ target: systemSettings.key, set: { value: tokens.refresh_token, updatedAt: new Date() } });
+    }
+    if (tokens.access_token) {
+      await db.insert(systemSettings)
+        .values({ key: "gmail_access_token", value: tokens.access_token })
+        .onConflictDoUpdate({ target: systemSettings.key, set: { value: tokens.access_token!, updatedAt: new Date() } });
+    }
+    if (emailAddress) {
+      await db.insert(systemSettings)
+        .values({ key: "gmail_address", value: emailAddress })
+        .onConflictDoUpdate({ target: systemSettings.key, set: { value: emailAddress, updatedAt: new Date() } });
+    }
   }
 
   return { emailAddress };

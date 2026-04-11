@@ -105,7 +105,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/strategy/research">{() => <Redirect to="/strategy/partnerships" />}</Route>
 
       {/* ── EXECUTION ─────────────────────────────────────────────── */}
-      <Route path="/gmail">{() => wrap(<GmailInboxPage currentUserEmail={user.email} />)}</Route>
+      <Route path="/gmail">{() => wrap(<GmailInboxPage currentUserEmail={user.email} currentUserRole={user.globalRole || "sales"} />)}</Route>
       <Route path="/execution/calendar">{() => wrap(<CalendarPage />)}</Route>
       <Route path="/execution/projects">{() => wrap(<ProjectsPage />)}</Route>
       <Route path="/execution/communications">{() => wrap(<CommunicationsPage />)}</Route>

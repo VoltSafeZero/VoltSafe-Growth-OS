@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
   Clock, FileText, CalendarClock, CalendarX, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
-  FolderOpen, FolderPlus, Settings2, Globe, Plus, ChevronDown, ChevronRight, Folder,
+  FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronRight, Folder,
   Reply, Pencil, User, Building2, Zap,
   CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag,
 } from "lucide-react";
@@ -991,7 +991,7 @@ function CrmContextPanel({ threadId }: { threadId: string }) {
   );
 }
 
-export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail: string }) {
+export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sales" }: { currentUserEmail: string; currentUserRole?: string }) {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -1637,7 +1637,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
 
       <div className="flex flex-1 min-h-0">
         {/* ── LEFT NAV SIDEBAR ───────────────────────────────────────────── */}
-        <aside className="hidden md:flex flex-col w-52 flex-shrink-0 border-r border-border/50 bg-background">
+        <aside className="hidden md:flex flex-col w-56 flex-shrink-0 border-r border-border/50 bg-background">
           {/* Compose button */}
           {canSend && (
             <div className="px-3 pt-3 pb-2">
@@ -1651,54 +1651,85 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               </button>
             </div>
           )}
-          {/* Account switcher — only visible when there are shared team inboxes */}
-          {sharedAccounts.length > 0 && (
-            <div className="px-3 pb-2 flex flex-col gap-1">
-              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider font-medium px-0.5">Mailbox</p>
-              <div className="flex flex-wrap gap-1">
-                {/* Personal account pill */}
-                {personalAccount && (
-                  <button
-                    onClick={() => setActiveAccountId(null)}
-                    data-testid="btn-account-personal"
-                    className={`flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium transition-colors border ${activeAccountId === null ? "bg-primary/20 border-primary/40 text-primary" : "bg-muted/40 border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/70"}`}
-                  >
-                    <span className="max-w-[100px] truncate">{personalAccount.displayName || personalAccount.emailAddress.split("@")[0]}</span>
-                  </button>
-                )}
-                {/* Shared account pills */}
-                {sharedAccounts.map((acct) => (
-                  <button
-                    key={acct.id}
-                    onClick={() => setActiveAccountId(acct.id)}
-                    data-testid={`btn-account-shared-${acct.id}`}
-                    title={acct.emailAddress}
-                    className={`flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium transition-colors border ${activeAccountId === acct.id ? "bg-primary/20 border-primary/40 text-primary" : "bg-muted/40 border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/70"}`}
-                  >
-                    <span className="max-w-[100px] truncate">{acct.displayName || acct.emailAddress.split("@")[0]}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
 
           <nav className="flex-1 overflow-y-auto py-1 px-2 space-y-0.5">
-            {/* Main mailbox nav */}
-            {([
-              { id: "inbox" as const,  label: "Inbox",  icon: <Inbox className="h-4 w-4" />,   badge: inboxUnreadCount || null },
-              { id: "sent"  as const,  label: "Sent",   icon: <Send className="h-4 w-4" />,    badge: null },
-            ]).map(({ id, label, icon, badge }) => (
+
+            {/* ── Inbox section: personal + shared accounts ────────────── */}
+            <div className="pb-0.5 pt-1 px-1">
+              <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Inbox</span>
+            </div>
+
+            {/* Personal account row */}
+            {personalAccount ? (
               <button
-                key={id}
-                onClick={() => { setTab(id); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                data-testid={`nav-tab-${id}`}
-                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === id ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+                onClick={() => { setActiveAccountId(null); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                data-testid="btn-account-personal"
+                className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors group ${activeAccountId === null && tab === "inbox" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
               >
-                {icon}
-                <span className="flex-1 text-left truncate">{label}</span>
-                {badge ? <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === id ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{badge}</span> : null}
+                <span className={`flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${activeAccountId === null && tab === "inbox" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                  {(personalAccount.displayName || personalAccount.emailAddress)[0].toUpperCase()}
+                </span>
+                <span className="flex-1 text-left text-[12px] font-medium truncate">{personalAccount.emailAddress}</span>
+                {activeAccountId === null && inboxUnreadCount > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{inboxUnreadCount}</span>
+                )}
               </button>
-            ))}
+            ) : (
+              <button
+                onClick={() => { setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                data-testid="nav-tab-inbox"
+                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === "inbox" && activeAccountId === null ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+              >
+                <Inbox className="h-4 w-4" />
+                <span className="flex-1 text-left">Inbox</span>
+                {inboxUnreadCount > 0 && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{inboxUnreadCount}</span>
+                )}
+              </button>
+            )}
+
+            {/* Team inbox account rows */}
+            {sharedAccounts.length > 0 && (
+              <>
+                <div className="pt-3 pb-0.5 px-1">
+                  <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Team Inboxes</span>
+                </div>
+                {sharedAccounts.map((acct) => {
+                  const isActive = activeAccountId === acct.id && tab === "inbox";
+                  const letter = acct.emailAddress[0].toUpperCase();
+                  return (
+                    <button
+                      key={acct.id}
+                      onClick={() => { setActiveAccountId(acct.id); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                      data-testid={`btn-account-shared-${acct.id}`}
+                      title={acct.emailAddress}
+                      className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+                    >
+                      <span className={`flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${isActive ? "bg-primary text-primary-foreground" : "bg-teal-900/60 text-teal-300"}`}>
+                        {letter}
+                      </span>
+                      <span className="flex-1 text-left text-[12px] font-medium truncate">{acct.emailAddress}</span>
+                      {isActive && inboxUnreadCount > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{inboxUnreadCount}</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </>
+            )}
+
+            {/* ── Other mailbox views ──────────────────────────────────── */}
+            <div className="pt-3 pb-0.5 px-1">
+              <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Mail</span>
+            </div>
+            <button
+              onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }}
+              data-testid="nav-tab-sent"
+              className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+            >
+              <Send className="h-4 w-4" />
+              <span className="flex-1 text-left">Sent</span>
+            </button>
             {canSend && (
               <>
                 <button
@@ -1737,7 +1768,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               )}
             </button>
 
-            {/* CRM Review queue — threads with unconfirmed auto-associations */}
+            {/* CRM Review queue */}
             {(reviewStatsQuery.data?.needsReview ?? 0) > 0 || tab === "review" ? (
               <button
                 onClick={() => { setTab("review"); setSelectedMessageId(null); setSelectedThreadId(null); }}
@@ -1754,9 +1785,9 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               </button>
             ) : null}
 
-            {/* Custom Folders */}
+            {/* ── Custom Folders ───────────────────────────────────────── */}
             <div className="pt-3 pb-1 px-1 flex items-center justify-between">
-              <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/50">Folders</span>
+              <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Folders</span>
               <button
                 className="text-muted-foreground hover:text-foreground transition-colors rounded p-0.5 hover:bg-muted/60"
                 onClick={() => setShowCreateFolder(true)}
@@ -1800,28 +1831,43 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
           </nav>
 
           {/* Account status footer */}
-          {connectedAccount && (
-            <div className="flex-shrink-0 border-t border-border/40 bg-card/30 px-3 py-2">
-              <div className="flex items-center gap-2">
-                <span className={`flex-shrink-0 h-2 w-2 rounded-full ${connectedAccount.authStatus === "active" ? "bg-emerald-400" : connectedAccount.authStatus === "expired" ? "bg-amber-400" : "bg-red-400"}`} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-foreground truncate" data-testid="text-connected-email">{connectedAccount.emailAddress}</p>
-                  {connectedAccount.lastSyncAt ? (
-                    <p className="text-[10px] text-muted-foreground truncate">Synced {new Date(connectedAccount.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+          <div className="flex-shrink-0 border-t border-border/40 bg-card/30">
+            {connectedAccount && (
+              <div className="px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <span className={`flex-shrink-0 h-2 w-2 rounded-full ${connectedAccount.authStatus === "active" ? "bg-emerald-400" : connectedAccount.authStatus === "expired" ? "bg-amber-400" : "bg-red-400"}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-foreground truncate" data-testid="text-connected-email">{connectedAccount.emailAddress}</p>
+                    {connectedAccount.lastSyncAt ? (
+                      <p className="text-[10px] text-muted-foreground truncate">Synced {new Date(connectedAccount.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+                    ) : (
+                      <p className="text-[10px] text-muted-foreground">{connectedAccount.authStatus === "active" ? "Never synced" : connectedAccount.authStatus}</p>
+                    )}
+                  </div>
+                  {connectedAccount.authStatus !== "active" ? (
+                    <a href="/api/auth/gmail/connect" className="flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors whitespace-nowrap" data-testid="button-reconnect-account-footer">Reconnect</a>
                   ) : (
-                    <p className="text-[10px] text-muted-foreground">{connectedAccount.authStatus === "active" ? "Never synced" : connectedAccount.authStatus}</p>
+                    <button title="Resync this account" data-testid="button-resync-account-footer" onClick={async () => { try { await fetch(`/api/gmail/accounts/${connectedAccount.id}/resync?limit=100`, { method: "POST", credentials: "include" }); syncMutation.mutate(undefined); } catch {} }} className="flex-shrink-0 p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/50 transition-colors">
+                      <RefreshCw className="h-3 w-3" />
+                    </button>
                   )}
                 </div>
-                {connectedAccount.authStatus !== "active" && canSend ? (
-                  <a href="/api/auth/gmail/connect" className="flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors whitespace-nowrap" data-testid="button-reconnect-account-footer">Reconnect</a>
-                ) : (
-                  <button title="Resync this account" data-testid="button-resync-account-footer" onClick={async () => { try { await fetch(`/api/gmail/accounts/${connectedAccount.id}/resync?limit=100`, { method: "POST", credentials: "include" }); syncMutation.mutate(undefined); } catch {} }} className="flex-shrink-0 p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/50 transition-colors">
-                    <RefreshCw className="h-3 w-3" />
-                  </button>
-                )}
               </div>
-            </div>
-          )}
+            )}
+            {/* Connect team inbox — master_admin only */}
+            {currentUserRole === "master_admin" && (
+              <div className="px-3 pb-2 pt-0">
+                <a
+                  href="/api/auth/gmail/connect-shared"
+                  data-testid="button-connect-team-inbox"
+                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-dashed border-border/50 hover:border-border transition-colors"
+                >
+                  <PlusCircle className="h-3.5 w-3.5" />
+                  Connect team inbox
+                </a>
+              </div>
+            )}
+          </div>
         </aside>
 
         {/* ── CENTER PANEL: thread list ───────────────────────────────────── */}

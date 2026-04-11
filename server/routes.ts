@@ -2681,6 +2681,7 @@ export async function registerRoutes(
     }
   });
 
+  // Connect personal Gmail account
   app.get("/api/auth/gmail/connect", requireAuth, (_req, res) => {
     try {
       const url = getAuthUrl();
@@ -2690,10 +2691,29 @@ export async function registerRoutes(
     }
   });
 
+  // Connect a shared workspace inbox (master_admin only).
+  // Passes state="shared" through the OAuth flow so the callback knows to
+  // mark the resulting account record as isShared=true.
+  app.get("/api/auth/gmail/connect-shared", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const [me] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+      if (!me || me.role !== "master_admin") {
+        return res.status(403).send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+          <div style="text-align:center"><h2 style="color:#ef4444">Access Denied</h2><p>Only master admins can connect shared team inboxes.</p><a href="/gmail" style="color:#14b8a6">← Back</a></div>
+        </body></html>`);
+      }
+      const url = getAuthUrl("shared");
+      res.redirect(url);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/auth/google/callback", async (req, res) => {
     const code = req.query.code as string;
+    const state = (req.query.state as string) || "";
     if (!code) return res.status(400).send("Missing authorization code");
-    // Use the session to identify which user is connecting their Gmail
     const userId: number | undefined = (req.session as any)?.userId;
     if (!userId) {
       return res.status(401).send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
@@ -2704,12 +2724,14 @@ export async function registerRoutes(
         </div>
       </body></html>`);
     }
+    const isShared = state === "shared";
     try {
-      const { emailAddress } = await exchangeCodeForTokens(code, userId);
+      const { emailAddress } = await exchangeCodeForTokens(code, userId, isShared);
+      const label = isShared ? "Team inbox" : "Gmail account";
       res.send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
         <div style="text-align:center">
-          <h2 style="color:#22c55e">✓ Gmail Connected</h2>
-          <p>${emailAddress ? emailAddress + " has been" : "Your Gmail account has been"} connected to VoltSafe Cortex.</p>
+          <h2 style="color:#22c55e">✓ ${label} Connected</h2>
+          <p>${emailAddress ? emailAddress + " has been" : "The account has been"} connected to VoltSafe Cortex${isShared ? " as a shared team inbox" : ""}.</p>
           <a href="/gmail" style="color:#14b8a6">Go to Gmail Inbox →</a>
         </div>
       </body></html>`);
