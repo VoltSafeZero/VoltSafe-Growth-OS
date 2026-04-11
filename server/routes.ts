@@ -2579,7 +2579,7 @@ export async function registerRoutes(
     try {
       const userId = (req.session as any).userId;
       const accounts = await getAccessibleAccounts(userId);
-      const annotated = accounts.map((a) => ({ ...a, isOwner: a.userId === userId }));
+      const annotated = accounts.map((a) => ({ ...a, isOwner: a.userId === userId && !a.isShared }));
       res.json(annotated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
