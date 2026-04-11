@@ -636,8 +636,9 @@ export async function registerRoutes(
       tags: lead.tags,
     });
 
+    let newContact: any = null;
     if (lead.contactName) {
-      await storage.createContact({
+      newContact = await storage.createContact({
         accountId: account.id,
         name: lead.contactName,
         email: lead.contactEmail,
@@ -653,6 +654,76 @@ export async function registerRoutes(
       type: "status_change",
       summary: `Lead converted to Account: ${account.name}`,
     });
+
+    // ── Preserve email linkage after conversion ──────────────────────────────
+    // Any email threads linked to this lead should also link to the new account
+    // and contact, so no historical email context is lost.
+    try {
+      // 1. Update email_threads: add account/contact primary pointers where lead was primary
+      const threadPatch: Record<string, any> = { updatedAt: new Date() };
+      threadPatch.primaryAccountId = account.id;
+      if (newContact) threadPatch.primaryContactId = newContact.id;
+
+      await db
+        .update(emailThreads)
+        .set(threadPatch)
+        .where(eq(emailThreads.primaryLeadId, lead.id));
+
+      // 2. Find all email_messages linked to this lead via email_associations
+      const leadAssocs = await db
+        .select()
+        .from(emailAssociations)
+        .where(and(
+          eq(emailAssociations.objectType, "lead"),
+          eq(emailAssociations.objectId, lead.id)
+        ));
+
+      // For each message that was linked to the lead, also insert an association
+      // pointing to the new account and contact (if not already present)
+      const processedMsgIds = new Set<number>();
+      for (const la of leadAssocs) {
+        if (processedMsgIds.has(la.emailMessageId)) continue;
+        processedMsgIds.add(la.emailMessageId);
+
+        // Check existing associations for this message
+        const existingForMsg = await db
+          .select({ objectType: emailAssociations.objectType, objectId: emailAssociations.objectId })
+          .from(emailAssociations)
+          .where(eq(emailAssociations.emailMessageId, la.emailMessageId));
+        const existingKeys = new Set(existingForMsg.map(e => `${e.objectType}:${e.objectId}`));
+
+        // Add account association
+        if (!existingKeys.has(`account:${account.id}`)) {
+          await db.insert(emailAssociations).values({
+            emailMessageId: la.emailMessageId,
+            objectType: "account",
+            objectId: account.id,
+            objectName: account.name,
+            confidenceScore: 100,
+            associationReasonJson: JSON.stringify([`Auto-migrated from lead conversion (lead ID ${lead.id})`]),
+            isAuto: false,
+            isUserConfirmed: true,
+          });
+        }
+
+        // Add contact association if contact was created
+        if (newContact && !existingKeys.has(`contact:${newContact.id}`)) {
+          await db.insert(emailAssociations).values({
+            emailMessageId: la.emailMessageId,
+            objectType: "contact",
+            objectId: newContact.id,
+            objectName: newContact.name,
+            confidenceScore: 100,
+            associationReasonJson: JSON.stringify([`Auto-migrated from lead conversion (lead ID ${lead.id})`]),
+            isAuto: false,
+            isUserConfirmed: true,
+          });
+        }
+      }
+    } catch (linkErr) {
+      // Non-fatal: conversion succeeded even if email linkage migration fails
+      console.error("[convert] Email linkage migration error:", linkErr);
+    }
 
     res.json({ account, leadId: lead.id });
   });
@@ -1907,7 +1978,10 @@ export async function registerRoutes(
   });
 
   // POST /api/gmail/thread-associations/confirm
-  // User confirms an association — marks isUserConfirmed=true and updates the thread's primary pointers.
+  // User confirms an association:
+  //   - marks isUserConfirmed=true (immutable from engine's perspective)
+  //   - updates email_threads primary pointer for this objectType
+  //   - logs "confirmed" feedback so engine can learn from it
   app.post("/api/gmail/thread-associations/confirm", requireAuth, async (req, res) => {
     const { associationId, threadId } = req.body;
     if (!associationId) return res.status(400).json({ message: "associationId required" });
@@ -1919,11 +1993,20 @@ export async function registerRoutes(
 
       if (!assoc) return res.status(404).json({ message: "Association not found" });
 
+      // Mark association as user-confirmed (immutable — engine will not overwrite)
       await db.update(emailAssociations)
-        .set({ isUserConfirmed: true, updatedAt: new Date() })
+        .set({ isUserConfirmed: true, isAuto: false, updatedAt: new Date() })
         .where(eq(emailAssociations.id, assoc.id));
 
-      // If threadId provided, update the thread's primary pointer for this objectType
+      // Log confirmation to feedback table so engine can learn from it
+      await db.insert(associationFeedback).values({
+        emailMessageId: assoc.emailMessageId,
+        originalObjectType: assoc.objectType,
+        originalObjectId: assoc.objectId,
+        feedbackType: "confirmed",
+      });
+
+      // Update email_threads primary pointer for this objectType
       if (threadId) {
         const updates: Record<string, any> = { associationStatus: "associated", updatedAt: new Date() };
         if (assoc.objectType === "contact") updates.primaryContactId = assoc.objectId;
@@ -1932,7 +2015,10 @@ export async function registerRoutes(
         else if (assoc.objectType === "opportunity") updates.primaryOpportunityId = assoc.objectId;
         else if (assoc.objectType === "partner") updates.primaryPartnerId = assoc.objectId;
 
-        const [existing] = await db.select({ id: emailThreads.id }).from(emailThreads).where(eq(emailThreads.gmailThreadId, String(threadId)));
+        const [existing] = await db
+          .select({ id: emailThreads.id })
+          .from(emailThreads)
+          .where(eq(emailThreads.gmailThreadId, String(threadId)));
         if (existing) {
           await db.update(emailThreads).set(updates).where(eq(emailThreads.gmailThreadId, String(threadId)));
         } else {
@@ -1947,9 +2033,12 @@ export async function registerRoutes(
   });
 
   // POST /api/gmail/thread-associations/reject
-  // User rejects an association — removes it and logs feedback.
+  // User rejects an association:
+  //   - removes the association record
+  //   - logs "rejected" feedback (engine will never recreate this pairing)
+  //   - clears email_threads primary pointer if this was the active primary link
   app.post("/api/gmail/thread-associations/reject", requireAuth, async (req, res) => {
-    const { associationId, emailMessageId } = req.body;
+    const { associationId, emailMessageId, threadId } = req.body;
     if (!associationId) return res.status(400).json({ message: "associationId required" });
     try {
       const [assoc] = await db
@@ -1959,7 +2048,7 @@ export async function registerRoutes(
 
       if (!assoc) return res.status(404).json({ message: "Association not found" });
 
-      // Log feedback
+      // Log rejection so the engine skips this entity for this thread forever
       await db.insert(associationFeedback).values({
         emailMessageId: emailMessageId || assoc.emailMessageId,
         originalObjectType: assoc.objectType,
@@ -1969,6 +2058,48 @@ export async function registerRoutes(
 
       // Delete the association
       await db.delete(emailAssociations).where(eq(emailAssociations.id, assoc.id));
+
+      // Clear the email_threads primary pointer if this was the active primary
+      // so the thread doesn't appear as "associated" to a dismissed entity
+      if (threadId) {
+        const [threadRow] = await db
+          .select()
+          .from(emailThreads)
+          .where(eq(emailThreads.gmailThreadId, String(threadId)));
+        if (threadRow) {
+          const clears: Record<string, any> = { updatedAt: new Date() };
+          if (assoc.objectType === "contact" && threadRow.primaryContactId === assoc.objectId) {
+            clears.primaryContactId = null;
+          }
+          if (assoc.objectType === "account" && threadRow.primaryAccountId === assoc.objectId) {
+            clears.primaryAccountId = null;
+          }
+          if (assoc.objectType === "lead" && threadRow.primaryLeadId === assoc.objectId) {
+            clears.primaryLeadId = null;
+          }
+          if (assoc.objectType === "opportunity" && threadRow.primaryOpportunityId === assoc.objectId) {
+            clears.primaryOpportunityId = null;
+          }
+          if (assoc.objectType === "partner" && threadRow.primaryPartnerId === assoc.objectId) {
+            clears.primaryPartnerId = null;
+          }
+          // If all primary pointers become null after this rejection, flag for review
+          const contactAfter = assoc.objectType === "contact" ? null : threadRow.primaryContactId;
+          const accountAfter = assoc.objectType === "account" ? null : threadRow.primaryAccountId;
+          const leadAfter = assoc.objectType === "lead" ? null : threadRow.primaryLeadId;
+          const oppAfter = assoc.objectType === "opportunity" ? null : threadRow.primaryOpportunityId;
+          const partnerAfter = assoc.objectType === "partner" ? null : threadRow.primaryPartnerId;
+          const anyPrimaryRemains = [contactAfter, accountAfter, leadAfter, oppAfter, partnerAfter].some(Boolean);
+          if (!anyPrimaryRemains) {
+            clears.associationStatus = "needs_review";
+          }
+          if (Object.keys(clears).length > 1) {
+            await db.update(emailThreads)
+              .set(clears)
+              .where(eq(emailThreads.gmailThreadId, String(threadId)));
+          }
+        }
+      }
 
       res.json({ ok: true });
     } catch (error: any) {
@@ -2092,6 +2223,134 @@ export async function registerRoutes(
       }
 
       res.json(results.slice(0, 20));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // GET /api/gmail/review-queue/stats
+  // Returns a count of threads that have unconfirmed auto-associations.
+  // Used to display the "Needs Review" badge count in the inbox sidebar.
+  app.get("/api/gmail/review-queue/stats", requireAuth, async (req, res) => {
+    try {
+      const [row] = await db
+        .select({ count: sql<number>`count(distinct ${emailMessages.gmailThreadId})` })
+        .from(emailAssociations)
+        .innerJoin(emailMessages, eq(emailMessages.id, emailAssociations.emailMessageId))
+        .where(
+          and(
+            eq(emailAssociations.isAuto, true),
+            eq(emailAssociations.isUserConfirmed, false)
+          )
+        );
+      res.json({ needsReview: Number(row?.count ?? 0) });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // GET /api/gmail/review-queue?limit=20&offset=0
+  // Returns a paginated list of threads with unconfirmed auto-associations.
+  // Each row includes the latest message (subject/snippet/sender) + top candidate association.
+  app.get("/api/gmail/review-queue", requireAuth, async (req, res) => {
+    const limit = Math.min(Number(req.query.limit) || 25, 100);
+    const offset = Number(req.query.offset) || 0;
+    try {
+      // Step 1: Get distinct thread IDs that have unconfirmed auto-associations
+      const threadRows = await db
+        .selectDistinct({ gmailThreadId: emailMessages.gmailThreadId })
+        .from(emailAssociations)
+        .innerJoin(emailMessages, eq(emailMessages.id, emailAssociations.emailMessageId))
+        .where(
+          and(
+            eq(emailAssociations.isAuto, true),
+            eq(emailAssociations.isUserConfirmed, false)
+          )
+        )
+        .limit(limit)
+        .offset(offset);
+
+      const threadIds = threadRows.map(r => r.gmailThreadId).filter(Boolean) as string[];
+      if (threadIds.length === 0) return res.json({ items: [], total: Number((await db.select({ c: sql<number>`count(distinct ${emailMessages.gmailThreadId})` }).from(emailAssociations).innerJoin(emailMessages, eq(emailMessages.id, emailAssociations.emailMessageId)).where(and(eq(emailAssociations.isAuto, true), eq(emailAssociations.isUserConfirmed, false))))[0]?.c ?? 0) });
+
+      // Step 2: For each thread, get latest message + top unconfirmed candidate
+      const items: any[] = [];
+      for (const tid of threadIds) {
+        // Latest message in this thread
+        const [latestMsg] = await db
+          .select({
+            id: emailMessages.id,
+            subject: emailMessages.subject,
+            fromName: emailMessages.fromName,
+            fromEmail: emailMessages.fromEmail,
+            snippet: emailMessages.snippet,
+            sentAt: emailMessages.sentAt,
+          })
+          .from(emailMessages)
+          .where(eq(emailMessages.gmailThreadId, tid))
+          .orderBy(sql`${emailMessages.sentAt} desc`)
+          .limit(1);
+
+        if (!latestMsg) continue;
+
+        // Top unconfirmed auto-association for this thread (highest confidence)
+        const threadMsgIds = (
+          await db
+            .select({ id: emailMessages.id })
+            .from(emailMessages)
+            .where(eq(emailMessages.gmailThreadId, tid))
+        ).map(m => m.id);
+
+        const topAssoc = threadMsgIds.length > 0
+          ? (await db
+              .select()
+              .from(emailAssociations)
+              .where(
+                and(
+                  inArray(emailAssociations.emailMessageId, threadMsgIds),
+                  eq(emailAssociations.isAuto, true),
+                  eq(emailAssociations.isUserConfirmed, false)
+                )
+              )
+              .orderBy(sql`${emailAssociations.confidenceScore} desc`)
+              .limit(1))[0]
+          : null;
+
+        // Total candidate count for this thread
+        const totalCandidates = threadMsgIds.length > 0
+          ? Number((await db
+              .select({ c: sql<number>`count(*)` })
+              .from(emailAssociations)
+              .where(
+                and(
+                  inArray(emailAssociations.emailMessageId, threadMsgIds),
+                  eq(emailAssociations.isAuto, true),
+                  eq(emailAssociations.isUserConfirmed, false)
+                )
+              ))[0]?.c ?? 0)
+          : 0;
+
+        items.push({
+          gmailThreadId: tid,
+          latestMessage: latestMsg,
+          topCandidate: topAssoc ?? null,
+          candidateCount: totalCandidates,
+        });
+      }
+
+      // Total count for pagination
+      const [totalRow] = await db
+        .select({ c: sql<number>`count(distinct ${emailMessages.gmailThreadId})` })
+        .from(emailAssociations)
+        .innerJoin(emailMessages, eq(emailMessages.id, emailAssociations.emailMessageId))
+        .where(
+          and(
+            eq(emailAssociations.isAuto, true),
+            eq(emailAssociations.isUserConfirmed, false)
+          )
+        );
+
+      res.json({ items, total: Number(totalRow?.c ?? 0) });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

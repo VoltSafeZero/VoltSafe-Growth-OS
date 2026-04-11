@@ -739,6 +739,8 @@ function CrmContextPanel({ threadId }: { threadId: string }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-associations", threadId] });
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", threadId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue"] });
       toast({ title: "Association confirmed" });
     },
     onError: (err: any) => toast({ title: "Failed to confirm", description: err.message, variant: "destructive" }),
@@ -746,11 +748,14 @@ function CrmContextPanel({ threadId }: { threadId: string }) {
 
   const rejectMutation = useMutation({
     mutationFn: async (associationId: number) => {
-      const res = await apiRequest("POST", "/api/gmail/thread-associations/reject", { associationId });
+      const res = await apiRequest("POST", "/api/gmail/thread-associations/reject", { associationId, threadId });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-associations", threadId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", threadId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue"] });
       toast({ title: "Association removed" });
     },
     onError: (err: any) => toast({ title: "Failed to remove", description: err.message, variant: "destructive" }),
@@ -991,7 +996,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<{ to: string; subject: string; threadId: string } | null>(null);
-  const [tab, setTab] = useState<"inbox" | "sent" | "other" | "drafts" | "scheduled" | "folder">("inbox");
+  const [tab, setTab] = useState<"inbox" | "sent" | "other" | "drafts" | "scheduled" | "folder" | "review">("inbox");
   const [inboxCategory, setInboxCategory] = useState<InboxCategory>("all");
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
   const [showFolderSettings, setShowFolderSettings] = useState<number | null>(null);
@@ -1341,6 +1346,49 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
     },
   });
 
+  // Review queue — unconfirmed auto-associations needing human review
+  const reviewStatsQuery = useQuery<{ needsReview: number }>({
+    queryKey: ["/api/gmail/review-queue/stats"],
+    queryFn: async () => {
+      const res = await fetch("/api/gmail/review-queue/stats", { credentials: "include" });
+      if (!res.ok) return { needsReview: 0 };
+      return res.json();
+    },
+    refetchInterval: 60000,
+  });
+
+  type ReviewQueueItem = {
+    gmailThreadId: string;
+    latestMessage: {
+      id: number;
+      subject: string | null;
+      fromName: string | null;
+      fromEmail: string | null;
+      snippet: string | null;
+      sentAt: string | null;
+    };
+    topCandidate: {
+      id: number;
+      objectType: string;
+      objectId: number;
+      objectName: string | null;
+      confidenceScore: number | null;
+      associationReasonJson: string | null;
+    } | null;
+    candidateCount: number;
+  };
+
+  const reviewQueueQuery = useQuery<{ items: ReviewQueueItem[]; total: number }>({
+    queryKey: ["/api/gmail/review-queue"],
+    queryFn: async () => {
+      const res = await fetch("/api/gmail/review-queue?limit=50", { credentials: "include" });
+      if (!res.ok) return { items: [], total: 0 };
+      return res.json();
+    },
+    enabled: tab === "review",
+    refetchInterval: tab === "review" ? 30000 : false,
+  });
+
   const openDraft = async (draftId: string) => {
     setLoadingDraftId(draftId);
     try {
@@ -1623,6 +1671,23 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               )}
             </button>
 
+            {/* CRM Review queue — threads with unconfirmed auto-associations */}
+            {(reviewStatsQuery.data?.needsReview ?? 0) > 0 || tab === "review" ? (
+              <button
+                onClick={() => { setTab("review"); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                data-testid="nav-tab-review"
+                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === "review" ? "bg-amber-500/15 text-amber-400" : "text-amber-500/80 hover:bg-amber-500/10 hover:text-amber-400"}`}
+              >
+                <ShieldCheck className="h-4 w-4" />
+                <span className="flex-1 text-left">CRM Review</span>
+                {(reviewStatsQuery.data?.needsReview ?? 0) > 0 && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "review" ? "bg-amber-500/30 text-amber-300" : "bg-amber-500/20 text-amber-400"}`}>
+                    {reviewStatsQuery.data!.needsReview}
+                  </span>
+                )}
+              </button>
+            ) : null}
+
             {/* Custom Folders */}
             <div className="pt-3 pb-1 px-1 flex items-center justify-between">
               <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/50">Folders</span>
@@ -1806,6 +1871,68 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               )
             )}
 
+            {/* CRM Review tab — threads with unconfirmed auto-associations */}
+            {tab === "review" && (
+              reviewQueueQuery.isLoading ? (
+                <div className="p-3 space-y-2">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="space-y-1 p-2"><Skeleton className="h-3.5 w-2/3" /><Skeleton className="h-3 w-full" /></div>)}</div>
+              ) : (reviewQueueQuery.data?.items || []).length === 0 ? (
+                <div className="p-8 text-center">
+                  <ShieldCheck className="h-10 w-10 mx-auto mb-3 opacity-30 text-green-500" />
+                  <p className="text-sm font-medium text-foreground mb-1">All caught up</p>
+                  <p className="text-xs text-muted-foreground">No threads need CRM review right now.</p>
+                </div>
+              ) : (
+                (reviewQueueQuery.data?.items || []).map((item) => {
+                  const isSelected = item.gmailThreadId === selectedThreadId;
+                  const senderName = item.latestMessage.fromName || item.latestMessage.fromEmail?.split("@")[0] || "Unknown";
+                  const dateStr = item.latestMessage.sentAt
+                    ? formatDate(new Date(item.latestMessage.sentAt).toISOString(), undefined)
+                    : "";
+                  const cand = item.topCandidate;
+                  const score = cand?.confidenceScore ?? 0;
+                  const scoreBg = score >= 75 ? "bg-green-500/20 text-green-400" : score >= 45 ? "bg-amber-500/20 text-amber-400" : "bg-muted/60 text-muted-foreground";
+                  const typeLabel: Record<string, string> = { contact: "Contact", account: "Account", lead: "Lead", opportunity: "Opp", partner: "Partner" };
+                  return (
+                    <button
+                      key={item.gmailThreadId}
+                      onClick={() => { setSelectedThreadId(item.gmailThreadId); setSelectedMessageId(null); }}
+                      data-testid={`review-row-${item.gmailThreadId}`}
+                      className={`w-full text-left relative flex items-stretch transition-colors border-b border-border/20 border-l-[3px] ${
+                        isSelected ? "bg-amber-500/8 border-l-amber-500" : "border-l-amber-500/40 hover:bg-amber-500/5"
+                      }`}
+                    >
+                      <div className="flex-1 px-3 py-[9px] min-w-0">
+                        <div className="flex items-center justify-between gap-2 mb-[3px]">
+                          <span className="text-[13px] leading-none font-medium text-foreground/80 truncate">{senderName}</span>
+                          <span className="text-[11px] text-muted-foreground/45 whitespace-nowrap flex-shrink-0 tabular-nums">{dateStr}</span>
+                        </div>
+                        <div className="text-[12px] leading-snug truncate mb-1">
+                          <span className="text-muted-foreground/65">{item.latestMessage.subject || "(no subject)"}</span>
+                          {item.latestMessage.snippet && (
+                            <span className="text-muted-foreground/38"> — {item.latestMessage.snippet}</span>
+                          )}
+                        </div>
+                        {cand && (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary/70 font-medium">
+                              {typeLabel[cand.objectType] ?? cand.objectType}
+                            </span>
+                            <span className="text-[11px] text-foreground/60 truncate">{cand.objectName}</span>
+                            <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded font-medium ${scoreBg}`}>
+                              {score}%
+                            </span>
+                            {item.candidateCount > 1 && (
+                              <span className="text-[10px] text-muted-foreground/50">+{item.candidateCount - 1}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })
+              )
+            )}
+
             {/* Folder tab — show emails from DB assigned to this folder */}
             {tab === "folder" && (
               folderEmailsQuery.isLoading ? (
@@ -1868,7 +1995,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               )
             )}
 
-            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && isLoading && (
+            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && isLoading && (
               <div className="p-3 space-y-2">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <div key={i} className="space-y-1 p-2">
@@ -1920,7 +2047,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                 )}
               </div>
             )}
-            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && !isLoading && !error && tab !== "other" && activeMessages?.length === 0 && (
+            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && !isLoading && !error && tab !== "other" && activeMessages?.length === 0 && (
               statusQuery.data && !statusQuery.data.connected ? (
                 <div className="p-8 text-center">
                   <Mail className="h-12 w-12 mx-auto mb-4 opacity-20" />
@@ -1954,7 +2081,7 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                 <p>No filtered emails</p>
               </div>
             )}
-            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && activeMessages?.map((msg) => {
+            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && activeMessages?.map((msg) => {
               const unread = isUnread(msg.labelIds);
               const starred = isStarred(msg.labelIds);
               const isSelected = msg.threadId === selectedThreadId;

@@ -1,14 +1,26 @@
-// CRM Association Engine v2
-// Scores and attaches email threads to CRM entities across 6 signal types.
-// Writes to: email_associations (per-message), email_threads (per-thread primary keys)
+// CRM Association Engine v3
+//
+// Design principles:
+//   1. Manual user decisions always override automation
+//   2. Exact known contacts are matched first (Signal 1, +50)
+//   3. Account/lead domain matching is second (Signals 2+4, +20/+30)
+//   4. Partner matching supported (Signal 5, +35)
+//   5. Multiple possible matches create SUGGESTIONS, not automatic guesses (disambiguation)
+//   6. Confidence scores + match reasons always stored
+//   7. Lead conversion linkage handled externally (see convert route)
+//   8. Rejected associations NEVER re-created (feedback table respected)
+//
+// Writes to:
+//   email_associations  — per-message candidate set with scores
+//   email_threads       — per-thread primary keys (only when unambiguous + no user override)
 
 import { db } from "../db";
 import {
-  emailMessages, emailThreads, emailAssociations,
+  emailMessages, emailThreads, emailAssociations, associationFeedback,
   contacts, accounts, leads, opportunities, partnerships,
   type EmailMessage,
 } from "@shared/schema";
-import { eq, and, ilike } from "drizzle-orm";
+import { eq, and, ilike, inArray } from "drizzle-orm";
 import { resolveParticipants, isInternalEmail } from "./identity-resolver";
 
 interface AssocCandidate {
@@ -17,9 +29,11 @@ interface AssocCandidate {
   objectName: string;
   score: number;
   reasons: string[];
+  isAmbiguous: boolean;   // true when multiple candidates of same type are close in score
 }
 
-// Apply bulk/auto-generated penalties
+// ── Scoring helpers ───────────────────────────────────────────────────────────
+
 function applyPenalties(score: number, msg: EmailMessage, reasons: string[]): number {
   if ((msg.bulkEmailScore ?? 0) >= 40) {
     score -= 60;
@@ -32,7 +46,6 @@ function applyPenalties(score: number, msg: EmailMessage, reasons: string[]): nu
   return score;
 }
 
-// Apply thread history bonus — if thread already has CRM context, boost all candidates
 function applyThreadBonus(score: number, threadRecord: any, reasons: string[]): number {
   if (threadRecord?.associationStatus === "associated") {
     score += 25;
@@ -41,38 +54,114 @@ function applyThreadBonus(score: number, threadRecord: any, reasons: string[]): 
   return score;
 }
 
-// Check if a name appears meaningfully in a text block
 function nameInText(name: string, text: string): boolean {
   if (!name || !text || name.length < 4) return false;
   return text.toLowerCase().includes(name.toLowerCase());
 }
 
+// ── Disambiguation ────────────────────────────────────────────────────────────
+// If 2+ candidates of the same objectType both score >= 30 and their top-gap is
+// less than 20 points, none are safe to auto-apply. They become suggestions only.
+function applyDisambiguation(candidates: AssocCandidate[]): void {
+  const byType = new Map<string, AssocCandidate[]>();
+  for (const c of candidates) {
+    const group = byType.get(c.objectType) ?? [];
+    group.push(c);
+    byType.set(c.objectType, group);
+  }
+  for (const [, group] of byType) {
+    if (group.length < 2) continue;
+    const sorted = [...group].sort((a, b) => b.score - a.score);
+    const top = sorted[0].score;
+    const second = sorted[1].score;
+    // Ambiguous: both candidates are plausible and close in score
+    if (second >= 30 && (top - second) < 20) {
+      for (const c of group) {
+        c.isAmbiguous = true;
+        if (!c.reasons.includes("⚠ Ambiguous — multiple matches, review required")) {
+          c.reasons.push("⚠ Ambiguous — multiple matches, review required");
+        }
+      }
+    }
+  }
+}
+
+// ── Main engine ───────────────────────────────────────────────────────────────
+
 export async function runAssociationEngine(emailMessageId: number): Promise<void> {
-  // Load message
-  const [msg] = await db.select().from(emailMessages).where(eq(emailMessages.id, emailMessageId));
+  // 1. Load message
+  const [msg] = await db
+    .select()
+    .from(emailMessages)
+    .where(eq(emailMessages.id, emailMessageId));
   if (!msg || msg.ignoredReason) return;
 
   const participants: string[] = JSON.parse(msg.allParticipants || "[]");
   const externalParticipants = participants.filter(e => !isInternalEmail(e));
   if (externalParticipants.length === 0) return;
 
-  // Resolve via identity-resolver (exact email → contact, domain → account, exact email → lead)
+  // 2. Resolve participants → contacts/accounts/leads
   const resolved = await resolveParticipants(externalParticipants);
 
-  // Load existing thread record for bonus scoring
+  // 3. Load thread record for bonus scoring
   const [threadRecord] = await db
     .select()
     .from(emailThreads)
     .where(eq(emailThreads.gmailThreadId, msg.gmailThreadId))
     .limit(1);
 
+  // 4. Load rejection feedback for all messages in this thread
+  //    — ensures rejected associations are NEVER recreated
+  const threadMessages = await db
+    .select({ id: emailMessages.id })
+    .from(emailMessages)
+    .where(eq(emailMessages.gmailThreadId, msg.gmailThreadId));
+  const threadMsgIds = threadMessages.map(m => m.id);
+
+  const rejectedKeys = new Set<string>();
+  if (threadMsgIds.length > 0) {
+    const feedback = await db
+      .select()
+      .from(associationFeedback)
+      .where(inArray(associationFeedback.emailMessageId, threadMsgIds));
+    feedback
+      .filter(f => f.feedbackType === "rejected" && f.originalObjectType && f.originalObjectId)
+      .forEach(f => rejectedKeys.add(`${f.originalObjectType}:${f.originalObjectId}`));
+  }
+
+  // 5. Load user-confirmed associations for this thread
+  //    — these are immutable; engine must not overwrite them
+  const confirmedByType = new Map<string, number>(); // objectType → objectId
+  if (threadMsgIds.length > 0) {
+    const confirmedAssocs = await db
+      .select()
+      .from(emailAssociations)
+      .where(
+        and(
+          inArray(emailAssociations.emailMessageId, threadMsgIds),
+          eq(emailAssociations.isUserConfirmed, true)
+        )
+      );
+    for (const a of confirmedAssocs) {
+      // Highest-confidence confirmed association wins for each type
+      if (!confirmedByType.has(a.objectType)) {
+        confirmedByType.set(a.objectType, a.objectId);
+      }
+    }
+  }
+
   const normalizedSubject = (msg.normalizedSubject || msg.subject || "").toLowerCase();
   const bodySnippet = (msg.bodyText || "").slice(0, 600).toLowerCase();
-
   const candidates: AssocCandidate[] = [];
+
+  // Helper to skip rejected candidates early
+  function isRejected(type: string, id: number) {
+    return rejectedKeys.has(`${type}:${id}`);
+  }
 
   // ── Signal 1: Exact email → Contact (+50) ─────────────────────────────────
   for (const contact of resolved.contacts) {
+    if (isRejected("contact", contact.id)) continue;
     const reasons: string[] = [`Exact email match (${contact.email})`];
     let score = 50;
     score = applyThreadBonus(score, threadRecord, reasons);
@@ -82,47 +171,57 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
     }
     score = applyPenalties(score, msg, reasons);
     if (score > 0) {
-      candidates.push({ objectType: "contact", objectId: contact.id, objectName: contact.name, score, reasons });
+      candidates.push({ objectType: "contact", objectId: contact.id, objectName: contact.name, score, reasons, isAmbiguous: false });
     }
 
     // Signal 1a: Account via contact (+35)
-    const [acct] = await db.select().from(accounts).where(eq(accounts.id, contact.accountId)).limit(1);
-    if (acct && !candidates.some(c => c.objectType === "account" && c.objectId === acct.id)) {
-      const aReasons: string[] = [`Via contact "${contact.name}"`];
-      let aScore = 35;
-      aScore = applyThreadBonus(aScore, threadRecord, aReasons);
-      if (nameInText(acct.name, normalizedSubject) || nameInText(acct.name, bodySnippet)) {
-        aScore += 20;
-        aReasons.push("Account name in subject/body");
-      }
-      aScore = applyPenalties(aScore, msg, aReasons);
-      if (aScore > 0) {
-        candidates.push({ objectType: "account", objectId: acct.id, objectName: acct.name, score: aScore, reasons: aReasons });
+    if (!isRejected("account", contact.accountId)) {
+      const [acct] = await db
+        .select()
+        .from(accounts)
+        .where(eq(accounts.id, contact.accountId))
+        .limit(1);
+      if (acct && !candidates.some(c => c.objectType === "account" && c.objectId === acct.id)) {
+        const aReasons: string[] = [`Via contact "${contact.name}" (exact email match)`];
+        let aScore = 35;
+        aScore = applyThreadBonus(aScore, threadRecord, aReasons);
+        if (nameInText(acct.name, normalizedSubject) || nameInText(acct.name, bodySnippet)) {
+          aScore += 20;
+          aReasons.push("Account name in subject/body");
+        }
+        aScore = applyPenalties(aScore, msg, aReasons);
+        if (aScore > 0) {
+          candidates.push({ objectType: "account", objectId: acct.id, objectName: acct.name, score: aScore, reasons: aReasons, isAmbiguous: false });
+        }
       }
     }
 
     // Signal 1b: Open opportunity via contact (+20 base, +30 if title in subject)
-    const openOpps = await db.select().from(opportunities).where(
-      and(eq(opportunities.contactId, contact.id), eq(opportunities.stage, "inbound_new"))
-    );
+    const openOpps = await db
+      .select()
+      .from(opportunities)
+      .where(and(eq(opportunities.contactId, contact.id), eq(opportunities.stage, "inbound_new")));
     for (const opp of openOpps) {
-      const oReasons: string[] = [`Open opportunity via ${contact.name}`];
+      if (isRejected("opportunity", opp.id)) continue;
+      if (candidates.some(c => c.objectType === "opportunity" && c.objectId === opp.id)) continue;
+      const oReasons: string[] = [`Open opportunity via "${contact.name}"`];
       let oScore = 20;
       if (nameInText(opp.title, normalizedSubject)) {
         oScore += 30;
         oReasons.push("Opportunity title in subject");
       }
       oScore = applyPenalties(oScore, msg, oReasons);
-      if (oScore >= 40 && !candidates.some(c => c.objectType === "opportunity" && c.objectId === opp.id)) {
-        candidates.push({ objectType: "opportunity", objectId: opp.id, objectName: opp.title, score: oScore, reasons: oReasons });
+      if (oScore >= 40) {
+        candidates.push({ objectType: "opportunity", objectId: opp.id, objectName: opp.title, score: oScore, reasons: oReasons, isAmbiguous: false });
       }
     }
   }
 
   // ── Signal 2: Domain → Account (+20) ─────────────────────────────────────
   for (const account of resolved.accounts) {
+    if (isRejected("account", account.id)) continue;
     if (candidates.some(c => c.objectType === "account" && c.objectId === account.id)) continue;
-    const reasons: string[] = [`Sender domain @${account.domain} matches account`];
+    const reasons: string[] = [`Sender domain @${account.domain} matches account website`];
     let score = 20;
     score = applyThreadBonus(score, threadRecord, reasons);
     if (nameInText(account.name, normalizedSubject) || nameInText(account.name, bodySnippet)) {
@@ -131,13 +230,14 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
     }
     score = applyPenalties(score, msg, reasons);
     if (score > 0) {
-      candidates.push({ objectType: "account", objectId: account.id, objectName: account.name, score, reasons });
+      candidates.push({ objectType: "account", objectId: account.id, objectName: account.name, score, reasons, isAmbiguous: false });
     }
   }
 
   // ── Signal 3: Exact email → Lead (+50) ────────────────────────────────────
   const linkedLeadIds = new Set(resolved.leads.map(l => l.id));
   for (const lead of resolved.leads) {
+    if (isRejected("lead", lead.id)) continue;
     const reasons: string[] = [`Exact email match (${lead.email})`];
     let score = 50;
     score = applyThreadBonus(score, threadRecord, reasons);
@@ -147,7 +247,7 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
     }
     score = applyPenalties(score, msg, reasons);
     if (score > 0) {
-      candidates.push({ objectType: "lead", objectId: lead.id, objectName: lead.name, score, reasons });
+      candidates.push({ objectType: "lead", objectId: lead.id, objectName: lead.name, score, reasons, isAmbiguous: false });
     }
   }
 
@@ -165,9 +265,9 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
       .select({ id: leads.id, company: leads.company, contactEmail: leads.contactEmail })
       .from(leads)
       .where(ilike(leads.contactEmail, `%@${domain}`));
-
     for (const lead of domainLeads) {
       if (linkedLeadIds.has(lead.id)) continue;
+      if (isRejected("lead", lead.id)) continue;
       linkedLeadIds.add(lead.id);
       const reasons: string[] = [`Lead domain match @${domain} → ${lead.company}`];
       let score = 30;
@@ -178,19 +278,19 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
       }
       score = applyPenalties(score, msg, reasons);
       if (score > 0) {
-        candidates.push({ objectType: "lead", objectId: lead.id, objectName: lead.company, score, reasons });
+        candidates.push({ objectType: "lead", objectId: lead.id, objectName: lead.company, score, reasons, isAmbiguous: false });
       }
     }
   }
 
-  // ── Signal 5: Partnership domain match (+35, NEW) ─────────────────────────
+  // ── Signal 5: Partnership domain match (+35) ─────────────────────────────
   for (const domain of participantDomains) {
     const partnerMatches = await db
       .select({ id: partnerships.id, name: partnerships.name, website: partnerships.website })
       .from(partnerships)
       .where(ilike(partnerships.website, `%${domain}%`));
-
     for (const partner of partnerMatches) {
+      if (isRejected("partner", partner.id)) continue;
       if (candidates.some(c => c.objectType === "partner" && c.objectId === partner.id)) continue;
       const reasons: string[] = [`Partnership domain @${domain} → ${partner.name}`];
       let score = 35;
@@ -201,40 +301,44 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
       }
       score = applyPenalties(score, msg, reasons);
       if (score > 0) {
-        candidates.push({ objectType: "partner" as any, objectId: partner.id, objectName: partner.name, score, reasons });
+        candidates.push({ objectType: "partner" as any, objectId: partner.id, objectName: partner.name, score, reasons, isAmbiguous: false });
       }
     }
   }
 
-  // ── Signal 6: Lead company name in subject (+25, NEW) ────────────────────
-  // Only runs when there are words >= 5 chars in the subject (avoid false positives)
+  // ── Signal 6: Lead company name in subject (+25) ─────────────────────────
+  // Only triggers when subject has meaningful words AND no lead was already found
   if (normalizedSubject.length >= 5 && candidates.filter(c => c.objectType === "lead").length === 0) {
     const subjectWords = normalizedSubject
       .split(/\W+/)
       .filter(w => w.length >= 5)
-      .slice(0, 8); // cap to prevent huge queries
-
+      .slice(0, 8);
     for (const word of subjectWords) {
       const subjectLeads = await db
         .select({ id: leads.id, company: leads.company })
         .from(leads)
         .where(ilike(leads.company, `%${word}%`));
-
       for (const lead of subjectLeads) {
         if (linkedLeadIds.has(lead.id)) continue;
-        if (!nameInText(lead.company, normalizedSubject)) continue; // double-check full name
+        if (isRejected("lead", lead.id)) continue;
+        if (!nameInText(lead.company, normalizedSubject)) continue; // full name must match
         linkedLeadIds.add(lead.id);
         const reasons: string[] = [`Lead company "${lead.company}" found in email subject`];
         let score = 25;
         score = applyPenalties(score, msg, reasons);
         if (score > 0) {
-          candidates.push({ objectType: "lead", objectId: lead.id, objectName: lead.company, score, reasons });
+          candidates.push({ objectType: "lead", objectId: lead.id, objectName: lead.company, score, reasons, isAmbiguous: false });
         }
       }
     }
   }
 
-  // ── Write email_associations ───────────────────────────────────────────────
+  // ── Disambiguation pass ───────────────────────────────────────────────────
+  // If multiple candidates of the same type are close in score, mark them all
+  // as suggestions. The engine will not auto-apply ambiguous types to the thread.
+  applyDisambiguation(candidates);
+
+  // ── Write email_associations ──────────────────────────────────────────────
   const existing = await db
     .select()
     .from(emailAssociations)
@@ -244,6 +348,8 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
   for (const cand of candidates) {
     const key = `${cand.objectType}:${cand.objectId}`;
     if (existingKeys.has(key)) continue;
+    // isAuto = true only when score is high enough AND unambiguous
+    const isAuto = cand.score >= 45 && !cand.isAmbiguous;
     await db.insert(emailAssociations).values({
       emailMessageId,
       objectType: cand.objectType,
@@ -251,14 +357,20 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
       objectName: cand.objectName,
       confidenceScore: Math.min(100, cand.score),
       associationReasonJson: JSON.stringify(cand.reasons),
-      isAuto: cand.score >= 45,
+      isAuto,
       isUserConfirmed: false,
     });
   }
 
-  // ── Update email_threads primary records ────────────────────────────────────
+  // ── Update email_threads primary pointers ─────────────────────────────────
+  // Rules:
+  //   - Only update a type slot if the user has NOT already confirmed a link for that type
+  //   - Only auto-apply if candidate is unambiguous AND above threshold
+  //   - Never downgrade a confirmed association
   const best = (type: string) =>
-    candidates.filter(c => c.objectType === type).sort((a, b) => b.score - a.score)[0];
+    candidates
+      .filter(c => c.objectType === type && !c.isAmbiguous)
+      .sort((a, b) => b.score - a.score)[0];
 
   const topContact = best("contact");
   const topAccount = best("account");
@@ -266,25 +378,36 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
   const topOpp = best("opportunity");
   const topPartner = best("partner");
 
-  const shouldAssociate = !!(
-    (topContact && topContact.score >= 45) ||
-    (topAccount && topAccount.score >= 30) ||
-    (topLead && topLead.score >= 35) ||
-    (topOpp && topOpp.score >= 40) ||
-    (topPartner && topPartner.score >= 35)
-  );
+  const threadData: Record<string, any> = { updatedAt: new Date() };
+  let hasNewPrimary = false;
 
-  if (shouldAssociate) {
-    const threadData: Record<string, any> = {
-      associationStatus: "associated",
-      updatedAt: new Date(),
-    };
-    if (topContact && topContact.score >= 45) threadData.primaryContactId = topContact.objectId;
-    if (topAccount && topAccount.score >= 30) threadData.primaryAccountId = topAccount.objectId;
-    if (topLead && topLead.score >= 35) threadData.primaryLeadId = topLead.objectId;
-    if (topOpp && topOpp.score >= 40) threadData.primaryOpportunityId = topOpp.objectId;
-    if (topPartner && topPartner.score >= 35) threadData.primaryPartnerId = topPartner.objectId;
+  // Only set if: meets threshold AND no user confirmation already exists for that type
+  if (topContact && topContact.score >= 45 && !confirmedByType.has("contact")) {
+    threadData.primaryContactId = topContact.objectId;
+    hasNewPrimary = true;
+  }
+  if (topAccount && topAccount.score >= 30 && !confirmedByType.has("account")) {
+    threadData.primaryAccountId = topAccount.objectId;
+    hasNewPrimary = true;
+  }
+  if (topLead && topLead.score >= 35 && !confirmedByType.has("lead")) {
+    threadData.primaryLeadId = topLead.objectId;
+    hasNewPrimary = true;
+  }
+  if (topOpp && topOpp.score >= 40 && !confirmedByType.has("opportunity")) {
+    threadData.primaryOpportunityId = topOpp.objectId;
+    hasNewPrimary = true;
+  }
+  if (topPartner && topPartner.score >= 35 && !confirmedByType.has("partner")) {
+    threadData.primaryPartnerId = topPartner.objectId;
+    hasNewPrimary = true;
+  }
 
+  // Always mark as associated if we have any auto-resolved primary OR any suggestions to review
+  const hasCandidates = candidates.length > 0;
+  if (hasNewPrimary) threadData.associationStatus = "associated";
+
+  if (hasNewPrimary || hasCandidates) {
     if (threadRecord) {
       await db.update(emailThreads)
         .set(threadData)
