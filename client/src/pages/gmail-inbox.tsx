@@ -14,6 +14,7 @@ import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
   Clock, FileText, CalendarClock, CalendarX, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
   FolderOpen, FolderPlus, Settings2, Globe, Plus, ChevronDown, ChevronRight, Folder,
+  Reply, Pencil, User, Building2, Zap,
 } from "lucide-react";
 import DOMPurify from "dompurify";
 
@@ -672,83 +673,85 @@ function CrmContextPanel({ threadId }: { threadId: string }) {
   const data = threadRecordQuery.data;
   const thread = data?.thread;
   const workflowState = thread?.workflowState ?? "none";
-  const currentOption = WORKFLOW_OPTIONS.find(o => o.value === workflowState) || WORKFLOW_OPTIONS[0];
+
+  const WORKFLOW_PILLS = [
+    { value: "needs_reply",     label: "Needs Reply",     activeClass: "bg-amber-500/15 text-amber-400 border-amber-500/40" },
+    { value: "waiting_on_them", label: "Waiting",         activeClass: "bg-blue-500/15 text-blue-400 border-blue-500/40" },
+    { value: "follow_up",       label: "Follow Up",       activeClass: "bg-orange-500/15 text-orange-400 border-orange-500/40" },
+    { value: "done",            label: "Done",            activeClass: "bg-emerald-500/15 text-emerald-400 border-emerald-500/40" },
+  ];
 
   return (
-    <div className="flex-shrink-0 border-t border-border/50 bg-card/20" data-testid="crm-context-panel">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border/30">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">CRM Context</span>
-        {data?.found && data.thread?.associationStatus && data.thread.associationStatus !== "unassociated" && (
-          <Badge variant="outline" className="text-[10px] h-4 px-1.5 text-emerald-400 border-emerald-500/30">Linked</Badge>
-        )}
+    <div className="flex-shrink-0 border-t border-border/30 bg-background/60" data-testid="crm-context-panel">
+      <div className="px-4 pt-2.5 pb-1.5 flex items-center gap-2 flex-wrap">
+        {/* Workflow state pills — click to toggle */}
+        {WORKFLOW_PILLS.map(pill => {
+          const isActive = workflowState === pill.value;
+          return (
+            <button
+              key={pill.value}
+              onClick={() => workflowMutation.mutate(isActive ? null : pill.value)}
+              disabled={workflowMutation.isPending}
+              data-testid={`workflow-pill-${pill.value}`}
+              className={`text-[11px] px-2.5 py-[3px] rounded-full border font-medium transition-all select-none ${
+                isActive
+                  ? pill.activeClass
+                  : "text-muted-foreground/50 border-border/30 hover:border-border/60 hover:text-muted-foreground"
+              }`}
+            >
+              {pill.label}
+            </button>
+          );
+        })}
+        {workflowMutation.isPending && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/50" />}
       </div>
-      <div className="px-4 py-3 space-y-3">
-        {/* Workflow status */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground w-16 flex-shrink-0">Status</span>
-          <Select
-            value={workflowState}
-            onValueChange={(v) => workflowMutation.mutate(v === "none" ? null : v)}
-            disabled={workflowMutation.isPending}
-          >
-            <SelectTrigger className="h-7 text-xs flex-1" data-testid="select-workflow-state">
-              <SelectValue>
-                <span className={currentOption.color}>{currentOption.label}</span>
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {WORKFLOW_OPTIONS.map(opt => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  <span className={opt.color}>{opt.label}</span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {workflowMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground flex-shrink-0" />}
-        </div>
-        {/* CRM links */}
+
+      {/* CRM record chips */}
+      <div className="px-4 pb-2.5 flex items-center gap-1.5 flex-wrap min-h-[28px]">
         {threadRecordQuery.isLoading ? (
-          <div className="space-y-1.5">
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-2/3" />
-          </div>
-        ) : !data?.found ? (
-          <p className="text-xs text-muted-foreground/60 italic">Thread not yet synced. Run Sync to CRM to link it.</p>
-        ) : (
-          <div className="space-y-2">
-            {data.contact ? (
-              <div className="flex items-start gap-2">
-                <span className="text-xs text-muted-foreground w-16 flex-shrink-0 pt-0.5">Contact</span>
-                <div className="min-w-0">
-                  <p className="text-xs font-medium">{data.contact.firstName} {data.contact.lastName}</p>
-                  {data.contact.email && <p className="text-xs text-muted-foreground truncate">{data.contact.email}</p>}
-                </div>
-              </div>
-            ) : null}
-            {data.account ? (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground w-16 flex-shrink-0">Account</span>
-                <p className="text-xs font-medium truncate">{data.account.name}</p>
-              </div>
-            ) : null}
-            {data.lead ? (
-              <div className="flex items-start gap-2">
-                <span className="text-xs text-muted-foreground w-16 flex-shrink-0 pt-0.5">Lead</span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <p className="text-xs font-medium">{data.lead.firstName} {data.lead.lastName}</p>
-                    {data.lead.status && (
-                      <Badge variant="outline" className="text-[10px] h-4 px-1.5">{data.lead.status}</Badge>
-                    )}
-                  </div>
-                  {data.lead.company && <p className="text-xs text-muted-foreground truncate">{data.lead.company}</p>}
-                </div>
-              </div>
-            ) : null}
-            {!data.contact && !data.account && !data.lead && (
-              <p className="text-xs text-muted-foreground/60 italic">No CRM records linked to this thread.</p>
+          <>
+            <Skeleton className="h-5 w-24 rounded-full" />
+            <Skeleton className="h-5 w-20 rounded-full" />
+          </>
+        ) : data?.found ? (
+          <>
+            {data.contact && (
+              <a
+                href={`/contacts`}
+                data-testid="crm-chip-contact"
+                className="flex items-center gap-1 text-[11px] px-2 py-[2px] rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/25 hover:bg-sky-500/20 hover:border-sky-500/40 transition-colors"
+              >
+                <User className="h-2.5 w-2.5" />
+                {data.contact.firstName} {data.contact.lastName}
+              </a>
             )}
-          </div>
+            {data.account && (
+              <a
+                href={`/accounts`}
+                data-testid="crm-chip-account"
+                className="flex items-center gap-1 text-[11px] px-2 py-[2px] rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/25 hover:bg-violet-500/20 hover:border-violet-500/40 transition-colors"
+              >
+                <Building2 className="h-2.5 w-2.5" />
+                {data.account.name}
+              </a>
+            )}
+            {data.lead && (
+              <a
+                href={`/leads`}
+                data-testid="crm-chip-lead"
+                className="flex items-center gap-1 text-[11px] px-2 py-[2px] rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 hover:bg-emerald-500/20 hover:border-emerald-500/40 transition-colors"
+              >
+                <Zap className="h-2.5 w-2.5" />
+                {data.lead.firstName} {data.lead.lastName}
+                {data.lead.status && <span className="opacity-60 ml-0.5">· {data.lead.status}</span>}
+              </a>
+            )}
+            {!data.contact && !data.account && !data.lead && (
+              <span className="text-[11px] text-muted-foreground/40 italic">No linked CRM records — run Sync to attach</span>
+            )}
+          </>
+        ) : (
+          <span className="text-[11px] text-muted-foreground/40 italic">Sync to CRM to link this thread</span>
         )}
       </div>
     </div>
@@ -1205,25 +1208,66 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
   const selectedMessages = threadQuery.data?.messages || [];
   const focusedMsg = selectedMessages.find((m) => m.id === selectedMessageId) || selectedMessages[selectedMessages.length - 1];
 
+  // ── Keyboard navigation ────────────────────────────────────────────────────
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const list = tab === "drafts" || tab === "scheduled" || tab === "folder" ? [] : activeMessages;
+      const currentIdx = list.findIndex(m => m.threadId === selectedThreadId);
+
+      switch (e.key) {
+        case "j":
+        case "ArrowDown":
+          e.preventDefault();
+          if (list.length > 0) {
+            const next = currentIdx < list.length - 1 ? currentIdx + 1 : 0;
+            handleSelectMessage(list[next]);
+          }
+          break;
+        case "k":
+        case "ArrowUp":
+          e.preventDefault();
+          if (list.length > 0 && currentIdx > 0) {
+            handleSelectMessage(list[currentIdx - 1]);
+          }
+          break;
+        case "r":
+          if (focusedMsg) { e.preventDefault(); handleReply(focusedMsg); }
+          break;
+        case "c":
+          if (canSend) { e.preventDefault(); setReplyTo(null); setComposeOpen(true); }
+          break;
+        case "s":
+          if (focusedMsg) { e.preventDefault(); toggleStarMutation.mutate(focusedMsg.id); }
+          break;
+        case "Escape":
+          if (selectedThreadId) { e.preventDefault(); handleBack(); }
+          break;
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [tab, activeMessages, selectedThreadId, focusedMsg, canSend]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 sm:px-6 py-3 border-b border-border/50 bg-card/50 flex-shrink-0">
-        <Mail className="h-5 w-5 text-primary" />
-        <div>
-          <h1 className="text-lg font-bold leading-tight" data-testid="text-page-title">Gmail Inbox</h1>
-          {profileQuery.data?.emailAddress && (
-            <p className="text-xs text-muted-foreground">{profileQuery.data.emailAddress}</p>
-          )}
+      <div className="flex items-center gap-3 px-4 sm:px-6 py-2.5 border-b border-border/40 bg-background/80 backdrop-blur-sm flex-shrink-0">
+        <Mail className="h-4 w-4 text-primary/70" />
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h1 className="text-[13px] font-semibold leading-tight text-foreground/80" data-testid="text-page-title">Mail</h1>
+            {profileQuery.data?.emailAddress && (
+              <span className="text-[11px] text-muted-foreground/50 truncate hidden sm:block">{profileQuery.data.emailAddress}</span>
+            )}
+          </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
           {!canSend && (
             <Badge variant="outline" className="text-xs text-amber-400 border-amber-500/30">View Only</Badge>
-          )}
-          {canSend && (
-            <Button size="sm" onClick={() => { setReplyTo(null); setComposeOpen(true); }} data-testid="button-compose">
-              <Send className="h-4 w-4 mr-1" /> Compose
-            </Button>
           )}
           <Button
             size="sm"
@@ -1286,7 +1330,20 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
       <div className="flex flex-1 min-h-0">
         {/* ── LEFT NAV SIDEBAR ───────────────────────────────────────────── */}
         <aside className="hidden md:flex flex-col w-52 flex-shrink-0 border-r border-border/50 bg-background">
-          <nav className="flex-1 overflow-y-auto py-1.5 px-2 space-y-0.5">
+          {/* Compose button */}
+          {canSend && (
+            <div className="px-3 pt-3 pb-2">
+              <button
+                onClick={() => { setReplyTo(null); setComposeOpen(true); }}
+                data-testid="button-sidebar-compose"
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 active:scale-[0.98] transition-all"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Compose
+              </button>
+            </div>
+          )}
+          <nav className="flex-1 overflow-y-auto py-1 px-2 space-y-0.5">
             {/* Main mailbox nav */}
             {([
               { id: "inbox" as const,  label: "Inbox",  icon: <Inbox className="h-4 w-4" />,   badge: inboxUnreadCount || null },
@@ -1546,26 +1603,34 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                 (folderEmailsQuery.data || []).map((email) => {
                   const isSelected = email.gmailThreadId === selectedThreadId;
                   const senderName = email.fromName || email.fromEmail?.split("@")[0] || "Unknown";
-                  const dateStr = email.sentAt ? new Date(email.sentAt).toLocaleDateString([], { month: "short", day: "numeric" }) : "";
+                  const dateStr = email.sentAt
+                    ? formatDate(new Date(email.sentAt).toISOString(), undefined)
+                    : "";
                   return (
                     <div
                       key={email.id}
-                      className={`group relative border-b border-border/30 ${isSelected ? "bg-primary/10 border-l-2 border-l-primary" : ""}`}
+                      className={`relative group flex items-stretch transition-colors border-b border-border/20 ${
+                        isSelected
+                          ? "bg-primary/8 border-l-[3px] border-l-primary"
+                          : "border-l-[3px] border-l-transparent hover:bg-muted/25"
+                      }`}
                     >
                       <button
                         onClick={() => { setSelectedThreadId(email.gmailThreadId); setSelectedMessageId(null); }}
                         data-testid={`folder-email-row-${email.id}`}
-                        className="w-full text-left px-3 py-2.5 pr-10 transition-colors hover:bg-muted/50"
+                        className="flex-1 text-left px-3 py-[9px] pr-10 min-w-0"
                       >
-                        <div className="flex items-start justify-between gap-2 mb-0.5">
-                          <span className="text-sm truncate font-medium text-foreground">{senderName}</span>
-                          <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">{dateStr}</span>
+                        <div className="flex items-center justify-between gap-2 mb-[3px]">
+                          <span className="text-[13px] leading-none font-medium text-foreground/80 truncate">{senderName}</span>
+                          <span className="text-[11px] text-muted-foreground/45 whitespace-nowrap flex-shrink-0 tabular-nums">{dateStr}</span>
                         </div>
-                        <p className="text-xs truncate text-foreground/80">{email.subject || "(no subject)"}</p>
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">{email.snippet}</p>
+                        <div className="text-[12px] leading-snug truncate">
+                          <span className="text-muted-foreground/65">{email.subject || "(no subject)"}</span>
+                          {email.snippet && <span className="text-muted-foreground/38"> — {email.snippet}</span>}
+                        </div>
                       </button>
                       <button
-                        className="absolute right-2 top-2.5 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/40 hover:text-destructive"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/35 hover:text-destructive rounded-md"
                         title="Remove from folder"
                         data-testid={`button-remove-from-folder-${email.id}`}
                         onClick={() => selectedFolderId && removeEmailFromFolderMutation.mutate({ folderId: selectedFolderId, emailId: email.id })}
@@ -1670,51 +1735,69 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
               const isSelected = msg.threadId === selectedThreadId;
               const domain = parseSenderDomain(msg.from);
               const blocked = blockedDomains.has(domain);
+              const senderName = tab === "sent"
+                ? (msg.to ? `→ ${parseSenderName(msg.to)}` : "Unknown")
+                : parseSenderName(msg.from);
               return (
                 <div
                   key={msg.id}
-                  className={`relative group border-b border-border/30 ${isSelected ? "bg-primary/10 border-l-2 border-l-primary" : ""}`}
+                  className={`relative group flex items-stretch transition-colors border-b border-border/20 ${
+                    isSelected
+                      ? "bg-primary/8 border-l-[3px] border-l-primary"
+                      : "border-l-[3px] border-l-transparent hover:bg-muted/25"
+                  }`}
                 >
                   <button
                     onClick={() => handleSelectMessage(msg)}
                     data-testid={`email-row-${msg.id}`}
-                    className="w-full text-left px-3 py-2.5 pr-14 transition-colors hover:bg-muted/50"
+                    className="flex-1 text-left px-3 py-[9px] pr-14 min-w-0"
                   >
-                    <div className="flex items-start justify-between gap-2 mb-0.5">
-                      <span className={`text-sm truncate ${unread ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
-                        {tab === "sent" ? (msg.to ? `To: ${parseSenderName(msg.to)}` : "Unknown") : parseSenderName(msg.from)}
-                      </span>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
+                    {/* Row 1: sender + timestamp */}
+                    <div className="flex items-center justify-between gap-2 mb-[3px]">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {unread && (
+                          <div className="w-[7px] h-[7px] rounded-full bg-primary flex-shrink-0" />
+                        )}
+                        <span className={`text-[13px] leading-none truncate ${
+                          unread ? "font-semibold text-foreground" : "font-medium text-foreground/55"
+                        }`}>
+                          {senderName}
+                        </span>
+                      </div>
+                      <span className={`text-[11px] whitespace-nowrap flex-shrink-0 tabular-nums ${
+                        unread ? "text-foreground/65 font-medium" : "text-muted-foreground/45"
+                      }`}>
                         {formatDate(msg.date, msg.internalDate)}
                       </span>
                     </div>
-                    <p className={`text-xs truncate ${unread ? "text-foreground" : "text-muted-foreground"}`}>
-                      {msg.subject || "(no subject)"}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">{msg.snippet}</p>
-                    {unread && <div className="w-1.5 h-1.5 rounded-full bg-primary mt-1" />}
+                    {/* Row 2: subject — snippet (inline) */}
+                    <div className="text-[12px] leading-snug truncate">
+                      <span className={unread ? "text-foreground/90 font-medium" : "text-muted-foreground/55"}>
+                        {msg.subject || "(no subject)"}
+                      </span>
+                      {msg.snippet && (
+                        <span className="text-muted-foreground/40"> — {msg.snippet}</span>
+                      )}
+                    </div>
                   </button>
-                  <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-                    {/* Star / Priority button — always visible if starred, else on hover */}
+
+                  {/* Hover actions — absolutely positioned right side */}
+                  <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0">
                     <button
                       title={starred ? "Remove priority" : "Mark as priority"}
                       data-testid={`button-star-${msg.id}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleStarMutation.mutate(msg.id);
-                      }}
-                      className={`p-1 rounded transition-all ${
+                      onClick={(e) => { e.stopPropagation(); toggleStarMutation.mutate(msg.id); }}
+                      className={`p-1.5 rounded-md transition-all ${
                         starred
                           ? "text-amber-400 hover:text-amber-300"
-                          : "text-muted-foreground/30 opacity-0 group-hover:opacity-100 hover:text-amber-400"
+                          : "text-transparent group-hover:text-muted-foreground/35 hover:!text-amber-400"
                       }`}
                     >
                       <Star className={`h-3.5 w-3.5 ${starred ? "fill-amber-400" : ""}`} />
                     </button>
-                    {/* Block/unblock button */}
                     {canSend && tab !== "sent" && (
                       <button
-                        title={blocked ? `Unblock @${domain}` : `Block all email from @${domain}`}
+                        title={blocked ? `Unblock @${domain}` : `Block @${domain}`}
                         data-testid={`button-flag-${msg.id}`}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1725,7 +1808,9 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                             flagMutation.mutate(domain);
                           }
                         }}
-                        className={`p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity ${blocked ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/50 hover:text-destructive"}`}
+                        className={`p-1.5 rounded-md transition-all opacity-0 group-hover:opacity-100 ${
+                          blocked ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/35 hover:text-destructive"
+                        }`}
                       >
                         {blocked ? <Trash2 className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />}
                       </button>
@@ -1760,31 +1845,29 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
         {selectedThreadId && tab !== "drafts" && tab !== "scheduled" && (
           <div className="flex-1 flex flex-col min-h-0">
             {/* Thread header */}
-            <div className="flex-shrink-0 flex items-center gap-2 px-4 py-3 border-b border-border/50 bg-card/30">
-              <Button variant="ghost" size="icon" className="md:hidden" onClick={handleBack}>
+            <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 border-b border-border/30 bg-background/80 backdrop-blur-sm">
+              <Button variant="ghost" size="icon" className="md:hidden h-8 w-8" onClick={handleBack}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <div className="flex-1 min-w-0">
                 {threadQuery.isLoading ? (
-                  <Skeleton className="h-5 w-48" />
+                  <Skeleton className="h-4 w-48" />
                 ) : (
-                  <h2 className="font-semibold text-sm truncate">{focusedMsg?.subject || "(no subject)"}</h2>
+                  <h2 className="font-semibold text-[13px] truncate text-foreground/90">{focusedMsg?.subject || "(no subject)"}</h2>
+                )}
+                {focusedMsg && (
+                  <p className="text-[11px] text-muted-foreground/50 truncate">{selectedMessages.length} message{selectedMessages.length !== 1 ? "s" : ""}</p>
                 )}
               </div>
               {focusedMsg && (
                 <button
-                  title={isStarred(focusedMsg.labelIds) ? "Remove priority" : "Mark as priority"}
+                  title={isStarred(focusedMsg.labelIds) ? "Remove priority" : "Mark as priority (s)"}
                   data-testid="button-star-thread"
                   onClick={() => toggleStarMutation.mutate(focusedMsg.id)}
-                  className={`p-1.5 rounded transition-colors ${isStarred(focusedMsg.labelIds) ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/40 hover:text-amber-400"}`}
+                  className={`p-1.5 rounded-md transition-colors ${isStarred(focusedMsg.labelIds) ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/30 hover:text-amber-400"}`}
                 >
                   <Star className={`h-4 w-4 ${isStarred(focusedMsg.labelIds) ? "fill-amber-400" : ""}`} />
                 </button>
-              )}
-              {canSend && focusedMsg && (
-                <Button size="sm" variant="outline" onClick={() => handleReply(focusedMsg)} data-testid="button-reply">
-                  Reply
-                </Button>
               )}
             </div>
 
@@ -1801,33 +1884,59 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
                   ))}
                 </div>
               )}
-              {selectedMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`border rounded-lg overflow-hidden ${msg.id === selectedMessageId ? "border-primary/40" : "border-border/50"}`}
-                  data-testid={`email-message-${msg.id}`}
-                >
-                  {/* Message header */}
-                  <div className="bg-card/50 px-4 py-2.5 border-b border-border/30">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-medium text-sm">{parseSenderName(msg.from)}</p>
-                        <p className="text-xs text-muted-foreground">{msg.from}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">To: {msg.to}</p>
-                        {msg.cc && <p className="text-xs text-muted-foreground">Cc: {msg.cc}</p>}
+              {selectedMessages.map((msg, idx) => {
+                const initials = parseSenderName(msg.from).split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+                const isLatest = idx === selectedMessages.length - 1;
+                return (
+                  <div
+                    key={msg.id}
+                    className={`rounded-xl border overflow-hidden transition-shadow ${
+                      isLatest ? "border-border/60 shadow-sm" : "border-border/30 opacity-80"
+                    }`}
+                    data-testid={`email-message-${msg.id}`}
+                  >
+                    {/* Message header */}
+                    <div className="bg-card/40 px-4 py-3 border-b border-border/25">
+                      <div className="flex items-start gap-3">
+                        {/* Avatar */}
+                        <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5">
+                          {initials || "?"}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <p className="font-semibold text-sm text-foreground leading-tight">{parseSenderName(msg.from)}</p>
+                            <span className="text-[11px] text-muted-foreground/60 whitespace-nowrap flex-shrink-0 tabular-nums">
+                              {formatDate(msg.date, msg.internalDate)}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground/70 truncate mt-0.5">{msg.from}</p>
+                          <p className="text-[11px] text-muted-foreground/55 truncate">To: {msg.to}</p>
+                          {msg.cc && <p className="text-[11px] text-muted-foreground/55 truncate">Cc: {msg.cc}</p>}
+                        </div>
                       </div>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
-                        {formatDate(msg.date, msg.internalDate)}
-                      </span>
+                    </div>
+                    {/* Message body */}
+                    <div className="px-5 py-4 bg-background/30">
+                      <MessageBody body={msg.body} isHtml={msg.isHtml} />
                     </div>
                   </div>
-                  {/* Message body */}
-                  <div className="px-4 py-3 bg-background/50">
-                    <MessageBody body={msg.body} isHtml={msg.isHtml} />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
+            {/* Sticky reply bar */}
+            {canSend && focusedMsg && (
+              <div className="flex-shrink-0 border-t border-border/30 bg-card/20 px-4 py-2.5 flex items-center gap-2">
+                <button
+                  onClick={() => handleReply(focusedMsg)}
+                  data-testid="button-reply-bar"
+                  className="flex-1 flex items-center gap-2.5 px-3.5 py-2 rounded-full border border-border/40 bg-background/60 text-[13px] text-muted-foreground hover:border-primary/40 hover:text-foreground hover:bg-background transition-all text-left group"
+                >
+                  <Reply className="h-3.5 w-3.5 flex-shrink-0 group-hover:text-primary transition-colors" />
+                  <span>Reply to <span className="font-medium">{parseSenderName(focusedMsg.from)}</span>…</span>
+                </button>
+                <span className="text-[10px] text-muted-foreground/35 font-mono hidden lg:block">r</span>
+              </div>
+            )}
             {/* CRM Context Panel */}
             <CrmContextPanel threadId={selectedThreadId!} />
           </div>
@@ -1836,9 +1945,29 @@ export default function GmailInboxPage({ currentUserEmail }: { currentUserEmail:
         {/* Empty state when no message selected */}
         {!selectedThreadId && tab !== "drafts" && tab !== "scheduled" && (
           <div className="hidden md:flex flex-1 items-center justify-center text-muted-foreground">
-            <div className="text-center">
-              <MailOpen className="h-12 w-12 mx-auto mb-3 opacity-20" />
-              <p className="text-sm">Select an email to read</p>
+            <div className="text-center space-y-6">
+              <div>
+                <MailOpen className="h-10 w-10 mx-auto mb-3 opacity-15" />
+                <p className="text-sm text-muted-foreground/60">Select an email to read</p>
+              </div>
+              <div className="space-y-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/35">Keyboard shortcuts</p>
+                <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 text-[11px] text-muted-foreground/50 text-left">
+                  {[
+                    ["j / ↓", "Next email"],
+                    ["k / ↑", "Prev email"],
+                    ["r", "Reply"],
+                    ["c", "Compose"],
+                    ["s", "Star / unstar"],
+                    ["Esc", "Deselect"],
+                  ].map(([key, desc]) => (
+                    <div key={key} className="flex items-center gap-2">
+                      <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-muted/60 border border-border/40 text-muted-foreground/70">{key}</kbd>
+                      <span>{desc}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         )}
