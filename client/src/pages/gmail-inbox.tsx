@@ -178,6 +178,16 @@ function ComposeDialog({
   const [to, setTo] = useState(defaultTo);
   const [subject, setSubject] = useState(defaultSubject);
   const [body, setBody] = useState(defaultBody);
+
+  // Sync fields whenever the modal opens with new defaults (e.g. switching between reply targets)
+  useEffect(() => {
+    if (open) {
+      setTo(defaultTo);
+      setSubject(defaultSubject);
+      setBody(defaultBody);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, defaultTo, defaultSubject]);
   const [showScheduler, setShowScheduler] = useState(false);
   const [scheduledAt, setScheduledAt] = useState("");
   const [activeDraftId, setActiveDraftId] = useState(draftId);
@@ -2466,7 +2476,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
       {/* Compose / Reply dialog */}
       <ComposeDialog
-        key={editingDraft?.draftId ?? "compose"}
+        key={editingDraft?.draftId ?? (replyTo ? `reply-${replyTo.threadId}` : "compose")}
         open={composeOpen || !!replyTo || !!editingDraft}
         onClose={() => { setComposeOpen(false); setReplyTo(null); setEditingDraft(null); }}
         canSend={canSend}
