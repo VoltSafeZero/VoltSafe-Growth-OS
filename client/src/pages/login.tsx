@@ -184,9 +184,18 @@ export default function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => vo
             </div>
 
             {error && (
-              <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2" data-testid="text-login-error">
-                {error}
-              </p>
+              <div className="space-y-2">
+                <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2" data-testid="text-login-error">
+                  {error}
+                </p>
+                {(error.toLowerCase().includes("password") || error.toLowerCase().includes("invalid")) && (
+                  <p className="text-xs text-muted-foreground text-center" data-testid="text-forgot-password-hint">
+                    Forgotten your password?{" "}
+                    <span className="text-primary">Ask an admin to reset it</span>{" "}
+                    in User Management.
+                  </p>
+                )}
+              </div>
             )}
 
             <Button
@@ -202,6 +211,10 @@ export default function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => vo
               )}
             </Button>
           </form>
+
+          <p className="text-[11px] text-muted-foreground/50 text-center pt-1" data-testid="text-admin-reset-hint">
+            Password issues? Ask an admin to reset yours.
+          </p>
         </CardContent>
       </Card>
     </div>
