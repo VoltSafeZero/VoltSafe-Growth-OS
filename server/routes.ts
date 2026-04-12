@@ -174,6 +174,92 @@ export async function registerRoutes(
     res.json({ message: "Password changed successfully" });
   });
 
+  // POST /api/auth/change-password-forced — set new password when session has mustChangePassword=true (no old password needed)
+  app.post("/api/auth/change-password-forced", async (req, res) => {
+    if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 8) return res.status(400).json({ message: "Password must be at least 8 characters" });
+    const hashed = await hashPassword(newPassword);
+    await db.update(users).set({ password: hashed, mustChangePassword: false }).where(eq(users.id, req.session.userId));
+    req.session.mustChangePassword = false;
+    res.json({ message: "Password updated" });
+  });
+
+  // POST /api/auth/forgot-password — generate token and send reset email
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "Email required" });
+
+    // Always respond with success to avoid user-enumeration attacks
+    const [user] = await db.select().from(users).where(sql`LOWER(email) = LOWER(${email})`).limit(1);
+    if (!user || user.status === "suspended" || user.status === "deactivated") {
+      return res.json({ message: "If that email exists you'll receive a reset link shortly." });
+    }
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    await db.update(users)
+      .set({ passwordResetToken: token, passwordResetExpires: expires } as any)
+      .where(eq(users.id, user.id));
+
+    const appUrl = process.env.APP_URL || "https://image-linker-burgesstrevor76.replit.app";
+    const resetUrl = `${appUrl}/reset-password?token=${token}`;
+    const SYSTEM_SENDER_ID = 4;
+
+    const html = `
+<div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
+  <h2 style="margin-bottom: 4px;">Password Reset — VoltSafe Cortex</h2>
+  <p style="color: #555; margin-top: 0;">Hi ${user.name}, we received a request to reset your password.</p>
+  <div style="margin: 24px 0;">
+    <a href="${resetUrl}" style="display: inline-block; background: #00C1DE; color: #fff; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-weight: 600; font-size: 15px;">
+      Reset My Password
+    </a>
+  </div>
+  <p style="color: #555; font-size: 14px;">This link expires in <strong>1 hour</strong>. If you didn't request a reset, you can safely ignore this email.</p>
+  <p style="color: #999; font-size: 12px; border-top: 1px solid #eee; padding-top: 12px; margin-top: 20px;">
+    Or copy this URL into your browser:<br>
+    <span style="color: #0066cc;">${resetUrl}</span>
+  </p>
+</div>`;
+
+    sendEmail(SYSTEM_SENDER_ID, user.email, "Reset your VoltSafe Cortex password", html)
+      .catch((err) => console.error("[reset-email] Failed to send reset email to", user.email, err?.message));
+
+    res.json({ message: "If that email exists you'll receive a reset link shortly." });
+  });
+
+  // POST /api/auth/reset-password-by-token — validate token, log user in, force pw change
+  app.post("/api/auth/reset-password-by-token", async (req, res) => {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ message: "Token required" });
+
+    const [user] = await db.select().from(users)
+      .where(sql`password_reset_token = ${token} AND password_reset_expires > NOW()`)
+      .limit(1);
+
+    if (!user) return res.status(400).json({ message: "This reset link has expired or is invalid. Please request a new one." });
+
+    // Clear the token, mark password must be changed, create session
+    await db.update(users)
+      .set({ passwordResetToken: null, passwordResetExpires: null, mustChangePassword: true } as any)
+      .where(eq(users.id, user.id));
+
+    req.session.userId = user.id;
+    req.session.mustChangePassword = true;
+
+    res.json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      globalRole: user.globalRole,
+      status: user.status,
+      mustChangePassword: true,
+      permissions: user.permissions ?? {},
+    });
+  });
+
   app.post("/api/webauthn/register-options", requireAuth, async (req, res) => {
     try {
       const options = await getRegistrationOptions(req.session.userId!, req);

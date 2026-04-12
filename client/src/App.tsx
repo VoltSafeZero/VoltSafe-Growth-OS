@@ -39,6 +39,7 @@ import ConfluencePage from "@/pages/confluence";
 import AdminIntegrationsPage from "@/pages/admin-integrations";
 import AdminUsersPage from "@/pages/admin-users";
 import ProjectsPage from "@/pages/projects";
+import ResetPasswordPage from "@/pages/reset-password";
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -222,6 +223,23 @@ function App() {
     setUser(null);
     queryClient.clear();
   };
+
+  // Handle /reset-password?token=XXX before any auth checks
+  const resetToken = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("token")
+    : null;
+  const isResetPage = typeof window !== "undefined" && window.location.pathname === "/reset-password";
+
+  if (isResetPage) {
+    return (
+      <ThemeProvider defaultTheme="dark">
+        <ResetPasswordPage
+          token={resetToken ?? ""}
+          onLogin={(u) => setUser(u as unknown as AuthUser)}
+        />
+      </ThemeProvider>
+    );
+  }
 
   if (loading) {
     return (

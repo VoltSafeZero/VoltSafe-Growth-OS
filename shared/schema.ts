@@ -55,6 +55,8 @@ export const users = pgTable("users", {
   suspendedReason: text("suspended_reason"),
   mustChangePassword: boolean("must_change_password").default(true).notNull(),
   avatarUrl: text("avatar_url"),
+  passwordResetToken: text("password_reset_token"),
+  passwordResetExpires: timestamp("password_reset_expires"),
   permissions: jsonb("permissions").default({ crm: "edit", partnerships: "edit", projects: "edit", communications: "edit", team_workload: "edit", knowledge: "edit", support: "edit", quoting: "edit", calendar: "edit", mail_team: {}, calendar_team: [] }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastLogin: timestamp("last_login"),

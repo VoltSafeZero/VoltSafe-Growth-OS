@@ -18,6 +18,10 @@ export async function migrateUserSchema(): Promise<void> {
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_at timestamp`);
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_reason text`);
 
+    // Add password reset token columns
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token text`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires timestamp`);
+
     // Add permissions column for granular access control
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions jsonb NOT NULL DEFAULT '{"crm":"edit","partnerships":"edit","projects":"edit","communications":"edit","team_workload":"edit","knowledge":"edit","support":"edit","quoting":"edit","calendar":"edit","mail_team":{},"calendar_team":[]}'::jsonb`);
 

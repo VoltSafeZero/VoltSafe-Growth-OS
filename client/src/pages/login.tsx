@@ -26,6 +26,11 @@ export default function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => vo
   const [loading, setLoading] = useState(false);
   const [biometricLoading, setBiometricLoading] = useState(false);
   const [biometricSupported, setBiometricSupported] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
+  const [forgotError, setForgotError] = useState("");
 
   useEffect(() => {
     if (
@@ -63,6 +68,29 @@ export default function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => vo
       setError("Something went wrong. Please try again.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotError("");
+    setForgotLoading(true);
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: forgotEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setForgotError(data.message || "Something went wrong.");
+      } else {
+        setForgotSent(true);
+      }
+    } catch {
+      setForgotError("Something went wrong. Please try again.");
+    } finally {
+      setForgotLoading(false);
     }
   };
 
@@ -121,6 +149,79 @@ export default function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => vo
           <p className="text-sm text-muted-foreground mt-1">Sign in to your CMS account</p>
         </CardHeader>
         <CardContent className="space-y-4">
+
+          {/* ── FORGOT PASSWORD MODE ─────────────────────── */}
+          {showForgot ? (
+            forgotSent ? (
+              <div className="flex flex-col items-center gap-4 py-4 text-center">
+                <div className="w-12 h-12 rounded-full bg-teal-500/10 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Check your inbox</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    If <span className="font-medium text-foreground">{forgotEmail}</span> has an account, a reset link is on its way. It expires in 1 hour.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setShowForgot(false); setForgotSent(false); setForgotEmail(""); }}
+                  className="text-xs text-primary hover:underline"
+                  data-testid="button-back-to-login"
+                >
+                  Back to sign in
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleForgotSubmit} className="space-y-4">
+                <div>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Enter your email and we'll send you a link to set a new password.
+                  </p>
+                  <Label>Email</Label>
+                  <Input
+                    type="email"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    placeholder="you@voltsafe.com"
+                    required
+                    autoFocus
+                    className="mt-1.5"
+                    data-testid="input-forgot-email"
+                  />
+                </div>
+                {forgotError && (
+                  <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2" data-testid="text-forgot-error">
+                    {forgotError}
+                  </p>
+                )}
+                <Button
+                  type="submit"
+                  className="w-full bg-primary text-primary-foreground"
+                  disabled={forgotLoading}
+                  data-testid="button-send-reset"
+                >
+                  {forgotLoading ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending…</>
+                  ) : "Send Reset Link"}
+                </Button>
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={() => { setShowForgot(false); setForgotError(""); }}
+                    className="text-xs text-muted-foreground hover:text-primary transition-colors"
+                    data-testid="button-back-to-login"
+                  >
+                    ← Back to sign in
+                  </button>
+                </div>
+              </form>
+            )
+          ) : (
+          <>
+
           {biometricSupported && (
             <>
               <Button
@@ -184,18 +285,9 @@ export default function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => vo
             </div>
 
             {error && (
-              <div className="space-y-2">
-                <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2" data-testid="text-login-error">
-                  {error}
-                </p>
-                {(error.toLowerCase().includes("password") || error.toLowerCase().includes("invalid")) && (
-                  <p className="text-xs text-muted-foreground text-center" data-testid="text-forgot-password-hint">
-                    Forgotten your password?{" "}
-                    <span className="text-primary">Ask an admin to reset it</span>{" "}
-                    in User Management.
-                  </p>
-                )}
-              </div>
+              <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2" data-testid="text-login-error">
+                {error}
+              </p>
             )}
 
             <Button
@@ -212,9 +304,18 @@ export default function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => vo
             </Button>
           </form>
 
-          <p className="text-[11px] text-muted-foreground/50 text-center pt-1" data-testid="text-admin-reset-hint">
-            Password issues? Ask an admin to reset yours.
-          </p>
+          <div className="text-center pt-2">
+            <button
+              type="button"
+              onClick={() => setShowForgot(true)}
+              className="text-xs text-muted-foreground hover:text-primary transition-colors"
+              data-testid="button-forgot-password"
+            >
+              Forgot your password?
+            </button>
+          </div>
+          </>
+          )}
         </CardContent>
       </Card>
     </div>
