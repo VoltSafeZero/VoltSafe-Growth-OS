@@ -1,50 +1,17 @@
 import { useState, useEffect } from "react";
 import {
-  Home,
-  Users,
-  TrendingUp,
-  Activity,
-  BookOpen,
-  LifeBuoy,
-  Settings2,
-  Building2,
-  Contact,
-  UserPlus,
-  FileText,
-  Handshake,
-  Mail,
-  CalendarClock,
-  Megaphone,
-  FolderOpen,
-  Tags,
-  Zap,
-  Settings,
-  ChevronRight,
-  Users2,
-  ClipboardList,
-  Layers,
-  ShieldCheck,
-  Circle,
-  Truck,
-  Factory,
-  FlaskConical,
-  Landmark,
-  Shield,
+  Home, Users, TrendingUp, Activity, BookOpen, LifeBuoy, Settings2,
+  Building2, Contact, UserPlus, FileText, Mail, CalendarClock, Megaphone,
+  FolderOpen, Tags, Zap, Settings, ChevronRight, Users2, ClipboardList,
+  Layers, ShieldCheck, Circle, Truck, Factory, FlaskConical, Landmark,
   Newspaper,
-  Briefcase,
-  Wrench,
-  Rocket,
-  Heart,
-  Scale,
-  BadgeCheck,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import navLogo from "@assets/nav-logo.png";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarHeader,
-} from "@/components/ui/sidebar";
+import { Sidebar, SidebarContent, SidebarHeader } from "@/components/ui/sidebar";
+import type { UserPermissions } from "@/App";
+
+type AccessLevel = "none" | "view" | "edit";
 
 type NavItem = {
   title: string;
@@ -52,6 +19,7 @@ type NavItem = {
   icon: React.ElementType;
   adminOnly?: boolean;
   exactMatch?: boolean;
+  permKey?: keyof Pick<UserPermissions, "crm" | "partnerships" | "projects" | "communications" | "team_workload" | "knowledge" | "support" | "quoting" | "calendar">;
 };
 
 type NavSection = {
@@ -60,6 +28,7 @@ type NavSection = {
   icon: React.ElementType;
   url?: string;
   items?: NavItem[];
+  permKey?: keyof Pick<UserPermissions, "crm" | "partnerships" | "projects" | "communications" | "team_workload" | "knowledge" | "support" | "quoting" | "calendar">;
 };
 
 const sections: NavSection[] = [
@@ -73,17 +42,19 @@ const sections: NavSection[] = [
     id: "crm",
     label: "CRM",
     icon: Users,
+    permKey: "crm",
     items: [
-      { title: "Accounts", url: "/accounts", icon: Building2 },
-      { title: "Contacts", url: "/contacts", icon: Contact },
-      { title: "Opportunities", url: "/opportunities", icon: UserPlus },
-      { title: "Quotes", url: "/quotes", icon: FileText },
+      { title: "Accounts", url: "/accounts", icon: Building2, permKey: "crm" },
+      { title: "Contacts", url: "/contacts", icon: Contact, permKey: "crm" },
+      { title: "Opportunities", url: "/opportunities", icon: UserPlus, permKey: "crm" },
+      { title: "Quotes", url: "/quotes", icon: FileText, permKey: "quoting" },
     ],
   },
   {
     id: "strategy",
     label: "Industry Partnerships",
     icon: TrendingUp,
+    permKey: "partnerships",
     items: [
       { title: "Industry & Associations", url: "/strategy/partnerships/industry-associations", icon: Users2 },
       { title: "Govt & Public Sector", url: "/strategy/partnerships/government-public", icon: Landmark },
@@ -100,25 +71,27 @@ const sections: NavSection[] = [
     icon: Activity,
     items: [
       { title: "Gmail", url: "/gmail", icon: Mail },
-      { title: "Calendar", url: "/execution/calendar", icon: CalendarClock },
-      { title: "Projects", url: "/execution/projects", icon: Layers },
-      { title: "Communications", url: "/execution/communications", icon: Megaphone },
-      { title: "Team Workload", url: "/execution/team-workload", icon: Users2 },
+      { title: "Calendar", url: "/execution/calendar", icon: CalendarClock, permKey: "calendar" },
+      { title: "Projects", url: "/execution/projects", icon: Layers, permKey: "projects" },
+      { title: "Communications", url: "/execution/communications", icon: Megaphone, permKey: "communications" },
+      { title: "Team Workload", url: "/execution/team-workload", icon: Users2, permKey: "team_workload" },
     ],
   },
   {
     id: "knowledge",
     label: "Knowledge",
     icon: BookOpen,
+    permKey: "knowledge",
     items: [
-      { title: "Assets", url: "/knowledge/assets", icon: FolderOpen },
-      { title: "Price Lists", url: "/price-lists", icon: Tags },
+      { title: "Assets", url: "/knowledge/assets", icon: FolderOpen, permKey: "knowledge" },
+      { title: "Price Lists", url: "/price-lists", icon: Tags, permKey: "quoting" },
     ],
   },
   {
     id: "support",
     label: "Support",
     icon: LifeBuoy,
+    permKey: "support",
     items: [
       { title: "Tickets", url: "/support/tickets", icon: ClipboardList },
     ],
@@ -139,24 +112,47 @@ function getActiveSectionId(location: string): string {
   if (location === "/") return "home";
   for (const section of sections) {
     if (section.url && location === section.url) return section.id;
-    if (section.items?.some((item) => location.startsWith(item.url))) {
-      return section.id;
-    }
+    if (section.items?.some((item) => location.startsWith(item.url))) return section.id;
   }
   return "";
 }
 
-export function AppSidebar({ userGlobalRole = "sales" }: { userGlobalRole?: string }) {
+const DEFAULT_PERMISSIONS: UserPermissions = {
+  crm: "edit", partnerships: "edit", projects: "edit",
+  communications: "edit", team_workload: "edit", knowledge: "edit",
+  support: "edit", quoting: "edit", calendar: "edit",
+  mail_team: {}, calendar_team: [],
+};
+
+export function AppSidebar({
+  userGlobalRole = "sales",
+  userPermissions,
+}: {
+  userGlobalRole?: string;
+  userPermissions?: UserPermissions;
+}) {
   const isAdmin = ["master_admin", "admin"].includes(userGlobalRole);
+  const perms: UserPermissions = userPermissions ?? DEFAULT_PERMISSIONS;
   const [location, navigate] = useLocation();
-  const [openSection, setOpenSection] = useState<string>(() =>
-    getActiveSectionId(location)
-  );
+  const [openSection, setOpenSection] = useState<string>(() => getActiveSectionId(location));
 
   useEffect(() => {
     const active = getActiveSectionId(location);
     if (active) setOpenSection(active);
   }, [location]);
+
+  function canSeeSection(section: NavSection): boolean {
+    if (isAdmin) return true;
+    if (!section.permKey) return true;
+    return (perms[section.permKey] as AccessLevel) !== "none";
+  }
+
+  function canSeeItem(item: NavItem): boolean {
+    if (isAdmin) return true;
+    if (item.adminOnly) return false;
+    if (!item.permKey) return true;
+    return (perms[item.permKey] as AccessLevel) !== "none";
+  }
 
   const handleSectionClick = (section: NavSection) => {
     if (section.url) {
@@ -165,15 +161,19 @@ export function AppSidebar({ userGlobalRole = "sales" }: { userGlobalRole?: stri
     } else {
       setOpenSection((prev) => (prev === section.id ? "" : section.id));
       if (section.items && section.items.length > 0) {
-        const firstActive = section.items.find((item) =>
-          location.startsWith(item.url)
-        );
+        const firstActive = section.items.find((item) => location.startsWith(item.url));
         if (!firstActive) {
-          navigate(section.items[0].url);
+          const firstVisible = section.items.find(item => canSeeItem(item));
+          if (firstVisible) navigate(firstVisible.url);
         }
       }
     }
   };
+
+  const visibleSections = sections.filter(s => canSeeSection(s)).map(s => ({
+    ...s,
+    items: s.items?.filter(item => canSeeItem(item)),
+  })).filter(s => !s.items || s.items.length > 0);
 
   return (
     <Sidebar className="border-r border-border/50">
@@ -188,20 +188,17 @@ export function AppSidebar({ userGlobalRole = "sales" }: { userGlobalRole?: stri
             alt="VoltSafe Cortex"
             className="w-[6.75rem] h-[6.75rem] object-contain mix-blend-screen brightness-125 shrink-0"
           />
-          <span>
-            VoltSafe <span className="text-primary">Cortex</span>
-          </span>
+          <span>VoltSafe <span className="text-primary">Cortex</span></span>
         </button>
       </SidebarHeader>
 
       <SidebarContent className="px-3 py-2 overflow-y-auto">
         <nav className="flex flex-col gap-0.5">
-          {sections.map((section) => {
+          {visibleSections.map((section) => {
             const isSectionOpen = openSection === section.id;
-            const isSectionActive =
-              section.url
-                ? location === section.url
-                : section.items?.some((item) => location.startsWith(item.url)) ?? false;
+            const isSectionActive = section.url
+              ? location === section.url
+              : section.items?.some((item) => location.startsWith(item.url)) ?? false;
             const SectionIcon = section.icon;
 
             return (
@@ -215,28 +212,19 @@ export function AppSidebar({ userGlobalRole = "sales" }: { userGlobalRole?: stri
                       : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
                   }`}
                 >
-                  <SectionIcon
-                    className={`w-4 h-4 shrink-0 transition-colors ${
-                      isSectionActive ? "text-primary" : "group-hover:text-foreground"
-                    }`}
-                  />
+                  <SectionIcon className={`w-4 h-4 shrink-0 transition-colors ${isSectionActive ? "text-primary" : "group-hover:text-foreground"}`} />
                   <span className="flex-1 text-left">{section.label}</span>
                   {section.items && section.items.length > 0 && (
-                    <ChevronRight
-                      className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${
-                        isSectionOpen ? "rotate-90 text-primary" : "text-muted-foreground/50"
-                      }`}
-                    />
+                    <ChevronRight className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${isSectionOpen ? "rotate-90 text-primary" : "text-muted-foreground/50"}`} />
                   )}
                 </button>
 
                 {section.items && isSectionOpen && (
                   <div className="ml-3 mt-0.5 mb-1 pl-3 border-l border-border/40 flex flex-col gap-0.5">
-                    {section.items.filter(item => !item.adminOnly || isAdmin).map((item) => {
+                    {section.items.map((item) => {
                       const isItemActive = item.exactMatch
                         ? location === item.url
-                        : location === item.url ||
-                          (item.url !== "/" && location.startsWith(item.url));
+                        : location === item.url || (item.url !== "/" && location.startsWith(item.url));
                       const ItemIcon = item.icon;
                       return (
                         <Link
@@ -249,11 +237,7 @@ export function AppSidebar({ userGlobalRole = "sales" }: { userGlobalRole?: stri
                               : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
                           }`}
                         >
-                          <ItemIcon
-                            className={`w-3.5 h-3.5 shrink-0 ${
-                              isItemActive ? "text-primary" : ""
-                            }`}
-                          />
+                          <ItemIcon className={`w-3.5 h-3.5 shrink-0 ${isItemActive ? "text-primary" : ""}`} />
                           <span>{item.title}</span>
                         </Link>
                       );

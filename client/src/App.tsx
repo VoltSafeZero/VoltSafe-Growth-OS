@@ -40,6 +40,29 @@ import AdminIntegrationsPage from "@/pages/admin-integrations";
 import AdminUsersPage from "@/pages/admin-users";
 import ProjectsPage from "@/pages/projects";
 
+type AccessLevel = "none" | "view" | "edit";
+
+export type UserPermissions = {
+  crm: AccessLevel;
+  partnerships: AccessLevel;
+  projects: AccessLevel;
+  communications: AccessLevel;
+  team_workload: AccessLevel;
+  knowledge: AccessLevel;
+  support: AccessLevel;
+  quoting: AccessLevel;
+  calendar: AccessLevel;
+  mail_team: Record<string, { view: boolean; edit: boolean }>;
+  calendar_team: number[];
+};
+
+export const FULL_PERMISSIONS: UserPermissions = {
+  crm: "edit", partnerships: "edit", projects: "edit",
+  communications: "edit", team_workload: "edit", knowledge: "edit",
+  support: "edit", quoting: "edit", calendar: "edit",
+  mail_team: {}, calendar_team: [],
+};
+
 type AuthUser = {
   id: number;
   name: string;
@@ -48,26 +71,50 @@ type AuthUser = {
   globalRole: string;
   status: string;
   mustChangePassword: boolean;
+  permissions: UserPermissions;
 };
+
+function isAdmin(role: string) {
+  return ["master_admin", "admin"].includes(role);
+}
+
+function hasAccess(perms: UserPermissions, globalRole: string, section: keyof Pick<UserPermissions, "crm" | "partnerships" | "projects" | "communications" | "team_workload" | "knowledge" | "support" | "quoting" | "calendar">): boolean {
+  if (isAdmin(globalRole)) return true;
+  return (perms[section] ?? "edit") !== "none";
+}
+
+function AccessDenied() {
+  const [, navigate] = useLocation();
+  return (
+    <div className="flex flex-col items-center justify-center h-full min-h-[60vh] text-center p-8">
+      <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mb-4">
+        <svg className="w-8 h-8 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m0-10.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.75c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.57-.598-3.75h-.152c-3.196 0-6.1-1.249-8.25-3.286zm0 13.036h.008v.008H12v-.008z" />
+        </svg>
+      </div>
+      <h2 className="text-xl font-semibold mb-2">Access Restricted</h2>
+      <p className="text-muted-foreground text-sm mb-6 max-w-sm">You don't have permission to view this section. Contact your admin to request access.</p>
+      <button onClick={() => navigate("/")} className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
+        Go to Dashboard
+      </button>
+    </div>
+  );
+}
 
 function Redirect({ to }: { to: string }) {
   const [, navigate] = useLocation();
-  useEffect(() => {
-    navigate(to, { replace: true });
-  }, [to, navigate]);
+  useEffect(() => { navigate(to, { replace: true }); }, [to, navigate]);
   return null;
 }
 
 function AppShell({ children, user, onLogout }: { children: React.ReactNode; user: AuthUser; onLogout: () => void }) {
-  const sidebarStyle = {
-    "--sidebar-width": "16rem",
-    "--sidebar-width-icon": "4rem",
-  } as React.CSSProperties;
-
+  const sidebarStyle = { "--sidebar-width": "16rem", "--sidebar-width-icon": "4rem" } as React.CSSProperties;
   return (
     <SidebarProvider style={sidebarStyle}>
       <div className="flex min-h-screen w-full bg-background text-foreground overflow-hidden">
-        <div className="hidden md:flex"><AppSidebar userGlobalRole={user.globalRole || "sales"} /></div>
+        <div className="hidden md:flex">
+          <AppSidebar userGlobalRole={user.globalRole || "sales"} userPermissions={user.permissions ?? FULL_PERMISSIONS} />
+        </div>
         <div className="flex flex-col flex-1 w-full overflow-hidden">
           <Header user={user} onLogout={onLogout} />
           <main className="flex-1 overflow-y-auto overflow-x-hidden relative scroll-smooth pb-16 md:pb-0">
@@ -81,42 +128,48 @@ function AppShell({ children, user, onLogout }: { children: React.ReactNode; use
 }
 
 function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
-  const wrap = (children: React.ReactNode) => (
-    <AppShell user={user} onLogout={onLogout}>{children}</AppShell>
-  );
+  const perms = user.permissions ?? FULL_PERMISSIONS;
+  const role = user.globalRole || "sales";
+
+  function wrap(children: React.ReactNode) {
+    return <AppShell user={user} onLogout={onLogout}>{children}</AppShell>;
+  }
+
+  function guard(section: keyof Pick<UserPermissions, "crm" | "partnerships" | "projects" | "communications" | "team_workload" | "knowledge" | "support" | "quoting" | "calendar">, children: React.ReactNode) {
+    return wrap(hasAccess(perms, role, section) ? children : <AccessDenied />);
+  }
 
   return (
     <Switch>
-      {/* ── HOME ──────────────────────────────────────────────────── */}
       <Route path="/">{() => wrap(<Dashboard />)}</Route>
 
       {/* ── CRM ───────────────────────────────────────────────────── */}
-      <Route path="/accounts">{() => wrap(<AccountsPage />)}</Route>
-      <Route path="/contacts">{() => wrap(<ContactsPage />)}</Route>
-      <Route path="/opportunities">{() => wrap(<LeadsPage />)}</Route>
-      <Route path="/quotes">{() => wrap(<QuotesPage />)}</Route>
+      <Route path="/accounts">{() => guard("crm", <AccountsPage />)}</Route>
+      <Route path="/contacts">{() => guard("crm", <ContactsPage />)}</Route>
+      <Route path="/opportunities">{() => guard("crm", <LeadsPage />)}</Route>
+      <Route path="/quotes">{() => guard("quoting", <QuotesPage />)}</Route>
 
       {/* ── STRATEGY ──────────────────────────────────────────────── */}
-      <Route path="/strategy/partnerships/:typeSlug">{(params) => wrap(<PartnershipsPage typeSlug={(params as any)?.typeSlug || ""} />)}</Route>
-      <Route path="/strategy/partnerships">{() => wrap(<PartnershipsPage typeSlug="" />)}</Route>
+      <Route path="/strategy/partnerships/:typeSlug">{(params) => guard("partnerships", <PartnershipsPage typeSlug={(params as any)?.typeSlug || ""} />)}</Route>
+      <Route path="/strategy/partnerships">{() => guard("partnerships", <PartnershipsPage typeSlug="" />)}</Route>
       <Route path="/strategy/industry">{() => <Redirect to="/strategy/partnerships" />}</Route>
       <Route path="/strategy/oem">{() => <Redirect to="/strategy/partnerships" />}</Route>
       <Route path="/strategy/government">{() => <Redirect to="/strategy/partnerships" />}</Route>
       <Route path="/strategy/research">{() => <Redirect to="/strategy/partnerships" />}</Route>
 
       {/* ── EXECUTION ─────────────────────────────────────────────── */}
-      <Route path="/gmail">{() => wrap(<GmailInboxPage currentUserEmail={user.email} currentUserRole={user.globalRole || "sales"} />)}</Route>
-      <Route path="/execution/calendar">{() => wrap(<CalendarPage />)}</Route>
-      <Route path="/execution/projects">{() => wrap(<ProjectsPage />)}</Route>
-      <Route path="/execution/communications">{() => wrap(<CommunicationsPage />)}</Route>
-      <Route path="/execution/team-workload">{() => wrap(<TeamWorkloadPage />)}</Route>
+      <Route path="/gmail">{() => wrap(<GmailInboxPage currentUserEmail={user.email} currentUserRole={user.globalRole || "sales"} userPermissions={perms} />)}</Route>
+      <Route path="/execution/calendar">{() => guard("calendar", <CalendarPage />)}</Route>
+      <Route path="/execution/projects">{() => guard("projects", <ProjectsPage />)}</Route>
+      <Route path="/execution/communications">{() => guard("communications", <CommunicationsPage />)}</Route>
+      <Route path="/execution/team-workload">{() => guard("team_workload", <TeamWorkloadPage />)}</Route>
 
       {/* ── KNOWLEDGE ─────────────────────────────────────────────── */}
-      <Route path="/knowledge/assets">{() => wrap(<AssetsPage />)}</Route>
-      <Route path="/price-lists">{() => wrap(<PriceListsPage />)}</Route>
+      <Route path="/knowledge/assets">{() => guard("knowledge", <AssetsPage />)}</Route>
+      <Route path="/price-lists">{() => guard("quoting", <PriceListsPage />)}</Route>
 
       {/* ── SUPPORT ───────────────────────────────────────────────── */}
-      <Route path="/support/tickets">{() => wrap(<TicketsPage />)}</Route>
+      <Route path="/support/tickets">{() => guard("support", <TicketsPage />)}</Route>
 
       {/* ── ADMIN ─────────────────────────────────────────────────── */}
       <Route path="/admin/users">{() => wrap(<AdminUsersPage currentUserGlobalRole={user.globalRole || "sales"} />)}</Route>
@@ -125,7 +178,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/confluence">{() => wrap(<ConfluencePage />)}</Route>
       <Route path="/settings">{() => wrap(<SettingsPage />)}</Route>
 
-      {/* ── LEGACY REDIRECTS (migration-safe, never 404) ──────────── */}
+      {/* ── LEGACY REDIRECTS ──────────────────────────────────────── */}
       <Route path="/leads">{() => <Redirect to="/opportunities" />}</Route>
       <Route path="/tickets">{() => <Redirect to="/support/tickets" />}</Route>
       <Route path="/calendar">{() => <Redirect to="/execution/calendar" />}</Route>
@@ -145,8 +198,6 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/ecosystem/relationships">{() => wrap(<EcosystemRelationshipsPage />)}</Route>
       <Route path="/ecosystem/events">{() => wrap(<EcosystemEventsPage />)}</Route>
       <Route path="/ecosystem/regions">{() => wrap(<EcosystemRegionsPage />)}</Route>
-
-      {/* ── MISC ──────────────────────────────────────────────────── */}
       <Route path="/marinas">{() => wrap(<MarinasPage />)}</Route>
 
       <Route component={NotFound} />
@@ -161,9 +212,7 @@ function App() {
   useEffect(() => {
     fetch("/api/auth/me", { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data) setUser(data);
-      })
+      .then((data) => { if (data) setUser(data); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -185,7 +234,7 @@ function App() {
   if (!user) {
     return (
       <ThemeProvider defaultTheme="dark">
-        <LoginPage onLogin={setUser} />
+        <LoginPage onLogin={(user) => setUser(user as unknown as AuthUser)} />
       </ThemeProvider>
     );
   }
@@ -193,9 +242,7 @@ function App() {
   if (user.mustChangePassword) {
     return (
       <ThemeProvider defaultTheme="dark">
-        <ChangePasswordPage
-          onComplete={() => setUser({ ...user, mustChangePassword: false })}
-        />
+        <ChangePasswordPage onComplete={() => setUser({ ...user, mustChangePassword: false })} />
       </ThemeProvider>
     );
   }

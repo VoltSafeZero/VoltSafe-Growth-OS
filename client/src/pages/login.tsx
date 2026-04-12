@@ -12,7 +12,10 @@ type AuthUser = {
   name: string;
   email: string;
   role: string;
+  globalRole: string;
+  status: string;
   mustChangePassword: boolean;
+  permissions: Record<string, unknown>;
 };
 
 export default function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {

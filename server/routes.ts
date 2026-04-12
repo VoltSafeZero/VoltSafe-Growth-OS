@@ -150,6 +150,7 @@ export async function registerRoutes(
       globalRole: user.globalRole,
       status: user.status,
       mustChangePassword: user.mustChangePassword,
+      permissions: user.permissions ?? { crm: "edit", partnerships: "edit", projects: "edit", communications: "edit", team_workload: "edit", knowledge: "edit", support: "edit", quoting: "edit", calendar: "edit", mail_team: {}, calendar_team: [] },
     });
   });
 
@@ -1386,12 +1387,54 @@ export async function registerRoutes(
       department: users.department,
       jobTitle: users.jobTitle,
       mustChangePassword: users.mustChangePassword,
+      permissions: users.permissions,
       createdAt: users.createdAt,
       lastLogin: users.lastLogin,
       suspendedAt: users.suspendedAt,
       suspendedReason: users.suspendedReason,
     }).from(users).orderBy(users.id);
     res.json(allUsers);
+  });
+
+  // PATCH /api/admin/users/:id/permissions — update granular access permissions
+  app.patch("/api/admin/users/:id/permissions", requireAuth, async (req, res) => {
+    try {
+      const actorId = (req.session as any).userId;
+      const [actor] = await db.select({ role: users.globalRole }).from(users).where(eq(users.id, actorId)).limit(1);
+      if (!actor || !["master_admin", "admin"].includes(actor.role)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+      const targetId = parseInt(req.params.id);
+      if (isNaN(targetId)) return res.status(400).json({ message: "Invalid user ID" });
+      const perms = req.body;
+      const [updated] = await db.update(users).set({ permissions: perms } as any).where(eq(users.id, targetId)).returning({ id: users.id, permissions: users.permissions });
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/admin/team-accounts — shared email inboxes (for Access tab)
+  app.get("/api/admin/team-accounts", requireAuth, async (req, res) => {
+    try {
+      const accounts = await db.select({ id: emailAccounts.id, emailAddress: emailAccounts.emailAddress, displayName: emailAccounts.displayName })
+        .from(emailAccounts).where(and(eq(emailAccounts.isShared, true), eq(emailAccounts.isActive, true)));
+      res.json(accounts);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/admin/team-members — active users (for calendar overlay list)
+  app.get("/api/admin/team-members", requireAuth, async (req, res) => {
+    try {
+      const members = await db.select({ id: users.id, name: users.name, email: users.email, globalRole: users.globalRole })
+        .from(users).where(sql`status != 'suspended' AND status != 'deactivated'`).orderBy(users.name);
+      res.json(members);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.put("/api/admin/users/:id", requireAuth, async (req, res) => {

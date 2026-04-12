@@ -991,7 +991,15 @@ function CrmContextPanel({ threadId }: { threadId: string }) {
   );
 }
 
-export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sales" }: { currentUserEmail: string; currentUserRole?: string }) {
+type MailTeamPerms = Record<string, { view: boolean; edit: boolean }>;
+
+export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sales", userPermissions }: {
+  currentUserEmail: string;
+  currentUserRole?: string;
+  userPermissions?: { mail_team?: MailTeamPerms; [key: string]: unknown };
+}) {
+  const mailTeamPerms: MailTeamPerms = (userPermissions?.mail_team ?? {}) as MailTeamPerms;
+  const isAdmin = ["master_admin", "admin"].includes(currentUserRole);
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -1228,8 +1236,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     ? (accountsQuery.data?.find((a) => a.id === activeAccountId) ?? accountsQuery.data?.[0] ?? null)
     : (accountsQuery.data?.find((a) => a.isOwner) ?? accountsQuery.data?.[0] ?? null);
 
-  // Shared accounts visible to this user (not owned by them)
-  const sharedAccounts = (accountsQuery.data ?? []).filter((a) => !a.isOwner);
+  // Shared accounts visible to this user — filtered by mail_team permissions
+  const sharedAccounts = (accountsQuery.data ?? []).filter((a) => {
+    if (a.isOwner) return false;
+    if (isAdmin) return true;
+    const entry = mailTeamPerms[String(a.id)];
+    // If no entry configured yet, default to visible
+    return entry ? entry.view !== false : true;
+  });
   const personalAccount = (accountsQuery.data ?? []).find((a) => a.isOwner) ?? null;
 
   // Helper to append asAccountId to URLSearchParams when viewing a shared account
@@ -1237,8 +1251,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     if (activeAccountId) params.set("asAccountId", String(activeAccountId));
   };
 
-  // Any user with an active connected Gmail account can send
-  const canSend = connectedAccount?.authStatus === "active";
+  // canSend: account must be active AND user must have edit permission for shared inboxes
+  const canSend = (() => {
+    if (connectedAccount?.authStatus !== "active") return false;
+    // Shared account: check mail_team edit permission
+    if (activeAccountId && !connectedAccount?.isOwner) {
+      if (isAdmin) return true;
+      const entry = mailTeamPerms[String(activeAccountId)];
+      if (entry) return entry.edit !== false && entry.view !== false;
+    }
+    return true;
+  })();
 
   const inboxQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
     queryKey: ["/api/gmail/messages", "inbox", searchQuery, activeAccountId],

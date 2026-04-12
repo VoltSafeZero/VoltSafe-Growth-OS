@@ -102,6 +102,15 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Run schema migrations FIRST before any route setup queries the DB
+  try {
+    const { migrateUserSchema, migrateEmailSchema } = await import("./seed-production");
+    await migrateUserSchema();
+    await migrateEmailSchema();
+  } catch (migErr) {
+    console.error("[startup] Migration error:", migErr);
+  }
+
   await registerRoutes(httpServer, app);
   registerJiraRoutes(app);
   registerConfluenceRoutes(app);
