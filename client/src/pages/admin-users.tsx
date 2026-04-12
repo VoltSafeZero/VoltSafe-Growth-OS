@@ -299,7 +299,7 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
   const [search, setSearch] = useState("");
   const [filterRole, setFilterRole] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
-  const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const isMasterAdmin = currentUserGlobalRole === "master_admin";
   const isAdminRole = ["master_admin", "admin"].includes(currentUserGlobalRole);
@@ -315,6 +315,9 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
   }
 
   const { data: allUsers = [], isLoading } = useQuery<AdminUser[]>({ queryKey: ["/api/admin/users"] });
+
+  // Derive the selected user from live query data so permission changes reflect immediately
+  const selectedUser = selectedUserId != null ? (allUsers.find(u => u.id === selectedUserId) ?? null) : null;
 
   const meQuery = useQuery<{ id: number }>({ queryKey: ["/api/auth/me"] });
   const currentUserId = meQuery.data?.id ?? 0;
@@ -338,7 +341,6 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
       onSuccess: async (res: Response) => {
         const data = await res.json().catch(() => null);
         queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
-        if (data) setSelectedUser(data as AdminUser);
         toast({ title: successMsg });
       },
       onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -382,7 +384,7 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
     mutationFn: (id: number) => apiRequest("DELETE", `/api/admin/users/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
-      setSelectedUser(null);
+      setSelectedUserId(null);
       toast({ title: "User deleted" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -469,8 +471,8 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
             <div className="divide-y divide-border/30">
               {filtered.map(user => (
                 <div key={user.id}
-                  className={`flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-muted/30 transition-colors ${selectedUser?.id === user.id ? "bg-primary/5 border-l-2 border-l-primary" : ""}`}
-                  onClick={() => setSelectedUser(prev => prev?.id === user.id ? null : user)}
+                  className={`flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-muted/30 transition-colors ${selectedUserId === user.id ? "bg-primary/5 border-l-2 border-l-primary" : ""}`}
+                  onClick={() => setSelectedUserId(prev => prev === user.id ? null : user.id)}
                   data-testid={`row-user-${user.id}`}
                 >
                   <UserInitial name={user.name} />
@@ -492,7 +494,7 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
                     <div className="flex items-center gap-1 justify-end"><Clock className="w-3 h-3" />{user.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : "Never"}</div>
                     <div className="text-xs text-muted-foreground/60 mt-0.5">Last login</div>
                   </div>
-                  <ChevronRight className={`w-4 h-4 text-muted-foreground/40 shrink-0 transition-transform ${selectedUser?.id === user.id ? "rotate-90 text-primary" : ""}`} />
+                  <ChevronRight className={`w-4 h-4 text-muted-foreground/40 shrink-0 transition-transform ${selectedUserId === user.id ? "rotate-90 text-primary" : ""}`} />
                 </div>
               ))}
             </div>
@@ -506,7 +508,7 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
           user={selectedUser}
           currentUserId={currentUserId}
           isMasterAdmin={isMasterAdmin}
-          onClose={() => setSelectedUser(null)}
+          onClose={() => setSelectedUserId(null)}
           onUpdate={(data) => updateMutation.mutate({ id: selectedUser.id, ...data })}
           onSuspend={(reason) => suspendMutation.mutate({ id: selectedUser.id, reason })}
           onActivate={() => activateMutation.mutate(selectedUser.id)}
