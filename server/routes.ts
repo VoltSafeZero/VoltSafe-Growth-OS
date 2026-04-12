@@ -2667,7 +2667,7 @@ export async function registerRoutes(
     const resolved = await resolveAccount(userId, asAccountId);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected. Connect your Gmail to send emails." });
     try {
-      const { to, subject, body, threadId, attachmentIds } = req.body;
+      const { to, subject, body, threadId, attachmentIds, cc, bcc } = req.body;
       if (!to || !body) {
         return res.status(400).json({ message: "to and body are required" });
       }
@@ -2685,7 +2685,7 @@ export async function registerRoutes(
           }
         }
       }
-      const result = await sendEmail(resolved.userId, to, subject || "", body, threadId, mimeAttachments, resolved.accountId);
+      const result = await sendEmail(resolved.userId, to, subject || "", body, threadId, mimeAttachments, resolved.accountId, cc || undefined, bcc || undefined);
       res.json(result);
     } catch (err: any) {
       res.status(503).json({ message: "Failed to send email", error: err.message });

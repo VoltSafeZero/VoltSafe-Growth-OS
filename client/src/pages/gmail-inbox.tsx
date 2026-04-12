@@ -14,7 +14,7 @@ import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
   Clock, FileText, CalendarClock, CalendarX, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
   FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronRight, Folder,
-  Reply, Pencil, User, Building2, Zap,
+  Reply, ReplyAll, Pencil, User, Building2, Zap,
   CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag,
 } from "lucide-react";
 import DOMPurify from "dompurify";
@@ -158,6 +158,8 @@ function ComposeDialog({
   onClose,
   canSend,
   defaultTo = "",
+  defaultCc = "",
+  defaultBcc = "",
   defaultSubject = "",
   defaultBody = "",
   threadId,
@@ -168,6 +170,8 @@ function ComposeDialog({
   onClose: () => void;
   canSend: boolean;
   defaultTo?: string;
+  defaultCc?: string;
+  defaultBcc?: string;
   defaultSubject?: string;
   defaultBody?: string;
   threadId?: string;
@@ -176,6 +180,8 @@ function ComposeDialog({
 }) {
   const { toast } = useToast();
   const [to, setTo] = useState(defaultTo);
+  const [cc, setCc] = useState(defaultCc);
+  const [bcc, setBcc] = useState(defaultBcc);
   const [subject, setSubject] = useState(defaultSubject);
   const [body, setBody] = useState(defaultBody);
 
@@ -183,11 +189,13 @@ function ComposeDialog({
   useEffect(() => {
     if (open) {
       setTo(defaultTo);
+      setCc(defaultCc);
+      setBcc(defaultBcc);
       setSubject(defaultSubject);
       setBody(defaultBody);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, defaultTo, defaultSubject]);
+  }, [open, defaultTo, defaultCc, defaultBcc, defaultSubject]);
   const [showScheduler, setShowScheduler] = useState(false);
   const [scheduledAt, setScheduledAt] = useState("");
   const [activeDraftId, setActiveDraftId] = useState(draftId);
@@ -216,6 +224,8 @@ function ComposeDialog({
       const htmlBody = buildEmailHtml(body);
       const res = await apiRequest("POST", "/api/gmail/send", {
         to, subject, body: htmlBody, threadId,
+        ...(cc ? { cc } : {}),
+        ...(bcc ? { bcc } : {}),
         attachmentIds: attachedAssets.map((a) => a.id),
         ...(asAccountId ? { asAccountId } : {}),
       });
@@ -250,7 +260,11 @@ function ComposeDialog({
   const scheduleMutation = useMutation({
     mutationFn: async () => {
       const htmlBody = buildEmailHtml(body);
-      const res = await apiRequest("POST", "/api/gmail/schedule", { to, subject, body: htmlBody, threadId, scheduledAt });
+      const res = await apiRequest("POST", "/api/gmail/schedule", {
+        to, subject, body: htmlBody, threadId, scheduledAt,
+        ...(cc ? { cc } : {}),
+        ...(bcc ? { bcc } : {}),
+      });
       return res.json();
     },
     onSuccess: async () => {
@@ -284,6 +298,14 @@ function ComposeDialog({
           <div>
             <Label className="text-xs">To</Label>
             <Input value={to} onChange={(e) => setTo(e.target.value)} placeholder="recipient@email.com" disabled={!canSend} data-testid="input-email-to" />
+          </div>
+          <div>
+            <Label className="text-xs">CC</Label>
+            <Input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="cc@email.com" disabled={!canSend} data-testid="input-email-cc" />
+          </div>
+          <div>
+            <Label className="text-xs">BCC</Label>
+            <Input value={bcc} onChange={(e) => setBcc(e.target.value)} placeholder="bcc@email.com" disabled={!canSend} data-testid="input-email-bcc" />
           </div>
           {!threadId && (
             <div>
@@ -1016,7 +1038,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
-  const [replyTo, setReplyTo] = useState<{ to: string; subject: string; threadId: string } | null>(null);
+  const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string } | null>(null);
   const [tab, setTab] = useState<"inbox" | "sent" | "other" | "drafts" | "scheduled" | "folder" | "review">("inbox");
   const [inboxCategory, setInboxCategory] = useState<InboxCategory>("all");
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
@@ -1541,6 +1563,23 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const handleReply = (msg: ThreadMessage) => {
     setReplyTo({
       to: parseSenderEmail(msg.from),
+      subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
+      threadId: msg.threadId,
+    });
+  };
+
+  const handleReplyAll = (msg: ThreadMessage) => {
+    // Collect all addresses from To and CC, exclude the sender's own address
+    const ownEmail = currentUserEmail.toLowerCase();
+    const allRecipients = [msg.to, msg.cc]
+      .filter(Boolean)
+      .join(", ")
+      .split(/,\s*/)
+      .map((e) => e.trim())
+      .filter((e) => e && parseSenderEmail(e).toLowerCase() !== ownEmail);
+    setReplyTo({
+      to: parseSenderEmail(msg.from),
+      cc: allRecipients.length > 0 ? allRecipients.join(", ") : undefined,
       subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
       threadId: msg.threadId,
     });
@@ -2434,6 +2473,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   <Reply className="h-3.5 w-3.5 flex-shrink-0 group-hover:text-primary transition-colors" />
                   <span>Reply to <span className="font-medium">{parseSenderName(focusedMsg.from)}</span>…</span>
                 </button>
+                <button
+                  onClick={() => handleReplyAll(focusedMsg)}
+                  data-testid="button-reply-all-bar"
+                  title="Reply All"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-border/40 bg-background/60 text-[12px] text-muted-foreground hover:border-primary/40 hover:text-foreground hover:bg-background transition-all group flex-shrink-0"
+                >
+                  <ReplyAll className="h-3.5 w-3.5 group-hover:text-primary transition-colors" />
+                  <span className="hidden sm:inline">Reply All</span>
+                </button>
                 <span className="text-[10px] text-muted-foreground/35 font-mono hidden lg:block">r</span>
               </div>
             )}
@@ -2481,6 +2529,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         onClose={() => { setComposeOpen(false); setReplyTo(null); setEditingDraft(null); }}
         canSend={canSend}
         defaultTo={editingDraft?.to || replyTo?.to || ""}
+        defaultCc={replyTo?.cc || ""}
         defaultSubject={editingDraft?.subject || replyTo?.subject || ""}
         defaultBody={editingDraft?.body || ""}
         draftId={editingDraft?.draftId}

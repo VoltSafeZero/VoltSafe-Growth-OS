@@ -143,7 +143,9 @@ function buildMimeRaw(
   to: string,
   subject: string,
   body: string,
-  attachments: MimeAttachment[] = []
+  attachments: MimeAttachment[] = [],
+  cc?: string,
+  bcc?: string
 ): string {
   const R = "\r\n";
   const plainText = body
@@ -173,11 +175,16 @@ function buildMimeRaw(
     `--${innerBoundary}--`,
   ].join(R);
 
+  const extraHeaders: string[] = [];
+  if (cc) extraHeaders.push(`Cc: ${cc}`);
+  if (bcc) extraHeaders.push(`Bcc: ${bcc}`);
+
   let lines: string[];
   if (attachments.length === 0) {
     lines = [
       `From: ${from}`,
       `To: ${to}`,
+      ...extraHeaders,
       `Subject: ${subject || ""}`,
       "MIME-Version: 1.0",
       `Content-Type: multipart/alternative; boundary="${innerBoundary}"`,
@@ -201,6 +208,7 @@ function buildMimeRaw(
     lines = [
       `From: ${from}`,
       `To: ${to}`,
+      ...extraHeaders,
       `Subject: ${subject || ""}`,
       "MIME-Version: 1.0",
       `Content-Type: multipart/mixed; boundary="${outerBoundary}"`,
@@ -229,12 +237,14 @@ export async function sendEmail(
   body: string,
   threadId?: string,
   attachments: MimeAttachment[] = [],
-  accountId?: number
+  accountId?: number,
+  cc?: string,
+  bcc?: string
 ) {
   const gmail = await getGmailClient(userId, accountId);
   const profileRes = await gmail.users.getProfile({ userId: "me" });
   const from = profileRes.data.emailAddress!;
-  const raw = buildMimeRaw(from, to, subject, body, attachments);
+  const raw = buildMimeRaw(from, to, subject, body, attachments, cc, bcc);
   const params: any = { userId: "me", requestBody: { raw } };
   if (threadId) params.requestBody.threadId = threadId;
   const res = await gmail.users.messages.send(params);
