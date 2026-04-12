@@ -1461,7 +1461,7 @@ export async function registerRoutes(
     next();
   }
 
-  app.get("/api/admin/users", requireAuth, async (req, res) => {
+  app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
     const allUsers = await db.select({
       id: users.id,
       name: users.name,
@@ -1502,7 +1502,7 @@ export async function registerRoutes(
   });
 
   // GET /api/admin/team-accounts — shared email inboxes (for Access tab)
-  app.get("/api/admin/team-accounts", requireAuth, async (req, res) => {
+  app.get("/api/admin/team-accounts", requireAuth, requireAdmin, async (req, res) => {
     try {
       const accounts = await db.select({ id: emailAccounts.id, emailAddress: emailAccounts.emailAddress, displayName: emailAccounts.displayName })
         .from(emailAccounts).where(and(eq(emailAccounts.isShared, true), eq(emailAccounts.isActive, true)));
@@ -1513,7 +1513,7 @@ export async function registerRoutes(
   });
 
   // GET /api/admin/team-members — active users (for calendar overlay list)
-  app.get("/api/admin/team-members", requireAuth, async (req, res) => {
+  app.get("/api/admin/team-members", requireAuth, requireAdmin, async (req, res) => {
     try {
       const members = await db.select({ id: users.id, name: users.name, email: users.email, globalRole: users.globalRole })
         .from(users).where(sql`status != 'suspended' AND status != 'deactivated'`).orderBy(users.name);

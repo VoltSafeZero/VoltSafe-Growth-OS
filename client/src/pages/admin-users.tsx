@@ -302,6 +302,17 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const isMasterAdmin = currentUserGlobalRole === "master_admin";
+  const isAdminRole = ["master_admin", "admin"].includes(currentUserGlobalRole);
+
+  if (!isAdminRole) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 text-center p-8">
+        <ShieldCheck className="w-12 h-12 text-muted-foreground/40" />
+        <h2 className="text-xl font-semibold">Access Denied</h2>
+        <p className="text-muted-foreground text-sm max-w-xs">You don't have permission to view this page. Contact your administrator.</p>
+      </div>
+    );
+  }
 
   const { data: allUsers = [], isLoading } = useQuery<AdminUser[]>({ queryKey: ["/api/admin/users"] });
 

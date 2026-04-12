@@ -28,6 +28,7 @@ type NavSection = {
   icon: React.ElementType;
   url?: string;
   items?: NavItem[];
+  adminOnly?: boolean;
   permKey?: keyof Pick<UserPermissions, "crm" | "partnerships" | "projects" | "communications" | "team_workload" | "knowledge" | "support" | "quoting" | "calendar">;
 };
 
@@ -100,8 +101,9 @@ const sections: NavSection[] = [
     id: "admin",
     label: "Admin",
     icon: Settings2,
+    adminOnly: true,
     items: [
-      { title: "Users", url: "/admin/users", icon: ShieldCheck, adminOnly: true },
+      { title: "Users", url: "/admin/users", icon: ShieldCheck },
       { title: "Integrations", url: "/admin/integrations", icon: Zap },
       { title: "Settings", url: "/settings", icon: Settings },
     ],
@@ -142,6 +144,7 @@ export function AppSidebar({
   }, [location]);
 
   function canSeeSection(section: NavSection): boolean {
+    if (section.adminOnly && !isAdmin) return false;
     if (isAdmin) return true;
     if (!section.permKey) return true;
     return (perms[section.permKey] as AccessLevel) !== "none";
