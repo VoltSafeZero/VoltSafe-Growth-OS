@@ -1,0 +1,1583 @@
+VoltSafe Cortex — Master Replit Refactor Spec
+
+Project Objective
+
+Refactor VoltSafe Cortex into a cleaner CMS/CRM architecture without breaking existing data, fields, records, integrations, or working functionality.
+
+This refactor must:
+	•	unify external relationship management under a single CRM structure
+	•	remove architectural duplication between CRM and Industry Partnerships
+	•	preserve all existing production data and workflows
+	•	support safe phased migration, validation, and rollback
+	•	improve long-term scalability for sales, partnerships, deployments, subscriptions, and support
+
+⸻
+
+1) Core Product Direction
+
+VoltSafe Cortex should behave like this:
+
+CRM
+
+The single system for all external relationship intelligence.
+
+It should manage:
+	•	customers
+	•	prospects
+	•	marinas
+	•	port authorities
+	•	government entities
+	•	utilities
+	•	distributors
+	•	installers
+	•	manufacturers
+	•	standards bodies
+	•	associations
+	•	research institutions
+	•	media
+	•	investors
+	•	accelerators
+	•	consultants
+
+Revenue Ops
+
+The system for what gets deployed, contracted, activated, billed, and renewed.
+
+Support
+
+The system for tickets, service requests, and ongoing customer issue handling.
+
+Execution
+
+The system for internal tasks, projects, and workflows.
+
+Admin
+
+The system for users, permissions, automations, data management, and governance.
+
+Important: Do not split “Industry Partnerships” from CRM again. That would recreate the same architectural mistake in a different outfit.
+
+⸻
+
+2) Required Navigation Structure
+
+Replace the current navigation with:
+	•	Home
+	•	CRM
+	•	Organizations
+	•	Contacts
+	•	Opportunities
+	•	Quotes
+	•	Activities
+	•	Revenue Ops
+	•	Deployments
+	•	Contracts
+	•	Subscriptions
+	•	Billing
+	•	Support
+	•	Tickets
+	•	Service Requests
+	•	Knowledge Base
+	•	Execution
+	•	Tasks
+	•	Projects
+	•	Internal Workflows
+	•	Admin
+	•	Users
+	•	Permissions
+	•	Automations
+	•	Data Management
+
+Important navigation rule
+
+Remove Industry Partnerships as a separate top-level section.
+
+Its current contents must be absorbed into CRM → Organizations using:
+	•	saved views
+	•	filters
+	•	classifications
+	•	tags
+	•	relationship roles
+
+Do not recreate separate top-level modules for:
+	•	Industry & Associations
+	•	Government
+	•	Channel Partners
+	•	Manufacturing
+	•	Innovation & Research
+	•	Media & Tradeshows
+	•	Other
+
+Those should become filtered organization views inside CRM.
+
+⸻
+
+3) Non-Destructive Refactor Rules
+
+This refactor must be implemented as a non-destructive, backward-compatible migration.
+
+The system must not:
+	•	delete existing tables
+	•	delete existing columns
+	•	rename existing columns in place if current code depends on them
+	•	remove existing routes or APIs that current UI depends on
+	•	break current forms, record creation flows, search, filters, or record editing
+	•	break current CRM records
+	•	break current Industry Partnerships records before migration is verified
+	•	break current email integration
+	•	break user permissions
+	•	break linked notes, files, comments, attachments, or activity history
+	•	overwrite production data without backup and rollback capability
+
+Implementation principle
+
+Use additive refactoring first, then controlled migration, then validation, then soft deprecation.
+
+⸻
+
+4) Required Development Approach
+
+Implement using this sequence:
+
+Step 1 — Audit the existing system first
+
+Before changing anything, inspect and document:
+	•	current database schema
+	•	all existing tables
+	•	all columns and relationships
+	•	current forms
+	•	current APIs
+	•	current UI pages and components
+	•	existing filters and search
+	•	current email linking logic
+	•	existing automations
+	•	existing permissions
+	•	attachments and notes structure
+
+Step 2 — Preserve compatibility
+	•	keep existing tables and fields operational while new structures are introduced
+	•	add new tables/columns instead of replacing old ones immediately
+	•	use compatibility adapters, mapping layers, or translation services where needed
+	•	maintain current working UI behavior until replacement views are complete and tested
+
+Step 3 — Migrate safely
+	•	migrate data into new structures with explicit scripts
+	•	do not delete old structures during first migration
+	•	mark old structures as legacy only after validation
+	•	support rollback if migration output is incorrect
+
+Step 4 — Switch over gradually
+	•	update backend and UI in phases
+	•	use feature flags where practical
+	•	validate record counts, field mappings, and workflows before cutover
+	•	only deprecate legacy code after QA and manual signoff
+
+⸻
+
+5) Preferred Canonical Company Object Strategy
+
+Before creating a brand new organizations master table, first inspect whether the existing Accounts table can serve as the canonical company object.
+
+Preferred approach
+	1.	inspect existing Accounts structure
+	2.	if viable, evolve Accounts into Organizations
+	3.	reuse existing IDs and relationships wherever possible
+	4.	migrate Industry Partnerships data into the same company master structure
+	5.	expose Organizations as the UI label for Accounts if practical
+
+Avoid this unless absolutely necessary
+
+Do not create two competing company masters such as:
+	•	Accounts
+	•	Organizations
+
+That causes duplication, broken references, and long-term data rot.
+
+If existing Accounts can be extended safely, use that path.
+
+⸻
+
+6) Required Core Objects / Tables
+
+Create or refactor these objects:
+	1.	organizations (or extend existing accounts)
+	2.	contacts
+	3.	opportunities
+	4.	quotes
+	5.	activities
+	6.	deployments
+	7.	subscriptions
+	8.	contracts
+	9.	tickets
+	10.	tasks
+	11.	email_ingestion_queue
+	12.	email_link_reviews
+	13.	domains
+	14.	organization_relationships
+	15.	attachments / documents
+
+⸻
+
+7) Organizations Object
+
+This is the master company/entity record.
+
+Required fields
+
+System
+	•	id (uuid or existing canonical account id)
+	•	created_at
+	•	updated_at
+	•	created_by
+	•	updated_by
+	•	owner_user_id
+
+Identity
+	•	legal_name
+	•	display_name
+	•	website
+	•	linkedin_url
+	•	primary_phone
+	•	general_email
+	•	description
+	•	logo_url
+
+Location
+	•	country
+	•	province_state
+	•	city
+	•	address_line_1
+	•	address_line_2
+	•	postal_code
+	•	timezone
+
+Classification
+	•	organization_type_primary
+	•	organization_type_secondary
+	•	relationship_role
+	•	lifecycle_stage
+	•	status
+	•	importance_score
+	•	source
+	•	source_detail
+	•	territory
+
+VoltSafe / Commercial relevance
+	•	estimated_annual_value
+	•	estimated_hardware_value
+	•	estimated_software_mrr
+	•	pilot_fit_score
+	•	software_fit_score
+	•	strategic_value_notes
+	•	certification_relevance
+	•	marina_slip_count
+	•	estimated_pedestal_count
+	•	estimated_site_count
+	•	shore_power_profile
+	•	notes_internal
+
+Hierarchy
+	•	parent_organization_id
+	•	is_subsidiary
+
+Activity summary
+	•	last_activity_at
+	•	next_activity_at
+	•	last_inbound_email_at
+	•	last_outbound_email_at
+	•	open_opportunity_count
+	•	closed_won_value_total
+	•	closed_lost_value_total
+	•	influenced_pipeline_value
+	•	influenced_revenue_value
+
+Migration metadata
+	•	legacy_source_module
+	•	legacy_record_id
+	•	migration_batch_id
+	•	migration_notes
+	•	migrated_at
+
+Recommended enums
+
+organization_type_primary
+	•	Marina
+	•	Marina Group
+	•	Port / Harbor Authority
+	•	Government Agency
+	•	Utility
+	•	Distributor / Reseller
+	•	Installer / Electrical Contractor
+	•	Manufacturer / Contract Manufacturer
+	•	Standards / Certification Body
+	•	Association / Industry Group
+	•	Research Institution
+	•	Media / Press
+	•	Investor / VC
+	•	Accelerator / Incubator
+	•	Consultant / Advisory
+	•	Other
+
+relationship_role
+	•	Prospect
+	•	Customer
+	•	Strategic Partner
+	•	Channel Partner
+	•	Supplier
+	•	Influencer
+	•	Investor
+	•	Regulator / Standards Stakeholder
+	•	Pilot Site
+	•	Former Partner
+
+lifecycle_stage
+	•	Identified
+	•	Researching
+	•	Engaged
+	•	Qualified
+	•	Active Opportunity
+	•	Pilot
+	•	Active Customer
+	•	Expansion
+	•	Dormant
+	•	Closed Lost
+	•	Archived
+
+status
+	•	Active
+	•	Inactive
+	•	On Hold
+	•	Archived
+
+⸻
+
+8) Domains Table
+
+One organization may have multiple domains.
+
+Fields
+	•	id
+	•	organization_id
+	•	domain
+	•	is_primary
+	•	match_confidence_rule
+	•	created_at
+
+Use this table for email auto-linking.
+
+⸻
+
+9) Contacts Table
+
+Each contact belongs to one primary organization initially.
+
+Fields
+	•	id
+	•	organization_id
+	•	first_name
+	•	last_name
+	•	full_name
+	•	title
+	•	department
+	•	email_primary
+	•	email_secondary
+	•	phone_mobile
+	•	phone_office
+	•	linkedin_url
+	•	country
+	•	timezone
+	•	preferred_contact_method
+	•	role_in_buying_committee
+	•	influence_level
+	•	decision_power_level
+	•	champion_flag
+	•	owner_user_id
+	•	status
+	•	source
+	•	notes_internal
+	•	last_activity_at
+	•	next_activity_at
+	•	last_inbound_email_at
+	•	last_outbound_email_at
+	•	do_not_email
+	•	is_shared_inbox_contact
+
+Enums
+
+role_in_buying_committee
+	•	Decision Maker
+	•	Economic Buyer
+	•	Technical Evaluator
+	•	End User
+	•	Influencer
+	•	Gatekeeper
+	•	Legal / Procurement
+	•	Executive Sponsor
+
+influence_level
+	•	Low
+	•	Medium
+	•	High
+	•	Critical
+
+decision_power_level
+	•	None
+	•	Low
+	•	Medium
+	•	High
+	•	Final
+
+status
+	•	Active
+	•	Inactive
+	•	Archived
+
+Special handling
+	•	allow personal emails such as gmail.com, yahoo.com, outlook.com, icloud.com
+	•	a contact with a personal email can still be manually linked to an organization
+	•	once manually linked, future emails from that personal email should auto-attach to that organization
+
+⸻
+
+10) Opportunities Table
+
+This is the deal engine.
+
+Fields
+	•	id
+	•	organization_id
+	•	primary_contact_id
+	•	owner_user_id
+	•	opportunity_name
+	•	opportunity_type
+	•	stage
+	•	status
+	•	source
+	•	source_organization_id
+	•	estimated_hardware_value
+	•	estimated_software_mrr
+	•	estimated_setup_fee
+	•	estimated_total_contract_value
+	•	close_probability
+	•	expected_close_date
+	•	pilot_required
+	•	deployment_scope
+	•	competitor_name
+	•	pain_points
+	•	decision_criteria
+	•	blockers
+	•	next_step
+	•	summary
+	•	last_activity_at
+	•	last_stage_changed_at
+	•	closed_won_at
+	•	closed_lost_at
+	•	closed_lost_reason
+	•	created_at
+	•	updated_at
+
+Enums
+
+opportunity_type
+	•	New Marina Deployment
+	•	Pilot
+	•	Retrofit
+	•	Software Only
+	•	Expansion
+	•	Channel Partnership
+	•	Manufacturing Partnership
+	•	Strategic Partnership
+	•	Grant / Public Sector
+	•	Other
+
+stage
+	•	Identified
+	•	Contacted
+	•	Discovery
+	•	Qualified
+	•	Demo / Meeting
+	•	Proposal / Quote
+	•	Pilot Planning
+	•	Procurement / Review
+	•	Negotiation
+	•	Closed Won
+	•	Closed Lost
+
+status
+	•	Open
+	•	Won
+	•	Lost
+	•	On Hold
+	•	Archived
+
+⸻
+
+11) Quotes Table
+
+Fields
+	•	id
+	•	organization_id
+	•	opportunity_id
+	•	quote_number
+	•	version_number
+	•	issue_date
+	•	expiry_date
+	•	hardware_amount
+	•	software_amount
+	•	installation_amount
+	•	discount_amount
+	•	tax_amount
+	•	total_amount
+	•	currency
+	•	quote_status
+	•	document_url
+	•	notes_internal
+	•	created_at
+	•	updated_at
+
+quote_status
+	•	Draft
+	•	Sent
+	•	Viewed
+	•	Revised
+	•	Accepted
+	•	Expired
+	•	Rejected
+
+⸻
+
+12) Activities Table
+
+Use this as the unified timeline.
+
+Fields
+	•	id
+	•	activity_type
+	•	subject
+	•	body_text
+	•	activity_at
+	•	owner_user_id
+	•	organization_id
+	•	contact_id
+	•	opportunity_id
+	•	quote_id
+	•	deployment_id
+	•	subscription_id
+	•	ticket_id
+	•	source_system
+	•	source_message_id
+	•	source_thread_id
+	•	outcome
+	•	next_action
+	•	visibility
+	•	created_at
+	•	updated_at
+
+activity_type
+	•	Email Inbound
+	•	Email Outbound
+	•	Call
+	•	Meeting
+	•	Note
+	•	Task
+	•	Demo
+	•	Site Visit
+	•	Proposal Sent
+	•	Contract Review
+	•	Deployment Update
+	•	Support Update
+
+visibility
+	•	Internal
+	•	Team
+	•	Restricted
+
+Required behavior
+	•	every matched inbound/outbound email creates an activity
+	•	activities must appear on organization, contact, and opportunity timelines automatically
+
+⸻
+
+13) Deployments Table
+
+Fields
+	•	id
+	•	organization_id
+	•	opportunity_id
+	•	contract_id
+	•	deployment_name
+	•	site_name
+	•	site_type
+	•	deployment_status
+	•	product_type
+	•	quantity
+	•	target_install_date
+	•	actual_install_date
+	•	installer_organization_id
+	•	commissioning_status
+	•	software_enabled
+	•	subscription_start_date
+	•	support_owner_user_id
+	•	notes_internal
+	•	created_at
+	•	updated_at
+
+deployment_status
+	•	Planned
+	•	Scheduled
+	•	In Progress
+	•	Installed
+	•	Commissioned
+	•	Live
+	•	Paused
+	•	Cancelled
+
+commissioning_status
+	•	Not Started
+	•	In Progress
+	•	Passed
+	•	Failed
+	•	Requires Review
+
+⸻
+
+14) Subscriptions Table
+
+Fields
+	•	id
+	•	organization_id
+	•	deployment_id
+	•	contract_id
+	•	plan_name
+	•	plan_code
+	•	monthly_amount
+	•	annual_amount
+	•	quantity
+	•	billing_start_date
+	•	billing_end_date
+	•	billing_status
+	•	renewal_date
+	•	cancellation_date
+	•	churn_risk
+	•	notes_internal
+	•	created_at
+	•	updated_at
+
+billing_status
+	•	Pending
+	•	Active
+	•	Past Due
+	•	Cancelled
+	•	Suspended
+
+churn_risk
+	•	Low
+	•	Medium
+	•	High
+	•	Critical
+
+⸻
+
+15) Contracts Table
+
+Fields
+	•	id
+	•	organization_id
+	•	opportunity_id
+	•	contract_name
+	•	contract_number
+	•	contract_type
+	•	effective_date
+	•	expiration_date
+	•	renewal_date
+	•	contract_value
+	•	contract_status
+	•	document_url
+	•	notes_internal
+	•	created_at
+	•	updated_at
+
+contract_type
+	•	Pilot Agreement
+	•	Purchase Agreement
+	•	SaaS Agreement
+	•	Distribution Agreement
+	•	Manufacturing Agreement
+	•	NDA
+	•	Other
+
+contract_status
+	•	Draft
+	•	Under Review
+	•	Signed
+	•	Active
+	•	Expired
+	•	Terminated
+
+⸻
+
+16) Support Tables
+
+tickets
+	•	id
+	•	organization_id
+	•	contact_id
+	•	deployment_id
+	•	subscription_id
+	•	title
+	•	description
+	•	priority
+	•	status
+	•	assigned_user_id
+	•	opened_at
+	•	resolved_at
+	•	created_at
+	•	updated_at
+
+priority
+	•	Low
+	•	Medium
+	•	High
+	•	Urgent
+
+status
+	•	Open
+	•	Waiting on Customer
+	•	In Progress
+	•	Resolved
+	•	Closed
+
+⸻
+
+17) Tasks Table
+
+Fields
+	•	id
+	•	title
+	•	description
+	•	due_at
+	•	priority
+	•	status
+	•	assigned_user_id
+	•	organization_id
+	•	contact_id
+	•	opportunity_id
+	•	ticket_id
+	•	deployment_id
+	•	created_by
+	•	created_at
+	•	updated_at
+
+priority
+	•	Low
+	•	Medium
+	•	High
+	•	Critical
+
+status
+	•	Open
+	•	In Progress
+	•	Done
+	•	Cancelled
+
+⸻
+
+18) Organization Relationships Table
+
+Track relationships between external entities.
+
+Fields
+	•	id
+	•	from_organization_id
+	•	to_organization_id
+	•	relationship_type
+	•	notes
+	•	created_at
+
+relationship_type
+	•	Parent Company
+	•	Subsidiary
+	•	Referral Partner
+	•	Distributor For
+	•	Installer For
+	•	Manufacturer For
+	•	Member Of
+	•	Strategic Alliance
+	•	Investor In
+	•	Pilot Host For
+
+⸻
+
+19) CRM UI Requirements
+
+CRM must contain:
+	•	Organizations
+	•	Contacts
+	•	Opportunities
+	•	Quotes
+	•	Activities
+
+Organizations page must support
+	•	table view
+	•	card view
+	•	filters
+	•	saved views
+	•	bulk actions
+	•	import/export
+
+Default saved views
+	•	All Organizations
+	•	Customers
+	•	Prospects
+	•	Strategic Partners
+	•	Channel Partners
+	•	Suppliers
+	•	Government
+	•	Associations
+	•	Utilities
+	•	Manufacturers
+	•	Research
+	•	Media
+	•	Investors
+	•	Pilot Sites
+	•	Archived
+
+Default list columns
+	•	Display Name
+	•	Organization Type
+	•	Relationship Role
+	•	Lifecycle Stage
+	•	Owner
+	•	Country
+	•	Last Activity
+	•	Open Opportunities
+	•	Estimated Value
+	•	Status
+
+Organization detail tabs
+	•	Overview
+	•	Contacts
+	•	Opportunities
+	•	Activities
+	•	Deployments
+	•	Subscriptions
+	•	Influence
+	•	Documents
+
+Contacts default columns
+	•	Name
+	•	Title
+	•	Organization
+	•	Email
+	•	Phone
+	•	Influence Level
+	•	Decision Power
+	•	Owner
+	•	Last Activity
+
+Opportunities default columns
+	•	Opportunity Name
+	•	Organization
+	•	Stage
+	•	Type
+	•	Estimated Total Value
+	•	Estimated Software MRR
+	•	Expected Close Date
+	•	Owner
+	•	Last Activity
+
+⸻
+
+20) Remove Old Industry Partnerships UX
+
+Delete the current separate submenu structure only after migration validation:
+	•	Industry & Associations
+	•	Govt & Public Sector
+	•	Channel Partners
+	•	Manufacturing
+	•	Innovation & Research
+	•	Media & Tradeshows
+	•	Other
+
+Replace it with filters and saved views under CRM → Organizations.
+
+Do not duplicate records between CRM and a second partnership system.
+
+⸻
+
+21) Industry Partnerships Migration Rules
+
+The existing Industry Partnerships area must not be deleted blindly.
+
+Required migration behavior
+	1.	keep current Industry Partnerships data intact during migration
+	2.	create or extend the canonical Organizations model
+	3.	migrate Industry Partnerships records into Organizations
+	4.	preserve original IDs in a legacy reference field
+	5.	preserve original source module in a legacy source field
+	6.	map old category structure into:
+	•	organization_type_primary
+	•	relationship_role
+	•	lifecycle_stage
+	•	tags / saved views
+	7.	preserve all notes, contacts, files, timestamps, and owners
+	8.	compare migrated row counts vs original row counts
+	9.	compare random sample records for correctness
+	10.	only hide old Industry Partnerships UI after validation
+
+Legacy mapping example
+	•	Industry & Associations → Association / Industry Group
+	•	Govt & Public Sector → Government Agency or Port / Harbor Authority
+	•	Channel Partners → Distributor / Reseller or Strategic Partner
+	•	Manufacturing → Manufacturer / Contract Manufacturer
+	•	Innovation & Research → Research Institution
+	•	Media & Tradeshows → Media / Press
+	•	Other → Other
+
+⸻
+
+22) Existing CRM Protection Rules
+
+The existing CRM module must remain functional during migration.
+
+Do not:
+	•	re-key accounts, contacts, opportunities, or quotes in a way that breaks references
+	•	break existing relationships between records
+	•	change primary keys unless absolutely necessary
+	•	invalidate foreign keys used by current code
+
+Where possible:
+	•	reuse existing CRM IDs
+	•	attach new structures around existing records
+	•	extend current CRM records instead of rebuilding them from scratch
+
+If Accounts already effectively represent organizations, strongly prefer evolving Accounts into Organizations rather than building a duplicate master table.
+
+⸻
+
+23) Legacy Field and Custom Field Preservation
+
+If current VoltSafe Cortex fields do not map perfectly to the new schema:
+	•	preserve all legacy fields
+	•	create a field mapping document
+	•	map old field → new field where possible
+	•	where no clean mapping exists, store the field in:
+	•	custom_fields JSON
+	•	or a legacy_field_mappings table
+	•	or an extension table
+
+Do not:
+	•	discard unmatched fields
+	•	silently merge fields with different meanings
+	•	overwrite source data without preserving originals
+
+Required field mapping log
+
+For each object include:
+	•	old field name
+	•	old field type
+	•	new field name
+	•	mapping status
+	•	migration logic
+	•	notes
+
+⸻
+
+24) Existing UI / Functional Protection
+
+The refactor must preserve current working functionality until equivalent or better replacement is live.
+
+Must not break:
+	•	existing record creation
+	•	existing edit forms
+	•	current search
+	•	current filters
+	•	list pages
+	•	detail pages
+	•	notes/comments display
+	•	file uploads and attachment visibility
+	•	current email-linked records
+	•	ownership assignments
+	•	activity history visibility
+
+If an old page is being replaced:
+	•	keep the old page accessible until the new one is verified
+	•	use route aliasing or redirects only after testing
+	•	preserve deep links/bookmarks where practical
+
+⸻
+
+25) Backup and Rollback Requirements
+
+Before making schema or migration changes:
+	1.	create a full database backup
+	2.	create export snapshots of critical tables in JSON or CSV
+	3.	create a rollback plan for schema and data changes
+	4.	do not run destructive migrations automatically
+	5.	require explicit confirmation or config flag before any irreversible step
+
+At minimum back up:
+	•	accounts / organizations
+	•	contacts
+	•	opportunities
+	•	quotes
+	•	industry partnerships records
+	•	notes
+	•	attachments / documents
+	•	activities / communications
+	•	users / roles / permissions
+	•	email mapping data
+	•	settings / automations
+
+⸻
+
+26) Schema Change Rules
+
+Additive first
+	•	add new tables
+	•	add new columns
+	•	add indexes
+	•	add mapping tables
+	•	avoid dropping or renaming existing structures in phase 1
+
+Backward compatibility
+
+If a new object replaces an old one, maintain compatibility using:
+	•	database views
+	•	API translation layers
+	•	service layer mapping
+	•	dual-read / dual-write where necessary during transition
+
+Soft deprecation only
+
+Old tables/modules may be marked legacy, but do not remove them until:
+	•	migration is complete
+	•	all records are verified
+	•	forms are updated
+	•	dependent code is updated
+	•	QA passes
+	•	manual signoff occurs
+
+⸻
+
+27) Email Auto-Linking System
+
+Build an email ingestion and linking pipeline.
+
+Step 1 — Parse email metadata
+
+Capture:
+	•	message_id
+	•	thread_id
+	•	subject
+	•	from_address
+	•	to_addresses
+	•	cc_addresses
+	•	bcc_addresses
+	•	sent_at
+	•	body_text
+	•	body_html
+	•	attachments
+	•	in_reply_to
+	•	references
+
+Step 2 — Match sender to Contact
+
+Priority:
+	1.	exact email match to contacts.email_primary
+	2.	exact email match to contacts.email_secondary
+	3.	known alias mapping
+	4.	shared inbox handling rules
+
+Step 3 — Match domain to Organization
+	•	extract sender domain
+	•	check domains table
+	•	if matched, attach organization
+	•	if personal email, try existing manual mapping from contact to organization
+	•	if multiple matches, reduce confidence and send to review
+
+Step 4 — Match to Opportunity
+
+Priority:
+	1.	existing thread previously linked to opportunity
+	2.	quote number in subject/body
+	3.	contract number in subject/body
+	4.	direct reply to Cortex-generated email tied to opportunity
+	5.	single open opportunity under matched organization
+	6.	multiple open opportunities = review path
+
+Step 5 — Match to Quote / Deployment / Ticket if applicable
+	•	quote number in subject/body → attach quote
+	•	deployment site name/code → attach deployment
+	•	ticket id/support pattern → attach ticket
+
+Step 6 — Create Activity records
+
+Create one activity row for matched entities:
+	•	organization_id
+	•	contact_id
+	•	opportunity_id if found
+	•	quote_id if found
+	•	deployment_id if found
+	•	ticket_id if found
+
+Step 7 — Update summary fields
+
+Update:
+	•	contacts.last_activity_at
+	•	organizations.last_activity_at
+	•	opportunities.last_activity_at
+	•	last_inbound_email_at / last_outbound_email_at
+
+⸻
+
+28) Email Confidence Scoring
+
+High confidence
+	•	exact contact email match
+	•	exact organization domain match
+	•	exact thread match
+	•	exact quote/contract identifier match
+
+Action:
+	•	auto-link immediately
+
+Medium confidence
+	•	domain match only
+	•	contact matched but multiple open opportunities
+	•	weak subject keyword match
+
+Action:
+	•	auto-link and flag for review
+
+Low confidence
+	•	personal email with no known mapping
+	•	multiple possible organizations
+	•	multiple possible opportunities
+	•	forwarded thread with mixed context
+
+Action:
+	•	send to email_link_reviews
+	•	do not fully auto-link until approved
+
+⸻
+
+29) Email Review Queue
+
+Create email_link_reviews with:
+	•	id
+	•	message_id
+	•	suggested_contact_id
+	•	suggested_organization_id
+	•	suggested_opportunity_id
+	•	suggested_quote_id
+	•	suggested_ticket_id
+	•	confidence_level
+	•	review_status
+	•	reviewer_user_id
+	•	reviewed_at
+	•	notes
+	•	created_at
+
+review_status
+	•	Pending
+	•	Approved
+	•	Rejected
+	•	Corrected
+
+Build a review UI where users can:
+	•	approve suggested links
+	•	correct links
+	•	merge duplicates if discovered
+	•	permanently learn mapping for future emails
+
+⸻
+
+30) Special Email Rules
+
+Shared inbox addresses
+
+Examples:
+	•	info@
+	•	admin@
+	•	operations@
+	•	dockmaster@
+	•	support@
+
+Handling:
+	•	attach to organization if domain is known
+	•	do not auto-create a full contact at high confidence
+	•	optionally create a placeholder contact with is_shared_inbox_contact = true
+
+Personal email addresses
+
+Examples:
+	•	gmail.com
+	•	yahoo.com
+	•	outlook.com
+	•	icloud.com
+
+Handling:
+	•	if contact already exists and is linked to organization, attach normally
+	•	if unknown, create low-confidence candidate only
+	•	send to review if no organization mapping exists
+
+Duplicate prevention
+
+Before creating new contacts or organizations, check:
+	•	normalized email
+	•	normalized domain
+	•	normalized organization display name
+	•	legal name similarity
+	•	website similarity
+
+⸻
+
+31) Email Safety Rules
+
+Do not break existing email integrations or current email-linked records.
+
+Requirements:
+	•	preserve current email ingestion logic until new logic is tested
+	•	do not detach historical associations
+	•	preserve message IDs and thread IDs
+	•	preserve activity history generated from email
+	•	use new linking logic first for new messages or staged test mode
+	•	if reprocessing historical email is needed, do it in a separate controlled backfill job
+
+Recommended approach:
+	•	keep current email tables and associations intact
+	•	add new matching/enrichment logic on top
+	•	avoid rewriting historical links unless clearly beneficial and fully auditable
+
+⸻
+
+32) Attachments / Notes / Comments Safety Rules
+
+Do not orphan documents, notes, or comments.
+
+Requirements:
+	•	preserve file URLs / storage keys
+	•	preserve all note text
+	•	preserve comment history
+	•	preserve created_at / updated_at timestamps
+	•	preserve authorship
+	•	preserve parent record linkage
+	•	if parent object changes, create a safe mapping table so attachments still resolve
+
+⸻
+
+33) Users / Permissions Safety Rules
+
+Do not break user access.
+
+Requirements:
+	•	preserve current users
+	•	preserve current roles
+	•	preserve ownership assignments
+	•	preserve visibility rules
+	•	preserve admin privileges
+	•	preserve auditability of ownership
+
+If new roles are added, they must extend current permissions rather than wipe them out.
+
+Recommended roles
+	•	Master Admin
+	•	Admin
+	•	Sales Manager
+	•	Sales Rep
+	•	Partnerships Manager
+	•	Operations Manager
+	•	Support Manager
+	•	Support Agent
+	•	Finance / Billing
+	•	Read Only External
+
+Permissions should support:
+	•	view all vs owned only
+	•	edit all vs owned only
+	•	delete restrictions
+	•	export restrictions
+	•	admin-only automation controls
+	•	admin-only data merge tools
+	•	support-only ticket actions
+	•	finance-only billing visibility if needed
+
+⸻
+
+34) API / Route Compatibility Rules
+
+Do not break existing frontend calls.
+
+Requirements:
+	•	keep existing API endpoints working during transition
+	•	if payload shape changes, provide compatibility transformers
+	•	preserve route names where current UI depends on them
+	•	use versioned endpoints if needed
+	•	avoid forcing a full frontend rewrite and backend rewrite in one risky step
+
+⸻
+
+35) Automation Rules
+
+Build these automations:
+
+1. Activity auto-log
+
+Every matched email creates activity entries.
+
+2. Last activity updater
+
+Update timestamps on related records.
+
+3. Follow-up reminder
+
+If inbound email from a high-importance org is unreplied for X hours, create a task.
+
+Suggested defaults:
+	•	hot opportunities: 4 hours
+	•	active deals: 1 business day
+	•	normal: 2 business days
+
+4. Opportunity stall alerts
+
+Create alerts when no activity for:
+	•	Qualified: 7 days
+	•	Proposal / Quote: 5 days
+	•	Negotiation: 3 days
+
+5. Partner influence attribution
+
+If source_organization_id is set on an opportunity:
+	•	roll up influenced pipeline value to that organization
+	•	roll up influenced revenue for closed won deals
+
+⸻
+
+36) Dashboard Requirements
+
+Home dashboard should show:
+	•	open opportunities count
+	•	weighted pipeline value
+	•	total estimated software MRR
+	•	hot accounts needing response
+	•	upcoming tasks
+	•	recent activity
+	•	opportunities closing this month
+	•	stalled opportunities
+	•	new unmatched emails awaiting review
+	•	partner-influenced pipeline
+	•	deployments in progress
+	•	active subscriptions
+	•	churn-risk subscriptions
+
+⸻
+
+37) Feature Flags / Safe Cutover
+
+Major changes should be behind feature flags where practical, such as:
+	•	useNewOrganizationsUI
+	•	useUnifiedActivitiesTimeline
+	•	useNewEmailLinking
+	•	hideLegacyIndustryPartnerships
+	•	useRevenueOpsModule
+
+This enables:
+	•	testing in staging
+	•	partial rollout
+	•	easy rollback
+	•	side-by-side validation
+
+⸻
+
+38) Migration Validation Checks
+
+After every migration, automatically validate:
+
+A. Record counts
+	•	old accounts count vs new organizations/accounts count
+	•	old industry partnerships count vs migrated organizations count
+	•	old contacts count vs new contacts count
+	•	old opportunities count vs new opportunities count
+	•	old quotes count vs new quotes count
+	•	old attachments count vs new attachments count
+	•	old notes count vs new notes count
+
+B. Relationship integrity
+	•	contacts linked to correct organization/account
+	•	opportunities linked to correct organization/account
+	•	quotes linked to correct opportunity
+	•	attachments linked to correct parent records
+	•	activities linked correctly
+
+C. Field preservation
+	•	required fields populated
+	•	no unexpected null explosions
+	•	no truncated text
+	•	no timestamp corruption
+	•	no owner loss
+	•	no status loss
+
+D. Functional validation
+	•	create record
+	•	edit record
+	•	search record
+	•	filter record
+	•	open detail page
+	•	view notes
+	•	view attachments
+	•	send/receive linked email if applicable
+
+⸻
+
+39) Audit Logging Requirements
+
+Create migration and refactor audit logs.
+
+Track:
+	•	migration batch id
+	•	table/object affected
+	•	rows processed
+	•	rows migrated
+	•	rows skipped
+	•	warnings
+	•	errors
+	•	actor
+	•	timestamp
+
+Also log:
+	•	old id
+	•	new id
+	•	mapping status
+	•	any fallback logic used
+
+⸻
+
+40) Staging + Testing Requirements
+
+This refactor must be tested in staging before production.
+
+Required staging test plan
+	1.	production-like snapshot
+	2.	migration dry run
+	3.	row count validation
+	4.	random record verification
+	5.	UI smoke tests
+	6.	CRUD tests
+	7.	email link tests
+	8.	attachment visibility tests
+	9.	permissions tests
+	10.	rollback rehearsal
+
+⸻
+
+41) Production Release Rules
+
+Do not deploy this as one giant live rewrite.
+
+Phase 1
+	•	additive schema only
+	•	no destructive changes
+	•	legacy UI still active
+
+Phase 2
+	•	data migration
+	•	side-by-side comparison
+	•	read-only legacy fallback available
+
+Phase 3
+	•	new UI enabled
+	•	legacy still recoverable
+
+Phase 4
+	•	legacy module hidden, not deleted
+
+Phase 5
+	•	only after prolonged validation, consider cleanup of truly unused legacy code/tables
+
+⸻
+
+42) Build Order
+
+Implement in this order:
+
+Phase 1
+	•	schema audit
+	•	field mapping plan
+	•	rollback plan
+	•	new sidebar structure
+	•	organizations object strategy (prefer extending accounts)
+	•	domains table
+	•	cleanup of contacts/opportunities/quotes compatibility
+	•	migration plan for Industry Partnerships into Organizations
+	•	organizations list views and detail tabs
+
+Phase 2
+	•	unified activities timeline
+	•	email ingestion pipeline
+	•	confidence scoring
+	•	review queue
+	•	duplicate prevention
+
+Phase 3
+	•	deployments
+	•	subscriptions
+	•	contracts
+	•	dashboards
+	•	partner influence rollups
+	•	automation rules
+
+Phase 4
+	•	permissions refinement
+	•	advanced reporting
+	•	improved relationship graphing
+
+⸻
+
+43) Required Deliverables from Replit
+
+Before implementation
+
+Produce:
+	1.	existing schema audit
+	2.	field mapping plan
+	3.	migration plan
+	4.	rollback plan
+	5.	phased implementation plan
+
+After migration / rollout steps
+
+Produce:
+	1.	migration report
+	2.	validation report
+	3.	list of preserved legacy fields
+	4.	list of unresolved mapping issues
+	5.	confirmation of temporarily retained legacy modules/endpoints
+
+⸻
+
+44) Success Criteria
+
+This refactor is successful only if:
+	•	there is no separate Industry Partnerships top-level system anymore
+	•	all external entities are searchable in one CRM organization index
+	•	users can filter by type/role/stage without leaving CRM
+	•	emails attach correctly most of the time without breaking historical links
+	•	partner-sourced deals can be tracked and attributed
+	•	deployments and subscriptions tie cleanly back to revenue records
+	•	one organization page shows the whole relationship picture
+	•	existing data is preserved
+	•	existing functionality still works
+	•	no critical workflows break
+	•	no records are lost
+	•	no notes or attachments are orphaned
+	•	existing users can continue operating during transition
+	•	migration is reversible if problems are found
+
+⸻
+
+Final Implementation Note
+
+Build Phase 1 first and stop there for review before proceeding into email automation and downstream modules.
+
+Do not try to rebuild the whole plane in midair. That is how software becomes modern art.

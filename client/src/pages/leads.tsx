@@ -81,7 +81,7 @@ function getStageLabel(value: string) {
   return PIPELINE_STAGES.find(s => s.value === value)?.label || value;
 }
 
-export default function LeadsPage() {
+export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [countryFilter, setCountryFilter] = useState("all");
@@ -296,11 +296,13 @@ export default function LeadsPage() {
             <span className="sm:hidden">{importMutation.isPending ? "..." : "Import"}</span>
           </Button>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
-              <Button className="bg-primary text-primary-foreground" data-testid="button-create-lead">
-                <Plus className="mr-2 h-4 w-4" /> <span className="hidden sm:inline">New Lead</span><span className="sm:hidden">New</span>
-              </Button>
-            </DialogTrigger>
+            {canEdit && (
+              <DialogTrigger asChild>
+                <Button className="bg-primary text-primary-foreground" data-testid="button-create-lead">
+                  <Plus className="mr-2 h-4 w-4" /> <span className="hidden sm:inline">New Lead</span><span className="sm:hidden">New</span>
+                </Button>
+              </DialogTrigger>
+            )}
             <DialogContent className="max-w-md">
               <DialogHeader>
                 <DialogTitle>Create New Lead</DialogTitle>
@@ -429,7 +431,7 @@ export default function LeadsPage() {
                       </td>
                       <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell">{lead.source || "—"}</td>
                       <td className="p-3 sm:p-4 text-right">
-                        {lead.status === "converted" ? (
+                        {canEdit && (lead.status === "converted" ? (
                           <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); unconvertMutation.mutate(lead.id); }} data-testid={`button-unconvert-${lead.id}`} title="Revert to New Lead">
                             <Undo2 className="h-4 w-4" />
                           </Button>
@@ -437,7 +439,7 @@ export default function LeadsPage() {
                           <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); convertMutation.mutate(lead.id); }} data-testid={`button-convert-${lead.id}`}>
                             <ArrowRightLeft className="h-4 w-4" />
                           </Button>
-                        ) : null}
+                        ) : null)}
                       </td>
                     </tr>
                   ))}
@@ -475,6 +477,7 @@ export default function LeadsPage() {
           isConverting={convertMutation.isPending}
           isUnconverting={unconvertMutation.isPending}
           isDeleting={deleteMutation.isPending}
+          canEdit={canEdit}
         />
       )}
     </div>
@@ -628,6 +631,7 @@ function LeadDetailDialog({
   isConverting,
   isUnconverting,
   isDeleting,
+  canEdit = true,
 }: {
   lead: Lead;
   onClose: () => void;
@@ -638,6 +642,7 @@ function LeadDetailDialog({
   isConverting: boolean;
   isUnconverting: boolean;
   isDeleting: boolean;
+  canEdit?: boolean;
 }) {
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
@@ -692,9 +697,11 @@ function LeadDetailDialog({
               <div className="flex items-center gap-2">
                 <Label className="text-xs text-muted-foreground">Pipeline Stage</Label>
               </div>
-              <Button variant="outline" size="sm" onClick={() => setEditing(true)} data-testid="button-edit-lead">
-                Edit Lead
-              </Button>
+              {canEdit && (
+                <Button variant="outline" size="sm" onClick={() => setEditing(true)} data-testid="button-edit-lead">
+                  Edit Lead
+                </Button>
+              )}
             </div>
 
             <Select value={lead.status} onValueChange={onUpdateStatus}>
@@ -888,9 +895,11 @@ function LeadDetailDialog({
             {!lead.nextStep && !lead.notes && !lead.tags && (
               <div className="rounded-lg border border-dashed border-border/50 p-4 text-center">
                 <p className="text-sm text-muted-foreground mb-2">This lead needs more detail — add a next step, notes, or contact info.</p>
-                <Button variant="outline" size="sm" onClick={() => setEditing(true)} data-testid="button-enrich-lead">
-                  Enrich Lead
-                </Button>
+                {canEdit && (
+                  <Button variant="outline" size="sm" onClick={() => setEditing(true)} data-testid="button-enrich-lead">
+                    Enrich Lead
+                  </Button>
+                )}
               </div>
             )}
 
@@ -920,18 +929,18 @@ function LeadDetailDialog({
             </div>
 
             <div className="flex gap-2 justify-end pt-4 border-t border-border/50">
-              {lead.status === "converted" ? (
+              {canEdit && lead.status === "converted" ? (
                 <Button variant="outline" onClick={onUnconvert} disabled={isUnconverting} data-testid="button-unconvert-detail">
                   <Undo2 className="mr-2 h-4 w-4" /> Revert to New Lead
                 </Button>
-              ) : lead.status !== "lost" ? (
+              ) : canEdit && lead.status !== "lost" ? (
                 <Button variant="outline" onClick={onConvert} disabled={isConverting} data-testid="button-convert-detail">
                   <ArrowRightLeft className="mr-2 h-4 w-4" /> Convert to Account
                 </Button>
               ) : null}
-              <Button variant="destructive" size="sm" onClick={onDelete} disabled={isDeleting} data-testid="button-delete-lead">
+              {canEdit && <Button variant="destructive" size="sm" onClick={onDelete} disabled={isDeleting} data-testid="button-delete-lead">
                 <Trash2 className="mr-2 h-4 w-4" /> Delete
-              </Button>
+              </Button>}
             </div>
           </div>
         )}

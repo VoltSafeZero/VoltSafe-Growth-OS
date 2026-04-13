@@ -142,7 +142,7 @@ function DealSignals({ deal }: { deal: Opportunity }) {
   );
 }
 
-export default function OpportunitiesPage() {
+export default function OpportunitiesPage({ canEdit = true }: { canEdit?: boolean }) {
   const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<Opportunity | null>(null);
@@ -234,17 +234,19 @@ export default function OpportunitiesPage() {
             </Button>
           </div>
           <ExportButton endpoint="/api/opportunities/export" filename="opportunities_export.csv" />
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
-              <Button className="bg-primary text-primary-foreground" data-testid="button-create-deal">
-                <Plus className="mr-2 h-4 w-4" /> New Deal
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg">
-              <DialogHeader><DialogTitle>Create Deal</DialogTitle></DialogHeader>
-              <CreateDealForm accounts={accountsData?.data || []} onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
-            </DialogContent>
-          </Dialog>
+          {canEdit && (
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button className="bg-primary text-primary-foreground" data-testid="button-create-deal">
+                  <Plus className="mr-2 h-4 w-4" /> New Deal
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-lg">
+                <DialogHeader><DialogTitle>Create Deal</DialogTitle></DialogHeader>
+                <CreateDealForm accounts={accountsData?.data || []} onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
       </div>
 

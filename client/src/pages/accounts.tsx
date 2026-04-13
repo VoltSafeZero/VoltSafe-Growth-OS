@@ -60,7 +60,7 @@ const priorityColors: Record<string, string> = {
   high: "bg-red-500/10 text-red-500 border-red-500/20",
 };
 
-export default function AccountsPage() {
+export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) {
   const [search, setSearch] = useState("");
   const [segmentFilter, setSegmentFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -161,17 +161,19 @@ export default function AccountsPage() {
             }).toString()}`}
             filename="accounts_export.csv"
           />
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
-              <Button className="bg-primary text-primary-foreground" data-testid="button-create-account">
-                <Plus className="mr-2 h-4 w-4" /> New Account
-              </Button>
-            </DialogTrigger>
-          <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>Create Account</DialogTitle></DialogHeader>
-            <CreateAccountForm onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
-          </DialogContent>
-        </Dialog>
+          {canEdit && (
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button className="bg-primary text-primary-foreground" data-testid="button-create-account">
+                  <Plus className="mr-2 h-4 w-4" /> New Account
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+                <DialogHeader><DialogTitle>Create Account</DialogTitle></DialogHeader>
+                <CreateAccountForm onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
       </div>
 
@@ -311,7 +313,7 @@ export default function AccountsPage() {
       )}
 
       {selectedAccount && (
-        <AccountDetailDialog account={selectedAccount} onClose={() => setSelectedAccount(null)} />
+        <AccountDetailDialog account={selectedAccount} onClose={() => setSelectedAccount(null)} canEdit={canEdit} />
       )}
     </div>
   );
@@ -523,7 +525,7 @@ function extractDomainFromWebsite(website: string | null | undefined): string {
   return d;
 }
 
-function AccountDetailDialog({ account: initialAccount, onClose }: { account: Account; onClose: () => void }) {
+function AccountDetailDialog({ account: initialAccount, onClose, canEdit = true }: { account: Account; onClose: () => void; canEdit?: boolean }) {
   const { toast } = useToast();
   const [addContactOpen, setAddContactOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -686,7 +688,7 @@ function AccountDetailDialog({ account: initialAccount, onClose }: { account: Ac
                     <FolderPlus className="h-3.5 w-3.5 mr-1.5" />
                     Create Inbox Folder
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setEditMode(true)} data-testid="button-edit-account">Edit</Button>
+                  {canEdit && <Button variant="outline" size="sm" onClick={() => setEditMode(true)} data-testid="button-edit-account">Edit</Button>}
                 </div>
 
                 {(account.streetAddress || account.city || account.stateProvince) && (
@@ -779,9 +781,11 @@ function AccountDetailDialog({ account: initialAccount, onClose }: { account: Ac
           <TabsContent value="contacts" className="mt-4">
             <div className="flex justify-end mb-3">
               <Dialog open={addContactOpen} onOpenChange={setAddContactOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm" variant="outline" data-testid="button-add-contact"><Plus className="mr-1 h-3 w-3" /> Add Contact</Button>
-                </DialogTrigger>
+                {canEdit && (
+                  <DialogTrigger asChild>
+                    <Button size="sm" variant="outline" data-testid="button-add-contact"><Plus className="mr-1 h-3 w-3" /> Add Contact</Button>
+                  </DialogTrigger>
+                )}
                 <DialogContent className="max-w-md">
                   <DialogHeader><DialogTitle>Add Contact</DialogTitle></DialogHeader>
                   <CreateContactForm onSubmit={(d) => createContactMutation.mutate(d)} isPending={createContactMutation.isPending} />
@@ -858,6 +862,7 @@ function AccountDetailDialog({ account: initialAccount, onClose }: { account: Ac
               profile={infraProfile}
               onSave={(data) => updateInfraMutation.mutate(data)}
               isPending={updateInfraMutation.isPending}
+              canEdit={canEdit}
             />
           </TabsContent>
 
@@ -940,7 +945,7 @@ function DetailField({ label, value, icon }: { label: string; value?: string | n
   );
 }
 
-function InfrastructureProfileTab({ profile, onSave, isPending }: { profile: InfrastructureProfile | null | undefined; onSave: (data: Record<string, unknown>) => void; isPending: boolean }) {
+function InfrastructureProfileTab({ profile, onSave, isPending, canEdit = true }: { profile: InfrastructureProfile | null | undefined; onSave: (data: Record<string, unknown>) => void; isPending: boolean; canEdit?: boolean }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
     existingPedestalBrands: "",
@@ -1014,9 +1019,11 @@ function InfrastructureProfileTab({ profile, onSave, isPending }: { profile: Inf
       <div className="text-center py-8 space-y-3">
         <Wrench className="h-10 w-10 mx-auto text-muted-foreground/50" />
         <p className="text-sm text-muted-foreground">No infrastructure data yet</p>
-        <Button variant="outline" size="sm" onClick={() => setEditing(true)} data-testid="button-add-infra">
-          <Plus className="mr-1 h-3 w-3" /> Add Infrastructure Profile
-        </Button>
+        {canEdit && (
+          <Button variant="outline" size="sm" onClick={() => setEditing(true)} data-testid="button-add-infra">
+            <Plus className="mr-1 h-3 w-3" /> Add Infrastructure Profile
+          </Button>
+        )}
       </div>
     );
   }
@@ -1088,9 +1095,11 @@ function InfrastructureProfileTab({ profile, onSave, isPending }: { profile: Inf
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button variant="outline" size="sm" onClick={() => setEditing(true)} data-testid="button-edit-infra">Edit</Button>
-      </div>
+      {canEdit && (
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" onClick={() => setEditing(true)} data-testid="button-edit-infra">Edit</Button>
+        </div>
+      )}
 
       {(profile?.existingPedestalBrands || profile?.powerPerSlip || profile?.voltageTypes) && (
         <div className="rounded-lg border border-border/50 p-3">

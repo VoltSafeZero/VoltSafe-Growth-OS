@@ -115,7 +115,7 @@ function makeLineItem(catalog: CatalogItem, qty = 1, discPct = 0): LineItem {
   };
 }
 
-export default function QuotesPage() {
+export default function QuotesPage({ canEdit = true }: { canEdit?: boolean }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedQuote, setSelectedQuote] = useState<number | null>(null);
@@ -228,16 +228,18 @@ export default function QuotesPage() {
             endpoint={`/api/quotes/export?${new URLSearchParams({ ...(statusFilter !== "all" ? { status: statusFilter } : {}) }).toString()}`}
             filename="quotes_export.csv"
           />
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
-              <Button className="bg-primary text-primary-foreground" data-testid="button-create-quote">
-                <Plus className="mr-2 h-4 w-4" /> New Quote
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-[96vw] sm:max-w-5xl max-h-[92vh] overflow-y-auto p-0">
-              <QuoteBuilder accounts={accountsData?.data || []} onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
-            </DialogContent>
-          </Dialog>
+          {canEdit && (
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button className="bg-primary text-primary-foreground" data-testid="button-create-quote">
+                  <Plus className="mr-2 h-4 w-4" /> New Quote
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-[96vw] sm:max-w-5xl max-h-[92vh] overflow-y-auto p-0">
+                <QuoteBuilder accounts={accountsData?.data || []} onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
       </div>
 
