@@ -58,3 +58,39 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
   next();
 }
+
+const PERMISSION_LEVELS: Record<string, number> = { none: 0, view: 1, edit: 2 };
+
+export function requirePermission(section: string, minLevel: "view" | "edit") {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const userId = req.session?.userId;
+    if (!userId) return res.status(401).json({ message: "Not authenticated" });
+
+    try {
+      const [user] = await db
+        .select({ globalRole: users.globalRole, permissions: users.permissions })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      if (!user) return res.status(401).json({ message: "User not found" });
+
+      if (user.globalRole === "master_admin" || user.globalRole === "admin") {
+        return next();
+      }
+
+      const perms = (user.permissions as Record<string, string>) || {};
+      const userLevel = PERMISSION_LEVELS[perms[section] ?? "none"] ?? 0;
+      const required = PERMISSION_LEVELS[minLevel] ?? 1;
+
+      if (userLevel < required) {
+        return res.status(403).json({ message: `Insufficient permissions: requires ${minLevel} access to ${section}` });
+      }
+
+      next();
+    } catch (err) {
+      console.error("[requirePermission] error:", err);
+      res.status(500).json({ message: "Internal error checking permissions" });
+    }
+  };
+}

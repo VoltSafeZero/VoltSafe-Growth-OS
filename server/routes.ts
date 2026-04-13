@@ -20,7 +20,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
-import { requireAuth, seedUsers, hashPassword, verifyPassword } from "./auth";
+import { requireAuth, requirePermission, seedUsers, hashPassword, verifyPassword } from "./auth";
 import { toCsv, setCsvHeaders, type CsvColumn } from "./csv-export";
 import {
   getRegistrationOptions, verifyRegistration,
@@ -127,6 +127,7 @@ export async function registerRoutes(
       globalRole: user.globalRole,
       status: user.status,
       mustChangePassword: user.mustChangePassword,
+      permissions: user.permissions ?? { crm: "edit", partnerships: "edit", projects: "edit", communications: "edit", team_workload: "edit", knowledge: "edit", support: "edit", quoting: "edit", calendar: "edit", mail_team: {}, calendar_team: [] },
     });
   });
 
@@ -663,7 +664,7 @@ export async function registerRoutes(
     res.json(await storage.getLeadStates());
   });
 
-  app.post("/api/leads/import-marinas", async (_req, res) => {
+  app.post("/api/leads/import-marinas", requirePermission("crm", "edit"), async (_req, res) => {
     const count = await storage.importMarinasAsLeads();
     res.json({ imported: count, message: `Imported ${count} marinas as leads` });
   });
@@ -688,7 +689,7 @@ export async function registerRoutes(
     res.json(lead);
   });
 
-  app.post("/api/leads", async (req, res) => {
+  app.post("/api/leads", requirePermission("crm", "edit"), async (req, res) => {
     const body = { ...req.body };
     if (body.dueDate && typeof body.dueDate === "string") body.dueDate = new Date(body.dueDate);
     if (body.estCloseDate && typeof body.estCloseDate === "string") body.estCloseDate = new Date(body.estCloseDate);
@@ -697,7 +698,7 @@ export async function registerRoutes(
     res.status(201).json(await storage.createLead(parsed.data));
   });
 
-  app.put("/api/leads/:id", async (req, res) => {
+  app.put("/api/leads/:id", requirePermission("crm", "edit"), async (req, res) => {
     const body = { ...req.body };
     if (body.dueDate && typeof body.dueDate === "string") body.dueDate = new Date(body.dueDate);
     if (body.estCloseDate && typeof body.estCloseDate === "string") body.estCloseDate = new Date(body.estCloseDate);
@@ -706,13 +707,13 @@ export async function registerRoutes(
     res.json(result);
   });
 
-  app.delete("/api/leads/:id", async (req, res) => {
+  app.delete("/api/leads/:id", requirePermission("crm", "edit"), async (req, res) => {
     const deleted = await storage.deleteLead(Number(req.params.id));
     if (!deleted) return res.status(404).json({ message: "Lead not found" });
     res.json({ message: "Deleted" });
   });
 
-  app.post("/api/leads/:id/convert", async (req, res) => {
+  app.post("/api/leads/:id/convert", requirePermission("crm", "edit"), async (req, res) => {
     const lead = await storage.getLead(Number(req.params.id));
     if (!lead) return res.status(404).json({ message: "Lead not found" });
 
@@ -815,7 +816,7 @@ export async function registerRoutes(
     res.json({ account, leadId: lead.id });
   });
 
-  app.post("/api/leads/:id/unconvert", async (req, res) => {
+  app.post("/api/leads/:id/unconvert", requirePermission("crm", "edit"), async (req, res) => {
     const lead = await storage.getLead(Number(req.params.id));
     if (!lead) return res.status(404).json({ message: "Lead not found" });
     if (lead.status !== "converted") return res.status(400).json({ message: "Lead is not converted" });
@@ -859,13 +860,13 @@ export async function registerRoutes(
     res.json(account);
   });
 
-  app.post("/api/accounts", async (req, res) => {
+  app.post("/api/accounts", requirePermission("crm", "edit"), async (req, res) => {
     const parsed = insertAccountSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createAccount(parsed.data));
   });
 
-  app.put("/api/accounts/:id", async (req, res) => {
+  app.put("/api/accounts/:id", requirePermission("crm", "edit"), async (req, res) => {
     const result = await storage.updateAccount(Number(req.params.id), req.body);
     if (!result) return res.status(404).json({ message: "Account not found" });
     res.json(result);
@@ -876,7 +877,7 @@ export async function registerRoutes(
     res.json(profile || null);
   });
 
-  app.put("/api/accounts/:id/infrastructure", async (req, res) => {
+  app.put("/api/accounts/:id/infrastructure", requirePermission("crm", "edit"), async (req, res) => {
     const accountId = Number(req.params.id);
     const account = await storage.getAccount(accountId);
     if (!account) return res.status(404).json({ message: "Account not found" });
@@ -901,19 +902,19 @@ export async function registerRoutes(
     res.json(contact);
   });
 
-  app.post("/api/contacts", async (req, res) => {
+  app.post("/api/contacts", requirePermission("crm", "edit"), async (req, res) => {
     const parsed = insertContactSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createContact(parsed.data));
   });
 
-  app.put("/api/contacts/:id", async (req, res) => {
+  app.put("/api/contacts/:id", requirePermission("crm", "edit"), async (req, res) => {
     const result = await storage.updateContact(Number(req.params.id), req.body);
     if (!result) return res.status(404).json({ message: "Contact not found" });
     res.json(result);
   });
 
-  app.delete("/api/contacts/:id", async (req, res) => {
+  app.delete("/api/contacts/:id", requirePermission("crm", "edit"), async (req, res) => {
     const deleted = await storage.deleteContact(Number(req.params.id));
     if (!deleted) return res.status(404).json({ message: "Contact not found" });
     res.json({ message: "Deleted" });
@@ -1035,7 +1036,7 @@ export async function registerRoutes(
     res.json({ ...quote, lineItems, servicesEstimates: servicesEst });
   });
 
-  app.post("/api/quotes", async (req, res) => {
+  app.post("/api/quotes", requirePermission("quoting", "edit"), async (req, res) => {
     const { lineItems, servicesEstimates: svcEstimates, ...quoteData } = req.body;
     const quoteNumber = await storage.getNextQuoteNumber();
     const parsed = insertQuoteSchema.safeParse({ ...quoteData, quoteNumber });
@@ -1253,7 +1254,7 @@ export async function registerRoutes(
     res.send(buf);
   });
 
-  app.put("/api/quotes/:id", async (req, res) => {
+  app.put("/api/quotes/:id", requirePermission("quoting", "edit"), async (req, res) => {
     const { lineItems, servicesEstimates: svcEstimates, ...quoteData } = req.body;
     const result = await storage.updateQuote(Number(req.params.id), quoteData);
     if (!result) return res.status(404).json({ message: "Quote not found" });
@@ -1264,14 +1265,14 @@ export async function registerRoutes(
     res.json(await storage.getQuoteLineItems(Number(req.params.quoteId)));
   });
 
-  app.post("/api/quotes/:quoteId/line-items", async (req, res) => {
+  app.post("/api/quotes/:quoteId/line-items", requirePermission("quoting", "edit"), async (req, res) => {
     const data = { ...req.body, quoteId: Number(req.params.quoteId) };
     const parsed = insertQuoteLineItemSchema.safeParse(data);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createQuoteLineItem(parsed.data));
   });
 
-  app.delete("/api/quote-line-items/:id", async (req, res) => {
+  app.delete("/api/quote-line-items/:id", requirePermission("quoting", "edit"), async (req, res) => {
     const deleted = await storage.deleteQuoteLineItem(Number(req.params.id));
     if (!deleted) return res.status(404).json({ message: "Line item not found" });
     res.json({ message: "Deleted" });
@@ -1281,14 +1282,14 @@ export async function registerRoutes(
     res.json(await storage.getServicesEstimates(Number(req.params.quoteId)));
   });
 
-  app.post("/api/quotes/:quoteId/services-estimates", async (req, res) => {
+  app.post("/api/quotes/:quoteId/services-estimates", requirePermission("quoting", "edit"), async (req, res) => {
     const data = { ...req.body, quoteId: Number(req.params.quoteId) };
     const parsed = insertServicesEstimateSchema.safeParse(data);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createServicesEstimate(parsed.data));
   });
 
-  app.delete("/api/services-estimates/:id", async (req, res) => {
+  app.delete("/api/services-estimates/:id", requirePermission("quoting", "edit"), async (req, res) => {
     const deleted = await storage.deleteServicesEstimate(Number(req.params.id));
     if (!deleted) return res.status(404).json({ message: "Estimate not found" });
     res.json({ message: "Deleted" });
@@ -1713,7 +1714,7 @@ export async function registerRoutes(
     if (!p) return res.status(404).json({ message: "Partnership not found" });
     res.json(p);
   });
-  app.post("/api/partnerships", async (req, res) => {
+  app.post("/api/partnerships", requirePermission("partnerships", "edit"), async (req, res) => {
     const body = { ...req.body };
     if (body.startDate && typeof body.startDate === "string") body.startDate = new Date(body.startDate);
     if (body.endDate && typeof body.endDate === "string") body.endDate = new Date(body.endDate);
@@ -1722,7 +1723,7 @@ export async function registerRoutes(
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createPartnership(parsed.data));
   });
-  app.put("/api/partnerships/:id", async (req, res) => {
+  app.put("/api/partnerships/:id", requirePermission("partnerships", "edit"), async (req, res) => {
     const body = { ...req.body };
     if (body.startDate && typeof body.startDate === "string") body.startDate = new Date(body.startDate);
     if (body.endDate && typeof body.endDate === "string") body.endDate = new Date(body.endDate);
@@ -1731,7 +1732,7 @@ export async function registerRoutes(
     if (!result) return res.status(404).json({ message: "Partnership not found" });
     res.json(result);
   });
-  app.delete("/api/partnerships/:id", async (req, res) => {
+  app.delete("/api/partnerships/:id", requirePermission("partnerships", "edit"), async (req, res) => {
     const ok = await storage.deletePartnership(Number(req.params.id));
     if (!ok) return res.status(404).json({ message: "Partnership not found" });
     res.json({ message: "Deleted" });
