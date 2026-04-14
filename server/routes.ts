@@ -2611,6 +2611,121 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/gmail/thread-associations/replace
+  // Replace an existing confirmed association with a different CRM record.
+  // Runs atomically: old association is deleted only if new association + audit both succeed.
+  // Permission-enforced server-side: crm for contact/account/lead/opportunity; partnerships for partner.
+  app.post("/api/gmail/thread-associations/replace", requireAuth, async (req, res) => {
+    const { oldAssociationId, threadId, objectType, objectId, objectName } = req.body;
+    if (!oldAssociationId || !objectType || !objectId) {
+      return res.status(400).json({ message: "oldAssociationId, objectType, and objectId are required" });
+    }
+
+    // ── Permission check ────────────────────────────────────────────────────
+    const userId = (req.session as any).userId;
+    const [actor] = await db
+      .select({ globalRole: users.globalRole, permissions: users.permissions })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!actor) return res.status(401).json({ message: "User not found" });
+
+    const isAdmin = actor.globalRole === "master_admin" || actor.globalRole === "admin";
+    if (!isAdmin) {
+      const perms = (actor.permissions as Record<string, string>) || {};
+      const section = objectType === "partner" ? "partnerships" : "crm";
+      const level = perms[section] ?? "none";
+      if (level === "none") {
+        return res.status(403).json({
+          message: `Insufficient permissions: requires view access to ${section}`,
+        });
+      }
+    }
+
+    // ── Load old association ─────────────────────────────────────────────────
+    const [old] = await db
+      .select()
+      .from(emailAssociations)
+      .where(eq(emailAssociations.id, Number(oldAssociationId)));
+
+    if (!old) return res.status(404).json({ message: "Association not found" });
+
+    // ── No-op guard ──────────────────────────────────────────────────────────
+    if (old.objectType === objectType && old.objectId === Number(objectId)) {
+      return res.status(400).json({
+        message: "Replacement target is the same as the current association — no change made",
+      });
+    }
+
+    // ── Atomic transaction ───────────────────────────────────────────────────
+    try {
+      await db.transaction(async (tx) => {
+        // 1. Delete old association
+        await tx.delete(emailAssociations).where(eq(emailAssociations.id, old.id));
+
+        // 2. Insert new association (manually confirmed, 100% confidence)
+        await tx.insert(emailAssociations).values({
+          emailMessageId: old.emailMessageId,
+          objectType,
+          objectId: Number(objectId),
+          objectName: objectName || String(objectId),
+          confidenceScore: 100,
+          associationReasonJson: JSON.stringify(["Manually corrected by user"]),
+          isAuto: false,
+          isUserConfirmed: true,
+        });
+
+        // 3. Update email_threads primary pointer:
+        //    clear old type's pointer, set new type's pointer
+        if (threadId) {
+          const threadUpdates: Record<string, any> = { associationStatus: "associated", updatedAt: new Date() };
+
+          // Clear old type pointer
+          if (old.objectType === "contact") threadUpdates.primaryContactId = null;
+          else if (old.objectType === "account") threadUpdates.primaryAccountId = null;
+          else if (old.objectType === "lead") threadUpdates.primaryLeadId = null;
+          else if (old.objectType === "opportunity") threadUpdates.primaryOpportunityId = null;
+          else if (old.objectType === "partner") threadUpdates.primaryPartnerId = null;
+
+          // Set new type pointer
+          if (objectType === "contact") threadUpdates.primaryContactId = Number(objectId);
+          else if (objectType === "account") threadUpdates.primaryAccountId = Number(objectId);
+          else if (objectType === "lead") threadUpdates.primaryLeadId = Number(objectId);
+          else if (objectType === "opportunity") threadUpdates.primaryOpportunityId = Number(objectId);
+          else if (objectType === "partner") threadUpdates.primaryPartnerId = Number(objectId);
+
+          const [existingThread] = await tx
+            .select({ id: emailThreads.id })
+            .from(emailThreads)
+            .where(eq(emailThreads.gmailThreadId, String(threadId)));
+
+          if (existingThread) {
+            await tx.update(emailThreads)
+              .set(threadUpdates)
+              .where(eq(emailThreads.gmailThreadId, String(threadId)));
+          } else {
+            await tx.insert(emailThreads).values({ gmailThreadId: String(threadId), ...threadUpdates });
+          }
+        }
+
+        // 4. Write audit record (feedbackType="corrected" with both original and corrected IDs)
+        await tx.insert(associationFeedback).values({
+          emailMessageId: old.emailMessageId,
+          originalObjectType: old.objectType,
+          originalObjectId: old.objectId,
+          correctedObjectType: objectType,
+          correctedObjectId: Number(objectId),
+          feedbackType: "corrected",
+        });
+      });
+
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // GET /api/gmail/crm-search?q=...&types=contact,account,lead,opportunity,partner
   // Unified CRM search used for manual association linking.
   app.get("/api/gmail/crm-search", requireAuth, async (req, res) => {

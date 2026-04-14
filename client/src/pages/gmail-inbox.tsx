@@ -754,6 +754,8 @@ function CrmContextPanel({
   const [manualSearch, setManualSearch] = useState("");
   const [manualLinkPending, setManualLinkPending] = useState(false);
   const [showCandidates, setShowCandidates] = useState(true);
+  const [replacingCandidateId, setReplacingCandidateId] = useState<number | null>(null);
+  const [replaceSearch, setReplaceSearch] = useState("");
 
   const canViewCrm = isAdminUser || (userPermissions?.crm !== "none" && userPermissions?.crm != null);
   const canViewPartnerships = isAdminUser || (userPermissions?.partnerships !== "none" && userPermissions?.partnerships != null);
@@ -761,6 +763,16 @@ function CrmContextPanel({
   function hasAccessForType(objectType: string): boolean {
     if (objectType === "partner") return !!canViewPartnerships;
     return !!canViewCrm;
+  }
+
+  function openReplace(candidateId: number) {
+    setReplacingCandidateId(candidateId);
+    setReplaceSearch("");
+  }
+
+  function closeReplace() {
+    setReplacingCandidateId(null);
+    setReplaceSearch("");
   }
 
   const threadRecordQuery = useQuery<ThreadRecord>({
@@ -833,6 +845,45 @@ function CrmContextPanel({
       toast({ title: "Association removed" });
     },
     onError: (err: any) => toast({ title: "Failed to remove", description: err.message, variant: "destructive" }),
+  });
+
+  const replaceSearchQuery = useQuery<CrmSearchResult[]>({
+    queryKey: ["/api/gmail/crm-search/replace", replaceSearch],
+    queryFn: async () => {
+      if (replaceSearch.length < 2) return [];
+      const res = await fetch(`/api/gmail/crm-search?q=${encodeURIComponent(replaceSearch)}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: replaceSearch.length >= 2 && replacingCandidateId !== null,
+  });
+
+  const replaceMutation = useMutation({
+    mutationFn: async (payload: {
+      oldAssociationId: number;
+      objectType: string;
+      objectId: number;
+      objectName: string;
+    }) => {
+      const res = await apiRequest("POST", "/api/gmail/thread-associations/replace", {
+        ...payload,
+        threadId,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ message: "Unknown error" }));
+        throw new Error(body.message || `Error ${res.status}`);
+      }
+      return res.json();
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-associations", threadId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", threadId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue"] });
+      closeReplace();
+      toast({ title: `Reassociated to ${variables.objectName}` });
+    },
+    onError: (err: any) => toast({ title: "Failed to replace association", description: err.message, variant: "destructive" }),
   });
 
   async function handleManualLink(result: CrmSearchResult) {
@@ -993,26 +1044,29 @@ function CrmContextPanel({
               const deepUrl = getDeepLinkUrl(cand.objectType, cand.objectId);
               const firstReason = cand.reasons?.[0];
               const allReasons = cand.reasons?.join(" · ");
+              const isReplacing = replacingCandidateId === cand.id;
+              const replaceResults = (replaceSearchQuery.data ?? []).filter(r => hasAccessForType(r.objectType));
               return (
                 <div
                   key={cand.id}
                   data-testid={`crm-assoc-confirmed-${cand.id}`}
                   className="group"
                 >
+                  {/* Normal row */}
                   <div className="flex items-center gap-1.5">
-                    <span className={`flex items-center gap-0.5 text-[10px] px-1.5 py-[2px] rounded border flex-shrink-0 ${cfg.bg} ${cfg.text} ${cfg.border}`}>
+                    <span className={`flex items-center gap-0.5 text-[10px] px-1.5 py-[2px] rounded border flex-shrink-0 ${isReplacing ? "opacity-40" : ""} ${cfg.bg} ${cfg.text} ${cfg.border}`}>
                       <Icon className="h-2.5 w-2.5" />
                       {cfg.label}
                     </span>
                     {canAccess ? (
                       <button
-                        onClick={() => setLocation(deepUrl)}
+                        onClick={() => !isReplacing && setLocation(deepUrl)}
                         data-testid={`crm-assoc-link-${cand.id}`}
-                        className={`text-[11px] font-medium flex-1 truncate text-left hover:underline flex items-center gap-1 group/link ${cfg.text}`}
-                        title={allReasons}
+                        className={`text-[11px] font-medium flex-1 truncate text-left flex items-center gap-1 group/link ${cfg.text} ${isReplacing ? "line-through opacity-40 cursor-default" : "hover:underline"}`}
+                        title={isReplacing ? "Selecting replacement…" : allReasons}
                       >
                         <span className="truncate">{displayName}</span>
-                        <ExternalLink className="h-2.5 w-2.5 flex-shrink-0 opacity-0 group-hover/link:opacity-60 transition-opacity" />
+                        {!isReplacing && <ExternalLink className="h-2.5 w-2.5 flex-shrink-0 opacity-0 group-hover/link:opacity-60 transition-opacity" />}
                       </button>
                     ) : (
                       <span className="text-[11px] flex-1 truncate flex items-center gap-1 text-muted-foreground/50" title="You don't have permission to view this record">
@@ -1020,21 +1074,109 @@ function CrmContextPanel({
                         {RESTRICTED_LABELS[cand.objectType] ?? "Linked Record"}
                       </span>
                     )}
-                    <ShieldCheck className="h-3 w-3 text-emerald-400/70 flex-shrink-0" />
-                    <button
-                      onClick={() => rejectMutation.mutate(cand.id)}
-                      disabled={rejectMutation.isPending}
-                      data-testid={`crm-reject-${cand.id}`}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/40 hover:text-red-400"
-                      title="Remove link"
-                    >
-                      <XCircle className="h-3 w-3" />
-                    </button>
+                    {!isReplacing && <ShieldCheck className="h-3 w-3 text-emerald-400/70 flex-shrink-0" />}
+                    {/* Change button — appears on hover when not already replacing */}
+                    {!isReplacing && (
+                      <button
+                        onClick={() => openReplace(cand.id)}
+                        data-testid={`crm-change-${cand.id}`}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/40 hover:text-primary"
+                        title="Change linked record"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    )}
+                    {/* Cancel replace */}
+                    {isReplacing && (
+                      <button
+                        onClick={closeReplace}
+                        data-testid={`crm-replace-cancel-${cand.id}`}
+                        className="text-muted-foreground/40 hover:text-foreground transition-colors text-[10px] flex-shrink-0"
+                        title="Cancel"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                    {!isReplacing && (
+                      <button
+                        onClick={() => rejectMutation.mutate(cand.id)}
+                        disabled={rejectMutation.isPending}
+                        data-testid={`crm-reject-${cand.id}`}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/40 hover:text-red-400"
+                        title="Remove link"
+                      >
+                        <XCircle className="h-3 w-3" />
+                      </button>
+                    )}
                   </div>
-                  {firstReason && (
+                  {/* Match reason line */}
+                  {firstReason && !isReplacing && (
                     <p className="text-[10px] text-muted-foreground/40 italic pl-[calc(0.375rem+1.25rem+0.375rem)] mt-0.5 truncate" title={allReasons}>
                       {firstReason}
                     </p>
+                  )}
+                  {/* Inline replace widget */}
+                  {isReplacing && (
+                    <div className="mt-1.5 ml-0 space-y-1" data-testid={`crm-replace-widget-${cand.id}`}>
+                      <div className="relative">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50" />
+                        <input
+                          autoFocus
+                          value={replaceSearch}
+                          onChange={e => setReplaceSearch(e.target.value)}
+                          placeholder="Search for replacement record…"
+                          data-testid="replace-link-input"
+                          className="w-full pl-7 pr-2 py-1 text-[11px] bg-muted/20 border border-border/40 rounded focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
+                        />
+                      </div>
+                      {replaceSearch.length >= 2 && (
+                        <div className="max-h-36 overflow-y-auto space-y-0.5 border border-border/20 rounded bg-background/90">
+                          {replaceSearchQuery.isLoading && (
+                            <div className="flex items-center justify-center py-2">
+                              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/50" />
+                            </div>
+                          )}
+                          {!replaceSearchQuery.isLoading && replaceResults.length === 0 && (
+                            <p className="text-[10px] text-muted-foreground/40 text-center py-2">No accessible records match</p>
+                          )}
+                          {replaceResults.map(r => {
+                            const rcfg = TYPE_CFG[r.objectType as keyof typeof TYPE_CFG];
+                            if (!rcfg) return null;
+                            const isSame = cand.objectType === r.objectType && cand.objectId === r.objectId;
+                            return (
+                              <button
+                                key={`${r.objectType}:${r.objectId}`}
+                                onClick={() => {
+                                  if (!isSame) {
+                                    replaceMutation.mutate({
+                                      oldAssociationId: cand.id,
+                                      objectType: r.objectType,
+                                      objectId: r.objectId,
+                                      objectName: r.objectName,
+                                    });
+                                  }
+                                }}
+                                disabled={replaceMutation.isPending || isSame}
+                                data-testid={`replace-result-${r.objectId}`}
+                                className={`w-full flex items-center gap-2 px-2 py-1.5 text-left transition-colors ${isSame ? "opacity-40 cursor-not-allowed" : "hover:bg-muted/30"}`}
+                                title={isSame ? "Already linked to this record" : undefined}
+                              >
+                                <span className={`flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border flex-shrink-0 ${rcfg.bg} ${rcfg.text} ${rcfg.border}`}>
+                                  <rcfg.Icon className="h-2.5 w-2.5" />
+                                  {rcfg.label}
+                                </span>
+                                <span className="text-[11px] text-foreground flex-1 truncate">{r.objectName}</span>
+                                {r.meta && <span className="text-[10px] text-muted-foreground/50 truncate max-w-[80px]">{r.meta}</span>}
+                                {replaceMutation.isPending && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/40 flex-shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {replaceSearch.length < 2 && (
+                        <p className="text-[10px] text-muted-foreground/35 italic px-1">Type at least 2 characters to search</p>
+                      )}
+                    </div>
                   )}
                 </div>
               );
