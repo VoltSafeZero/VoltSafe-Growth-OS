@@ -5001,4 +5001,221 @@ export function registerConfluenceRoutes(app: Express) {
       res.status(500).json({ message: err.message });
     }
   });
+
+  // ─── Relationship Intelligence ───────────────────────────────────────────────
+  app.get("/api/relationships/intelligence", requireAuth, async (req, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 30;
+      const PERSONAL_DOMAINS = [
+        "gmail.com","yahoo.com","outlook.com","hotmail.com","icloud.com",
+        "me.com","aol.com","msn.com","ymail.com","googlemail.com",
+        "protonmail.com","live.com","mac.com",
+      ];
+      const personalList = PERSONAL_DOMAINS.map(d => `'${d}'`).join(",");
+      const periodFilter = days > 0 ? `AND em.sent_at >= NOW() - INTERVAL '${days} days'` : "";
+      const externalFilter = `
+        em.from_email IS NOT NULL AND em.from_email != ''
+        AND em.from_email NOT ILIKE '%@voltsafe.com'
+        AND LOWER(SPLIT_PART(em.from_email,'@',2)) NOT IN (${personalList})
+        AND (em.bulk_email_score < 40 OR em.bulk_email_score IS NULL)
+        AND (em.auto_generated_score < 40 OR em.auto_generated_score IS NULL)
+      `;
+
+      // Cards ──────────────────────────────────────────────────────────────────
+      const cardsResult = await db.execute(sql.raw(`
+        SELECT
+          (SELECT COUNT(DISTINCT em.from_email)
+           FROM email_messages em
+           WHERE ${externalFilter} ${periodFilter}) AS total_external,
+          (SELECT COUNT(DISTINCT em.from_email)
+           FROM email_messages em
+           LEFT JOIN contacts c ON LOWER(c.email) = LOWER(em.from_email)
+           WHERE ${externalFilter} ${periodFilter}
+             AND c.id IS NULL) AS unlinked_senders
+      `));
+
+      // Separate active count (contacts with 2+ messages in period)
+      const activeResult = await db.execute(sql.raw(`
+        SELECT COUNT(*) AS cnt FROM (
+          SELECT ea.object_id
+          FROM email_associations ea
+          JOIN email_messages em ON em.id = ea.email_message_id
+          WHERE ea.object_type = 'contact' ${periodFilter}
+          GROUP BY ea.object_id
+          HAVING COUNT(em.id) >= 2
+        ) sub
+      `));
+
+      // Separate dormant count (contacts with history, no email in 60d)
+      const dormantResult = await db.execute(sql.raw(`
+        SELECT COUNT(*) AS cnt FROM (
+          SELECT ea.object_id
+          FROM email_associations ea
+          JOIN email_messages em ON em.id = ea.email_message_id
+          WHERE ea.object_type = 'contact'
+          GROUP BY ea.object_id
+          HAVING MAX(em.sent_at) < NOW() - INTERVAL '60 days'
+        ) sub
+      `));
+
+      // New relationships: contacts whose first associated message is in period
+      const newRelsResult = await db.execute(sql.raw(`
+        SELECT COUNT(*) AS cnt FROM (
+          SELECT ea.object_id
+          FROM email_associations ea
+          JOIN email_messages em ON em.id = ea.email_message_id
+          WHERE ea.object_type = 'contact'
+          GROUP BY ea.object_id
+          HAVING MIN(em.sent_at) >= NOW() - INTERVAL '${days > 0 ? days : 36500} days'
+        ) sub
+      `));
+
+      const cardRow = (cardsResult.rows as any[])[0] || {};
+      const cards = {
+        totalExternal: parseInt(cardRow.total_external || "0"),
+        activeRelationships: parseInt((activeResult.rows as any[])[0]?.cnt || "0"),
+        dormantRelationships: parseInt((dormantResult.rows as any[])[0]?.cnt || "0"),
+        newRelationships: parseInt((newRelsResult.rows as any[])[0]?.cnt || "0"),
+        unlinkedSenders: parseInt(cardRow.unlinked_senders || "0"),
+      };
+
+      // Most Active Contacts ───────────────────────────────────────────────────
+      const mostActiveResult = await db.execute(sql.raw(`
+        SELECT
+          c.id AS contact_id,
+          c.name AS contact_name,
+          a.id AS account_id,
+          a.name AS account_name,
+          a.org_type,
+          COUNT(DISTINCT em.id) AS message_count,
+          MAX(em.sent_at) AS last_activity
+        FROM email_associations ea
+        JOIN email_messages em ON em.id = ea.email_message_id
+        JOIN contacts c ON c.id = ea.object_id AND ea.object_type = 'contact'
+        LEFT JOIN accounts a ON a.id = c.account_id
+        WHERE 1=1 ${periodFilter}
+        GROUP BY c.id, c.name, a.id, a.name, a.org_type
+        ORDER BY message_count DESC, last_activity DESC
+        LIMIT 15
+      `));
+
+      // Neglected Relationships ─────────────────────────────────────────────────
+      const neglectedResult = await db.execute(sql.raw(`
+        SELECT
+          c.id AS contact_id,
+          c.name AS contact_name,
+          a.id AS account_id,
+          a.name AS account_name,
+          a.org_type,
+          MAX(em.sent_at) AS last_activity,
+          EXTRACT(DAY FROM NOW() - MAX(em.sent_at))::integer AS days_since_contact
+        FROM email_associations ea
+        JOIN email_messages em ON em.id = ea.email_message_id
+        JOIN contacts c ON c.id = ea.object_id AND ea.object_type = 'contact'
+        LEFT JOIN accounts a ON a.id = c.account_id
+        GROUP BY c.id, c.name, a.id, a.name, a.org_type
+        HAVING MAX(em.sent_at) < NOW() - INTERVAL '30 days'
+        ORDER BY last_activity ASC
+        LIMIT 15
+      `));
+
+      // Orgs by Volume ─────────────────────────────────────────────────────────
+      const orgsByVolumeResult = await db.execute(sql.raw(`
+        SELECT
+          a.id AS account_id,
+          a.name AS account_name,
+          a.org_type,
+          COUNT(DISTINCT CASE WHEN ea.object_type = 'contact' THEN ea.object_id END) AS contact_count,
+          COUNT(DISTINCT em.id) AS message_count,
+          MAX(em.sent_at) AS last_activity
+        FROM email_associations ea
+        JOIN email_messages em ON em.id = ea.email_message_id
+        LEFT JOIN contacts c ON c.id = ea.object_id AND ea.object_type = 'contact'
+        LEFT JOIN accounts a ON a.id = CASE
+          WHEN ea.object_type = 'account' THEN ea.object_id
+          ELSE c.account_id
+        END
+        WHERE a.id IS NOT NULL ${periodFilter}
+        GROUP BY a.id, a.name, a.org_type
+        ORDER BY message_count DESC
+        LIMIT 10
+      `));
+
+      // Unlinked Senders ───────────────────────────────────────────────────────
+      const unlinkedResult = await db.execute(sql.raw(`
+        SELECT
+          em.from_name,
+          em.from_email,
+          LOWER(SPLIT_PART(em.from_email,'@',2)) AS domain,
+          COUNT(DISTINCT em.gmail_thread_id) AS thread_count,
+          COUNT(*) AS message_count,
+          MAX(em.sent_at) AS last_seen
+        FROM email_messages em
+        LEFT JOIN contacts c ON LOWER(c.email) = LOWER(em.from_email)
+        WHERE ${externalFilter} ${periodFilter}
+          AND c.id IS NULL
+        GROUP BY em.from_name, em.from_email
+        ORDER BY message_count DESC, thread_count DESC
+        LIMIT 20
+      `));
+
+      // Trend (daily message count) ─────────────────────────────────────────────
+      const trendDays = days > 0 ? days : 90;
+      const trendResult = await db.execute(sql.raw(`
+        SELECT
+          TO_CHAR(DATE_TRUNC('day', em.sent_at), 'YYYY-MM-DD') AS date,
+          COUNT(*) AS count
+        FROM email_messages em
+        WHERE em.sent_at >= NOW() - INTERVAL '${trendDays} days'
+          AND ${externalFilter}
+        GROUP BY DATE_TRUNC('day', em.sent_at)
+        ORDER BY DATE_TRUNC('day', em.sent_at)
+      `));
+
+      res.json({
+        period: days,
+        cards,
+        mostActive: (mostActiveResult.rows as any[]).map(r => ({
+          contactId: r.contact_id,
+          contactName: r.contact_name,
+          accountId: r.account_id,
+          accountName: r.account_name,
+          orgType: r.org_type,
+          messageCount: parseInt(r.message_count),
+          lastActivity: r.last_activity,
+        })),
+        neglected: (neglectedResult.rows as any[]).map(r => ({
+          contactId: r.contact_id,
+          contactName: r.contact_name,
+          accountId: r.account_id,
+          accountName: r.account_name,
+          orgType: r.org_type,
+          lastActivity: r.last_activity,
+          daysSinceContact: parseInt(r.days_since_contact),
+        })),
+        orgsByVolume: (orgsByVolumeResult.rows as any[]).map(r => ({
+          accountId: r.account_id,
+          accountName: r.account_name,
+          orgType: r.org_type,
+          contactCount: parseInt(r.contact_count),
+          messageCount: parseInt(r.message_count),
+          lastActivity: r.last_activity,
+        })),
+        unlinkedSenders: (unlinkedResult.rows as any[]).map(r => ({
+          fromName: r.from_name,
+          fromEmail: r.from_email,
+          domain: r.domain,
+          threadCount: parseInt(r.thread_count),
+          messageCount: parseInt(r.message_count),
+          lastSeen: r.last_seen,
+        })),
+        trend: (trendResult.rows as any[]).map(r => ({
+          date: r.date,
+          count: parseInt(r.count),
+        })),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 }

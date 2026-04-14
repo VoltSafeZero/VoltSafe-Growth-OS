@@ -4,7 +4,7 @@ import {
   Building2, Contact, UserPlus, FileText, Mail, CalendarClock, Megaphone,
   FolderOpen, Tags, Zap, Settings, ChevronRight, Users2, ClipboardList,
   Layers, ShieldCheck, Circle, Truck, Factory, FlaskConical, Landmark,
-  Newspaper,
+  Newspaper, BarChart3,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import navLogo from "@assets/nav-logo.png";
@@ -72,6 +72,7 @@ const sections: NavSection[] = [
     icon: Activity,
     items: [
       { title: "Gmail", url: "/gmail", icon: Mail },
+      { title: "Rel. Intelligence", url: "/relationships", icon: BarChart3 },
       { title: "Calendar", url: "/execution/calendar", icon: CalendarClock, permKey: "calendar" },
       { title: "Projects", url: "/execution/projects", icon: Layers, permKey: "projects" },
       { title: "Communications", url: "/execution/communications", icon: Megaphone, permKey: "communications" },

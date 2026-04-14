@@ -40,6 +40,7 @@ import AdminIntegrationsPage from "@/pages/admin-integrations";
 import AdminUsersPage from "@/pages/admin-users";
 import ProjectsPage from "@/pages/projects";
 import ResetPasswordPage from "@/pages/reset-password";
+import RelationshipIntelligencePage from "@/pages/relationship-intelligence";
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -160,6 +161,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
 
       {/* ── EXECUTION ─────────────────────────────────────────────── */}
       <Route path="/gmail">{() => wrap(<GmailInboxPage currentUserEmail={user.email} currentUserRole={user.globalRole || "sales"} userPermissions={perms} />)}</Route>
+      <Route path="/relationships">{() => wrap(<RelationshipIntelligencePage />)}</Route>
       <Route path="/execution/calendar">{() => guard("calendar", <CalendarPage permissions={perms} currentUserId={user.id} isAdmin={isAdmin(role)} />)}</Route>
       <Route path="/execution/projects">{() => guard("projects", <ProjectsPage />)}</Route>
       <Route path="/execution/communications">{() => guard("communications", <CommunicationsPage />)}</Route>
