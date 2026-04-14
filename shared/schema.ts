@@ -713,6 +713,10 @@ export const calendarEvents = pgTable("calendar_events", {
   secondAlert: text("second_alert").default("none"),
   showAs: text("show_as").default("busy"),
   visibility: text("visibility").default("default"),
+  // External provider sync fields
+  externalId: text("external_id"),
+  externalProvider: text("external_provider"),
+  externalCalendarId: text("external_calendar_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -720,6 +724,39 @@ export const calendarEvents = pgTable("calendar_events", {
 export const insertCalendarEventSchema = createInsertSchema(calendarEvents).omit({ id: true, createdAt: true, updatedAt: true });
 export type CalendarEvent = typeof calendarEvents.$inferSelect;
 export type InsertCalendarEvent = z.infer<typeof insertCalendarEventSchema>;
+
+// Calendar provider connections — one row per user per connected calendar provider
+export const calendarConnections = pgTable("calendar_connections", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  provider: text("provider").notNull(), // 'google' | 'microsoft' | 'apple' | 'caldav'
+  accountEmail: text("account_email"),
+  displayName: text("display_name"),
+  isActive: boolean("is_active").default(true).notNull(),
+  // OAuth tokens (Google / Microsoft)
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  tokenExpiresAt: timestamp("token_expires_at"),
+  // CalDAV credentials (Apple iCloud / generic)
+  caldavUrl: text("caldav_url"),
+  caldavUsername: text("caldav_username"),
+  caldavPassword: text("caldav_password"),
+  // Sync settings
+  defaultCalendarId: text("default_calendar_id"),
+  defaultCalendarName: text("default_calendar_name"),
+  syncEnabled: boolean("sync_enabled").default(true).notNull(),
+  syncDirection: text("sync_direction").default("both"), // 'both' | 'pull' | 'push'
+  syncFrequencyMinutes: integer("sync_frequency_minutes").default(15),
+  lastSyncedAt: timestamp("last_synced_at"),
+  syncToken: text("sync_token"),
+  syncError: text("sync_error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCalendarConnectionSchema = createInsertSchema(calendarConnections).omit({ id: true, createdAt: true, updatedAt: true });
+export type CalendarConnection = typeof calendarConnections.$inferSelect;
+export type InsertCalendarConnection = z.infer<typeof insertCalendarConnectionSchema>;
 
 export * from "./models/chat";
 

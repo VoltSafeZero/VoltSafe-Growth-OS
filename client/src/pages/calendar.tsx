@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +49,8 @@ import {
   Repeat,
   Car,
   Globe,
+  RefreshCw,
+  Settings2,
 } from "lucide-react";
 import AddressAutocomplete from "@/components/address-autocomplete";
 import {
@@ -70,6 +73,7 @@ import {
   getHours,
   getMinutes,
   parseISO,
+  formatDistanceToNow,
 } from "date-fns";
 import type { CalendarEvent } from "@shared/schema";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -319,8 +323,47 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
   const [enabledOverlays, setEnabledOverlays] = useState<Set<number>>(new Set());
   const { toast } = useToast();
 
+  const [syncingAll, setSyncingAll] = useState(false);
   const calendarTeamIds: number[] = permissions?.calendar_team ?? [];
   const showOverlayPanel = isAdmin || calendarTeamIds.length > 0;
+
+  // Calendar integrations — for sync status badge
+  const { data: calIntegrations = [] } = useQuery<{
+    id: number;
+    provider: string;
+    displayName: string | null;
+    lastSyncedAt: string | null;
+    syncError: string | null;
+  }[]>({
+    queryKey: ["/api/calendar/integrations"],
+    refetchInterval: 60_000,
+  });
+
+  const lastSyncTime = calIntegrations
+    .map((c) => (c.lastSyncedAt ? new Date(c.lastSyncedAt).getTime() : 0))
+    .reduce((a, b) => Math.max(a, b), 0);
+
+  const syncNowAll = async () => {
+    if (calIntegrations.length === 0) return;
+    setSyncingAll(true);
+    try {
+      await Promise.all(
+        calIntegrations.map((c) =>
+          fetch(`/api/calendar/integrations/${c.id}/sync`, {
+            method: "POST",
+            credentials: "include",
+          })
+        )
+      );
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/integrations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/events"] });
+      toast({ title: "Sync complete", description: "All calendars synced." });
+    } catch {
+      toast({ title: "Sync failed", description: "One or more calendars could not sync.", variant: "destructive" });
+    } finally {
+      setSyncingAll(false);
+    }
+  };
 
   const teamMembersQuery = useQuery<TeamMember[]>({
     queryKey: ["/api/admin/team-members"],
@@ -445,9 +488,46 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">Schedule and manage your events.</p>
         </div>
-        <Button onClick={() => { setClickedSlot(null); setCreateOpen(true); }} data-testid="button-create-event">
-          <Plus className="mr-2 h-4 w-4" /> New Event
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {calIntegrations.length > 0 && (
+            <div className="flex items-center gap-2">
+              {lastSyncTime > 0 && (
+                <span className="text-xs text-muted-foreground hidden sm:inline" data-testid="text-last-sync-all">
+                  Synced {formatDistanceToNow(lastSyncTime, { addSuffix: true })}
+                </span>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={syncNowAll}
+                disabled={syncingAll}
+                className="h-8 text-xs gap-1.5"
+                data-testid="button-sync-now"
+              >
+                {syncingAll ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Sync
+              </Button>
+            </div>
+          )}
+          <Link href="/settings">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              title="Calendar Settings"
+              data-testid="button-calendar-settings"
+            >
+              <Settings2 className="h-4 w-4" />
+            </Button>
+          </Link>
+          <Button onClick={() => { setClickedSlot(null); setCreateOpen(true); }} data-testid="button-create-event">
+            <Plus className="mr-2 h-4 w-4" /> New Event
+          </Button>
+        </div>
       </div>
 
       <div className={showOverlayPanel && permittedMembers.length > 0 ? "flex gap-4 items-start" : undefined}>

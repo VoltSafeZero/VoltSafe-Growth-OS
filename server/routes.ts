@@ -43,7 +43,17 @@ import {
   assets, assetFolders, priceLists, priceListItems,
   contacts, accounts, leads, opportunities, partnerships,
   migrationMap,
+  calendarConnections,
 } from "@shared/schema";
+import {
+  getCalendarAuthUrl,
+  exchangeCalendarCode,
+  syncGoogleCalendar,
+  syncCalDav,
+  testCalDavConnection,
+  getCalendarIntegrations,
+  disconnectCalendarIntegration,
+} from "./calendar-sync";
 
 const UPLOADS_DIR = path.resolve("uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -2349,6 +2359,197 @@ export async function registerRoutes(
     res.json({ message: "Deleted" });
   });
 
+  // ── Calendar integrations (sync providers) ─────────────────────────────────
+
+  // List connected calendar providers for the current user
+  app.get("/api/calendar/integrations", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const connections = await getCalendarIntegrations(userId);
+      // Strip sensitive tokens before returning
+      const safe = connections.map(({ accessToken: _a, refreshToken: _r, caldavPassword: _p, ...rest }) => rest);
+      res.json(safe);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Get Google Calendar OAuth authorization URL
+  app.get("/api/calendar/integrations/google/auth-url", requireAuth, (_req, res) => {
+    try {
+      const url = getCalendarAuthUrl();
+      res.json({ url });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Connect Apple/iCloud or generic CalDAV calendar
+  app.post("/api/calendar/integrations/caldav/connect", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const { url, username, password, provider = "caldav" } = req.body as {
+        url: string;
+        username: string;
+        password: string;
+        provider?: string;
+      };
+
+      if (!url || !username || !password) {
+        return res.status(400).json({ message: "url, username, and password are required" });
+      }
+
+      const test = await testCalDavConnection(url, username, password);
+      if (!test.ok) {
+        return res.status(400).json({ message: test.error || "Could not connect to CalDAV server" });
+      }
+
+      // Pick the first calendar as default
+      const defaultCal = test.calendars[0];
+
+      // Upsert connection
+      const [existing] = await db
+        .select({ id: calendarConnections.id })
+        .from(calendarConnections)
+        .where(
+          and(
+            eq(calendarConnections.userId, userId),
+            eq(calendarConnections.provider, provider)
+          )
+        )
+        .limit(1);
+
+      const displayName = provider === "apple"
+        ? `iCloud (${username})`
+        : `CalDAV (${username})`;
+
+      if (existing) {
+        await db
+          .update(calendarConnections)
+          .set({
+            caldavUrl: url,
+            caldavUsername: username,
+            caldavPassword: password,
+            accountEmail: username,
+            displayName,
+            defaultCalendarId: defaultCal?.url || url,
+            defaultCalendarName: defaultCal?.name || "Calendar",
+            isActive: true,
+            syncEnabled: true,
+            syncError: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(calendarConnections.id, existing.id));
+      } else {
+        await db.insert(calendarConnections).values({
+          userId,
+          provider,
+          caldavUrl: url,
+          caldavUsername: username,
+          caldavPassword: password,
+          accountEmail: username,
+          displayName,
+          defaultCalendarId: defaultCal?.url || url,
+          defaultCalendarName: defaultCal?.name || "Calendar",
+          isActive: true,
+          syncEnabled: true,
+          syncDirection: "pull",
+        });
+      }
+
+      res.json({
+        message: "CalDAV calendar connected",
+        calendars: test.calendars,
+        defaultCalendar: defaultCal || null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Trigger manual sync for a calendar integration
+  app.post("/api/calendar/integrations/:id/sync", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const connectionId = Number(req.params.id);
+
+      const [conn] = await db
+        .select({ provider: calendarConnections.provider, userId: calendarConnections.userId })
+        .from(calendarConnections)
+        .where(eq(calendarConnections.id, connectionId))
+        .limit(1);
+
+      if (!conn || conn.userId !== userId) {
+        return res.status(404).json({ message: "Integration not found" });
+      }
+
+      let result: any;
+      if (conn.provider === "google") {
+        result = await syncGoogleCalendar(connectionId, userId);
+      } else {
+        result = await syncCalDav(connectionId, userId);
+      }
+
+      res.json({ message: "Sync complete", ...result });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Update calendar integration settings (syncDirection, syncFrequency, defaultCalendarId)
+  app.patch("/api/calendar/integrations/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const connectionId = Number(req.params.id);
+
+      const [conn] = await db
+        .select({ userId: calendarConnections.userId })
+        .from(calendarConnections)
+        .where(eq(calendarConnections.id, connectionId))
+        .limit(1);
+
+      if (!conn || conn.userId !== userId) {
+        return res.status(404).json({ message: "Integration not found" });
+      }
+
+      const { syncDirection, syncEnabled, syncFrequencyMinutes, defaultCalendarId, defaultCalendarName } = req.body as {
+        syncDirection?: string;
+        syncEnabled?: boolean;
+        syncFrequencyMinutes?: number;
+        defaultCalendarId?: string;
+        defaultCalendarName?: string;
+      };
+
+      await db
+        .update(calendarConnections)
+        .set({
+          ...(syncDirection !== undefined && { syncDirection }),
+          ...(syncEnabled !== undefined && { syncEnabled }),
+          ...(syncFrequencyMinutes !== undefined && { syncFrequencyMinutes }),
+          ...(defaultCalendarId !== undefined && { defaultCalendarId }),
+          ...(defaultCalendarName !== undefined && { defaultCalendarName }),
+          updatedAt: new Date(),
+        })
+        .where(eq(calendarConnections.id, connectionId));
+
+      res.json({ message: "Settings updated" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Disconnect a calendar integration
+  app.delete("/api/calendar/integrations/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const connectionId = Number(req.params.id);
+      await disconnectCalendarIntegration(connectionId, userId);
+      res.json({ message: "Disconnected" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Gmail mailbox isolation helper (Phase 1) ─────────────────────────────
   // Returns the user's own active email_accounts record (first one found).
   async function getUserGmailAccount(userId: number) {
@@ -3925,6 +4126,39 @@ export async function registerRoutes(
         </div>
       </body></html>`);
     }
+
+    // ── Google Calendar OAuth callback ────────────────────────────────────
+    if (state === "calendar") {
+      try {
+        const { email, displayName } = await exchangeCalendarCode(code, userId);
+        res.send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+          <div style="text-align:center">
+            <h2 style="color:#22c55e">✓ Google Calendar Connected</h2>
+            <p>${email ? email + " has been" : "Your calendar has been"} connected to VoltSafe Cortex.</p>
+            <p style="color:#94a3b8;font-size:0.85rem">Syncing your events now…</p>
+            <a href="/settings" style="color:#14b8a6">← Back to Settings</a>
+            <script>
+              // Trigger initial sync after a short delay
+              setTimeout(() => fetch('/api/calendar/integrations').then(r => r.json()).then(conns => {
+                const g = conns.find(c => c.provider === 'google');
+                if (g) fetch('/api/calendar/integrations/' + g.id + '/sync', { method: 'POST' });
+              }), 1000);
+            </script>
+          </div>
+        </body></html>`);
+      } catch (err: any) {
+        res.status(500).send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+          <div style="text-align:center">
+            <h2 style="color:#ef4444">Calendar Connection Failed</h2>
+            <p>${err.message}</p>
+            <a href="/settings" style="color:#14b8a6">← Back to Settings</a>
+          </div>
+        </body></html>`);
+      }
+      return;
+    }
+
+    // ── Gmail OAuth callback (existing) ───────────────────────────────────
     const isShared = state === "shared";
     try {
       const { emailAddress } = await exchangeCodeForTokens(code, userId, isShared);

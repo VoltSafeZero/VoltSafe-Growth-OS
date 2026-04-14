@@ -104,9 +104,10 @@ app.use((req, res, next) => {
 (async () => {
   // Run schema migrations FIRST before any route setup queries the DB
   try {
-    const { migrateUserSchema, migrateEmailSchema } = await import("./seed-production");
+    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema } = await import("./seed-production");
     await migrateUserSchema();
     await migrateEmailSchema();
+    await migrateCalendarSchema();
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }
@@ -146,9 +147,10 @@ app.use((req, res, next) => {
       log(`Listening on 0.0.0.0:${port}`);
 
       try {
-        const { migrateUserSchema, migrateEmailSchema, seedProductionData } = await import("./seed-production");
+        const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, seedProductionData } = await import("./seed-production");
         await migrateUserSchema();
         await migrateEmailSchema();
+        await migrateCalendarSchema();
         await seedProductionData();
       } catch (err) {
         console.error("Seed error (non-fatal):", err);

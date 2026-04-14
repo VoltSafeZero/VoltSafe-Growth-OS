@@ -304,3 +304,48 @@ async function patchMissingMexicoLeads(): Promise<void> {
     console.log(`[patch] Inserted ${inserted} missing Mexico marina lead(s).`);
   }
 }
+
+export async function migrateCalendarSchema(): Promise<void> {
+  try {
+    // Add external sync columns to calendar_events
+    await db.execute(sql`ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS external_id text`);
+    await db.execute(sql`ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS external_provider text`);
+    await db.execute(sql`ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS external_calendar_id text`);
+
+    // Create calendar_connections table
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS calendar_connections (
+        id serial PRIMARY KEY,
+        user_id integer NOT NULL,
+        provider text NOT NULL,
+        account_email text,
+        display_name text,
+        is_active boolean NOT NULL DEFAULT true,
+        access_token text,
+        refresh_token text,
+        token_expires_at timestamp,
+        caldav_url text,
+        caldav_username text,
+        caldav_password text,
+        default_calendar_id text,
+        default_calendar_name text,
+        sync_enabled boolean NOT NULL DEFAULT true,
+        sync_direction text DEFAULT 'both',
+        sync_frequency_minutes integer DEFAULT 15,
+        last_synced_at timestamp,
+        sync_token text,
+        sync_error text,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+
+    // Indexes
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_calendar_connections_user ON calendar_connections(user_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_calendar_events_external ON calendar_events(external_id, external_provider)`);
+
+    console.log("[migration] Calendar schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Calendar schema migration error (non-fatal):", err);
+  }
+}

@@ -1,0 +1,699 @@
+// Calendar sync service — Google Calendar (OAuth) + CalDAV (Apple iCloud / generic)
+import { google } from "googleapis";
+import { db } from "./db";
+import { calendarConnections, calendarEvents } from "@shared/schema";
+import { eq, and, isNull, or } from "drizzle-orm";
+
+// ─── Google Calendar OAuth ────────────────────────────────────────────────────
+
+const CALENDAR_SCOPES = [
+  "https://www.googleapis.com/auth/calendar",
+  "https://www.googleapis.com/auth/calendar.events",
+  "openid",
+  "email",
+  "profile",
+];
+
+function getCalendarOAuth2Client() {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  // Use same redirect URI as Gmail (state="calendar" distinguishes it)
+  const redirectUri =
+    process.env.GOOGLE_CALENDAR_REDIRECT_URI ||
+    (process.env.NODE_ENV === "production"
+      ? "https://image-linker-burgesstrevor76.replit.app/api/auth/google/callback"
+      : `https://${process.env.REPLIT_DOMAINS}/api/auth/google/callback`);
+
+  if (!clientId || !clientSecret) {
+    throw new Error("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set");
+  }
+  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+}
+
+export function getCalendarAuthUrl(): string {
+  const client = getCalendarOAuth2Client();
+  return client.generateAuthUrl({
+    access_type: "offline",
+    scope: CALENDAR_SCOPES,
+    prompt: "consent",
+    state: "calendar",
+  });
+}
+
+export async function exchangeCalendarCode(
+  code: string,
+  userId: number
+): Promise<{ email: string; displayName: string }> {
+  const client = getCalendarOAuth2Client();
+  const { tokens } = await client.getToken(code);
+
+  if (!tokens.refresh_token) {
+    throw new Error(
+      "No refresh token returned. Revoke access at myaccount.google.com/permissions and try again."
+    );
+  }
+
+  client.setCredentials(tokens);
+
+  // Get user profile
+  let email = "";
+  let displayName = "Google Calendar";
+  try {
+    const oauth2 = google.oauth2({ version: "v2", auth: client });
+    const { data } = await oauth2.userinfo.get();
+    email = data.email || "";
+    displayName = data.name || email || "Google Calendar";
+  } catch {}
+
+  const tokenExpiresAt = tokens.expiry_date ? new Date(tokens.expiry_date) : null;
+
+  const [existing] = await db
+    .select({ id: calendarConnections.id })
+    .from(calendarConnections)
+    .where(
+      and(
+        eq(calendarConnections.userId, userId),
+        eq(calendarConnections.provider, "google")
+      )
+    )
+    .limit(1);
+
+  if (existing) {
+    await db
+      .update(calendarConnections)
+      .set({
+        accountEmail: email,
+        displayName,
+        accessToken: tokens.access_token || null,
+        refreshToken: tokens.refresh_token,
+        tokenExpiresAt,
+        isActive: true,
+        syncEnabled: true,
+        syncError: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(calendarConnections.id, existing.id));
+  } else {
+    await db.insert(calendarConnections).values({
+      userId,
+      provider: "google",
+      accountEmail: email,
+      displayName,
+      accessToken: tokens.access_token || null,
+      refreshToken: tokens.refresh_token,
+      tokenExpiresAt,
+      isActive: true,
+      syncEnabled: true,
+      syncDirection: "both",
+    });
+  }
+
+  return { email, displayName };
+}
+
+async function getCalendarClient(
+  connection: typeof calendarConnections.$inferSelect
+) {
+  const client = getCalendarOAuth2Client();
+  client.setCredentials({
+    refresh_token: connection.refreshToken,
+    access_token: connection.accessToken,
+  });
+
+  if (
+    !connection.tokenExpiresAt ||
+    connection.tokenExpiresAt.getTime() < Date.now() + 60_000
+  ) {
+    const { credentials } = await client.refreshAccessToken();
+    client.setCredentials(credentials);
+    await db
+      .update(calendarConnections)
+      .set({
+        accessToken: credentials.access_token || connection.accessToken,
+        tokenExpiresAt: credentials.expiry_date
+          ? new Date(credentials.expiry_date)
+          : connection.tokenExpiresAt,
+        updatedAt: new Date(),
+      })
+      .where(eq(calendarConnections.id, connection.id));
+  }
+
+  return google.calendar({ version: "v3", auth: client });
+}
+
+// ─── Google Calendar Sync ─────────────────────────────────────────────────────
+
+const GOOGLE_CALENDAR_COLORS: Record<string, string> = {
+  "1": "#a4bdfc", "2": "#7ae28c", "3": "#dbadff", "4": "#ff887c",
+  "5": "#fbd75b", "6": "#ffb878", "7": "#46d6db", "8": "#e1e1e1",
+  "9": "#5484ed", "10": "#51b749", "11": "#dc2127",
+};
+
+export async function syncGoogleCalendar(
+  connectionId: number,
+  userId: number
+): Promise<{ imported: number; updated: number; pushed: number; errors: string[] }> {
+  const [conn] = await db
+    .select()
+    .from(calendarConnections)
+    .where(eq(calendarConnections.id, connectionId))
+    .limit(1);
+
+  if (!conn?.refreshToken) throw new Error("Calendar connection not found or no token");
+
+  const errors: string[] = [];
+  let imported = 0;
+  let updated = 0;
+  let pushed = 0;
+
+  try {
+    const calendar = await getCalendarClient(conn);
+    const calendarId = conn.defaultCalendarId || "primary";
+
+    const timeMin = new Date();
+    timeMin.setMonth(timeMin.getMonth() - 2);
+    const timeMax = new Date();
+    timeMax.setMonth(timeMax.getMonth() + 6);
+
+    // ── PULL: import Google events into Cortex ───────────────────────────
+    let pageToken: string | undefined;
+    const googleEvents: any[] = [];
+
+    do {
+      const resp = await calendar.events.list({
+        calendarId,
+        timeMin: timeMin.toISOString(),
+        timeMax: timeMax.toISOString(),
+        singleEvents: true,
+        orderBy: "startTime",
+        maxResults: 250,
+        pageToken,
+      });
+      googleEvents.push(...(resp.data.items || []));
+      pageToken = resp.data.nextPageToken || undefined;
+    } while (pageToken);
+
+    for (const gEvent of googleEvents) {
+      if (!gEvent.id || !gEvent.summary) continue;
+
+      const startTime = gEvent.start?.dateTime
+        ? new Date(gEvent.start.dateTime)
+        : gEvent.start?.date
+        ? new Date(gEvent.start.date + "T00:00:00")
+        : null;
+
+      if (!startTime) continue;
+
+      const endTime = gEvent.end?.dateTime
+        ? new Date(gEvent.end.dateTime)
+        : gEvent.end?.date
+        ? new Date(gEvent.end.date + "T00:00:00")
+        : null;
+
+      const allDay = !gEvent.start?.dateTime;
+      const invitees = (gEvent.attendees || [])
+        .map((a: any) => a.email)
+        .filter(Boolean);
+      const meetingUrl =
+        gEvent.conferenceData?.entryPoints?.find(
+          (ep: any) => ep.entryPointType === "video"
+        )?.uri || gEvent.hangoutLink || null;
+
+      const [existing] = await db
+        .select({ id: calendarEvents.id })
+        .from(calendarEvents)
+        .where(
+          and(
+            eq(calendarEvents.externalId, gEvent.id),
+            eq(calendarEvents.externalProvider, "google")
+          )
+        )
+        .limit(1);
+
+      if (existing) {
+        await db
+          .update(calendarEvents)
+          .set({
+            title: gEvent.summary,
+            description: gEvent.description || null,
+            location: gEvent.location || null,
+            startTime,
+            endTime,
+            allDay,
+            meetingUrl,
+            invitees,
+            status: gEvent.status === "cancelled" ? "cancelled" : "scheduled",
+            externalCalendarId: calendarId,
+            updatedAt: new Date(),
+          })
+          .where(eq(calendarEvents.id, existing.id));
+        updated++;
+      } else {
+        await db.insert(calendarEvents).values({
+          userId,
+          title: gEvent.summary,
+          description: gEvent.description || null,
+          location: gEvent.location || null,
+          eventType: "meeting",
+          startTime,
+          endTime,
+          allDay,
+          meetingUrl,
+          invitees,
+          status: gEvent.status === "cancelled" ? "cancelled" : "scheduled",
+          externalId: gEvent.id,
+          externalProvider: "google",
+          externalCalendarId: calendarId,
+          color: gEvent.colorId ? GOOGLE_CALENDAR_COLORS[gEvent.colorId] || null : null,
+        });
+        imported++;
+      }
+    }
+
+    // ── PUSH: send Cortex-native events to Google Calendar ───────────────
+    if (conn.syncDirection === "both" || conn.syncDirection === "push") {
+      const toPush = await db
+        .select()
+        .from(calendarEvents)
+        .where(
+          and(
+            eq(calendarEvents.userId, userId),
+            or(
+              isNull(calendarEvents.externalId),
+              isNull(calendarEvents.externalProvider)
+            )
+          )
+        );
+
+      for (const ev of toPush) {
+        if (ev.status === "cancelled") continue;
+        try {
+          const body: any = {
+            summary: ev.title,
+            description: ev.description || undefined,
+            location: ev.location || undefined,
+            start: ev.allDay
+              ? { date: ev.startTime.toISOString().split("T")[0] }
+              : { dateTime: ev.startTime.toISOString() },
+            end: ev.endTime
+              ? ev.allDay
+                ? { date: ev.endTime.toISOString().split("T")[0] }
+                : { dateTime: ev.endTime.toISOString() }
+              : ev.allDay
+              ? { date: ev.startTime.toISOString().split("T")[0] }
+              : { dateTime: new Date(ev.startTime.getTime() + 3_600_000).toISOString() },
+          };
+          if (ev.invitees?.length) {
+            body.attendees = ev.invitees.map((email) => ({ email }));
+          }
+
+          const created = await calendar.events.insert({
+            calendarId,
+            requestBody: body,
+          });
+
+          if (created.data.id) {
+            await db
+              .update(calendarEvents)
+              .set({
+                externalId: created.data.id,
+                externalProvider: "google",
+                externalCalendarId: calendarId,
+                updatedAt: new Date(),
+              })
+              .where(eq(calendarEvents.id, ev.id));
+            pushed++;
+          }
+        } catch (e: any) {
+          errors.push(`Push "${ev.title}": ${e.message}`);
+        }
+      }
+    }
+
+    await db
+      .update(calendarConnections)
+      .set({ lastSyncedAt: new Date(), syncError: null, updatedAt: new Date() })
+      .where(eq(calendarConnections.id, connectionId));
+  } catch (err: any) {
+    await db
+      .update(calendarConnections)
+      .set({ syncError: err.message || "Unknown error", updatedAt: new Date() })
+      .where(eq(calendarConnections.id, connectionId));
+    throw err;
+  }
+
+  return { imported, updated, pushed, errors };
+}
+
+// ─── CalDAV Sync (Apple iCloud / Generic) ────────────────────────────────────
+
+function makeBasicAuth(username: string, password: string): string {
+  return "Basic " + Buffer.from(`${username}:${password}`).toString("base64");
+}
+
+async function caldavRequest(
+  method: string,
+  url: string,
+  username: string,
+  password: string,
+  body?: string,
+  extraHeaders?: Record<string, string>
+): Promise<{ status: number; body: string }> {
+  const resp = await fetch(url, {
+    method,
+    headers: {
+      Authorization: makeBasicAuth(username, password),
+      "Content-Type": "application/xml; charset=utf-8",
+      Depth: "1",
+      ...extraHeaders,
+    },
+    body,
+  });
+  const text = await resp.text();
+  return { status: resp.status, body: text };
+}
+
+export async function testCalDavConnection(
+  url: string,
+  username: string,
+  password: string
+): Promise<{
+  ok: boolean;
+  error?: string;
+  calendars: { id: string; name: string; url: string }[];
+}> {
+  try {
+    const normalizedUrl = url.replace(/\/$/, "");
+
+    // Start with PROPFIND to find current-user-principal
+    const principalBody = `<?xml version="1.0" encoding="UTF-8"?>
+<D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:prop>
+    <D:current-user-principal/>
+    <C:calendar-home-set/>
+  </D:prop>
+</D:propfind>`;
+
+    const principalResp = await caldavRequest(
+      "PROPFIND",
+      normalizedUrl,
+      username,
+      password,
+      principalBody,
+      { Depth: "0" }
+    );
+
+    if (principalResp.status === 401) {
+      return { ok: false, error: "Invalid username or password", calendars: [] };
+    }
+    if (principalResp.status >= 400 && principalResp.status !== 207) {
+      return { ok: false, error: `Server returned ${principalResp.status}`, calendars: [] };
+    }
+
+    // Extract calendar-home-set href
+    const homeMatch =
+      principalResp.body.match(/<[^:]*:calendar-home-set[^>]*>\s*<[^:]*:href>(.*?)<\/[^:]*:href>/is) ||
+      principalResp.body.match(/calendar-home-set[\s\S]*?<[^:]*href>(.*?)<\/[^:]*:href>/is);
+
+    let calHomeHref = homeMatch?.[1]?.trim();
+    const origin = new URL(normalizedUrl).origin;
+    const calHomeUrl = calHomeHref
+      ? calHomeHref.startsWith("http")
+        ? calHomeHref
+        : origin + calHomeHref
+      : normalizedUrl;
+
+    // List calendars in home
+    const listBody = `<?xml version="1.0" encoding="UTF-8"?>
+<D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:prop>
+    <D:displayname/>
+    <D:resourcetype/>
+  </D:prop>
+</D:propfind>`;
+
+    const listResp = await caldavRequest(
+      "PROPFIND",
+      calHomeUrl,
+      username,
+      password,
+      listBody
+    );
+
+    const calendars: { id: string; name: string; url: string }[] = [];
+
+    // Parse multi-status responses for calendar collections
+    const responseBlocks = listResp.body.match(/<D:response[\s\S]*?<\/D:response>/gi) || [];
+    for (const block of responseBlocks) {
+      const hrefMatch = block.match(/<D:href>(.*?)<\/D:href>/i);
+      const nameMatch = block.match(/<D:displayname>(.*?)<\/D:displayname>/i);
+      const isCalendar = /calendar/i.test(block) && !/principal/i.test(block);
+
+      if (hrefMatch && nameMatch && isCalendar) {
+        const href = hrefMatch[1].trim();
+        const fullUrl = href.startsWith("http") ? href : origin + href;
+        calendars.push({
+          id: href,
+          name: nameMatch[1].trim() || "Calendar",
+          url: fullUrl,
+        });
+      }
+    }
+
+    return { ok: true, calendars };
+  } catch (e: any) {
+    return { ok: false, error: e.message || "Connection failed", calendars: [] };
+  }
+}
+
+// Minimal iCal VEVENT parser
+function parseIcal(ical: string) {
+  const events: {
+    uid: string;
+    summary: string;
+    dtstart: string;
+    dtend: string;
+    description?: string;
+    location?: string;
+    allDay: boolean;
+    cancelled: boolean;
+    attendees: string[];
+    url?: string;
+  }[] = [];
+
+  const vevents = ical.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/g) || [];
+
+  for (const vevent of vevents) {
+    // Unfold lines (RFC5545: CRLF + whitespace = continuation)
+    const unfolded = vevent.replace(/\r?\n[ \t]/g, "");
+
+    const get = (key: string): string => {
+      const m = unfolded.match(new RegExp(`^${key}[^:\\r\\n]*:([^\\r\\n]*)`, "im"));
+      return (m?.[1] ?? "")
+        .trim()
+        .replace(/\\n/g, "\n")
+        .replace(/\\,/g, ",")
+        .replace(/\\;/g, ";")
+        .replace(/\\\\/g, "\\");
+    };
+
+    const uid = get("UID");
+    const summary = get("SUMMARY");
+    const dtstart = get("DTSTART");
+    const dtend = get("DTEND") || get("DUE");
+
+    if (!uid || !summary || !dtstart) continue;
+
+    const allDay = /^\d{8}$/.test(dtstart);
+    const toISO = (s: string): string => {
+      if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}T00:00:00`;
+      const m = s.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
+      if (m) return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${m[7]}`;
+      return s;
+    };
+
+    const attendeeMatches = [...unfolded.matchAll(/^ATTENDEE[^\r\n]*:([^\r\n]+)/gim)];
+    const attendees = attendeeMatches
+      .map((m) => m[1].match(/mailto:([^\s;:]+)/i)?.[1] || "")
+      .filter(Boolean);
+
+    events.push({
+      uid,
+      summary,
+      dtstart: toISO(dtstart),
+      dtend: dtend ? toISO(dtend) : toISO(dtstart),
+      description: get("DESCRIPTION") || undefined,
+      location: get("LOCATION") || undefined,
+      allDay,
+      cancelled: get("STATUS").toUpperCase() === "CANCELLED",
+      attendees,
+      url: get("URL") || undefined,
+    });
+  }
+
+  return events;
+}
+
+export async function syncCalDav(
+  connectionId: number,
+  userId: number
+): Promise<{ imported: number; updated: number; errors: string[] }> {
+  const [conn] = await db
+    .select()
+    .from(calendarConnections)
+    .where(eq(calendarConnections.id, connectionId))
+    .limit(1);
+
+  if (!conn?.caldavUrl || !conn?.caldavUsername || !conn?.caldavPassword) {
+    throw new Error("CalDAV connection not configured");
+  }
+
+  const errors: string[] = [];
+  let imported = 0;
+  let updated = 0;
+
+  try {
+    const calendarUrl = conn.defaultCalendarId || conn.caldavUrl;
+
+    const timeMin = new Date();
+    timeMin.setMonth(timeMin.getMonth() - 2);
+    const timeMax = new Date();
+    timeMax.setMonth(timeMax.getMonth() + 6);
+
+    const fmt = (d: Date) =>
+      d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+
+    const reportBody = `<?xml version="1.0" encoding="UTF-8"?>
+<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:prop>
+    <D:getetag/>
+    <C:calendar-data/>
+  </D:prop>
+  <C:filter>
+    <C:comp-filter name="VCALENDAR">
+      <C:comp-filter name="VEVENT">
+        <C:time-range start="${fmt(timeMin)}" end="${fmt(timeMax)}"/>
+      </C:comp-filter>
+    </C:comp-filter>
+  </C:filter>
+</C:calendar-query>`;
+
+    const resp = await caldavRequest(
+      "REPORT",
+      calendarUrl,
+      conn.caldavUsername,
+      conn.caldavPassword,
+      reportBody,
+      { Depth: "1" }
+    );
+
+    const calDataMatches =
+      resp.body.match(/<[^:]*:?calendar-data[^>]*>([\s\S]*?)<\/[^:]*:?calendar-data>/gi) || [];
+
+    for (const block of calDataMatches) {
+      const icalData = block
+        .replace(/<[^:]*:?calendar-data[^>]*>/i, "")
+        .replace(/<\/[^:]*:?calendar-data>/i, "")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&amp;/g, "&")
+        .trim();
+
+      const events = parseIcal(icalData);
+      for (const ev of events) {
+        try {
+          const startTime = new Date(ev.dtstart);
+          const endTime = new Date(ev.dtend);
+          if (isNaN(startTime.getTime())) continue;
+
+          const [existing] = await db
+            .select({ id: calendarEvents.id })
+            .from(calendarEvents)
+            .where(
+              and(
+                eq(calendarEvents.externalId, ev.uid),
+                eq(calendarEvents.externalProvider, conn.provider)
+              )
+            )
+            .limit(1);
+
+          if (existing) {
+            await db
+              .update(calendarEvents)
+              .set({
+                title: ev.summary,
+                description: ev.description || null,
+                location: ev.location || null,
+                startTime,
+                endTime: isNaN(endTime.getTime()) ? startTime : endTime,
+                allDay: ev.allDay,
+                invitees: ev.attendees,
+                meetingUrl: ev.url || null,
+                status: ev.cancelled ? "cancelled" : "scheduled",
+                updatedAt: new Date(),
+              })
+              .where(eq(calendarEvents.id, existing.id));
+            updated++;
+          } else {
+            await db.insert(calendarEvents).values({
+              userId,
+              title: ev.summary,
+              description: ev.description || null,
+              location: ev.location || null,
+              eventType: "meeting",
+              startTime,
+              endTime: isNaN(endTime.getTime()) ? startTime : endTime,
+              allDay: ev.allDay,
+              invitees: ev.attendees,
+              meetingUrl: ev.url || null,
+              status: ev.cancelled ? "cancelled" : "scheduled",
+              externalId: ev.uid,
+              externalProvider: conn.provider,
+              externalCalendarId: calendarUrl,
+            });
+            imported++;
+          }
+        } catch (e: any) {
+          errors.push(`"${ev.summary}": ${e.message}`);
+        }
+      }
+    }
+
+    await db
+      .update(calendarConnections)
+      .set({ lastSyncedAt: new Date(), syncError: null, updatedAt: new Date() })
+      .where(eq(calendarConnections.id, connectionId));
+  } catch (err: any) {
+    await db
+      .update(calendarConnections)
+      .set({ syncError: err.message || "Unknown error", updatedAt: new Date() })
+      .where(eq(calendarConnections.id, connectionId));
+    throw err;
+  }
+
+  return { imported, updated, errors };
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+export async function getCalendarIntegrations(userId: number) {
+  return db
+    .select()
+    .from(calendarConnections)
+    .where(and(eq(calendarConnections.userId, userId), eq(calendarConnections.isActive, true)));
+}
+
+export async function disconnectCalendarIntegration(
+  connectionId: number,
+  userId: number
+): Promise<void> {
+  await db
+    .update(calendarConnections)
+    .set({ isActive: false, updatedAt: new Date() })
+    .where(
+      and(
+        eq(calendarConnections.id, connectionId),
+        eq(calendarConnections.userId, userId)
+      )
+    );
+}
