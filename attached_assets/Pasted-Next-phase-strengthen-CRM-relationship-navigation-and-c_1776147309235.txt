@@ -1,0 +1,52 @@
+Next phase: strengthen CRM relationship navigation and communication workflows, not permissions.
+
+Context:
+T001–T006 permissions are already fully shipped and tested.
+Lead ↔ Organization cross-navigation is now complete.
+Do not spend time reworking permissions unless a real bug is found.
+
+Priority task:
+Implement Email → CRM record linking UX.
+
+Goal:
+When viewing emails inside Cortex, users should be able to clearly see and open any matched Account, Lead, Contact, or Partner related to that email.
+
+Requirements:
+1. For each email thread/message, detect and surface linked CRM records based on:
+   - exact email match against account, lead, contact, and partner emails
+   - optionally domain match as a weaker secondary signal for org/account suggestions
+2. Show linked records as visible chips/banners in the email UI:
+   - Account
+   - Lead
+   - Contact
+   - Partner
+3. Each linked record chip should be clickable and open the corresponding detail dialog inline where possible.
+4. Strong matching rules:
+   - exact email match = primary
+   - domain-only match must never be treated as confirmed; show as suggested only
+   - if multiple exact matches exist, show all and label clearly
+5. Missing/deleted linked records should degrade gracefully.
+6. Preserve permissions:
+   - crm=view users can open/view linked CRM records
+   - users without access should not get clickable CRM navigation
+7. Avoid over-engineering:
+   - build a clean reusable pattern if it naturally helps
+   - a shared linked record launcher/banner component is fine
+   - do not create a huge abstraction layer yet
+
+Suggested implementation direction:
+- add a lightweight linked-record resolver utility/hook
+- add reusable LinkedRecordChip or LinkedRecordBanner UI
+- support Account, Lead, Contact, Partner first
+- prepare the pattern so it can later be reused across emails, partnerships, and other related records
+
+Also review:
+- whether Partnership → Account should be the next follow-up after email linking
+- whether a shared activity/timeline view becomes more valuable once linked record navigation is in place
+
+Deliver:
+- files changed
+- exact matching logic
+- UX behavior
+- tests added
+- edge cases and known limitations
