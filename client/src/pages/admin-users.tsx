@@ -381,6 +381,11 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
     ...mutationOpts("Password reset"),
   });
 
+  const resendInviteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/admin/users/${id}/resend-invite`, {}),
+    ...mutationOpts("Invite resent — new credentials emailed"),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/admin/users/${id}`),
     onSuccess: () => {
@@ -514,16 +519,17 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
           onUpdate={(data) => updateMutation.mutate({ id: selectedUser.id, ...data })}
           onSuspend={(reason) => suspendMutation.mutate({ id: selectedUser.id, reason })}
           onActivate={() => activateMutation.mutate(selectedUser.id)}
+          onResendInvite={() => resendInviteMutation.mutate(selectedUser.id)}
           onResetPassword={(newPassword) => resetPasswordMutation.mutate({ id: selectedUser.id, newPassword })}
           onDelete={() => deleteMutation.mutate(selectedUser.id)}
-          isPending={updateMutation.isPending || suspendMutation.isPending || activateMutation.isPending || deleteMutation.isPending}
+          isPending={updateMutation.isPending || suspendMutation.isPending || activateMutation.isPending || deleteMutation.isPending || resendInviteMutation.isPending}
         />
       )}
     </div>
   );
 }
 
-function UserDetailPanel({ user, currentUserId, isMasterAdmin, onClose, onUpdate, onSuspend, onActivate, onResetPassword, onDelete, isPending }: {
+function UserDetailPanel({ user, currentUserId, isMasterAdmin, onClose, onUpdate, onSuspend, onActivate, onResendInvite, onResetPassword, onDelete, isPending }: {
   user: AdminUser;
   currentUserId: number;
   isMasterAdmin: boolean;
@@ -531,6 +537,7 @@ function UserDetailPanel({ user, currentUserId, isMasterAdmin, onClose, onUpdate
   onUpdate: (data: Record<string, unknown>) => void;
   onSuspend: (reason?: string) => void;
   onActivate: () => void;
+  onResendInvite: () => void;
   onResetPassword: (pw: string) => void;
   onDelete: () => void;
   isPending: boolean;
@@ -658,6 +665,11 @@ function UserDetailPanel({ user, currentUserId, isMasterAdmin, onClose, onUpdate
                 ) : (
                   <Button variant="outline" size="sm" className="justify-start gap-2 h-9 text-green-400 border-green-500/30 hover:bg-green-500/10" onClick={onActivate} disabled={isPending} data-testid="button-activate-user">
                     <Unlock className="w-4 h-4" />Reactivate User
+                  </Button>
+                )}
+                {user.status === "invited" && (
+                  <Button variant="outline" size="sm" className="justify-start gap-2 h-9 text-blue-400 border-blue-500/30 hover:bg-blue-500/10" onClick={onResendInvite} disabled={isPending} data-testid="button-resend-invite">
+                    <Mail className="w-4 h-4" />Resend Invite Email
                   </Button>
                 )}
                 <Button variant="outline" size="sm" className="justify-start gap-2 h-9" onClick={() => setShowResetDialog(true)} data-testid="button-reset-password">

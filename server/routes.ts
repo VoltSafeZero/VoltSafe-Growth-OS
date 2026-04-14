@@ -1954,6 +1954,44 @@ export async function registerRoutes(
     res.json({ ...created, tempPassword });
   });
 
+  app.post("/api/admin/users/:id/resend-invite", requireAuth, async (req, res) => {
+    const userId = parseInt(req.params.id);
+    const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
+    if (!sessionUser[0] || !["master_admin", "admin"].includes(sessionUser[0].globalRole)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    const [target] = await db.select().from(users).where(eq(users.id, userId));
+    if (!target) return res.status(404).json({ message: "User not found" });
+
+    const tempPassword = Math.random().toString(36).slice(-10) + "Aa1!";
+    const hashed = await hashPassword(tempPassword);
+    await db.update(users).set({ password: hashed, mustChangePassword: true } as any).where(eq(users.id, userId));
+
+    const SYSTEM_SENDER_ID = 4;
+    const loginUrl = process.env.APP_URL || "https://image-linker-burgesstrevor76.replit.app";
+    const welcomeHtml = `
+<div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
+  <h2 style="margin-bottom: 4px;">Your VoltSafe Cortex Login Details</h2>
+  <p style="color: #555; margin-top: 0;">Hi ${target.name}, here are your updated login credentials.</p>
+  <div style="background: #f5f5f5; border-radius: 8px; padding: 16px 20px; margin: 20px 0;">
+    <p style="margin: 0 0 8px;"><strong>Login URL:</strong><br>
+      <a href="${loginUrl}" style="color: #0066cc;">${loginUrl}</a>
+    </p>
+    <p style="margin: 0 0 8px;"><strong>Email:</strong><br>${target.email}</p>
+    <p style="margin: 0;"><strong>Temporary Password:</strong><br>
+      <code style="background: #e0e0e0; padding: 2px 6px; border-radius: 4px; font-size: 15px;">${tempPassword}</code>
+    </p>
+  </div>
+  <p style="color: #555; font-size: 14px;">When you log in for the first time, you will be prompted to set a new password of your choice.</p>
+  <p style="color: #999; font-size: 12px;">If you were not expecting this email, please ignore it or contact your administrator.</p>
+</div>`;
+
+    sendEmail(SYSTEM_SENDER_ID, target.email, "VoltSafe Cortex — Your Login Details", welcomeHtml)
+      .catch((err) => console.error("[resend-invite] Failed to send invite email to", target.email, err?.message));
+
+    res.json({ message: "Invite resent" });
+  });
+
   app.post("/api/admin/users/:id/suspend", requireAuth, async (req, res) => {
     const userId = parseInt(req.params.id);
     const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
