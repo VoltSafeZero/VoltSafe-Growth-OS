@@ -27,7 +27,7 @@ import {
   getAuthenticationOptions, verifyAuthentication,
   getUserCredentials, deleteCredential,
 } from "./webauthn";
-import { eq, sql, and, or, inArray, lte, ilike } from "drizzle-orm";
+import { eq, sql, and, or, inArray, lte, ilike, asc } from "drizzle-orm";
 import { registerVoiceAssistantRoutes } from "./voice-assistant";
 import { generateInvoiceHtml, generateQuoteXlsx, type QuoteData } from "./quote-generator";
 import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead, saveDraft, listDraftSummaries, getDraftContent, deleteDraft } from "./gmail";
@@ -332,12 +332,17 @@ export async function registerRoutes(
   app.use("/api/chart-data", requireAuth);
   app.use("/api/marinas", requireAuth);
   app.use("/api/dashboard", requireAuth);
-  app.use("/api/leads", requireAuth);
-  app.use("/api/accounts", requireAuth);
-  app.use("/api/contacts", requireAuth);
-  app.use("/api/opportunities", requireAuth);
-  app.use("/api/tickets", requireAuth);
-  app.use("/api/quotes", requireAuth);
+  // CRM section — view permission required for all reads; edit checked per write route
+  app.use("/api/leads", requireAuth, requirePermission("crm", "view"));
+  app.use("/api/accounts", requireAuth, requirePermission("crm", "view"));
+  app.use("/api/contacts", requireAuth, requirePermission("crm", "view"));
+  app.use("/api/opportunities", requireAuth, requirePermission("crm", "view"));
+  // Support section — view permission required for all reads
+  app.use("/api/tickets", requireAuth, requirePermission("support", "view"));
+  // Quoting section — view permission required for all reads
+  app.use("/api/quotes", requireAuth, requirePermission("quoting", "view"));
+  // Activities, tasks, comments are cross-cutting (attached to multiple object types)
+  // Enforced at the UI layer; backend requires auth only to avoid breaking cross-section use
   app.use("/api/activities", requireAuth);
   app.use("/api/tasks", requireAuth);
   app.use("/api/comm-lists", requireAuth);
@@ -346,7 +351,8 @@ export async function registerRoutes(
   app.use("/api/attachments", requireAuth);
   app.use("/api/users", requireAuth);
   app.use("/api/team-workload", requireAuth);
-  app.use("/api/partnerships", requireAuth);
+  // Partnerships section — view permission required for all reads
+  app.use("/api/partnerships", requireAuth, requirePermission("partnerships", "view"));
   app.use("/api/ecosystem", requireAuth);
   app.use("/api/geocode", requireAuth);
 
@@ -993,7 +999,7 @@ export async function registerRoutes(
     res.json(ticket);
   });
 
-  app.post("/api/tickets", async (req, res) => {
+  app.post("/api/tickets", requirePermission("support", "edit"), async (req, res) => {
     const parsed = insertTicketSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     const ticket = await storage.createTicket(parsed.data);
@@ -1006,7 +1012,7 @@ export async function registerRoutes(
     res.status(201).json(ticket);
   });
 
-  app.put("/api/tickets/:id", async (req, res) => {
+  app.put("/api/tickets/:id", requirePermission("support", "edit"), async (req, res) => {
     const result = await storage.updateTicket(Number(req.params.id), req.body);
     if (!result) return res.status(404).json({ message: "Ticket not found" });
     res.json(result);
@@ -1885,6 +1891,50 @@ export async function registerRoutes(
     const events = await storage.getCalendarEvents(userId, start, end);
     res.json(events);
   });
+  // GET /api/calendar/events/team — fetch permitted team members' events
+  app.get("/api/calendar/events/team", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session!.userId;
+      const { start, end, userIds } = req.query;
+      if (!userIds || !start || !end) return res.status(400).json({ message: "userIds, start, end required" });
+
+      const requestedIds = String(userIds).split(",").map(Number).filter(Boolean);
+      if (requestedIds.length === 0) return res.json([]);
+
+      const [requester] = await db.select({ globalRole: users.globalRole, permissions: users.permissions })
+        .from(users).where(eq(users.id, userId)).limit(1);
+      if (!requester) return res.status(401).json({ message: "Not authenticated" });
+
+      const adminRoles = ["master_admin", "admin"];
+      let permittedIds: number[];
+      if (adminRoles.includes(requester.globalRole ?? "")) {
+        permittedIds = requestedIds;
+      } else {
+        const perms = (requester.permissions as Record<string, unknown>) || {};
+        const calendarTeam: number[] = Array.isArray(perms.calendar_team) ? (perms.calendar_team as number[]) : [];
+        permittedIds = requestedIds.filter((id) => calendarTeam.includes(id));
+      }
+
+      if (permittedIds.length === 0) return res.json([]);
+
+      const startDate = new Date(String(start));
+      const endDate = new Date(String(end));
+
+      const events = await db.select()
+        .from(calendarEvents)
+        .where(and(
+          inArray(calendarEvents.userId, permittedIds),
+          sql`${calendarEvents.startTime} >= ${startDate}`,
+          sql`${calendarEvents.startTime} <= ${endDate}`
+        ))
+        .orderBy(asc(calendarEvents.startTime));
+
+      res.json(events);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/calendar/events/:id", requireAuth, async (req, res) => {
     const event = await storage.getCalendarEvent(Number(req.params.id));
     if (!event || event.userId !== req.session.userId) return res.status(404).json({ message: "Event not found" });

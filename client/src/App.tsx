@@ -160,7 +160,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
 
       {/* ── EXECUTION ─────────────────────────────────────────────── */}
       <Route path="/gmail">{() => wrap(<GmailInboxPage currentUserEmail={user.email} currentUserRole={user.globalRole || "sales"} userPermissions={perms} />)}</Route>
-      <Route path="/execution/calendar">{() => guard("calendar", <CalendarPage />)}</Route>
+      <Route path="/execution/calendar">{() => guard("calendar", <CalendarPage permissions={perms} currentUserId={user.id} isAdmin={isAdmin(role)} />)}</Route>
       <Route path="/execution/projects">{() => guard("projects", <ProjectsPage />)}</Route>
       <Route path="/execution/communications">{() => guard("communications", <CommunicationsPage />)}</Route>
       <Route path="/execution/team-workload">{() => guard("team_workload", <TeamWorkloadPage />)}</Route>
@@ -170,7 +170,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/price-lists">{() => guard("quoting", <PriceListsPage />)}</Route>
 
       {/* ── SUPPORT ───────────────────────────────────────────────── */}
-      <Route path="/support/tickets">{() => guard("support", <TicketsPage />)}</Route>
+      <Route path="/support/tickets">{() => guard("support", <TicketsPage canEdit={isAdmin(role) || perms.support === "edit"} />)}</Route>
 
       {/* ── ADMIN ─────────────────────────────────────────────────── */}
       <Route path="/admin/users">{() => wrap(<AdminUsersPage currentUserGlobalRole={user.globalRole || "sales"} />)}</Route>

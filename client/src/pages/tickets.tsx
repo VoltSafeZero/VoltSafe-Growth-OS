@@ -43,7 +43,7 @@ const statusBadgeColors: Record<string, string> = {
   closed: "bg-gray-500/10 text-gray-400 border-gray-500/20",
 };
 
-export default function TicketsPage() {
+export default function TicketsPage({ canEdit = true }: { canEdit?: boolean }) {
   const [viewMode, setViewMode] = useState<"board" | "list">("board");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
@@ -147,17 +147,19 @@ export default function TicketsPage() {
               </Button>
             </div>
             <ExportButton endpoint="/api/tickets/export" filename="tickets_export.csv" />
-            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-              <DialogTrigger asChild>
-                <Button className="bg-primary text-primary-foreground h-9" data-testid="button-create-ticket">
-                  <Plus className="mr-2 h-4 w-4" />New Ticket
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-md">
-                <DialogHeader><DialogTitle>Create Ticket</DialogTitle></DialogHeader>
-                <CreateTicketForm onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
-              </DialogContent>
-            </Dialog>
+            {canEdit && (
+              <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+                <DialogTrigger asChild>
+                  <Button className="bg-primary text-primary-foreground h-9" data-testid="button-create-ticket">
+                    <Plus className="mr-2 h-4 w-4" />New Ticket
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-md">
+                  <DialogHeader><DialogTitle>Create Ticket</DialogTitle></DialogHeader>
+                  <CreateTicketForm onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
+                </DialogContent>
+              </Dialog>
+            )}
           </div>
         </div>
       </div>

@@ -27,6 +27,17 @@ The project is organized as a monorepo containing `client/` (React SPA), `server
 - **Framework:** Express 5 (ESM) running on Node.js with `tsx`.
 - **API:** RESTful JSON API.
 
+### Permission System
+- **Granular per-user permissions**: `permissions` JSONB column on `users` table. Each user has section-level `AccessLevel` ("none" | "view" | "edit") for: `crm`, `partnerships`, `projects`, `communications`, `team_workload`, `knowledge`, `support`, `quoting`, `calendar`.
+- **Team inbox permissions**: `mail_team` map (`Record<string, { view: boolean; edit: boolean }>`) controls which shared Gmail inboxes a user can see and reply from.
+- **Calendar overlays**: `calendar_team` array of user IDs the user is permitted to overlay on their calendar.
+- **Backend enforcement**: `requirePermission(section, minLevel)` middleware in `server/auth.ts` guards all major API routes. `master_admin`/`admin` bypass all checks.
+- **Frontend enforcement**: `guard(section, children)` in `App.tsx` wraps routes with `AccessDenied` fallback. Sidebar filters nav items by permission level. `canEdit` props control write actions in CRM/support pages.
+- **Admin UI**: `UserDetailPanel` Access tab with 3-way selectors (None/View/View+Edit) per section, per-inbox View/Reply checkboxes, and calendar overlay member checkboxes.
+- **Gmail team inbox enforcement**: `GmailInboxPage` filters shared accounts by `mail_team[id].view` and derives `canSend` from `mail_team[id].edit` to gate compose/reply.
+- **Calendar team overlay**: `CalendarPage` shows a "Team Calendars" side panel listing permitted team members (from `calendar_team` or all members for admin). Toggling a member fetches their events via `GET /api/calendar/events/team` and overlays them in distinct rose/cyan/amber/violet/emerald colors with name prefix on each event. Team events are view-only (no edit dialog).
+- **Permission test suite**: `tests/permissions.test.js` — 32 assertions across viewer/mixed/admin users, registered as `permissions` validation command.
+
 ### Core CMS Modules
 - **Authentication:** Session-based authentication with `bcryptjs` for password hashing and `express-session`. Supports WebAuthn for biometric login. All API endpoints are protected.
 - **Sales:** Manages leads (including a marina directory import) with integrated deal/financial fields, accounts, contacts, infrastructure profiles, and quotes. Features Kanban, list, and map views for pipeline management. Opportunities fields are integrated directly into leads.

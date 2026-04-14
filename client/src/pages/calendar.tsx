@@ -72,6 +72,7 @@ import {
   parseISO,
 } from "date-fns";
 import type { CalendarEvent } from "@shared/schema";
+import { Checkbox } from "@/components/ui/checkbox";
 
 type ViewMode = "month" | "week" | "day";
 
@@ -164,6 +165,20 @@ const COLOR_DOT: Record<string, string> = {
   purple: "bg-purple-500",
   teal: "bg-teal-500",
   pink: "bg-pink-500",
+};
+
+const TEAM_OVERLAY_COLORS = [
+  { bg: "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/25", dot: "bg-rose-500", cb: "accent-rose-500" },
+  { bg: "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/25", dot: "bg-cyan-500", cb: "accent-cyan-500" },
+  { bg: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25", dot: "bg-amber-500", cb: "accent-amber-500" },
+  { bg: "bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/25", dot: "bg-violet-500", cb: "accent-violet-500" },
+  { bg: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25", dot: "bg-emerald-500", cb: "accent-emerald-500" },
+];
+
+type TeamMember = { id: number; name: string; email: string; globalRole: string };
+
+type DisplayEvent = CalendarEvent & {
+  _team?: { name: string; colorBg: string };
 };
 
 function roundTo15(hhmm: string): string {
@@ -271,15 +286,73 @@ function useCalendarEvents(currentDate: Date, view: ViewMode) {
   });
 }
 
-export default function CalendarPage() {
+function useTeamCalendarEvents(currentDate: Date, view: ViewMode, enabledIds: number[]) {
+  const range = getViewRange(currentDate, view);
+  const startStr = range.start.toISOString();
+  const endStr = new Date(range.end.getTime() + 24 * 60 * 60 * 1000).toISOString();
+  const idsStr = [...enabledIds].sort().join(",");
+
+  return useQuery<CalendarEvent[]>({
+    queryKey: ["/api/calendar/events/team", startStr, endStr, idsStr],
+    queryFn: async () => {
+      if (enabledIds.length === 0) return [];
+      const res = await fetch(`/api/calendar/events/team?start=${startStr}&end=${endStr}&userIds=${idsStr}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: enabledIds.length > 0,
+  });
+}
+
+type CalendarPageProps = {
+  permissions?: { calendar_team?: number[]; [k: string]: unknown };
+  currentUserId?: number;
+  isAdmin?: boolean;
+};
+
+export default function CalendarPage({ permissions, currentUserId, isAdmin }: CalendarPageProps = {}) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<ViewMode>("month");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [clickedSlot, setClickedSlot] = useState<{ date: Date; hour?: number } | null>(null);
+  const [enabledOverlays, setEnabledOverlays] = useState<Set<number>>(new Set());
   const { toast } = useToast();
 
-  const { data: events, isLoading } = useCalendarEvents(currentDate, view);
+  const calendarTeamIds: number[] = permissions?.calendar_team ?? [];
+  const showOverlayPanel = isAdmin || calendarTeamIds.length > 0;
+
+  const teamMembersQuery = useQuery<TeamMember[]>({
+    queryKey: ["/api/admin/team-members"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/team-members", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: showOverlayPanel,
+  });
+
+  const permittedMembers: (TeamMember & { colorIdx: number })[] = (teamMembersQuery.data ?? [])
+    .filter((m) => m.id !== currentUserId && (isAdmin || calendarTeamIds.includes(m.id)))
+    .map((m, i) => ({ ...m, colorIdx: i % TEAM_OVERLAY_COLORS.length }));
+
+  const enabledIdsList = [...enabledOverlays].filter((id) => permittedMembers.some((m) => m.id === id));
+  const { data: teamEvents } = useTeamCalendarEvents(currentDate, view, enabledIdsList);
+
+  const { data: ownEvents, isLoading } = useCalendarEvents(currentDate, view);
+
+  const allEvents: DisplayEvent[] = [
+    ...(ownEvents ?? []),
+    ...(teamEvents ?? []).map((ev) => {
+      const member = permittedMembers.find((m) => m.id === ev.userId);
+      return {
+        ...ev,
+        _team: member
+          ? { name: member.name, colorBg: TEAM_OVERLAY_COLORS[member.colorIdx].bg }
+          : undefined,
+      } as DisplayEvent;
+    }),
+  ];
 
   const createMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
@@ -355,6 +428,14 @@ export default function CalendarPage() {
     setCreateOpen(true);
   };
 
+  const toggleOverlay = (id: number) => {
+    setEnabledOverlays((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   return (
     <div className="p-4 sm:p-6 space-y-4" data-testid="calendar-page">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -369,82 +450,127 @@ export default function CalendarPage() {
         </Button>
       </div>
 
-      <Card className="border-border/50">
-        <CardContent className="p-3 sm:p-4">
-          <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
-            <div className="flex items-center gap-1">
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => navigate("prev")}
-                data-testid="button-nav-prev"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => navigate("next")}
-                data-testid="button-nav-next"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => navigate("today")}
-                data-testid="button-nav-today"
-              >
-                Today
-              </Button>
-            </div>
-
-            <h2 className="text-lg font-semibold" data-testid="text-calendar-title">
-              {headerTitle}
-            </h2>
-
-            <div className="flex items-center gap-1">
-              {(["month", "week", "day"] as ViewMode[]).map((v) => (
+      <div className={showOverlayPanel && permittedMembers.length > 0 ? "flex gap-4 items-start" : undefined}>
+        <Card className="border-border/50 flex-1 min-w-0">
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+              <div className="flex items-center gap-1">
                 <Button
-                  key={v}
-                  variant={view === v ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => setView(v)}
-                  data-testid={`button-view-${v}`}
-                  className="capitalize"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => navigate("prev")}
+                  data-testid="button-nav-prev"
                 >
-                  {v}
+                  <ChevronLeft className="h-4 w-4" />
                 </Button>
-              ))}
-            </div>
-          </div>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => navigate("next")}
+                  data-testid="button-nav-next"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => navigate("today")}
+                  data-testid="button-nav-today"
+                >
+                  Today
+                </Button>
+              </div>
 
-          {isLoading ? (
-            <Skeleton className="h-[500px]" />
-          ) : view === "month" ? (
-            <MonthView
-              currentDate={currentDate}
-              events={events || []}
-              onSlotClick={handleSlotClick}
-              onEventClick={setSelectedEvent}
-              onDayClick={(d) => { setCurrentDate(d); setView("day"); }}
-            />
-          ) : view === "week" ? (
-            <WeekView
-              currentDate={currentDate}
-              events={events || []}
-              onSlotClick={handleSlotClick}
-              onEventClick={setSelectedEvent}
-            />
-          ) : (
-            <DayView
-              currentDate={currentDate}
-              events={events || []}
-              onSlotClick={handleSlotClick}
-              onEventClick={setSelectedEvent}
-            />
-          )}
-        </CardContent>
-      </Card>
+              <h2 className="text-lg font-semibold" data-testid="text-calendar-title">
+                {headerTitle}
+              </h2>
+
+              <div className="flex items-center gap-1">
+                {(["month", "week", "day"] as ViewMode[]).map((v) => (
+                  <Button
+                    key={v}
+                    variant={view === v ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setView(v)}
+                    data-testid={`button-view-${v}`}
+                    className="capitalize"
+                  >
+                    {v}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {isLoading ? (
+              <Skeleton className="h-[500px]" />
+            ) : view === "month" ? (
+              <MonthView
+                currentDate={currentDate}
+                events={allEvents}
+                onSlotClick={handleSlotClick}
+                onEventClick={(ev) => { if (!ev._team) setSelectedEvent(ev); }}
+                onDayClick={(d) => { setCurrentDate(d); setView("day"); }}
+              />
+            ) : view === "week" ? (
+              <WeekView
+                currentDate={currentDate}
+                events={allEvents}
+                onSlotClick={handleSlotClick}
+                onEventClick={(ev) => { if (!ev._team) setSelectedEvent(ev); }}
+              />
+            ) : (
+              <DayView
+                currentDate={currentDate}
+                events={allEvents}
+                onSlotClick={handleSlotClick}
+                onEventClick={(ev) => { if (!ev._team) setSelectedEvent(ev); }}
+              />
+            )}
+          </CardContent>
+        </Card>
+
+        {showOverlayPanel && permittedMembers.length > 0 && (
+          <Card className="border-border/50 w-52 shrink-0" data-testid="team-overlay-panel">
+            <CardContent className="p-3">
+              <div className="flex items-center gap-2 mb-3">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Team Calendars</span>
+              </div>
+              <div className="space-y-2">
+                {permittedMembers.map((member) => {
+                  const colors = TEAM_OVERLAY_COLORS[member.colorIdx];
+                  const checked = enabledOverlays.has(member.id);
+                  return (
+                    <label
+                      key={member.id}
+                      className="flex items-center gap-2 cursor-pointer group"
+                      data-testid={`overlay-member-${member.id}`}
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={() => toggleOverlay(member.id)}
+                        data-testid={`checkbox-overlay-${member.id}`}
+                      />
+                      <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${colors.dot}`} />
+                      <span className="text-xs truncate group-hover:text-foreground text-muted-foreground transition-colors">
+                        {member.name}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              {enabledOverlays.size > 0 && (
+                <button
+                  className="mt-3 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => setEnabledOverlays(new Set())}
+                  data-testid="button-clear-overlays"
+                >
+                  Clear all
+                </button>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
       {createOpen && (
         <EventFormDialog
@@ -478,9 +604,9 @@ function MonthView({
   onDayClick,
 }: {
   currentDate: Date;
-  events: CalendarEvent[];
+  events: DisplayEvent[];
   onSlotClick: (date: Date) => void;
-  onEventClick: (event: CalendarEvent) => void;
+  onEventClick: (event: DisplayEvent) => void;
   onDayClick: (date: Date) => void;
 }) {
   const monthStart = startOfMonth(currentDate);
@@ -538,10 +664,10 @@ function MonthView({
               <div className="space-y-0.5">
                 {dayEvents.slice(0, 3).map((ev) => (
                   <button
-                    key={ev.id}
+                    key={`${ev.id}-${ev._team?.name ?? "own"}`}
                     data-event
                     className={`w-full text-left text-[10px] sm:text-xs px-1 py-0.5 rounded truncate border ${
-                      EVENT_TYPE_COLORS[ev.eventType] || EVENT_TYPE_COLORS.meeting
+                      ev._team?.colorBg || EVENT_TYPE_COLORS[ev.eventType] || EVENT_TYPE_COLORS.meeting
                     }`}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -549,7 +675,7 @@ function MonthView({
                     }}
                     data-testid={`event-month-${ev.id}`}
                   >
-                    {ev.title}
+                    {ev._team ? `${ev._team.name.split(" ")[0]}: ` : ""}{ev.title}
                   </button>
                 ))}
                 {dayEvents.length > 3 && (
@@ -573,9 +699,9 @@ function WeekView({
   onEventClick,
 }: {
   currentDate: Date;
-  events: CalendarEvent[];
+  events: DisplayEvent[];
   onSlotClick: (date: Date, hour: number) => void;
-  onEventClick: (event: CalendarEvent) => void;
+  onEventClick: (event: DisplayEvent) => void;
 }) {
   const weekStart = startOfWeek(currentDate);
   const weekDays = eachDayOfInterval({ start: weekStart, end: endOfWeek(currentDate) });
@@ -624,9 +750,9 @@ function WeekView({
                   >
                     {hourEvents.map((ev) => (
                       <button
-                        key={ev.id}
+                        key={`${ev.id}-${ev._team?.name ?? "own"}`}
                         className={`w-full text-left text-[10px] px-1 py-0.5 rounded truncate border mb-0.5 ${
-                          EVENT_TYPE_COLORS[ev.eventType] || EVENT_TYPE_COLORS.meeting
+                          ev._team?.colorBg || EVENT_TYPE_COLORS[ev.eventType] || EVENT_TYPE_COLORS.meeting
                         }`}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -634,7 +760,7 @@ function WeekView({
                         }}
                         data-testid={`event-week-${ev.id}`}
                       >
-                        {formatTime(new Date(ev.startTime))} {ev.title}
+                        {ev._team ? `${ev._team.name.split(" ")[0]}: ` : ""}{formatTime(new Date(ev.startTime))} {ev.title}
                       </button>
                     ))}
                   </div>
@@ -655,9 +781,9 @@ function DayView({
   onEventClick,
 }: {
   currentDate: Date;
-  events: CalendarEvent[];
+  events: DisplayEvent[];
   onSlotClick: (date: Date, hour: number) => void;
-  onEventClick: (event: CalendarEvent) => void;
+  onEventClick: (event: DisplayEvent) => void;
 }) {
   const dayEvents = events.filter((e) => isSameDay(new Date(e.startTime), currentDate));
 
@@ -679,9 +805,9 @@ function DayView({
             <div className="p-1 space-y-1">
               {hourEvents.map((ev) => (
                 <button
-                  key={ev.id}
+                  key={`${ev.id}-${ev._team?.name ?? "own"}`}
                   className={`w-full text-left text-xs px-2 py-1.5 rounded border ${
-                    EVENT_TYPE_COLORS[ev.eventType] || EVENT_TYPE_COLORS.meeting
+                    ev._team?.colorBg || EVENT_TYPE_COLORS[ev.eventType] || EVENT_TYPE_COLORS.meeting
                   }`}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -689,7 +815,9 @@ function DayView({
                   }}
                   data-testid={`event-day-${ev.id}`}
                 >
-                  <div className="font-medium">{ev.title}</div>
+                  <div className="font-medium">
+                    {ev._team && <span className="opacity-70">{ev._team.name.split(" ")[0]}: </span>}{ev.title}
+                  </div>
                   <div className="text-muted-foreground mt-0.5">
                     {formatTime(new Date(ev.startTime))}
                     {ev.endTime && ` - ${formatTime(new Date(ev.endTime))}`}
