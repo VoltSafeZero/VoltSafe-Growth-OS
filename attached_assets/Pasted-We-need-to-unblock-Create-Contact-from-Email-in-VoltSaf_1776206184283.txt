@@ -1,0 +1,86 @@
+We need to unblock “Create Contact from Email” in VoltSafe Cortex.
+
+Problem:
+New contact creation from email is blocked because Organization Types have not been seeded yet.
+
+Goal:
+Add a seeded Organization Type system, support a fallback type called “Unclassified”, and allow email-driven contact creation to proceed even when the exact org type is unknown.
+
+Please implement the following:
+
+1. Seed these Organization Types into the database:
+
+[
+  "Marina",
+  "Port / Harbor",
+  "Shipyard",
+  "Boatyard",
+  "Yacht Club",
+  "Marina Group / Ownership Group",
+  "Property Developer",
+  "Utility",
+  "Municipality",
+  "Government Agency",
+  "Defense / Military",
+  "OEM",
+  "Distributor",
+  "Dealer / Reseller",
+  "Installer / Electrical Contractor",
+  "Industry Association",
+  "Accelerator",
+  "Investor",
+  "Media",
+  "Engineering Firm",
+  "Consultant",
+  "Insurance",
+  "Standards Body",
+  "University / Research",
+  "Supplier / Manufacturer",
+  "Partner",
+  "Prospect",
+  "Customer",
+  "Vendor",
+  "Other",
+  "Unclassified"
+]
+
+2. Make “Unclassified” the default organization type whenever:
+- a new organization is auto-created from an email
+- no org type has been selected
+- the system cannot confidently infer a type
+
+3. Update the “Create Contact from Email” flow:
+- parse sender name
+- parse sender email address
+- derive company/organization from domain if possible
+- if organization exists, link contact to it
+- if organization does not exist, create it
+- assign org type = “Unclassified” by default unless a type is explicitly chosen
+- save the email thread/activity to the contact and organization timeline
+- set source = “Email Capture”
+
+4. Add safe inference rules for suggested org type, but do not block creation:
+- .mil -> Defense / Military
+- .gov -> Government Agency
+- domains containing marina, yachtclub, harbor, port -> suggest the matching type
+- if no match, keep “Unclassified”
+
+5. UI requirements:
+- Organization Type dropdown should load from seeded values
+- “Unclassified” should appear in the dropdown
+- Users should be able to change org type later
+- Email-based contact creation must not fail just because org type is unknown
+
+6. Acceptance criteria:
+- I can create a contact directly from an email even if no org type is manually chosen
+- A new organization gets created automatically when needed
+- The organization receives “Unclassified” by default
+- No validation error blocks contact creation
+- Existing contacts and organizations continue to work normally
+
+Please generate:
+- the database seed file
+- any migration needed
+- backend logic updates
+- frontend form/dropdown updates
+- a short test plan

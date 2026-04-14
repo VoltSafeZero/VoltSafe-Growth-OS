@@ -712,14 +712,57 @@ const PERSONAL_EMAIL_DOMAINS = new Set([
 ]);
 
 const ORG_TYPE_OPTIONS = [
-  { value: "other",       label: "Other" },
-  { value: "marina",      label: "Marina" },
-  { value: "government",  label: "Government / Port Authority" },
-  { value: "association", label: "Association / NGO" },
-  { value: "investor",    label: "Investor" },
-  { value: "research",    label: "Research / Academic" },
-  { value: "vendor",      label: "Vendor / Supplier" },
+  { value: "unclassified",          label: "Unclassified" },
+  { value: "marina",                label: "Marina" },
+  { value: "port_harbor",           label: "Port / Harbor" },
+  { value: "shipyard",              label: "Shipyard" },
+  { value: "boatyard",              label: "Boatyard" },
+  { value: "yacht_club",            label: "Yacht Club" },
+  { value: "marina_group",          label: "Marina Group / Ownership Group" },
+  { value: "property_developer",    label: "Property Developer" },
+  { value: "utility",               label: "Utility" },
+  { value: "municipality",          label: "Municipality" },
+  { value: "government_agency",     label: "Government Agency" },
+  { value: "defense_military",      label: "Defense / Military" },
+  { value: "oem",                   label: "OEM" },
+  { value: "distributor",           label: "Distributor" },
+  { value: "dealer_reseller",       label: "Dealer / Reseller" },
+  { value: "installer",             label: "Installer / Electrical Contractor" },
+  { value: "industry_association",  label: "Industry Association" },
+  { value: "accelerator",           label: "Accelerator" },
+  { value: "investor",              label: "Investor" },
+  { value: "media",                 label: "Media" },
+  { value: "engineering_firm",      label: "Engineering Firm" },
+  { value: "consultant",            label: "Consultant" },
+  { value: "insurance",             label: "Insurance" },
+  { value: "standards_body",        label: "Standards Body" },
+  { value: "university_research",   label: "University / Research" },
+  { value: "supplier_manufacturer", label: "Supplier / Manufacturer" },
+  { value: "partner",               label: "Partner" },
+  { value: "prospect",              label: "Prospect" },
+  { value: "customer",              label: "Customer" },
+  { value: "vendor",                label: "Vendor" },
+  { value: "other",                 label: "Other" },
 ] as const;
+
+function inferOrgTypeFromEmail(email: string): string {
+  const domain = (email.split("@")[1] ?? "").toLowerCase();
+  if (domain.endsWith(".mil")) return "defense_military";
+  if (domain.endsWith(".gov")) return "government_agency";
+  if (/marina/.test(domain)) return "marina";
+  if (/yacht/.test(domain)) return "yacht_club";
+  if (/harbor|harbour/.test(domain)) return "port_harbor";
+  if (/\bport/.test(domain)) return "port_harbor";
+  if (/shipyard/.test(domain)) return "shipyard";
+  if (/boatyard/.test(domain)) return "boatyard";
+  return "unclassified";
+}
+
+function orgNameFromDomain(domain: string): string {
+  const parts = domain.replace(/^www\./, "").split(".");
+  const main = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+  return main.charAt(0).toUpperCase() + main.slice(1);
+}
 
 const WORKFLOW_PILLS = [
   { value: "needs_reply",     label: "Needs Reply", activeClass: "bg-amber-500/15 text-amber-400 border-amber-500/40" },
@@ -790,7 +833,7 @@ function CrmContextPanel({
   const [cOrgSearch, setCOrgSearch] = useState("");
   const [cSelectedAccount, setCSelectedAccount] = useState<{ id: number; name: string } | null>(null);
   const [cNewOrgName, setCNewOrgName] = useState("");
-  const [cNewOrgType, setCNewOrgType] = useState("other");
+  const [cNewOrgType, setCNewOrgType] = useState("unclassified");
 
   const canViewCrm = isAdminUser || (userPermissions?.crm !== "none" && userPermissions?.crm != null);
   const canEditCrm = isAdminUser || userPermissions?.crm === "edit";
@@ -982,22 +1025,26 @@ function CrmContextPanel({
 
   function openCreateForm() {
     const s = threadRecordQuery.data?.sender;
-    setCName(s?.fromName?.trim() || "");
+    const effectiveEmail = s?.fromEmail || hintSenderEmail || "";
+    const effectiveName  = s?.fromName?.trim() || hintSenderName || "";
+    const domain = effectiveEmail.split("@")[1]?.toLowerCase() ?? "";
+    setCName(effectiveName);
     setCTitle("");
-    setCOrgMode("existing");
+    setCOrgMode("new");
     setCOrgSearch("");
     setCSelectedAccount(null);
-    setCNewOrgName("");
-    setCNewOrgType("other");
+    setCNewOrgName(domain ? orgNameFromDomain(domain) : "");
+    setCNewOrgType(effectiveEmail ? inferOrgTypeFromEmail(effectiveEmail) : "unclassified");
     setShowCreateForm(true);
     setShowManualLink(false);
   }
 
   function handleCreateSubmit() {
-    const sender = threadRecordQuery.data?.sender;
-    if (!sender?.fromEmail) return;
+    const s = threadRecordQuery.data?.sender;
+    const effectiveEmail = s?.fromEmail || hintSenderEmail || "";
+    if (!effectiveEmail) return;
     const payload: Parameters<typeof createContactMutation.mutate>[0] = {
-      fromEmail: sender.fromEmail,
+      fromEmail: effectiveEmail,
       name: cName.trim(),
       title: cTitle.trim() || undefined,
       orgMode: cOrgMode,
@@ -1008,7 +1055,7 @@ function CrmContextPanel({
     } else {
       if (!cNewOrgName.trim()) { toast({ title: "Organization name is required", variant: "destructive" }); return; }
       payload.orgName = cNewOrgName.trim();
-      payload.orgType = cNewOrgType;
+      payload.orgType = cNewOrgType || "unclassified";
     }
     createContactMutation.mutate(payload);
   }
@@ -1356,23 +1403,18 @@ function CrmContextPanel({
                         />
                         <div>
                           <p className="text-[10px] text-muted-foreground/60 mb-1 font-medium">Type</p>
-                          <div className="flex flex-wrap gap-1" data-testid="new-org-type-select">
+                          <select
+                            value={cNewOrgType}
+                            onChange={e => setCNewOrgType(e.target.value)}
+                            data-testid="new-org-type-select"
+                            disabled={isPending}
+                            className="w-full px-2 py-1.5 text-[11px] rounded border border-border/50 focus:outline-none focus:border-primary/50 text-foreground cursor-pointer"
+                            style={{ backgroundColor: "hsl(var(--background))" }}
+                          >
                             {ORG_TYPE_OPTIONS.map(opt => (
-                              <button
-                                key={opt.value}
-                                type="button"
-                                onClick={() => !isPending && setCNewOrgType(opt.value)}
-                                data-testid={`org-type-${opt.value}`}
-                                className={`text-[10px] px-2 py-[3px] rounded border transition-all ${
-                                  cNewOrgType === opt.value
-                                    ? "bg-violet-500/20 text-violet-300 border-violet-500/50 font-medium"
-                                    : "text-muted-foreground/60 border-border/30 hover:border-border/60 hover:text-foreground"
-                                }`}
-                              >
-                                {opt.label}
-                              </button>
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
                             ))}
-                          </div>
+                          </select>
                         </div>
                         <p className="text-[10px] text-muted-foreground/40 italic">
                           Domain <span className="font-mono">{senderDomain}</span> will be saved as the organization website.

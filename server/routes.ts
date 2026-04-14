@@ -3186,18 +3186,62 @@ export async function registerRoutes(
           }
         }
 
+        // ── Domain inference when no type provided ─────────────────────────
+        function inferOrgTypeFromDomain(domain: string): string {
+          const d = domain.toLowerCase();
+          if (d.endsWith(".mil")) return "defense_military";
+          if (d.endsWith(".gov")) return "government_agency";
+          if (/marina/.test(d)) return "marina";
+          if (/yacht/.test(d)) return "yacht_club";
+          if (/harbor|harbour/.test(d)) return "port_harbor";
+          if (/\bport/.test(d)) return "port_harbor";
+          if (/shipyard/.test(d)) return "shipyard";
+          if (/boatyard/.test(d)) return "boatyard";
+          return "unclassified";
+        }
+
         // ── Org type → segment + orgType mapping ──────────────────────────
         const ORG_TYPE_MAP: Record<string, { segment: string; orgType: string }> = {
-          marina:      { segment: "marina",       orgType: "marina_prospect" },
-          government:  { segment: "government",   orgType: "government" },
-          association: { segment: "association",  orgType: "industry_association" },
-          investor:    { segment: "investor",     orgType: "investor" },
-          research:    { segment: "research",     orgType: "research" },
-          vendor:      { segment: "vendor",       orgType: "vendor" },
-          other:       { segment: "other",        orgType: "other" },
+          marina:                 { segment: "marina",        orgType: "marina" },
+          port_harbor:            { segment: "marina",        orgType: "port_harbor" },
+          shipyard:               { segment: "marina",        orgType: "shipyard" },
+          boatyard:               { segment: "marina",        orgType: "boatyard" },
+          yacht_club:             { segment: "marina",        orgType: "yacht_club" },
+          marina_group:           { segment: "marina",        orgType: "marina_group" },
+          property_developer:     { segment: "other",         orgType: "property_developer" },
+          utility:                { segment: "government",    orgType: "utility" },
+          municipality:           { segment: "government",    orgType: "municipality" },
+          government_agency:      { segment: "government",    orgType: "government_agency" },
+          defense_military:       { segment: "government",    orgType: "defense_military" },
+          oem:                    { segment: "vendor",        orgType: "oem" },
+          distributor:            { segment: "vendor",        orgType: "distributor" },
+          dealer_reseller:        { segment: "vendor",        orgType: "dealer_reseller" },
+          installer:              { segment: "vendor",        orgType: "installer" },
+          industry_association:   { segment: "association",   orgType: "industry_association" },
+          accelerator:            { segment: "investor",      orgType: "accelerator" },
+          investor:               { segment: "investor",      orgType: "investor" },
+          media:                  { segment: "other",         orgType: "media" },
+          engineering_firm:       { segment: "other",         orgType: "engineering_firm" },
+          consultant:             { segment: "other",         orgType: "consultant" },
+          insurance:              { segment: "other",         orgType: "insurance" },
+          standards_body:         { segment: "other",         orgType: "standards_body" },
+          university_research:    { segment: "research",      orgType: "university_research" },
+          supplier_manufacturer:  { segment: "vendor",        orgType: "supplier_manufacturer" },
+          partner:                { segment: "other",         orgType: "partner" },
+          prospect:               { segment: "other",         orgType: "prospect" },
+          customer:               { segment: "other",         orgType: "customer" },
+          vendor:                 { segment: "vendor",        orgType: "vendor" },
+          other:                  { segment: "other",         orgType: "other" },
+          unclassified:           { segment: "other",         orgType: "unclassified" },
+          // legacy aliases
+          government:             { segment: "government",    orgType: "government_agency" },
+          association:            { segment: "association",   orgType: "industry_association" },
+          research:               { segment: "research",      orgType: "university_research" },
         };
-        const orgTypeKey = (orgType && ORG_TYPE_MAP[orgType]) ? orgType : "other";
-        const { segment, orgType: mappedOrgType } = ORG_TYPE_MAP[orgTypeKey];
+        const resolvedOrgType = orgType && ORG_TYPE_MAP[orgType]
+          ? orgType
+          : inferOrgTypeFromDomain(normalizedDomain);
+        const { segment, orgType: mappedOrgType } = ORG_TYPE_MAP[resolvedOrgType] ?? ORG_TYPE_MAP["unclassified"];
 
         const website = normalizedDomain ? `https://${normalizedDomain}` : undefined;
 
@@ -3244,6 +3288,43 @@ export async function registerRoutes(
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
+  });
+
+  // GET /api/org-types — full list of organisation types supported by Cortex
+  app.get("/api/org-types", requireAuth, (_req, res) => {
+    res.json([
+      { value: "unclassified",          label: "Unclassified" },
+      { value: "marina",                label: "Marina" },
+      { value: "port_harbor",           label: "Port / Harbor" },
+      { value: "shipyard",              label: "Shipyard" },
+      { value: "boatyard",              label: "Boatyard" },
+      { value: "yacht_club",            label: "Yacht Club" },
+      { value: "marina_group",          label: "Marina Group / Ownership Group" },
+      { value: "property_developer",    label: "Property Developer" },
+      { value: "utility",               label: "Utility" },
+      { value: "municipality",          label: "Municipality" },
+      { value: "government_agency",     label: "Government Agency" },
+      { value: "defense_military",      label: "Defense / Military" },
+      { value: "oem",                   label: "OEM" },
+      { value: "distributor",           label: "Distributor" },
+      { value: "dealer_reseller",       label: "Dealer / Reseller" },
+      { value: "installer",             label: "Installer / Electrical Contractor" },
+      { value: "industry_association",  label: "Industry Association" },
+      { value: "accelerator",           label: "Accelerator" },
+      { value: "investor",              label: "Investor" },
+      { value: "media",                 label: "Media" },
+      { value: "engineering_firm",      label: "Engineering Firm" },
+      { value: "consultant",            label: "Consultant" },
+      { value: "insurance",             label: "Insurance" },
+      { value: "standards_body",        label: "Standards Body" },
+      { value: "university_research",   label: "University / Research" },
+      { value: "supplier_manufacturer", label: "Supplier / Manufacturer" },
+      { value: "partner",               label: "Partner" },
+      { value: "prospect",              label: "Prospect" },
+      { value: "customer",              label: "Customer" },
+      { value: "vendor",                label: "Vendor" },
+      { value: "other",                 label: "Other" },
+    ]);
   });
 
   // GET /api/gmail/crm-search?q=...&types=contact,account,lead,opportunity,partner
