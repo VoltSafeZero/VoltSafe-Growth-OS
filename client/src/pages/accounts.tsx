@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -102,6 +103,7 @@ function getOrgTypeLabel(value: string | null | undefined) {
 }
 
 export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) {
+  const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
   const [segmentFilter, setSegmentFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -372,7 +374,15 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
       )}
 
       {selectedAccount && (
-        <AccountDetailDialog account={selectedAccount} onClose={() => setSelectedAccount(null)} canEdit={canEdit} />
+        <AccountDetailDialog
+          account={selectedAccount}
+          onClose={() => setSelectedAccount(null)}
+          canEdit={canEdit}
+          onOpenLead={(leadId) => {
+            setSelectedAccount(null);
+            setLocation(`/opportunities?selected=${leadId}`);
+          }}
+        />
       )}
     </div>
   );
@@ -587,7 +597,7 @@ function extractDomainFromWebsite(website: string | null | undefined): string {
   return d;
 }
 
-export function AccountDetailDialog({ account: initialAccount, onClose, canEdit = true }: { account: Account; onClose: () => void; canEdit?: boolean }) {
+export function AccountDetailDialog({ account: initialAccount, onClose, canEdit = true, onOpenLead }: { account: Account; onClose: () => void; canEdit?: boolean; onOpenLead?: (leadId: number) => void }) {
   const { toast } = useToast();
   const [addContactOpen, setAddContactOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -732,9 +742,19 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
                 <Badge variant="outline" className={priorityColors[account.priority] || ""}>{account.priority}</Badge>
                 {account.orgType && <Badge variant="outline" className={orgTypeColors[account.orgType] || orgTypeColors.other} data-testid="badge-detail-org-type">{getOrgTypeLabel(account.orgType)}</Badge>}
                 {(account as any).convertedFromLeadId && (
-                  <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 gap-1" data-testid="badge-promoted-from-lead">
-                    <ArrowRightLeft className="h-3 w-3" />Promoted from Lead #{(account as any).convertedFromLeadId}
-                  </Badge>
+                  onOpenLead ? (
+                    <button
+                      onClick={() => onOpenLead((account as any).convertedFromLeadId)}
+                      className="inline-flex items-center gap-1 text-xs rounded-md border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 px-2 py-0.5 cursor-pointer transition-colors hover:bg-emerald-500/20 hover:border-emerald-500/40"
+                      data-testid="button-open-source-lead"
+                    >
+                      <ArrowRightLeft className="h-3 w-3" />Promoted from Lead #{(account as any).convertedFromLeadId}
+                    </button>
+                  ) : (
+                    <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 gap-1" data-testid="badge-promoted-from-lead">
+                      <ArrowRightLeft className="h-3 w-3" />Promoted from Lead #{(account as any).convertedFromLeadId}
+                    </Badge>
+                  )
                 )}
                 {account.betaTester && <Badge variant="outline" className="bg-cyan-500/10 text-cyan-500 border-cyan-500/20">Beta Tester</Badge>}
                 {account.pilotCandidateScore && (
@@ -932,6 +952,18 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
                                   <p className="text-xs text-foreground/70 whitespace-pre-wrap line-clamp-4">
                                     {sourceLead.notes.slice(0, 300)}{sourceLead.notes.length > 300 ? "…" : ""}
                                   </p>
+                                </div>
+                              )}
+                              {onOpenLead && (
+                                <div className="pt-1 border-t border-border/30">
+                                  <button
+                                    onClick={() => onOpenLead(sourceLead.id)}
+                                    className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors"
+                                    data-testid="button-view-full-lead"
+                                  >
+                                    <ArrowRightLeft className="h-3 w-3" />
+                                    View full lead record →
+                                  </button>
                                 </div>
                               )}
                             </div>

@@ -537,6 +537,12 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
           account={selectedOrg}
           onClose={() => setSelectedOrg(null)}
           canEdit={canEdit}
+          onOpenLead={(leadId) => {
+            setSelectedOrg(null);
+            fetch(`/api/leads/${leadId}`, { credentials: "include" })
+              .then(r => r.ok ? r.json() : null)
+              .then(lead => { if (lead) setSelectedLead(lead); });
+          }}
         />
       )}
 
@@ -893,8 +899,8 @@ function LeadDetailDialog({
               )}
             </div>
 
-            <Select value={lead.status} onValueChange={onUpdateStatus}>
-              <SelectTrigger data-testid="select-lead-stage" className="w-full">
+            <Select value={lead.status} onValueChange={onUpdateStatus} disabled={!canEdit}>
+              <SelectTrigger data-testid="select-lead-stage" className="w-full" disabled={!canEdit}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
