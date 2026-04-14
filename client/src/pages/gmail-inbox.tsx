@@ -1354,17 +1354,26 @@ function CrmContextPanel({
                           disabled={isPending}
                           className="w-full px-2 py-1 text-[11px] bg-muted/20 border border-border/30 rounded focus:outline-none focus:border-border/70 placeholder:text-muted-foreground/40"
                         />
-                        <select
-                          value={cNewOrgType}
-                          onChange={e => setCNewOrgType(e.target.value)}
-                          data-testid="new-org-type-select"
-                          disabled={isPending}
-                          className="w-full px-2 py-1 text-[11px] bg-muted/20 border border-border/30 rounded focus:outline-none focus:border-border/70 text-foreground"
-                        >
-                          {ORG_TYPE_OPTIONS.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </select>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground/60 mb-1 font-medium">Type</p>
+                          <div className="flex flex-wrap gap-1" data-testid="new-org-type-select">
+                            {ORG_TYPE_OPTIONS.map(opt => (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                onClick={() => !isPending && setCNewOrgType(opt.value)}
+                                data-testid={`org-type-${opt.value}`}
+                                className={`text-[10px] px-2 py-[3px] rounded border transition-all ${
+                                  cNewOrgType === opt.value
+                                    ? "bg-violet-500/20 text-violet-300 border-violet-500/50 font-medium"
+                                    : "text-muted-foreground/60 border-border/30 hover:border-border/60 hover:text-foreground"
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                         <p className="text-[10px] text-muted-foreground/40 italic">
                           Domain <span className="font-mono">{senderDomain}</span> will be saved as the organization website.
                         </p>
