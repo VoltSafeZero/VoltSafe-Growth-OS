@@ -1,0 +1,50 @@
+One more small build before manual seeding.
+
+Implement a lightweight return-path workflow between the Relationships dashboard and the Gmail “Create Contact from Sender” flow.
+
+Goal:
+Make manual seeding faster by letting me jump from /relationships into /gmail for a specific thread, complete the CRM creation flow, and then easily return to where I came from.
+
+Scope:
+1. Preserve source context when navigating from the Unlinked Real Senders table
+- update the existing “Create in CRM” action so it navigates with a return parameter, for example:
+  /gmail?thread=<gmailThreadId>&return=%2Frelationships
+
+2. In the Gmail inbox/thread CRM workflow:
+- when a thread was opened from the Relationships dashboard, show a lightweight visible return action such as:
+  - “Back to Relationships”
+  - or “Return to Relationship Intelligence”
+- place it somewhere obvious but not noisy near the thread header or CRM context area
+
+3. After successful “Create Contact from Sender” completion:
+- show a success action that makes it easy to return to /relationships
+- either:
+  - automatically reveal a “Back to Relationships” button
+  - or navigate back with a success toast
+- do not auto-navigate instantly unless it is clearly safe and not disruptive
+
+4. Keep state handling simple
+- no schema changes
+- no new backend endpoints unless absolutely necessary
+- no new creation flow
+- no unrelated refactors
+- no destructive changes
+
+5. UX requirements
+- the return path should only appear when the user came from /relationships
+- normal /gmail behavior should remain unchanged for all other inbox usage
+- the implementation should feel lightweight and fast
+
+Before implementing:
+1. show exact files to change
+2. explain how the return parameter will work
+3. explain what happens on successful contact creation
+4. confirm whether any backend changes are needed
+
+After implementing:
+1. exact files changed
+2. exact UX changes completed
+3. validation/test results
+4. any remaining UX gaps
+
+Do not broaden scope beyond this return-path workflow.

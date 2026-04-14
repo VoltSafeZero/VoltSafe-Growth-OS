@@ -16,7 +16,7 @@ import {
   FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronRight, Folder,
   Reply, ReplyAll, Pencil, User, Building2, Zap,
   CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
-  CheckCheck,
+  CheckCheck, ArrowLeft,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import DOMPurify from "dompurify";
@@ -761,13 +761,16 @@ function CrmContextPanel({
   threadId,
   userPermissions,
   isAdminUser,
+  returnPath,
 }: {
   threadId: string;
   userPermissions?: CrmPanelPerms;
   isAdminUser?: boolean;
+  returnPath?: string | null;
 }) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const [contactCreated, setContactCreated] = useState(false);
   const [showManualLink, setShowManualLink] = useState(false);
   const [manualSearch, setManualSearch] = useState("");
   const [manualLinkPending, setManualLinkPending] = useState(false);
@@ -954,6 +957,7 @@ function CrmContextPanel({
       setShowCreateForm(false);
       const contactName = result?.contact?.name ?? cName;
       toast({ title: `Contact created: ${contactName}` });
+      if (returnPath) setContactCreated(true);
       try { await refreshAssocMutation.mutateAsync(); } catch {}
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-associations", threadId] });
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", threadId] });
@@ -1051,6 +1055,19 @@ function CrmContextPanel({
 
   return (
     <div className="flex-shrink-0 border-t border-border/30 bg-background/60" data-testid="crm-context-panel">
+      {/* Return-path breadcrumb — only when navigated from Relationships dashboard */}
+      {returnPath && (
+        <div className="px-4 pt-2 pb-0 flex items-center gap-1.5">
+          <button
+            onClick={() => setLocation(returnPath)}
+            className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-primary transition-colors"
+            data-testid="btn-back-to-relationships"
+          >
+            <ArrowLeft className="h-3 w-3" />
+            Back to Relationship Intelligence
+          </button>
+        </div>
+      )}
       {/* Workflow state pills */}
       <div className="px-4 pt-2.5 pb-1.5 flex items-center gap-2 flex-wrap">
         {WORKFLOW_PILLS.map(pill => {
@@ -1073,6 +1090,24 @@ function CrmContextPanel({
         })}
         {workflowMutation.isPending && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/50" />}
       </div>
+
+      {/* Post-creation return banner — only when contact was just created from Relationships flow */}
+      {contactCreated && returnPath && (
+        <div className="mx-4 mb-2 flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-primary/10 border border-primary/20">
+          <div className="flex items-center gap-1.5 text-[11px] text-primary/80">
+            <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
+            <span>Contact added to CRM.</span>
+          </div>
+          <button
+            onClick={() => setLocation(returnPath)}
+            className="flex items-center gap-1 text-[11px] font-medium text-primary hover:underline whitespace-nowrap"
+            data-testid="btn-return-to-relationships"
+          >
+            Return to Relationships
+            <ArrowLeft className="h-3 w-3 rotate-180" />
+          </button>
+        </div>
+      )}
 
       {/* CRM Association Review Panel */}
       <div className="px-4 pb-3">
@@ -1586,6 +1621,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("thread") ?? null;
+  });
+  const [returnPath] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("return") ?? null;
   });
   const [composeOpen, setComposeOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string } | null>(null);
@@ -3203,7 +3242,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               </div>
             )}
             {/* CRM Context Panel */}
-            <CrmContextPanel key={selectedThreadId} threadId={selectedThreadId!} userPermissions={userPermissions} isAdminUser={isAdmin} />
+            <CrmContextPanel key={selectedThreadId} threadId={selectedThreadId!} userPermissions={userPermissions} isAdminUser={isAdmin} returnPath={returnPath} />
           </div>
         )}
 

@@ -615,7 +615,7 @@ export default function RelationshipIntelligencePage() {
                           <div className="flex items-center justify-end gap-2">
                             {row.latestThreadId ? (
                               <button
-                                onClick={() => navigate(`/gmail?thread=${row.latestThreadId}`)}
+                                onClick={() => navigate(`/gmail?thread=${row.latestThreadId}&return=%2Frelationships`)}
                                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors whitespace-nowrap border border-primary/20"
                                 data-testid={`btn-create-crm-${row.fromEmail.replace(/[@.]/g, "-")}`}
                               >
