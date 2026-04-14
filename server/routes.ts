@@ -2426,21 +2426,14 @@ export async function registerRoutes(
   app.get("/api/gmail/thread-record/:threadId", requireAuth, async (req, res) => {
     const threadId = String(req.params.threadId);
     try {
+      const INTERNAL_DOMAIN = "voltsafe.com";
+
       const [thread] = await db
         .select()
         .from(emailThreads)
         .where(eq(emailThreads.gmailThreadId, threadId));
 
-      if (!thread) return res.json({ found: false });
-
-      const [contact, account, lead] = await Promise.all([
-        thread.primaryContactId ? storage.getContact(thread.primaryContactId) : Promise.resolve(undefined),
-        thread.primaryAccountId ? storage.getAccount(thread.primaryAccountId) : Promise.resolve(undefined),
-        thread.primaryLeadId ? storage.getLead(thread.primaryLeadId) : Promise.resolve(undefined),
-      ]);
-
-      // Augment with sender info from earliest external message in thread
-      const INTERNAL_DOMAIN = "voltsafe.com";
+      // Always fetch sender from email_messages regardless of whether a thread record exists
       const [senderMsg] = await db
         .select({
           fromEmail: emailMessages.fromEmail,
@@ -2457,6 +2450,14 @@ export async function registerRoutes(
         )
         .orderBy(sql`${emailMessages.sentAt} ASC NULLS LAST`)
         .limit(1);
+
+      if (!thread) return res.json({ found: false, sender: senderMsg ?? null });
+
+      const [contact, account, lead] = await Promise.all([
+        thread.primaryContactId ? storage.getContact(thread.primaryContactId) : Promise.resolve(undefined),
+        thread.primaryAccountId ? storage.getAccount(thread.primaryAccountId) : Promise.resolve(undefined),
+        thread.primaryLeadId ? storage.getLead(thread.primaryLeadId) : Promise.resolve(undefined),
+      ]);
 
       res.json({
         found: true,
