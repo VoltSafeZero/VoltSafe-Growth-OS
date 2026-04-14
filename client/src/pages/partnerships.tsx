@@ -740,6 +740,17 @@ export default function PartnershipsPage({ typeSlug = "", canEdit = true }: { ty
     setActiveType(SLUG_TO_TYPE[typeSlug] || "all");
   }, [typeSlug]);
 
+  // Deep-link: /strategy/partnerships?selected={id} opens the partner dialog
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const selectedId = params.get("selected");
+    if (!selectedId) return;
+    fetch(`/api/partnerships/${selectedId}`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then(partner => { if (partner) setSelectedPartner(partner); })
+      .catch(() => {});
+  }, []);
+
   const { data: allPartners, isLoading } = useQuery<Partnership[]>({
     queryKey: ["/api/partnerships", { industryType: activeType === "all" ? undefined : activeType }],
     queryFn: async () => {

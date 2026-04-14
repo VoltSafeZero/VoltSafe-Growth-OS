@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Building2, Mail, Phone, Search, UserCircle2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,19 @@ type ContactWithAccount = Contact & { accountName?: string };
 
 export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) {
   const [search, setSearch] = useState("");
+  const [highlightedContactId, setHighlightedContactId] = useState<number | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const selectedId = params.get("selected");
+    if (selectedId) {
+      setHighlightedContactId(Number(selectedId));
+      setTimeout(() => {
+        const el = document.getElementById(`contact-row-${selectedId}`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 300);
+    }
+  }, []);
 
   const { data: contacts = [], isLoading: loadingContacts } = useQuery<ContactWithAccount[]>({
     queryKey: ["/api/contacts"],
@@ -78,10 +91,17 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
           </div>
         ) : (
           <div className="space-y-1.5">
-            {filtered.map((contact) => (
+            {filtered.map((contact) => {
+              const isHighlighted = highlightedContactId === contact.id;
+              return (
               <div
                 key={contact.id}
-                className="flex items-center gap-4 px-4 py-3 rounded-xl bg-secondary/20 hover:bg-secondary/40 border border-border/30 hover:border-border/60 transition-all group"
+                id={`contact-row-${contact.id}`}
+                className={`flex items-center gap-4 px-4 py-3 rounded-xl bg-secondary/20 hover:bg-secondary/40 border transition-all group ${
+                  isHighlighted
+                    ? "border-primary/60 ring-1 ring-primary/30 bg-primary/5"
+                    : "border-border/30 hover:border-border/60"
+                }`}
                 data-testid={`contact-row-${contact.id}`}
               >
                 <div className="w-9 h-9 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
@@ -157,7 +177,7 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
                   )}
                 </div>
               </div>
-            ))}
+            ); })}
           </div>
         )}
       </div>

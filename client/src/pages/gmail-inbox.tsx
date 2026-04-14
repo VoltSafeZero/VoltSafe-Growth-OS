@@ -15,8 +15,9 @@ import {
   Clock, FileText, CalendarClock, CalendarX, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
   FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronRight, Folder,
   Reply, ReplyAll, Pencil, User, Building2, Zap,
-  CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag,
+  CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
 } from "lucide-react";
+import { useLocation } from "wouter";
 import DOMPurify from "dompurify";
 
 type MessageSummary = {
@@ -717,12 +718,50 @@ function ScoreBadge({ score }: { score: number | null }) {
   );
 }
 
-function CrmContextPanel({ threadId }: { threadId: string }) {
+const RESTRICTED_LABELS: Record<string, string> = {
+  contact:     "Linked Contact",
+  account:     "Linked Organization",
+  lead:        "Linked Lead",
+  opportunity: "Linked Lead",
+  partner:     "Linked Partner",
+};
+
+function getDeepLinkUrl(objectType: string, objectId: number): string {
+  switch (objectType) {
+    case "account":     return `/accounts?selected=${objectId}`;
+    case "lead":
+    case "opportunity": return `/opportunities?selected=${objectId}`;
+    case "contact":     return `/contacts?selected=${objectId}`;
+    case "partner":     return `/strategy/partnerships?selected=${objectId}`;
+    default:            return "#";
+  }
+}
+
+type CrmPanelPerms = { crm?: string; partnerships?: string; [key: string]: unknown };
+
+function CrmContextPanel({
+  threadId,
+  userPermissions,
+  isAdminUser,
+}: {
+  threadId: string;
+  userPermissions?: CrmPanelPerms;
+  isAdminUser?: boolean;
+}) {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const [showManualLink, setShowManualLink] = useState(false);
   const [manualSearch, setManualSearch] = useState("");
   const [manualLinkPending, setManualLinkPending] = useState(false);
   const [showCandidates, setShowCandidates] = useState(true);
+
+  const canViewCrm = isAdminUser || (userPermissions?.crm !== "none" && userPermissions?.crm != null);
+  const canViewPartnerships = isAdminUser || (userPermissions?.partnerships !== "none" && userPermissions?.partnerships != null);
+
+  function hasAccessForType(objectType: string): boolean {
+    if (objectType === "partner") return !!canViewPartnerships;
+    return !!canViewCrm;
+  }
 
   const threadRecordQuery = useQuery<ThreadRecord>({
     queryKey: ["/api/gmail/thread-record", threadId],
@@ -949,29 +988,54 @@ function CrmContextPanel({ threadId }: { threadId: string }) {
               const cfg = TYPE_CFG[cand.objectType as keyof typeof TYPE_CFG];
               if (!cfg) return null;
               const { Icon } = cfg;
+              const canAccess = hasAccessForType(cand.objectType);
+              const displayName = cand.objectName ?? cand.entityDetail?.name ?? "Unknown";
+              const deepUrl = getDeepLinkUrl(cand.objectType, cand.objectId);
+              const firstReason = cand.reasons?.[0];
+              const allReasons = cand.reasons?.join(" · ");
               return (
                 <div
                   key={cand.id}
                   data-testid={`crm-assoc-confirmed-${cand.id}`}
-                  className="flex items-center gap-1.5 group"
+                  className="group"
                 >
-                  <span className={`flex items-center gap-0.5 text-[10px] px-1.5 py-[2px] rounded border flex-shrink-0 ${cfg.bg} ${cfg.text} ${cfg.border}`}>
-                    <Icon className="h-2.5 w-2.5" />
-                    {cfg.label}
-                  </span>
-                  <a href={cfg.href} className={`text-[11px] font-medium flex-1 truncate hover:underline ${cfg.text}`}>
-                    {cand.objectName ?? cand.entityDetail?.name ?? "Unknown"}
-                  </a>
-                  <ShieldCheck className="h-3 w-3 text-emerald-400/70 flex-shrink-0" />
-                  <button
-                    onClick={() => rejectMutation.mutate(cand.id)}
-                    disabled={rejectMutation.isPending}
-                    data-testid={`crm-reject-${cand.id}`}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/40 hover:text-red-400"
-                    title="Remove link"
-                  >
-                    <XCircle className="h-3 w-3" />
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`flex items-center gap-0.5 text-[10px] px-1.5 py-[2px] rounded border flex-shrink-0 ${cfg.bg} ${cfg.text} ${cfg.border}`}>
+                      <Icon className="h-2.5 w-2.5" />
+                      {cfg.label}
+                    </span>
+                    {canAccess ? (
+                      <button
+                        onClick={() => setLocation(deepUrl)}
+                        data-testid={`crm-assoc-link-${cand.id}`}
+                        className={`text-[11px] font-medium flex-1 truncate text-left hover:underline flex items-center gap-1 group/link ${cfg.text}`}
+                        title={allReasons}
+                      >
+                        <span className="truncate">{displayName}</span>
+                        <ExternalLink className="h-2.5 w-2.5 flex-shrink-0 opacity-0 group-hover/link:opacity-60 transition-opacity" />
+                      </button>
+                    ) : (
+                      <span className="text-[11px] flex-1 truncate flex items-center gap-1 text-muted-foreground/50" title="You don't have permission to view this record">
+                        <Lock className="h-2.5 w-2.5 flex-shrink-0" />
+                        {RESTRICTED_LABELS[cand.objectType] ?? "Linked Record"}
+                      </span>
+                    )}
+                    <ShieldCheck className="h-3 w-3 text-emerald-400/70 flex-shrink-0" />
+                    <button
+                      onClick={() => rejectMutation.mutate(cand.id)}
+                      disabled={rejectMutation.isPending}
+                      data-testid={`crm-reject-${cand.id}`}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/40 hover:text-red-400"
+                      title="Remove link"
+                    >
+                      <XCircle className="h-3 w-3" />
+                    </button>
+                  </div>
+                  {firstReason && (
+                    <p className="text-[10px] text-muted-foreground/40 italic pl-[calc(0.375rem+1.25rem+0.375rem)] mt-0.5 truncate" title={allReasons}>
+                      {firstReason}
+                    </p>
+                  )}
                 </div>
               );
             })}
@@ -981,38 +1045,63 @@ function CrmContextPanel({ threadId }: { threadId: string }) {
               const cfg = TYPE_CFG[cand.objectType as keyof typeof TYPE_CFG];
               if (!cfg) return null;
               const { Icon } = cfg;
+              const canAccess = hasAccessForType(cand.objectType);
+              const displayName = cand.objectName ?? cand.entityDetail?.name ?? "Unknown";
+              const deepUrl = getDeepLinkUrl(cand.objectType, cand.objectId);
+              const firstReason = cand.reasons?.[0];
+              const allReasons = cand.reasons?.join(" · ");
               return (
                 <div
                   key={cand.id}
                   data-testid={`crm-assoc-candidate-${cand.id}`}
-                  className="flex items-center gap-1.5 group"
+                  className="group"
                 >
-                  <span className={`flex items-center gap-0.5 text-[10px] px-1.5 py-[2px] rounded border flex-shrink-0 opacity-60 ${cfg.bg} ${cfg.text} ${cfg.border}`}>
-                    <Icon className="h-2.5 w-2.5" />
-                    {cfg.label}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground flex-1 truncate">
-                    {cand.objectName ?? cand.entityDetail?.name ?? "Unknown"}
-                  </span>
-                  <ScoreBadge score={cand.confidenceScore} />
-                  <button
-                    onClick={() => confirmMutation.mutate(cand.id)}
-                    disabled={confirmMutation.isPending}
-                    data-testid={`crm-confirm-${cand.id}`}
-                    className="text-muted-foreground/30 hover:text-emerald-400 transition-colors"
-                    title="Confirm this link"
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={() => rejectMutation.mutate(cand.id)}
-                    disabled={rejectMutation.isPending}
-                    data-testid={`crm-reject-${cand.id}`}
-                    className="text-muted-foreground/30 hover:text-red-400 transition-colors"
-                    title="Dismiss this suggestion"
-                  >
-                    <XCircle className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`flex items-center gap-0.5 text-[10px] px-1.5 py-[2px] rounded border flex-shrink-0 opacity-60 ${cfg.bg} ${cfg.text} ${cfg.border}`}>
+                      <Icon className="h-2.5 w-2.5" />
+                      {cfg.label}
+                    </span>
+                    {canAccess ? (
+                      <button
+                        onClick={() => setLocation(deepUrl)}
+                        data-testid={`crm-cand-link-${cand.id}`}
+                        className="text-[11px] text-muted-foreground flex-1 truncate text-left hover:underline flex items-center gap-1 group/link"
+                        title={allReasons}
+                      >
+                        <span className="truncate">{displayName}</span>
+                        <ExternalLink className="h-2.5 w-2.5 flex-shrink-0 opacity-0 group-hover/link:opacity-50 transition-opacity" />
+                      </button>
+                    ) : (
+                      <span className="text-[11px] flex-1 truncate flex items-center gap-1 text-muted-foreground/40 italic" title="You don't have permission to view this record">
+                        <Lock className="h-2.5 w-2.5 flex-shrink-0" />
+                        {RESTRICTED_LABELS[cand.objectType] ?? "Linked Record"}
+                      </span>
+                    )}
+                    <ScoreBadge score={cand.confidenceScore} />
+                    <button
+                      onClick={() => confirmMutation.mutate(cand.id)}
+                      disabled={confirmMutation.isPending}
+                      data-testid={`crm-confirm-${cand.id}`}
+                      className="text-muted-foreground/30 hover:text-emerald-400 transition-colors"
+                      title="Confirm this link"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => rejectMutation.mutate(cand.id)}
+                      disabled={rejectMutation.isPending}
+                      data-testid={`crm-reject-${cand.id}`}
+                      className="text-muted-foreground/30 hover:text-red-400 transition-colors"
+                      title="Dismiss this suggestion"
+                    >
+                      <XCircle className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  {firstReason && (
+                    <p className="text-[10px] text-muted-foreground/35 italic pl-[calc(0.375rem+1.25rem+0.375rem)] mt-0.5 truncate" title={allReasons}>
+                      {firstReason}
+                    </p>
+                  )}
                 </div>
               );
             })}
@@ -2486,7 +2575,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               </div>
             )}
             {/* CRM Context Panel */}
-            <CrmContextPanel key={selectedThreadId} threadId={selectedThreadId!} />
+            <CrmContextPanel key={selectedThreadId} threadId={selectedThreadId!} userPermissions={userPermissions} isAdminUser={isAdmin} />
           </div>
         )}
 
