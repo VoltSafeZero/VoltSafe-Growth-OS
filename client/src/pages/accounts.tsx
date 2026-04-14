@@ -144,8 +144,8 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Accounts</h1>
-            <p className="text-muted-foreground mt-1 text-sm">Manage marinas and corporate accounts.</p>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Organizations</h1>
+            <p className="text-muted-foreground mt-1 text-sm">Manage marina organizations and prospects.</p>
           </div>
           <div className="flex items-center border border-border/50 rounded-xl overflow-hidden">
             <Button variant={view === "list" ? "secondary" : "ghost"} size="default" onClick={() => setView("list")} className="rounded-none px-3" data-testid="button-list-view"><List className="h-5 w-5" /></Button>
@@ -165,11 +165,11 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
                 <Button className="bg-primary text-primary-foreground" data-testid="button-create-account">
-                  <Plus className="mr-2 h-4 w-4" /> New Account
+                  <Plus className="mr-2 h-4 w-4" /> New Organization
                 </Button>
               </DialogTrigger>
               <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
-                <DialogHeader><DialogTitle>Create Account</DialogTitle></DialogHeader>
+                <DialogHeader><DialogTitle>Create Organization</DialogTitle></DialogHeader>
                 <CreateAccountForm onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
               </DialogContent>
             </Dialog>
@@ -180,7 +180,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
       <div className="flex gap-2 sm:gap-3 flex-wrap">
         <div className="relative w-full sm:flex-1 sm:max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search accounts..." value={search} onChange={(e) => { setSearch(e.target.value); }} className="pl-10" data-testid="input-search-accounts" />
+          <Input placeholder="Search organizations..." value={search} onChange={(e) => { setSearch(e.target.value); }} className="pl-10" data-testid="input-search-accounts" />
         </div>
         <Select value={segmentFilter} onValueChange={(v) => { setSegmentFilter(v); }}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-36" data-testid="select-segment-filter">
@@ -298,12 +298,12 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                 </Card>
               ))}
               {allAccounts.length === 0 && (
-                <div className="col-span-full p-8 text-center text-muted-foreground">No accounts found</div>
+                <div className="col-span-full p-8 text-center text-muted-foreground">No organizations found</div>
               )}
             </div>
           )}
           <div className="flex items-center justify-between py-2">
-            <p className="text-sm text-muted-foreground">{allAccounts.length.toLocaleString()} of {totalCount.toLocaleString()} accounts loaded</p>
+            <p className="text-sm text-muted-foreground">{allAccounts.length.toLocaleString()} of {totalCount.toLocaleString()} organizations loaded</p>
             {isFetchingNextPage && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading more...</div>
             )}

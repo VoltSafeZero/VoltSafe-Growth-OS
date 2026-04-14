@@ -151,6 +151,12 @@ export const accounts = pgTable("accounts", {
   tags: text("tags"),
   notes: text("notes"),
 
+  // Phase 1 CRM/Organizations refactor — additive columns (2026-04)
+  // org_type discriminates marina_prospect | marina_customer | pilot_customer | enterprise
+  orgType: text("org_type").default("marina_prospect"),
+  // tracks which lead this account was converted from (traceability via migrationMap)
+  convertedFromLeadId: integer("converted_from_lead_id"),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

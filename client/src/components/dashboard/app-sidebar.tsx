@@ -45,7 +45,7 @@ const sections: NavSection[] = [
     icon: Users,
     permKey: "crm",
     items: [
-      { title: "Accounts", url: "/accounts", icon: Building2, permKey: "crm" },
+      { title: "Organizations", url: "/accounts", icon: Building2, permKey: "crm" },
       { title: "Contacts", url: "/contacts", icon: Contact, permKey: "crm" },
       { title: "Opportunities", url: "/opportunities", icon: UserPlus, permKey: "crm" },
       { title: "Quotes", url: "/quotes", icon: FileText, permKey: "quoting" },
