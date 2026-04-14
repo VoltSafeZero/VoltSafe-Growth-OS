@@ -203,6 +203,7 @@ function AccessTab({ user, currentUserId }: { user: AdminUser; currentUserId: nu
         <ShieldAlert className="w-8 h-8 text-primary/50 mb-2" />
         <p className="text-sm font-medium">Admin users have full access</p>
         <p className="text-xs text-muted-foreground mt-1">Master Admins and Admins bypass all permission restrictions.</p>
+        <p className="text-xs text-muted-foreground/60 mt-3">To configure access for a team member, select a non-admin user from the list.</p>
       </div>
     );
   }
