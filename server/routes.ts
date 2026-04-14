@@ -36,6 +36,7 @@ import { getAuthUrl, exchangeCodeForTokens, isGmailConnected, getGmailClient } f
 import { parseGmailMessage } from "./services/email-parser";
 import { runAssociationEngine } from "./services/association-engine";
 import { runGmailSync, syncEmailAccount } from "./services/gmail-sync";
+import { buildSweepReport } from "./services/auto-confirm";
 import {
   emailMessages, emailThreads, emailAssociations, associationFeedback, emailFilters, scheduledEmails,
   emailAccounts,
@@ -1734,6 +1735,19 @@ export async function registerRoutes(
       const members = await db.select({ id: users.id, name: users.name, email: users.email, globalRole: users.globalRole })
         .from(users).where(sql`status != 'suspended' AND status != 'deactivated'`).orderBy(users.name);
       res.json(members);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/admin/auto-confirm/dry-run
+  // Always runs in dry-run mode (never writes). Returns structured sweep report:
+  // pipeline state, per-candidate gate decisions, and bucketed skip reasons.
+  // Access: master_admin / admin only.
+  app.get("/api/admin/auto-confirm/dry-run", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const report = await buildSweepReport(false); // false = honour dry-run flag (always safe)
+      res.json(report);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
