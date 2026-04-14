@@ -1,0 +1,61 @@
+Proceed with the next phase: Email → CRM record linking UX.
+
+Do not broaden scope.
+Do not refactor unrelated modules.
+Do not change the underlying association engine unless required for a small compatibility fix.
+Do not make destructive changes.
+Do not alter existing table names, internal IDs, or core email ingestion behavior.
+
+Objective:
+Expose the existing email association/linking engine inside the Gmail inbox UI so users can clearly see what CRM records an email is linked to and can click directly into them.
+
+Assume the backend association engine already exists and is working:
+- association-engine.ts
+- identity-resolver.ts
+- email_associations table
+- EmailsTab with match reasons
+
+This phase should focus on UX, visibility, and navigation.
+
+Scope:
+1. In the Gmail inbox/email detail UI, surface matched CRM record chips, badges, or banners for linked entities such as:
+   - Organization / Account
+   - Lead
+   - Contact
+   - Partner / Partnership record
+   - Opportunity if already supported by the association engine
+2. Each linked record must be clickable and navigate the user directly to the relevant record detail view/dialog/page
+3. Show the match reason or confidence explanation where already available from existing association data
+4. Make the linked-record UI obvious but lightweight — useful for triage, not visually noisy
+5. If multiple linked records exist, present them in a clear grouped format
+6. Preserve all existing email functionality, permissions, and associations
+
+Implementation preferences:
+- reuse existing association data and read paths
+- prefer lightweight read endpoints or UI adapters if needed
+- do not rebuild the matching engine in this phase
+- do not add manual reassociation tools yet unless already trivial and already supported
+- keep this phase focused on visibility + click-through navigation only
+
+Permission requirements:
+- respect existing permissions when showing or navigating to linked CRM records
+- if the user lacks access to a linked record type, either hide the chip or show it in a non-clickable restricted state
+- do not create permission bypasses through email navigation
+
+Before implementing:
+1. show the exact implementation plan
+2. list exact files to be changed
+3. list any endpoint additions or changes
+4. confirm whether any schema changes are needed (prefer none)
+5. explain how navigation will work for each linked record type
+6. identify any permission edge cases
+
+Then implement only after presenting that plan.
+
+After implementation, return:
+1. exact files changed
+2. exact UI changes completed
+3. exact endpoint changes
+4. validation/test results
+5. any remaining edge cases
+6. recommendation for the next phase after this
