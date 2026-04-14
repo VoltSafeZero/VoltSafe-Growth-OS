@@ -1057,6 +1057,23 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  // GET /api/accounts/:id/source-lead — read-only; returns source lead + full conversion history
+  app.get("/api/accounts/:id/source-lead", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const account = await storage.getAccount(Number(req.params.id));
+      if (!account) return res.status(404).json({ message: "Account not found" });
+      const fromLeadId = (account as any).convertedFromLeadId as number | null | undefined;
+      if (!fromLeadId) return res.json({ lead: null, history: [] });
+      const lead = await storage.getLead(fromLeadId);
+      const history = await db.select().from(migrationMap)
+        .where(and(eq(migrationMap.legacyTable, "leads"), eq(migrationMap.legacyRecordId, fromLeadId)))
+        .orderBy(sql`migrated_at desc`);
+      res.json({ lead: lead ?? null, history });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/contacts", async (req, res) => {
     const { accountId, search } = req.query;
     res.json(await storage.getContacts({

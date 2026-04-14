@@ -1,0 +1,54 @@
+:::writing{variant=“standard” id=“27541”}
+Proceed with the next phase: Organization ↔ Lead linked record visibility.
+
+Do not broaden scope.
+Do not refactor unrelated modules.
+Do not add bulk conversion.
+Do not make destructive changes.
+Do not change internal APIs, table names, or IDs unless adding backward-compatible read endpoints.
+
+Objective:
+Complete the bidirectional traceability loop between Leads and Organizations by surfacing the source lead context and conversion history inside the Organization UI.
+
+Scope:
+	1.	Add a “Source Lead” section inside the Organization detail view when convertedFromLeadId is present
+	2.	Make the existing “Promoted from Lead #N” badge clickable, or otherwise provide an obvious way to open/view the source lead context
+	3.	Show key source lead information inline, such as:
+	•	lead ID
+	•	company name
+	•	contact name
+	•	email
+	•	phone
+	•	city / region
+	•	lead status prior to promotion if available
+	•	created date
+	•	notes summary if safe to display
+	4.	Add a collapsible “Conversion History” section using the existing migrationMap records where relevant
+	5.	Preserve backward compatibility and keep this phase read-only except for existing navigation actions
+
+Implementation preferences:
+	•	use existing traceability infrastructure:
+	•	accounts.convertedFromLeadId
+	•	migrationMap
+	•	prefer lightweight read endpoints and UI panels over any schema changes
+	•	if a new endpoint is needed, make it read-only and narrowly scoped
+	•	avoid duplicating lead data into organizations; query and display it
+	•	keep the Partnerships domain untouched
+
+Before implementing:
+	1.	show the exact implementation plan
+	2.	list exact files to be changed
+	3.	list any endpoint additions or changes
+	4.	confirm whether any schema change is needed (prefer none)
+	5.	identify any permission considerations for viewing source lead details from an organization
+
+Then implement only after presenting that plan.
+
+After implementation, return:
+	1.	exact files changed
+	2.	exact UI changes completed
+	3.	exact endpoint changes
+	4.	validation/test results
+	5.	any remaining edge cases
+	6.	recommendation for the next phase after this
+:::
