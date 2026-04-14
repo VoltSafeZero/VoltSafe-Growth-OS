@@ -96,6 +96,41 @@ const assetUpload = multer({
   },
 });
 
+// Module-level permission helpers — accessible from all route registration functions.
+// (The same helpers are also defined inside registerRoutes for historical reasons;
+//  these module-level versions let registerConfluenceRoutes use them too.)
+async function getSessionUserAccess(session: any): Promise<{
+  isAdmin: boolean;
+  mailTeamPerms: Record<string, { view: boolean; edit: boolean }>;
+}> {
+  const role = String(session.globalRole || "");
+  const isAdmin = role === "master_admin" || role === "admin";
+  if (isAdmin) return { isAdmin: true, mailTeamPerms: {} };
+  const userId = session.userId as number;
+  const [u] = await db.select({ permissions: users.permissions })
+    .from(users).where(eq(users.id, userId)).limit(1);
+  const mailTeamPerms = ((u?.permissions as any)?.mail_team ?? {}) as Record<string, { view: boolean; edit: boolean }>;
+  return { isAdmin: false, mailTeamPerms };
+}
+
+async function getAccessibleAccountIds(
+  userId: number,
+  isAdmin: boolean,
+  mailTeamPerms: Record<string, { view: boolean; edit: boolean }> = {},
+): Promise<number[]> {
+  const [ownAccts, sharedAccts] = await Promise.all([
+    db.select({ id: emailAccounts.id }).from(emailAccounts)
+      .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isActive, true))),
+    db.select({ id: emailAccounts.id }).from(emailAccounts)
+      .where(and(eq(emailAccounts.isShared, true), eq(emailAccounts.isActive, true))),
+  ]);
+  const ownIds = ownAccts.map((a) => a.id);
+  const sharedIds = isAdmin
+    ? sharedAccts.map((a) => a.id)
+    : sharedAccts.filter((a) => mailTeamPerms[String(a.id)]?.view === true).map((a) => a.id);
+  return [...new Set([...ownIds, ...sharedIds])];
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
