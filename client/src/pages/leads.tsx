@@ -70,7 +70,7 @@ const PIPELINE_STAGES = [
   { value: "qualified", label: "Qualified", color: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20", columnColor: "border-t-cyan-500" },
   { value: "proposal_sent", label: "Proposal Sent", color: "bg-amber-500/10 text-amber-400 border-amber-500/20", columnColor: "border-t-amber-500" },
   { value: "negotiation", label: "Negotiation", color: "bg-orange-500/10 text-orange-400 border-orange-500/20", columnColor: "border-t-orange-500" },
-  { value: "converted", label: "Closed Won", color: "bg-green-500/10 text-green-400 border-green-500/20", columnColor: "border-t-green-500" },
+  { value: "converted", label: "Promoted", color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", columnColor: "border-t-emerald-500" },
   { value: "lost", label: "Closed Lost", color: "bg-red-500/10 text-red-400 border-red-500/20", columnColor: "border-t-red-500" },
 ];
 
@@ -813,6 +813,16 @@ function LeadDetailDialog({
 
   const stageInfo = PIPELINE_STAGES.find(s => s.value === lead.status);
 
+  const { data: linkedOrgData } = useQuery<{ account: { id: number; name: string; orgType: string | null } | null }>({
+    queryKey: ["/api/leads", lead.id, "linked-org"],
+    queryFn: async () => {
+      const res = await fetch(`/api/leads/${lead.id}/linked-org`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: lead.status === "converted",
+  });
+  const linkedOrg = linkedOrgData?.account ?? null;
+
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] sm:max-h-[85vh] overflow-y-auto">
@@ -857,6 +867,25 @@ function LeadDetailDialog({
                 ))}
               </SelectContent>
             </Select>
+
+            {lead.status === "converted" && (
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 flex items-center gap-3" data-testid="banner-promoted-org">
+                <Building2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-emerald-400 font-medium">Promoted to Organization</p>
+                  {linkedOrg ? (
+                    <p className="text-sm font-semibold truncate">{linkedOrg.name}</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Loading linked organization…</p>
+                  )}
+                </div>
+                {linkedOrg && (
+                  <Badge variant="outline" className="text-[10px] px-1.5 shrink-0 text-emerald-400 border-emerald-500/30">
+                    Org #{linkedOrg.id}
+                  </Badge>
+                )}
+              </div>
+            )}
 
             {(lead.streetAddress || lead.city || lead.state) && (() => {
               const addressParts = [lead.streetAddress, lead.city, lead.state, lead.zipCode, lead.country].filter(Boolean).join(", ");

@@ -814,12 +814,27 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/leads/:id/linked-org — returns the Organization this lead was promoted to (if any)
+  app.get("/api/leads/:id/linked-org", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const lead = await storage.getLead(Number(req.params.id));
+      if (!lead) return res.status(404).json({ message: "Lead not found" });
+      if (lead.status !== "converted") return res.json({ account: null });
+      const [acct] = await db.select().from(accounts)
+        .where(eq(accounts.convertedFromLeadId as any, lead.id)).limit(1);
+      res.json({ account: acct ?? null });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // POST /api/leads/:id/convert — promote a lead to an Organization (Phase 2)
   app.post("/api/leads/:id/convert", requirePermission("crm", "edit"), async (req, res) => {
     try {
       const lead = await storage.getLead(Number(req.params.id));
       if (!lead) return res.status(404).json({ message: "Lead not found" });
       if (lead.status === "converted") return res.status(400).json({ message: "Lead is already promoted to an Organization" });
+      if (!lead.company?.trim()) return res.status(400).json({ message: "Cannot promote a lead with no company name. Please add a company name before promoting." });
 
       const { existingAccountId, orgType = "marina_prospect" } = req.body ?? {};
       const priorStatus = lead.status;

@@ -1,0 +1,61 @@
+Good. Do not start a new major phase yet.
+
+First, perform a Phase 2 validation and polish pass only for the completed lead → organization conversion workflow.
+
+Do not broaden scope.
+Do not refactor unrelated modules.
+Do not add bulk conversion.
+Do not make destructive changes.
+
+I want the following completed and reported:
+
+1. Manual QA / UX verification
+Validate the full conversion flow in the UI for:
+- create new organization from lead
+- link lead to existing organization
+- double-convert prevention
+- unconvert / revert lead status
+- permissions enforcement for crm=view and admin users
+
+2. Post-conversion UX polish
+Review the lead and organization UI and confirm whether the following are clearly visible:
+- lead is marked as converted
+- linked or created organization is clearly identifiable from the lead record
+- converted_from_lead_id relationship is visible where appropriate
+- migrationMap traceability is actually inspectable/admin-visible somewhere, or recommend the lightest-weight way to expose it later
+- status messaging and toasts use “Organization” consistently, not “Account”
+
+3. Data integrity validation
+Run validation checks and report results for:
+- conversion creates exactly one migrationMap record
+- linking to existing org does not create duplicates
+- existing org convertedFromLeadId is not overwritten if already populated
+- unconvert preserves the organization
+- prior lead status restore works correctly
+- contacts and email associations remain intact where applicable
+
+4. Edge-case audit
+Check and report behavior for:
+- lead with no company name
+- lead with personal email domain only
+- lead with no website
+- lead with company name similar to multiple organizations
+- lead with existing matching contact but no matching organization
+- lead already converted and then revisited in UI
+
+5. Automated test coverage update
+Confirm what is already covered in automated tests and add any missing high-value tests only if they are directly related to this Phase 2 flow.
+
+6. Short recommendations
+At the end, recommend the next best step from these options:
+- expose migration/traceability history in admin UI
+- add organization↔lead linked record panel
+- improve duplicate scoring further
+- move to next CRM workflow phase
+
+Return:
+1. exact files changed, if any
+2. exact validation results
+3. any polish changes made
+4. any remaining edge cases
+5. your recommendation for the next phase

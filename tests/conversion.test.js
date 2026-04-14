@@ -101,7 +101,7 @@ async function run() {
   const leadsRes = await admin("/api/leads?page=1&limit=200");
   const leadsBody = await leadsRes.json();
   const allLeads = leadsBody.data || [];
-  const freshLead = allLeads.find((l) => l.status !== "converted" && l.status !== "lost");
+  const freshLead = allLeads.find((l) => l.status !== "converted" && l.status !== "lost" && l.company?.trim());
   if (!freshLead) {
     fail("Setup: find unconverted lead", "No eligible lead found in first 200 results");
     console.log(`\nResult: 0 passed, 1 failed — cannot continue without test lead\n`);
@@ -247,6 +247,52 @@ async function run() {
     // Clean up — unconvert
     await admin(`/api/leads/${LEAD_ID}/unconvert`, { method: "POST" });
     console.log(`  → Cleanup: unconverted lead #${LEAD_ID}`);
+  }
+
+  // ── Test 8: Convert lead with no company name → 400 ──────────────────────
+  console.log("\n── T8: empty company name blocked at convert ──");
+  const noNameLead = await (await admin("/api/leads", {
+    method: "POST",
+    body: JSON.stringify({ company: "", contactName: "Test User", contactEmail: "test@voltsafe.com", source: "manual" }),
+  })).json();
+  if (noNameLead?.id) {
+    await check(
+      `POST /api/leads/${noNameLead.id}/convert [no company name → 400]`,
+      admin(`/api/leads/${noNameLead.id}/convert`, {
+        method: "POST",
+        body: JSON.stringify({ orgType: "marina_prospect" }),
+      }),
+      400
+    );
+    // cleanup
+    await admin(`/api/leads/${noNameLead.id}`, { method: "DELETE" });
+    console.log(`  → Cleanup: deleted no-name lead #${noNameLead.id}`);
+  } else {
+    fail("T8 setup — could not create no-name lead", JSON.stringify(noNameLead));
+  }
+
+  // ── Test 9: GET /api/leads/:id/linked-org (converted lead → returns account) ──
+  console.log("\n── T9: linked-org endpoint returns account after conversion ──");
+  const freshForT9 = (await (await admin("/api/leads?page=1&limit=200")).json()).data
+    ?.find((l) => l.status !== "converted" && l.status !== "lost" && l.company?.trim());
+  if (freshForT9) {
+    await admin(`/api/leads/${freshForT9.id}/convert`, {
+      method: "POST",
+      body: JSON.stringify({ orgType: "marina_prospect" }),
+    });
+    const linkedOrgRes = await (await admin(`/api/leads/${freshForT9.id}/linked-org`)).json();
+    if (linkedOrgRes?.account?.id) {
+      ok(`GET /api/leads/${freshForT9.id}/linked-org → account ${linkedOrgRes.account.id}: "${linkedOrgRes.account.name}"`);
+    } else {
+      fail(`GET /api/leads/${freshForT9.id}/linked-org`, `Expected account, got: ${JSON.stringify(linkedOrgRes)}`);
+    }
+    // cleanup
+    await admin(`/api/leads/${freshForT9.id}/unconvert`, { method: "POST" });
+    const linkedAcctId = linkedOrgRes?.account?.id;
+    if (linkedAcctId) await admin(`/api/accounts/${linkedAcctId}`, { method: "DELETE" });
+    console.log(`  → Cleanup: unconverted lead #${freshForT9.id}, removed org #${linkedAcctId}`);
+  } else {
+    fail("T9 setup — no eligible lead found");
   }
 
   // ── Summary ───────────────────────────────────────────────────────────────

@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Search, Building2, Users, Loader2, Phone, Mail, Trash2,
   ArrowUpDown, MapPin, Globe, Zap, Star, AlertTriangle, Calendar,
-  Settings2, Wrench, Shield, Wifi, LinkIcon, List, LayoutGrid, Map, FolderPlus
+  Settings2, Wrench, Shield, Wifi, LinkIcon, List, LayoutGrid, Map, FolderPlus, ArrowRightLeft
 } from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
 import { NotesPanel } from "@/components/notes-panel";
@@ -712,6 +712,11 @@ function AccountDetailDialog({ account: initialAccount, onClose, canEdit = true 
                 <Badge variant="outline" className={statusColors[account.leadStatus] || ""}>{getStageLabel(account.leadStatus)}</Badge>
                 <Badge variant="outline" className={priorityColors[account.priority] || ""}>{account.priority}</Badge>
                 {account.orgType && <Badge variant="outline" className={orgTypeColors[account.orgType] || orgTypeColors.other} data-testid="badge-detail-org-type">{getOrgTypeLabel(account.orgType)}</Badge>}
+                {(account as any).convertedFromLeadId && (
+                  <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 gap-1" data-testid="badge-promoted-from-lead">
+                    <ArrowRightLeft className="h-3 w-3" />Promoted from Lead #{(account as any).convertedFromLeadId}
+                  </Badge>
+                )}
                 {account.betaTester && <Badge variant="outline" className="bg-cyan-500/10 text-cyan-500 border-cyan-500/20">Beta Tester</Badge>}
                 {account.pilotCandidateScore && (
                   <span className="flex items-center gap-0.5 text-xs text-yellow-500">
