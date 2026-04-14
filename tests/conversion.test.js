@@ -108,7 +108,19 @@ async function run() {
     process.exit(1);
   }
   const LEAD_ID = freshLead.id;
-  console.log(`  → Using lead #${LEAD_ID}: "${freshLead.company}" (status=${freshLead.status})\n`);
+  console.log(`  → Using lead #${LEAD_ID}: "${freshLead.company}" (status=${freshLead.status})`);
+
+  // Pre-clean: remove any leftover test accounts from previous runs for this lead
+  const leftoverOrgs = await (await admin(`/api/accounts?page=1&limit=500`)).json();
+  const orphaned = (leftoverOrgs.data || []).filter((a) => a.convertedFromLeadId === LEAD_ID);
+  if (orphaned.length > 0) {
+    console.log(`  → Pre-cleanup: removing ${orphaned.length} leftover test org(s) from previous runs`);
+    for (const o of orphaned) await admin(`/api/accounts/${o.id}`, { method: "DELETE" });
+    // Also reset lead status if it was left as converted
+    const freshCheck = await (await admin(`/api/leads/${LEAD_ID}`)).json();
+    if (freshCheck.status === "converted") await admin(`/api/leads/${LEAD_ID}/unconvert`, { method: "POST" });
+  }
+  console.log();
 
   // ── Test 1: GET /api/leads/:id/convert-check (admin) ─────────────────────
   console.log("── T1: convert-check returns matches array ──");
@@ -244,9 +256,10 @@ async function run() {
   if (linkResult) {
     console.log(`  → Lead linked to existing Organization #${NEW_ACCOUNT_ID}`);
 
-    // Clean up — unconvert
+    // Clean up — unconvert and delete the org created in T4 (no longer needed)
     await admin(`/api/leads/${LEAD_ID}/unconvert`, { method: "POST" });
-    console.log(`  → Cleanup: unconverted lead #${LEAD_ID}`);
+    await admin(`/api/accounts/${NEW_ACCOUNT_ID}`, { method: "DELETE" });
+    console.log(`  → Cleanup: unconverted lead #${LEAD_ID}, deleted org #${NEW_ACCOUNT_ID}`);
   }
 
   // ── Test 8: Convert lead with no company name → 400 ──────────────────────
@@ -293,6 +306,89 @@ async function run() {
     console.log(`  → Cleanup: unconverted lead #${freshForT9.id}, removed org #${linkedAcctId}`);
   } else {
     fail("T9 setup — no eligible lead found");
+  }
+
+  // ── Test 10: GET /api/accounts/:id returns full account (org click-through) ──
+  console.log("\n── T10: GET /api/accounts/:id returns full account for click-through navigation ──");
+  const freshForT10 = (await (await admin("/api/leads?page=1&limit=200")).json()).data
+    ?.find((l) => l.status !== "converted" && l.status !== "lost" && l.company?.trim());
+  if (freshForT10) {
+    const convRes10 = await (await admin(`/api/leads/${freshForT10.id}/convert`, {
+      method: "POST",
+      body: JSON.stringify({ orgType: "marina_prospect" }),
+    })).json();
+    const acctId10 = convRes10?.account?.id;
+    if (acctId10) {
+      const acctRes = await admin(`/api/accounts/${acctId10}`);
+      await checkBody(
+        `GET /api/accounts/${acctId10} [returns full account object → 200]`,
+        Promise.resolve(acctRes),
+        200,
+        (body) => {
+          if (!body?.id || body.id !== acctId10) return `Expected id=${acctId10}, got ${JSON.stringify(body?.id)}`;
+          if (!body?.name) return `Missing name field`;
+          if (!("convertedFromLeadId" in body)) return `Missing convertedFromLeadId field`;
+          return null;
+        }
+      );
+    } else {
+      fail("T10 setup — convert did not return account id", JSON.stringify(convRes10));
+    }
+    // cleanup
+    await admin(`/api/leads/${freshForT10.id}/unconvert`, { method: "POST" });
+    if (acctId10) await admin(`/api/accounts/${acctId10}`, { method: "DELETE" });
+    console.log(`  → Cleanup: unconverted lead #${freshForT10.id}, removed org #${acctId10}`);
+  } else {
+    fail("T10 setup — no eligible lead found");
+  }
+
+  // ── Test 11: linked-org returns {account:null} when linked org was deleted ──
+  console.log("\n── T11: linked-org returns null when linked org is deleted (unavailable org fallback) ──");
+  const freshForT11 = (await (await admin("/api/leads?page=1&limit=200")).json()).data
+    ?.find((l) => l.status !== "converted" && l.status !== "lost" && l.company?.trim());
+  if (freshForT11) {
+    const convRes11 = await (await admin(`/api/leads/${freshForT11.id}/convert`, {
+      method: "POST",
+      body: JSON.stringify({ orgType: "marina_prospect" }),
+    })).json();
+    const acctId11 = convRes11?.account?.id;
+    if (acctId11) {
+      // Delete the organization (simulates org deleted after promotion)
+      await admin(`/api/accounts/${acctId11}`, { method: "DELETE" });
+      // linked-org should now return { account: null }
+      const linkedOrgRes11 = await (await admin(`/api/leads/${freshForT11.id}/linked-org`)).json();
+      if (linkedOrgRes11?.account === null) {
+        ok(`GET /api/leads/${freshForT11.id}/linked-org → { account: null } after org deletion (unavailable fallback)`);
+      } else {
+        fail(`T11: linked-org should return account:null after org deleted`, JSON.stringify(linkedOrgRes11));
+      }
+    } else {
+      fail("T11 setup — convert did not return account id", JSON.stringify(convRes11));
+    }
+    // cleanup: unconvert lead (org already deleted)
+    await admin(`/api/leads/${freshForT11.id}/unconvert`, { method: "POST" });
+    console.log(`  → Cleanup: unconverted lead #${freshForT11.id} (org was deleted)`);
+  } else {
+    fail("T11 setup — no eligible lead found");
+  }
+
+  // ── Test 12: crm=view user can GET /api/accounts/:id (bidirectional read-only navigation) ──
+  console.log("\n── T12: crm=view user can GET /api/accounts/:id (bidirectional navigation, read-only) ──");
+  const accounts12 = (await (await admin("/api/accounts?page=1&limit=10")).json()).data;
+  const acct12 = accounts12?.[0];
+  if (acct12) {
+    await check(
+      `GET /api/accounts/${acct12.id} [crm=view → 200]`,
+      viewer(`/api/accounts/${acct12.id}`),
+      200
+    );
+    await check(
+      `DELETE /api/accounts/${acct12.id} [crm=view → 403 (no write access)]`,
+      viewer(`/api/accounts/${acct12.id}`, { method: "DELETE" }),
+      403
+    );
+  } else {
+    fail("T12 setup — no accounts found to test");
   }
 
   // ── Summary ───────────────────────────────────────────────────────────────

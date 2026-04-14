@@ -25,7 +25,8 @@ import { CommentsFeed } from "@/components/comments-feed";
 import { AttachmentsSection } from "@/components/attachments-section";
 import { AssignUserSelect } from "@/components/assign-user-select";
 import { CreateActionItem } from "@/components/create-action-item";
-import type { Lead } from "@shared/schema";
+import type { Lead, Account } from "@shared/schema";
+import { AccountDetailDialog } from "./accounts";
 import { EmailsTab } from "@/components/emails-tab";
 
 const US_STATES = [
@@ -108,7 +109,27 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
   const [view, setView] = useState<"list" | "pipeline" | "map">("list");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [selectedOrg, setSelectedOrg] = useState<Account | null>(null);
+  const [pendingOrgId, setPendingOrgId] = useState<number | null>(null);
   const { toast } = useToast();
+
+  const { data: pendingOrgData } = useQuery<Account>({
+    queryKey: ["/api/accounts", pendingOrgId],
+    queryFn: async () => {
+      const res = await fetch(`/api/accounts/${pendingOrgId}`, { credentials: "include" });
+      if (!res.ok) return null as unknown as Account;
+      return res.json();
+    },
+    enabled: pendingOrgId !== null,
+  });
+
+  useEffect(() => {
+    if (pendingOrgData && pendingOrgId !== null) {
+      setSelectedOrg(pendingOrgData);
+      setPendingOrgId(null);
+    }
+  }, [pendingOrgData, pendingOrgId]);
+
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
   const { sort, handleSort } = useSortState("slips", "desc");
 
@@ -500,9 +521,21 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
             updateStatusMutation.mutate({ id: selectedLead.id, status });
             setSelectedLead({ ...selectedLead, status });
           }}
+          onOpenOrg={(orgId) => {
+            setSelectedLead(null);
+            setPendingOrgId(orgId);
+          }}
           isConverting={convertMutation.isPending}
           isUnconverting={unconvertMutation.isPending}
           isDeleting={deleteMutation.isPending}
+          canEdit={canEdit}
+        />
+      )}
+
+      {selectedOrg && (
+        <AccountDetailDialog
+          account={selectedOrg}
+          onClose={() => setSelectedOrg(null)}
           canEdit={canEdit}
         />
       )}
@@ -771,6 +804,7 @@ function LeadDetailDialog({
   onUnconvert,
   onDelete,
   onUpdateStatus,
+  onOpenOrg,
   isConverting,
   isUnconverting,
   isDeleting,
@@ -782,6 +816,7 @@ function LeadDetailDialog({
   onUnconvert: () => void;
   onDelete: () => void;
   onUpdateStatus: (status: string) => void;
+  onOpenOrg?: (orgId: number) => void;
   isConverting: boolean;
   isUnconverting: boolean;
   isDeleting: boolean;
@@ -813,7 +848,7 @@ function LeadDetailDialog({
 
   const stageInfo = PIPELINE_STAGES.find(s => s.value === lead.status);
 
-  const { data: linkedOrgData } = useQuery<{ account: { id: number; name: string; orgType: string | null } | null }>({
+  const { data: linkedOrgData, isSuccess: linkedOrgResolved } = useQuery<{ account: { id: number; name: string; orgType: string | null } | null }>({
     queryKey: ["/api/leads", lead.id, "linked-org"],
     queryFn: async () => {
       const res = await fetch(`/api/leads/${lead.id}/linked-org`, { credentials: "include" });
@@ -822,6 +857,7 @@ function LeadDetailDialog({
     enabled: lead.status === "converted",
   });
   const linkedOrg = linkedOrgData?.account ?? null;
+  const orgUnavailable = linkedOrgResolved && !linkedOrg;
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -869,22 +905,52 @@ function LeadDetailDialog({
             </Select>
 
             {lead.status === "converted" && (
-              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 flex items-center gap-3" data-testid="banner-promoted-org">
-                <Building2 className="h-4 w-4 text-emerald-400 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-emerald-400 font-medium">Promoted to Organization</p>
-                  {linkedOrg ? (
-                    <p className="text-sm font-semibold truncate">{linkedOrg.name}</p>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Loading linked organization…</p>
-                  )}
-                </div>
-                {linkedOrg && (
-                  <Badge variant="outline" className="text-[10px] px-1.5 shrink-0 text-emerald-400 border-emerald-500/30">
-                    Org #{linkedOrg.id}
-                  </Badge>
+              <>
+                {orgUnavailable ? (
+                  <div className="rounded-lg border border-border/40 bg-muted/30 p-3 flex items-center gap-3" data-testid="banner-promoted-org-unavailable">
+                    <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-muted-foreground font-medium">Promoted to Organization</p>
+                      <p className="text-sm text-muted-foreground italic">Organization unavailable (may have been deleted)</p>
+                    </div>
+                  </div>
+                ) : linkedOrg && onOpenOrg ? (
+                  <button
+                    onClick={() => onOpenOrg(linkedOrg.id)}
+                    className="w-full rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 flex items-center gap-3 cursor-pointer transition-colors hover:bg-emerald-500/10 hover:border-emerald-500/50 active:bg-emerald-500/15 text-left"
+                    data-testid="button-open-linked-org"
+                  >
+                    <Building2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-emerald-400 font-medium">Promoted to Organization</p>
+                      <p className="text-sm font-semibold truncate">{linkedOrg.name}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="outline" className="text-[10px] px-1.5 text-emerald-400 border-emerald-500/30">
+                        Org #{linkedOrg.id}
+                      </Badge>
+                      <ExternalLink className="h-3 w-3 text-emerald-400/60" />
+                    </div>
+                  </button>
+                ) : (
+                  <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 flex items-center gap-3" data-testid="banner-promoted-org">
+                    <Building2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-emerald-400 font-medium">Promoted to Organization</p>
+                      {linkedOrg ? (
+                        <p className="text-sm font-semibold truncate">{linkedOrg.name}</p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Loading linked organization…</p>
+                      )}
+                    </div>
+                    {linkedOrg && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 shrink-0 text-emerald-400 border-emerald-500/30">
+                        Org #{linkedOrg.id}
+                      </Badge>
+                    )}
+                  </div>
                 )}
-              </div>
+              </>
             )}
 
             {(lead.streetAddress || lead.city || lead.state) && (() => {

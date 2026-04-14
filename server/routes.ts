@@ -1041,6 +1041,18 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  app.delete("/api/accounts/:id", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const account = await storage.getAccount(Number(req.params.id));
+      if (!account) return res.status(404).json({ message: "Account not found" });
+      const deleted = await storage.deleteAccount(Number(req.params.id));
+      if (!deleted) return res.status(500).json({ message: "Failed to delete account" });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/accounts/:id/infrastructure", async (req, res) => {
     const profile = await storage.getInfrastructureProfile(Number(req.params.id));
     res.json(profile || null);

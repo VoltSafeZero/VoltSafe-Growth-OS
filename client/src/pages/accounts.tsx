@@ -587,7 +587,7 @@ function extractDomainFromWebsite(website: string | null | undefined): string {
   return d;
 }
 
-function AccountDetailDialog({ account: initialAccount, onClose, canEdit = true }: { account: Account; onClose: () => void; canEdit?: boolean }) {
+export function AccountDetailDialog({ account: initialAccount, onClose, canEdit = true }: { account: Account; onClose: () => void; canEdit?: boolean }) {
   const { toast } = useToast();
   const [addContactOpen, setAddContactOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
