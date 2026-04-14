@@ -1,0 +1,46 @@
+Proceed with Phase 1 implementation only, based on the approved planning recommendations.
+
+Do not begin Phase 2.
+Do not bulk-convert leads.
+Do not merge partnerships into accounts.
+Do not rename internal APIs, database tables, or internal IDs unless explicitly required for backward-compatible UI labeling only.
+Do not make destructive changes.
+
+Phase 1 goals:
+1. Rename the user-facing CRM label from “Accounts” to “Organizations” wherever appropriate in the UI
+2. Keep the internal backend/account identifiers unchanged
+3. Add the approved additive fields/metadata needed to support Organizations as the user-facing concept
+4. Preserve the existing Partnerships domain as a separate domain object/module
+5. Use the existing migrationMap table as the traceability mechanism for future controlled conversions where relevant
+6. Fix the opportunities.stage default drift as a low-risk housekeeping step if it can be done safely and backward-compatibly
+
+Implementation rules:
+- preserve all existing data, fields, records, routes, and functionality
+- preserve existing account_id references and /api/accounts endpoints unless a compatibility alias is added
+- if adding any new UI label, routes, filters, or saved views for “Organizations”, they must remain backward-compatible with current data flows
+- do not break Contacts, Opportunities, Quotes, Partnerships, Notes, Attachments, Email linking, Permissions, or existing dashboards
+- additive changes only
+- no destructive migrations
+- no removal of legacy UI until validated
+- maintain rollback capability
+
+Before making changes:
+1. show me the exact Phase 1 implementation plan
+2. list exact files that will be changed
+3. list exact schema changes, if any
+4. identify any user-facing text changes
+5. identify any backward-compatibility risks
+
+Then implement Phase 1.
+
+After implementation, return:
+1. exact files changed
+2. exact schema changes made
+3. exact UI labels changed
+4. validation results
+5. regression results
+6. any remaining issues or follow-up recommendations
+
+Important:
+This phase is a safe UI/metadata refactor, not a structural merge of business domains.
+Treat “Organizations” as the user-facing label for the existing Accounts concept unless a strictly additive compatibility layer is needed.
