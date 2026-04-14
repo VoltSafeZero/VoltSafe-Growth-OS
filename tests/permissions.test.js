@@ -107,8 +107,23 @@ async function run() {
   await check("GET  /api/tickets            [supp=none \u2192 403]", v("/api/tickets"), 403);
   await check("POST /api/tickets            [supp=none \u2192 403]", v("/api/tickets", { method: "POST", body: JSON.stringify({}) }), 403);
 
-  // ── MIXED USER (crm=edit, quoting=view, support=edit, others=none) ─────────
-  console.log("\n── Mixed (mixed@voltsafe.com | crm=edit, quoting=view, support=edit) ──");
+  // Projects blocked (projects=none) — NEW
+  await check("GET  /api/projects           [proj=none \u2192 403]", v("/api/projects"), 403);
+  await check("POST /api/projects           [proj=none \u2192 403]", v("/api/projects", { method: "POST", body: JSON.stringify({ name: "X" }) }), 403);
+
+  // Knowledge/assets blocked (knowledge=none) — NEW
+  await check("GET  /api/assets             [know=none \u2192 403]", v("/api/assets"), 403);
+  await check("GET  /api/asset-folders      [know=none \u2192 403]", v("/api/asset-folders"), 403);
+
+  // Communications blocked (communications=none) — NEW
+  await check("GET  /api/comm-lists         [comm=none \u2192 403]", v("/api/comm-lists"), 403);
+  await check("POST /api/comm-lists         [comm=none \u2192 403]", v("/api/comm-lists", { method: "POST", body: JSON.stringify({ name: "X" }) }), 403);
+
+  // Team workload blocked (team_workload=none) — NEW
+  await check("GET  /api/team-workload      [wkld=none \u2192 403]", v("/api/team-workload"), 403);
+
+  // ── MIXED USER (crm=edit, quoting=view, support=edit, knowledge=view, others=none) ──
+  console.log("\n── Mixed (mixed@voltsafe.com | crm=edit, quoting=view, support=edit, knowledge=view) ──");
   const mixedCookie = await login("mixed@voltsafe.com", "testpass1234");
   const m = authed(mixedCookie);
 
@@ -131,6 +146,22 @@ async function run() {
   await check("GET  /api/partnerships       [part=none \u2192 403]", m("/api/partnerships"), 403);
   await check("POST /api/partnerships       [part=none \u2192 403]", m("/api/partnerships", { method: "POST", body: JSON.stringify({}) }), 403);
 
+  // Knowledge reads allowed, writes blocked (knowledge=view) — NEW
+  await check("GET  /api/assets             [know=view \u2192 200]", m("/api/assets"), 200);
+  await check("GET  /api/asset-folders      [know=view \u2192 200]", m("/api/asset-folders"), 200);
+  await check("POST /api/asset-folders      [know=view \u2192 403]", m("/api/asset-folders", { method: "POST", body: JSON.stringify({ name: "X" }) }), 403);
+
+  // Projects blocked (projects=none) — NEW
+  await check("GET  /api/projects           [proj=none \u2192 403]", m("/api/projects"), 403);
+  await check("POST /api/projects           [proj=none \u2192 403]", m("/api/projects", { method: "POST", body: JSON.stringify({}) }), 403);
+
+  // Communications blocked (communications=none) — NEW
+  await check("GET  /api/comm-lists         [comm=none \u2192 403]", m("/api/comm-lists"), 403);
+  await check("POST /api/campaigns          [comm=none \u2192 403]", m("/api/campaigns", { method: "POST", body: JSON.stringify({}) }), 403);
+
+  // Team workload blocked (team_workload=none) — NEW
+  await check("GET  /api/team-workload      [wkld=none \u2192 403]", m("/api/team-workload"), 403);
+
   // ── MASTER ADMIN (bypass all permission checks) ────────────────────────────
   console.log("\n── Admin (trevor@voltsafe.com | master_admin bypass) ──");
   const adminCookie = await login("trevor@voltsafe.com", "alberni1444");
@@ -140,8 +171,28 @@ async function run() {
   await check("GET  /api/quotes             [admin bypass \u2192 200]", a("/api/quotes?page=1&limit=5"), 200);
   await check("GET  /api/partnerships       [admin bypass \u2192 200]", a("/api/partnerships"), 200);
   await check("GET  /api/tickets            [admin bypass \u2192 200]", a("/api/tickets"), 200);
+  await check("GET  /api/projects           [admin bypass \u2192 200]", a("/api/projects"), 200);
+  await check("GET  /api/assets             [admin bypass \u2192 200]", a("/api/assets"), 200);
+  await check("GET  /api/comm-lists         [admin bypass \u2192 200]", a("/api/comm-lists"), 200);
+  await check("GET  /api/team-workload      [admin bypass \u2192 200]", a("/api/team-workload"), 200);
   await checkOneOf("POST /api/leads              [admin bypass \u2192 201|400]", a("/api/leads", { method: "POST", body: JSON.stringify({ company: "AdminTest" }) }), 201, 400);
   await checkOneOf("POST /api/quotes             [admin bypass \u2192 201|400]", a("/api/quotes", { method: "POST", body: JSON.stringify({ accountId: 1 }) }), 201, 400);
+  await checkOneOf("POST /api/projects           [admin bypass \u2192 201|400]", a("/api/projects", { method: "POST", body: JSON.stringify({ name: "AdminProj" }) }), 201, 400);
+
+  // PATCH /api/admin/users/:id/permissions validation — NEW
+  console.log("\n── PATCH Permissions Validation (admin) ──");
+  // Invalid payload should return 400
+  await check(
+    "PATCH /api/admin/users/6/permissions [bad payload \u2192 400]",
+    a("/api/admin/users/6/permissions", { method: "PATCH", body: JSON.stringify({ crm: "superuser" }) }),
+    400
+  );
+  // Valid payload should return 200
+  await checkOneOf(
+    "PATCH /api/admin/users/6/permissions [good payload \u2192 200]",
+    a("/api/admin/users/6/permissions", { method: "PATCH", body: JSON.stringify({ crm: "view", quoting: "none", support: "none", calendar: "none", projects: "none", knowledge: "none", mail_team: {}, partnerships: "none", calendar_team: [], team_workload: "none", communications: "none" }) }),
+    200
+  );
 
   // ── SUMMARY ────────────────────────────────────────────────────────────────
   console.log(`\n${"=".repeat(50)}`);

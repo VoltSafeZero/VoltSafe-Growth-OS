@@ -146,13 +146,13 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
 
       {/* ── CRM ───────────────────────────────────────────────────── */}
       <Route path="/accounts">{() => guard("crm", <AccountsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
-      <Route path="/contacts">{() => guard("crm", <ContactsPage />)}</Route>
+      <Route path="/contacts">{() => guard("crm", <ContactsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
       <Route path="/opportunities">{() => guard("crm", <LeadsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
       <Route path="/quotes">{() => guard("quoting", <QuotesPage canEdit={isAdmin(role) || perms.quoting === "edit"} />)}</Route>
 
       {/* ── STRATEGY ──────────────────────────────────────────────── */}
-      <Route path="/strategy/partnerships/:typeSlug">{(params) => guard("partnerships", <PartnershipsPage typeSlug={(params as any)?.typeSlug || ""} />)}</Route>
-      <Route path="/strategy/partnerships">{() => guard("partnerships", <PartnershipsPage typeSlug="" />)}</Route>
+      <Route path="/strategy/partnerships/:typeSlug">{(params) => guard("partnerships", <PartnershipsPage typeSlug={(params as any)?.typeSlug || ""} canEdit={isAdmin(role) || perms.partnerships === "edit"} />)}</Route>
+      <Route path="/strategy/partnerships">{() => guard("partnerships", <PartnershipsPage typeSlug="" canEdit={isAdmin(role) || perms.partnerships === "edit"} />)}</Route>
       <Route path="/strategy/industry">{() => <Redirect to="/strategy/partnerships" />}</Route>
       <Route path="/strategy/oem">{() => <Redirect to="/strategy/partnerships" />}</Route>
       <Route path="/strategy/government">{() => <Redirect to="/strategy/partnerships" />}</Route>

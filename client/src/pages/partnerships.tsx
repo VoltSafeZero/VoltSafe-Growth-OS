@@ -589,6 +589,7 @@ function PartnerDetailDialog({
   onDelete,
   isUpdating,
   isDeleting,
+  canEdit = true,
 }: {
   partner: Partnership;
   onClose: () => void;
@@ -596,6 +597,7 @@ function PartnerDetailDialog({
   onDelete: () => void;
   isUpdating: boolean;
   isDeleting: boolean;
+  canEdit?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
 
@@ -690,26 +692,28 @@ function PartnerDetailDialog({
                 <AttachmentsSection objectType="partnership" objectId={partner.id} />
               </div>
 
-              <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/50">
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={onDelete}
-                  disabled={isDeleting}
-                  data-testid="button-delete-partner"
-                >
-                  {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                  Delete
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setEditing(true)}
-                  data-testid="button-edit-partner"
-                >
-                  <Pencil className="mr-2 h-4 w-4" /> Edit
-                </Button>
-              </div>
+              {canEdit && (
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/50">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={onDelete}
+                    disabled={isDeleting}
+                    data-testid="button-delete-partner"
+                  >
+                    {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                    Delete
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditing(true)}
+                    data-testid="button-edit-partner"
+                  >
+                    <Pencil className="mr-2 h-4 w-4" /> Edit
+                  </Button>
+                </div>
+              )}
             </div>
           </>
         )}
@@ -718,7 +722,7 @@ function PartnerDetailDialog({
   );
 }
 
-export default function PartnershipsPage({ typeSlug = "" }: { typeSlug?: string }) {
+export default function PartnershipsPage({ typeSlug = "", canEdit = true }: { typeSlug?: string; canEdit?: boolean }) {
   const initialType: IndustryType | "all" = SLUG_TO_TYPE[typeSlug] || "all";
   const [search, setSearch] = useState("");
   const [filterImportance, setFilterImportance] = useState("all");
@@ -856,7 +860,7 @@ export default function PartnershipsPage({ typeSlug = "" }: { typeSlug?: string 
             Manage all strategic industry partners, contacts, and collaborators.
           </p>
         </div>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        {canEdit && <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button className="bg-primary text-primary-foreground" data-testid="button-create-partner">
               <Plus className="mr-2 h-4 w-4" /> New Partner
@@ -869,7 +873,7 @@ export default function PartnershipsPage({ typeSlug = "" }: { typeSlug?: string 
               isPending={createMutation.isPending}
             />
           </DialogContent>
-        </Dialog>
+        </Dialog>}
       </div>
 
       {/* Search + Filters */}
@@ -1045,6 +1049,7 @@ export default function PartnershipsPage({ typeSlug = "" }: { typeSlug?: string 
           onDelete={() => deleteMutation.mutate(selectedPartner.id)}
           isUpdating={updateMutation.isPending}
           isDeleting={deleteMutation.isPending}
+          canEdit={canEdit}
         />
       )}
     </div>

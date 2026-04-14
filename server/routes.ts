@@ -17,6 +17,7 @@ import {
   insertCalendarEventSchema,
 } from "@shared/schema";
 import multer from "multer";
+import { z } from "zod";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
@@ -300,12 +301,14 @@ export async function registerRoutes(
       req.session.role = result.user.role;
       req.session.name = result.user.name;
       req.session.mustChangePassword = result.user.mustChangePassword;
+      (req.session as any).globalRole = result.user.globalRole;
 
       res.json({
         id: result.user.id,
         name: result.user.name,
         email: result.user.email,
         role: result.user.role,
+        globalRole: result.user.globalRole,
         mustChangePassword: result.user.mustChangePassword,
       });
     } catch (e: any) {
@@ -345,12 +348,16 @@ export async function registerRoutes(
   // Enforced at the UI layer; backend requires auth only to avoid breaking cross-section use
   app.use("/api/activities", requireAuth);
   app.use("/api/tasks", requireAuth);
-  app.use("/api/comm-lists", requireAuth);
-  app.use("/api/campaigns", requireAuth);
   app.use("/api/comments", requireAuth);
   app.use("/api/attachments", requireAuth);
   app.use("/api/users", requireAuth);
-  app.use("/api/team-workload", requireAuth);
+  // Section-guarded APIs — view permission required for reads; edit checked per write route
+  app.use("/api/comm-lists", requireAuth, requirePermission("communications", "view"));
+  app.use("/api/campaigns", requireAuth, requirePermission("communications", "view"));
+  app.use("/api/team-workload", requireAuth, requirePermission("team_workload", "view"));
+  app.use("/api/projects", requireAuth, requirePermission("projects", "view"));
+  app.use("/api/assets", requireAuth, requirePermission("knowledge", "view"));
+  app.use("/api/asset-folders", requireAuth, requirePermission("knowledge", "view"));
   // Partnerships section — view permission required for all reads
   app.use("/api/partnerships", requireAuth, requirePermission("partnerships", "view"));
   app.use("/api/ecosystem", requireAuth);
@@ -1342,13 +1349,13 @@ export async function registerRoutes(
     res.json(await storage.getCommunicationLists());
   });
 
-  app.post("/api/comm-lists", async (req, res) => {
+  app.post("/api/comm-lists", requirePermission("communications", "edit"), async (req, res) => {
     const parsed = insertCommunicationListSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createCommunicationList(parsed.data));
   });
 
-  app.put("/api/comm-lists/:id", async (req, res) => {
+  app.put("/api/comm-lists/:id", requirePermission("communications", "edit"), async (req, res) => {
     const result = await storage.updateCommunicationList(Number(req.params.id), req.body);
     if (!result) return res.status(404).json({ message: "List not found" });
     res.json(result);
@@ -1365,13 +1372,13 @@ export async function registerRoutes(
     res.json(campaign);
   });
 
-  app.post("/api/campaigns", async (req, res) => {
+  app.post("/api/campaigns", requirePermission("communications", "edit"), async (req, res) => {
     const parsed = insertCampaignDraftSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createCampaignDraft(parsed.data));
   });
 
-  app.put("/api/campaigns/:id", async (req, res) => {
+  app.put("/api/campaigns/:id", requirePermission("communications", "edit"), async (req, res) => {
     const result = await storage.updateCampaignDraft(Number(req.params.id), req.body);
     if (!result) return res.status(404).json({ message: "Campaign not found" });
     res.json(result);
@@ -1490,6 +1497,20 @@ export async function registerRoutes(
   });
 
   // PATCH /api/admin/users/:id/permissions — update granular access permissions
+  const accessLevelSchema = z.enum(["none", "view", "edit"]);
+  const permissionsBodySchema = z.object({
+    crm: accessLevelSchema.optional(),
+    partnerships: accessLevelSchema.optional(),
+    projects: accessLevelSchema.optional(),
+    communications: accessLevelSchema.optional(),
+    team_workload: accessLevelSchema.optional(),
+    knowledge: accessLevelSchema.optional(),
+    support: accessLevelSchema.optional(),
+    quoting: accessLevelSchema.optional(),
+    calendar: accessLevelSchema.optional(),
+    mail_team: z.record(z.string(), z.object({ view: z.boolean(), edit: z.boolean() })).optional(),
+    calendar_team: z.array(z.number()).optional(),
+  });
   app.patch("/api/admin/users/:id/permissions", requireAuth, async (req, res) => {
     try {
       const actorId = (req.session as any).userId;
@@ -1499,8 +1520,11 @@ export async function registerRoutes(
       }
       const targetId = parseInt(req.params.id);
       if (isNaN(targetId)) return res.status(400).json({ message: "Invalid user ID" });
-      const perms = req.body;
-      const [updated] = await db.update(users).set({ permissions: perms } as any).where(eq(users.id, targetId)).returning({ id: users.id, permissions: users.permissions });
+      const parsed = permissionsBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid permissions payload", errors: parsed.error.issues });
+      }
+      const [updated] = await db.update(users).set({ permissions: parsed.data } as any).where(eq(users.id, targetId)).returning({ id: users.id, permissions: users.permissions });
       if (!updated) return res.status(404).json({ message: "User not found" });
       res.json(updated);
     } catch (err: any) {
@@ -3128,7 +3152,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/assets", requireAuth, assetUpload.single("file"), async (req, res) => {
+  app.post("/api/assets", requirePermission("knowledge", "edit"), assetUpload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file provided" });
       const { name, description, tags } = req.body;
@@ -3161,7 +3185,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/assets/:id", requireAuth, async (req, res) => {
+  app.patch("/api/assets/:id", requirePermission("knowledge", "edit"), async (req, res) => {
     try {
       const { name, description, tags, folderId } = req.body;
       const updateData: any = {};
@@ -3180,7 +3204,7 @@ export async function registerRoutes(
   });
 
   // Replace file data for an existing asset (re-upload flow)
-  app.post("/api/assets/:id/replace", requireAuth, assetUpload.single("file"), async (req, res) => {
+  app.post("/api/assets/:id/replace", requirePermission("knowledge", "edit"), assetUpload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file provided" });
       const fileData = req.file.buffer.toString("base64");
@@ -3195,7 +3219,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/assets/:id", requireAuth, async (req, res) => {
+  app.delete("/api/assets/:id", requirePermission("knowledge", "edit"), async (req, res) => {
     try {
       const [asset] = await db.select().from(assets).where(eq(assets.id, Number(req.params.id)));
       if (!asset) return res.status(404).json({ message: "Asset not found" });
@@ -3320,7 +3344,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/asset-folders", requireAuth, async (req, res) => {
+  app.post("/api/asset-folders", requirePermission("knowledge", "edit"), async (req, res) => {
     try {
       const { name, parentFolderId } = req.body;
       if (!name?.trim()) return res.status(400).json({ message: "Folder name is required" });
@@ -3334,7 +3358,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/asset-folders/:id", requireAuth, async (req, res) => {
+  app.patch("/api/asset-folders/:id", requirePermission("knowledge", "edit"), async (req, res) => {
     try {
       const { name } = req.body;
       if (!name?.trim()) return res.status(400).json({ message: "Folder name is required" });
@@ -3349,7 +3373,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/asset-folders/:id", requireAuth, async (req, res) => {
+  app.delete("/api/asset-folders/:id", requirePermission("knowledge", "edit"), async (req, res) => {
     try {
       const fId = Number(req.params.id);
       // Move assets in this folder back to root (null)
@@ -3775,7 +3799,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.post("/api/projects", requireAuth, async (req, res) => {
+  app.post("/api/projects", requirePermission("projects", "edit"), async (req, res) => {
     try {
       const p = await storage.createProject(req.body);
       res.status(201).json(p);
@@ -3784,7 +3808,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.put("/api/projects/:id", requireAuth, async (req, res) => {
+  app.put("/api/projects/:id", requirePermission("projects", "edit"), async (req, res) => {
     try {
       const p = await storage.updateProject(Number(req.params.id), req.body);
       if (!p) return res.status(404).json({ message: "Not found" });
@@ -3794,7 +3818,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/projects/:id", requireAuth, async (req, res) => {
+  app.delete("/api/projects/:id", requirePermission("projects", "edit"), async (req, res) => {
     try {
       const ok = await storage.deleteProject(Number(req.params.id));
       if (!ok) return res.status(404).json({ message: "Not found" });

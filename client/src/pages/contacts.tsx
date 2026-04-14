@@ -8,7 +8,7 @@ import type { Contact, Account } from "@shared/schema";
 
 type ContactWithAccount = Contact & { accountName?: string };
 
-export default function ContactsPage() {
+export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) {
   const [search, setSearch] = useState("");
 
   const { data: contacts = [], isLoading: loadingContacts } = useQuery<ContactWithAccount[]>({
