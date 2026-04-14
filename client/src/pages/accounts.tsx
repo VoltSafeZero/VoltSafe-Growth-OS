@@ -124,7 +124,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
       setCreateOpen(false);
-      toast({ title: "Account created" });
+      toast({ title: "Organization created" });
     },
   });
 
@@ -135,7 +135,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
-      toast({ title: "Account stage updated" });
+      toast({ title: "Organization stage updated" });
     },
   });
 
@@ -500,8 +500,8 @@ function AccountsMapView({ accounts, onSelect }: { accounts: Account[]; onSelect
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center gap-3">
         <MapPin className="h-10 w-10 text-muted-foreground/40" />
-        <p className="text-muted-foreground">No accounts have location coordinates yet.</p>
-        <p className="text-xs text-muted-foreground">Accounts converted from marina leads will appear on the map once coordinates are available.</p>
+        <p className="text-muted-foreground">No organizations have location coordinates yet.</p>
+        <p className="text-xs text-muted-foreground">Organizations converted from marina leads will appear on the map once coordinates are available.</p>
       </div>
     );
   }
@@ -594,7 +594,7 @@ function AccountDetailDialog({ account: initialAccount, onClose, canEdit = true 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
       setEditMode(false);
-      toast({ title: "Account updated" });
+      toast({ title: "Organization updated" });
     },
   });
 
@@ -1388,7 +1388,7 @@ function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
         </div>
       </div>
       <div><Label>Notes</Label><Textarea value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} data-testid="input-account-notes" /></div>
-      <Button type="submit" className="w-full bg-primary text-primary-foreground" disabled={isPending} data-testid="button-submit-account">{isPending ? "Creating..." : "Create Account"}</Button>
+      <Button type="submit" className="w-full bg-primary text-primary-foreground" disabled={isPending} data-testid="button-submit-account">{isPending ? "Creating..." : "Create Organization"}</Button>
     </form>
   );
 }
