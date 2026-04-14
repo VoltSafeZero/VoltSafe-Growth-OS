@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,7 +14,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Search, ArrowRightLeft, Trash2, Loader2, Undo2,
-  LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar, DollarSign, Map, ExternalLink
+  LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar, DollarSign, Map, ExternalLink,
+  CheckCircle2, AlertCircle, Link2,
 } from "lucide-react";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
 import { lazy, Suspense } from "react";
@@ -76,6 +77,24 @@ const PIPELINE_STAGES = [
 const statusColors: Record<string, string> = Object.fromEntries(
   PIPELINE_STAGES.map(s => [s.value, s.color])
 );
+
+const ORG_TYPE_OPTIONS = [
+  { value: "marina_prospect", label: "Marina Prospect" },
+  { value: "marina_customer", label: "Marina Customer" },
+  { value: "pilot_customer", label: "Pilot Customer" },
+  { value: "enterprise_customer", label: "Enterprise Customer" },
+  { value: "yacht_club", label: "Yacht Club" },
+  { value: "dry_stack", label: "Dry Stack" },
+  { value: "resort_marina", label: "Resort Marina" },
+  { value: "commercial_marina", label: "Commercial Marina" },
+  { value: "government_port", label: "Government / Port Authority" },
+  { value: "oem_partner", label: "OEM Partner" },
+  { value: "distributor", label: "Distributor / Channel Partner" },
+  { value: "integration_partner", label: "Integration Partner" },
+  { value: "industry_association", label: "Industry Association" },
+  { value: "investor", label: "Investor / Stakeholder" },
+  { value: "other", label: "Other" },
+];
 
 function getStageLabel(value: string) {
   return PIPELINE_STAGES.find(s => s.value === value)?.label || value;
@@ -171,16 +190,23 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
     },
   });
 
+  const [convertDialogLead, setConvertDialogLead] = useState<Lead | null>(null);
+  const [convertOrgType, setConvertOrgType] = useState("marina_prospect");
+
   const convertMutation = useMutation({
-    mutationFn: async (id: number) => {
-      const res = await apiRequest("POST", `/api/leads/${id}/convert`);
+    mutationFn: async ({ id, existingAccountId, orgType }: { id: number; existingAccountId?: number; orgType?: string }) => {
+      const res = await apiRequest("POST", `/api/leads/${id}/convert`, { existingAccountId, orgType });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      setConvertDialogLead(null);
       setSelectedLead(null);
-      toast({ title: "Lead converted to Account" });
+      const action = data?.action === "linked" ? "linked to existing" : "promoted to new";
+      toast({ title: "Lead promoted to Organization", description: `Lead ${action} Organization: ${data?.account?.name ?? ""}` });
     },
+    onError: (err: any) => toast({ title: "Conversion failed", description: err.message, variant: "destructive" }),
   });
 
   const unconvertMutation = useMutation({
@@ -188,12 +214,12 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
       const res = await apiRequest("POST", `/api/leads/${id}/unconvert`);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
       setSelectedLead(null);
-      toast({ title: "Lead reverted back to New and account removed" });
+      toast({ title: "Lead unconverted", description: data?.description ?? "Lead status restored. Organization preserved." });
     },
+    onError: (err: any) => toast({ title: "Unconvert failed", description: err.message, variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
@@ -432,11 +458,11 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
                       <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell">{lead.source || "—"}</td>
                       <td className="p-3 sm:p-4 text-right">
                         {canEdit && (lead.status === "converted" ? (
-                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); unconvertMutation.mutate(lead.id); }} data-testid={`button-unconvert-${lead.id}`} title="Revert to New Lead">
+                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); unconvertMutation.mutate(lead.id); }} data-testid={`button-unconvert-${lead.id}`} title="Revert lead status (Organization preserved)">
                             <Undo2 className="h-4 w-4" />
                           </Button>
                         ) : lead.status !== "lost" ? (
-                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); convertMutation.mutate(lead.id); }} data-testid={`button-convert-${lead.id}`}>
+                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setConvertDialogLead(lead); }} data-testid={`button-convert-${lead.id}`} title="Promote to Organization">
                             <ArrowRightLeft className="h-4 w-4" />
                           </Button>
                         ) : null)}
@@ -467,7 +493,7 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
         <LeadDetailDialog
           lead={selectedLead}
           onClose={() => setSelectedLead(null)}
-          onConvert={() => convertMutation.mutate(selectedLead.id)}
+          onConvert={() => setConvertDialogLead(selectedLead)}
           onUnconvert={() => unconvertMutation.mutate(selectedLead.id)}
           onDelete={() => deleteMutation.mutate(selectedLead.id)}
           onUpdateStatus={(status) => {
@@ -480,6 +506,17 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
           canEdit={canEdit}
         />
       )}
+
+      <ConvertToOrgDialog
+        lead={convertDialogLead}
+        orgType={convertOrgType}
+        onOrgTypeChange={setConvertOrgType}
+        onClose={() => setConvertDialogLead(null)}
+        onConvert={(existingAccountId) =>
+          convertMutation.mutate({ id: convertDialogLead!.id, existingAccountId, orgType: convertOrgType })
+        }
+        isPending={convertMutation.isPending}
+      />
     </div>
   );
 }
@@ -618,6 +655,112 @@ function PipelineView({
         );
       })}
     </div>
+  );
+}
+
+type ConvertMatch = {
+  id: number; name: string; city: string | null; stateProvince: string | null;
+  orgType: string | null; confidence: "high" | "medium"; reasons: string[];
+};
+
+function ConvertToOrgDialog({
+  lead, orgType, onOrgTypeChange, onClose, onConvert, isPending,
+}: {
+  lead: Lead | null;
+  orgType: string;
+  onOrgTypeChange: (v: string) => void;
+  onClose: () => void;
+  onConvert: (existingAccountId?: number) => void;
+  isPending: boolean;
+}) {
+  const checkQuery = useQuery<{ matches: ConvertMatch[] }>({
+    queryKey: ["/api/leads", lead?.id, "convert-check"],
+    queryFn: async () => {
+      const res = await fetch(`/api/leads/${lead!.id}/convert-check`, { credentials: "include" });
+      if (!res.ok) throw new Error("Check failed");
+      return res.json();
+    },
+    enabled: !!lead,
+    staleTime: 0,
+  });
+
+  if (!lead) return null;
+  const matches = checkQuery.data?.matches ?? [];
+  const isChecking = checkQuery.isLoading;
+
+  return (
+    <Dialog open={!!lead} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-md" data-testid="dialog-convert-org">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Building2 className="h-5 w-5 text-primary" />Promote to Organization</DialogTitle>
+          <DialogDescription>
+            <strong>{lead.company}</strong> will be promoted to an Organization record with full traceability.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div>
+          <Label className="text-xs">Organization Type</Label>
+          <Select value={orgType} onValueChange={onOrgTypeChange}>
+            <SelectTrigger className="mt-1.5" data-testid="select-convert-org-type"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {ORG_TYPE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {isChecking ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-3">
+            <Loader2 className="h-4 w-4 animate-spin" />Checking for existing organizations…
+          </div>
+        ) : matches.length > 0 ? (
+          <div className="space-y-3">
+            <p className="text-sm font-medium flex items-center gap-1.5 text-amber-400">
+              <AlertCircle className="h-4 w-4" />
+              {matches.length} possible match{matches.length !== 1 ? "es" : ""} found — review before creating new
+            </p>
+            <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+              {matches.map(m => (
+                <div key={m.id} className="flex items-center gap-3 p-2.5 rounded-lg border border-border/50 bg-secondary/20" data-testid={`match-org-${m.id}`}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-sm font-medium truncate">{m.name}</span>
+                      <Badge variant="outline" className={`text-[10px] px-1 py-0 shrink-0 ${m.confidence === "high" ? "text-amber-400 border-amber-500/30 bg-amber-500/10" : "text-blue-400 border-blue-500/30 bg-blue-500/10"}`}>
+                        {m.confidence === "high" ? "High match" : "Possible"}
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                      {[m.city, m.stateProvince].filter(Boolean).join(", ")}
+                      {m.reasons[0] ? ` · ${m.reasons[0]}` : ""}
+                    </p>
+                  </div>
+                  <Button size="sm" variant="outline" className="shrink-0 gap-1 text-xs h-7 px-2" onClick={() => onConvert(m.id)} disabled={isPending} data-testid={`button-link-org-${m.id}`}>
+                    <Link2 className="h-3 w-3" />Link
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div className="border-t border-border/40 pt-3">
+              <Button className="w-full gap-2" onClick={() => onConvert(undefined)} disabled={isPending} data-testid="button-create-new-org">
+                <Building2 className="h-4 w-4" />Create New Organization Anyway
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm flex items-center gap-1.5 text-green-400">
+              <CheckCircle2 className="h-4 w-4" />No existing match found — safe to create new.
+            </p>
+            <Button className="w-full gap-2" onClick={() => onConvert(undefined)} disabled={isPending} data-testid="button-create-new-org">
+              <Building2 className="h-4 w-4" />Promote to Organization
+            </Button>
+          </div>
+        )}
+
+        <div className="flex justify-end border-t border-border/40 pt-2">
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={isPending}>Cancel</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -930,12 +1073,12 @@ function LeadDetailDialog({
 
             <div className="flex gap-2 justify-end pt-4 border-t border-border/50">
               {canEdit && lead.status === "converted" ? (
-                <Button variant="outline" onClick={onUnconvert} disabled={isUnconverting} data-testid="button-unconvert-detail">
-                  <Undo2 className="mr-2 h-4 w-4" /> Revert to New Lead
+                <Button variant="outline" onClick={onUnconvert} disabled={isUnconverting} data-testid="button-unconvert-detail" title="Revert lead status — Organization is preserved">
+                  <Undo2 className="mr-2 h-4 w-4" /> Revert Lead Status
                 </Button>
               ) : canEdit && lead.status !== "lost" ? (
                 <Button variant="outline" onClick={onConvert} disabled={isConverting} data-testid="button-convert-detail">
-                  <ArrowRightLeft className="mr-2 h-4 w-4" /> Convert to Account
+                  <ArrowRightLeft className="mr-2 h-4 w-4" /> Promote to Organization
                 </Button>
               ) : null}
               {canEdit && <Button variant="destructive" size="sm" onClick={onDelete} disabled={isDeleting} data-testid="button-delete-lead">

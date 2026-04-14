@@ -41,6 +41,7 @@ import {
   emailAccounts,
   assets, assetFolders, priceLists, priceListItems,
   contacts, accounts, leads, opportunities, partnerships,
+  migrationMap,
 } from "@shared/schema";
 
 const UPLOADS_DIR = path.resolve("uploads");
@@ -726,131 +727,270 @@ export async function registerRoutes(
     res.json({ message: "Deleted" });
   });
 
-  app.post("/api/leads/:id/convert", requirePermission("crm", "edit"), async (req, res) => {
-    const lead = await storage.getLead(Number(req.params.id));
-    if (!lead) return res.status(404).json({ message: "Lead not found" });
+  // ── Phase 2: Lead → Organization conversion helpers ─────────────────────
+  const PERSONAL_EMAIL_DOMAINS = new Set([
+    "gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com",
+    "live.com", "msn.com", "me.com", "aol.com", "protonmail.com", "ymail.com",
+  ]);
 
-    const account = await storage.createAccount({
-      name: lead.company,
-      segment: "marina",
-      notes: lead.notes,
-      tags: lead.tags,
-    });
-
-    let newContact: any = null;
-    if (lead.contactName) {
-      newContact = await storage.createContact({
-        accountId: account.id,
-        name: lead.contactName,
-        email: lead.contactEmail,
-        phone: lead.contactPhone,
-      });
-    }
-
-    await storage.updateLead(lead.id, { status: "converted" });
-
-    await storage.createActivity({
-      linkedObjectType: "lead",
-      linkedObjectId: lead.id,
-      type: "status_change",
-      summary: `Lead converted to Account: ${account.name}`,
-    });
-
-    // ── Preserve email linkage after conversion ──────────────────────────────
-    // Any email threads linked to this lead should also link to the new account
-    // and contact, so no historical email context is lost.
+  function normalizeWebsiteDomain(raw: string): string {
     try {
-      // 1. Update email_threads: add account/contact primary pointers where lead was primary
-      const threadPatch: Record<string, any> = { updatedAt: new Date() };
-      threadPatch.primaryAccountId = account.id;
-      if (newContact) threadPatch.primaryContactId = newContact.id;
+      let s = raw.toLowerCase().trim();
+      s = s.replace(/^https?:\/\//, "").replace(/^www\./, "");
+      return s.split("/")[0].split("?")[0].split("#")[0];
+    } catch { return raw.toLowerCase().trim(); }
+  }
 
-      await db
-        .update(emailThreads)
-        .set(threadPatch)
-        .where(eq(emailThreads.primaryLeadId, lead.id));
+  // GET /api/leads/:id/convert-check — duplicate-detection before conversion
+  app.get("/api/leads/:id/convert-check", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const lead = await storage.getLead(Number(req.params.id));
+      if (!lead) return res.status(404).json({ message: "Lead not found" });
 
-      // 2. Find all email_messages linked to this lead via email_associations
-      const leadAssocs = await db
-        .select()
-        .from(emailAssociations)
-        .where(and(
-          eq(emailAssociations.objectType, "lead"),
-          eq(emailAssociations.objectId, lead.id)
-        ));
+      type MatchEntry = {
+        id: number; name: string; city: string | null; stateProvince: string | null;
+        orgType: string | null; confidence: "high" | "medium"; reasons: string[];
+      };
+      const matchMap = new Map<number, MatchEntry>();
 
-      // For each message that was linked to the lead, also insert an association
-      // pointing to the new account and contact (if not already present)
-      const processedMsgIds = new Set<number>();
-      for (const la of leadAssocs) {
-        if (processedMsgIds.has(la.emailMessageId)) continue;
-        processedMsgIds.add(la.emailMessageId);
+      // Signal 1 (strongest): Exact normalized email domain — excludes personal domains
+      if (lead.contactEmail) {
+        const emailDomain = lead.contactEmail.split("@")[1]?.toLowerCase().trim();
+        if (emailDomain && !PERSONAL_EMAIL_DOMAINS.has(emailDomain)) {
+          const rows = await db.select().from(accounts)
+            .where(ilike(accounts.website, `%${emailDomain}%`))
+            .limit(10);
+          for (const a of rows) {
+            if (!a.website) continue;
+            const norm = normalizeWebsiteDomain(a.website);
+            if (norm === emailDomain || norm.endsWith(`.${emailDomain}`)) {
+              if (!matchMap.has(a.id)) {
+                matchMap.set(a.id, { id: a.id, name: a.name, city: a.city, stateProvince: a.stateProvince, orgType: a.orgType, confidence: "high", reasons: [] });
+              }
+              matchMap.get(a.id)!.confidence = "high";
+              matchMap.get(a.id)!.reasons.push(`Exact domain match: ${emailDomain}`);
+            }
+          }
+        }
+      }
 
-        // Check existing associations for this message
-        const existingForMsg = await db
-          .select({ objectType: emailAssociations.objectType, objectId: emailAssociations.objectId })
-          .from(emailAssociations)
-          .where(eq(emailAssociations.emailMessageId, la.emailMessageId));
-        const existingKeys = new Set(existingForMsg.map(e => `${e.objectType}:${e.objectId}`));
+      // Signal 2 (secondary): Name similarity — word overlap ≥50%
+      const companyWords = lead.company.toLowerCase().split(/[\s\-_&/,.()+]+/).filter(w => w.length > 3);
+      if (companyWords.length > 0) {
+        const searchWord = [...companyWords].sort((a, b) => b.length - a.length)[0];
+        const rows = await db.select().from(accounts)
+          .where(ilike(accounts.name, `%${searchWord}%`))
+          .limit(20);
+        for (const a of rows) {
+          const accountWords = a.name.toLowerCase().split(/[\s\-_&/,.()+]+/).filter(w => w.length > 3);
+          const overlap = companyWords.filter(cw =>
+            accountWords.some(aw => aw === cw || aw.includes(cw) || cw.includes(aw))
+          ).length;
+          const total = Math.max(companyWords.length, accountWords.length, 1);
+          const ratio = overlap / total;
+          if (ratio >= 0.5) {
+            const nameConfidence: "high" | "medium" = ratio >= 0.8 ? "high" : "medium";
+            if (!matchMap.has(a.id)) {
+              matchMap.set(a.id, { id: a.id, name: a.name, city: a.city, stateProvince: a.stateProvince, orgType: a.orgType, confidence: nameConfidence, reasons: [] });
+            } else if (nameConfidence === "high" && matchMap.get(a.id)!.confidence !== "high") {
+              matchMap.get(a.id)!.confidence = "high";
+            }
+            matchMap.get(a.id)!.reasons.push(`Name similarity: "${a.name}"`);
+            if (lead.city && a.city && lead.city.toLowerCase() === a.city.toLowerCase()) {
+              matchMap.get(a.id)!.reasons.push(`Same city: ${lead.city}`);
+            }
+          }
+        }
+      }
 
-        // Add account association
-        if (!existingKeys.has(`account:${account.id}`)) {
-          await db.insert(emailAssociations).values({
-            emailMessageId: la.emailMessageId,
-            objectType: "account",
-            objectId: account.id,
-            objectName: account.name,
-            confidenceScore: 100,
-            associationReasonJson: JSON.stringify([`Auto-migrated from lead conversion (lead ID ${lead.id})`]),
-            isAuto: false,
-            isUserConfirmed: true,
-          });
+      const matches = Array.from(matchMap.values()).sort((a, b) => {
+        if (a.confidence === b.confidence) return a.name.localeCompare(b.name);
+        return a.confidence === "high" ? -1 : 1;
+      });
+
+      res.json({ matches });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/leads/:id/convert — promote a lead to an Organization (Phase 2)
+  app.post("/api/leads/:id/convert", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const lead = await storage.getLead(Number(req.params.id));
+      if (!lead) return res.status(404).json({ message: "Lead not found" });
+      if (lead.status === "converted") return res.status(400).json({ message: "Lead is already promoted to an Organization" });
+
+      const { existingAccountId, orgType = "marina_prospect" } = req.body ?? {};
+      const priorStatus = lead.status;
+      let account: any;
+      let newContact: any = null;
+      const isLinking = Boolean(existingAccountId);
+
+      if (isLinking) {
+        // Path A: Link to existing Organization
+        const [existing] = await db.select().from(accounts).where(eq(accounts.id, Number(existingAccountId))).limit(1);
+        if (!existing) return res.status(404).json({ message: "Organization not found" });
+        account = existing;
+
+        // Only populate convertedFromLeadId if it is currently null
+        if (!existing.convertedFromLeadId) {
+          await db.update(accounts).set({ convertedFromLeadId: lead.id } as any).where(eq(accounts.id, existing.id));
+          account = { ...account, convertedFromLeadId: lead.id };
         }
 
-        // Add contact association if contact was created
-        if (newContact && !existingKeys.has(`contact:${newContact.id}`)) {
-          await db.insert(emailAssociations).values({
-            emailMessageId: la.emailMessageId,
-            objectType: "contact",
-            objectId: newContact.id,
-            objectName: newContact.name,
-            confidenceScore: 100,
-            associationReasonJson: JSON.stringify([`Auto-migrated from lead conversion (lead ID ${lead.id})`]),
-            isAuto: false,
-            isUserConfirmed: true,
+        // Create contact only if email not already linked to this org
+        if (lead.contactName) {
+          const existingContacts = await db.select().from(contacts).where(eq(contacts.accountId, existing.id));
+          const emailTaken = lead.contactEmail
+            ? existingContacts.some(c => c.email?.toLowerCase() === lead.contactEmail!.toLowerCase())
+            : false;
+          if (!emailTaken) {
+            newContact = await storage.createContact({
+              accountId: existing.id,
+              name: lead.contactName,
+              email: lead.contactEmail ?? undefined,
+              phone: lead.contactPhone ?? undefined,
+            });
+          }
+        }
+      } else {
+        // Path B: Create new Organization from lead
+        account = await storage.createAccount({
+          name: lead.company,
+          segment: (lead.segment as any) || "marina",
+          notes: lead.notes ?? undefined,
+          tags: lead.tags ?? undefined,
+          city: lead.city ?? undefined,
+          stateProvince: (lead.state as any) ?? undefined,
+          country: lead.country ?? undefined,
+          streetAddress: lead.streetAddress ?? undefined,
+          postalZip: lead.zipCode ?? undefined,
+          orgType,
+          convertedFromLeadId: lead.id,
+        } as any);
+
+        if (lead.contactName) {
+          newContact = await storage.createContact({
+            accountId: account.id,
+            name: lead.contactName,
+            email: lead.contactEmail ?? undefined,
+            phone: lead.contactPhone ?? undefined,
           });
         }
       }
-    } catch (linkErr) {
-      // Non-fatal: conversion succeeded even if email linkage migration fails
-      console.error("[convert] Email linkage migration error:", linkErr);
-    }
 
-    res.json({ account, leadId: lead.id });
+      // Write to migrationMap — authoritative traceability log
+      await db.insert(migrationMap).values({
+        legacyTable: "leads",
+        legacyRecordId: lead.id,
+        newTable: "accounts",
+        newRecordId: account.id,
+        notes: JSON.stringify({
+          action: isLinking ? "linked" : "created",
+          priorStatus,
+          leadCompany: lead.company,
+          linkedAccountName: account.name,
+        }),
+      });
+
+      // Update lead status and add activity log
+      await storage.updateLead(lead.id, { status: "converted" });
+      await storage.createActivity({
+        linkedObjectType: "lead",
+        linkedObjectId: lead.id,
+        type: "status_change",
+        summary: isLinking
+          ? `Lead linked to existing Organization: ${account.name}`
+          : `Lead promoted to new Organization: ${account.name}`,
+      });
+
+      // Preserve email linkage — non-fatal
+      try {
+        const threadPatch: Record<string, any> = { primaryAccountId: account.id, updatedAt: new Date() };
+        if (newContact) threadPatch.primaryContactId = newContact.id;
+        await db.update(emailThreads).set(threadPatch).where(eq(emailThreads.primaryLeadId, lead.id));
+
+        const leadAssocs = await db.select().from(emailAssociations)
+          .where(and(eq(emailAssociations.objectType, "lead"), eq(emailAssociations.objectId, lead.id)));
+        const processed = new Set<number>();
+        for (const la of leadAssocs) {
+          if (processed.has(la.emailMessageId)) continue;
+          processed.add(la.emailMessageId);
+          const existingForMsg = await db
+            .select({ objectType: emailAssociations.objectType, objectId: emailAssociations.objectId })
+            .from(emailAssociations).where(eq(emailAssociations.emailMessageId, la.emailMessageId));
+          const existingKeys = new Set(existingForMsg.map(e => `${e.objectType}:${e.objectId}`));
+          if (!existingKeys.has(`account:${account.id}`)) {
+            await db.insert(emailAssociations).values({
+              emailMessageId: la.emailMessageId, objectType: "account", objectId: account.id,
+              objectName: account.name, confidenceScore: 100,
+              associationReasonJson: JSON.stringify([`Auto-migrated from lead conversion (lead ID ${lead.id})`]),
+              isAuto: false, isUserConfirmed: true,
+            });
+          }
+          if (newContact && !existingKeys.has(`contact:${newContact.id}`)) {
+            await db.insert(emailAssociations).values({
+              emailMessageId: la.emailMessageId, objectType: "contact", objectId: newContact.id,
+              objectName: newContact.name, confidenceScore: 100,
+              associationReasonJson: JSON.stringify([`Auto-migrated from lead conversion (lead ID ${lead.id})`]),
+              isAuto: false, isUserConfirmed: true,
+            });
+          }
+        }
+      } catch (linkErr) {
+        console.error("[convert] Email linkage migration error:", linkErr);
+      }
+
+      res.json({ account, contact: newContact, leadId: lead.id, action: isLinking ? "linked" : "created" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
+  // POST /api/leads/:id/unconvert — revert promotion; preserves Organization
   app.post("/api/leads/:id/unconvert", requirePermission("crm", "edit"), async (req, res) => {
-    const lead = await storage.getLead(Number(req.params.id));
-    if (!lead) return res.status(404).json({ message: "Lead not found" });
-    if (lead.status !== "converted") return res.status(400).json({ message: "Lead is not converted" });
+    try {
+      const lead = await storage.getLead(Number(req.params.id));
+      if (!lead) return res.status(404).json({ message: "Lead not found" });
+      if (lead.status !== "converted") return res.status(400).json({ message: "Lead is not in converted status" });
 
-    const allAccounts = await storage.getAccounts({ search: lead.company, limit: 100 });
-    const matchingAccount = allAccounts.data.find(a => a.name === lead.company);
-    if (matchingAccount) {
-      await storage.deleteAccount(matchingAccount.id);
+      // Recover prior status from migrationMap notes (written at convert time)
+      const RESTORABLE = new Set(["new", "contacted", "meeting_scheduled", "qualified", "proposal_sent", "negotiation", "lost"]);
+      const [mapRow] = await db.select().from(migrationMap)
+        .where(and(eq(migrationMap.legacyTable, "leads"), eq(migrationMap.legacyRecordId, lead.id)))
+        .orderBy(sql`migrated_at desc`)
+        .limit(1);
+
+      let restoreStatus = "contacted"; // safe fallback if prior status unavailable
+      let priorStatusLabel: string | null = null;
+      if (mapRow?.notes) {
+        try {
+          const parsed = JSON.parse(mapRow.notes);
+          if (parsed.priorStatus && RESTORABLE.has(parsed.priorStatus)) {
+            restoreStatus = parsed.priorStatus;
+            priorStatusLabel = parsed.priorStatus;
+          }
+        } catch { /* fallback to "contacted" */ }
+      }
+
+      await storage.updateLead(lead.id, { status: restoreStatus });
+
+      const auditNote = priorStatusLabel
+        ? `Lead unconverted — status restored to "${restoreStatus}" (was "${priorStatusLabel}" before promotion). Organization is preserved and unchanged.`
+        : `Lead unconverted — status reset to "${restoreStatus}" (prior status unavailable from audit log). Organization is preserved and unchanged.`;
+
+      await storage.createActivity({
+        linkedObjectType: "lead",
+        linkedObjectId: lead.id,
+        type: "status_change",
+        summary: auditNote,
+      });
+
+      res.json({ leadId: lead.id, status: restoreStatus, description: auditNote });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
-
-    await storage.updateLead(lead.id, { status: "new" });
-
-    await storage.createActivity({
-      linkedObjectType: "lead",
-      linkedObjectId: lead.id,
-      type: "status_change",
-      summary: "Lead reverted from converted back to New" + (matchingAccount ? ` (Account "${matchingAccount.name}" removed)` : ""),
-    });
-
-    const updated = await storage.getLead(lead.id);
-    res.json(updated);
   });
 
   app.get("/api/accounts", async (req, res) => {
