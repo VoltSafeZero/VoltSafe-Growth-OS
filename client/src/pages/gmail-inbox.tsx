@@ -1583,7 +1583,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("thread") ?? null;
+  });
   const [composeOpen, setComposeOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string } | null>(null);
   const [tab, setTab] = useState<"inbox" | "sent" | "other" | "drafts" | "scheduled" | "folder" | "review">("inbox");

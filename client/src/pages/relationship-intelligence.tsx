@@ -6,9 +6,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Users, Activity, Clock, UserPlus, Unlink,
   Building2, ArrowUpDown, ArrowUp, ArrowDown,
-  Mail, ExternalLink, TrendingUp,
+  Mail, ExternalLink, TrendingUp, UserRoundPlus,
 } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer,
@@ -58,6 +58,7 @@ type RiData = {
     threadCount: number;
     messageCount: number;
     lastSeen: string | null;
+    latestThreadId: string | null;
   }[];
   trend: { date: string; count: number }[];
 };
@@ -131,6 +132,7 @@ const PERIOD_OPTIONS: { label: string; value: Period }[] = [
 
 export default function RelationshipIntelligencePage() {
   const [period, setPeriod] = useState<Period>(30);
+  const [, navigate] = useLocation();
 
   const { data, isLoading } = useQuery<RiData>({
     queryKey: ["/api/relationships/intelligence", period],
@@ -610,14 +612,27 @@ export default function RelationshipIntelligencePage() {
                           {relativeDate(row.lastSeen)}
                         </td>
                         <td className="px-4 py-2.5 text-right">
-                          <Link
-                            href="/gmail"
-                            className="inline-flex items-center gap-1 text-xs text-sky-400 hover:text-sky-300 transition-colors whitespace-nowrap"
-                            data-testid={`link-create-contact-${row.fromEmail.replace(/[@.]/g, "-")}`}
-                          >
-                            <Mail className="w-3 h-3" />
-                            Open in inbox
-                          </Link>
+                          <div className="flex items-center justify-end gap-2">
+                            {row.latestThreadId ? (
+                              <button
+                                onClick={() => navigate(`/gmail?thread=${row.latestThreadId}`)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors whitespace-nowrap border border-primary/20"
+                                data-testid={`btn-create-crm-${row.fromEmail.replace(/[@.]/g, "-")}`}
+                              >
+                                <UserRoundPlus className="w-3 h-3" />
+                                Create in CRM
+                              </button>
+                            ) : (
+                              <Link
+                                href="/gmail"
+                                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
+                                data-testid={`link-inbox-${row.fromEmail.replace(/[@.]/g, "-")}`}
+                              >
+                                <Mail className="w-3 h-3" />
+                                Open inbox
+                              </Link>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}

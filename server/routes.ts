@@ -5149,7 +5149,14 @@ export function registerConfluenceRoutes(app: Express) {
           LOWER(SPLIT_PART(em.from_email,'@',2)) AS domain,
           COUNT(DISTINCT em.gmail_thread_id) AS thread_count,
           COUNT(*) AS message_count,
-          MAX(em.sent_at) AS last_seen
+          MAX(em.sent_at) AS last_seen,
+          (
+            SELECT em2.gmail_thread_id
+            FROM email_messages em2
+            WHERE LOWER(em2.from_email) = LOWER(em.from_email)
+            ORDER BY em2.sent_at DESC
+            LIMIT 1
+          ) AS latest_thread_id
         FROM email_messages em
         LEFT JOIN contacts c ON LOWER(c.email) = LOWER(em.from_email)
         WHERE ${externalFilter} ${periodFilter}
@@ -5208,6 +5215,7 @@ export function registerConfluenceRoutes(app: Express) {
           threadCount: parseInt(r.thread_count),
           messageCount: parseInt(r.message_count),
           lastSeen: r.last_seen,
+          latestThreadId: r.latest_thread_id ?? null,
         })),
         trend: (trendResult.rows as any[]).map(r => ({
           date: r.date,
