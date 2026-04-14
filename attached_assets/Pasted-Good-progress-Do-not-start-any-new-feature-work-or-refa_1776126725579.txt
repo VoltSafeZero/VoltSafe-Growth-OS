@@ -1,0 +1,136 @@
+Good progress.
+
+Do not start any new feature work or refactors yet.
+
+I need a full validation and handoff report for everything implemented in the last session (permissions system, backend guards, Tickets, Inbox, Calendar, and Calendar team overlay).
+
+Return the following in a clean, structured format:
+
+--------------------------------------------------
+
+1) FILE-BY-FILE CHANGE LOG
+
+List every file that was modified.
+
+For each file include:
+- file path
+- what changed (clear summary)
+- type of change:
+  - backend
+  - frontend
+  - route guard
+  - permissions logic
+  - test
+  - schema (if any)
+- any potential risk introduced
+
+--------------------------------------------------
+
+2) COMPLETE PERMISSION MODEL
+
+For each major module, define exactly:
+
+- required permission key
+- read behavior
+- edit/write behavior
+- admin override behavior
+
+Modules to include:
+- CRM (Organizations, Contacts, Opportunities, Quotes)
+- Partnerships / Organization views
+- Tickets / Support
+- Inbox / Gmail
+- Calendar (personal)
+- Calendar team overlay
+- Admin (user access editing)
+
+Also clarify:
+- how permissions are stored (JSON structure)
+- how permission checks are enforced in backend routes
+- how they are enforced in frontend (canEdit, guards, etc.)
+
+--------------------------------------------------
+
+3) TEST COVERAGE
+
+List all automated tests that now exist.
+
+For each test:
+- what it validates
+- what user role it simulates (viewer, mixed, admin)
+- what endpoint or UI behavior it covers
+
+Also explicitly list:
+- what is NOT currently tested
+
+--------------------------------------------------
+
+4) MANUAL QA CHECKLIST (FOR ME TO RUN)
+
+Provide step-by-step test instructions for:
+
+A) Viewer user
+B) Mixed-permission user
+C) Admin user
+
+Include exact flows like:
+- accessing CRM pages
+- attempting edits
+- creating tickets
+- using inbox
+- using calendar
+- toggling team calendar overlay
+- accessing protected routes directly via URL
+
+Each step should include expected result.
+
+--------------------------------------------------
+
+5) DATABASE / SCHEMA IMPACT
+
+Confirm clearly:
+
+- were any schema changes made? (yes/no)
+
+If yes, provide:
+- exact schema changes
+- migration names
+- whether migrations are reversible
+- whether any existing data was modified or at risk
+
+If no, confirm that explicitly.
+
+--------------------------------------------------
+
+6) REMAINING RISKS / GAPS
+
+List any known issues, including:
+- routes not fully protected
+- UI areas that rely only on frontend enforcement
+- any permission inconsistencies
+- technical debt or TODOs related to permissions
+- any edge cases (multi-tab sessions, async issues, etc.)
+
+--------------------------------------------------
+
+7) DEPENDENCY CHECK
+
+Confirm that none of the following were broken:
+
+- existing CRM data and relationships
+- existing Industry Partnerships data
+- email linking and history
+- attachments and notes
+- user roles and access
+- existing routes and navigation
+
+If anything changed or is at risk, list it explicitly.
+
+--------------------------------------------------
+
+Do not implement anything yet.
+
+Return this report only.
+---
+
+After that, we will review and then move to the CRM / Organizations refactor phase.
