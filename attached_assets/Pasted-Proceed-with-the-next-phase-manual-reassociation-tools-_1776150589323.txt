@@ -1,0 +1,55 @@
+Proceed with the next phase: manual reassociation tools for email ↔ CRM links.
+
+Do not broaden scope.
+Do not refactor unrelated modules.
+Do not make destructive changes.
+Do not rebuild the association engine.
+Do not change table names, internal IDs, or existing core email ingestion behavior.
+
+Objective:
+Allow users to manually correct or change CRM record associations for an email thread when the existing link is wrong or incomplete.
+
+Scope:
+1. In the Gmail thread CRM panel, add a "Change linked record" action for confirmed associations
+2. Allow a user to:
+   - remove an incorrect confirmed association
+   - search/select the correct replacement record
+   - save the replacement association cleanly
+3. Support reassociation to these record types where already supported by the existing association model:
+   - Organization / Account
+   - Lead
+   - Contact
+   - Partner / Partnership
+   - Opportunity if already supported
+4. Preserve traceability of manual changes if the existing model supports notes/reason fields; otherwise use the lightest-weight audit approach available
+5. Respect existing permissions:
+   - users can only link to record types they are allowed to access
+   - no permission bypass through reassociation UI
+6. Keep this phase focused on single-thread manual correction only
+   - do not add bulk actions yet
+   - do not add cross-page association tools yet unless already trivial
+
+Implementation preferences:
+- reuse existing email_associations data model if possible
+- prefer additive read/write endpoints if needed
+- keep the UX lightweight and obvious
+- allow users to inspect current association reasons while replacing a link
+- if replacement requires confirm/reject semantics under the hood, hide that complexity behind the UI
+
+Before implementing:
+1. show the exact implementation plan
+2. list exact files to be changed
+3. list any endpoint additions or changes
+4. confirm whether any schema changes are needed (prefer none)
+5. explain how reassociation will work for each record type
+6. identify any permission or audit edge cases
+
+Then implement only after presenting that plan.
+
+After implementation, return:
+1. exact files changed
+2. exact UI changes completed
+3. exact endpoint changes
+4. validation/test results
+5. any remaining edge cases
+6. recommendation for the next phase after this
