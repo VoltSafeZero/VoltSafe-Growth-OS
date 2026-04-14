@@ -2536,6 +2536,208 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/gmail/thread-associations/bulk-confirm
+  // Bulk confirm a set of associations (top candidate per thread).
+  // Permission-enforced per item — items the user cannot access are skipped (not errored).
+  // Returns: { confirmed: number[], skipped: [{id,reason}], failed: [{id,reason}] }
+  app.post("/api/gmail/thread-associations/bulk-confirm", requireAuth, async (req, res) => {
+    const items: Array<{ associationId: number; threadId: string }> = req.body?.items ?? [];
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ message: "items array is required and must be non-empty" });
+    }
+    if (items.length > 100) {
+      return res.status(400).json({ message: "Maximum 100 items per bulk operation" });
+    }
+
+    // Load actor once for permission checks
+    const userId = (req.session as any).userId;
+    const [actor] = await db
+      .select({ globalRole: users.globalRole, permissions: users.permissions })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    if (!actor) return res.status(401).json({ message: "User not found" });
+
+    const isAdmin = actor.globalRole === "master_admin" || actor.globalRole === "admin";
+    const perms = (actor.permissions as Record<string, string>) || {};
+
+    const confirmed: number[] = [];
+    const skipped: Array<{ id: number; reason: string }> = [];
+    const failed: Array<{ id: number; reason: string }> = [];
+
+    for (const item of items) {
+      const assocId = Number(item.associationId);
+      const threadId = String(item.threadId ?? "");
+      try {
+        // Load association
+        const [assoc] = await db
+          .select()
+          .from(emailAssociations)
+          .where(eq(emailAssociations.id, assocId));
+
+        if (!assoc) {
+          skipped.push({ id: assocId, reason: "Not found" });
+          continue;
+        }
+
+        // Permission check
+        if (!isAdmin) {
+          const section = assoc.objectType === "partner" ? "partnerships" : "crm";
+          const level = perms[section] ?? "none";
+          if (level === "none") {
+            skipped.push({ id: assocId, reason: `No ${section} access` });
+            continue;
+          }
+        }
+
+        // Already confirmed — treat as no-op success
+        if (assoc.isUserConfirmed) {
+          confirmed.push(assocId);
+          continue;
+        }
+
+        // Mark confirmed
+        await db.update(emailAssociations)
+          .set({ isUserConfirmed: true, isAuto: false, updatedAt: new Date() })
+          .where(eq(emailAssociations.id, assocId));
+
+        // Write feedback
+        await db.insert(associationFeedback).values({
+          emailMessageId: assoc.emailMessageId,
+          originalObjectType: assoc.objectType,
+          originalObjectId: assoc.objectId,
+          feedbackType: "confirmed",
+        });
+
+        // Update email_threads primary pointer
+        if (threadId) {
+          const updates: Record<string, any> = { associationStatus: "associated", updatedAt: new Date() };
+          if (assoc.objectType === "contact") updates.primaryContactId = assoc.objectId;
+          else if (assoc.objectType === "account") updates.primaryAccountId = assoc.objectId;
+          else if (assoc.objectType === "lead") updates.primaryLeadId = assoc.objectId;
+          else if (assoc.objectType === "opportunity") updates.primaryOpportunityId = assoc.objectId;
+          else if (assoc.objectType === "partner") updates.primaryPartnerId = assoc.objectId;
+
+          const [existing] = await db
+            .select({ id: emailThreads.id })
+            .from(emailThreads)
+            .where(eq(emailThreads.gmailThreadId, threadId));
+          if (existing) {
+            await db.update(emailThreads).set(updates).where(eq(emailThreads.gmailThreadId, threadId));
+          } else {
+            await db.insert(emailThreads).values({ gmailThreadId: threadId, ...updates });
+          }
+        }
+
+        confirmed.push(assocId);
+      } catch (err: any) {
+        failed.push({ id: assocId, reason: err.message ?? "Unknown error" });
+      }
+    }
+
+    res.json({ confirmed, skipped, failed });
+  });
+
+  // POST /api/gmail/thread-associations/bulk-reject
+  // Bulk reject a set of associations (top candidate per thread).
+  // Permission-enforced per item — items the user cannot access are skipped.
+  // Returns: { rejected: number[], skipped: [{id,reason}], failed: [{id,reason}] }
+  app.post("/api/gmail/thread-associations/bulk-reject", requireAuth, async (req, res) => {
+    const items: Array<{ associationId: number; threadId: string }> = req.body?.items ?? [];
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ message: "items array is required and must be non-empty" });
+    }
+    if (items.length > 100) {
+      return res.status(400).json({ message: "Maximum 100 items per bulk operation" });
+    }
+
+    const userId = (req.session as any).userId;
+    const [actor] = await db
+      .select({ globalRole: users.globalRole, permissions: users.permissions })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    if (!actor) return res.status(401).json({ message: "User not found" });
+
+    const isAdmin = actor.globalRole === "master_admin" || actor.globalRole === "admin";
+    const perms = (actor.permissions as Record<string, string>) || {};
+
+    const rejected: number[] = [];
+    const skipped: Array<{ id: number; reason: string }> = [];
+    const failed: Array<{ id: number; reason: string }> = [];
+
+    for (const item of items) {
+      const assocId = Number(item.associationId);
+      const threadId = String(item.threadId ?? "");
+      try {
+        const [assoc] = await db
+          .select()
+          .from(emailAssociations)
+          .where(eq(emailAssociations.id, assocId));
+
+        if (!assoc) {
+          skipped.push({ id: assocId, reason: "Not found" });
+          continue;
+        }
+
+        // Permission check
+        if (!isAdmin) {
+          const section = assoc.objectType === "partner" ? "partnerships" : "crm";
+          const level = perms[section] ?? "none";
+          if (level === "none") {
+            skipped.push({ id: assocId, reason: `No ${section} access` });
+            continue;
+          }
+        }
+
+        // Write feedback
+        await db.insert(associationFeedback).values({
+          emailMessageId: assoc.emailMessageId,
+          originalObjectType: assoc.objectType,
+          originalObjectId: assoc.objectId,
+          feedbackType: "rejected",
+        });
+
+        // Delete association
+        await db.delete(emailAssociations).where(eq(emailAssociations.id, assocId));
+
+        // Clear email_threads primary pointer if needed
+        if (threadId) {
+          const [threadRow] = await db
+            .select()
+            .from(emailThreads)
+            .where(eq(emailThreads.gmailThreadId, threadId));
+          if (threadRow) {
+            const clears: Record<string, any> = { updatedAt: new Date() };
+            if (assoc.objectType === "contact" && threadRow.primaryContactId === assoc.objectId) clears.primaryContactId = null;
+            if (assoc.objectType === "account" && threadRow.primaryAccountId === assoc.objectId) clears.primaryAccountId = null;
+            if (assoc.objectType === "lead" && threadRow.primaryLeadId === assoc.objectId) clears.primaryLeadId = null;
+            if (assoc.objectType === "opportunity" && threadRow.primaryOpportunityId === assoc.objectId) clears.primaryOpportunityId = null;
+            if (assoc.objectType === "partner" && threadRow.primaryPartnerId === assoc.objectId) clears.primaryPartnerId = null;
+
+            const contactAfter = assoc.objectType === "contact" ? null : threadRow.primaryContactId;
+            const accountAfter = assoc.objectType === "account" ? null : threadRow.primaryAccountId;
+            const leadAfter = assoc.objectType === "lead" ? null : threadRow.primaryLeadId;
+            const oppAfter = assoc.objectType === "opportunity" ? null : threadRow.primaryOpportunityId;
+            const partnerAfter = assoc.objectType === "partner" ? null : threadRow.primaryPartnerId;
+            if (![contactAfter, accountAfter, leadAfter, oppAfter, partnerAfter].some(Boolean)) {
+              clears.associationStatus = "needs_review";
+            }
+            if (Object.keys(clears).length > 1) {
+              await db.update(emailThreads).set(clears).where(eq(emailThreads.gmailThreadId, threadId));
+            }
+          }
+        }
+
+        rejected.push(assocId);
+      } catch (err: any) {
+        failed.push({ id: assocId, reason: err.message ?? "Unknown error" });
+      }
+    }
+
+    res.json({ rejected, skipped, failed });
+  });
+
   // POST /api/gmail/thread-associations/manual
   // Manually link a thread to any CRM entity — creates an association + updates thread primary pointer.
   app.post("/api/gmail/thread-associations/manual", requireAuth, async (req, res) => {

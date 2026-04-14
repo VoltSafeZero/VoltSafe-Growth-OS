@@ -16,6 +16,7 @@ import {
   FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronRight, Folder,
   Reply, ReplyAll, Pencil, User, Building2, Zap,
   CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
+  CheckCheck,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import DOMPurify from "dompurify";
@@ -1271,6 +1272,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [composeOpen, setComposeOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string } | null>(null);
   const [tab, setTab] = useState<"inbox" | "sent" | "other" | "drafts" | "scheduled" | "folder" | "review">("inbox");
+  const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set());
   const [inboxCategory, setInboxCategory] = useState<InboxCategory>("all");
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
   const [showFolderSettings, setShowFolderSettings] = useState<number | null>(null);
@@ -1707,6 +1709,94 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     enabled: tab === "review",
     refetchInterval: tab === "review" ? 30000 : false,
   });
+
+  const HIGH_CONFIDENCE_THRESHOLD = 75;
+
+  type BulkResult = {
+    confirmed?: number[];
+    rejected?: number[];
+    skipped: Array<{ id: number; reason: string }>;
+    failed: Array<{ id: number; reason: string }>;
+  };
+
+  function buildBulkResultToast(result: BulkResult, action: "confirm" | "reject") {
+    const done = (result.confirmed ?? result.rejected ?? []).length;
+    const skipped = result.skipped.length;
+    const failed = result.failed.length;
+    const verb = action === "confirm" ? "Confirmed" : "Rejected";
+    let title = `${verb} ${done} association${done !== 1 ? "s" : ""}`;
+    const parts: string[] = [];
+    if (skipped > 0) parts.push(`${skipped} skipped (no permission)`);
+    if (failed > 0) parts.push(`${failed} error${failed !== 1 ? "s" : ""}`);
+    const description = parts.length > 0 ? parts.join(", ") : undefined;
+    return { title, description, variant: failed > 0 ? ("destructive" as const) : undefined };
+  }
+
+  const bulkConfirmMutation = useMutation({
+    mutationFn: async (items: Array<{ associationId: number; threadId: string }>) => {
+      const res = await apiRequest("POST", "/api/gmail/thread-associations/bulk-confirm", { items });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ message: "Unknown error" }));
+        throw new Error(body.message || `Error ${res.status}`);
+      }
+      return res.json() as Promise<BulkResult>;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue/stats"] });
+      setSelectedReviewIds(new Set());
+      const { title, description, variant } = buildBulkResultToast(result, "confirm");
+      toast({ title, description, variant });
+    },
+    onError: (err: any) => toast({ title: "Bulk confirm failed", description: err.message, variant: "destructive" }),
+  });
+
+  const bulkRejectMutation = useMutation({
+    mutationFn: async (items: Array<{ associationId: number; threadId: string }>) => {
+      const res = await apiRequest("POST", "/api/gmail/thread-associations/bulk-reject", { items });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ message: "Unknown error" }));
+        throw new Error(body.message || `Error ${res.status}`);
+      }
+      return res.json() as Promise<BulkResult>;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue/stats"] });
+      setSelectedReviewIds(new Set());
+      const { title, description, variant } = buildBulkResultToast(result, "reject");
+      toast({ title, description, variant });
+    },
+    onError: (err: any) => toast({ title: "Bulk reject failed", description: err.message, variant: "destructive" }),
+  });
+
+  function toggleReviewSelection(threadId: string) {
+    setSelectedReviewIds(prev => {
+      const next = new Set(prev);
+      if (next.has(threadId)) next.delete(threadId);
+      else next.add(threadId);
+      return next;
+    });
+  }
+
+  function selectHighConfidence() {
+    const items = reviewQueueQuery.data?.items ?? [];
+    const ids = items
+      .filter(i => (i.topCandidate?.confidenceScore ?? 0) >= HIGH_CONFIDENCE_THRESHOLD && i.topCandidate)
+      .map(i => i.gmailThreadId);
+    setSelectedReviewIds(new Set(ids));
+  }
+
+  function buildBulkPayload(): Array<{ associationId: number; threadId: string }> {
+    const items = reviewQueueQuery.data?.items ?? [];
+    const result: Array<{ associationId: number; threadId: string }> = [];
+    for (const item of items) {
+      if (selectedReviewIds.has(item.gmailThreadId) && item.topCandidate) {
+        result.push({ associationId: item.topCandidate.id, threadId: item.gmailThreadId });
+      }
+    }
+    return result;
+  }
 
   const openDraft = async (draftId: string) => {
     setLoadingDraftId(draftId);
@@ -2300,54 +2390,132 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   <p className="text-xs text-muted-foreground">No threads need CRM review right now.</p>
                 </div>
               ) : (
-                (reviewQueueQuery.data?.items || []).map((item) => {
-                  const isSelected = item.gmailThreadId === selectedThreadId;
-                  const senderName = item.latestMessage.fromName || item.latestMessage.fromEmail?.split("@")[0] || "Unknown";
-                  const dateStr = item.latestMessage.sentAt
-                    ? formatDate(new Date(item.latestMessage.sentAt).toISOString(), undefined)
-                    : "";
-                  const cand = item.topCandidate;
-                  const score = cand?.confidenceScore ?? 0;
-                  const scoreBg = score >= 75 ? "bg-green-500/20 text-green-400" : score >= 45 ? "bg-amber-500/20 text-amber-400" : "bg-muted/60 text-muted-foreground";
-                  const typeLabel: Record<string, string> = { contact: "Contact", account: "Account", lead: "Lead", opportunity: "Opp", partner: "Partner" };
-                  return (
-                    <button
-                      key={item.gmailThreadId}
-                      onClick={() => { setSelectedThreadId(item.gmailThreadId); setSelectedMessageId(null); }}
-                      data-testid={`review-row-${item.gmailThreadId}`}
-                      className={`w-full text-left relative flex items-stretch transition-colors border-b border-border/20 border-l-[3px] ${
-                        isSelected ? "bg-amber-500/8 border-l-amber-500" : "border-l-amber-500/40 hover:bg-amber-500/5"
-                      }`}
-                    >
-                      <div className="flex-1 px-3 py-[9px] min-w-0">
-                        <div className="flex items-center justify-between gap-2 mb-[3px]">
-                          <span className="text-[13px] leading-none font-medium text-foreground/80 truncate">{senderName}</span>
-                          <span className="text-[11px] text-muted-foreground/45 whitespace-nowrap flex-shrink-0 tabular-nums">{dateStr}</span>
+                <>
+                  {/* ── Bulk action bar ─────────────────────────────────── */}
+                  <div className="sticky top-0 z-10 flex items-center gap-1.5 px-2 py-1.5 bg-background/95 backdrop-blur border-b border-border/30">
+                    {selectedReviewIds.size === 0 ? (
+                      /* No selection — show quick-select helper */
+                      <button
+                        onClick={selectHighConfidence}
+                        data-testid="button-select-high-confidence"
+                        className="flex items-center gap-1 text-[11px] text-amber-500/80 hover:text-amber-400 transition-colors px-1.5 py-1 rounded hover:bg-amber-500/10"
+                        title={`Select all suggestions with ≥${HIGH_CONFIDENCE_THRESHOLD}% confidence`}
+                      >
+                        <CheckCheck className="h-3 w-3" />
+                        Select high-confidence (≥{HIGH_CONFIDENCE_THRESHOLD}%)
+                      </button>
+                    ) : (
+                      /* Active selection — show count + actions */
+                      <>
+                        <span className="text-[11px] font-medium text-foreground/70 mr-0.5 tabular-nums">
+                          {selectedReviewIds.size} selected
+                        </span>
+                        <button
+                          onClick={() => bulkConfirmMutation.mutate(buildBulkPayload())}
+                          disabled={bulkConfirmMutation.isPending || bulkRejectMutation.isPending}
+                          data-testid="button-bulk-confirm"
+                          className="flex items-center gap-1 text-[11px] px-2 py-1 rounded bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors disabled:opacity-50"
+                          title="Confirm all selected associations"
+                        >
+                          {bulkConfirmMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCheck className="h-3 w-3" />}
+                          Confirm
+                        </button>
+                        <button
+                          onClick={() => bulkRejectMutation.mutate(buildBulkPayload())}
+                          disabled={bulkConfirmMutation.isPending || bulkRejectMutation.isPending}
+                          data-testid="button-bulk-reject"
+                          className="flex items-center gap-1 text-[11px] px-2 py-1 rounded bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors disabled:opacity-50"
+                          title="Reject all selected associations"
+                        >
+                          {bulkRejectMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <XCircle className="h-3 w-3" />}
+                          Reject
+                        </button>
+                        <button
+                          onClick={() => setSelectedReviewIds(new Set())}
+                          data-testid="button-clear-selection"
+                          className="ml-auto text-muted-foreground/40 hover:text-foreground transition-colors"
+                          title="Clear selection"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  {/* ── Queue rows ─────────────────────────────────────── */}
+                  {(reviewQueueQuery.data?.items || []).map((item) => {
+                    const isThreadSelected = item.gmailThreadId === selectedThreadId;
+                    const isChecked = selectedReviewIds.has(item.gmailThreadId);
+                    const senderName = item.latestMessage.fromName || item.latestMessage.fromEmail?.split("@")[0] || "Unknown";
+                    const dateStr = item.latestMessage.sentAt
+                      ? formatDate(new Date(item.latestMessage.sentAt).toISOString(), undefined)
+                      : "";
+                    const cand = item.topCandidate;
+                    const score = cand?.confidenceScore ?? 0;
+                    const scoreBg = score >= HIGH_CONFIDENCE_THRESHOLD ? "bg-green-500/20 text-green-400" : score >= 45 ? "bg-amber-500/20 text-amber-400" : "bg-muted/60 text-muted-foreground";
+                    const typeLabel: Record<string, string> = { contact: "Contact", account: "Account", lead: "Lead", opportunity: "Opp", partner: "Partner" };
+                    return (
+                      <div
+                        key={item.gmailThreadId}
+                        data-testid={`review-row-${item.gmailThreadId}`}
+                        className={`w-full relative flex items-stretch transition-colors border-b border-border/20 border-l-[3px] ${
+                          isChecked
+                            ? "bg-amber-500/12 border-l-amber-400"
+                            : isThreadSelected
+                              ? "bg-amber-500/8 border-l-amber-500"
+                              : "border-l-amber-500/40 hover:bg-amber-500/5"
+                        }`}
+                      >
+                        {/* Checkbox — stops propagation so row click still works */}
+                        <div
+                          className="flex items-center justify-center px-2 flex-shrink-0 cursor-pointer"
+                          onClick={(e) => { e.stopPropagation(); toggleReviewSelection(item.gmailThreadId); }}
+                          data-testid={`review-checkbox-${item.gmailThreadId}`}
+                          title={isChecked ? "Deselect" : "Select for bulk action"}
+                        >
+                          <div className={`h-3.5 w-3.5 rounded border transition-colors flex items-center justify-center flex-shrink-0 ${
+                            isChecked
+                              ? "bg-amber-500 border-amber-500"
+                              : "border-border/50 hover:border-amber-400"
+                          }`}>
+                            {isChecked && <CheckCheck className="h-2.5 w-2.5 text-white" />}
+                          </div>
                         </div>
-                        <div className="text-[12px] leading-snug truncate mb-1">
-                          <span className="text-muted-foreground/65">{item.latestMessage.subject || "(no subject)"}</span>
-                          {item.latestMessage.snippet && (
-                            <span className="text-muted-foreground/38"> — {item.latestMessage.snippet}</span>
-                          )}
-                        </div>
-                        {cand && (
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary/70 font-medium">
-                              {typeLabel[cand.objectType] ?? cand.objectType}
-                            </span>
-                            <span className="text-[11px] text-foreground/60 truncate">{cand.objectName}</span>
-                            <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded font-medium ${scoreBg}`}>
-                              {score}%
-                            </span>
-                            {item.candidateCount > 1 && (
-                              <span className="text-[10px] text-muted-foreground/50">+{item.candidateCount - 1}</span>
+
+                        {/* Row content — click opens thread */}
+                        <button
+                          className="flex-1 text-left py-[9px] pr-3 min-w-0"
+                          onClick={() => { setSelectedThreadId(item.gmailThreadId); setSelectedMessageId(null); }}
+                        >
+                          <div className="flex items-center justify-between gap-2 mb-[3px]">
+                            <span className="text-[13px] leading-none font-medium text-foreground/80 truncate">{senderName}</span>
+                            <span className="text-[11px] text-muted-foreground/45 whitespace-nowrap flex-shrink-0 tabular-nums">{dateStr}</span>
+                          </div>
+                          <div className="text-[12px] leading-snug truncate mb-1">
+                            <span className="text-muted-foreground/65">{item.latestMessage.subject || "(no subject)"}</span>
+                            {item.latestMessage.snippet && (
+                              <span className="text-muted-foreground/38"> — {item.latestMessage.snippet}</span>
                             )}
                           </div>
-                        )}
+                          {cand && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary/70 font-medium">
+                                {typeLabel[cand.objectType] ?? cand.objectType}
+                              </span>
+                              <span className="text-[11px] text-foreground/60 truncate">{cand.objectName}</span>
+                              <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded font-medium ${scoreBg}`}>
+                                {score}%
+                              </span>
+                              {item.candidateCount > 1 && (
+                                <span className="text-[10px] text-muted-foreground/50">+{item.candidateCount - 1}</span>
+                              )}
+                            </div>
+                          )}
+                        </button>
                       </div>
-                    </button>
-                  );
-                })
+                    );
+                  })}
+                </>
               )
             )}
 
