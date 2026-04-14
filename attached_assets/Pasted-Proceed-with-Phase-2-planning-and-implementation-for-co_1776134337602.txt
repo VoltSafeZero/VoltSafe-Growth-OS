@@ -1,0 +1,69 @@
+Proceed with Phase 2 planning and implementation for controlled lead → organization conversion.
+
+Do not bulk-convert leads.
+Do not merge Partnerships into Organizations.
+Do not rename internal APIs, tables, or IDs.
+Do not make destructive changes.
+
+Objective:
+Build a safe, explicit workflow where an individual lead can be promoted into an Organization, with traceability recorded in the existing migrationMap table.
+
+Core requirements:
+1. A user can convert a single lead into an Organization intentionally from the lead UI
+2. Conversion must create or link the Organization using the existing accounts/accounts-based Organizations model
+3. Conversion must write a traceability record into migrationMap
+4. Conversion must avoid duplicates by checking for likely existing Organizations before creating a new one
+5. Conversion must preserve backward compatibility and existing lead data
+6. No bulk conversion tools in this phase
+
+Expected conversion behavior:
+- user selects a lead
+- system offers “Convert to Organization”
+- system checks for possible existing Organization matches based on:
+  - name similarity
+  - email/domain
+  - phone
+  - website if available
+- if a likely match exists, user can:
+  - link lead to existing Organization
+  - or create a new Organization anyway
+- if no suitable match exists, system creates a new Organization
+- converted_from_lead_id must be populated where applicable
+- migrationMap must record the relationship and conversion event
+- lead should remain historically preserved, not deleted
+
+Scope for this phase:
+1. Design and implement the conversion UX from the Leads page/detail view
+2. Add duplicate-check logic before Organization creation
+3. Add backend conversion endpoint(s)
+4. Write to migrationMap using the existing traceability pattern
+5. Decide and implement the correct post-conversion lead state/status behavior
+6. Preserve notes, attachments, and useful relationship history where safe and appropriate
+7. Add automated tests for:
+   - create new Organization from lead
+   - link lead to existing Organization
+   - duplicate prevention / warning behavior
+   - migrationMap record creation
+   - permission enforcement for conversion action
+
+Before implementing:
+1. show me the exact Phase 2 implementation plan
+2. list exact files that will be changed
+3. list exact schema changes, if any
+4. explain how duplicate detection will work
+5. explain what happens to the lead record after conversion
+6. identify any backward-compatibility or data-integrity risks
+
+Then implement only after presenting that plan.
+
+After implementation, return:
+1. exact files changed
+2. exact endpoints added or changed
+3. exact UI changes completed
+4. test results
+5. validation results
+6. any remaining edge cases or follow-up recommendations
+
+Important:
+This phase is about controlled promotion of individual leads, not mass migration.
+Optimize for safety, traceability, and duplicate avoidance over speed.
