@@ -1,0 +1,63 @@
+Proceed with the next phase: confidence-based auto-confirmation planning only.
+
+Do not implement yet.
+Do not broaden scope.
+Do not refactor unrelated modules.
+Do not change schema unless absolutely necessary, and prefer none.
+Do not alter existing manual review, reassociation, or bulk review behavior.
+
+Objective:
+Design a safe auto-confirmation workflow for email ↔ CRM associations so that very high-confidence matches can be confirmed automatically, while preserving traceability and avoiding bad auto-links.
+
+Produce a structured implementation plan only.
+
+The plan must include:
+
+1. Auto-confirmation decision rules
+- propose the exact threshold logic for auto-confirming a candidate
+- explain whether this should be a single score threshold or a rules-based threshold
+- identify which signals should be required for safe auto-confirmation
+- explicitly identify which cases must never auto-confirm (for example ambiguous matches, multiple strong candidates, weak fuzzy-only matches, personal email edge cases, etc.)
+
+2. Safety and audit model
+- explain how auto-confirmed associations will be marked distinctly from user-confirmed and manual-corrected ones
+- explain how the audit trail will record the reason for auto-confirmation
+- explain how users can still override/correct an auto-confirmed association afterward
+
+3. Execution model
+Recommend which is safest and simplest:
+- background job
+- on-ingest auto-confirmation
+- scheduled sweep of queued candidates
+- user-triggered “confirm all ultra-high-confidence” action
+
+Explain tradeoffs and recommend one approach.
+
+4. Permissions and visibility
+- confirm that auto-confirmation does not create permission bypasses
+- explain how users with limited permissions will experience auto-confirmed links in the inbox/review queue
+
+5. Operational controls
+Recommend the lightest-weight control model, such as:
+- hardcoded threshold initially
+- admin-only config later
+- dry-run / report-only mode first if appropriate
+
+6. Validation plan
+List the exact test cases that would be needed before implementation, including:
+- safe auto-confirm
+- ambiguous match stays in review queue
+- multiple candidates stay manual
+- personal email domain edge cases
+- later manual correction still works
+- bulk review still works
+- permissions still hold
+
+7. Recommendation
+At the end, give your recommended safest v1 implementation path with:
+- minimal surface area
+- minimal risk
+- highest time savings
+
+Do not implement anything yet.
+Return only the plan.
