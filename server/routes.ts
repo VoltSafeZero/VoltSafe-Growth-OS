@@ -2325,27 +2325,54 @@ export async function registerRoutes(
     return acct ?? null;
   }
 
-  // Returns all accounts visible to this user: their own accounts + workspace-shared accounts.
-  async function getAccessibleAccounts(userId: number) {
-    return db
-      .select()
-      .from(emailAccounts)
-      .where(
-        and(
-          eq(emailAccounts.isActive, true),
-          or(
-            eq(emailAccounts.userId, userId),
-            eq(emailAccounts.isShared, true)
-          )
-        )
-      );
+  // Returns the IDs of email accounts accessible to a user.
+  // Admins see all shared accounts; non-admins only see shared accounts
+  // they have been explicitly granted view permission for via mail_team permissions.
+  async function getAccessibleAccountIds(
+    userId: number,
+    isAdmin: boolean,
+    mailTeamPerms: Record<string, { view: boolean; edit: boolean }> = {},
+  ): Promise<number[]> {
+    const [ownAccts, sharedAccts] = await Promise.all([
+      db.select({ id: emailAccounts.id }).from(emailAccounts)
+        .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isActive, true))),
+      db.select({ id: emailAccounts.id }).from(emailAccounts)
+        .where(and(eq(emailAccounts.isShared, true), eq(emailAccounts.isActive, true))),
+    ]);
+    const ownIds = ownAccts.map((a) => a.id);
+    const sharedIds = isAdmin
+      ? sharedAccts.map((a) => a.id)
+      : sharedAccts.filter((a) => mailTeamPerms[String(a.id)]?.view === true).map((a) => a.id);
+    return [...new Set([...ownIds, ...sharedIds])];
+  }
+
+  async function getAccessibleAccounts(
+    userId: number,
+    isAdmin = false,
+    mailTeamPerms: Record<string, { view: boolean; edit: boolean }> = {},
+  ) {
+    const allSharedCondition = and(eq(emailAccounts.isActive, true), eq(emailAccounts.isShared, true));
+    const [ownAccts, sharedAccts] = await Promise.all([
+      db.select().from(emailAccounts)
+        .where(and(eq(emailAccounts.isActive, true), eq(emailAccounts.userId, userId))),
+      db.select().from(emailAccounts).where(allSharedCondition),
+    ]);
+    const visibleShared = isAdmin
+      ? sharedAccts
+      : sharedAccts.filter((a) => mailTeamPerms[String(a.id)]?.view === true);
+    return [...ownAccts, ...visibleShared];
   }
 
   // Resolves which account to use for a Gmail API request.
-  // If asAccountId is provided AND the account is accessible (owned OR shared), use it.
+  // If asAccountId is provided AND the account is accessible (owned OR shared+permitted), use it.
   // Returns { userId, accountId } — userId is used only as a fallback context,
   // accountId drives getGmailClient when set.
-  async function resolveAccount(currentUserId: number, asAccountId?: number) {
+  async function resolveAccount(
+    currentUserId: number,
+    asAccountId?: number,
+    isAdmin = false,
+    mailTeamPerms: Record<string, { view: boolean; edit: boolean }> = {},
+  ) {
     if (asAccountId) {
       const [acct] = await db
         .select()
@@ -2353,8 +2380,13 @@ export async function registerRoutes(
         .where(eq(emailAccounts.id, asAccountId))
         .limit(1);
       if (!acct || !acct.isActive) return null;
-      // Allow access if owned by this user OR it's a shared account
-      if (acct.userId !== currentUserId && !acct.isShared) return null;
+      if (acct.userId === currentUserId) {
+        // Owner always has access to their own account
+        return { userId: acct.userId, accountId: acct.id, acct };
+      }
+      if (!acct.isShared) return null; // Personal account belonging to someone else — deny
+      // Shared account: admins always in; non-admins need explicit view permission
+      if (!isAdmin && mailTeamPerms[String(acct.id)]?.view !== true) return null;
       return { userId: acct.userId, accountId: acct.id, acct };
     }
     // Default: user's own account
@@ -2363,11 +2395,29 @@ export async function registerRoutes(
     return { userId: currentUserId, accountId: undefined as number | undefined, acct };
   }
 
+  // Helper: extract role + mail_team perms for the session user.
+  // Uses the session-cached globalRole so no DB round-trip for admins.
+  async function getSessionUserAccess(session: any): Promise<{
+    isAdmin: boolean;
+    mailTeamPerms: Record<string, { view: boolean; edit: boolean }>;
+  }> {
+    const role = String(session.globalRole || "");
+    const isAdmin = role === "master_admin" || role === "admin";
+    if (isAdmin) return { isAdmin: true, mailTeamPerms: {} };
+    // Non-admin: fetch permissions from DB (one query, lightweight)
+    const userId = session.userId as number;
+    const [u] = await db.select({ permissions: users.permissions })
+      .from(users).where(eq(users.id, userId)).limit(1);
+    const mailTeamPerms = ((u?.permissions as any)?.mail_team ?? {}) as Record<string, { view: boolean; edit: boolean }>;
+    return { isAdmin: false, mailTeamPerms };
+  }
+
   // ── Gmail routes (per-user isolated) ─────────────────────────────────────
   app.get("/api/gmail/profile", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
-    const resolved = await resolveAccount(userId, asAccountId);
+    const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+    const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     try {
       const profile = await getProfile(resolved.userId, resolved.accountId);
@@ -2380,7 +2430,8 @@ export async function registerRoutes(
   app.get("/api/gmail/messages", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
-    const resolved = await resolveAccount(userId, asAccountId);
+    const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+    const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.json({ messages: [], nextPageToken: null });
     try {
       const q = (req.query.q as string) || "";
@@ -2396,7 +2447,8 @@ export async function registerRoutes(
   app.get("/api/gmail/threads", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
-    const resolved = await resolveAccount(userId, asAccountId);
+    const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+    const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.json([]);
     try {
       const q = (req.query.q as string) || "";
@@ -2411,7 +2463,8 @@ export async function registerRoutes(
   app.get("/api/gmail/threads/:id", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
-    const resolved = await resolveAccount(userId, asAccountId);
+    const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+    const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     try {
       const thread = await getThread(resolved.userId, req.params.id, resolved.accountId);
@@ -3505,7 +3558,8 @@ export async function registerRoutes(
   app.get("/api/gmail/drafts", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
-    const resolved = await resolveAccount(userId, asAccountId);
+    const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+    const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.json([]);
     try {
       const drafts = await listDraftSummaries(resolved.userId, resolved.accountId);
@@ -3518,7 +3572,8 @@ export async function registerRoutes(
   app.get("/api/gmail/drafts/:id", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
-    const resolved = await resolveAccount(userId, asAccountId);
+    const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+    const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     try {
       const content = await getDraftContent(resolved.userId, req.params.id, resolved.accountId);
@@ -3531,7 +3586,8 @@ export async function registerRoutes(
   app.post("/api/gmail/drafts", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;
-    const resolved = await resolveAccount(userId, asAccountId);
+    const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+    const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     try {
       const { to, subject, body, threadId, draftId } = req.body;
@@ -3546,7 +3602,8 @@ export async function registerRoutes(
   app.delete("/api/gmail/drafts/:id", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
-    const resolved = await resolveAccount(userId, asAccountId);
+    const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+    const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     try {
       await deleteDraft(resolved.userId, req.params.id, resolved.accountId);
@@ -3605,7 +3662,8 @@ export async function registerRoutes(
   app.post("/api/gmail/messages/:id/mark-read", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;
-    const resolved = await resolveAccount(userId, asAccountId);
+    const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+    const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     try {
       await markMessageRead(resolved.userId, req.params.id, resolved.accountId);
@@ -3618,7 +3676,8 @@ export async function registerRoutes(
   app.post("/api/gmail/messages/:id/toggle-star", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;
-    const resolved = await resolveAccount(userId, asAccountId);
+    const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+    const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     try {
       const gmail = await getGmailClient(resolved.userId, resolved.accountId);
@@ -3640,7 +3699,8 @@ export async function registerRoutes(
   app.post("/api/gmail/send", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;
-    const resolved = await resolveAccount(userId, asAccountId);
+    const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+    const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected. Connect your Gmail to send emails." });
     try {
       const { to, subject, body, threadId, attachmentIds, cc, bcc } = req.body;
@@ -3683,7 +3743,8 @@ export async function registerRoutes(
   app.get("/api/gmail/accounts", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId;
-      const accounts = await getAccessibleAccounts(userId);
+      const { isAdmin, mailTeamPerms } = await getSessionUserAccess(req.session);
+      const accounts = await getAccessibleAccounts(userId, isAdmin, mailTeamPerms);
       const annotated = accounts.map((a) => ({ ...a, isOwner: a.userId === userId && !a.isShared }));
       res.json(annotated);
     } catch (err: any) {
@@ -5125,6 +5186,16 @@ export function registerConfluenceRoutes(app: Express) {
   // ─── Relationship Intelligence ───────────────────────────────────────────────
   app.get("/api/relationships/intelligence", requireAuth, async (req, res) => {
     try {
+      const userId = (req.session as any).userId;
+      const { isAdmin, mailTeamPerms } = await getSessionUserAccess(req.session);
+      // Only analyse emails from accounts this user can access
+      const accessibleIds = await getAccessibleAccountIds(userId, isAdmin, mailTeamPerms);
+      if (accessibleIds.length === 0) {
+        return res.json({ period: 30, cards: { totalExternal: 0, activeRelationships: 0, dormantRelationships: 0, newRelationships: 0, unlinkedSenders: 0 }, mostActive: [], neglected: [], orgsByVolume: [], unlinkedSenders: [], trend: [] });
+      }
+      const accountIdList = accessibleIds.join(",");
+      const accountFilter = `em.source_account_id IN (${accountIdList})`;
+
       const days = parseInt(req.query.days as string) || 30;
       const PERSONAL_DOMAINS = [
         "gmail.com","yahoo.com","outlook.com","hotmail.com","icloud.com",
@@ -5146,11 +5217,11 @@ export function registerConfluenceRoutes(app: Express) {
         SELECT
           (SELECT COUNT(DISTINCT em.from_email)
            FROM email_messages em
-           WHERE ${externalFilter} ${periodFilter}) AS total_external,
+           WHERE ${accountFilter} AND ${externalFilter} ${periodFilter}) AS total_external,
           (SELECT COUNT(DISTINCT em.from_email)
            FROM email_messages em
            LEFT JOIN contacts c ON LOWER(c.email) = LOWER(em.from_email)
-           WHERE ${externalFilter} ${periodFilter}
+           WHERE ${accountFilter} AND ${externalFilter} ${periodFilter}
              AND c.id IS NULL) AS unlinked_senders
       `));
 
@@ -5160,7 +5231,7 @@ export function registerConfluenceRoutes(app: Express) {
           SELECT ea.object_id
           FROM email_associations ea
           JOIN email_messages em ON em.id = ea.email_message_id
-          WHERE ea.object_type = 'contact' ${periodFilter}
+          WHERE ea.object_type = 'contact' AND ${accountFilter} ${periodFilter}
           GROUP BY ea.object_id
           HAVING COUNT(em.id) >= 2
         ) sub
@@ -5172,7 +5243,7 @@ export function registerConfluenceRoutes(app: Express) {
           SELECT ea.object_id
           FROM email_associations ea
           JOIN email_messages em ON em.id = ea.email_message_id
-          WHERE ea.object_type = 'contact'
+          WHERE ea.object_type = 'contact' AND ${accountFilter}
           GROUP BY ea.object_id
           HAVING MAX(em.sent_at) < NOW() - INTERVAL '60 days'
         ) sub
@@ -5184,7 +5255,7 @@ export function registerConfluenceRoutes(app: Express) {
           SELECT ea.object_id
           FROM email_associations ea
           JOIN email_messages em ON em.id = ea.email_message_id
-          WHERE ea.object_type = 'contact'
+          WHERE ea.object_type = 'contact' AND ${accountFilter}
           GROUP BY ea.object_id
           HAVING MIN(em.sent_at) >= NOW() - INTERVAL '${days > 0 ? days : 36500} days'
         ) sub
@@ -5213,7 +5284,7 @@ export function registerConfluenceRoutes(app: Express) {
         JOIN email_messages em ON em.id = ea.email_message_id
         JOIN contacts c ON c.id = ea.object_id AND ea.object_type = 'contact'
         LEFT JOIN accounts a ON a.id = c.account_id
-        WHERE 1=1 ${periodFilter}
+        WHERE ${accountFilter} ${periodFilter}
         GROUP BY c.id, c.name, a.id, a.name, a.org_type
         ORDER BY message_count DESC, last_activity DESC
         LIMIT 15
@@ -5233,6 +5304,7 @@ export function registerConfluenceRoutes(app: Express) {
         JOIN email_messages em ON em.id = ea.email_message_id
         JOIN contacts c ON c.id = ea.object_id AND ea.object_type = 'contact'
         LEFT JOIN accounts a ON a.id = c.account_id
+        WHERE ${accountFilter}
         GROUP BY c.id, c.name, a.id, a.name, a.org_type
         HAVING MAX(em.sent_at) < NOW() - INTERVAL '30 days'
         ORDER BY last_activity ASC
@@ -5255,7 +5327,7 @@ export function registerConfluenceRoutes(app: Express) {
           WHEN ea.object_type = 'account' THEN ea.object_id
           ELSE c.account_id
         END
-        WHERE a.id IS NOT NULL ${periodFilter}
+        WHERE a.id IS NOT NULL AND ${accountFilter} ${periodFilter}
         GROUP BY a.id, a.name, a.org_type
         ORDER BY message_count DESC
         LIMIT 10
@@ -5274,12 +5346,13 @@ export function registerConfluenceRoutes(app: Express) {
             SELECT em2.gmail_thread_id
             FROM email_messages em2
             WHERE LOWER(em2.from_email) = LOWER(em.from_email)
+              AND em2.source_account_id IN (${accountIdList})
             ORDER BY em2.sent_at DESC
             LIMIT 1
           ) AS latest_thread_id
         FROM email_messages em
         LEFT JOIN contacts c ON LOWER(c.email) = LOWER(em.from_email)
-        WHERE ${externalFilter} ${periodFilter}
+        WHERE ${accountFilter} AND ${externalFilter} ${periodFilter}
           AND c.id IS NULL
         GROUP BY em.from_name, em.from_email
         ORDER BY message_count DESC, thread_count DESC
@@ -5294,6 +5367,7 @@ export function registerConfluenceRoutes(app: Express) {
           COUNT(*) AS count
         FROM email_messages em
         WHERE em.sent_at >= NOW() - INTERVAL '${trendDays} days'
+          AND ${accountFilter}
           AND ${externalFilter}
         GROUP BY DATE_TRUNC('day', em.sent_at)
         ORDER BY DATE_TRUNC('day', em.sent_at)

@@ -1920,13 +1920,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     ? (accountsQuery.data?.find((a) => a.id === activeAccountId) ?? accountsQuery.data?.[0] ?? null)
     : (accountsQuery.data?.find((a) => a.isOwner) ?? accountsQuery.data?.[0] ?? null);
 
-  // Shared accounts visible to this user — filtered by mail_team permissions
+  // Shared accounts visible to this user — filtered by mail_team permissions.
+  // Non-admins require an explicit view grant; no grant = no access.
   const sharedAccounts = (accountsQuery.data ?? []).filter((a) => {
     if (a.isOwner) return false;
     if (isAdmin) return true;
     const entry = mailTeamPerms[String(a.id)];
-    // If no entry configured yet, default to visible
-    return entry ? entry.view !== false : true;
+    return entry?.view === true;
   });
   const personalAccount = (accountsQuery.data ?? []).find((a) => a.isOwner) ?? null;
 
