@@ -506,6 +506,7 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
       {/* Detail Panel */}
       {selectedUser && (
         <UserDetailPanel
+          key={selectedUser.id}
           user={selectedUser}
           currentUserId={currentUserId}
           isMasterAdmin={isMasterAdmin}
