@@ -1753,6 +1753,93 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/admin/gmail/backfill-associations
+  // Backfills email_associations for all email_messages that were inserted before
+  // the association engine was active — i.e. messages with no association rows yet.
+  //
+  // Safety properties:
+  //   - Admin-only.
+  //   - No schema changes. No deletions. No destructive writes.
+  //   - Idempotent: the engine skips any (emailMessageId, objectType, objectId)
+  //     triplet that already exists, so re-running is always safe.
+  //   - Sequential: messages are processed oldest-first (sent_at ASC) to preserve
+  //     thread-bonus scoring (+25 when a thread is already marked "associated").
+  //   - Per-message errors are caught and reported; processing always continues.
+  //   - Access: master_admin / admin only.
+  app.post("/api/admin/gmail/backfill-associations", requireAuth, requireAdmin, async (req, res) => {
+    const startedAt = Date.now();
+
+    try {
+      // 1. Snapshot association count before so we can diff at the end.
+      const beforeResult = await db.execute(sql`SELECT COUNT(*)::int AS count FROM email_associations`);
+      const countBefore = Number((beforeResult.rows[0] as any)?.count ?? 0);
+
+      // 2. Load all messages ordered oldest-first.
+      //    sent_at is the canonical timestamp; fall back to created_at for messages
+      //    where sent_at is null (should not happen in practice, but defensive).
+      const messages = await db
+        .select({
+          id: emailMessages.id,
+          gmailMessageId: emailMessages.gmailMessageId,
+          ignoredReason: emailMessages.ignoredReason,
+          sentAt: emailMessages.sentAt,
+        })
+        .from(emailMessages)
+        .orderBy(emailMessages.sentAt);
+
+      let examined = 0;
+      let processed = 0;
+      let skipped = 0;
+      const failures: { id: number; gmailMessageId: string | null; error: string }[] = [];
+
+      // 3. Process sequentially — never concurrent, preserves thread-level ordering.
+      for (const msg of messages) {
+        examined++;
+
+        // Skip messages the engine would ignore anyway (saves unnecessary DB round-trips).
+        if (msg.ignoredReason) {
+          skipped++;
+          continue;
+        }
+
+        try {
+          await runAssociationEngine(msg.id);
+          processed++;
+        } catch (err: any) {
+          failures.push({
+            id: msg.id,
+            gmailMessageId: msg.gmailMessageId,
+            error: err.message ?? String(err),
+          });
+          // Always continue — one bad message must not abort the batch.
+        }
+      }
+
+      // 4. Snapshot association count after to compute diff.
+      const afterResult = await db.execute(sql`SELECT COUNT(*)::int AS count FROM email_associations`);
+      const countAfter = Number((afterResult.rows[0] as any)?.count ?? 0);
+
+      const elapsedMs = Date.now() - startedAt;
+
+      res.json({
+        ok: true,
+        summary: {
+          examined,
+          processed,
+          skipped,
+          failed: failures.length,
+          associationsBefore: countBefore,
+          associationsAfter: countAfter,
+          associationsCreated: countAfter - countBefore,
+          elapsedMs,
+        },
+        failures,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.put("/api/admin/users/:id", requireAuth, async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
