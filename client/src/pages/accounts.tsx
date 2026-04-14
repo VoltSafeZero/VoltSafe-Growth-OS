@@ -60,11 +60,52 @@ const priorityColors: Record<string, string> = {
   high: "bg-red-500/10 text-red-500 border-red-500/20",
 };
 
+const ORG_TYPE_OPTIONS = [
+  { value: "marina_prospect", label: "Marina Prospect" },
+  { value: "marina_customer", label: "Marina Customer" },
+  { value: "pilot_site", label: "Pilot Site" },
+  { value: "marina_group", label: "Marina Group" },
+  { value: "port_harbor", label: "Port / Harbor" },
+  { value: "government", label: "Government" },
+  { value: "utility", label: "Utility" },
+  { value: "distributor", label: "Distributor" },
+  { value: "installer", label: "Installer" },
+  { value: "manufacturer", label: "Manufacturer" },
+  { value: "association", label: "Association" },
+  { value: "research", label: "Research" },
+  { value: "media", label: "Media" },
+  { value: "investor", label: "Investor" },
+  { value: "other", label: "Other" },
+];
+
+const orgTypeColors: Record<string, string> = {
+  marina_prospect: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  marina_customer: "bg-green-500/10 text-green-400 border-green-500/20",
+  pilot_site: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
+  marina_group: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
+  port_harbor: "bg-sky-500/10 text-sky-400 border-sky-500/20",
+  government: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+  utility: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+  distributor: "bg-violet-500/10 text-violet-400 border-violet-500/20",
+  installer: "bg-teal-500/10 text-teal-400 border-teal-500/20",
+  manufacturer: "bg-rose-500/10 text-rose-400 border-rose-500/20",
+  association: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+  research: "bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20",
+  media: "bg-pink-500/10 text-pink-400 border-pink-500/20",
+  investor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  other: "bg-gray-500/10 text-gray-400 border-gray-500/20",
+};
+
+function getOrgTypeLabel(value: string | null | undefined) {
+  return ORG_TYPE_OPTIONS.find(o => o.value === value)?.label || value || "—";
+}
+
 export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) {
   const [search, setSearch] = useState("");
   const [segmentFilter, setSegmentFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
+  const [orgTypeFilter, setOrgTypeFilter] = useState("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [view, setView] = useState<"list" | "pipeline" | "map">("list");
@@ -85,13 +126,14 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
 
   const PAGE_SIZE = 100;
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<{ data: Account[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/accounts", { search, segment: segmentFilter === "all" ? "" : segmentFilter, status: statusFilter === "all" ? "" : statusFilter, priority: priorityFilter === "all" ? "" : priorityFilter, sort: sortOption }],
+    queryKey: ["/api/accounts", { search, segment: segmentFilter === "all" ? "" : segmentFilter, status: statusFilter === "all" ? "" : statusFilter, priority: priorityFilter === "all" ? "" : priorityFilter, orgType: orgTypeFilter === "all" ? "" : orgTypeFilter, sort: sortOption }],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (segmentFilter !== "all") params.set("segment", segmentFilter);
       if (statusFilter !== "all") params.set("leadStatus", statusFilter);
       if (priorityFilter !== "all") params.set("priority", priorityFilter);
+      if (orgTypeFilter !== "all") params.set("orgType", orgTypeFilter);
       if (sortOption !== "default") { const [key, order] = sortOption.split(":"); params.set("sortBy", key); params.set("sortOrder", order); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
@@ -216,6 +258,17 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
             <SelectItem value="low">Low</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={orgTypeFilter} onValueChange={(v) => { setOrgTypeFilter(v); }}>
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-org-type-filter">
+            <SelectValue placeholder="Org Type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            {ORG_TYPE_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select value={sortOption} onValueChange={setSortOption}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-sort">
             <ArrowUpDown className="mr-2 h-4 w-4" />
@@ -289,6 +342,11 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                         )}
                       </div>
                     </div>
+                    {account.orgType && (
+                      <div className="mt-2">
+                        <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${orgTypeColors[account.orgType] || orgTypeColors.other}`} data-testid={`badge-org-type-${account.id}`}>{getOrgTypeLabel(account.orgType)}</Badge>
+                      </div>
+                    )}
                     {account.nextAction && (
                       <p className="text-xs text-muted-foreground mt-2 truncate">
                         Next: {account.nextAction}
@@ -433,6 +491,9 @@ function AccountsPipelineView({
                   )}
                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                     <Badge variant="outline" className={`text-[10px] px-1 py-0 ${segmentColors[account.segment] || ""}`}>{account.segment}</Badge>
+                    {account.orgType && (
+                      <Badge variant="outline" className={`text-[10px] px-1 py-0 ${orgTypeColors[account.orgType] || orgTypeColors.other}`}>{getOrgTypeLabel(account.orgType)}</Badge>
+                    )}
                     {account.pilotCandidateScore && (
                       <span className="text-xs text-yellow-400 flex items-center gap-0.5">
                         <Star className="h-3 w-3" />{account.pilotCandidateScore}/5
@@ -650,6 +711,7 @@ function AccountDetailDialog({ account: initialAccount, onClose, canEdit = true 
                 <Badge variant="outline" className={segmentColors[account.segment] || ""}>{account.segment}</Badge>
                 <Badge variant="outline" className={statusColors[account.leadStatus] || ""}>{getStageLabel(account.leadStatus)}</Badge>
                 <Badge variant="outline" className={priorityColors[account.priority] || ""}>{account.priority}</Badge>
+                {account.orgType && <Badge variant="outline" className={orgTypeColors[account.orgType] || orgTypeColors.other} data-testid="badge-detail-org-type">{getOrgTypeLabel(account.orgType)}</Badge>}
                 {account.betaTester && <Badge variant="outline" className="bg-cyan-500/10 text-cyan-500 border-cyan-500/20">Beta Tester</Badge>}
                 {account.pilotCandidateScore && (
                   <span className="flex items-center gap-0.5 text-xs text-yellow-500">
@@ -708,6 +770,7 @@ function AccountDetailDialog({ account: initialAccount, onClose, canEdit = true 
                 )}
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  <DetailField label="Organization Type" value={getOrgTypeLabel(account.orgType)} />
                   <DetailField label="Legal Name" value={account.legalName} />
                   <DetailField label="Website" value={account.website} icon={<Globe className="h-3 w-3" />} />
                   <DetailField label="Marina Type" value={account.marinaType} />
@@ -1179,6 +1242,7 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
     name: account.name || "",
     legalName: account.legalName || "",
     website: account.website || "",
+    orgType: account.orgType || "marina_prospect",
     segment: account.segment || "marina",
     marinaType: account.marinaType || "",
     ownershipType: account.ownershipType || "",
@@ -1222,6 +1286,17 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
         <div><Label className="text-xs">Name *</Label><Input value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} required data-testid="input-edit-name" /></div>
         <div><Label className="text-xs">Legal Name</Label><Input value={form.legalName} onChange={(e) => setForm(f => ({ ...f, legalName: e.target.value }))} data-testid="input-edit-legal-name" /></div>
         <div><Label className="text-xs">Website</Label><Input value={form.website} onChange={(e) => setForm(f => ({ ...f, website: e.target.value }))} data-testid="input-edit-website" /></div>
+        <div>
+          <Label className="text-xs">Organization Type</Label>
+          <Select value={form.orgType} onValueChange={(v) => setForm(f => ({ ...f, orgType: v }))}>
+            <SelectTrigger data-testid="select-edit-org-type"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {ORG_TYPE_OPTIONS.map(o => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <div>
           <Label className="text-xs">Segment</Label>
           <Select value={form.segment} onValueChange={(v) => setForm(f => ({ ...f, segment: v }))}>
@@ -1325,12 +1400,23 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
 
 function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<string, unknown>) => void; isPending: boolean }) {
   const [form, setForm] = useState({
-    name: "", segment: "marina", streetAddress: "", city: "", stateProvince: "", postalZip: "", country: "US",
+    name: "", orgType: "marina_prospect", segment: "marina", streetAddress: "", city: "", stateProvince: "", postalZip: "", country: "US",
     region: "", slipCount: "", notes: "", leadStatus: "new", priority: "medium",
   });
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit({ ...form, slipCount: form.slipCount ? Number(form.slipCount) : undefined }); }} className="space-y-4">
       <div><Label>Name *</Label><Input value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} required data-testid="input-account-name" /></div>
+      <div>
+        <Label>Organization Type</Label>
+        <Select value={form.orgType} onValueChange={(v) => setForm(f => ({ ...f, orgType: v }))}>
+          <SelectTrigger data-testid="select-account-org-type"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {ORG_TYPE_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       <div>
         <Label>Segment</Label>
         <Select value={form.segment} onValueChange={(v) => setForm(f => ({ ...f, segment: v }))}>

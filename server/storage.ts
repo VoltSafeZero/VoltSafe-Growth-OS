@@ -75,7 +75,7 @@ export interface IStorage {
   getLeadStates(): Promise<string[]>;
   importMarinasAsLeads(): Promise<number>;
 
-  getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; page?: number; limit?: number }): Promise<{ data: Account[]; total: number; page: number; totalPages: number }>;
+  getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; page?: number; limit?: number }): Promise<{ data: Account[]; total: number; page: number; totalPages: number }>;
   getAccount(id: number): Promise<Account | undefined>;
   createAccount(data: InsertAccount): Promise<Account>;
   updateAccount(id: number, data: Partial<InsertAccount>): Promise<Account | undefined>;
@@ -495,7 +495,7 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
+  async getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -517,6 +517,9 @@ export class DatabaseStorage implements IStorage {
     }
     if (options?.priority) {
       conditions.push(eq(accounts.priority, options.priority));
+    }
+    if (options?.orgType) {
+      conditions.push(eq(accounts.orgType, options.orgType));
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;

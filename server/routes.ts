@@ -854,12 +854,13 @@ export async function registerRoutes(
   });
 
   app.get("/api/accounts", async (req, res) => {
-    const { search, segment, leadStatus, priority, page, limit, sortBy, sortOrder } = req.query;
+    const { search, segment, leadStatus, priority, orgType, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getAccounts({
       search: search as string | undefined,
       segment: segment as string | undefined,
       leadStatus: leadStatus as string | undefined,
       priority: priority as string | undefined,
+      orgType: orgType as string | undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
       sortBy: sortBy as string | undefined,
