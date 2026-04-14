@@ -4,6 +4,7 @@ import { eq, and, lte } from "drizzle-orm";
 import { parseGmailMessage } from "./email-parser";
 import { runAssociationEngine } from "./association-engine";
 import { routeEmailToFolders } from "./email-folder-router";
+import { runAutoConfirmSweep, AUTO_CONFIRM_DRY_RUN } from "./auto-confirm";
 import { log } from "../index";
 
 // Trevor's user ID — the only Gmail user connected in Phase 1
@@ -162,6 +163,7 @@ const MIN_MS = 60 * 1000;
 
 export function startHourlySyncScheduler() {
   log("[gmail-sync] Hourly sync scheduler started");
+  log(`[auto-confirm] Sweep registered — dry-run=${AUTO_CONFIRM_DRY_RUN}, scope=contact, threshold=90`);
 
   setInterval(async () => {
     try {
@@ -169,6 +171,17 @@ export function startHourlySyncScheduler() {
       await runGmailSync(200);
     } catch (err: any) {
       log(`[gmail-sync] Scheduled sync error: ${err.message}`);
+    }
+  }, HOUR_MS);
+
+  // Auto-confirm sweep: runs after each hourly Gmail sync
+  // Confirms unconfirmed contact associations that pass the compound gate.
+  // Dry-run mode is controlled by AUTO_CONFIRM_DRY_RUN in auto-confirm.ts.
+  setInterval(async () => {
+    try {
+      await runAutoConfirmSweep();
+    } catch (err: any) {
+      log(`[auto-confirm] Scheduler error: ${err.message}`);
     }
   }, HOUR_MS);
 
