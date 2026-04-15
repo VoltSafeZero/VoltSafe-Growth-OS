@@ -22,7 +22,7 @@ import { z } from "zod";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
-import { requireAuth, requirePermission, seedUsers, hashPassword, verifyPassword } from "./auth";
+import { requireAuth, requirePermission, seedUsers, hashPassword, verifyPassword, getSessionUserId, requireName } from "./auth";
 import { toCsv, setCsvHeaders, type CsvColumn } from "./csv-export";
 import {
   getRegistrationOptions, verifyRegistration,
@@ -6264,9 +6264,23 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const q = ((req.query.q as string) || "").trim();
       if (q.length < 2) return res.json({ results: [] });
-      // Sanitize for sql.raw ILIKE: escape single quotes and backslashes only
+
+      // Sanitize for sql.raw ILIKE: escape single quotes (SQL injection prevention)
+      // and backslashes (PostgreSQL ILIKE escape character).
+      // We use sql.raw() instead of the sql`` tagged template because Drizzle's
+      // parameterized template cannot mix multiple ${param} substitutions inside a
+      // UNION ALL query without generating invalid SQL (it produces separate $N
+      // placeholders across UNION branches which PostgreSQL rejects at parse time).
       const safe = q.replace(/\\/g, "\\\\").replace(/'/g, "''");
       const term = `%${safe}%`;
+
+      // Each UNION branch MUST be wrapped in parentheses so that LIMIT applies
+      // per-branch. Without parentheses PostgreSQL parses LIMIT as belonging to
+      // the first SELECT only and raises "syntax error at or near UNION".
+      //
+      // contacts and opportunities do NOT have an account_name column — they
+      // store account_id as a foreign key. A LEFT JOIN is required to resolve the
+      // human-readable account name for the search sub-label (sub2 field).
       const result = await db.execute(sql.raw(`
         (SELECT 'account' as type, a.id::text, a.name as label, a.lead_status as sub, a.city as sub2, NULL as linked_id
          FROM accounts a WHERE a.name ILIKE '${term}' LIMIT 5)
@@ -6360,7 +6374,7 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const { pageKey } = req.query as Record<string, string>;
       if (!pageKey) return res.status(400).json({ message: "pageKey required" });
-      const userId = req.session.userId as number | undefined;
+      const userId = getSessionUserId(req);
       const data = await storage.getSavedViews(pageKey, userId);
       res.json(data);
     } catch (err: any) {
@@ -6370,11 +6384,12 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.post("/api/saved-views", requireAuth, async (req, res) => {
     try {
-      const { name, pageKey, filtersJson, columnsJson, sortBy, sortOrder, isShared } = req.body;
-      if (!name || !name.trim()) return res.status(400).json({ message: "name is required" });
+      const { pageKey, filtersJson, columnsJson, sortBy, sortOrder, isShared } = req.body;
+      const name = requireName(req.body.name);
+      if (!name) return res.status(400).json({ message: "name is required" });
       if (!pageKey) return res.status(400).json({ message: "pageKey is required" });
-      const userId = req.session.userId as number | undefined;
-      const view = await storage.createSavedView({ name: name.trim(), pageKey, filtersJson, columnsJson, sortBy, sortOrder, isShared, userId });
+      const userId = getSessionUserId(req);
+      const view = await storage.createSavedView({ name, pageKey, filtersJson, columnsJson, sortBy, sortOrder, isShared, userId });
       res.status(201).json(view);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -6393,8 +6408,10 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.delete("/api/saved-views/:id", requireAuth, async (req, res) => {
     try {
-      const ok = await storage.deleteSavedView(Number(req.params.id));
-      if (!ok) return res.status(404).json({ message: "Not found" });
+      const userId = getSessionUserId(req);
+      const result = await storage.deleteSavedView(Number(req.params.id), userId);
+      if (result === "not_found") return res.status(404).json({ message: "Not found" });
+      if (result === "forbidden") return res.status(403).json({ message: "Cannot delete another user's saved view" });
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

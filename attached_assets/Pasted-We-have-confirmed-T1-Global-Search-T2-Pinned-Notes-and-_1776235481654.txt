@@ -1,0 +1,45 @@
+We have confirmed T1 Global Search, T2 Pinned Notes, and T3 Saved Filters are functionally fixed.
+
+Now do the hardening pass so this does not regress later.
+
+Execute the following exactly:
+
+1. Add automated backend tests for:
+   - Global search:
+     - rejects unauthenticated access
+     - returns empty array for 1-character query
+     - handles normal search like "marina"
+     - handles note search like "call"
+     - safely handles injection/XSS-style input without SQL errors
+     - verifies opportunities and contacts search uses account joins correctly
+   - Pinned notes:
+     - PATCH /api/notes/:id/pin toggles is_pinned true/false
+     - rejects unauthenticated access
+     - rejects invalid note id
+   - Saved views:
+     - POST rejects blank and whitespace-only names
+     - POST stores the authenticated session userId correctly
+     - GET only returns views for the authenticated user
+     - DELETE only deletes the authenticated user’s own saved view
+     - all routes reject unauthenticated access
+
+2. Add frontend/UI verification for:
+   - Global search modal/dropdown opens, shows grouped results, and clicking a result navigates correctly
+   - Pinned notes visually appear first in the notes list
+   - Saved filters can be created, selected, and deleted from the UI
+   - Empty states look clean and do not break layout
+
+3. Add defensive backend cleanup:
+   - centralize session user id access into one helper so routes stop mixing req.session.userId and any custom user object assumptions
+   - centralize trim/empty-string validation for all “name” inputs
+   - add comments in the search route explaining why UNION subqueries are wrapped and why JOINs are required for opportunities/contacts
+
+4. Run a full TypeScript and lint sweep and fix any warnings related to these features.
+
+5. Run the full verification again and give me:
+   - exact files changed
+   - test results
+   - any remaining edge cases
+   - a final PASS/FAIL summary
+
+Do not build new features yet. Harden, test, and verify the existing work first.

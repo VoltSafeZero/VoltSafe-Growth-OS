@@ -236,7 +236,7 @@ export interface IStorage {
   getSavedViews(pageKey: string, userId?: number): Promise<SavedView[]>;
   createSavedView(data: InsertSavedView): Promise<SavedView>;
   updateSavedView(id: number, data: Partial<InsertSavedView>): Promise<SavedView | undefined>;
-  deleteSavedView(id: number): Promise<boolean>;
+  deleteSavedView(id: number, userId: number): Promise<"ok" | "not_found" | "forbidden">;
 
   // Stage 3 — Opportunity Contacts
   getOpportunityContacts(opportunityId: number): Promise<(OpportunityContact & { contact: any })[]>;
@@ -1243,9 +1243,13 @@ export class DatabaseStorage implements IStorage {
     return r;
   }
 
-  async deleteSavedView(id: number): Promise<boolean> {
-    const [r] = await db.delete(savedViews).where(eq(savedViews.id, id)).returning();
-    return !!r;
+  async deleteSavedView(id: number, userId: number): Promise<"ok" | "not_found" | "forbidden"> {
+    const [view] = await db.select().from(savedViews).where(eq(savedViews.id, id)).limit(1);
+    if (!view) return "not_found";
+    // Block deletion if the view belongs to a different user (null userId = shared, always deletable)
+    if (view.userId !== null && view.userId !== userId) return "forbidden";
+    await db.delete(savedViews).where(eq(savedViews.id, id));
+    return "ok";
   }
 
   // ─── Stage 3 — Opportunity Contacts ──────────────────────────────────────

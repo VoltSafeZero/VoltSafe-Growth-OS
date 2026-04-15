@@ -8,6 +8,26 @@ export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);
 }
 
+/**
+ * Centralized session user ID accessor.
+ * All routes MUST use this instead of reading req.session.userId directly
+ * to ensure a single, auditable source of truth for authenticated user identity.
+ * requireAuth middleware guarantees this value is present before any handler runs.
+ */
+export function getSessionUserId(req: Request): number {
+  return req.session.userId as number;
+}
+
+/**
+ * Centralized name field validator.
+ * Returns the trimmed string if valid, or null if blank/missing.
+ * Use at the top of any POST/PUT handler that accepts a user-supplied name.
+ */
+export function requireName(value: unknown): string | null {
+  if (!value || typeof value !== "string" || !value.trim()) return null;
+  return value.trim();
+}
+
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
   return bcrypt.compare(password, hash);
 }
