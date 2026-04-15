@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -116,6 +117,11 @@ function CalDavConnectDialog({
               </>
             )}
           </DialogTitle>
+          <DialogDescription>
+            {isApple
+              ? "Connect your iCloud calendar using an app-specific password."
+              : "Connect a CalDAV-compatible calendar server."}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -233,6 +239,9 @@ function SyncSettingsDialog({
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle>Sync Settings</DialogTitle>
+          <DialogDescription>
+            Configure sync direction and frequency for this calendar integration.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
