@@ -3230,13 +3230,13 @@ export async function registerRoutes(
       ));
       const meetingsToday = Number((meetingsTodayRes as any).rows?.[0]?.n ?? 0);
 
-      const partnersTotalRes = await db.execute(sql.raw(`SELECT COUNT(*)::int AS n FROM partnerships`));
+      const partnersTotalRes = await db.execute(sql.raw(`SELECT COUNT(*)::int AS n FROM partnerships WHERE migration_status = 'legacy'`));
       const activePartnerships = Number((partnersTotalRes as any).rows?.[0]?.n ?? 0);
 
-      const investorRes = await db.execute(sql.raw(`SELECT COUNT(*)::int AS n FROM partnerships WHERE category IN ('investor','innovation_research','research')`));
+      const investorRes = await db.execute(sql.raw(`SELECT COUNT(*)::int AS n FROM partnerships WHERE migration_status = 'legacy' AND category IN ('investor','innovation_research','research')`));
       const investorConversations = Number((investorRes as any).rows?.[0]?.n ?? 0);
 
-      const govtRes = await db.execute(sql.raw(`SELECT COUNT(*)::int AS n FROM partnerships WHERE category IN ('government','government_public')`));
+      const govtRes = await db.execute(sql.raw(`SELECT COUNT(*)::int AS n FROM partnerships WHERE migration_status = 'legacy' AND category IN ('government','government_public')`));
       const grantsGovt = Number((govtRes as any).rows?.[0]?.n ?? 0);
 
       // Today's data

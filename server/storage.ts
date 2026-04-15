@@ -42,7 +42,7 @@ import {
   type SavedView, type InsertSavedView,
   type OpportunityContact, type InsertOpportunityContact,
 } from "@shared/schema";
-import { ilike, eq, or, sql, asc, desc, and, type AnyColumn } from "drizzle-orm";
+import { ilike, eq, or, sql, asc, desc, and, type AnyColumn, type SQL } from "drizzle-orm";
 
 function getSortOrder(column: AnyColumn, order: string) {
   return order === "asc" ? asc(column) : desc(column);
@@ -955,14 +955,13 @@ export class DatabaseStorage implements IStorage {
     };
   }
   async getPartnerships(options?: { category?: string; search?: string; industryType?: string }): Promise<Partnership[]> {
-    const conditions = [];
+    const conditions: SQL[] = [eq(partnerships.migrationStatus, "legacy")];
     if (options?.category) conditions.push(eq(partnerships.category, options.category));
     if (options?.search) conditions.push(ilike(partnerships.name, `%${options.search}%`));
     if (options?.industryType) {
       conditions.push(sql`${partnerships.industryTypes} @> ARRAY[${options.industryType}]::text[]`);
     }
-    const where = conditions.length > 0 ? and(...conditions) : undefined;
-    return db.select().from(partnerships).where(where).orderBy(desc(partnerships.createdAt));
+    return db.select().from(partnerships).where(and(...conditions)).orderBy(desc(partnerships.createdAt));
   }
   async getPartnership(id: number): Promise<Partnership | undefined> {
     const [p] = await db.select().from(partnerships).where(eq(partnerships.id, id));

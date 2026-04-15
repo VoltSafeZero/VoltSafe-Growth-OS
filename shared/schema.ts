@@ -593,11 +593,15 @@ export const partnerships = pgTable("partnerships", {
   testimonialStatus: text("testimonial_status"),
   operationalFeedback: text("operational_feedback"),
   industryTypes: text("industry_types").array(),
+  migratedAccountId: integer("migrated_account_id"),
+  migrationStatus: text("migration_status").default("legacy"),
+  migrationBatchId: text("migration_batch_id"),
+  migratedAt: timestamp("migrated_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const insertPartnershipSchema = createInsertSchema(partnerships).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertPartnershipSchema = createInsertSchema(partnerships).omit({ id: true, createdAt: true, updatedAt: true, migratedAccountId: true, migrationStatus: true, migrationBatchId: true, migratedAt: true });
 export type Partnership = typeof partnerships.$inferSelect;
 export type InsertPartnership = z.infer<typeof insertPartnershipSchema>;
 
