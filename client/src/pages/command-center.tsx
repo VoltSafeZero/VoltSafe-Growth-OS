@@ -143,7 +143,7 @@ function SectionCard({ title, icon: Icon, count, children, linkTo, linkLabel, em
 
 function OppRow({ opp, showOwner }: { opp: Opp; showOwner?: boolean }) {
   return (
-    <Link href="/opportunities">
+    <Link href={`/opportunities/${opp.id}`}>
       <div className="flex items-center gap-2 py-2 -mx-1 px-1 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer group">
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium truncate group-hover:text-primary transition-colors">{opp.title}</div>

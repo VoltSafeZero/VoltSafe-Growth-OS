@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   CalendarDays, Clock, CheckSquare, AlertTriangle, TrendingUp,
   UserPlus, Activity, Zap, Video, MapPin, ArrowRight, Building2,
-  Mail, ChevronRight, Star, Flame,
+  Mail, ChevronRight, Star, Flame, RefreshCw,
 } from "lucide-react";
 import { format, formatDistanceToNow, isToday } from "date-fns";
 
@@ -84,7 +84,7 @@ function EmptyState({ text }: { text: string }) {
 }
 
 export default function TodayPage() {
-  const { data, isLoading } = useQuery<TodayData>({
+  const { data, isLoading, isError, refetch } = useQuery<TodayData>({
     queryKey: ["/api/dashboard/today"],
     refetchInterval: 5 * 60_000,
   });
@@ -92,6 +92,16 @@ export default function TodayPage() {
   const now = new Date();
   const greeting = now.getHours() < 12 ? "Good morning" : now.getHours() < 17 ? "Good afternoon" : "Good evening";
   const dateStr = format(now, "EEEE, MMMM d");
+
+  if (isError) return (
+    <div className="p-6 flex flex-col items-center justify-center min-h-[40vh] gap-4">
+      <AlertTriangle className="h-8 w-8 text-amber-400" />
+      <p className="text-sm text-muted-foreground">Failed to load today's data.</p>
+      <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
+        <RefreshCw className="h-3.5 w-3.5" /> Try again
+      </Button>
+    </div>
+  );
 
   return (
     <div className="p-4 sm:p-6 space-y-5 max-w-7xl mx-auto" data-testid="today-page">

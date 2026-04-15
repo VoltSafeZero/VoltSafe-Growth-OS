@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-import { Building2, Mail, Phone, Search, UserCircle2 } from "lucide-react";
+import { useLocation } from "wouter";
+import { Building2, Mail, Phone, Search, UserCircle2, ExternalLink } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,6 +10,7 @@ import type { Contact, Account } from "@shared/schema";
 type ContactWithAccount = Contact & { accountName?: string };
 
 export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) {
+  const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [highlightedContactId, setHighlightedContactId] = useState<number | null>(null);
 
@@ -97,12 +99,13 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
               <div
                 key={contact.id}
                 id={`contact-row-${contact.id}`}
-                className={`flex items-center gap-4 px-4 py-3 rounded-xl bg-secondary/20 hover:bg-secondary/40 border transition-all group ${
+                className={`flex items-center gap-4 px-4 py-3 rounded-xl bg-secondary/20 hover:bg-secondary/40 border transition-all group cursor-pointer ${
                   isHighlighted
                     ? "border-primary/60 ring-1 ring-primary/30 bg-primary/5"
                     : "border-border/30 hover:border-border/60"
                 }`}
                 data-testid={`contact-row-${contact.id}`}
+                onClick={() => navigate(`/contacts/${contact.id}`)}
               >
                 <div className="w-9 h-9 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                   <span className="text-xs font-semibold text-primary">

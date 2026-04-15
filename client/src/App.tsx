@@ -45,6 +45,11 @@ import AdminUsersPage from "@/pages/admin-users";
 import ProjectsPage from "@/pages/projects";
 import ResetPasswordPage from "@/pages/reset-password";
 import RelationshipIntelligencePage from "@/pages/relationship-intelligence";
+import ContactProfilePage from "@/pages/contact-profile";
+import AccountProfilePage from "@/pages/account-profile";
+import OpportunityProfilePage from "@/pages/opportunity-profile";
+import ActivityFeedPage from "@/pages/activity-feed";
+import NotesPage from "@/pages/notes-page";
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -153,13 +158,18 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/pipeline">{() => guard("crm", <PipelinePage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
 
       {/* ── Growth OS: Relationships ───────────────────────────────── */}
+      <Route path="/accounts/:id">{(params) => guard("crm", <AccountProfilePage />)}</Route>
       <Route path="/accounts">{() => guard("crm", <AccountsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
+      <Route path="/contacts/:id">{(params) => guard("crm", <ContactProfilePage />)}</Route>
       <Route path="/contacts">{() => guard("crm", <ContactsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
+      <Route path="/opportunities/:id">{(params) => guard("crm", <OpportunityProfilePage />)}</Route>
       <Route path="/opportunities">{() => guard("crm", <LeadsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
       <Route path="/quotes">{() => guard("quoting", <QuotesPage canEdit={isAdmin(role) || perms.quoting === "edit"} />)}</Route>
 
       {/* ── Growth OS: Coming Soon stubs ──────────────────────────── */}
-      {(["activity", "notes", "renewals", "segments", "tags", "automations", "imports"] as const).map(slug => (
+      <Route path="/activity">{() => wrap(<ActivityFeedPage />)}</Route>
+      <Route path="/notes">{() => wrap(<NotesPage />)}</Route>
+      {(["renewals", "segments", "tags", "automations", "imports"] as const).map(slug => (
         <Route key={slug} path={`/${slug}`}>{() => wrap(
           <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-6">
             <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { Link } from "wouter";
 import {
   TrendingUp, AlertTriangle, Flame, Users, DollarSign,
   Clock, Building2, ChevronRight, BarChart3, ArrowUpRight,
@@ -70,7 +71,9 @@ function OppCard({ opp, onStageChange }: { opp: OppRow; onStageChange: (id: numb
       <div className="flex-1 min-w-0">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-sm font-medium truncate">{opp.title}</p>
+            <Link href={`/opportunities/${opp.id}`}>
+              <p className="text-sm font-medium truncate hover:text-primary cursor-pointer">{opp.title}</p>
+            </Link>
             <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
               <Building2 className="h-3 w-3 shrink-0" />
               <span className="truncate">{opp.accountName}</span>
@@ -120,7 +123,7 @@ export default function PipelinePage({ canEdit = true }: { canEdit?: boolean }) 
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<TabId>("stalled");
 
-  const { data, isLoading, refetch } = useQuery<PipelineData>({
+  const { data, isLoading, isError, refetch } = useQuery<PipelineData>({
     queryKey: ["/api/pipeline/insights"],
     refetchInterval: 5 * 60_000,
   });
@@ -146,6 +149,16 @@ export default function PipelinePage({ canEdit = true }: { canEdit?: boolean }) 
   ];
 
   const totalWeighted = data?.byStage.reduce((s, r) => s + r.weightedAmount, 0) ?? 0;
+
+  if (isError) return (
+    <div className="p-6 flex flex-col items-center justify-center min-h-[40vh] gap-4">
+      <AlertTriangle className="h-8 w-8 text-amber-400" />
+      <p className="text-sm text-muted-foreground">Failed to load pipeline data.</p>
+      <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
+        <RefreshCw className="h-3.5 w-3.5" /> Try again
+      </Button>
+    </div>
+  );
 
   return (
     <div className="p-4 sm:p-6 space-y-5 max-w-6xl mx-auto" data-testid="pipeline-page">

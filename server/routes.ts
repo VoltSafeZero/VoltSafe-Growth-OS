@@ -1069,6 +1069,83 @@ export async function registerRoutes(
     }));
   });
 
+  app.get("/api/accounts/:id/profile", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [accountRows, contactRows, oppRows, emailRows, meetingRows, noteRows, taskRows] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT a.*, u.name as assigned_user_name
+          FROM accounts a
+          LEFT JOIN users u ON a.assigned_to_user_id = u.id
+          WHERE a.id = ${id} LIMIT 1
+        `)),
+        db.execute(sql.raw(`
+          SELECT id, name, title, email, phone, role_type, is_primary, relationship_strength
+          FROM contacts WHERE account_id = ${id}
+          ORDER BY is_primary DESC NULLS LAST, name ASC LIMIT 20
+        `)),
+        db.execute(sql.raw(`
+          SELECT o.id, o.title, o.stage, o.amount, o.est_close_date, o.next_step, o.owner_user_id,
+                 u.name as owner_name
+          FROM opportunities o
+          LEFT JOIN users u ON o.owner_user_id = u.id
+          WHERE o.account_id = ${id}
+          ORDER BY o.updated_at DESC LIMIT 10
+        `)),
+        db.execute(sql.raw(`
+          SELECT id, subject, from_email, from_name, direction, snippet, sent_at
+          FROM email_messages
+          WHERE source_account_id = ${id}
+          ORDER BY sent_at DESC LIMIT 8
+        `)),
+        db.execute(sql.raw(`
+          SELECT id, title, event_type, start_time, end_time, location, meeting_url, status
+          FROM calendar_events
+          WHERE (linked_object_type = 'account' AND linked_object_id = ${id})
+             OR (linked_object_type = 'opportunity' AND linked_object_id IN (
+                   SELECT id FROM opportunities WHERE account_id = ${id}
+                 ))
+          ORDER BY start_time DESC LIMIT 8
+        `)),
+        db.execute(sql.raw(`
+          SELECT id, content, author_name, created_at, updated_at
+          FROM notes WHERE linked_object_type = 'account' AND linked_object_id = ${id}
+          ORDER BY created_at DESC LIMIT 10
+        `)),
+        db.execute(sql.raw(`
+          SELECT id, title, status, priority, due_date, owner_user_id
+          FROM tasks
+          WHERE account_id = ${id}
+             OR (linked_object_type = 'account' AND linked_object_id = ${id})
+          ORDER BY CASE WHEN status != 'done' THEN 0 ELSE 1 END, due_date ASC NULLS LAST LIMIT 10
+        `)),
+      ]);
+      if (!accountRows.rows.length) return res.status(404).json({ message: "Account not found" });
+      const account = accountRows.rows[0];
+      const opps = oppRows.rows as any[];
+      const hasOverdueTasks = (taskRows.rows as any[]).some((t: any) => t.status !== 'done' && t.due_date && new Date(t.due_date) < new Date());
+      const openOpps = opps.filter((o: any) => !['closed_won','closed_lost'].includes(o.stage));
+      let suggestedAction = "Schedule a discovery call to understand current needs";
+      if (hasOverdueTasks) suggestedAction = "Complete overdue tasks to keep this account moving";
+      else if (openOpps.some((o: any) => o.stage === 'proposal')) suggestedAction = "Follow up on open proposal — close or re-qualify";
+      else if (openOpps.length === 0) suggestedAction = "Explore new opportunity — no active deals in pipeline";
+      else if (!account.next_action) suggestedAction = "Set a next action to maintain momentum";
+      res.json({
+        account,
+        contacts: contactRows.rows,
+        opportunities: opps,
+        emails: emailRows.rows,
+        meetings: meetingRows.rows,
+        notes: noteRows.rows,
+        tasks: taskRows.rows,
+        suggestedAction,
+      });
+    } catch (e: any) {
+      console.error("Account profile error:", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get("/api/accounts/:id", async (req, res) => {
     const account = await storage.getAccount(Number(req.params.id));
     if (!account) return res.status(404).json({ message: "Account not found" });
@@ -1140,6 +1217,88 @@ export async function registerRoutes(
     }));
   });
 
+  app.get("/api/contacts/:id/profile", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const contactRes = await db.execute(sql.raw(`
+        SELECT c.*, a.name as account_name, a.id as account_id_val
+        FROM contacts c
+        LEFT JOIN accounts a ON c.account_id = a.id
+        WHERE c.id = ${id} LIMIT 1
+      `));
+      if (!contactRes.rows.length) return res.status(404).json({ message: "Contact not found" });
+      const contact = contactRes.rows[0] as any;
+      const emailQ = contact.email ? `'${contact.email.replace(/'/g, "''")}'` : "NULL";
+      const [oppRows, emailRows, meetingRows, noteRows, taskRows, activityRows] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT o.id, o.title, o.stage, o.amount, o.est_close_date, o.next_step,
+                 u.name as owner_name, a.name as account_name
+          FROM opportunities o
+          LEFT JOIN opportunity_contacts oc ON o.id = oc.opportunity_id
+          LEFT JOIN users u ON o.owner_user_id = u.id
+          LEFT JOIN accounts a ON o.account_id = a.id
+          WHERE oc.contact_id = ${id}
+             OR o.contact_id = ${id}
+          ORDER BY o.updated_at DESC LIMIT 10
+        `)),
+        contact.email ? db.execute(sql.raw(`
+          SELECT id, subject, from_email, from_name, direction, snippet, sent_at
+          FROM email_messages
+          WHERE from_email = ${emailQ}
+             OR all_participants::text ILIKE '%${contact.email.replace(/'/g, "''")}%'
+          ORDER BY sent_at DESC LIMIT 8
+        `)) : Promise.resolve({ rows: [] }),
+        db.execute(sql.raw(`
+          SELECT id, title, event_type, start_time, end_time, location, meeting_url, status, invitees
+          FROM calendar_events
+          WHERE linked_object_type = 'contact' AND linked_object_id = ${id}
+          ${contact.email ? `OR invitees::text ILIKE '%${contact.email.replace(/'/g, "''")}%'` : ""}
+          ORDER BY start_time DESC LIMIT 8
+        `)),
+        db.execute(sql.raw(`
+          SELECT id, content, author_name, created_at, updated_at
+          FROM notes WHERE linked_object_type = 'contact' AND linked_object_id = ${id}
+          ORDER BY created_at DESC LIMIT 10
+        `)),
+        db.execute(sql.raw(`
+          SELECT id, title, status, priority, due_date
+          FROM tasks
+          WHERE linked_object_type = 'contact' AND linked_object_id = ${id}
+          ORDER BY CASE WHEN status != 'done' THEN 0 ELSE 1 END, due_date ASC NULLS LAST LIMIT 10
+        `)),
+        db.execute(sql.raw(`
+          SELECT id, type, summary, created_at FROM activities
+          WHERE (linked_object_type = 'contact' AND linked_object_id = ${id})
+             OR contact_id = ${id}
+          ORDER BY created_at DESC LIMIT 10
+        `)),
+      ]);
+      const opps = oppRows.rows as any[];
+      const tasks = taskRows.rows as any[];
+      const emails = emailRows.rows as any[];
+      const meetings = meetingRows.rows as any[];
+      const hasOverdueTasks = tasks.some((t: any) => t.status !== 'done' && t.due_date && new Date(t.due_date) < new Date());
+      let suggestedAction = "Send an introductory email to build relationship";
+      if (hasOverdueTasks) suggestedAction = "Complete overdue tasks for this contact";
+      else if (opps.some((o: any) => o.stage === 'proposal')) suggestedAction = "Follow up on open proposal with this contact";
+      else if (emails.length === 0 && meetings.length === 0) suggestedAction = "No recent touchpoints — reach out to re-engage";
+      else if (opps.length === 0) suggestedAction = "Explore opportunity — no deals linked to this contact";
+      res.json({
+        contact,
+        opportunities: opps,
+        emails,
+        meetings,
+        notes: noteRows.rows,
+        tasks,
+        activities: activityRows.rows,
+        suggestedAction,
+      });
+    } catch (e: any) {
+      console.error("Contact profile error:", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get("/api/contacts/:id", async (req, res) => {
     const contact = await storage.getContact(Number(req.params.id));
     if (!contact) return res.status(404).json({ message: "Contact not found" });
@@ -1174,6 +1333,88 @@ export async function registerRoutes(
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     }));
+  });
+
+  app.get("/api/opportunities/:id/profile", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [oppRows, contactRows, emailRows, meetingRows, noteRows, taskRows, historyRows, activityRows] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT o.*, a.name as account_name, u.name as owner_name
+          FROM opportunities o
+          LEFT JOIN accounts a ON o.account_id = a.id
+          LEFT JOIN users u ON o.owner_user_id = u.id
+          WHERE o.id = ${id} LIMIT 1
+        `)),
+        db.execute(sql.raw(`
+          SELECT c.id, c.name, c.title, c.email, c.phone, c.role_type, c.relationship_strength,
+                 oc.role as opp_role
+          FROM contacts c
+          JOIN opportunity_contacts oc ON c.id = oc.contact_id
+          WHERE oc.opportunity_id = ${id}
+          ORDER BY c.is_primary DESC NULLS LAST, c.name ASC LIMIT 20
+        `)),
+        db.execute(sql.raw(`
+          SELECT em.id, em.subject, em.from_email, em.from_name, em.direction, em.snippet, em.sent_at
+          FROM email_messages em
+          WHERE em.source_account_id = (SELECT account_id FROM opportunities WHERE id = ${id})
+          ORDER BY em.sent_at DESC LIMIT 8
+        `)),
+        db.execute(sql.raw(`
+          SELECT id, title, event_type, start_time, end_time, location, meeting_url, status
+          FROM calendar_events
+          WHERE linked_object_type = 'opportunity' AND linked_object_id = ${id}
+          ORDER BY start_time DESC LIMIT 8
+        `)),
+        db.execute(sql.raw(`
+          SELECT id, content, author_name, created_at, updated_at
+          FROM notes WHERE linked_object_type = 'opportunity' AND linked_object_id = ${id}
+          ORDER BY created_at DESC LIMIT 10
+        `)),
+        db.execute(sql.raw(`
+          SELECT id, title, status, priority, due_date
+          FROM tasks
+          WHERE linked_object_type = 'opportunity' AND linked_object_id = ${id}
+          ORDER BY CASE WHEN status != 'done' THEN 0 ELSE 1 END, due_date ASC NULLS LAST LIMIT 10
+        `)),
+        db.execute(sql.raw(`
+          SELECT from_stage, to_stage, changed_at FROM deal_stage_history
+          WHERE deal_id = ${id}
+          ORDER BY changed_at ASC
+        `)),
+        db.execute(sql.raw(`
+          SELECT id, type, summary, created_at FROM activities
+          WHERE linked_object_type = 'opportunity' AND linked_object_id = ${id}
+          ORDER BY created_at DESC LIMIT 10
+        `)),
+      ]);
+      if (!oppRows.rows.length) return res.status(404).json({ message: "Opportunity not found" });
+      const opp = oppRows.rows[0] as any;
+      const tasks = taskRows.rows as any[];
+      const contacts = contactRows.rows as any[];
+      const hasOverdueTasks = tasks.some((t: any) => t.status !== 'done' && t.due_date && new Date(t.due_date) < new Date());
+      let suggestedAction = "Advance to next stage — update stage when ready";
+      if (hasOverdueTasks) suggestedAction = "Clear overdue tasks to unblock this deal";
+      else if (opp.stage === 'proposal') suggestedAction = "Follow up on proposal — confirm decision timeline";
+      else if (opp.stage === 'discovery') suggestedAction = "Complete discovery and prepare proposal";
+      else if (opp.stage === 'qualified') suggestedAction = "Schedule demo or site visit to advance deal";
+      else if (contacts.length === 0) suggestedAction = "Link a contact — no stakeholders mapped to this deal";
+      else if (!opp.next_step) suggestedAction = "Define the next step to keep deal moving";
+      res.json({
+        opportunity: opp,
+        contacts,
+        emails: emailRows.rows,
+        meetings: meetingRows.rows,
+        notes: noteRows.rows,
+        tasks,
+        stageHistory: historyRows.rows,
+        activities: activityRows.rows,
+        suggestedAction,
+      });
+    } catch (e: any) {
+      console.error("Opportunity profile error:", e);
+      res.status(500).json({ message: e.message });
+    }
   });
 
   app.get("/api/opportunities/:id/stage-history", async (req, res) => {
@@ -5790,6 +6031,94 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ─── Stage 3 — Notes ────────────────────────────────────────────────────
+  app.get("/api/notes/all", requireAuth, async (req, res) => {
+    try {
+      const { type, search, limit: limitQ } = req.query as Record<string, string>;
+      const lim = Math.min(Number(limitQ) || 50, 100);
+      const typeFilter = type && type !== "all" ? `AND linked_object_type = '${type.replace(/'/g,"''")}'` : "";
+      const searchFilter = search ? `AND content ILIKE '%${search.replace(/'/g,"''").replace(/%/g,"\\%")}%'` : "";
+      const rows = await db.execute(sql.raw(`
+        SELECT n.*, 
+          CASE n.linked_object_type
+            WHEN 'contact' THEN (SELECT name FROM contacts WHERE id = n.linked_object_id)
+            WHEN 'account' THEN (SELECT name FROM accounts WHERE id = n.linked_object_id)
+            WHEN 'opportunity' THEN (SELECT title FROM opportunities WHERE id = n.linked_object_id)
+            ELSE NULL
+          END AS linked_object_name
+        FROM notes n
+        WHERE 1=1 ${typeFilter} ${searchFilter}
+        ORDER BY n.created_at DESC
+        LIMIT ${lim}
+      `));
+      res.json(rows.rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/activity-feed", requireAuth, async (req, res) => {
+    try {
+      const { limit: limitQ } = req.query as Record<string, string>;
+      const lim = Math.min(Number(limitQ) || 50, 100);
+      const rows = await db.execute(sql.raw(`
+        SELECT * FROM (
+          SELECT 'note' as feed_type, n.id, n.content as summary,
+                 n.author_name as actor, n.created_at,
+                 n.linked_object_type, n.linked_object_id,
+                 CASE n.linked_object_type
+                   WHEN 'contact' THEN (SELECT name FROM contacts WHERE id = n.linked_object_id)
+                   WHEN 'account' THEN (SELECT name FROM accounts WHERE id = n.linked_object_id)
+                   WHEN 'opportunity' THEN (SELECT title FROM opportunities WHERE id = n.linked_object_id)
+                   ELSE NULL
+                 END AS linked_object_name,
+                 NULL::text as extra
+          FROM notes n
+          UNION ALL
+          SELECT 'email' as feed_type, em.id, em.subject as summary,
+                 COALESCE(em.from_name, em.from_email) as actor, em.sent_at as created_at,
+                 'account' as linked_object_type, em.source_account_id::int as linked_object_id,
+                 (SELECT name FROM accounts WHERE id = em.source_account_id) as linked_object_name,
+                 em.direction::text as extra
+          FROM email_messages em
+          WHERE em.source_account_id IS NOT NULL AND em.sent_at IS NOT NULL
+          UNION ALL
+          SELECT 'meeting' as feed_type, ce.id, ce.title as summary,
+                 'Calendar' as actor, ce.created_at,
+                 ce.linked_object_type, ce.linked_object_id,
+                 NULL::text as linked_object_name,
+                 ce.event_type::text as extra
+          FROM calendar_events ce
+          WHERE ce.created_at IS NOT NULL
+          UNION ALL
+          SELECT 'task' as feed_type, t.id, t.title as summary,
+                 (SELECT name FROM users WHERE id = t.owner_user_id) as actor, t.created_at,
+                 t.linked_object_type, t.linked_object_id,
+                 CASE t.linked_object_type
+                   WHEN 'contact' THEN (SELECT name FROM contacts WHERE id = t.linked_object_id)
+                   WHEN 'account' THEN (SELECT name FROM accounts WHERE id = t.linked_object_id)
+                   WHEN 'opportunity' THEN (SELECT title FROM opportunities WHERE id = t.linked_object_id)
+                   ELSE NULL
+                 END AS linked_object_name,
+                 t.status::text as extra
+          FROM tasks t
+          UNION ALL
+          SELECT 'activity' as feed_type, a.id, a.summary,
+                 COALESCE(a.created_by, 'System') as actor, a.created_at,
+                 a.linked_object_type, a.linked_object_id,
+                 NULL::text as linked_object_name,
+                 a.type::text as extra
+          FROM activities a
+        ) feed
+        ORDER BY created_at DESC
+        LIMIT ${lim}
+      `));
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error("Activity feed error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/notes", requireAuth, async (req, res) => {
     try {
       const { linkedObjectType, linkedObjectId } = req.query as Record<string, string>;

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Search, Building2, Users, Loader2, Phone, Mail, Trash2,
   ArrowUpDown, MapPin, Globe, Zap, Star, AlertTriangle, Calendar,
-  Settings2, Wrench, Shield, Wifi, LinkIcon, List, LayoutGrid, Map, FolderPlus, ArrowRightLeft,
+  Settings2, Wrench, Shield, Wifi, LinkIcon, List, LayoutGrid, Map, FolderPlus, ArrowRightLeft, ExternalLink,
   ChevronDown, ChevronRight, Clock
 } from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
@@ -735,7 +735,14 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
               <Building2 className="w-6 h-6 text-primary" />
             </div>
             <div className="flex-1">
-              <DialogTitle className="text-xl">{account.name}</DialogTitle>
+              <div className="flex items-center gap-2 flex-wrap">
+                <DialogTitle className="text-xl">{account.name}</DialogTitle>
+                <Link href={`/accounts/${account.id}`}>
+                  <button className="inline-flex items-center gap-1 text-xs rounded-md border border-primary/20 bg-primary/5 text-primary px-2 py-0.5 cursor-pointer transition-colors hover:bg-primary/10 hover:border-primary/40" data-testid="button-view-account-profile">
+                    <ExternalLink className="h-3 w-3" /> Intelligence Profile
+                  </button>
+                </Link>
+              </div>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <Badge variant="outline" className={segmentColors[account.segment] || ""}>{account.segment}</Badge>
                 <Badge variant="outline" className={statusColors[account.leadStatus] || ""}>{getStageLabel(account.leadStatus)}</Badge>
