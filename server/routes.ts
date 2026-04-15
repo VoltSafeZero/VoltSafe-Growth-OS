@@ -41,6 +41,9 @@ import { runGmailSync, syncEmailAccount } from "./services/gmail-sync";
 import { buildSweepReport } from "./services/auto-confirm";
 import { generateGlobalSuggestions } from "./services/global-suggestions";
 import {
+  generateTrackingId, injectTracking, recordOpen, recordClick, getEngagementStats,
+} from "./tracking";
+import {
   emailMessages, emailThreads, emailAssociations, associationFeedback, emailFilters, scheduledEmails,
   emailAccounts,
   assets, assetFolders, priceLists, priceListItems,
@@ -161,6 +164,131 @@ export async function registerRoutes(
 ): Promise<Server> {
 
   registerVoiceAssistantRoutes(app);
+
+  // ── Public Tracking Routes (NO auth — served to email clients) ─────────────
+  // 1x1 transparent GIF pixel for open tracking
+  app.get("/track/open/:trackingId.gif", async (req, res) => {
+    const { trackingId } = req.params;
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress;
+    const ua = req.headers["user-agent"];
+    // Respond immediately with the pixel — don't block on DB write
+    const pixel = Buffer.from(
+      "47494638396101000100800000ffffff00000021f90400000000002c00000000010001000002024401003b", "hex"
+    );
+    res.setHeader("Content-Type", "image/gif");
+    res.setHeader("Content-Length", pixel.length);
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    res.setHeader("Pragma", "no-cache");
+    res.end(pixel);
+    // Fire and forget — write event after response
+    recordOpen(trackingId, ip, ua).catch(() => {});
+  });
+
+  // Tracked link redirect
+  app.get("/track/click/:trackingId", async (req, res) => {
+    const { trackingId } = req.params;
+    const destinationUrl = req.query.url as string;
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress;
+    const ua = req.headers["user-agent"];
+
+    // Validate destination URL to prevent open redirect abuse
+    let safeUrl = "/";
+    if (destinationUrl) {
+      try {
+        const parsed = new URL(decodeURIComponent(destinationUrl));
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+          safeUrl = parsed.href;
+        }
+      } catch { /* invalid URL — redirect to / */ }
+    }
+
+    res.redirect(302, safeUrl);
+    // Fire and forget
+    recordClick(trackingId, safeUrl, ip, ua).catch(() => {});
+  });
+
+  // ── Engagement Stats API (authenticated) ───────────────────────────────────
+  app.get("/api/email-engagement/:trackingId", requireAuth, async (req, res) => {
+    try {
+      const stats = await getEngagementStats(req.params.trackingId);
+      res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/email-engagement/by-message/:gmailMessageId", requireAuth, async (req, res) => {
+    try {
+      const gmailMessageId = decodeURIComponent(req.params.gmailMessageId);
+      const [pixel] = (await db.execute(sql.raw(`
+        SELECT tracking_id FROM email_tracking_pixels
+        WHERE gmail_message_id = '${gmailMessageId.replace(/'/g, "''")}'
+        LIMIT 1
+      `))).rows as any[];
+      if (!pixel) return res.json({ trackingId: null, opens: 0, uniqueOpens: 0, clicks: 0, uniqueClicks: 0, firstOpenAt: null, lastOpenAt: null, events: [] });
+      const stats = await getEngagementStats(pixel.tracking_id);
+      res.json({ trackingId: pixel.tracking_id, ...stats });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Engagement rules CRUD
+  app.get("/api/email-engagement-rules", requireAuth, async (req, res) => {
+    try {
+      const rows = (await db.execute(sql.raw(`SELECT * FROM email_engagement_rules ORDER BY id ASC`))).rows;
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/email-engagement-rules", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const { name, triggerType, minEvents, actionType, actionConfig, isEnabled } = req.body;
+      if (!name || !triggerType || !actionType) return res.status(400).json({ message: "name, triggerType, actionType required" });
+      const [row] = (await db.execute(sql.raw(`
+        INSERT INTO email_engagement_rules (name, trigger_type, min_events, action_type, action_config, is_enabled, created_at, updated_at)
+        VALUES (
+          '${String(name).replace(/'/g, "''")}',
+          '${String(triggerType).replace(/'/g, "''")}',
+          ${Number(minEvents) || 1},
+          '${String(actionType).replace(/'/g, "''")}',
+          ${actionConfig ? `'${JSON.stringify(actionConfig).replace(/'/g, "''")}'::jsonb` : "NULL"},
+          ${isEnabled !== false},
+          NOW(), NOW()
+        ) RETURNING *
+      `))).rows as any[];
+      res.status(201).json(row);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/email-engagement-rules/:id", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const updates: string[] = ["updated_at = NOW()"];
+      if (req.body.isEnabled !== undefined) updates.push(`is_enabled = ${Boolean(req.body.isEnabled)}`);
+      if (req.body.name) updates.push(`name = '${String(req.body.name).replace(/'/g, "''")}'`);
+      if (req.body.minEvents) updates.push(`min_events = ${Number(req.body.minEvents)}`);
+      if (req.body.actionConfig !== undefined) updates.push(`action_config = '${JSON.stringify(req.body.actionConfig).replace(/'/g, "''")}'::jsonb`);
+      const [row] = (await db.execute(sql.raw(`UPDATE email_engagement_rules SET ${updates.join(", ")} WHERE id = ${id} RETURNING *`))).rows as any[];
+      if (!row) return res.status(404).json({ message: "Rule not found" });
+      res.json(row);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/email-engagement-rules/:id", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      await db.execute(sql.raw(`DELETE FROM email_engagement_rules WHERE id = ${Number(req.params.id)}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
   app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
@@ -7231,7 +7359,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected. Connect your Gmail to send emails." });
     try {
-      const { to, subject, body, threadId, attachmentIds, cc, bcc } = req.body;
+      const { to, subject, body, threadId, attachmentIds, cc, bcc, enableTracking } = req.body;
       if (!to || !body) {
         return res.status(400).json({ message: "to and body are required" });
       }
@@ -7249,8 +7377,45 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           }
         }
       }
-      const result = await sendEmail(resolved.userId, to, subject || "", body, threadId, mimeAttachments, resolved.accountId, cc || undefined, bcc || undefined);
-      res.json(result);
+
+      // ── Tracking injection (non-fatal) ────────────────────────────────────
+      const trackingId = generateTrackingId();
+      const trackingEnabled = enableTracking !== false; // default: true
+      let trackedBody = body;
+      if (trackingEnabled) {
+        try {
+          const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
+          const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000";
+          const baseUrl = `${protocol}://${host}`;
+          trackedBody = injectTracking(body, trackingId, baseUrl);
+        } catch (trackErr) {
+          console.warn("[tracking] injection failed (non-fatal):", trackErr);
+          trackedBody = body; // fall back to untracked
+        }
+      }
+
+      const result = await sendEmail(resolved.userId, to, subject || "", trackedBody, threadId, mimeAttachments, resolved.accountId, cc || undefined, bcc || undefined);
+
+      // ── Save tracking record (non-fatal) ──────────────────────────────────
+      if (trackingEnabled && result?.id) {
+        try {
+          await db.execute(sql.raw(`
+            INSERT INTO email_tracking_pixels (tracking_id, gmail_message_id, subject, recipient_email, sent_by_user_id, created_at)
+            VALUES (
+              '${trackingId}',
+              '${String(result.id).replace(/'/g, "''")}',
+              ${subject ? `'${String(subject).replace(/'/g, "''")}'` : "NULL"},
+              '${String(to).replace(/'/g, "''")}',
+              ${userId},
+              NOW()
+            )
+          `));
+        } catch (saveErr) {
+          console.warn("[tracking] pixel save failed (non-fatal):", saveErr);
+        }
+      }
+
+      res.json({ ...result, trackingId: trackingEnabled ? trackingId : null });
     } catch (err: any) {
       res.status(503).json({ message: "Failed to send email", error: err.message });
     }

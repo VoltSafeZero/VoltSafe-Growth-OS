@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Mail, RefreshCw, ExternalLink, Link, Shield, AlertTriangle, Loader2 } from "lucide-react";
+import { Mail, RefreshCw, ExternalLink, Link, Shield, AlertTriangle, Loader2, Eye, MousePointerClick, Clock } from "lucide-react";
 import { Link as WouterLink } from "wouter";
 
 type EmailWithAssociation = {
@@ -29,6 +29,17 @@ type EmailWithAssociation = {
   };
 };
 
+type EngagementStats = {
+  trackingId: string | null;
+  opens: number;
+  uniqueOpens: number;
+  clicks: number;
+  uniqueClicks: number;
+  firstOpenAt: string | null;
+  lastOpenAt: string | null;
+  events: Array<{ eventType: string; url: string | null; isBot: boolean; occurredAt: string }>;
+};
+
 function formatEmailDate(dateStr: string | null) {
   if (!dateStr) return "";
   const d = new Date(dateStr);
@@ -39,6 +50,21 @@ function formatEmailDate(dateStr: string | null) {
   if (diffDays < 7) return d.toLocaleDateString([], { weekday: "short" });
   if (diffDays < 365) return d.toLocaleDateString([], { month: "short", day: "numeric" });
   return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatRelativeTime(dateStr: string | null): string {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "";
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `${diffH}h ago`;
+  const diffD = Math.floor(diffH / 24);
+  return `${diffD}d ago`;
 }
 
 function ConfidenceBadge({ score, isAuto, isUserConfirmed }: { score: number | null; isAuto: boolean | null; isUserConfirmed: boolean | null }) {
@@ -55,6 +81,78 @@ function ConfidenceBadge({ score, isAuto, isUserConfirmed }: { score: number | n
     return <Badge variant="outline" className="text-xs text-amber-400 border-amber-500/30 gap-1"><AlertTriangle className="h-3 w-3" /> Suggested</Badge>;
   }
   return null;
+}
+
+function EngagementPanel({ gmailMessageId }: { gmailMessageId: string }) {
+  const engQuery = useQuery<EngagementStats>({
+    queryKey: ["/api/email-engagement/by-message", gmailMessageId],
+    queryFn: async () => {
+      const res = await fetch(`/api/email-engagement/by-message/${encodeURIComponent(gmailMessageId)}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    staleTime: 30000,
+  });
+
+  if (engQuery.isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+        <Loader2 className="h-3 w-3 animate-spin" /> Loading engagement data…
+      </div>
+    );
+  }
+
+  const stats = engQuery.data;
+  if (!stats || !stats.trackingId) {
+    return (
+      <p className="text-xs text-muted-foreground/50 italic">No tracking data — email sent without tracking or tracking not yet recorded.</p>
+    );
+  }
+
+  const realEvents = stats.events.filter(e => !e.isBot);
+  const openEvents = realEvents.filter(e => e.eventType === "open");
+  const clickEvents = realEvents.filter(e => e.eventType === "click");
+
+  return (
+    <div className="space-y-2.5" data-testid="engagement-panel">
+      {/* Summary row */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className={`flex items-center gap-1.5 text-xs font-medium ${stats.uniqueOpens > 0 ? "text-emerald-400" : "text-muted-foreground/50"}`}
+          data-testid="engagement-opens-count">
+          <Eye className="h-3.5 w-3.5" />
+          {stats.uniqueOpens > 0 ? `${stats.uniqueOpens} open${stats.uniqueOpens !== 1 ? "s" : ""}` : "Not opened"}
+        </div>
+        {stats.uniqueClicks > 0 && (
+          <div className="flex items-center gap-1.5 text-xs font-medium text-blue-400" data-testid="engagement-clicks-count">
+            <MousePointerClick className="h-3.5 w-3.5" />
+            {stats.uniqueClicks} click{stats.uniqueClicks !== 1 ? "s" : ""}
+          </div>
+        )}
+        {stats.firstOpenAt && (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Clock className="h-3 w-3" />
+            First opened {formatRelativeTime(stats.firstOpenAt)}
+          </div>
+        )}
+      </div>
+
+      {/* Event timeline */}
+      {realEvents.length > 0 && (
+        <div className="space-y-1 max-h-32 overflow-y-auto">
+          {realEvents.slice(0, 10).map((ev, i) => (
+            <div key={i} className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              {ev.eventType === "open"
+                ? <Eye className="h-3 w-3 text-emerald-400 shrink-0" />
+                : <MousePointerClick className="h-3 w-3 text-blue-400 shrink-0" />}
+              <span className="capitalize">{ev.eventType}</span>
+              {ev.url && <span className="truncate text-muted-foreground/60 max-w-[180px]">{ev.url.replace(/^https?:\/\//, "")}</span>}
+              <span className="shrink-0 ml-auto">{formatRelativeTime(ev.occurredAt)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function EmailsTab({ objectType, objectId }: { objectType: string; objectId: number }) {
@@ -153,6 +251,7 @@ export function EmailsTab({ objectType, objectId }: { objectType: string; object
         const reasons: string[] = email.association?.associationReasonJson
           ? JSON.parse(email.association.associationReasonJson)
           : [];
+        const isOutbound = email.direction === "outbound";
 
         return (
           <div
@@ -164,13 +263,18 @@ export function EmailsTab({ objectType, objectId }: { objectType: string; object
               className="w-full text-left px-4 py-3 flex items-start gap-3"
               onClick={() => setExpandedId(isExpanded ? null : email.id)}
             >
-              <div className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${email.direction === "outbound" ? "bg-blue-400" : "bg-primary"}`} />
+              <div className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${isOutbound ? "bg-blue-400" : "bg-primary"}`} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                   <span className="text-sm font-medium truncate">
                     {email.subject || "(no subject)"}
                   </span>
                   {email.isReply && <Badge variant="outline" className="text-xs py-0">Re:</Badge>}
+                  {isOutbound && (
+                    <Badge variant="outline" className="text-xs py-0 gap-1 text-blue-400 border-blue-500/20">
+                      <Eye className="h-2.5 w-2.5" />Tracked
+                    </Badge>
+                  )}
                   {email.association && (
                     <ConfidenceBadge
                       score={email.association.confidenceScore}
@@ -181,7 +285,7 @@ export function EmailsTab({ objectType, objectId }: { objectType: string; object
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span className="truncate">
-                    {email.direction === "outbound"
+                    {isOutbound
                       ? `Sent by you`
                       : email.fromName || email.fromEmail || "Unknown"}
                   </span>
@@ -202,6 +306,16 @@ export function EmailsTab({ objectType, objectId }: { objectType: string; object
                 <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                   <span>From: <span className="text-foreground">{email.fromName ? `${email.fromName} <${email.fromEmail}>` : email.fromEmail}</span></span>
                 </div>
+
+                {/* ── Engagement panel (outbound only) ─────────────────── */}
+                {isOutbound && (
+                  <div className="rounded-lg border border-border/40 bg-secondary/10 px-3 py-2.5 space-y-2">
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                      <Eye className="h-3 w-3" />Engagement
+                    </p>
+                    <EngagementPanel gmailMessageId={email.gmailMessageId} />
+                  </div>
+                )}
 
                 {reasons.length > 0 && (
                   <div className="space-y-1">

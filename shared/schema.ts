@@ -1234,6 +1234,45 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type Notification = typeof notifications.$inferSelect;
 
+// ── Email Engagement Tracking ─────────────────────────────────────────────────
+export const emailTrackingPixels = pgTable("email_tracking_pixels", {
+  id: serial("id").primaryKey(),
+  trackingId: text("tracking_id").notNull().unique(),
+  gmailMessageId: text("gmail_message_id"),
+  subject: text("subject"),
+  recipientEmail: text("recipient_email"),
+  sentByUserId: integer("sent_by_user_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const emailEngagementEvents = pgTable("email_engagement_events", {
+  id: serial("id").primaryKey(),
+  trackingId: text("tracking_id").notNull(),
+  eventType: text("event_type").notNull(),
+  url: text("url"),
+  ipHash: text("ip_hash"),
+  userAgent: text("user_agent"),
+  isBot: boolean("is_bot").notNull().default(false),
+  occurredAt: timestamp("occurred_at").defaultNow().notNull(),
+  timelineCreated: boolean("timeline_created").notNull().default(false),
+});
+
+export const emailEngagementRules = pgTable("email_engagement_rules", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  triggerType: text("trigger_type").notNull(),
+  minEvents: integer("min_events").notNull().default(1),
+  actionType: text("action_type").notNull(),
+  actionConfig: jsonb("action_config"),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type EmailTrackingPixel = typeof emailTrackingPixels.$inferSelect;
+export type EmailEngagementEvent = typeof emailEngagementEvents.$inferSelect;
+export type EmailEngagementRule = typeof emailEngagementRules.$inferSelect;
+
 // ── Phase 1 CMS/Organizations migration tracking (2026-04) ────────────────
 // migration_status vocabulary (same across tables):
 //   legacy | pending | migrated | verified | children_migrated | complete | rolled_back
