@@ -1144,6 +1144,96 @@ export const insertProjectSchema = createInsertSchema(projects).omit({ id: true,
 export type Project = typeof projects.$inferSelect;
 export type InsertProject = z.infer<typeof insertProjectSchema>;
 
+// ── Project Certifications (Safety Certification type detail) ─────────────────
+export const projectCertifications = pgTable("project_certifications", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().unique(),
+  // Core
+  certificationProgram: text("certification_program"),   // JSON array string: ["CSA","UL"]
+  certificationScope: text("certification_scope"),
+  productName: text("product_name"),
+  productVersion: text("product_version"),
+  productRevision: text("product_revision"),
+  skuOrInternalCode: text("sku_or_internal_code"),
+  certificationPriority: text("certification_priority").default("medium"), // Critical|High|Medium|Low
+  // Lab
+  testingLabName: text("testing_lab_name"),
+  labContactName: text("lab_contact_name"),
+  labContactEmail: text("lab_contact_email"),
+  labContactPhone: text("lab_contact_phone"),
+  certificationStandardCodes: text("certification_standard_codes"),
+  targetMarket: text("target_market"),   // Canada|USA|Europe|Global|Other
+  applicationSubmissionDate: timestamp("application_submission_date"),
+  plannedTestStartDate: timestamp("planned_test_start_date"),
+  actualTestStartDate: timestamp("actual_test_start_date"),
+  targetCompletionDate: timestamp("target_completion_date"),
+  actualCompletionDate: timestamp("actual_completion_date"),
+  // Status
+  certificationStatus: text("certification_status").default("Planning"),
+  overallRisk: text("overall_risk").default("Low"),
+  launchBlocker: boolean("launch_blocker").default(false),
+  blockerSummary: text("blocker_summary"),
+  lastStatusUpdate: timestamp("last_status_update"),
+  nextAction: text("next_action"),
+  nextActionDueDate: timestamp("next_action_due_date"),
+  // Samples
+  sampleUnitsRequired: integer("sample_units_required"),
+  sampleUnitsBuilt: integer("sample_units_built"),
+  sampleUnitsShipped: integer("sample_units_shipped"),
+  sampleUnitsReceivedByLab: integer("sample_units_received_by_lab"),
+  sampleSerialNumbers: text("sample_serial_numbers"),
+  sampleNotes: text("sample_notes"),
+  // Failure / CA
+  failureFound: boolean("failure_found").default(false),
+  failureSummary: text("failure_summary"),
+  correctiveActionRequired: boolean("corrective_action_required").default(false),
+  correctiveActionSummary: text("corrective_action_summary"),
+  retestRequired: boolean("retest_required").default(false),
+  retestDate: timestamp("retest_date"),
+  passDate: timestamp("pass_date"),
+  certificateIssueDate: timestamp("certificate_issue_date"),
+  certificateExpiryDate: timestamp("certificate_expiry_date"),
+  // Commercial
+  internalOwnerUserId: integer("internal_owner_user_id"),
+  engineeringOwner: text("engineering_owner"),
+  operationsOwner: text("operations_owner"),
+  linkedSupplier: text("linked_supplier"),
+  linkedProductionBatch: text("linked_production_batch"),
+  estimatedCertificationCost: real("estimated_certification_cost"),
+  actualCertificationCost: real("actual_certification_cost"),
+  budgetStatus: text("budget_status").default("On Budget"),
+  // Documentation
+  certificationDocLink: text("certification_doc_link"),
+  testReportLink: text("test_report_link"),
+  sharedDriveFolderLink: text("shared_drive_folder_link"),
+  certificateFile: text("certificate_file"),
+  complianceNotes: text("compliance_notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertProjectCertificationSchema = createInsertSchema(projectCertifications).omit({ id: true, createdAt: true, updatedAt: true });
+export type ProjectCertification = typeof projectCertifications.$inferSelect;
+export type InsertProjectCertification = z.infer<typeof insertProjectCertificationSchema>;
+
+// ── Project Milestones (checklist for certification projects) ─────────────────
+export const projectMilestones = pgTable("project_milestones", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull(),
+  title: text("title").notNull(),
+  status: text("status").default("pending"),   // pending|in_progress|done|skipped
+  sortOrder: integer("sort_order").default(0),
+  dueDate: timestamp("due_date"),
+  completedAt: timestamp("completed_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertProjectMilestoneSchema = createInsertSchema(projectMilestones).omit({ id: true, createdAt: true, updatedAt: true });
+export type ProjectMilestone = typeof projectMilestones.$inferSelect;
+export type InsertProjectMilestone = z.infer<typeof insertProjectMilestoneSchema>;
+
 export const notes = pgTable("notes", {
   id: serial("id").primaryKey(),
   linkedObjectType: text("linked_object_type").notNull(),

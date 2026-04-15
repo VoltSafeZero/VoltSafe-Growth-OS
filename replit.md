@@ -350,6 +350,72 @@ Data Quality page → Duplicates tab:
 ### Tests
 `tests/merge.test.js` — **84 assertions** covering account/contact/lead merges, linked object relinking, secondary archival, field resolution correctness, audit creation, prior-merge warning, entity filter, and full regression suite.
 
+## Projects — Safety Certification Extension
+
+Enhanced the existing Operations → Projects module with a dedicated Safety Certification type and full certification lifecycle tracking. No separate module built — all integrated into Projects.
+
+### New Project Type
+`certification` — "Safety Certification" (red ShieldCheck icon) added to `PROJECT_TYPES` alongside existing 8 types. The form dialog shows an info hint that 12 milestones will be auto-created.
+
+### New DB Tables
+- `project_certifications` — 1-to-1 with `projects` via unique `project_id`. Holds 50+ certification-specific fields across 7 sections: Core, Lab, Status, Samples, Failure/CA, Commercial, Documentation. Migrated via `migrateProjectCertificationSchema()`.
+- `project_milestones` — 1-to-many checklist items for any project; used for cert milestone tracking.
+
+### API Endpoints (new)
+| Endpoint | Description |
+|---|---|
+| `GET /api/projects` | Enhanced: LEFT JOINs `project_certifications` — returns `certification_status`, `overall_risk`, `launch_blocker`, `cert_target_completion_date`, `certification_program`, `next_action_due_date` for list view |
+| `GET /api/projects/:id` | Enhanced: same JOIN for detail |
+| `GET /api/projects/:id/certification` | Full cert record |
+| `POST /api/projects/:id/certification` | Upsert cert fields (camelCase→snake_case mapped) |
+| `PUT /api/projects/:id/certification` | Update existing cert record |
+| `GET /api/projects/:id/milestones` | Milestone checklist (sorted by sort_order) |
+| `POST /api/projects/:id/milestones` | Add custom milestone |
+| `PATCH /api/projects/:id/milestones/:mid` | Update milestone status (setting done sets completed_at) |
+| `POST /api/projects/:id/create-alerts` | Smart task creation — idempotent, deduped by source_label |
+
+### Auto-Scaffolding
+- Creating a project with `type: "certification"` auto-creates: an empty `project_certifications` record + 12-milestone default checklist
+- Changing existing project type to "certification" also auto-scaffolds (idempotent — won't duplicate milestones)
+
+### Smart Alert Engine (Phase 5)
+`POST /api/projects/:id/create-alerts` creates tasks for:
+1. `next_action_due_date` ≤7 days away → high priority
+2. `target_completion_date` within 14 days and not Certified/Passed → high priority
+3. `target_completion_date` overdue → urgent
+4. `launch_blocker = true` → urgent
+5. `retest_required = true` → high priority
+6. `certificate_expiry_date` ≤90 days → medium/high
+
+All tagged with `source_label` for idempotent re-runs.
+
+### Certification Fields (50+)
+Core: program (multi-select JSON), scope, product_name/version/revision, SKU, priority, standard_codes, target_market
+Lab: testing_lab_name, lab_contact_name/email/phone
+Dates: application_submission, planned/actual_test_start, target/actual_completion, retest, pass, certificate_issue/expiry
+Status: certification_status (12 values), overall_risk, launch_blocker, blocker_summary, next_action/due_date, last_status_update
+Samples: units_required/built/shipped/received_by_lab, serial_numbers, sample_notes
+Failure/CA: failure_found/summary, corrective_action_required/summary, retest_required/date, pass_date
+Commercial: engineering_owner, operations_owner, linked_supplier/batch, est/actual_cost, budget_status
+Docs: certification_doc_link, test_report_link, shared_drive_folder_link, certificate_file, compliance_notes
+
+### Frontend Changes (`client/src/pages/projects.tsx`)
+- **Project Cards**: Certification cards show `certification_status` badge, `overall_risk` pill, launch blocker badge, product name, target completion date
+- **Detail Dialog**: New "Certification" tab (full field editor with section groups, multi-select programs, boolean toggles, doc links) + "Milestones" tab (progress bar + status-per-item checklist) — both only visible for certification type; default open tab is "Certification"
+- **Certification tab** has "Create Alerts" + "Edit/Save" buttons inline
+- Conditional hint in form when selecting certification type
+
+### Tests
+`tests/certification.test.js` — **38 assertions** covering all 7 phases: type CRUD, field persistence, list badges (joined fields), milestone auto-creation, milestone status updates, alert creation (idempotent), auth guards, type conversion, and regression for existing project types.
+
+### Test Totals
+- Procurement: 93 tests
+- Deployment: 102 tests
+- Merge Engine: 84 tests
+- Customer Success: 44 tests
+- Safety Certification: 38 tests
+- **Total: 361 tests**
+
 ## Customer Success + Renewals Layer
 
 Post-deployment layer for tracking live customers, health scores, renewals, and expansion.

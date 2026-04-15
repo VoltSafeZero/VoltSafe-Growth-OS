@@ -9634,15 +9634,117 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ─── Stage 3 — Projects ─────────────────────────────────────────────────
+  // ── Default certification milestone checklist ────────────────────────────────
+  const CERT_MILESTONES = [
+    "Define certification scope",
+    "Confirm standards / requirements",
+    "Prepare documentation package",
+    "Build certification samples",
+    "Ship samples to lab",
+    "Lab intake confirmed",
+    "Testing started",
+    "Failure review",
+    "Corrective action complete",
+    "Retest complete",
+    "Certification passed",
+    "Certificate received",
+  ];
+
+  async function createCertMilestones(projectId: number) {
+    for (let i = 0; i < CERT_MILESTONES.length; i++) {
+      await db.execute(sql.raw(
+        `INSERT INTO project_milestones (project_id, title, status, sort_order, created_at, updated_at) VALUES (${projectId}, '${CERT_MILESTONES[i].replace(/'/g, "''")}', 'pending', ${i}, NOW(), NOW())`
+      ));
+    }
+  }
+
+  function certSqlSets(body: Record<string, any>): string[] {
+    const map: Record<string, string> = {
+      certificationProgram: "certification_program",
+      certificationScope: "certification_scope",
+      productName: "product_name",
+      productVersion: "product_version",
+      productRevision: "product_revision",
+      skuOrInternalCode: "sku_or_internal_code",
+      certificationPriority: "certification_priority",
+      testingLabName: "testing_lab_name",
+      labContactName: "lab_contact_name",
+      labContactEmail: "lab_contact_email",
+      labContactPhone: "lab_contact_phone",
+      certificationStandardCodes: "certification_standard_codes",
+      targetMarket: "target_market",
+      applicationSubmissionDate: "application_submission_date",
+      plannedTestStartDate: "planned_test_start_date",
+      actualTestStartDate: "actual_test_start_date",
+      targetCompletionDate: "target_completion_date",
+      actualCompletionDate: "actual_completion_date",
+      certificationStatus: "certification_status",
+      overallRisk: "overall_risk",
+      launchBlocker: "launch_blocker",
+      blockerSummary: "blocker_summary",
+      lastStatusUpdate: "last_status_update",
+      nextAction: "next_action",
+      nextActionDueDate: "next_action_due_date",
+      sampleUnitsRequired: "sample_units_required",
+      sampleUnitsBuilt: "sample_units_built",
+      sampleUnitsShipped: "sample_units_shipped",
+      sampleUnitsReceivedByLab: "sample_units_received_by_lab",
+      sampleSerialNumbers: "sample_serial_numbers",
+      sampleNotes: "sample_notes",
+      failureFound: "failure_found",
+      failureSummary: "failure_summary",
+      correctiveActionRequired: "corrective_action_required",
+      correctiveActionSummary: "corrective_action_summary",
+      retestRequired: "retest_required",
+      retestDate: "retest_date",
+      passDate: "pass_date",
+      certificateIssueDate: "certificate_issue_date",
+      certificateExpiryDate: "certificate_expiry_date",
+      internalOwnerUserId: "internal_owner_user_id",
+      engineeringOwner: "engineering_owner",
+      operationsOwner: "operations_owner",
+      linkedSupplier: "linked_supplier",
+      linkedProductionBatch: "linked_production_batch",
+      estimatedCertificationCost: "estimated_certification_cost",
+      actualCertificationCost: "actual_certification_cost",
+      budgetStatus: "budget_status",
+      certificationDocLink: "certification_doc_link",
+      testReportLink: "test_report_link",
+      sharedDriveFolderLink: "shared_drive_folder_link",
+      certificateFile: "certificate_file",
+      complianceNotes: "compliance_notes",
+    };
+    const sets: string[] = [];
+    for (const [k, v] of Object.entries(body)) {
+      const col = map[k];
+      if (!col) continue;
+      if (v === null || v === undefined) sets.push(`${col} = NULL`);
+      else if (typeof v === "boolean") sets.push(`${col} = ${v}`);
+      else if (typeof v === "number") sets.push(`${col} = ${v}`);
+      else sets.push(`${col} = '${String(v).replace(/'/g, "''")}'`);
+    }
+    return sets;
+  }
+
   app.get("/api/projects", requireAuth, async (req, res) => {
     try {
       const { type, status, accountId } = req.query as Record<string, string>;
-      const data = await storage.getProjects({
-        type: type || undefined,
-        status: status || undefined,
-        accountId: accountId ? Number(accountId) : undefined,
-      });
-      res.json(data);
+      const wheres: string[] = [];
+      if (type) wheres.push(`p.type = '${type.replace(/'/g, "''")}'`);
+      if (status) wheres.push(`p.status = '${status.replace(/'/g, "''")}'`);
+      if (accountId) wheres.push(`p.account_id = ${parseInt(accountId)}`);
+      const where = wheres.length ? `WHERE ${wheres.join(" AND ")}` : "";
+      const rows = await db.execute(sql.raw(`
+        SELECT p.*,
+          pc.certification_status, pc.overall_risk, pc.launch_blocker,
+          pc.target_completion_date AS cert_target_completion_date,
+          pc.certification_program, pc.product_name, pc.next_action_due_date
+        FROM projects p
+        LEFT JOIN project_certifications pc ON pc.project_id = p.id
+        ${where}
+        ORDER BY p.created_at DESC
+      `));
+      res.json((rows as any).rows ?? []);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -9650,7 +9752,18 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.get("/api/projects/:id", requireAuth, async (req, res) => {
     try {
-      const p = await storage.getProject(Number(req.params.id));
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(`
+        SELECT p.*,
+          pc.certification_status, pc.overall_risk, pc.launch_blocker,
+          pc.target_completion_date AS cert_target_completion_date,
+          pc.certification_program, pc.product_name
+        FROM projects p
+        LEFT JOIN project_certifications pc ON pc.project_id = p.id
+        WHERE p.id = ${id}
+      `));
+      const p = ((rows as any).rows ?? [])[0];
       if (!p) return res.status(404).json({ message: "Not found" });
       res.json(p);
     } catch (err: any) {
@@ -9661,6 +9774,11 @@ export function registerConfluenceRoutes(app: Express) {
   app.post("/api/projects", requirePermission("projects", "edit"), async (req, res) => {
     try {
       const p = await storage.createProject(req.body);
+      // Auto-scaffold certification record + milestones for certification type
+      if (req.body.type === "certification") {
+        await db.execute(sql.raw(`INSERT INTO project_certifications (project_id, created_at, updated_at) VALUES (${p.id}, NOW(), NOW()) ON CONFLICT (project_id) DO NOTHING`));
+        await createCertMilestones(p.id);
+      }
       res.status(201).json(p);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -9669,8 +9787,18 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.put("/api/projects/:id", requirePermission("projects", "edit"), async (req, res) => {
     try {
-      const p = await storage.updateProject(Number(req.params.id), req.body);
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const p = await storage.updateProject(id, req.body);
       if (!p) return res.status(404).json({ message: "Not found" });
+      // If type changed to certification, auto-scaffold cert record + milestones
+      if (req.body.type === "certification") {
+        await db.execute(sql.raw(`INSERT INTO project_certifications (project_id, created_at, updated_at) VALUES (${id}, NOW(), NOW()) ON CONFLICT (project_id) DO NOTHING`));
+        const existingMs = await db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM project_milestones WHERE project_id = ${id}`));
+        if (parseInt(((existingMs as any).rows ?? [])[0]?.cnt ?? "0") === 0) {
+          await createCertMilestones(id);
+        }
+      }
       res.json(p);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -9685,6 +9813,175 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
+  });
+
+  // ── GET /api/projects/:id/certification ───────────────────────────────────────
+  app.get("/api/projects/:id/certification", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(`SELECT * FROM project_certifications WHERE project_id = ${id}`));
+      const row = ((rows as any).rows ?? [])[0];
+      res.json(row ?? null);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── POST /api/projects/:id/certification (upsert) ────────────────────────────
+  app.post("/api/projects/:id/certification", requirePermission("projects", "edit"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      // Check project exists
+      const pRows = await db.execute(sql.raw(`SELECT id FROM projects WHERE id = ${id}`));
+      if (!((pRows as any).rows ?? [])[0]) return res.status(404).json({ message: "Project not found" });
+
+      const sets = certSqlSets(req.body);
+      if (sets.length === 0) {
+        // Just ensure record exists
+        await db.execute(sql.raw(`INSERT INTO project_certifications (project_id, created_at, updated_at) VALUES (${id}, NOW(), NOW()) ON CONFLICT (project_id) DO NOTHING`));
+      } else {
+        const setCols = sets.join(", ");
+        await db.execute(sql.raw(`
+          INSERT INTO project_certifications (project_id, created_at, updated_at)
+          VALUES (${id}, NOW(), NOW())
+          ON CONFLICT (project_id) DO UPDATE SET ${setCols}, updated_at = NOW()
+        `));
+      }
+      const rows = await db.execute(sql.raw(`SELECT * FROM project_certifications WHERE project_id = ${id}`));
+      res.json(((rows as any).rows ?? [])[0]);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── PUT /api/projects/:id/certification ───────────────────────────────────────
+  app.put("/api/projects/:id/certification", requirePermission("projects", "edit"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const sets = certSqlSets(req.body);
+      if (sets.length === 0) return res.status(400).json({ message: "No valid fields to update" });
+      sets.push("updated_at = NOW()");
+      const r = await db.execute(sql.raw(`UPDATE project_certifications SET ${sets.join(", ")} WHERE project_id = ${id} RETURNING *`));
+      const row = ((r as any).rows ?? [])[0];
+      if (!row) return res.status(404).json({ message: "Certification record not found" });
+      res.json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── GET /api/projects/:id/milestones ─────────────────────────────────────────
+  app.get("/api/projects/:id/milestones", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(`SELECT * FROM project_milestones WHERE project_id = ${id} ORDER BY sort_order ASC, id ASC`));
+      res.json((rows as any).rows ?? []);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── POST /api/projects/:id/milestones ────────────────────────────────────────
+  app.post("/api/projects/:id/milestones", requirePermission("projects", "edit"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const { title, status, dueDate, notes, sortOrder } = req.body;
+      if (!title) return res.status(400).json({ message: "title is required" });
+      const r = await db.execute(sql.raw(`
+        INSERT INTO project_milestones (project_id, title, status, sort_order, due_date, notes, created_at, updated_at)
+        VALUES (${id}, '${String(title).replace(/'/g, "''")}', '${(status ?? "pending").replace(/'/g, "''")}',
+          ${sortOrder ?? 99}, ${dueDate ? `'${dueDate}'` : "NULL"},
+          ${notes ? `'${String(notes).replace(/'/g, "''")}'` : "NULL"}, NOW(), NOW())
+        RETURNING *
+      `));
+      res.status(201).json(((r as any).rows ?? [])[0]);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── PATCH /api/projects/:id/milestones/:mid ───────────────────────────────────
+  app.patch("/api/projects/:id/milestones/:mid", requirePermission("projects", "edit"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const mid = parseInt(req.params.mid);
+      if (isNaN(id) || isNaN(mid)) return res.status(400).json({ message: "Invalid id" });
+      const { status, notes, dueDate } = req.body;
+      const sets: string[] = [];
+      if (status !== undefined) {
+        sets.push(`status = '${String(status).replace(/'/g, "''")}'`);
+        if (status === "done") sets.push(`completed_at = NOW()`);
+        else sets.push(`completed_at = NULL`);
+      }
+      if (notes !== undefined) sets.push(`notes = ${notes ? `'${String(notes).replace(/'/g, "''")}'` : "NULL"}`);
+      if (dueDate !== undefined) sets.push(`due_date = ${dueDate ? `'${dueDate}'` : "NULL"}`);
+      if (sets.length === 0) return res.status(400).json({ message: "No valid fields" });
+      sets.push("updated_at = NOW()");
+      const r = await db.execute(sql.raw(`UPDATE project_milestones SET ${sets.join(", ")} WHERE id = ${mid} AND project_id = ${id} RETURNING *`));
+      const row = ((r as any).rows ?? [])[0];
+      if (!row) return res.status(404).json({ message: "Milestone not found" });
+      res.json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── POST /api/projects/:id/create-alerts ─────────────────────────────────────
+  // Create smart tasks/reminders for certification projects (idempotent)
+  app.post("/api/projects/:id/create-alerts", requirePermission("projects", "edit"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId = (req.session as any).userId;
+      const certRows = await db.execute(sql.raw(`SELECT * FROM project_certifications WHERE project_id = ${id}`));
+      const cert = ((certRows as any).rows ?? [])[0];
+      if (!cert) return res.status(404).json({ message: "Certification record not found" });
+
+      const projRows = await db.execute(sql.raw(`SELECT name FROM projects WHERE id = ${id}`));
+      const projName = ((projRows as any).rows ?? [])[0]?.name ?? `Project #${id}`;
+
+      let created = 0;
+      const now = Date.now();
+
+      const addTask = async (title: string, priority: string, dueDate: Date | null, tag: string) => {
+        // Dedup by source_label
+        const existing = await db.execute(sql.raw(`SELECT id FROM tasks WHERE linked_object_type = 'project' AND linked_object_id = ${id} AND source_label = '${tag}' AND status NOT IN ('done','completed','dismissed') LIMIT 1`));
+        if (((existing as any).rows ?? []).length > 0) return;
+        await db.execute(sql.raw(
+          `INSERT INTO tasks (linked_object_type, linked_object_id, owner_user_id, title, priority, status, source, source_label, due_date, created_at, updated_at)
+           VALUES ('project', ${id}, ${userId}, '${title.replace(/'/g, "''")}', '${priority}', 'pending', 'cert_alert', '${tag}', ${dueDate ? `'${dueDate.toISOString()}'` : "NULL"}, NOW(), NOW())`
+        ));
+        created++;
+      };
+
+      // Alert 1: next_action_due_date approaching (≤7 days)
+      if (cert.next_action_due_date && cert.next_action) {
+        const daysUntil = Math.ceil((new Date(cert.next_action_due_date).getTime() - now) / (24 * 3600 * 1000));
+        if (daysUntil >= 0 && daysUntil <= 7) {
+          await addTask(`[Cert Alert] ${projName}: "${cert.next_action}" due in ${daysUntil}d`, "high", new Date(cert.next_action_due_date), "next-action-due");
+        }
+      }
+      // Alert 2: target_completion_date slipping (within 14 days, not Certified)
+      if (cert.target_completion_date && !["Certified","Passed","Cancelled"].includes(cert.certification_status ?? "")) {
+        const days = Math.ceil((new Date(cert.target_completion_date).getTime() - now) / (24 * 3600 * 1000));
+        if (days >= 0 && days <= 14) {
+          await addTask(`[Cert Alert] ${projName}: target completion in ${days}d — still ${cert.certification_status}`, "high", new Date(cert.target_completion_date), "target-completion-slip");
+        } else if (days < 0) {
+          await addTask(`[Cert Alert] ${projName}: OVERDUE — target was ${Math.abs(days)}d ago, status: ${cert.certification_status}`, "urgent", null, "target-completion-overdue");
+        }
+      }
+      // Alert 3: launch_blocker
+      if (cert.launch_blocker) {
+        await addTask(`[Cert BLOCKER] ${projName}${cert.blocker_summary ? ": " + cert.blocker_summary : " — launch blocked"}`, "urgent", null, "launch-blocker");
+      }
+      // Alert 4: retest_required
+      if (cert.retest_required && !["Certified","Passed"].includes(cert.certification_status ?? "")) {
+        const dueDate = cert.retest_date ? new Date(cert.retest_date) : null;
+        await addTask(`[Cert Retest] ${projName}: retest required${dueDate ? ` by ${dueDate.toLocaleDateString()}` : ""}`, "high", dueDate, "retest-required");
+      }
+      // Alert 5: certificate expiry approaching (≤90 days)
+      if (cert.certificate_expiry_date) {
+        const days = Math.ceil((new Date(cert.certificate_expiry_date).getTime() - now) / (24 * 3600 * 1000));
+        if (days >= 0 && days <= 90) {
+          await addTask(`[Cert Expiry] ${projName}: certificate expires in ${days}d`, days <= 30 ? "high" : "medium", new Date(cert.certificate_expiry_date), "cert-expiry");
+        }
+      }
+
+      res.json({ ok: true, tasksCreated: created });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
   // ─── Stage 3 — Notes ────────────────────────────────────────────────────

@@ -663,6 +663,89 @@ export async function migrateDeploymentSchema(): Promise<void> {
   }
 }
 
+export async function migrateProjectCertificationSchema(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS project_certifications (
+        id serial PRIMARY KEY,
+        project_id integer NOT NULL UNIQUE,
+        certification_program text,
+        certification_scope text,
+        product_name text,
+        product_version text,
+        product_revision text,
+        sku_or_internal_code text,
+        certification_priority text DEFAULT 'Medium',
+        testing_lab_name text,
+        lab_contact_name text,
+        lab_contact_email text,
+        lab_contact_phone text,
+        certification_standard_codes text,
+        target_market text,
+        application_submission_date timestamp,
+        planned_test_start_date timestamp,
+        actual_test_start_date timestamp,
+        target_completion_date timestamp,
+        actual_completion_date timestamp,
+        certification_status text DEFAULT 'Planning',
+        overall_risk text DEFAULT 'Low',
+        launch_blocker boolean DEFAULT false,
+        blocker_summary text,
+        last_status_update timestamp,
+        next_action text,
+        next_action_due_date timestamp,
+        sample_units_required integer,
+        sample_units_built integer,
+        sample_units_shipped integer,
+        sample_units_received_by_lab integer,
+        sample_serial_numbers text,
+        sample_notes text,
+        failure_found boolean DEFAULT false,
+        failure_summary text,
+        corrective_action_required boolean DEFAULT false,
+        corrective_action_summary text,
+        retest_required boolean DEFAULT false,
+        retest_date timestamp,
+        pass_date timestamp,
+        certificate_issue_date timestamp,
+        certificate_expiry_date timestamp,
+        internal_owner_user_id integer,
+        engineering_owner text,
+        operations_owner text,
+        linked_supplier text,
+        linked_production_batch text,
+        estimated_certification_cost real,
+        actual_certification_cost real,
+        budget_status text DEFAULT 'On Budget',
+        certification_doc_link text,
+        test_report_link text,
+        shared_drive_folder_link text,
+        certificate_file text,
+        compliance_notes text,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_pc_project ON project_certifications(project_id)`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS project_milestones (
+      id serial PRIMARY KEY,
+      project_id integer NOT NULL,
+      title text NOT NULL,
+      status text DEFAULT 'pending',
+      sort_order integer DEFAULT 0,
+      due_date timestamp,
+      completed_at timestamp,
+      notes text,
+      created_at timestamp NOT NULL DEFAULT now(),
+      updated_at timestamp NOT NULL DEFAULT now()
+    )`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_pm_project ON project_milestones(project_id)`);
+    console.log("[migration] Project certification schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Project certification schema migration error (non-fatal):", err);
+  }
+}
+
 export async function migrateCustomerSuccessSchema(): Promise<void> {
   try {
     await db.execute(sql`

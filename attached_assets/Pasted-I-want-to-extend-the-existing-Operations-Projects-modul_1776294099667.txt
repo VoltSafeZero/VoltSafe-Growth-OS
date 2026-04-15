@@ -1,0 +1,185 @@
+I want to extend the existing Operations → Projects module so it can properly track product safety certification work.
+
+For now, do NOT build a separate Certifications module.
+Instead, enhance Projects so certification can be managed cleanly inside the existing Projects system.
+
+GOAL:
+Add a dedicated “Safety Certification” project type and all key certification-tracking fields needed for VoltSafe.
+
+PHASE 1 — PROJECT TYPE
+Add a new Project Type:
+- Safety Certification
+
+Place it alongside:
+- Pilot
+- Lighthouse
+- Partnership
+- Grant
+- Research
+- Event
+- Marketing / Content
+- Internal Initiative
+
+PHASE 2 — CERTIFICATION FIELDS
+Add a certification details section to projects that only appears when project type = Safety Certification.
+
+Include these fields:
+
+Core Certification Info
+- certification_program (multi-select or tags)
+  - CSA
+  - UL
+  - ETL
+  - FCC
+  - CE
+  - ABYC
+  - IEC
+  - Other
+- certification_scope
+- product_name
+- product_version
+- product_revision
+- sku_or_internal_code
+- certification_priority
+  - Critical
+  - High
+  - Medium
+  - Low
+
+Regulatory / Lab Info
+- testing_lab_name
+- lab_contact_name
+- lab_contact_email
+- lab_contact_phone
+- certification_standard_codes
+- target_market
+  - Canada
+  - USA
+  - Europe
+  - Global
+  - Other
+- application_submission_date
+- planned_test_start_date
+- actual_test_start_date
+- target_completion_date
+- actual_completion_date
+
+Status Tracking
+- certification_status
+  - Planning
+  - Document Prep
+  - Sample Build
+  - Submitted
+  - In Testing
+  - Failure Review
+  - Corrective Action
+  - Retest
+  - Passed
+  - Certified
+  - Blocked
+  - Cancelled
+- overall_risk
+  - Low
+  - Medium
+  - High
+  - Critical
+- launch_blocker (boolean)
+- blocker_summary
+- last_status_update
+- next_action
+- next_action_due_date
+
+Sample / Unit Tracking
+- sample_units_required
+- sample_units_built
+- sample_units_shipped
+- sample_units_received_by_lab
+- sample_serial_numbers
+- sample_notes
+
+Failure / Corrective Action
+- failure_found (boolean)
+- failure_summary
+- corrective_action_required (boolean)
+- corrective_action_summary
+- retest_required (boolean)
+- retest_date
+- pass_date
+- certificate_issue_date
+- certificate_expiry_date
+
+Commercial / Internal Tracking
+- internal_owner_user_id
+- engineering_owner
+- operations_owner
+- linked_supplier
+- linked_production_batch
+- estimated_certification_cost
+- actual_certification_cost
+- budget_status
+  - On Budget
+  - At Risk
+  - Over Budget
+
+Documentation
+- certification_doc_link
+- test_report_link
+- shared_drive_folder_link
+- certificate_file
+- compliance_notes
+
+PHASE 3 — PROJECT UX
+In the Projects list and detail view:
+- show a badge for Safety Certification projects
+- show certification_status
+- show launch_blocker badge if true
+- show target_completion_date
+- show overall_risk
+- show internal owner
+
+PHASE 4 — MILESTONES / CHECKLIST
+For Safety Certification projects, auto-create a default checklist/milestone set:
+- Define certification scope
+- Confirm standards / requirements
+- Prepare documentation package
+- Build certification samples
+- Ship samples to lab
+- Lab intake confirmed
+- Testing started
+- Failure review
+- Corrective action complete
+- Retest complete
+- Certification passed
+- Certificate received
+
+PHASE 5 — ALERTS / TASKS
+Add smart reminders/tasks for:
+- next_action_due_date approaching
+- target_completion_date slipping
+- launch_blocker = true
+- retest_required = true
+- certificate expiry approaching
+
+PHASE 6 — DOCUMENTS
+Allow attachments / linked docs on Safety Certification projects so we can upload or link:
+- shared Google doc
+- lab reports
+- certificates
+- drawings/specs
+- emails or exported files if already supported
+
+PHASE 7 — TESTING
+Add tests for:
+- Safety Certification type exists
+- certification fields save/load correctly
+- conditional certification section only appears for that type
+- checklist auto-creation works
+- launch blocker badge renders
+- no regression to existing Projects module
+
+IMPLEMENTATION RULES
+- Reuse the existing Projects system
+- Do not build a separate certifications module yet
+- Keep the UI clean and practical
+- Make sure this works well for one core product certification program
+- Summarize changed files and pass/fail at the end
