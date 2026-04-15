@@ -6264,20 +6264,27 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const q = ((req.query.q as string) || "").trim();
       if (q.length < 2) return res.json({ results: [] });
-      const term = `%${q}%`;
-      const result = await db.execute(sql`
-        SELECT 'account' as type, id::text, name as label, lead_status as sub, NULL as sub2, NULL as linked_id
-        FROM accounts WHERE name ILIKE ${term} LIMIT 5
+      // Sanitize for sql.raw ILIKE: escape single quotes and backslashes only
+      const safe = q.replace(/\\/g, "\\\\").replace(/'/g, "''");
+      const term = `%${safe}%`;
+      const result = await db.execute(sql.raw(`
+        (SELECT 'account' as type, a.id::text, a.name as label, a.lead_status as sub, a.city as sub2, NULL as linked_id
+         FROM accounts a WHERE a.name ILIKE '${term}' LIMIT 5)
         UNION ALL
-        SELECT 'contact' as type, id::text, (first_name || ' ' || last_name) as label, email as sub, account_name as sub2, NULL as linked_id
-        FROM contacts WHERE (first_name || ' ' || last_name) ILIKE ${term} OR email ILIKE ${term} LIMIT 5
+        (SELECT 'contact' as type, c.id::text, (COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')) as label,
+                c.email as sub, ac.name as sub2, NULL as linked_id
+         FROM contacts c LEFT JOIN accounts ac ON c.account_id = ac.id
+         WHERE (c.first_name || ' ' || c.last_name) ILIKE '${term}' OR c.email ILIKE '${term}' LIMIT 5)
         UNION ALL
-        SELECT 'opportunity' as type, id::text, title as label, stage as sub, account_name as sub2, NULL as linked_id
-        FROM opportunities WHERE title ILIKE ${term} OR account_name ILIKE ${term} LIMIT 5
+        (SELECT 'opportunity' as type, o.id::text, o.title as label, o.stage as sub, ac.name as sub2, NULL as linked_id
+         FROM opportunities o LEFT JOIN accounts ac ON o.account_id = ac.id
+         WHERE o.title ILIKE '${term}' OR ac.name ILIKE '${term}' LIMIT 5)
         UNION ALL
-        SELECT 'note' as type, n.id::text, SUBSTRING(n.content, 1, 90) as label, n.linked_object_type as sub, NULL as sub2, n.linked_object_id::text as linked_id
-        FROM notes n WHERE n.content ILIKE ${term} LIMIT 4
-      `);
+        (SELECT 'note' as type, n.id::text, SUBSTRING(n.content, 1, 90) as label,
+                n.linked_object_type as sub, NULL as sub2, n.linked_object_id::text as linked_id
+         FROM notes n WHERE n.content ILIKE '${term}' LIMIT 4)
+        LIMIT 19
+      `));
       res.json({ results: result.rows });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -6353,8 +6360,8 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const { pageKey } = req.query as Record<string, string>;
       if (!pageKey) return res.status(400).json({ message: "pageKey required" });
-      const user = (req as any).user;
-      const data = await storage.getSavedViews(pageKey, user?.id);
+      const userId = req.session.userId as number | undefined;
+      const data = await storage.getSavedViews(pageKey, userId);
       res.json(data);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -6363,8 +6370,11 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.post("/api/saved-views", requireAuth, async (req, res) => {
     try {
-      const user = (req as any).user;
-      const view = await storage.createSavedView({ ...req.body, userId: user?.id });
+      const { name, pageKey, filtersJson, columnsJson, sortBy, sortOrder, isShared } = req.body;
+      if (!name || !name.trim()) return res.status(400).json({ message: "name is required" });
+      if (!pageKey) return res.status(400).json({ message: "pageKey is required" });
+      const userId = req.session.userId as number | undefined;
+      const view = await storage.createSavedView({ name: name.trim(), pageKey, filtersJson, columnsJson, sortBy, sortOrder, isShared, userId });
       res.status(201).json(view);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
