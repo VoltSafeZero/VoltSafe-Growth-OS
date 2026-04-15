@@ -214,20 +214,24 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
   });
 
   const [convertDialogLead, setConvertDialogLead] = useState<Lead | null>(null);
-  const [convertOrgType, setConvertOrgType] = useState("marina_prospect");
 
   const convertMutation = useMutation({
-    mutationFn: async ({ id, existingAccountId, orgType }: { id: number; existingAccountId?: number; orgType?: string }) => {
-      const res = await apiRequest("POST", `/api/leads/${id}/convert`, { existingAccountId, orgType });
+    mutationFn: async ({ id, payload }: { id: number; payload: Record<string, unknown> }) => {
+      const res = await apiRequest("POST", `/api/leads/${id}/convert`, payload);
       return res.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/opportunities"] });
       setConvertDialogLead(null);
       setSelectedLead(null);
-      const action = data?.action === "linked" ? "linked to existing" : "promoted to new";
-      toast({ title: "Lead promoted to Organization", description: `Lead ${action} Organization: ${data?.account?.name ?? ""}` });
+      const parts: string[] = [];
+      if (data?.action === "linked") parts.push(`Linked to: ${data?.account?.name ?? ""}`);
+      else parts.push(`Created: ${data?.account?.name ?? ""}`);
+      if (data?.contact) parts.push(`Contact: ${data.contact.name}`);
+      if (data?.opportunity) parts.push(`Opp: ${data.opportunity.title}`);
+      toast({ title: "Lead converted", description: parts.join(" · ") });
     },
     onError: (err: any) => toast({ title: "Conversion failed", description: err.message, variant: "destructive" }),
   });
@@ -557,12 +561,8 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
 
       <ConvertToOrgDialog
         lead={convertDialogLead}
-        orgType={convertOrgType}
-        onOrgTypeChange={setConvertOrgType}
         onClose={() => setConvertDialogLead(null)}
-        onConvert={(existingAccountId) =>
-          convertMutation.mutate({ id: convertDialogLead!.id, existingAccountId, orgType: convertOrgType })
-        }
+        onConvert={(payload) => convertMutation.mutate({ id: convertDialogLead!.id, payload })}
         isPending={convertMutation.isPending}
       />
     </div>
@@ -710,18 +710,69 @@ type ConvertMatch = {
   id: number; name: string; city: string | null; stateProvince: string | null;
   orgType: string | null; confidence: "high" | "medium"; reasons: string[];
 };
+type ContactMatch = {
+  id: number; name: string; email: string | null;
+  accountId: number | null; accountName: string | null;
+  confidence: "high" | "medium"; reasons: string[];
+};
+type AccountMode = "new" | "link";
+type ContactMode = "new" | "link" | "skip";
+
+const OPP_STAGES = [
+  { value: "inbound_new", label: "Inbound New" },
+  { value: "discovery", label: "Discovery" },
+  { value: "proposal_sent", label: "Proposal Sent" },
+  { value: "negotiation", label: "Negotiation" },
+  { value: "closed_won", label: "Closed Won" },
+];
+
+const STEPS = ["Dedupe", "Configure", "Review", "Confirm"];
 
 function ConvertToOrgDialog({
-  lead, orgType, onOrgTypeChange, onClose, onConvert, isPending,
+  lead, onClose, onConvert, isPending,
 }: {
   lead: Lead | null;
-  orgType: string;
-  onOrgTypeChange: (v: string) => void;
   onClose: () => void;
-  onConvert: (existingAccountId?: number) => void;
+  onConvert: (payload: Record<string, unknown>) => void;
   isPending: boolean;
 }) {
-  const checkQuery = useQuery<{ matches: ConvertMatch[] }>({
+  const [step, setStep] = useState(1);
+  const [selectedAccountMatch, setSelectedAccountMatch] = useState<ConvertMatch | null>(null);
+  const [selectedContactMatch, setSelectedContactMatch] = useState<ContactMatch | null>(null);
+  const [accountMode, setAccountMode] = useState<AccountMode>("new");
+  const [contactMode, setContactMode] = useState<ContactMode>("new");
+  const [createOpp, setCreateOpp] = useState(false);
+  // Field overrides
+  const [orgName, setOrgName] = useState("");
+  const [orgType, setOrgType] = useState("marina_prospect");
+  const [contactName, setContactName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [oppTitle, setOppTitle] = useState("");
+  const [oppAmount, setOppAmount] = useState("");
+  const [oppStage, setOppStage] = useState("inbound_new");
+
+  // Reset state when lead changes
+  useEffect(() => {
+    if (lead) {
+      setStep(1);
+      setSelectedAccountMatch(null);
+      setSelectedContactMatch(null);
+      setAccountMode("new");
+      setContactMode(lead.contactName ? "new" : "skip");
+      setCreateOpp(false);
+      setOrgName(lead.company || "");
+      setOrgType("marina_prospect");
+      setContactName(lead.contactName || "");
+      setContactEmail(lead.contactEmail || "");
+      setContactPhone(lead.contactPhone || "");
+      setOppTitle("");
+      setOppAmount(lead.dealAmount ? String(lead.dealAmount) : "");
+      setOppStage("inbound_new");
+    }
+  }, [lead?.id]);
+
+  const checkQuery = useQuery<{ matches: ConvertMatch[]; contactMatches: ContactMatch[] }>({
     queryKey: ["/api/leads", lead?.id, "convert-check"],
     queryFn: async () => {
       const res = await fetch(`/api/leads/${lead!.id}/convert-check`, { credentials: "include" });
@@ -733,80 +784,423 @@ function ConvertToOrgDialog({
   });
 
   if (!lead) return null;
-  const matches = checkQuery.data?.matches ?? [];
+  const accountMatches = checkQuery.data?.matches ?? [];
+  const contactMatches = checkQuery.data?.contactMatches ?? [];
   const isChecking = checkQuery.isLoading;
+  const hasDedupeData = !isChecking;
+  const hasMatches = accountMatches.length > 0 || contactMatches.length > 0;
+
+  // Step 3 can be skipped if there's nothing to review
+  const hasFieldsToReview = (accountMode === "new") || (contactMode === "new") || createOpp;
+
+  function goToStep2() {
+    setStep(2);
+  }
+
+  function goToStep3OrConfirm() {
+    if (hasFieldsToReview) setStep(3);
+    else setStep(4);
+  }
+
+  function handleConfirm() {
+    const payload: Record<string, unknown> = {};
+
+    if (accountMode === "link" && selectedAccountMatch) {
+      payload.existingAccountId = selectedAccountMatch.id;
+    } else {
+      payload.fieldOverrides = {
+        name: orgName || lead.company,
+        orgType,
+      };
+      payload.orgType = orgType;
+    }
+
+    if (contactMode === "link" && selectedContactMatch) {
+      payload.existingContactId = selectedContactMatch.id;
+    } else if (contactMode === "skip") {
+      payload.skipContact = true;
+    } else {
+      // new contact — pass field overrides
+      payload.fieldOverrides = {
+        ...(payload.fieldOverrides as object ?? {}),
+        contactName: contactName || lead.contactName,
+        contactEmail: contactEmail || lead.contactEmail,
+        contactPhone: contactPhone || lead.contactPhone,
+      };
+    }
+
+    if (createOpp) {
+      payload.createOpportunity = true;
+      payload.opportunityTitle = oppTitle || `${(payload.fieldOverrides as any)?.name || lead.company}`;
+      if (oppAmount) payload.opportunityAmount = Number(oppAmount);
+      payload.opportunityStage = oppStage;
+    }
+
+    onConvert(payload);
+  }
+
+  function ConfidenceBadge({ confidence }: { confidence: "high" | "medium" }) {
+    return (
+      <Badge variant="outline" className={`text-[10px] px-1 py-0 shrink-0 ${confidence === "high" ? "text-amber-400 border-amber-500/30 bg-amber-500/10" : "text-blue-400 border-blue-500/30 bg-blue-500/10"}`}>
+        {confidence === "high" ? "High match" : "Possible"}
+      </Badge>
+    );
+  }
 
   return (
     <Dialog open={!!lead} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-md" data-testid="dialog-convert-org">
+      <DialogContent className="max-w-xl" data-testid="dialog-convert-org">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Building2 className="h-5 w-5 text-primary" />Promote to Organization</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-primary" />Convert Lead
+          </DialogTitle>
           <DialogDescription>
-            <strong>{lead.company}</strong> will be promoted to an Organization record with full traceability.
+            Converting <strong>{lead.company}</strong> into an Organization, Contact, and optional Opportunity.
           </DialogDescription>
         </DialogHeader>
 
-        <div>
-          <Label className="text-xs">Organization Type</Label>
-          <Select value={orgType} onValueChange={onOrgTypeChange}>
-            <SelectTrigger className="mt-1.5" data-testid="select-convert-org-type"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {ORG_TYPE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
+        {/* Step indicator */}
+        <div className="flex items-center gap-1 mb-1">
+          {STEPS.map((label, i) => {
+            const n = i + 1;
+            const active = step === n;
+            const done = step > n;
+            return (
+              <div key={label} className="flex items-center gap-1 flex-1">
+                <div className={`flex items-center gap-1.5 text-xs font-medium ${active ? "text-primary" : done ? "text-emerald-400" : "text-muted-foreground/50"}`}>
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] border ${active ? "border-primary bg-primary/10 text-primary" : done ? "border-emerald-500 bg-emerald-500/10 text-emerald-400" : "border-muted-foreground/20"}`}>
+                    {done ? "✓" : n}
+                  </span>
+                  <span className="hidden sm:inline">{label}</span>
+                </div>
+                {i < STEPS.length - 1 && <div className="flex-1 h-px bg-border/40 mx-1" />}
+              </div>
+            );
+          })}
         </div>
 
-        {isChecking ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground py-3">
-            <Loader2 className="h-4 w-4 animate-spin" />Checking for existing organizations…
-          </div>
-        ) : matches.length > 0 ? (
-          <div className="space-y-3">
-            <p className="text-sm font-medium flex items-center gap-1.5 text-amber-400">
-              <AlertCircle className="h-4 w-4" />
-              {matches.length} possible match{matches.length !== 1 ? "es" : ""} found — review before creating new
-            </p>
-            <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-              {matches.map(m => (
-                <div key={m.id} className="flex items-center gap-3 p-2.5 rounded-lg border border-border/50 bg-secondary/20" data-testid={`match-org-${m.id}`}>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-sm font-medium truncate">{m.name}</span>
-                      <Badge variant="outline" className={`text-[10px] px-1 py-0 shrink-0 ${m.confidence === "high" ? "text-amber-400 border-amber-500/30 bg-amber-500/10" : "text-blue-400 border-blue-500/30 bg-blue-500/10"}`}>
-                        {m.confidence === "high" ? "High match" : "Possible"}
-                      </Badge>
+        {/* ── Step 1: Dedupe ─────────────────────────────────────────────── */}
+        {step === 1 && (
+          <div className="space-y-4" data-testid="convert-step-dedupe">
+            {isChecking ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                <Loader2 className="h-4 w-4 animate-spin" />Scanning for duplicates…
+              </div>
+            ) : !hasMatches ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400 py-3 bg-emerald-500/5 rounded-lg px-3 border border-emerald-500/20">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />No duplicates found — safe to create new records.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <AlertCircle className="h-3.5 w-3.5 text-amber-400" />
+                  <span>Potential matches found. Click <strong>Use</strong> to link instead of creating new.</span>
+                </p>
+
+                {accountMatches.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Organization Matches</p>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                      {accountMatches.map(m => (
+                        <div key={m.id} className={`flex items-center gap-3 p-2.5 rounded-lg border transition-colors ${selectedAccountMatch?.id === m.id ? "border-primary/50 bg-primary/5" : "border-border/50 bg-secondary/20"}`} data-testid={`match-org-${m.id}`}>
+                          <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-sm font-medium truncate">{m.name}</span>
+                              <ConfidenceBadge confidence={m.confidence} />
+                            </div>
+                            <p className="text-[11px] text-muted-foreground truncate">
+                              {[m.city, m.stateProvince].filter(Boolean).join(", ")}
+                              {m.reasons[0] ? ` · ${m.reasons[0]}` : ""}
+                            </p>
+                          </div>
+                          <Button size="sm" variant={selectedAccountMatch?.id === m.id ? "default" : "outline"} className="shrink-0 gap-1 text-xs h-7 px-2.5"
+                            onClick={() => { setSelectedAccountMatch(m); setAccountMode("link"); }}
+                            data-testid={`button-link-org-${m.id}`}>
+                            <Link2 className="h-3 w-3" />
+                            {selectedAccountMatch?.id === m.id ? "Selected" : "Use"}
+                          </Button>
+                        </div>
+                      ))}
                     </div>
-                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                      {[m.city, m.stateProvince].filter(Boolean).join(", ")}
-                      {m.reasons[0] ? ` · ${m.reasons[0]}` : ""}
-                    </p>
                   </div>
-                  <Button size="sm" variant="outline" className="shrink-0 gap-1 text-xs h-7 px-2" onClick={() => onConvert(m.id)} disabled={isPending} data-testid={`button-link-org-${m.id}`}>
-                    <Link2 className="h-3 w-3" />Link
-                  </Button>
-                </div>
-              ))}
-            </div>
-            <div className="border-t border-border/40 pt-3">
-              <Button className="w-full gap-2" onClick={() => onConvert(undefined)} disabled={isPending} data-testid="button-create-new-org">
-                <Building2 className="h-4 w-4" />Create New Organization Anyway
+                )}
+
+                {contactMatches.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Contact Matches</p>
+                    <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                      {contactMatches.map(m => (
+                        <div key={m.id} className={`flex items-center gap-3 p-2.5 rounded-lg border transition-colors ${selectedContactMatch?.id === m.id ? "border-primary/50 bg-primary/5" : "border-border/50 bg-secondary/20"}`} data-testid={`match-contact-${m.id}`}>
+                          <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-sm font-medium truncate">{m.name}</span>
+                              <ConfidenceBadge confidence={m.confidence} />
+                            </div>
+                            <p className="text-[11px] text-muted-foreground truncate">
+                              {m.email ?? ""}
+                              {m.accountName ? ` · ${m.accountName}` : ""}
+                            </p>
+                          </div>
+                          <Button size="sm" variant={selectedContactMatch?.id === m.id ? "default" : "outline"} className="shrink-0 gap-1 text-xs h-7 px-2.5"
+                            onClick={() => { setSelectedContactMatch(m); setContactMode("link"); }}
+                            data-testid={`button-link-contact-${m.id}`}>
+                            <Link2 className="h-3 w-3" />
+                            {selectedContactMatch?.id === m.id ? "Selected" : "Use"}
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-between pt-2 border-t border-border/40">
+              <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+              <Button size="sm" onClick={goToStep2} disabled={!hasDedupeData} data-testid="button-convert-next-1">
+                Continue →
               </Button>
             </div>
           </div>
-        ) : (
-          <div className="space-y-3">
-            <p className="text-sm flex items-center gap-1.5 text-green-400">
-              <CheckCircle2 className="h-4 w-4" />No existing match found — safe to create new.
-            </p>
-            <Button className="w-full gap-2" onClick={() => onConvert(undefined)} disabled={isPending} data-testid="button-create-new-org">
-              <Building2 className="h-4 w-4" />Promote to Organization
-            </Button>
+        )}
+
+        {/* ── Step 2: Configure modes ─────────────────────────────────────── */}
+        {step === 2 && (
+          <div className="space-y-4" data-testid="convert-step-configure">
+            {/* Account */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Organization</p>
+              <div className="space-y-1.5">
+                <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${accountMode === "new" ? "border-primary/50 bg-primary/5" : "border-border/40 hover:bg-secondary/30"}`}
+                  onClick={() => setAccountMode("new")} data-testid="radio-account-new">
+                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${accountMode === "new" ? "border-primary" : "border-muted-foreground/40"}`}>
+                    {accountMode === "new" && <div className="w-2 h-2 rounded-full bg-primary" />}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Create new Organization</p>
+                    <p className="text-[11px] text-muted-foreground">from lead data for <strong>{lead.company}</strong></p>
+                  </div>
+                </label>
+                {selectedAccountMatch && (
+                  <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${accountMode === "link" ? "border-primary/50 bg-primary/5" : "border-border/40 hover:bg-secondary/30"}`}
+                    onClick={() => setAccountMode("link")} data-testid="radio-account-link">
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${accountMode === "link" ? "border-primary" : "border-muted-foreground/40"}`}>
+                      {accountMode === "link" && <div className="w-2 h-2 rounded-full bg-primary" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">Link to existing: <span className="text-primary">{selectedAccountMatch.name}</span></p>
+                      <p className="text-[11px] text-muted-foreground">No new organization will be created</p>
+                    </div>
+                  </label>
+                )}
+              </div>
+            </div>
+
+            {/* Contact */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contact</p>
+              <div className="space-y-1.5">
+                {lead.contactName && (
+                  <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${contactMode === "new" ? "border-primary/50 bg-primary/5" : "border-border/40 hover:bg-secondary/30"}`}
+                    onClick={() => setContactMode("new")} data-testid="radio-contact-new">
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${contactMode === "new" ? "border-primary" : "border-muted-foreground/40"}`}>
+                      {contactMode === "new" && <div className="w-2 h-2 rounded-full bg-primary" />}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">Create new Contact</p>
+                      <p className="text-[11px] text-muted-foreground">{lead.contactName}{lead.contactEmail ? ` · ${lead.contactEmail}` : ""}</p>
+                    </div>
+                  </label>
+                )}
+                {selectedContactMatch && (
+                  <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${contactMode === "link" ? "border-primary/50 bg-primary/5" : "border-border/40 hover:bg-secondary/30"}`}
+                    onClick={() => setContactMode("link")} data-testid="radio-contact-link">
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${contactMode === "link" ? "border-primary" : "border-muted-foreground/40"}`}>
+                      {contactMode === "link" && <div className="w-2 h-2 rounded-full bg-primary" />}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">Link to existing: <span className="text-primary">{selectedContactMatch.name}</span></p>
+                      <p className="text-[11px] text-muted-foreground">{selectedContactMatch.email ?? ""}</p>
+                    </div>
+                  </label>
+                )}
+                <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${contactMode === "skip" ? "border-primary/50 bg-primary/5" : "border-border/40 hover:bg-secondary/30"}`}
+                  onClick={() => setContactMode("skip")} data-testid="radio-contact-skip">
+                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${contactMode === "skip" ? "border-primary" : "border-muted-foreground/40"}`}>
+                    {contactMode === "skip" && <div className="w-2 h-2 rounded-full bg-primary" />}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Skip contact</p>
+                    <p className="text-[11px] text-muted-foreground">No contact record will be created or linked</p>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Opportunity */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Opportunity</p>
+              <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${createOpp ? "border-primary/50 bg-primary/5" : "border-border/40 hover:bg-secondary/30"}`}
+                onClick={() => setCreateOpp(v => !v)} data-testid="toggle-create-opportunity">
+                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${createOpp ? "border-primary bg-primary" : "border-muted-foreground/40"}`}>
+                  {createOpp && <span className="text-[9px] text-primary-foreground font-bold">✓</span>}
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Create Opportunity</p>
+                  <p className="text-[11px] text-muted-foreground">Start a deal record linked to this Organization</p>
+                </div>
+              </label>
+            </div>
+
+            <div className="flex justify-between pt-2 border-t border-border/40">
+              <Button variant="ghost" size="sm" onClick={() => setStep(1)}>← Back</Button>
+              <Button size="sm" onClick={goToStep3OrConfirm} data-testid="button-convert-next-2">
+                {hasFieldsToReview ? "Review Fields →" : "Preview →"}
+              </Button>
+            </div>
           </div>
         )}
 
-        <div className="flex justify-end border-t border-border/40 pt-2">
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={isPending}>Cancel</Button>
-        </div>
+        {/* ── Step 3: Field Review ────────────────────────────────────────── */}
+        {step === 3 && (
+          <div className="space-y-4" data-testid="convert-step-review">
+            {accountMode === "new" && (
+              <div className="space-y-3 p-3 rounded-lg border border-border/40 bg-secondary/10">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <Building2 className="h-3.5 w-3.5" />New Organization
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2 space-y-1">
+                    <Label className="text-xs">Name</Label>
+                    <Input value={orgName} onChange={e => setOrgName(e.target.value)} placeholder={lead.company} data-testid="input-org-name" />
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <Label className="text-xs">Organization Type</Label>
+                    <Select value={orgType} onValueChange={setOrgType}>
+                      <SelectTrigger data-testid="select-convert-org-type"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {ORG_TYPE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {contactMode === "new" && (
+              <div className="space-y-3 p-3 rounded-lg border border-border/40 bg-secondary/10">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <Mail className="h-3.5 w-3.5" />New Contact
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2 space-y-1">
+                    <Label className="text-xs">Name</Label>
+                    <Input value={contactName} onChange={e => setContactName(e.target.value)} placeholder={lead.contactName || "Contact name"} data-testid="input-contact-name" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Email</Label>
+                    <Input value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder={lead.contactEmail || "email@example.com"} type="email" data-testid="input-contact-email" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Phone</Label>
+                    <Input value={contactPhone} onChange={e => setContactPhone(e.target.value)} placeholder={lead.contactPhone || "+1 (604) 555-0100"} data-testid="input-contact-phone" />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {createOpp && (
+              <div className="space-y-3 p-3 rounded-lg border border-border/40 bg-secondary/10">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <DollarSign className="h-3.5 w-3.5" />New Opportunity
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2 space-y-1">
+                    <Label className="text-xs">Title</Label>
+                    <Input value={oppTitle} onChange={e => setOppTitle(e.target.value)} placeholder={`${orgName || lead.company} — EV Charging`} data-testid="input-opp-title" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Amount ($)</Label>
+                    <Input value={oppAmount} onChange={e => setOppAmount(e.target.value)} placeholder="0" type="number" data-testid="input-opp-amount" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Stage</Label>
+                    <Select value={oppStage} onValueChange={setOppStage}>
+                      <SelectTrigger data-testid="select-opp-stage"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {OPP_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-between pt-2 border-t border-border/40">
+              <Button variant="ghost" size="sm" onClick={() => setStep(2)}>← Back</Button>
+              <Button size="sm" onClick={() => setStep(4)} data-testid="button-convert-next-3">Preview →</Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 4: Confirm ─────────────────────────────────────────────── */}
+        {step === 4 && (
+          <div className="space-y-4" data-testid="convert-step-confirm">
+            <div className="rounded-lg border border-border/40 bg-secondary/10 divide-y divide-border/30">
+              <div className="flex items-start gap-3 p-3">
+                <Building2 className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Organization</p>
+                  {accountMode === "link" && selectedAccountMatch ? (
+                    <p className="text-sm font-medium">Link to <span className="text-primary">{selectedAccountMatch.name}</span></p>
+                  ) : (
+                    <p className="text-sm font-medium">Create <span className="text-primary">{orgName || lead.company}</span> <span className="text-xs text-muted-foreground">({ORG_TYPE_OPTIONS.find(o => o.value === orgType)?.label})</span></p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3">
+                <Mail className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Contact</p>
+                  {contactMode === "skip" ? (
+                    <p className="text-sm font-medium text-muted-foreground">Skip — no contact</p>
+                  ) : contactMode === "link" && selectedContactMatch ? (
+                    <p className="text-sm font-medium">Link to <span className="text-primary">{selectedContactMatch.name}</span></p>
+                  ) : (
+                    <p className="text-sm font-medium">Create <span className="text-primary">{contactName || lead.contactName || "—"}</span></p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3">
+                <DollarSign className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Opportunity</p>
+                  {createOpp ? (
+                    <p className="text-sm font-medium">Create <span className="text-primary">{oppTitle || `${orgName || lead.company}`}</span>
+                      {oppAmount ? <span className="text-xs text-muted-foreground ml-1">(${Number(oppAmount).toLocaleString()})</span> : null}
+                    </p>
+                  ) : (
+                    <p className="text-sm font-medium text-muted-foreground">Skip — no opportunity</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Lead history, emails, and activities will be preserved with full traceability.
+            </p>
+
+            <div className="flex justify-between pt-2 border-t border-border/40">
+              <Button variant="ghost" size="sm" onClick={() => setStep(hasFieldsToReview ? 3 : 2)}>← Back</Button>
+              <Button onClick={handleConfirm} disabled={isPending} className="gap-2" data-testid="button-convert-confirm">
+                {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                Convert Lead
+              </Button>
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
