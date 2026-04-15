@@ -69,6 +69,40 @@ A compact activity/health strip added to every CRM profile surface.
   - `leads.tsx` — compact bar inside LeadDetailDialog (below header)
   - `partnerships.tsx` — compact bar inside PartnerDetailDialog (below header)
 
+### Daily Command Center (`/`)
+The primary landing page after login — a cockpit-style CRM intelligence hub that shows what needs attention today.
+
+- **Route:** `/` (DailyCommandCenter component replaces old CommandCenter; old CommandCenter moved to `/command-center`)
+- **API Endpoint:** `GET /api/daily-command-center?view=mine|team` — `requireAuth` + `requirePermission("crm","view")`
+  - Returns 7 sections, each with `count` + `items` arrays
+  - Admin users can switch to `view=team` to see all records across the team
+  - Viewers and non-admins always get `viewMode="mine"`
+- **7 Dashboard Sections:**
+  1. **Overdue Tasks** — Tasks past due date; items include `days_overdue`, `linked_object_name`, `severity`, `deepLink`
+  2. **Suggested Actions** — Live pull from `task_suggestions` table (pending, not snoozed/cooldown); shows `reason`, `suggested_action_label`
+  3. **Inbox Follow-Ups Needed** — Inbound emails ≤14 days old with no outbound reply since; severity always high
+  4. **Relationships At Risk** — Accounts with `last_interaction_at > 21 days ago` or NULL, sorted by open deal value DESC
+  5. **Stale Deals** — Open opportunities with no activity in 21+ days; sorted by amount DESC
+  6. **New / Unlinked Emails** — Inbound emails with no `source_account_id`, last 30 days
+  7. **This Week's Priorities** — Tasks due next 7 days + calendar meetings next 7 days
+- **UI Features:**
+  - Greeting header + urgency banner (shows total overdue + follow-ups count when > 0)
+  - Stat strip: 6 count pills for quick snapshot
+  - 2-column layout (xl breakpoint): 5 primary sections left + 2 sidebar sections + Quick Links right
+  - Severity color coding: red (high), amber (medium), blue (low); dot indicator per row
+  - Hover-reveal action labels with ArrowRight icon per row
+  - Click-through deep links to record profiles for every item
+  - Empty states with witty contextual messages per section
+  - Skeleton loading states while fetching
+  - Auto-refresh every 5 minutes
+  - `generatedAt` footer timestamp
+- **Ranking Logic within sections:**
+  - `overdueTasks`: sorted by `due_date ASC` (oldest first); severity = high if >7d, medium if >3d, else low
+  - `suggestedActions`: sorted by severity DESC then created_at ASC
+  - `accountsAtRisk`: sorted by `open_deal_value DESC`, then `last_interaction_at ASC NULLS LAST`
+  - `staleOpportunities`: sorted by `amount DESC NULLS LAST`, then `days_stale DESC`; severity = high if >$10k, medium if >$2k
+  - `inboxFollowUps`: sorted by `sent_at DESC`
+
 ### Signal-Driven Task Suggestions
 A deterministic, explainable task suggestion engine that surfaces the next best action for each CRM record based on relationship signals.
 

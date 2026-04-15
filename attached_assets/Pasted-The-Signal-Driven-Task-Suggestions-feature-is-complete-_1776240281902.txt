@@ -1,0 +1,80 @@
+The Signal-Driven Task Suggestions feature is complete and passing. Freeze it unless a real bug appears.
+
+Now build the next highest-value CRM layer: Daily Command Center.
+
+Goal:
+Create a single homepage/dashboard that shows the most important things needing attention today across the CRM, so the user can open Cortex and instantly know what matters.
+
+Execute in this order:
+
+1. Build backend command-center endpoint
+   - Create a normalized dashboard endpoint that returns grouped sections for:
+     - suggested actions due now
+     - accounts at risk
+     - stale opportunities
+     - recent inbound emails with no follow-up
+     - overdue tasks
+     - new/unlinked emails
+     - recently updated records
+     - upcoming tasks due today / this week
+   - Keep counts + top items for each section
+   - Apply crm=view permission checks
+   - Keep query performance tight
+
+2. Dashboard prioritization model
+   - Rank items by urgency and business value
+   - High-priority examples:
+     - overdue tasks
+     - stale high-value opportunities
+     - recent inbound with no reply
+     - at-risk relationships with open deal value
+   - Each item should include:
+     - title
+     - subtitle/reason
+     - severity
+     - linked object
+     - recommended action
+     - deep link target
+
+3. Build frontend Daily Command Center page
+   - Add a clean dashboard page as the primary landing page after login
+   - Sections should be compact, scannable, and actionable
+   - Support:
+     - click-through into records
+     - quick action buttons where practical
+     - counts and “view all” links
+   - Make it feel like a CEO/operator cockpit, not a graveyard of widgets
+
+4. Add section cards for:
+   - Suggested Next Actions
+   - Relationships At Risk
+   - Stale Deals
+   - Inbox Follow-Ups Needed
+   - Overdue Tasks
+   - New/Unlinked Emails
+   - This Week’s Priorities
+
+5. Add empty-state intelligence
+   - If a section has nothing urgent, say so clearly
+   - Example: “No overdue tasks — rare, beautiful, and suspicious.”
+
+6. Tests
+   - Add backend tests for:
+     - endpoint shape
+     - ranking logic
+     - permission enforcement
+     - section population
+   - Add frontend tests if supported for:
+     - section rendering
+     - navigation/deep links
+     - empty states
+
+7. Final verification
+   - Run TypeScript
+   - Run full test suite
+   - Provide:
+     - exact files changed
+     - dashboard sections implemented
+     - ranking logic
+     - landing-page behavior
+     - final PASS/FAIL

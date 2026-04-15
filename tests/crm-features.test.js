@@ -1093,6 +1093,213 @@ async function run() {
     expect("T7.18 snooze non-existent → 404", res.status, 404);
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // T8 — Daily Command Center
+  // ════════════════════════════════════════════════════════════════════════════
+  console.log("\nT8 — Daily Command Center");
+
+  // T8.1 — auth guard (no cookie → 401)
+  {
+    const res = await fetch(`${BASE}/api/daily-command-center`);
+    expect("T8.1 no-auth → 401", res.status, 401);
+  }
+
+  // T8.2 — viewer access (crm:view allowed)
+  let dccBody;
+  {
+    const res = await v("/api/daily-command-center");
+    expect("T8.2 viewer → 200", res.status, 200);
+    dccBody = await res.json();
+    ok(`T8.2a body is object (keys: ${Object.keys(dccBody).join(",")})`);
+  }
+
+  // T8.3 — top-level shape
+  {
+    const required = ["userName", "viewMode", "isAdmin", "sections", "generatedAt"];
+    const missing = required.filter(k => !(k in dccBody));
+    if (missing.length === 0) ok("T8.3 top-level shape has all required keys");
+    else fail("T8.3 top-level shape", `missing: ${missing.join(",")}`);
+  }
+
+  // T8.4 — sections shape
+  {
+    const requiredSections = [
+      "overdueTasks", "suggestedActions", "accountsAtRisk",
+      "staleOpportunities", "inboxFollowUps", "newUnlinkedEmails", "thisWeekPriorities",
+    ];
+    const missing = requiredSections.filter(k => !(k in dccBody.sections));
+    if (missing.length === 0) ok("T8.4 sections shape has all 7 sections");
+    else fail("T8.4 sections shape", `missing: ${missing.join(",")}`);
+  }
+
+  // T8.5 — each section has count + items (or tasks/meetings for weekPriorities)
+  {
+    const { overdueTasks, suggestedActions, accountsAtRisk, staleOpportunities,
+            inboxFollowUps, newUnlinkedEmails, thisWeekPriorities } = dccBody.sections;
+
+    const sectionOk = (name, section) => {
+      if (typeof section.count !== "number") { fail(`T8.5 ${name}.count`, "not a number"); return; }
+      if (!Array.isArray(section.items ?? section.tasks)) { fail(`T8.5 ${name}.items/tasks`, "not an array"); return; }
+      ok(`T8.5 ${name} count=${section.count} items ok`);
+    };
+    sectionOk("overdueTasks", overdueTasks);
+    sectionOk("suggestedActions", suggestedActions);
+    sectionOk("accountsAtRisk", accountsAtRisk);
+    sectionOk("staleOpportunities", staleOpportunities);
+    sectionOk("inboxFollowUps", inboxFollowUps);
+    sectionOk("newUnlinkedEmails", newUnlinkedEmails);
+
+    if (typeof thisWeekPriorities.count !== "number") fail("T8.5 thisWeekPriorities.count", "not a number");
+    else if (!Array.isArray(thisWeekPriorities.tasks)) fail("T8.5 thisWeekPriorities.tasks", "not an array");
+    else if (!Array.isArray(thisWeekPriorities.meetings)) fail("T8.5 thisWeekPriorities.meetings", "not an array");
+    else ok(`T8.5 thisWeekPriorities count=${thisWeekPriorities.count} tasks=${thisWeekPriorities.tasks.length} meetings=${thisWeekPriorities.meetings.length}`);
+  }
+
+  // T8.6 — count matches items array length for all sections
+  {
+    const { overdueTasks, suggestedActions, accountsAtRisk, staleOpportunities,
+            inboxFollowUps, newUnlinkedEmails } = dccBody.sections;
+    const checks = [
+      ["overdueTasks", overdueTasks],
+      ["suggestedActions", suggestedActions],
+      ["accountsAtRisk", accountsAtRisk],
+      ["staleOpportunities", staleOpportunities],
+      ["inboxFollowUps", inboxFollowUps],
+      ["newUnlinkedEmails", newUnlinkedEmails],
+    ];
+    let allOk = true;
+    for (const [name, sec] of checks) {
+      if (sec.count !== sec.items.length) {
+        fail(`T8.6 ${name} count mismatch`, `count=${sec.count} items=${sec.items.length}`);
+        allOk = false;
+      }
+    }
+    if (allOk) ok("T8.6 all section counts match items array length");
+  }
+
+  // T8.7 — overdueTasks items have required fields
+  {
+    const { items } = dccBody.sections.overdueTasks;
+    if (items.length === 0) {
+      ok("T8.7 overdueTasks empty — no items to validate shape");
+    } else {
+      const required = ["id", "title", "due_date", "priority", "severity", "deepLink"];
+      const missing = required.filter(k => !(k in items[0]));
+      if (missing.length === 0) ok(`T8.7 overdueTasks item shape ok (${items.length} items)`);
+      else fail("T8.7 overdueTasks item shape", `missing: ${missing.join(",")}`);
+    }
+  }
+
+  // T8.8 — suggestedActions items have required fields
+  {
+    const { items } = dccBody.sections.suggestedActions;
+    if (items.length === 0) {
+      ok("T8.8 suggestedActions empty — no items to validate shape");
+    } else {
+      const required = ["id", "title", "reason", "severity", "suggested_action_label", "deepLink"];
+      const missing = required.filter(k => !(k in items[0]));
+      if (missing.length === 0) ok(`T8.8 suggestedActions item shape ok (${items.length} items)`);
+      else fail("T8.8 suggestedActions item shape", `missing: ${missing.join(",")}`);
+    }
+  }
+
+  // T8.9 — accountsAtRisk items have required fields
+  {
+    const { items } = dccBody.sections.accountsAtRisk;
+    if (items.length === 0) {
+      ok("T8.9 accountsAtRisk empty — no items to validate shape");
+    } else {
+      const required = ["id", "name", "open_deal_count", "open_deal_value", "severity", "deepLink"];
+      const missing = required.filter(k => !(k in items[0]));
+      if (missing.length === 0) ok(`T8.9 accountsAtRisk item shape ok (${items.length} items)`);
+      else fail("T8.9 accountsAtRisk item shape", `missing: ${missing.join(",")}`);
+    }
+  }
+
+  // T8.10 — staleOpportunities items have required fields
+  {
+    const { items } = dccBody.sections.staleOpportunities;
+    if (items.length === 0) {
+      ok("T8.10 staleOpportunities empty — no items to validate shape");
+    } else {
+      const required = ["id", "title", "stage", "days_stale", "severity", "deepLink"];
+      const missing = required.filter(k => !(k in items[0]));
+      if (missing.length === 0) ok(`T8.10 staleOpportunities item shape ok (${items.length} items)`);
+      else fail("T8.10 staleOpportunities item shape", `missing: ${missing.join(",")}`);
+    }
+  }
+
+  // T8.11 — severities are valid values only
+  {
+    const validSeverities = new Set(["high", "medium", "low"]);
+    let bad = 0;
+    const sections = ["overdueTasks", "suggestedActions", "accountsAtRisk", "staleOpportunities", "inboxFollowUps"];
+    for (const sec of sections) {
+      for (const item of dccBody.sections[sec].items) {
+        if (item.severity && !validSeverities.has(item.severity)) bad++;
+      }
+    }
+    if (bad === 0) ok("T8.11 all item severities are valid (high|medium|low)");
+    else fail("T8.11 severities", `${bad} item(s) with invalid severity`);
+  }
+
+  // T8.12 — deepLinks are well-formed strings
+  {
+    let bad = 0;
+    const sections = ["overdueTasks", "accountsAtRisk", "staleOpportunities", "inboxFollowUps"];
+    for (const sec of sections) {
+      for (const item of dccBody.sections[sec].items) {
+        if (typeof item.deepLink !== "string" || !item.deepLink.startsWith("/")) bad++;
+      }
+    }
+    if (bad === 0) ok("T8.12 all deepLinks are valid strings starting with /");
+    else fail("T8.12 deepLinks", `${bad} invalid deepLink(s)`);
+  }
+
+  // T8.13 — viewMode is mine or team
+  {
+    expect("T8.13 viewMode is mine|team", ["mine","team"].includes(dccBody.viewMode), true);
+  }
+
+  // T8.14 — generatedAt is a valid ISO timestamp
+  {
+    const d = new Date(dccBody.generatedAt);
+    if (!isNaN(d.getTime()) && d > new Date(Date.now() - 60000))
+      ok(`T8.14 generatedAt is recent ISO timestamp (${dccBody.generatedAt})`);
+    else fail("T8.14 generatedAt", `invalid or stale: ${dccBody.generatedAt}`);
+  }
+
+  // T8.15 — admin can switch to team view
+  {
+    const res = await t("/api/daily-command-center?view=team");
+    expect("T8.15 admin team view → 200", res.status, 200);
+    const body = await res.json();
+    expect("T8.15a viewMode=team for admin", body.viewMode, "team");
+  }
+
+  // T8.16 — viewer gets mine view even with team param
+  {
+    const res = await v("/api/daily-command-center?view=team");
+    const body = await res.json();
+    expect("T8.16 viewer always gets mine view", body.viewMode, "mine");
+  }
+
+  // T8.17 — response time is reasonable (< 4000ms)
+  {
+    const start = Date.now();
+    const res = await t("/api/daily-command-center");
+    const elapsed = Date.now() - start;
+    if (res.status === 200 && elapsed < 4000) ok(`T8.17 response time acceptable (${elapsed}ms)`);
+    else fail("T8.17 response time", `${elapsed}ms or status=${res.status}`);
+  }
+
+  // T8.18 — thisWeekPriorities count = tasks.length + meetings.length
+  {
+    const wp = dccBody.sections.thisWeekPriorities;
+    const expected = wp.tasks.length + wp.meetings.length;
+    expect("T8.18 thisWeekPriorities.count = tasks+meetings", wp.count, expected);
+  }
+
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log(`\n${"─".repeat(50)}`);
   const total = passed + failed;

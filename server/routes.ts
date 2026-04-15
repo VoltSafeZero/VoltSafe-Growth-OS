@@ -3890,6 +3890,211 @@ export async function registerRoutes(
     }
   });
 
+  // ─── Daily Command Center ─────────────────────────────────────────────────
+  app.get("/api/daily-command-center", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+      const [me] = await db.select({ globalRole: users.globalRole, name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
+      const isAdminUser = !!me && ["master_admin", "admin"].includes(me.globalRole ?? "");
+      const viewMode = (req.query.view === "team" && isAdminUser) ? "team" : "mine";
+      const isMine = viewMode === "mine";
+      const userFilter = isMine ? `AND t.owner_user_id = ${userId}` : "";
+      const oppFilter  = isMine ? `AND o.owner_user_id = ${userId}` : "";
+
+      // ── 1. Overdue Tasks ──────────────────────────────────────────────────
+      const overdueTasksRes = await db.execute(sql.raw(`
+        SELECT t.id, t.title, t.due_date, t.priority, t.status,
+               t.linked_object_type, t.linked_object_id,
+               EXTRACT(EPOCH FROM (NOW() - t.due_date)) / 86400 AS days_overdue,
+               CASE
+                 WHEN t.linked_object_type = 'account' THEN a.name
+                 WHEN t.linked_object_type = 'contact' THEN c.name
+                 WHEN t.linked_object_type = 'opportunity' THEN op.title
+               END AS linked_object_name
+        FROM tasks t
+        LEFT JOIN accounts a ON t.linked_object_type = 'account' AND t.linked_object_id = a.id
+        LEFT JOIN contacts c ON t.linked_object_type = 'contact' AND t.linked_object_id = c.id
+        LEFT JOIN opportunities op ON t.linked_object_type = 'opportunity' AND t.linked_object_id = op.id
+        WHERE t.status NOT IN ('completed','cancelled')
+          AND t.due_date < NOW()
+          ${userFilter}
+        ORDER BY t.due_date ASC
+        LIMIT 8
+      `));
+      const overdueTasks = (overdueTasksRes as any).rows ?? [];
+
+      // ── 2. Signal-Based Suggested Actions (from task_suggestions) ─────────
+      const suggestedActionsRes = await db.execute(sql.raw(`
+        SELECT ts.id, ts.object_type, ts.object_id, ts.signal_type, ts.severity,
+               ts.title, ts.reason, ts.suggested_action_type, ts.suggested_action_label,
+               ts.priority, ts.suggested_due_date,
+               CASE
+                 WHEN ts.object_type = 'account' THEN a.name
+                 WHEN ts.object_type = 'contact' THEN c.name
+                 WHEN ts.object_type = 'opportunity' THEN op.title
+               END AS object_name
+        FROM task_suggestions ts
+        LEFT JOIN accounts a ON ts.object_type = 'account' AND ts.object_id = a.id
+        LEFT JOIN contacts c ON ts.object_type = 'contact' AND ts.object_id = c.id
+        LEFT JOIN opportunities op ON ts.object_type = 'opportunity' AND ts.object_id = op.id
+        WHERE ts.status = 'pending'
+          AND (ts.snoozed_until IS NULL OR ts.snoozed_until < NOW())
+          AND (ts.dismissed_at IS NULL OR ts.dismissed_at < NOW() - INTERVAL '7 days')
+          AND (ts.accepted_at IS NULL OR ts.accepted_at < NOW() - INTERVAL '3 days')
+        ORDER BY CASE ts.severity WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                 ts.created_at ASC
+        LIMIT 10
+      `));
+      const suggestedActions = (suggestedActionsRes as any).rows ?? [];
+
+      // ── 3. Accounts At Risk ────────────────────────────────────────────────
+      const accountsAtRiskRes = await db.execute(sql.raw(`
+        SELECT a.id, a.name, a.last_interaction_at, a.priority, a.strategic_importance,
+               COUNT(DISTINCT o.id) AS open_deal_count,
+               COALESCE(SUM(o.amount), 0) AS open_deal_value,
+               EXTRACT(EPOCH FROM (NOW() - a.last_interaction_at)) / 86400 AS days_since_touch
+        FROM accounts a
+        LEFT JOIN opportunities o ON o.account_id = a.id
+          AND o.stage NOT IN ('closed_won','closed_lost')
+        WHERE (a.last_interaction_at < NOW() - INTERVAL '21 days'
+               OR a.last_interaction_at IS NULL)
+        GROUP BY a.id, a.name, a.last_interaction_at, a.priority, a.strategic_importance
+        ORDER BY open_deal_value DESC, a.last_interaction_at ASC NULLS LAST
+        LIMIT 6
+      `));
+      const accountsAtRisk = (accountsAtRiskRes as any).rows ?? [];
+
+      // ── 4. Stale Opportunities ────────────────────────────────────────────
+      const staleOppsRes = await db.execute(sql.raw(`
+        SELECT o.id, o.title, o.stage, o.amount, o.updated_at, o.last_activity_date,
+               o.est_close_date, o.account_id,
+               a.name AS account_name,
+               EXTRACT(EPOCH FROM (NOW() - COALESCE(o.last_activity_date, o.updated_at))) / 86400 AS days_stale
+        FROM opportunities o
+        LEFT JOIN accounts a ON o.account_id = a.id
+        WHERE o.stage NOT IN ('closed_won','closed_lost')
+          AND COALESCE(o.last_activity_date, o.updated_at) < NOW() - INTERVAL '21 days'
+          ${oppFilter}
+        ORDER BY o.amount DESC NULLS LAST, days_stale DESC
+        LIMIT 6
+      `));
+      const staleOpportunities = (staleOppsRes as any).rows ?? [];
+
+      // ── 5. Inbox Follow-Ups Needed ────────────────────────────────────────
+      const inboxFollowUpsRes = await db.execute(sql.raw(`
+        SELECT em.id, em.subject, em.from_email, em.from_name, em.sent_at,
+               em.snippet, em.source_account_id, a.name AS account_name
+        FROM email_messages em
+        LEFT JOIN accounts a ON em.source_account_id = a.id
+        WHERE em.direction = 'inbound'
+          AND em.sent_at > NOW() - INTERVAL '14 days'
+          AND NOT EXISTS (
+            SELECT 1 FROM email_messages em2
+            WHERE em2.source_account_id = em.source_account_id
+              AND em2.source_account_id IS NOT NULL
+              AND em2.direction = 'outbound'
+              AND em2.sent_at > em.sent_at
+          )
+        ORDER BY em.sent_at DESC
+        LIMIT 5
+      `));
+      const inboxFollowUps = (inboxFollowUpsRes as any).rows ?? [];
+
+      // ── 6. New / Unlinked Emails ──────────────────────────────────────────
+      const unlinkedEmailsRes = await db.execute(sql.raw(`
+        SELECT id, subject, from_email, from_name, sent_at, snippet
+        FROM email_messages
+        WHERE source_account_id IS NULL
+          AND direction = 'inbound'
+          AND sent_at > NOW() - INTERVAL '30 days'
+        ORDER BY sent_at DESC
+        LIMIT 5
+      `));
+      const newUnlinkedEmails = (unlinkedEmailsRes as any).rows ?? [];
+
+      // ── 7. This Week's Priorities ─────────────────────────────────────────
+      const weekTasksRes = await db.execute(sql.raw(`
+        SELECT t.id, t.title, t.due_date, t.priority, t.status,
+               t.linked_object_type, t.linked_object_id
+        FROM tasks t
+        WHERE t.status NOT IN ('completed','cancelled')
+          AND t.due_date BETWEEN NOW() AND NOW() + INTERVAL '7 days'
+          ${userFilter}
+        ORDER BY t.due_date ASC, t.priority DESC
+        LIMIT 8
+      `));
+      const weekTasks = (weekTasksRes as any).rows ?? [];
+
+      const weekMeetingsRes = await db.execute(sql.raw(`
+        SELECT id, title, start_time, end_time, location, meeting_url, event_type
+        FROM calendar_events
+        WHERE start_time BETWEEN NOW() AND NOW() + INTERVAL '7 days'
+          AND user_id = ${userId}
+        ORDER BY start_time ASC
+        LIMIT 8
+      `));
+      const weekMeetings = (weekMeetingsRes as any).rows ?? [];
+
+      // ── Compute section severity levels for items that need it ────────────
+      const taggedOverdue = overdueTasks.map((t: any) => ({
+        ...t,
+        severity: Number(t.days_overdue) > 7 ? "high" : Number(t.days_overdue) > 3 ? "medium" : "low",
+        deepLink: t.linked_object_type && t.linked_object_id
+          ? `/${t.linked_object_type}s/${t.linked_object_id}`
+          : "/tasks",
+      }));
+
+      const taggedAtRisk = accountsAtRisk.map((a: any) => ({
+        ...a,
+        severity: Number(a.days_since_touch) > 45 ? "high" : Number(a.days_since_touch) > 30 ? "medium" : "low",
+        deepLink: `/accounts/${a.id}`,
+      }));
+
+      const taggedStale = staleOpportunities.map((o: any) => ({
+        ...o,
+        severity: Number(o.amount) > 10000 ? "high" : Number(o.amount) > 2000 ? "medium" : "low",
+        deepLink: `/opportunities/${o.id}`,
+      }));
+
+      const taggedSuggested = suggestedActions.map((s: any) => ({
+        ...s,
+        deepLink: s.object_type && s.object_id
+          ? `/${s.object_type}s/${s.object_id}`
+          : "/",
+      }));
+
+      const taggedFollowUps = inboxFollowUps.map((e: any) => ({
+        ...e,
+        severity: "high",
+        deepLink: e.source_account_id ? `/accounts/${e.source_account_id}` : "/",
+      }));
+
+      res.json({
+        userName: me?.name?.split(" ")[0] ?? "there",
+        viewMode,
+        isAdmin: isAdminUser,
+        sections: {
+          overdueTasks: { count: taggedOverdue.length, items: taggedOverdue },
+          suggestedActions: { count: taggedSuggested.length, items: taggedSuggested },
+          accountsAtRisk: { count: taggedAtRisk.length, items: taggedAtRisk },
+          staleOpportunities: { count: taggedStale.length, items: taggedStale },
+          inboxFollowUps: { count: taggedFollowUps.length, items: taggedFollowUps },
+          newUnlinkedEmails: { count: newUnlinkedEmails.length, items: newUnlinkedEmails },
+          thisWeekPriorities: {
+            count: weekTasks.length + weekMeetings.length,
+            tasks: weekTasks,
+            meetings: weekMeetings,
+          },
+        },
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // Pipeline insights — stalled deals, no next step, forecast
   app.get("/api/pipeline/insights", requireAuth, async (req, res) => {
     try {
