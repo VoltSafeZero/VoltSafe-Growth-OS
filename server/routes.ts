@@ -1439,7 +1439,7 @@ export async function registerRoutes(
     res.json(opp);
   });
 
-  app.post("/api/opportunities", async (req, res) => {
+  app.post("/api/opportunities", requirePermission("crm", "edit"), async (req, res) => {
     const parsed = insertOpportunitySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     const opp = await storage.createOpportunity(parsed.data);
@@ -1452,7 +1452,7 @@ export async function registerRoutes(
     res.status(201).json(opp);
   });
 
-  app.put("/api/opportunities/:id", async (req, res) => {
+  app.put("/api/opportunities/:id", requirePermission("crm", "edit"), async (req, res) => {
     const existing = await storage.getOpportunity(Number(req.params.id));
     if (!existing) return res.status(404).json({ message: "Opportunity not found" });
     const result = await storage.updateOpportunity(Number(req.params.id), req.body);
@@ -2399,17 +2399,17 @@ export async function registerRoutes(
     if (!o) return res.status(404).json({ message: "Organization not found" });
     res.json(o);
   });
-  app.post("/api/ecosystem/organizations", async (req, res) => {
+  app.post("/api/ecosystem/organizations", requirePermission("partnerships", "edit"), async (req, res) => {
     const parsed = insertEcosystemOrganizationSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createEcosystemOrganization(parsed.data));
   });
-  app.put("/api/ecosystem/organizations/:id", async (req, res) => {
+  app.put("/api/ecosystem/organizations/:id", requirePermission("partnerships", "edit"), async (req, res) => {
     const result = await storage.updateEcosystemOrganization(Number(req.params.id), req.body);
     if (!result) return res.status(404).json({ message: "Organization not found" });
     res.json(result);
   });
-  app.delete("/api/ecosystem/organizations/:id", async (req, res) => {
+  app.delete("/api/ecosystem/organizations/:id", requirePermission("partnerships", "edit"), async (req, res) => {
     const ok = await storage.deleteEcosystemOrganization(Number(req.params.id));
     if (!ok) return res.status(404).json({ message: "Organization not found" });
     res.json({ message: "Deleted" });
@@ -2427,17 +2427,17 @@ export async function registerRoutes(
     if (!p) return res.status(404).json({ message: "Person not found" });
     res.json(p);
   });
-  app.post("/api/ecosystem/people", async (req, res) => {
+  app.post("/api/ecosystem/people", requirePermission("partnerships", "edit"), async (req, res) => {
     const parsed = insertEcosystemPersonSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createEcosystemPerson(parsed.data));
   });
-  app.put("/api/ecosystem/people/:id", async (req, res) => {
+  app.put("/api/ecosystem/people/:id", requirePermission("partnerships", "edit"), async (req, res) => {
     const result = await storage.updateEcosystemPerson(Number(req.params.id), req.body);
     if (!result) return res.status(404).json({ message: "Person not found" });
     res.json(result);
   });
-  app.delete("/api/ecosystem/people/:id", async (req, res) => {
+  app.delete("/api/ecosystem/people/:id", requirePermission("partnerships", "edit"), async (req, res) => {
     const ok = await storage.deleteEcosystemPerson(Number(req.params.id));
     if (!ok) return res.status(404).json({ message: "Person not found" });
     res.json({ message: "Deleted" });
@@ -2456,21 +2456,21 @@ export async function registerRoutes(
     if (!r) return res.status(404).json({ message: "Relationship not found" });
     res.json(r);
   });
-  app.post("/api/ecosystem/relationships", async (req, res) => {
+  app.post("/api/ecosystem/relationships", requirePermission("partnerships", "edit"), async (req, res) => {
     const body = { ...req.body };
     if (body.startDate && typeof body.startDate === "string") body.startDate = new Date(body.startDate);
     const parsed = insertEcosystemRelationshipSchema.safeParse(body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createEcosystemRelationship(parsed.data));
   });
-  app.put("/api/ecosystem/relationships/:id", async (req, res) => {
+  app.put("/api/ecosystem/relationships/:id", requirePermission("partnerships", "edit"), async (req, res) => {
     const body = { ...req.body };
     if (body.startDate && typeof body.startDate === "string") body.startDate = new Date(body.startDate);
     const result = await storage.updateEcosystemRelationship(Number(req.params.id), body);
     if (!result) return res.status(404).json({ message: "Relationship not found" });
     res.json(result);
   });
-  app.delete("/api/ecosystem/relationships/:id", async (req, res) => {
+  app.delete("/api/ecosystem/relationships/:id", requirePermission("partnerships", "edit"), async (req, res) => {
     const ok = await storage.deleteEcosystemRelationship(Number(req.params.id));
     if (!ok) return res.status(404).json({ message: "Relationship not found" });
     res.json({ message: "Deleted" });
@@ -2485,21 +2485,21 @@ export async function registerRoutes(
     if (!e) return res.status(404).json({ message: "Event not found" });
     res.json(e);
   });
-  app.post("/api/ecosystem/events", async (req, res) => {
+  app.post("/api/ecosystem/events", requirePermission("partnerships", "edit"), async (req, res) => {
     const body = { ...req.body };
     if (body.eventDate && typeof body.eventDate === "string") body.eventDate = new Date(body.eventDate);
     const parsed = insertEcosystemEventSchema.safeParse(body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createEcosystemEvent(parsed.data));
   });
-  app.put("/api/ecosystem/events/:id", async (req, res) => {
+  app.put("/api/ecosystem/events/:id", requirePermission("partnerships", "edit"), async (req, res) => {
     const body = { ...req.body };
     if (body.eventDate && typeof body.eventDate === "string") body.eventDate = new Date(body.eventDate);
     const result = await storage.updateEcosystemEvent(Number(req.params.id), body);
     if (!result) return res.status(404).json({ message: "Event not found" });
     res.json(result);
   });
-  app.delete("/api/ecosystem/events/:id", async (req, res) => {
+  app.delete("/api/ecosystem/events/:id", requirePermission("partnerships", "edit"), async (req, res) => {
     const ok = await storage.deleteEcosystemEvent(Number(req.params.id));
     if (!ok) return res.status(404).json({ message: "Event not found" });
     res.json({ message: "Deleted" });
@@ -2514,17 +2514,17 @@ export async function registerRoutes(
     if (!r) return res.status(404).json({ message: "Region not found" });
     res.json(r);
   });
-  app.post("/api/ecosystem/regions", async (req, res) => {
+  app.post("/api/ecosystem/regions", requirePermission("partnerships", "edit"), async (req, res) => {
     const parsed = insertEcosystemRegionSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createEcosystemRegion(parsed.data));
   });
-  app.put("/api/ecosystem/regions/:id", async (req, res) => {
+  app.put("/api/ecosystem/regions/:id", requirePermission("partnerships", "edit"), async (req, res) => {
     const result = await storage.updateEcosystemRegion(Number(req.params.id), req.body);
     if (!result) return res.status(404).json({ message: "Region not found" });
     res.json(result);
   });
-  app.delete("/api/ecosystem/regions/:id", async (req, res) => {
+  app.delete("/api/ecosystem/regions/:id", requirePermission("partnerships", "edit"), async (req, res) => {
     const ok = await storage.deleteEcosystemRegion(Number(req.params.id));
     if (!ok) return res.status(404).json({ message: "Region not found" });
     res.json({ message: "Deleted" });
@@ -6340,7 +6340,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.post("/api/opportunities/:id/contacts", requireAuth, async (req, res) => {
+  app.post("/api/opportunities/:id/contacts", requirePermission("crm", "edit"), async (req, res) => {
     try {
       const oc = await storage.addOpportunityContact({ ...req.body, opportunityId: Number(req.params.id) });
       res.status(201).json(oc);
@@ -6349,7 +6349,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/opportunities/:id/contacts/:contactId", requireAuth, async (req, res) => {
+  app.delete("/api/opportunities/:id/contacts/:contactId", requirePermission("crm", "edit"), async (req, res) => {
     try {
       const ok = await storage.removeOpportunityContact(Number(req.params.id), Number(req.params.contactId));
       if (!ok) return res.status(404).json({ message: "Not found" });

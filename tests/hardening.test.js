@@ -570,6 +570,155 @@ async function run() {
       : fail(`Cleanup of ownership note failed: ${cleanup.status}`);
   }
 
+  // ── 11. OPPORTUNITY MUTATIONS (crm=edit required) ──────────────────────────
+  // The app.use middleware grants view-level access to /api/opportunities.
+  // Each mutation handler now enforces requirePermission("crm","edit").
+  // viewer@voltsafe.com (crm=view) must be blocked with 403.
+  // mixed@voltsafe.com (crm=edit) must be allowed.
+  console.log("\n── 11. Opportunity mutations require crm=edit ──");
+
+  // Unauthenticated → 401 (middleware)
+  await check(
+    "POST /api/opportunities (unauthed)         [401]",
+    fetch(`${BASE}/api/opportunities`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountId: accountId, title: "Unauthed test" }),
+    }),
+    401
+  );
+
+  // Viewer (crm=view only) → 403 on POST
+  const viewerEditOppRes = await (authed(viewerCookie2))("/api/opportunities", {
+    method: "POST",
+    body: JSON.stringify({ accountId: accountId, title: "Viewer create attempt" }),
+  });
+  viewerEditOppRes.status === 403
+    ? ok("Viewer (crm=view) cannot POST opportunity \u2192 403")
+    : fail(`Expected 403 for viewer POST opp, got ${viewerEditOppRes.status}`);
+
+  // Viewer (crm=view only) → 403 on PUT
+  if (firstOpp) {
+    const viewerPutOppRes = await (authed(viewerCookie2))(`/api/opportunities/${firstOpp.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ title: "Viewer mutate attempt" }),
+    });
+    viewerPutOppRes.status === 403
+      ? ok("Viewer (crm=view) cannot PUT opportunity \u2192 403")
+      : fail(`Expected 403 for viewer PUT opp, got ${viewerPutOppRes.status}`);
+  }
+
+  // Mixed user (crm=edit) → can POST opportunity
+  let mixedCookie = null;
+  try {
+    mixedCookie = await login("mixed@voltsafe.com", "testpass1234");
+    ok("Login as mixed@voltsafe.com succeeded");
+  } catch (e) {
+    fail("Login as mixed@voltsafe.com", e.message);
+  }
+
+  let createdOppId = null;
+  if (mixedCookie) {
+    const m = authed(mixedCookie);
+    const mixedCreateRes = await m("/api/opportunities", {
+      method: "POST",
+      body: JSON.stringify({ accountId: accountId, title: "Mixed user test opp " + Date.now() }),
+    });
+    if (mixedCreateRes.status === 201) {
+      const newOpp = await mixedCreateRes.json();
+      createdOppId = newOpp.id;
+      ok(`Mixed user (crm=edit) can POST opportunity \u2192 201 (id=${createdOppId})`);
+    } else {
+      const b = await mixedCreateRes.text().catch(() => "");
+      fail(`Mixed user POST opportunity returned ${mixedCreateRes.status}`, b.slice(0, 100));
+    }
+
+    // Mixed user can PUT opportunity
+    if (createdOppId !== null) {
+      const mixedPutRes = await m(`/api/opportunities/${createdOppId}`, {
+        method: "PUT",
+        body: JSON.stringify({ title: "Mixed user updated title" }),
+      });
+      mixedPutRes.ok
+        ? ok("Mixed user (crm=edit) can PUT opportunity \u2192 200")
+        : fail(`Mixed user PUT opportunity returned ${mixedPutRes.status}`);
+    }
+
+    // Admin (Trevor) can also mutate — cleanup the test opportunity
+    if (createdOppId !== null) {
+      const adminPutRes = await t(`/api/opportunities/${createdOppId}`, {
+        method: "PUT",
+        body: JSON.stringify({ title: "Admin cleanup edit" }),
+      });
+      adminPutRes.ok
+        ? ok("Admin (master_admin) can PUT any opportunity \u2192 200")
+        : fail(`Admin PUT opportunity returned ${adminPutRes.status}`);
+    }
+  }
+
+  // ── 12. ECOSYSTEM WRITE PERMISSIONS (partnerships=edit required) ────────────
+  // app.use("/api/ecosystem", requireAuth) provides auth gate.
+  // Each write handler now requires requirePermission("partnerships","edit").
+  // Viewer (no partnerships perm) → 403; admin (Trevor) → 200/201.
+  console.log("\n── 12. Ecosystem writes require partnerships=edit ──");
+
+  // Unauthenticated → 401
+  await check(
+    "POST /api/ecosystem/organizations (unauthed) [401]",
+    fetch(`${BASE}/api/ecosystem/organizations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Unauthed org" }),
+    }),
+    401
+  );
+
+  // Ecosystem reads still work for any authed user
+  const ecoReadRes = await t("/api/ecosystem/organizations");
+  await checkOneOf(
+    "GET /api/ecosystem/organizations (authed admin) [200]",
+    Promise.resolve(ecoReadRes),
+    200
+  );
+
+  // Viewer (no partnerships perm) → 403 on ecosystem POST
+  if (viewerCookie2) {
+    const v = authed(viewerCookie2);
+    const viewerEcoRes = await v("/api/ecosystem/organizations", {
+      method: "POST",
+      body: JSON.stringify({ name: "Viewer org attempt" }),
+    });
+    viewerEcoRes.status === 403
+      ? ok("Viewer (no partnerships perm) cannot POST ecosystem org \u2192 403")
+      : fail(`Expected 403 for viewer ecosystem POST, got ${viewerEcoRes.status}`);
+
+    const viewerEcoPutRes = await v("/api/ecosystem/organizations/1", {
+      method: "PUT",
+      body: JSON.stringify({ name: "Viewer PUT attempt" }),
+    });
+    viewerEcoPutRes.status === 403
+      ? ok("Viewer cannot PUT ecosystem org \u2192 403")
+      : fail(`Expected 403 for viewer ecosystem PUT, got ${viewerEcoPutRes.status}`);
+  }
+
+  // Admin (Trevor, master_admin) can write ecosystem — create + cleanup
+  const adminEcoCreateRes = await t("/api/ecosystem/regions", {
+    method: "POST",
+    body: JSON.stringify({ name: "Hardening Test Region " + Date.now(), description: "auto-cleanup" }),
+  });
+  if (adminEcoCreateRes.status === 201) {
+    const newRegion = await adminEcoCreateRes.json();
+    ok(`Admin can POST ecosystem region \u2192 201 (id=${newRegion.id})`);
+    // Cleanup via DELETE
+    const adminEcoDelRes = await t(`/api/ecosystem/regions/${newRegion.id}`, { method: "DELETE" });
+    adminEcoDelRes.ok
+      ? ok(`Admin can DELETE ecosystem region \u2192 200 (cleanup id=${newRegion.id})`)
+      : fail(`Admin ecosystem DELETE returned ${adminEcoDelRes.status}`);
+  } else {
+    const b = await adminEcoCreateRes.text().catch(() => "");
+    fail(`Admin POST ecosystem region returned ${adminEcoCreateRes.status}`, b.slice(0, 100));
+  }
+
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log(`\n${"─".repeat(50)}`);
   console.log(`Results: ${passed} passed, ${failed} failed`);
