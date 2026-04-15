@@ -18,7 +18,7 @@ import {
   CheckCircle2, Circle, Clock, AlertTriangle, ChevronDown, ChevronRight,
   CalendarDays, Flag, User2, Link2, MoreHorizontal, Plus, Search,
   SlidersHorizontal, ListTodo, CheckSquare, Users, RefreshCcw, Bell,
-  Building2, ArrowRight, Zap,
+  Building2, ArrowRight, Zap, Sparkles, ThumbsDown, Settings2,
 } from "lucide-react";
 
 type HubTask = {
@@ -57,7 +57,7 @@ type HubResponse = {
   total: number;
 };
 
-type ViewTab = "my" | "team" | "today" | "overdue" | "upcoming" | "completed";
+type ViewTab = "my" | "team" | "today" | "overdue" | "upcoming" | "completed" | "suggestions";
 type GroupBy = "due_date" | "priority" | "linked_record" | "assignee";
 
 const VIEW_LABELS: Record<ViewTab, string> = {
@@ -67,6 +67,7 @@ const VIEW_LABELS: Record<ViewTab, string> = {
   overdue: "Overdue",
   upcoming: "Upcoming",
   completed: "Completed",
+  suggestions: "Suggestions",
 };
 
 const VIEW_ICONS: Record<ViewTab, React.ElementType> = {
@@ -76,6 +77,7 @@ const VIEW_ICONS: Record<ViewTab, React.ElementType> = {
   overdue: AlertTriangle,
   upcoming: Clock,
   completed: CheckCircle2,
+  suggestions: Sparkles,
 };
 
 const GROUP_LABELS: Record<GroupBy, string> = {
@@ -369,6 +371,161 @@ function GroupSection({
   );
 }
 
+type GlobalSuggestion = {
+  id: number;
+  objectType: string;
+  objectId: number;
+  signalType: string;
+  severity: "low" | "medium" | "high";
+  title: string;
+  reason: string;
+  suggestedActionType: string;
+  suggestedActionLabel: string;
+  priority: "low" | "medium" | "high";
+  suggestedDueDate: string | null;
+  status: string;
+  sourceLabel: string;
+  confidence: number;
+  suggestedAssigneeId: number | null;
+  accountName: string | null;
+  objectLabel: string | null;
+};
+
+const SEVERITY_BADGE: Record<string, string> = {
+  high: "bg-red-500/15 text-red-400 border-red-500/30",
+  medium: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  low: "bg-slate-500/15 text-slate-400 border-slate-500/30",
+};
+
+const CONFIDENCE_COLOR = (c: number) =>
+  c >= 80 ? "text-green-400" : c >= 60 ? "text-amber-400" : "text-muted-foreground";
+
+function SuggestionCard({
+  s,
+  onAccept,
+  onDismiss,
+  onSnooze,
+}: {
+  s: GlobalSuggestion;
+  onAccept: () => void;
+  onDismiss: () => void;
+  onSnooze: (days: number) => void;
+}) {
+  const [, navigate] = useLocation();
+  const linkedHref = s.objectType === "account" ? `/accounts/${s.objectId}`
+    : s.objectType === "opportunity" ? `/opportunities/${s.objectId}`
+    : s.objectType === "lead" ? `/leads/${s.objectId}`
+    : s.objectType === "contact" ? `/contacts/${s.objectId}`
+    : null;
+
+  return (
+    <div
+      className="rounded-lg border border-border/40 bg-card/50 p-4 hover:border-border/70 transition-all"
+      data-testid={`suggestion-card-${s.id}`}
+    >
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 shrink-0">
+          <Sparkles className="h-4 w-4 text-primary/60" />
+        </div>
+        <div className="flex-1 min-w-0">
+          {/* Title + badges */}
+          <div className="flex items-start gap-2 flex-wrap">
+            <span className="text-sm font-semibold leading-tight">{s.title}</span>
+          </div>
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            <Badge
+              variant="outline"
+              className={`text-[10px] px-1.5 py-0 h-4 font-medium ${SEVERITY_BADGE[s.severity]}`}
+              data-testid={`badge-severity-${s.id}`}
+            >
+              {s.severity}
+            </Badge>
+            <Badge
+              variant="outline"
+              className="text-[10px] px-1.5 py-0 h-4 border-primary/30 text-primary/70"
+              data-testid={`badge-source-${s.id}`}
+            >
+              {s.sourceLabel}
+            </Badge>
+            <span
+              className={`text-[10px] font-medium ${CONFIDENCE_COLOR(s.confidence)}`}
+              data-testid={`text-confidence-${s.id}`}
+            >
+              {s.confidence}% confidence
+            </span>
+          </div>
+
+          {/* Reason */}
+          <p className="text-xs text-muted-foreground mt-2 leading-relaxed">{s.reason}</p>
+
+          {/* Linked record */}
+          {(s.accountName || s.objectLabel) && (
+            <div className="flex items-center gap-1 mt-2">
+              <Building2 className="h-3 w-3 text-muted-foreground/60" />
+              <button
+                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => linkedHref && navigate(linkedHref)}
+                data-testid={`link-record-${s.id}`}
+              >
+                {s.objectLabel ?? s.accountName}
+                {s.accountName && s.objectLabel && s.objectLabel !== s.accountName && (
+                  <span className="text-muted-foreground/50"> · {s.accountName}</span>
+                )}
+              </button>
+            </div>
+          )}
+
+          {/* Due date */}
+          {s.suggestedDueDate && (
+            <div className="flex items-center gap-1 mt-1">
+              <CalendarDays className="h-3 w-3 text-muted-foreground/60" />
+              <span className="text-[11px] text-muted-foreground">
+                Suggested due: {new Date(s.suggestedDueDate).toLocaleDateString("en-CA", { month: "short", day: "numeric" })}
+              </span>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <Button
+              size="sm"
+              className="h-7 text-xs gap-1"
+              onClick={onAccept}
+              data-testid={`button-accept-${s.id}`}
+            >
+              <CheckCircle2 className="h-3 w-3" />
+              Accept — create task
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-7 text-xs gap-1 border-border/50" data-testid={`button-snooze-sugg-${s.id}`}>
+                  <Bell className="h-3 w-3" />
+                  Snooze
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-40">
+                <DropdownMenuItem className="text-xs" onClick={() => onSnooze(1)}>Later today</DropdownMenuItem>
+                <DropdownMenuItem className="text-xs" onClick={() => onSnooze(1)}>Tomorrow</DropdownMenuItem>
+                <DropdownMenuItem className="text-xs" onClick={() => onSnooze(7)}>Next week</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+              onClick={onDismiss}
+              data-testid={`button-dismiss-${s.id}`}
+            >
+              <ThumbsDown className="h-3 w-3" />
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EmptyState({ view }: { view: ViewTab }) {
   const messages: Record<ViewTab, { title: string; sub: string }> = {
     my: { title: "No open tasks", sub: "You're all caught up. Create a task to track follow-ups." },
@@ -377,6 +534,7 @@ function EmptyState({ view }: { view: ViewTab }) {
     overdue: { title: "No overdue tasks", sub: "Great work staying on top of your task list!" },
     upcoming: { title: "Nothing coming up", sub: "No tasks due in the next 7 days." },
     completed: { title: "No completed tasks", sub: "Tasks you complete will appear here." },
+    suggestions: { title: "No suggestions right now", sub: "All CRM records look healthy. Check back later." },
   };
   const m = messages[view];
   const Icon = VIEW_ICONS[view];
@@ -424,9 +582,45 @@ export default function TasksHubPage() {
     queryFn: () => fetch("/api/users", { credentials: "include" }).then(r => r.json()),
   });
 
+  const { data: suggestionsData, isLoading: suggestionsLoading } = useQuery<{ suggestions: GlobalSuggestion[]; total: number }>({
+    queryKey: ["/api/tasks/suggestions"],
+    queryFn: () => fetch("/api/tasks/suggestions", { credentials: "include" }).then(r => r.json()),
+    enabled: view === "suggestions",
+    staleTime: 30_000,
+  });
+
   const invalidate = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
   }, [queryClient]);
+
+  const acceptSuggMut = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/tasks/suggestions/${id}/accept`),
+    onSuccess: () => {
+      toast({ description: "Task created from suggestion" });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/suggestions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
+    },
+    onError: () => toast({ variant: "destructive", description: "Failed to accept suggestion" }),
+  });
+
+  const dismissSuggMut = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/tasks/suggestions/${id}/dismiss`),
+    onSuccess: () => {
+      toast({ description: "Suggestion dismissed for 7 days" });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/suggestions"] });
+    },
+    onError: () => toast({ variant: "destructive", description: "Failed to dismiss suggestion" }),
+  });
+
+  const snoozeSuggMut = useMutation({
+    mutationFn: ({ id, days }: { id: number; days: number }) =>
+      apiRequest("POST", `/api/tasks/suggestions/${id}/snooze`, { days }),
+    onSuccess: () => {
+      toast({ description: "Suggestion snoozed" });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/suggestions"] });
+    },
+    onError: () => toast({ variant: "destructive", description: "Failed to snooze suggestion" }),
+  });
 
   const completeMut = useMutation({
     mutationFn: (id: number) => apiRequest("POST", `/api/tasks/${id}/complete`),
@@ -486,7 +680,9 @@ export default function TasksHubPage() {
     return oa !== ob ? oa - ob : a.localeCompare(b);
   });
 
-  const viewTabs: ViewTab[] = ["my", "team", "today", "overdue", "upcoming", "completed"];
+  const viewTabs: ViewTab[] = ["my", "team", "today", "overdue", "upcoming", "completed", "suggestions"];
+
+  const suggestionsList = suggestionsData?.suggestions ?? [];
 
   const getCountBadge = (v: ViewTab): number | null => {
     if (!counts) return null;
@@ -495,6 +691,7 @@ export default function TasksHubPage() {
     if (v === "today") return counts.today_count || null;
     if (v === "overdue") return counts.overdue_count || null;
     if (v === "upcoming") return counts.upcoming_count || null;
+    if (v === "suggestions") return suggestionsData?.total || null;
     return null;
   };
 
@@ -581,7 +778,45 @@ export default function TasksHubPage() {
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto">
-        {isLoading ? (
+        {view === "suggestions" ? (
+          suggestionsLoading ? (
+            <div className="p-4 space-y-3">
+              {[...Array(4)].map((_, i) => (
+                <Skeleton key={i} className="h-36 w-full rounded-lg" />
+              ))}
+            </div>
+          ) : suggestionsList.length === 0 ? (
+            <EmptyState view="suggestions" />
+          ) : (
+            <div className="p-4 md:p-6 space-y-3 max-w-3xl mx-auto pb-8">
+              <p className="text-xs text-muted-foreground">
+                {suggestionsList.length} suggestion{suggestionsList.length !== 1 ? "s" : ""} generated from CRM signals.
+                Accepting a suggestion creates a real task.
+              </p>
+              {suggestionsList.map(s => (
+                <SuggestionCard
+                  key={s.id}
+                  s={s}
+                  onAccept={() => acceptSuggMut.mutate(s.id)}
+                  onDismiss={() => dismissSuggMut.mutate(s.id)}
+                  onSnooze={(days) => snoozeSuggMut.mutate({ id: s.id, days })}
+                />
+              ))}
+              <div className="flex justify-end pt-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs gap-1 text-muted-foreground"
+                  onClick={() => navigate("/automation/tasks")}
+                  data-testid="button-configure-rules"
+                >
+                  <Settings2 className="h-3.5 w-3.5" />
+                  Configure rules
+                </Button>
+              </div>
+            </div>
+          )
+        ) : isLoading ? (
           <div className="p-4 space-y-2">
             {[...Array(6)].map((_, i) => (
               <div key={i} className="flex items-start gap-3 px-4 py-3">

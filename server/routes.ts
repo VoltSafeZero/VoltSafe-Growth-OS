@@ -39,6 +39,7 @@ import { runAssociationEngine } from "./services/association-engine";
 import { computeSignals } from "./services/signal-engine";
 import { runGmailSync, syncEmailAccount } from "./services/gmail-sync";
 import { buildSweepReport } from "./services/auto-confirm";
+import { generateGlobalSuggestions } from "./services/global-suggestions";
 import {
   emailMessages, emailThreads, emailAssociations, associationFeedback, emailFilters, scheduledEmails,
   emailAccounts,
@@ -2494,6 +2495,171 @@ export async function registerRoutes(
       res.json({ tasks: taskRows, groups, counts, view, groupBy, total: taskRows.length });
     } catch (err: any) {
       console.error("[tasks/hub]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Global Task Suggestions ───────────────────────────────────────────────
+
+  app.get("/api/tasks/suggestions", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const suggestions = await generateGlobalSuggestions(userId);
+      res.json({ suggestions, total: suggestions.length });
+    } catch (err: any) {
+      console.error("[tasks/suggestions]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/tasks/suggestions/:id/accept", requirePermission("crm", "edit"), async (req, res) => {
+    const suggId = Number(req.params.id);
+    if (!Number.isInteger(suggId) || suggId <= 0) return res.status(400).json({ message: "Invalid id" });
+    const userId = getSessionUserId(req);
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    try {
+      const { rows } = await db.execute(sql.raw(`SELECT * FROM task_suggestions WHERE id = ${suggId} LIMIT 1`));
+      if (!rows.length) return res.status(404).json({ message: "Suggestion not found" });
+      const s = rows[0] as any;
+
+      // Build task fields with source info
+      const safeTitle = s.title.replace(/'/g, "''");
+      const safeDesc = (`${s.reason ?? ""} [Auto-created from: ${s.source_label ?? s.signal_type}]`).replace(/'/g, "''");
+      const safeSourceLabel = (s.source_label ?? s.signal_type).replace(/'/g, "''");
+      const dueDate = s.suggested_due_date
+        ? new Date(s.suggested_due_date).toISOString()
+        : new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+      const ownerUserId = s.suggested_assignee_id ?? userId;
+
+      const { rows: taskRows } = await db.execute(sql.raw(
+        `INSERT INTO tasks
+           (linked_object_type, linked_object_id, owner_user_id, created_by_user_id,
+            title, description, due_date, status, priority, ai_suggested,
+            source, source_label, account_id)
+         VALUES
+           ('${s.object_type}', ${s.object_id}, ${ownerUserId}, ${userId},
+            '${safeTitle}', '${safeDesc}', '${dueDate}', 'pending', '${s.priority}', true,
+            'suggestion', '${safeSourceLabel}',
+            ${s.object_type === 'account' ? s.object_id : 'NULL'})
+         RETURNING id`
+      ));
+      const taskId = (taskRows[0] as any)?.id ?? null;
+
+      await db.execute(sql.raw(
+        `UPDATE task_suggestions
+         SET status = 'accepted', accepted_at = NOW(), created_task_id = ${taskId ?? "NULL"}, updated_at = NOW()
+         WHERE id = ${suggId}`
+      ));
+
+      res.json({ success: true, taskId });
+    } catch (err: any) {
+      console.error("[tasks/suggestions/accept]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/tasks/suggestions/:id/dismiss", requirePermission("crm", "view"), async (req, res) => {
+    const suggId = Number(req.params.id);
+    if (!Number.isInteger(suggId) || suggId <= 0) return res.status(400).json({ message: "Invalid id" });
+    const userId = getSessionUserId(req);
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    try {
+      const { rows } = await db.execute(sql.raw(`SELECT id FROM task_suggestions WHERE id = ${suggId} LIMIT 1`));
+      if (!rows.length) return res.status(404).json({ message: "Suggestion not found" });
+
+      await db.execute(sql.raw(
+        `UPDATE task_suggestions
+         SET status = 'dismissed', dismissed_at = NOW(), dismissed_by = ${userId}, updated_at = NOW()
+         WHERE id = ${suggId}`
+      ));
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("[tasks/suggestions/dismiss]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/tasks/suggestions/:id/snooze", requirePermission("crm", "view"), async (req, res) => {
+    const suggId = Number(req.params.id);
+    if (!Number.isInteger(suggId) || suggId <= 0) return res.status(400).json({ message: "Invalid id" });
+    const days = Number(req.body?.days ?? 3);
+    if (!Number.isInteger(days) || days < 1 || days > 90) return res.status(400).json({ message: "days must be 1–90" });
+
+    try {
+      const { rows } = await db.execute(sql.raw(`SELECT id FROM task_suggestions WHERE id = ${suggId} LIMIT 1`));
+      if (!rows.length) return res.status(404).json({ message: "Suggestion not found" });
+
+      const snoozedUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+      await db.execute(sql.raw(
+        `UPDATE task_suggestions
+         SET status = 'snoozed', snoozed_until = '${snoozedUntil}', updated_at = NOW()
+         WHERE id = ${suggId}`
+      ));
+      res.json({ success: true, snoozedUntil });
+    } catch (err: any) {
+      console.error("[tasks/suggestions/snooze]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Task Rule Configs ─────────────────────────────────────────────────────
+
+  app.get("/api/task-rules", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const { rows } = await db.execute(sql.raw(`SELECT * FROM task_rule_configs ORDER BY rule_id`));
+      res.json((rows as any[]).map(r => ({
+        ruleId: r.rule_id,
+        label: r.label,
+        description: r.description,
+        thresholdValue: Number(r.threshold_value),
+        thresholdUnit: r.threshold_unit,
+        isEnabled: Boolean(r.is_enabled),
+        assigneeStrategy: r.assignee_strategy,
+        defaultAssigneeUserId: r.default_assignee_user_id ? Number(r.default_assignee_user_id) : null,
+      })));
+    } catch (err: any) {
+      console.error("[task-rules GET]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/task-rules/:ruleId", requirePermission("crm", "edit"), async (req, res) => {
+    const ruleId = req.params.ruleId;
+    const { thresholdValue, thresholdUnit, isEnabled, assigneeStrategy, defaultAssigneeUserId } = req.body ?? {};
+
+    const allowed = ["unanswered_email","stale_lead","missing_next_step","quote_no_followup","account_needs_attention","overdue_task_reminder"];
+    if (!allowed.includes(ruleId)) return res.status(400).json({ message: "Unknown rule" });
+
+    try {
+      const { rows } = await db.execute(sql.raw(`SELECT rule_id FROM task_rule_configs WHERE rule_id = '${ruleId}' LIMIT 1`));
+      if (!rows.length) return res.status(404).json({ message: "Rule not found" });
+
+      const sets: string[] = [];
+      if (thresholdValue !== undefined) sets.push(`threshold_value = ${Number(thresholdValue)}`);
+      if (thresholdUnit !== undefined) sets.push(`threshold_unit = '${String(thresholdUnit).replace(/'/g,"''")}'`);
+      if (isEnabled !== undefined) sets.push(`is_enabled = ${Boolean(isEnabled)}`);
+      if (assigneeStrategy !== undefined) sets.push(`assignee_strategy = '${String(assigneeStrategy).replace(/'/g,"''")}'`);
+      if (defaultAssigneeUserId !== undefined) {
+        sets.push(defaultAssigneeUserId ? `default_assignee_user_id = ${Number(defaultAssigneeUserId)}` : `default_assignee_user_id = NULL`);
+      }
+      if (!sets.length) return res.status(400).json({ message: "No fields to update" });
+      sets.push("updated_at = NOW()");
+
+      await db.execute(sql.raw(`UPDATE task_rule_configs SET ${sets.join(", ")} WHERE rule_id = '${ruleId}'`));
+
+      const { rows: updated } = await db.execute(sql.raw(`SELECT * FROM task_rule_configs WHERE rule_id = '${ruleId}' LIMIT 1`));
+      const r = updated[0] as any;
+      res.json({
+        ruleId: r.rule_id, label: r.label, description: r.description,
+        thresholdValue: Number(r.threshold_value), thresholdUnit: r.threshold_unit,
+        isEnabled: Boolean(r.is_enabled), assigneeStrategy: r.assignee_strategy,
+        defaultAssigneeUserId: r.default_assignee_user_id ? Number(r.default_assignee_user_id) : null,
+      });
+    } catch (err: any) {
+      console.error("[task-rules PUT]", err.message);
       res.status(500).json({ message: err.message });
     }
   });

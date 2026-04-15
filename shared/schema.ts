@@ -383,7 +383,11 @@ export const tasks = pgTable("tasks", {
   aiSuggested: boolean("ai_suggested").default(false),
   reminderAt: timestamp("reminder_at"),
   source: text("source").default("manual"),
+  sourceLabel: text("source_label"),
+  sourceMeta: jsonb("source_meta"),
   snoozedUntil: timestamp("snoozed_until"),
+  dismissedAt: timestamp("dismissed_at"),
+  dismissedBy: integer("dismissed_by"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -406,6 +410,10 @@ export const taskSuggestions = pgTable("task_suggestions", {
   dismissedAt: timestamp("dismissed_at"),
   acceptedAt: timestamp("accepted_at"),
   sourceSignals: text("source_signals"),
+  suggestedAssigneeId: integer("suggested_assignee_id"),
+  confidence: integer("confidence").default(50),
+  sourceLabel: text("source_label"),
+  dismissedBy: integer("dismissed_by"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -413,6 +421,21 @@ export const taskSuggestions = pgTable("task_suggestions", {
 export const insertTaskSuggestionSchema = createInsertSchema(taskSuggestions).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertTaskSuggestion = z.infer<typeof insertTaskSuggestionSchema>;
 export type TaskSuggestion = typeof taskSuggestions.$inferSelect;
+
+export const taskRuleConfigs = pgTable("task_rule_configs", {
+  ruleId: text("rule_id").primaryKey(),
+  label: text("label").notNull(),
+  description: text("description"),
+  thresholdValue: integer("threshold_value").notNull().default(7),
+  thresholdUnit: text("threshold_unit").notNull().default("days"),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  assigneeStrategy: text("assignee_strategy").notNull().default("record_owner"),
+  defaultAssigneeUserId: integer("default_assignee_user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type TaskRuleConfig = typeof taskRuleConfigs.$inferSelect;
 
 export const communicationLists = pgTable("communication_lists", {
   id: serial("id").primaryKey(),

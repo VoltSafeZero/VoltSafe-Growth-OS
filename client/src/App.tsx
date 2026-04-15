@@ -52,6 +52,7 @@ import OpportunityProfilePage from "@/pages/opportunity-profile";
 import ActivityFeedPage from "@/pages/activity-feed";
 import NotesPage from "@/pages/notes-page";
 import TasksHubPage from "@/pages/tasks-hub";
+import TaskRulesSettingsPage from "@/pages/task-rules-settings";
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -209,6 +210,9 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
 
       {/* ── SUPPORT ───────────────────────────────────────────────── */}
       <Route path="/support/tickets">{() => guard("support", <TicketsPage canEdit={isAdmin(role) || perms.support === "edit"} />)}</Route>
+
+      {/* ── AUTOMATION ────────────────────────────────────────────── */}
+      <Route path="/automation/tasks">{() => wrap(<TaskRulesSettingsPage />)}</Route>
 
       {/* ── ADMIN ─────────────────────────────────────────────────── */}
       <Route path="/admin/users">{() => wrap(<AdminUsersPage currentUserGlobalRole={user.globalRole || "sales"} />)}</Route>
