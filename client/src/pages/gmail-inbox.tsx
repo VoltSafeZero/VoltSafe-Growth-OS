@@ -14,7 +14,7 @@ import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
   Clock, FileText, CalendarClock, CalendarX, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
   FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronRight, Folder,
-  Reply, ReplyAll, Pencil, User, Building2, Zap,
+  Reply, ReplyAll, Pencil, User, Building2, Zap, Flame,
   CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
   CheckCheck, ArrowLeft, ClipboardList, StickyNote, ArchiveX, Square, Filter,
 } from "lucide-react";
@@ -82,7 +82,7 @@ function parseSenderDomain(from: string): string {
 
 type EmailFilter = { id: number; domain: string; createdAt: string };
 type InboxCategory = "all" | "people" | "newsletters" | "updates" | "priority";
-type CrmInboxFilter = "all" | "unread" | "starred" | "follow-up" | "needs-reply";
+type CrmInboxFilter = "all" | "unread" | "starred" | "follow-up" | "needs-reply" | "awaiting-reply" | "hot" | "unlinked";
 
 type MailFolderDomain = { id: number; folderId: number; domain: string; matchType: string };
 type MailFolder = {
@@ -671,6 +671,10 @@ type ThreadRecord = {
     followUpAt: string | null; primaryContactId: number | null;
     primaryAccountId: number | null; primaryLeadId: number | null;
     primaryPartnerId: number | null; associationStatus: string;
+    replyStatus: string | null;
+    awaitingReplySince: string | null;
+    lastInboundAt: string | null;
+    lastOutboundAt: string | null;
   };
   contact?: { id: number; name: string; firstName: string; lastName: string; email: string; } | null;
   account?: { id: number; name: string; website: string; } | null;
@@ -898,11 +902,21 @@ function CrmContextPanel({
 
   const workflowMutation = useMutation({
     mutationFn: async (state: string | null) => {
-      const res = await apiRequest("PATCH", `/api/gmail/thread-record/${threadId}`, { workflowState: state });
+      const replyStatusMap: Record<string, string> = {
+        needs_reply:     "needs_reply",
+        waiting_on_them: "waiting_on_them",
+        done:            "done",
+      };
+      const body: Record<string, unknown> = { workflowState: state };
+      if (state && replyStatusMap[state]) body.replyStatus = replyStatusMap[state];
+      if (!state) body.replyStatus = "none";
+      const res = await apiRequest("PATCH", `/api/gmail/thread-record/${threadId}`, body);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", threadId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/triage-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/triage-thread-ids"] });
     },
     onError: (err: any) => toast({ title: "Failed to update status", description: err.message, variant: "destructive" }),
   });
@@ -1253,6 +1267,16 @@ function CrmContextPanel({
         })}
         {workflowMutation.isPending && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/50" />}
       </div>
+
+      {/* Awaiting reply indicator */}
+      {thread?.awaitingReplySince && (
+        <div className="px-4 pb-1.5">
+          <div className="flex items-center gap-1.5 text-[11px] text-amber-400/80 bg-amber-500/8 border border-amber-500/20 rounded-md px-2.5 py-1.5" data-testid="awaiting-reply-badge">
+            <Clock className="h-3 w-3 flex-shrink-0" />
+            <span>Awaiting reply since {new Date(thread.awaitingReplySince).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+          </div>
+        </div>
+      )}
 
       {/* Quick actions — Create Task / Add Note */}
       {canEditCrm && (
@@ -2033,6 +2057,33 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     enabled: tab === "folder" && !!selectedFolderId,
   });
 
+  const triageSummaryQuery = useQuery<{ awaitingReply: number; hot: number; unlinked: number }>({
+    queryKey: ["/api/inbox/triage-summary"],
+    queryFn: async () => {
+      const res = await fetch("/api/inbox/triage-summary", { credentials: "include" });
+      if (!res.ok) return { awaitingReply: 0, hot: 0, unlinked: 0 };
+      return res.json();
+    },
+    refetchInterval: 60_000,
+  });
+
+  const triageThreadIdsQuery = useQuery<{ awaitingReply: string[]; hot: string[]; unlinked: string[] }>({
+    queryKey: ["/api/inbox/triage-thread-ids"],
+    queryFn: async () => {
+      const res = await fetch("/api/inbox/triage-thread-ids", { credentials: "include" });
+      if (!res.ok) return { awaitingReply: [], hot: [], unlinked: [] };
+      return res.json();
+    },
+    enabled: ["awaiting-reply", "hot", "unlinked"].includes(crmFilter),
+    refetchInterval: 60_000,
+  });
+
+  const triageSummary = triageSummaryQuery.data ?? { awaitingReply: 0, hot: 0, unlinked: 0 };
+  const triageIds = triageThreadIdsQuery.data ?? { awaitingReply: [], hot: [], unlinked: [] };
+  const triageAwaitingSet = new Set(triageIds.awaitingReply);
+  const triageHotSet      = new Set(triageIds.hot);
+  const triageUnlinkedSet = new Set(triageIds.unlinked);
+
   const createFolderMutation = useMutation({
     mutationFn: async (data: { name: string; domains: string[] }) => {
       const res = await apiRequest("POST", "/api/mail-folders", { name: data.name, color: "teal" });
@@ -2657,10 +2708,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     inboxOther;
 
   const crmFilteredMessages = tab !== "inbox" ? activeMessages :
-    crmFilter === "unread" ? activeMessages.filter(m => isUnread(m.labelIds)) :
-    crmFilter === "starred" ? activeMessages.filter(m => isStarred(m.labelIds)) :
-    crmFilter === "needs-reply" ? activeMessages.filter(m => isUnread(m.labelIds)) :
-    crmFilter === "follow-up" ? activeMessages.filter(m => isStarred(m.labelIds)) :
+    crmFilter === "unread"         ? activeMessages.filter(m => isUnread(m.labelIds)) :
+    crmFilter === "starred"        ? activeMessages.filter(m => isStarred(m.labelIds)) :
+    crmFilter === "needs-reply"    ? activeMessages.filter(m => isUnread(m.labelIds)) :
+    crmFilter === "follow-up"      ? activeMessages.filter(m => isStarred(m.labelIds)) :
+    crmFilter === "awaiting-reply" ? activeMessages.filter(m => triageAwaitingSet.has(m.threadId)) :
+    crmFilter === "hot"            ? activeMessages.filter(m => triageHotSet.has(m.threadId)) :
+    crmFilter === "unlinked"       ? activeMessages.filter(m => triageUnlinkedSet.has(m.threadId)) :
     activeMessages;
 
   const isLoading = tab === "other" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : sentQuery.isLoading;
@@ -3164,12 +3218,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 <div className="overflow-x-auto -mx-3 px-3">
                   <div className="flex gap-1 min-w-max pt-0.5">
                   {([
-                    { key: "all",         label: "All",           icon: <Filter className="h-3 w-3" /> },
-                    { key: "unread",      label: `Unread (${inboxUnreadCount})`,   icon: <MailOpen className="h-3 w-3" /> },
-                    { key: "starred",     label: "Starred",       icon: <Star className="h-3 w-3" /> },
-                    { key: "needs-reply", label: "Needs Reply",   icon: <Reply className="h-3 w-3" /> },
-                    { key: "follow-up",   label: "Follow Up",     icon: <ClipboardList className="h-3 w-3" /> },
-                  ] as { key: CrmInboxFilter; label: string; icon: React.ReactNode }[]).map(({ key, label, icon }) => (
+                    { key: "all",         label: "All",           icon: <Filter className="h-3 w-3" />,       count: null },
+                    { key: "unread",      label: "Unread",        icon: <MailOpen className="h-3 w-3" />,     count: inboxUnreadCount || null },
+                    { key: "starred",     label: "Starred",       icon: <Star className="h-3 w-3" />,         count: null },
+                    { key: "needs-reply", label: "Needs Reply",   icon: <Reply className="h-3 w-3" />,        count: null },
+                    { key: "follow-up",   label: "Follow Up",     icon: <ClipboardList className="h-3 w-3" />, count: null },
+                  ] as { key: CrmInboxFilter; label: string; icon: React.ReactNode; count: number | null }[]).map(({ key, label, icon, count }) => (
                     <button
                       key={key}
                       onClick={() => setCrmFilter(key)}
@@ -3182,6 +3236,57 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     >
                       {icon}
                       {label}
+                      {count !== null && count > 0 && (
+                        <span className="ml-0.5 text-[10px] opacity-80">{count}</span>
+                      )}
+                    </button>
+                  ))}
+                  </div>
+                </div>
+
+                {/* Triage filters — Awaiting Reply / Hot / Unlinked */}
+                <div className="overflow-x-auto -mx-3 px-3">
+                  <div className="flex gap-1 min-w-max pt-0.5">
+                  {([
+                    {
+                      key: "awaiting-reply",
+                      label: "Awaiting Reply",
+                      icon: <Clock className="h-3 w-3" />,
+                      count: triageSummary.awaitingReply,
+                      activeClass: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
+                    },
+                    {
+                      key: "hot",
+                      label: "Hot / Engaged",
+                      icon: <Flame className="h-3 w-3" />,
+                      count: triageSummary.hot,
+                      activeClass: "bg-rose-500/20 text-rose-400 border border-rose-500/30",
+                    },
+                    {
+                      key: "unlinked",
+                      label: "Unlinked",
+                      icon: <Link2 className="h-3 w-3" />,
+                      count: triageSummary.unlinked,
+                      activeClass: "bg-slate-500/20 text-slate-300 border border-slate-500/30",
+                    },
+                  ] as { key: CrmInboxFilter; label: string; icon: React.ReactNode; count: number; activeClass: string }[]).map(({ key, label, icon, count, activeClass }) => (
+                    <button
+                      key={key}
+                      onClick={() => setCrmFilter(crmFilter === key ? "all" : key)}
+                      data-testid={`triage-filter-${key}`}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors whitespace-nowrap ${
+                        crmFilter === key
+                          ? activeClass
+                          : "bg-muted/30 text-muted-foreground/60 hover:bg-muted/60 hover:text-muted-foreground"
+                      }`}
+                    >
+                      {icon}
+                      {label}
+                      {count > 0 && (
+                        <span className={`ml-0.5 text-[10px] px-1 py-0 rounded-full font-semibold ${
+                          crmFilter === key ? "opacity-90" : "bg-muted/60 opacity-80"
+                        }`}>{count}</span>
+                      )}
                     </button>
                   ))}
                   </div>
@@ -3601,6 +3706,24 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   ) : (
                     <p className="text-xs text-red-400">Google credentials not configured. Ask your admin to set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</p>
                   )}
+                </div>
+              ) : crmFilter === "awaiting-reply" ? (
+                <div className="p-6 text-center text-sm text-muted-foreground">
+                  <CheckCircle2 className="h-8 w-8 mx-auto mb-2 opacity-30 text-emerald-400" />
+                  <p className="font-medium text-emerald-400/70">All caught up!</p>
+                  <p className="text-[11px] mt-1">No threads awaiting your reply.</p>
+                </div>
+              ) : crmFilter === "hot" ? (
+                <div className="p-6 text-center text-sm text-muted-foreground">
+                  <Flame className="h-8 w-8 mx-auto mb-2 opacity-20" />
+                  <p>No hot / engaged threads</p>
+                  <p className="text-[11px] mt-1">Threads appear here when contacts open your emails 3+ times.</p>
+                </div>
+              ) : crmFilter === "unlinked" ? (
+                <div className="p-6 text-center text-sm text-muted-foreground">
+                  <Link2 className="h-8 w-8 mx-auto mb-2 opacity-20" />
+                  <p>No unlinked threads</p>
+                  <p className="text-[11px] mt-1">All inbox threads are linked to a CRM record.</p>
                 </div>
               ) : (
                 <div className="p-6 text-center text-sm text-muted-foreground">

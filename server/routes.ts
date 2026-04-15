@@ -5986,20 +5986,25 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         .where(eq(emailThreads.gmailThreadId, threadId));
 
       if (existing.length === 0) {
-        await db.insert(emailThreads).values({
+        const insertValues: Record<string, unknown> = {
           gmailThreadId: threadId,
           workflowState: workflowState ?? null,
           snoozedUntil: snoozedUntil ? new Date(snoozedUntil) : null,
           followUpAt: followUpAt ? new Date(followUpAt) : null,
           associationStatus: "unassociated",
-        });
+        };
+        if (replyStatus !== undefined) {
+          insertValues.replyStatus = replyStatus || "none";
+          if (replyStatus === "needs_reply") insertValues.awaitingReplySince = new Date();
+        }
+        await db.insert(emailThreads).values(insertValues as any);
       } else {
         const updates: Record<string, unknown> = { updatedAt: new Date() };
         if (workflowState !== undefined) updates.workflowState = workflowState || null;
         if (snoozedUntil !== undefined) updates.snoozedUntil = snoozedUntil ? new Date(snoozedUntil) : null;
         if (followUpAt !== undefined) updates.followUpAt = followUpAt ? new Date(followUpAt) : null;
         if (replyStatus !== undefined) {
-          updates.replyStatus = replyStatus || null;
+          updates.replyStatus = replyStatus || "none";
           // When marked as "waiting_on_them" or "done", clear awaiting_reply_since
           if (replyStatus === "waiting_on_them" || replyStatus === "done") {
             updates.awaitingReplySince = null;
@@ -7363,7 +7368,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         db.execute(sql`
           SELECT DISTINCT em.gmail_thread_id
           FROM email_tracking_pixels p
-          JOIN email_messages em ON em.id = p.email_message_id
+          JOIN email_messages em ON em.gmail_message_id = p.gmail_message_id
           WHERE p.is_hot = true
         `),
         db.execute(sql`
@@ -7506,6 +7511,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         } catch (saveErr) {
           console.warn("[tracking] pixel save failed (non-fatal):", saveErr);
         }
+      }
+
+      // ── Clear awaiting-reply when a threaded reply is sent (non-fatal) ──────
+      if (threadId && result?.id) {
+        clearAwaitingReply(String(threadId)).catch(e =>
+          console.warn("[awaiting-reply] clearAwaitingReply non-fatal:", e)
+        );
       }
 
       res.json({ ...result, trackingId: trackingEnabled ? trackingId : null });
@@ -9777,4 +9789,7 @@ export function registerConfluenceRoutes(app: Express) {
   // ── Engagement scheduler + default rules ────────────────────────────────────
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
   startEngagementScheduler();
+
+  // ── Awaiting-reply: initial computation on boot (non-blocking) ─────────────
+  computeAwaitingReply().catch(err => console.error("[routes] computeAwaitingReply boot error:", err));
 }

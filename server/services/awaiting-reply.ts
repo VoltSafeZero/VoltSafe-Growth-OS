@@ -142,8 +142,9 @@ export async function getTriageSummary(): Promise<{
       `)).then(r => r.rows as any[]),
 
       db.execute(sql.raw(`
-        SELECT COUNT(DISTINCT p.gmail_message_id)::int AS n
+        SELECT COUNT(DISTINCT em.gmail_thread_id)::int AS n
         FROM email_tracking_pixels p
+        JOIN email_messages em ON em.gmail_message_id = p.gmail_message_id
         WHERE p.is_hot = true
       `)).then(r => r.rows as any[]),
 
