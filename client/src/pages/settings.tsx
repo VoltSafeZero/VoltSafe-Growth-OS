@@ -26,7 +26,7 @@ import {
   Fingerprint, Trash2, Shield, Smartphone, Loader2,
   CalendarDays, RefreshCw, Link2, Link2Off, CheckCircle2,
   AlertCircle, Clock, Settings2, Apple, ChevronLeft, FlaskConical,
-  CalendarCheck, ShieldAlert,
+  CalendarCheck, ShieldAlert, Users, WifiOff, Wifi,
 } from "lucide-react";
 import { SiGooglecalendar } from "react-icons/si";
 import { startRegistration } from "@simplewebauthn/browser";
@@ -624,6 +624,132 @@ function ProviderCard({
 
 // ─── Settings Page ────────────────────────────────────────────────────────────
 
+// ─── Team Calendar Health (admin-only) ────────────────────────────────────────
+
+type TeamUserHealth = {
+  id: number;
+  name: string;
+  email: string;
+  globalRole: string;
+  connections: Array<{
+    id: number;
+    provider: string;
+    displayName: string | null;
+    accountEmail: string | null;
+    isActive: boolean;
+    syncEnabled: boolean;
+    syncDirection: string | null;
+    lastSyncedAt: string | null;
+    syncError: string | null;
+  }>;
+};
+
+function TeamCalendarHealthSection() {
+  const { data, isLoading, isError } = useQuery<TeamUserHealth[]>({
+    queryKey: ["/api/calendar/connections/team"],
+    queryFn: async () => {
+      const res = await fetch("/api/calendar/connections/team", { credentials: "include" });
+      if (!res.ok) throw new Error("Not admin");
+      return res.json();
+    },
+    retry: false,
+  });
+
+  // Only render for admins
+  if (isError || (!isLoading && !data)) return null;
+
+  const PROVIDER_LABELS: Record<string, string> = {
+    google: "Google", apple: "iCloud", caldav: "CalDAV", microsoft: "Microsoft",
+  };
+
+  return (
+    <Card className="border-border/50" data-testid="team-calendar-health">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <Users className="h-5 w-5 text-primary" />
+          <div>
+            <CardTitle className="text-base">Team Calendar Health</CardTitle>
+            <CardDescription className="text-xs mt-0.5">
+              Calendar connection status for all team members
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {isLoading && (
+          <div className="flex items-center gap-2 py-4 text-muted-foreground text-sm">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading team data…
+          </div>
+        )}
+        {data && (
+          <div className="space-y-3">
+            {data.map(user => {
+              const hasConnections = user.connections.length > 0;
+              const hasError = user.connections.some(c => c.syncError);
+
+              return (
+                <div key={user.id} className="flex items-start gap-3 p-3 rounded-lg border border-border/40 bg-card" data-testid={`team-health-user-${user.id}`}>
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+                    {user.name.charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-medium">{user.name}</p>
+                      {user.globalRole === "master_admin" && (
+                        <Badge variant="outline" className="text-[10px] px-1 py-0 border-primary/30 text-primary">Admin</Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">{user.email}</p>
+
+                    {!hasConnections && (
+                      <div className="flex items-center gap-1.5 mt-1.5 text-xs text-muted-foreground">
+                        <WifiOff className="h-3.5 w-3.5" />
+                        <span>No calendar connected</span>
+                      </div>
+                    )}
+
+                    {user.connections.map(conn => (
+                      <div key={conn.id} className="mt-1.5 flex items-center gap-2 text-xs">
+                        {conn.syncError ? (
+                          <AlertCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />
+                        ) : conn.isActive ? (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                        ) : (
+                          <WifiOff className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        )}
+                        <span className="font-medium">{PROVIDER_LABELS[conn.provider] || conn.provider}</span>
+                        {conn.accountEmail && <span className="text-muted-foreground truncate">{conn.accountEmail}</span>}
+                        {conn.lastSyncedAt && (
+                          <span className="text-muted-foreground shrink-0">
+                            synced {formatDistanceToNow(new Date(conn.lastSyncedAt), { addSuffix: true })}
+                          </span>
+                        )}
+                        {conn.syncError && (
+                          <span className="text-red-400 truncate" title={conn.syncError}>Error</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="shrink-0 mt-0.5">
+                    {hasError ? (
+                      <Badge variant="outline" className="text-xs border-red-500/30 text-red-400">Error</Badge>
+                    ) : hasConnections ? (
+                      <Badge variant="outline" className="text-xs border-emerald-500/30 text-emerald-400">Connected</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-xs text-muted-foreground">Not set up</Badge>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   const { toast } = useToast();
   const [credentials, setCredentials] = useState<Credential[]>([]);
@@ -954,6 +1080,9 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Team Calendar Health — admin only */}
+      <TeamCalendarHealthSection />
 
       {/* CalDAV connect dialogs */}
       {caldavDialog && (

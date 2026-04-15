@@ -51,7 +51,27 @@ import {
   Globe,
   RefreshCw,
   Settings2,
+  Building2,
+  Mail,
+  TrendingUp,
+  Zap,
+  UserPlus,
+  CheckCheck,
+  ExternalLink,
+  ArrowRight,
+  ClipboardList,
+  CalendarPlus,
+  ChevronDown,
+  CircleCheck,
+  AlertTriangle,
 } from "lucide-react";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import { Separator } from "@/components/ui/separator";
 import AddressAutocomplete from "@/components/address-autocomplete";
 import {
   format,
@@ -529,6 +549,8 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
           </Button>
         </div>
       </div>
+
+      <MetricsBar />
 
       <div className={showOverlayPanel && permittedMembers.length > 0 ? "flex gap-4 items-start" : undefined}>
         <Card className="border-border/50 flex-1 min-w-0">
@@ -1297,6 +1319,482 @@ function EventFormDialog({
   );
 }
 
+// ─── CRM Context types ────────────────────────────────────────────────────────
+
+type CRMContext = {
+  matchedContacts: Array<{ id: number; name: string; title?: string | null; email?: string | null; accountId: number }>;
+  unmatchedEmails: string[];
+  matchedAccounts: Array<{ id: number; name: string; segment?: string | null; leadStatus?: string | null; city?: string | null; website?: string | null }>;
+  openOpportunities: Array<{ id: number; title: string; stage: string; amount?: number | null; accountId: number }>;
+  recentEmails: Array<{ id: number; subject?: string | null; fromEmail?: string | null; sentAt?: string | null; direction?: string | null; snippet?: string | null }>;
+  openTasks: Array<{ id: number; title: string; dueDate?: string | null; priority?: string | null }>;
+  recommendedAction: { text: string; opportunityId?: number; opportunityTitle?: string; accountId?: number; accountName?: string; suggestCreate?: boolean; stage?: string } | null;
+};
+
+type CalendarMetrics = {
+  meetingsThisWeek: number; completedThisWeek: number; meetingsThisMonth: number;
+  upcomingCount: number; overdueTasks: number; dormantAccounts: number;
+  eventsByType: { eventType: string; count: number }[];
+};
+
+// ─── CRM Context Tab ─────────────────────────────────────────────────────────
+
+function CreateContactInlineForm({ email, accountId, accountName, onCreated }: {
+  email: string; accountId?: number; accountName?: string; onCreated: () => void;
+}) {
+  const { toast } = useToast();
+  const [name, setName] = useState(() => {
+    const local = email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    return local;
+  });
+  const [title, setTitle] = useState("");
+  const [newAccountName, setNewAccountName] = useState(accountName || "");
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      let finalAccountId = accountId;
+      if (!finalAccountId) {
+        const accRes = await apiRequest("POST", "/api/accounts", {
+          name: newAccountName || email.split("@")[1],
+          segment: "marina",
+          leadStatus: "new",
+          priority: "medium",
+        });
+        finalAccountId = accRes.id;
+      }
+      await apiRequest("POST", "/api/contacts", {
+        accountId: finalAccountId,
+        name: name.trim(),
+        email: email.toLowerCase(),
+        title: title || null,
+      });
+      toast({ title: "Contact created", description: `${name} added to CRM.` });
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      onCreated();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 space-y-2 p-3 bg-secondary/20 rounded-lg border border-border/40">
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label className="text-xs">Name *</Label>
+          <Input value={name} onChange={e => setName(e.target.value)} className="h-7 text-xs" data-testid="input-new-contact-name" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Title</Label>
+          <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Dockmaster" className="h-7 text-xs" data-testid="input-new-contact-title" />
+        </div>
+      </div>
+      {!accountId && (
+        <div className="space-y-1">
+          <Label className="text-xs">Organization</Label>
+          <Input value={newAccountName} onChange={e => setNewAccountName(e.target.value)} placeholder="Company / marina name" className="h-7 text-xs" data-testid="input-new-contact-org" />
+        </div>
+      )}
+      {accountId && (
+        <p className="text-xs text-muted-foreground">Will be added to: <span className="font-medium text-foreground">{accountName}</span></p>
+      )}
+      <Button size="sm" className="h-7 text-xs w-full" onClick={handleSave} disabled={saving} data-testid="button-save-new-contact">
+        {saving ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <UserPlus className="mr-1.5 h-3 w-3" />}
+        Save Contact
+      </Button>
+    </div>
+  );
+}
+
+const STAGE_LABELS: Record<string, string> = {
+  inbound_new: "New", qualifying: "Qualifying", proposal: "Proposal",
+  negotiation: "Negotiating", verbal_commit: "Verbal Commit",
+  closed_won: "Won", closed_lost: "Lost",
+};
+
+function CRMContextTab({ eventId, crmCtx, isLoading }: { eventId: number; crmCtx?: CRMContext; isLoading: boolean }) {
+  const [showCreateFor, setShowCreateFor] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  if (isLoading) {
+    return (
+      <div className="py-8 flex flex-col items-center gap-2 text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        <span className="text-sm">Looking up attendees…</span>
+      </div>
+    );
+  }
+
+  if (!crmCtx) return null;
+
+  const { matchedContacts, unmatchedEmails, matchedAccounts, openOpportunities, recentEmails, openTasks, recommendedAction } = crmCtx;
+  const hasAny = matchedContacts.length + matchedAccounts.length + openOpportunities.length + unmatchedEmails.length > 0;
+
+  if (!hasAny && !recommendedAction) {
+    return (
+      <div className="py-8 text-center text-muted-foreground text-sm">
+        No attendees matched to CRM records.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 text-sm">
+      {/* Recommended action */}
+      {recommendedAction && (
+        <div className="flex items-start gap-3 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+          <Zap className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-primary uppercase tracking-wide mb-0.5">Recommended Next Action</p>
+            <p className="text-sm">{recommendedAction.text}</p>
+            {recommendedAction.opportunityTitle && (
+              <p className="text-xs text-muted-foreground mt-0.5">{recommendedAction.opportunityTitle} · {STAGE_LABELS[recommendedAction.stage || ""] || recommendedAction.stage}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Matched contacts */}
+      {matchedContacts.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+            <Users className="h-3.5 w-3.5" /> Contacts in CRM ({matchedContacts.length})
+          </p>
+          {matchedContacts.map(c => (
+            <a key={c.id} href={`/contacts`} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/40 bg-card hover:bg-secondary/30 transition-colors group" data-testid={`crm-contact-${c.id}`}>
+              <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+                {c.name.charAt(0)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{c.name}</p>
+                {c.title && <p className="text-xs text-muted-foreground truncate">{c.title}</p>}
+              </div>
+              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+            </a>
+          ))}
+        </div>
+      )}
+
+      {/* Matched accounts */}
+      {matchedAccounts.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+            <Building2 className="h-3.5 w-3.5" /> Organizations ({matchedAccounts.length})
+          </p>
+          {matchedAccounts.map(a => (
+            <div key={a.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/40 bg-card" data-testid={`crm-account-${a.id}`}>
+              <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{a.name}</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {a.segment} {a.city ? `· ${a.city}` : ""}
+                  {a.leadStatus ? ` · ${a.leadStatus}` : ""}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Open opportunities */}
+      {openOpportunities.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+            <TrendingUp className="h-3.5 w-3.5" /> Open Deals ({openOpportunities.length})
+          </p>
+          {openOpportunities.map(o => (
+            <div key={o.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/40 bg-card" data-testid={`crm-opp-${o.id}`}>
+              <TrendingUp className="h-4 w-4 text-emerald-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{o.title}</p>
+                <p className="text-xs text-muted-foreground">{STAGE_LABELS[o.stage] || o.stage}{o.amount ? ` · $${o.amount.toLocaleString()}` : ""}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Open tasks */}
+      {openTasks.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+            <ClipboardList className="h-3.5 w-3.5" /> Open Tasks ({openTasks.length})
+          </p>
+          {openTasks.map(t => (
+            <div key={t.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/40 bg-card text-xs" data-testid={`crm-task-${t.id}`}>
+              <ClipboardList className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span className="flex-1 truncate">{t.title}</span>
+              {t.dueDate && <span className="text-muted-foreground shrink-0">{format(new Date(t.dueDate), "MMM d")}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Recent emails */}
+      {recentEmails.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+            <Mail className="h-3.5 w-3.5" /> Recent Emails ({recentEmails.length})
+          </p>
+          {recentEmails.map(e => (
+            <div key={e.id} className="px-3 py-1.5 rounded-lg border border-border/40 bg-card" data-testid={`crm-email-${e.id}`}>
+              <p className="font-medium truncate text-xs">{e.subject || "(no subject)"}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {e.direction === "outbound" ? "Sent" : "Received"}
+                {e.sentAt ? ` · ${format(new Date(e.sentAt), "MMM d, yyyy")}` : ""}
+              </p>
+              {e.snippet && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1 italic">{e.snippet}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Unknown attendees — suggest creating contacts */}
+      {unmatchedEmails.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+            <UserPlus className="h-3.5 w-3.5" /> Unknown Attendees ({unmatchedEmails.length})
+          </p>
+          {unmatchedEmails.map(email => {
+            const domain = email.split("@")[1] || "";
+            const matchedAcc = matchedAccounts.find(a => a.website?.includes(domain));
+            return (
+              <div key={email} className="rounded-lg border border-dashed border-border/60 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium">{email}</p>
+                    {matchedAcc && <p className="text-xs text-muted-foreground">Possible org: {matchedAcc.name}</p>}
+                  </div>
+                  {showCreateFor !== email ? (
+                    <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={() => setShowCreateFor(email)} data-testid={`button-add-contact-${email}`}>
+                      <UserPlus className="mr-1 h-3 w-3" /> Add to CRM
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="ghost" className="h-7 text-xs shrink-0" onClick={() => setShowCreateFor(null)}>
+                      Cancel
+                    </Button>
+                  )}
+                </div>
+                {showCreateFor === email && (
+                  <CreateContactInlineForm
+                    key={refreshKey}
+                    email={email}
+                    accountId={matchedAcc?.id}
+                    accountName={matchedAcc?.name}
+                    onCreated={() => { setShowCreateFor(null); setRefreshKey(k => k + 1); queryClient.invalidateQueries({ queryKey: ["/api/calendar/events", eventId, "crm-context"] }); }}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Post-Meeting Workflow Tab ────────────────────────────────────────────────
+
+function PostMeetingTab({ event, opportunities, onDone }: {
+  event: CalendarEvent;
+  opportunities: Array<{ id: number; title: string; stage: string }>;
+  onDone: () => void;
+}) {
+  const { toast } = useToast();
+  const [notes, setNotes] = useState("");
+  const [markCompleted, setMarkCompleted] = useState(false);
+  const [createTask, setCreateTask] = useState(false);
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskDueDate, setTaskDueDate] = useState("");
+  const [selectedOppId, setSelectedOppId] = useState<number | undefined>(opportunities[0]?.id);
+  const [nextStage, setNextStage] = useState("");
+
+  const STAGE_OPTIONS = [
+    { value: "qualifying", label: "Qualifying" },
+    { value: "proposal", label: "Proposal" },
+    { value: "negotiation", label: "Negotiation" },
+    { value: "verbal_commit", label: "Verbal Commit" },
+    { value: "closed_won", label: "Closed Won" },
+    { value: "closed_lost", label: "Closed Lost" },
+  ];
+
+  const postMeetingMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/calendar/events/${event.id}/post-meeting`, {
+      notes: notes.trim() || undefined,
+      markCompleted,
+      createTask,
+      taskTitle: createTask ? taskTitle : undefined,
+      taskDueDate: createTask && taskDueDate ? taskDueDate : undefined,
+      opportunityId: nextStage && selectedOppId ? selectedOppId : undefined,
+      nextStage: nextStage || undefined,
+    }),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/events"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      const parts: string[] = [];
+      if (data.eventUpdated) parts.push("event updated");
+      if (data.task) parts.push("task created");
+      if (data.opportunityUpdated) parts.push("pipeline advanced");
+      toast({ title: "Post-meeting complete", description: parts.join(", ") || "Workflow applied." });
+      onDone();
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const hasAction = notes.trim() || markCompleted || (createTask && taskTitle.trim()) || (nextStage && selectedOppId);
+
+  return (
+    <div className="space-y-4 text-sm">
+      {/* Meeting notes */}
+      <div className="space-y-2">
+        <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <ClipboardList className="h-3.5 w-3.5" /> Meeting Notes
+        </Label>
+        <Textarea
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder="Key takeaways, decisions made, action items discussed…"
+          rows={3}
+          className="text-sm resize-none"
+          data-testid="textarea-meeting-notes"
+        />
+      </div>
+
+      <Separator />
+
+      {/* Mark completed */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <CircleCheck className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm">Mark event as completed</span>
+        </div>
+        <Switch checked={markCompleted} onCheckedChange={setMarkCompleted} data-testid="switch-mark-completed" />
+      </div>
+
+      <Separator />
+
+      {/* Create follow-up task */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ClipboardList className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm">Create follow-up task</span>
+          </div>
+          <Switch checked={createTask} onCheckedChange={setCreateTask} data-testid="switch-create-task" />
+        </div>
+        {createTask && (
+          <div className="space-y-2 pl-6">
+            <Input
+              value={taskTitle}
+              onChange={e => setTaskTitle(e.target.value)}
+              placeholder="e.g. Send proposal to marina"
+              className="h-8 text-sm"
+              data-testid="input-task-title"
+            />
+            <Input
+              type="date"
+              value={taskDueDate}
+              onChange={e => setTaskDueDate(e.target.value)}
+              className="h-8 text-sm"
+              data-testid="input-task-due-date"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Move pipeline stage */}
+      {opportunities.length > 0 && (
+        <>
+          <Separator />
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm">Advance pipeline stage</span>
+            </div>
+            <div className="pl-6 space-y-2">
+              {opportunities.length > 1 && (
+                <Select value={String(selectedOppId)} onValueChange={v => setSelectedOppId(Number(v))}>
+                  <SelectTrigger className="h-8 text-xs" data-testid="select-opportunity">
+                    <SelectValue placeholder="Select deal" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {opportunities.map(o => <SelectItem key={o.id} value={String(o.id)}>{o.title}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
+              {opportunities.length === 1 && (
+                <p className="text-xs text-muted-foreground">{opportunities[0].title} · currently {STAGE_LABELS[opportunities[0].stage] || opportunities[0].stage}</p>
+              )}
+              <Select value={nextStage} onValueChange={setNextStage}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-next-stage">
+                  <SelectValue placeholder="Move to stage…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {STAGE_OPTIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.value === opportunities.find(o => o.id === selectedOppId)?.stage ? `${s.label} (current)` : s.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </>
+      )}
+
+      <Button
+        className="w-full"
+        onClick={() => postMeetingMutation.mutate()}
+        disabled={!hasAction || postMeetingMutation.isPending}
+        data-testid="button-submit-post-meeting"
+      >
+        {postMeetingMutation.isPending ? (
+          <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving…</>
+        ) : (
+          <><CheckCheck className="mr-2 h-4 w-4" /> Apply Workflow</>
+        )}
+      </Button>
+    </div>
+  );
+}
+
+// ─── Calendar Metrics Bar ─────────────────────────────────────────────────────
+
+function MetricsBar() {
+  const { data: metrics } = useQuery<CalendarMetrics>({
+    queryKey: ["/api/calendar/metrics"],
+    refetchInterval: 5 * 60_000,
+  });
+
+  if (!metrics) return null;
+
+  const stats = [
+    { label: "This week", value: metrics.meetingsThisWeek, sub: `${metrics.completedThisWeek} completed`, icon: CalendarDays, color: "text-primary" },
+    { label: "Upcoming", value: metrics.upcomingCount, sub: "events scheduled", icon: CalendarPlus, color: "text-blue-500" },
+    { label: "This month", value: metrics.meetingsThisMonth, sub: "total events", icon: TrendingUp, color: "text-emerald-500" },
+    { label: "Overdue tasks", value: metrics.overdueTasks, sub: "need attention", icon: AlertTriangle, color: metrics.overdueTasks > 0 ? "text-amber-500" : "text-muted-foreground" },
+    { label: "Dormant accounts", value: metrics.dormantAccounts, sub: "no activity 30d", icon: Building2, color: metrics.dormantAccounts > 0 ? "text-red-400" : "text-muted-foreground" },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2" data-testid="metrics-bar">
+      {stats.map(({ label, value, sub, icon: Icon, color }) => (
+        <div key={label} className="flex items-center gap-2.5 bg-card border border-border/50 rounded-xl px-3 py-2.5">
+          <div className={`${color} shrink-0`}>
+            <Icon className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xl font-bold leading-none" data-testid={`metric-${label.replace(/\s+/g, "-").toLowerCase()}`}>{value}</p>
+            <p className="text-[10px] text-muted-foreground leading-tight mt-0.5 truncate">{label}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Event Detail Dialog (tabbed) ────────────────────────────────────────────
+
 function EventDetailDialog({
   event,
   onClose,
@@ -1314,15 +1812,26 @@ function EventDetailDialog({
 }) {
   const [editing, setEditing] = useState(false);
 
+  const now = new Date();
+  const endTime = event.endTime ? new Date(event.endTime) : new Date(event.startTime);
+  const isPast = endTime < now;
+
+  const { data: crmCtx, isLoading: crmLoading } = useQuery<CRMContext>({
+    queryKey: ["/api/calendar/events", event.id, "crm-context"],
+    queryFn: () => fetch(`/api/calendar/events/${event.id}/crm-context`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!event.id,
+  });
+
+  const crmCount = crmCtx
+    ? crmCtx.matchedContacts.length + crmCtx.matchedAccounts.length + crmCtx.openOpportunities.length
+    : 0;
+
   if (editing) {
     return (
       <EventFormDialog
         open
         onClose={() => setEditing(false)}
-        onSubmit={(data) => {
-          onUpdate(data);
-          setEditing(false);
-        }}
+        onSubmit={(data) => { onUpdate(data); setEditing(false); }}
         isPending={isUpdating}
         initialData={event}
       />
@@ -1347,104 +1856,132 @@ function EventDetailDialog({
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <DialogTitle className="text-xl" data-testid="text-event-title">
-                {event.title}
-              </DialogTitle>
-              <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <Badge variant="outline" className={EVENT_TYPE_COLORS[event.eventType] || ""}>
-                  {event.eventType}
+      <DialogContent className="max-w-lg max-h-[90vh] flex flex-col overflow-hidden p-0">
+        {/* Fixed header */}
+        <div className="px-6 pt-6 pb-3 border-b border-border/50 shrink-0">
+          <DialogHeader>
+            <DialogTitle className="text-xl pr-6" data-testid="text-event-title">
+              {event.title}
+            </DialogTitle>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <Badge variant="outline" className={EVENT_TYPE_COLORS[event.eventType] || ""}>
+                {event.eventType}
+              </Badge>
+              <Badge variant="outline" className={statusColor}>
+                {event.status}
+              </Badge>
+              {isPast && (
+                <Badge variant="outline" className="text-xs bg-secondary/30">
+                  Past event
                 </Badge>
-                <Badge variant="outline" className={statusColor}>
-                  {event.status}
-                </Badge>
-              </div>
+              )}
             </div>
-          </div>
-        </DialogHeader>
-
-        <div className="space-y-2.5 mt-2 text-sm">
-          {event.meetingUrl && (
-            <div className="flex items-center gap-2">
-              <Video className="h-4 w-4 text-muted-foreground shrink-0" />
-              <a href={event.meetingUrl} target="_blank" rel="noopener noreferrer" className="text-primary truncate" data-testid="link-meeting-url">
-                Zoom Meeting URL
-              </a>
-            </div>
-          )}
-
-          <div className="flex items-center gap-2">
-            <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
-            <span>
-              {event.allDay
-                ? format(startDate, "MMM d, yyyy")
-                : `${format(startDate, "MMM d, yyyy h:mm a")}${endDate ? ` - ${format(endDate, "h:mm a")}` : ""}`}
-            </span>
-          </div>
-
-          {event.timeZone && (
-            <div className="flex items-center gap-2">
-              <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span>{event.timeZone}</span>
-            </div>
-          )}
-
-          {event.location && (
-            <div className="flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span className="truncate">{event.location}</span>
-            </div>
-          )}
-
-          <div className="border-t border-border/30 pt-2 mt-2 grid grid-cols-2 gap-y-1.5 gap-x-4 text-xs">
-            <div className="flex justify-between"><span className="text-muted-foreground">repeat</span><span>{repeatLabel}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">travel time</span><span>{travelLabel}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">alert</span><span>{alertLabel}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">2nd alert</span><span>{secondAlertLabel}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">show as</span><span>{showAsLabel}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">visibility</span><span>{visibilityLabel}</span></div>
-          </div>
-
-          {event.invitees && event.invitees.length > 0 && (
-            <div className="border-t border-border/30 pt-2">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1.5">
-                <Users className="h-3.5 w-3.5" /> Invitees
-              </div>
-              <div className="space-y-1">
-                {event.invitees.map((email) => (
-                  <div key={email} className="text-xs bg-secondary/30 rounded px-2 py-1" data-testid={`detail-invitee-${email}`}>
-                    {email}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {event.description && (
-            <div className="border-t border-border/30 pt-2">
-              <p className="text-muted-foreground">{event.description}</p>
-            </div>
-          )}
+          </DialogHeader>
         </div>
 
-        <DialogFooter className="gap-2 mt-4">
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={onDelete}
-            disabled={isDeleting}
-            data-testid="button-delete-event"
-          >
-            {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-            Delete
-          </Button>
-          <Button size="sm" onClick={() => setEditing(true)} data-testid="button-edit-event">
-            <Pencil className="mr-2 h-4 w-4" /> Edit
-          </Button>
-        </DialogFooter>
+        {/* Tabs */}
+        <Tabs defaultValue="details" className="flex flex-col flex-1 overflow-hidden">
+          <TabsList className="mx-6 mt-3 mb-0 shrink-0 w-auto justify-start bg-secondary/40 h-8">
+            <TabsTrigger value="details" className="text-xs h-6 px-3" data-testid="tab-details">
+              Details
+            </TabsTrigger>
+            <TabsTrigger value="crm" className="text-xs h-6 px-3" data-testid="tab-crm">
+              CRM{crmCount > 0 ? ` (${crmCount})` : ""}
+            </TabsTrigger>
+            {isPast && (
+              <TabsTrigger value="post-meeting" className="text-xs h-6 px-3" data-testid="tab-post-meeting">
+                Post-Meeting
+              </TabsTrigger>
+            )}
+          </TabsList>
+
+          {/* Details tab */}
+          <TabsContent value="details" className="flex-1 overflow-y-auto px-6 pb-4 mt-3">
+            <div className="space-y-2.5 text-sm">
+              {event.meetingUrl && (
+                <div className="flex items-center gap-2">
+                  <Video className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <a href={event.meetingUrl} target="_blank" rel="noopener noreferrer" className="text-primary truncate" data-testid="link-meeting-url">
+                    Join Meeting
+                  </a>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span>
+                  {event.allDay
+                    ? format(startDate, "MMM d, yyyy")
+                    : `${format(startDate, "MMM d, yyyy h:mm a")}${endDate ? ` – ${format(endDate, "h:mm a")}` : ""}`}
+                </span>
+              </div>
+              {event.timeZone && (
+                <div className="flex items-center gap-2">
+                  <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span>{event.timeZone}</span>
+                </div>
+              )}
+              {event.location && (
+                <div className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="truncate">{event.location}</span>
+                </div>
+              )}
+              <div className="border-t border-border/30 pt-2 mt-2 grid grid-cols-2 gap-y-1.5 gap-x-4 text-xs">
+                <div className="flex justify-between"><span className="text-muted-foreground">repeat</span><span>{repeatLabel}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">travel time</span><span>{travelLabel}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">alert</span><span>{alertLabel}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">2nd alert</span><span>{secondAlertLabel}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">show as</span><span>{showAsLabel}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">visibility</span><span>{visibilityLabel}</span></div>
+              </div>
+              {event.invitees && event.invitees.length > 0 && (
+                <div className="border-t border-border/30 pt-2">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1.5">
+                    <Users className="h-3.5 w-3.5" /> Invitees
+                  </div>
+                  <div className="space-y-1">
+                    {event.invitees.map((email) => (
+                      <div key={email} className="text-xs bg-secondary/30 rounded px-2 py-1" data-testid={`detail-invitee-${email}`}>
+                        {email}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {event.description && (
+                <div className="border-t border-border/30 pt-2">
+                  <p className="text-muted-foreground whitespace-pre-wrap">{event.description}</p>
+                </div>
+              )}
+            </div>
+            {/* Footer actions inside scroll */}
+            <div className="flex items-center justify-between gap-2 mt-5 pt-4 border-t border-border/30">
+              <Button variant="destructive" size="sm" onClick={onDelete} disabled={isDeleting} data-testid="button-delete-event">
+                {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                Delete
+              </Button>
+              <Button size="sm" onClick={() => setEditing(true)} data-testid="button-edit-event">
+                <Pencil className="mr-2 h-4 w-4" /> Edit
+              </Button>
+            </div>
+          </TabsContent>
+
+          {/* CRM tab */}
+          <TabsContent value="crm" className="flex-1 overflow-y-auto px-6 pb-6 mt-3">
+            <CRMContextTab eventId={event.id} crmCtx={crmCtx} isLoading={crmLoading} />
+          </TabsContent>
+
+          {/* Post-Meeting tab */}
+          {isPast && (
+            <TabsContent value="post-meeting" className="flex-1 overflow-y-auto px-6 pb-6 mt-3">
+              <PostMeetingTab
+                event={event}
+                opportunities={crmCtx?.openOpportunities ?? []}
+                onDone={onClose}
+              />
+            </TabsContent>
+          )}
+        </Tabs>
       </DialogContent>
     </Dialog>
   );

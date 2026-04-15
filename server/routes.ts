@@ -28,7 +28,7 @@ import {
   getAuthenticationOptions, verifyAuthentication,
   getUserCredentials, deleteCredential,
 } from "./webauthn";
-import { eq, sql, and, or, inArray, lte, ilike, asc } from "drizzle-orm";
+import { eq, sql, and, or, inArray, lte, gte, ilike, asc, desc, isNull, ne, count, not } from "drizzle-orm";
 import { registerVoiceAssistantRoutes } from "./voice-assistant";
 import { generateInvoiceHtml, generateQuoteXlsx, type QuoteData } from "./quote-generator";
 import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead, saveDraft, listDraftSummaries, getDraftContent, deleteDraft } from "./gmail";
@@ -43,7 +43,7 @@ import {
   assets, assetFolders, priceLists, priceListItems,
   contacts, accounts, leads, opportunities, partnerships,
   migrationMap,
-  calendarConnections,
+  calendarConnections, calendarEvents, tasks,
 } from "@shared/schema";
 import {
   getCalendarAuthUrl,
@@ -2573,6 +2573,252 @@ export async function registerRoutes(
       const connectionId = Number(req.params.id);
       await disconnectCalendarIntegration(connectionId, userId);
       res.json({ message: "Disconnected" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Calendar CRM Intelligence ─────────────────────────────────────────────
+
+  // CRM context for a calendar event — match invitees to contacts/accounts
+  app.get("/api/calendar/events/:id/crm-context", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const eventId = Number(req.params.id);
+      const [event] = await db.select().from(calendarEvents)
+        .where(and(eq(calendarEvents.id, eventId), eq(calendarEvents.userId, userId))).limit(1);
+      if (!event) return res.status(404).json({ message: "Event not found" });
+
+      const invitees: string[] = (event.invitees || []).filter(Boolean);
+      const matchedContacts: any[] = [];
+      const unmatchedEmails: string[] = [];
+      const accountIdSet = new Set<number>();
+
+      // Match each invitee email to a contact
+      for (const email of invitees) {
+        const [contact] = await db.select().from(contacts).where(eq(contacts.email, email.toLowerCase().trim())).limit(1);
+        if (contact) {
+          matchedContacts.push(contact);
+          accountIdSet.add(contact.accountId);
+        } else {
+          unmatchedEmails.push(email);
+        }
+      }
+
+      // Domain → account fallback for unmatched
+      for (const email of unmatchedEmails) {
+        const domain = email.split("@")[1];
+        if (!domain || domain.includes("gmail.com") || domain.includes("outlook.com") || domain.includes("yahoo.com") || domain.includes("hotmail.com")) continue;
+        const domainAccounts = await db.select({ id: accounts.id }).from(accounts)
+          .where(sql`website ILIKE ${"%" + domain + "%"}`).limit(2);
+        for (const a of domainAccounts) accountIdSet.add(a.id);
+      }
+
+      // Fetch matched accounts
+      const matchedAccounts: any[] = [];
+      for (const id of accountIdSet) {
+        const [acc] = await db.select().from(accounts).where(eq(accounts.id, id)).limit(1);
+        if (acc) matchedAccounts.push(acc);
+      }
+
+      // Open opportunities for matched accounts
+      const openOpportunities: any[] = [];
+      for (const id of accountIdSet) {
+        const opps = await db.select().from(opportunities)
+          .where(and(eq(opportunities.accountId, id), not(eq(opportunities.stage, "closed_won")), not(eq(opportunities.stage, "closed_lost"))))
+          .orderBy(desc(opportunities.updatedAt)).limit(3);
+        openOpportunities.push(...opps);
+      }
+
+      // Recent emails involving these invitees
+      const recentEmails: any[] = [];
+      for (const email of invitees.slice(0, 3)) {
+        const msgs = await db.select({
+          id: emailMessages.id, subject: emailMessages.subject, fromEmail: emailMessages.fromEmail,
+          sentAt: emailMessages.sentAt, direction: emailMessages.direction, snippet: emailMessages.snippet,
+        }).from(emailMessages)
+          .where(sql`(from_email ILIKE ${"%" + email + "%"} OR to_emails ILIKE ${"%" + email + "%"})`)
+          .orderBy(desc(emailMessages.sentAt)).limit(3);
+        recentEmails.push(...msgs);
+      }
+      const dedupedEmails = Array.from(new Map(recentEmails.map(e => [e.id, e])).values())
+        .sort((a: any, b: any) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime())
+        .slice(0, 5);
+
+      // Open tasks for matched accounts
+      const openTasks: any[] = [];
+      for (const id of accountIdSet) {
+        const ts = await db.select().from(tasks)
+          .where(and(eq(tasks.accountId, id), eq(tasks.status, "pending")))
+          .orderBy(asc(tasks.dueDate)).limit(3);
+        openTasks.push(...ts);
+      }
+
+      // Recommended action
+      let recommendedAction: any = null;
+      const stageActions: Record<string, string> = {
+        inbound_new: "Send intro email and schedule a discovery call",
+        qualifying: "Complete discovery — identify pain, budget, and timeline",
+        proposal: "Send proposal and follow up within 48 hours",
+        negotiation: "Address objections and align on final terms",
+        verbal_commit: "Get written commitment and issue contract",
+      };
+      if (openOpportunities.length > 0) {
+        const top = openOpportunities[0];
+        recommendedAction = {
+          text: stageActions[top.stage] || "Advance the deal to the next stage",
+          opportunityId: top.id,
+          opportunityTitle: top.title,
+          stage: top.stage,
+        };
+      } else if (matchedAccounts.length > 0) {
+        const acc = matchedAccounts[0];
+        const accountActions: Record<string, string> = {
+          new: "Qualify this account — assess fit, size, and timing",
+          contacted: "Follow up, confirm interest, and identify a champion",
+          working: "Deepen the relationship and uncover a deal opportunity",
+        };
+        recommendedAction = {
+          text: accountActions[acc.leadStatus] || "Continue relationship development",
+          accountId: acc.id,
+          accountName: acc.name,
+        };
+      } else if (unmatchedEmails.length > 0) {
+        recommendedAction = {
+          text: "Add these attendees to the CRM to start tracking the relationship",
+          suggestCreate: true,
+        };
+      }
+
+      res.json({ matchedContacts, unmatchedEmails, matchedAccounts, openOpportunities, recentEmails: dedupedEmails, openTasks, recommendedAction });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Post-meeting workflow — record notes, create tasks, advance pipeline
+  app.post("/api/calendar/events/:id/post-meeting", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const eventId = Number(req.params.id);
+      const [event] = await db.select().from(calendarEvents)
+        .where(and(eq(calendarEvents.id, eventId), eq(calendarEvents.userId, userId))).limit(1);
+      if (!event) return res.status(404).json({ message: "Event not found" });
+
+      const { notes, markCompleted, createTask, taskTitle, taskDueDate, taskAccountId, opportunityId, nextStage } = req.body as {
+        notes?: string; markCompleted?: boolean;
+        createTask?: boolean; taskTitle?: string; taskDueDate?: string; taskAccountId?: number;
+        opportunityId?: number; nextStage?: string;
+      };
+
+      const results: Record<string, any> = {};
+
+      if (notes || markCompleted) {
+        const updates: Record<string, any> = { updatedAt: new Date() };
+        if (notes) {
+          const dateStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+          const existing = event.description ? event.description + "\n\n" : "";
+          updates.description = `${existing}[Meeting Notes — ${dateStr}]\n${notes}`;
+        }
+        if (markCompleted) updates.status = "completed";
+        await db.update(calendarEvents).set(updates).where(eq(calendarEvents.id, eventId));
+        results.eventUpdated = true;
+      }
+
+      if (createTask && taskTitle) {
+        const task = await storage.createTask({
+          title: taskTitle,
+          dueDate: taskDueDate ? new Date(taskDueDate) : undefined,
+          ownerUserId: userId,
+          status: "pending",
+          priority: "medium",
+          accountId: taskAccountId || null,
+          linkedObjectType: "calendar_event",
+          linkedObjectId: eventId,
+          createdByUserId: userId,
+          aiSuggested: false,
+        });
+        results.task = task;
+      }
+
+      if (opportunityId && nextStage) {
+        await db.update(opportunities).set({ stage: nextStage, lastActivityDate: new Date(), updatedAt: new Date() })
+          .where(eq(opportunities.id, opportunityId));
+        results.opportunityUpdated = true;
+      }
+
+      res.json({ message: "Post-meeting workflow applied", ...results });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Team calendar connection health (admin only)
+  app.get("/api/calendar/connections/team", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const [me] = await db.select({ globalRole: users.globalRole }).from(users).where(eq(users.id, userId)).limit(1);
+      if (!me || (me.globalRole !== "master_admin" && me.globalRole !== "admin")) {
+        return res.status(403).json({ message: "Admin only" });
+      }
+      const allUsers = await db.select({ id: users.id, name: users.name, email: users.email, globalRole: users.globalRole }).from(users);
+      const allConnections = await db.select({
+        id: calendarConnections.id, userId: calendarConnections.userId,
+        provider: calendarConnections.provider, displayName: calendarConnections.displayName,
+        accountEmail: calendarConnections.accountEmail, isActive: calendarConnections.isActive,
+        syncEnabled: calendarConnections.syncEnabled, syncDirection: calendarConnections.syncDirection,
+        lastSyncedAt: calendarConnections.lastSyncedAt, syncError: calendarConnections.syncError,
+      }).from(calendarConnections);
+      const result = allUsers.map(u => ({
+        ...u,
+        connections: allConnections.filter(c => c.userId === u.id),
+      }));
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Calendar activity metrics for the current user
+  app.get("/api/calendar/metrics", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const now = new Date();
+      const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0, 0, 0, 0);
+      const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 7);
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+      const [thisWeek] = await db.select({ n: count() }).from(calendarEvents)
+        .where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startTime, weekStart), lte(calendarEvents.startTime, weekEnd)));
+      const [completedWeek] = await db.select({ n: count() }).from(calendarEvents)
+        .where(and(eq(calendarEvents.userId, userId), eq(calendarEvents.status, "completed"), gte(calendarEvents.startTime, weekStart), lte(calendarEvents.startTime, weekEnd)));
+      const [upcoming] = await db.select({ n: count() }).from(calendarEvents)
+        .where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startTime, now), ne(calendarEvents.status, "cancelled")));
+      const [thisMonth] = await db.select({ n: count() }).from(calendarEvents)
+        .where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startTime, monthStart)));
+      const eventsByType = await db.select({ eventType: calendarEvents.eventType, n: count() }).from(calendarEvents)
+        .where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startTime, monthStart)))
+        .groupBy(calendarEvents.eventType);
+      const [overdueTasks] = await db.select({ n: count() }).from(tasks)
+        .where(and(eq(tasks.ownerUserId, userId), eq(tasks.status, "pending"), lte(tasks.dueDate, now)));
+      const [dormantAccounts] = await db.select({ n: count() }).from(accounts)
+        .where(and(
+          eq(accounts.assignedToUserId, userId),
+          or(isNull(accounts.lastInteractionAt), lte(accounts.lastInteractionAt, thirtyDaysAgo)),
+          not(eq(accounts.leadStatus, "closed_won")),
+          not(eq(accounts.leadStatus, "closed_lost")),
+        ));
+
+      res.json({
+        meetingsThisWeek: Number(thisWeek?.n ?? 0),
+        completedThisWeek: Number(completedWeek?.n ?? 0),
+        meetingsThisMonth: Number(thisMonth?.n ?? 0),
+        upcomingCount: Number(upcoming?.n ?? 0),
+        overdueTasks: Number(overdueTasks?.n ?? 0),
+        dormantAccounts: Number(dormantAccounts?.n ?? 0),
+        eventsByType: eventsByType.map(r => ({ eventType: r.eventType, count: Number(r.n) })),
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
