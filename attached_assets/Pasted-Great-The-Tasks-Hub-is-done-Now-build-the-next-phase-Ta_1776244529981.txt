@@ -1,0 +1,104 @@
+Great. The Tasks Hub is done. Now build the next phase: Task Creation Automation + Suggestions Layer.
+
+Objectives:
+Turn tasks from a manual list into an execution engine that automatically creates or suggests tasks based on CRM and inbox activity.
+
+Build this in a clean, staged way.
+
+PHASE 1 — TASK ORIGINS + AUDITABILITY
+1. Extend task creation so every task can store:
+   - source: manual / suggestion / email / automation / workflow
+   - sourceLabel: human-readable label like "Inbound email", "Lead stale", "Quote follow-up"
+   - sourceMeta JSONB for structured metadata (messageId, accountId, leadId, ruleId, etc.)
+   - createdByRuleId nullable
+   - dismissedAt nullable
+   - dismissedBy nullable
+2. Ensure existing tasks remain compatible with safe defaults.
+3. Add migration safely.
+
+PHASE 2 — SUGGESTED TASKS ENGINE
+Build a backend suggestions engine and endpoint:
+- GET /api/tasks/suggestions
+Return a list of suggested tasks that are NOT yet accepted into the main tasks table.
+
+Initial suggestion rules:
+1. Unanswered email older than X hours from a contact tied to a lead/account
+2. Lead with no follow-up activity in X days
+3. Opportunity with next step missing
+4. Quote sent but no follow-up task within X days
+5. Account with open issue / note / email thread needing response
+6. Task overdue more than X days with no recent owner activity
+
+Each suggestion should include:
+- title
+- description
+- suggestedAssigneeId
+- dueDate
+- priority
+- linkedObjectType
+- linkedObjectId
+- source
+- sourceLabel
+- sourceMeta
+- reason
+- confidence score (simple heuristic is fine)
+- actions: accept / dismiss
+
+PHASE 3 — ACCEPT / DISMISS FLOW
+Add endpoints:
+- POST /api/tasks/suggestions/accept
+- POST /api/tasks/suggestions/dismiss
+
+Accept:
+- creates a real task in tasks table
+- preserves source/sourceMeta
+- marks the suggestion as accepted so it is not re-suggested
+
+Dismiss:
+- stores dismissal so same suggestion does not keep coming back for a reasonable cooldown window
+
+PHASE 4 — TASK RULES SETTINGS
+Create a simple admin/settings page:
+/automation/tasks
+Allow configuration for:
+- stale lead threshold days
+- unanswered email threshold hours
+- quote follow-up days
+- overdue reminder days
+- default assignee strategy:
+  - record owner
+  - email owner
+  - admin fallback
+  - custom user
+
+PHASE 5 — TASKS HUB UI INTEGRATION
+Add a “Suggestions” tab to the Tasks Hub with:
+- grouped suggestions
+- accept button
+- dismiss button
+- why this was suggested
+- source badge
+- confidence badge
+
+PHASE 6 — CRM / EMAIL LINKING
+Use existing linked account/lead/contact/email logic where possible.
+If an incoming email is matched to an account/lead/contact and needs a reply, it should be eligible for suggestion generation.
+
+PHASE 7 — TESTING
+Add comprehensive tests for:
+- suggestion generation rules
+- accept flow
+- dismiss flow
+- dedupe logic
+- cooldown logic
+- permissions
+- no regressions to existing task hub tests
+
+Important implementation rules:
+- Do not break the current Tasks Hub
+- Reuse existing auth/permission patterns
+- Reuse existing linked_object_type / linked_object_id structure
+- Prefer deterministic heuristics over “AI”
+- Make all suggestion logic explainable in plain English
+- Keep the UI fast and simple
+- Build in small verified steps and summarize changed files at the end
