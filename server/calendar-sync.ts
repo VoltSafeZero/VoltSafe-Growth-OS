@@ -4,6 +4,50 @@ import { db } from "./db";
 import { calendarConnections, calendarEvents } from "@shared/schema";
 import { eq, and, isNull, or } from "drizzle-orm";
 
+// ─── Error Translation ────────────────────────────────────────────────────────
+
+function friendlyCalendarError(err: any): string {
+  const msg: string = err?.message || err?.toString() || "Unknown error";
+  const lower = msg.toLowerCase();
+
+  // Google API not enabled
+  if (lower.includes("has not been used") || lower.includes("api not enabled") || lower.includes("api is disabled")) {
+    return "Google Calendar API is not enabled in Google Cloud. Please contact your admin.";
+  }
+  // Auth / token errors
+  if (lower.includes("invalid_grant") || lower.includes("token has been expired") || lower.includes("token has been revoked")) {
+    return "Your calendar authorization has expired. Please disconnect and reconnect your account.";
+  }
+  if (lower.includes("invalid authentication credentials") || lower.includes("unauthenticated") || lower.includes("401")) {
+    return "Authentication failed. Please reconnect your calendar account.";
+  }
+  // Permission errors
+  if (lower.includes("caller does not have permission") || lower.includes("forbidden") || lower.includes("403")) {
+    return "Permission denied. Make sure calendar access is granted in your Google account.";
+  }
+  // Rate limits
+  if (lower.includes("rate limit") || lower.includes("daily limit") || lower.includes("quota")) {
+    return "Google Calendar API quota exceeded. Please try again later.";
+  }
+  // Network / timeout
+  if (lower.includes("econnrefused") || lower.includes("enotfound") || lower.includes("etimedout") || lower.includes("network")) {
+    return "Could not reach the calendar server. Check your network connection.";
+  }
+  // CalDAV-specific
+  if (lower.includes("invalid username or password") || lower.includes("unauthorized")) {
+    return "Invalid username or password. For Apple iCloud, use an app-specific password.";
+  }
+  if (lower.includes("not found") || lower.includes("404")) {
+    return "Calendar server not found. Check the server URL.";
+  }
+  if (lower.includes("service unavailable") || lower.includes("503") || lower.includes("502")) {
+    return "Calendar server is temporarily unavailable. Please try again later.";
+  }
+
+  // Truncate raw messages longer than 120 chars
+  return msg.length > 120 ? msg.slice(0, 117) + "…" : msg;
+}
+
 // ─── Google Calendar OAuth ────────────────────────────────────────────────────
 
 const CALENDAR_SCOPES = [
@@ -335,11 +379,12 @@ export async function syncGoogleCalendar(
       .set({ lastSyncedAt: new Date(), syncError: null, updatedAt: new Date() })
       .where(eq(calendarConnections.id, connectionId));
   } catch (err: any) {
+    const friendly = friendlyCalendarError(err);
     await db
       .update(calendarConnections)
-      .set({ syncError: err.message || "Unknown error", updatedAt: new Date() })
+      .set({ syncError: friendly, updatedAt: new Date() })
       .where(eq(calendarConnections.id, connectionId));
-    throw err;
+    throw new Error(friendly);
   }
 
   return { imported, updated, pushed, errors };
@@ -404,10 +449,19 @@ export async function testCalDavConnection(
     );
 
     if (principalResp.status === 401) {
-      return { ok: false, error: "Invalid username or password", calendars: [] };
+      return { ok: false, error: "Invalid username or password. For Apple iCloud, use an app-specific password.", calendars: [] };
+    }
+    if (principalResp.status === 403) {
+      return { ok: false, error: "Access denied. Check that calendar access is enabled for this account.", calendars: [] };
+    }
+    if (principalResp.status === 404) {
+      return { ok: false, error: "Calendar server not found. Check the server URL.", calendars: [] };
+    }
+    if (principalResp.status === 503 || principalResp.status === 502) {
+      return { ok: false, error: "Calendar server is temporarily unavailable. Please try again later.", calendars: [] };
     }
     if (principalResp.status >= 400 && principalResp.status !== 207) {
-      return { ok: false, error: `Server returned ${principalResp.status}`, calendars: [] };
+      return { ok: false, error: `Calendar server returned an error (HTTP ${principalResp.status}). Check your server URL and credentials.`, calendars: [] };
     }
 
     // Extract calendar-home-set href
@@ -462,7 +516,7 @@ export async function testCalDavConnection(
 
     return { ok: true, calendars };
   } catch (e: any) {
-    return { ok: false, error: e.message || "Connection failed", calendars: [] };
+    return { ok: false, error: friendlyCalendarError(e), calendars: [] };
   }
 }
 
@@ -664,11 +718,12 @@ export async function syncCalDav(
       .set({ lastSyncedAt: new Date(), syncError: null, updatedAt: new Date() })
       .where(eq(calendarConnections.id, connectionId));
   } catch (err: any) {
+    const friendly = friendlyCalendarError(err);
     await db
       .update(calendarConnections)
-      .set({ syncError: err.message || "Unknown error", updatedAt: new Date() })
+      .set({ syncError: friendly, updatedAt: new Date() })
       .where(eq(calendarConnections.id, connectionId));
-    throw err;
+    throw new Error(friendly);
   }
 
   return { imported, updated, errors };
