@@ -305,6 +305,51 @@ End-to-end field execution layer for marina/site deployments. Sits above Install
 ### Tests
 `tests/deployment.test.js` — **102 assertions** covering full lifecycle, auto-live, blocker create/resolve, hardware allocations, blocked list, dashboard shape, and procurement + executive regression checks.
 
+## True Duplicate Merge Engine
+
+Safe, audited, field-resolution-driven merge for accounts, contacts, and leads.
+
+### New DB Table
+`merge_audit_log` — captures who merged, when, which records, field resolutions chosen, counts of linked objects moved, before/after snapshots, warnings.
+
+### API Endpoints (`/api/merge/*`)
+| Endpoint | Description |
+|---|---|
+| `GET /api/merge/preview/:type/:primaryId/:secondaryId` | Side-by-side field comparison + linked object counts + warnings |
+| `POST /api/merge/apply` | Execute the merge (admin-only) |
+| `GET /api/merge/audit` | Paginated merge history (filter by `entityType`) |
+| `GET /api/merge/audit/:id` | Single audit record |
+
+### Safety Guardrails
+- Admin-only (`isAdmin` check; 403 for non-admins)
+- Self-merge prevention (400)
+- Invalid entity type rejection (400)
+- Nonexistent record rejection (404)
+- Prior-merge warning displayed in preview
+
+### Merge Logic Per Entity
+**Account**: relinks contacts, opps, quotes, tasks, notes, activities, email associations, install workflows, deployments, leads.converted_account_id → archives secondary (`leadStatus = 'archived'`) + activity logged
+
+**Contact**: relinks opps, quotes, tasks, notes, activities, email_associations, leads.converted_contact_id, opportunity_contacts (deduped) → archives secondary (name prefixed `[archived]`, notes updated) + activity logged
+
+**Lead**: relinks tasks, notes → archives secondary (`status = 'closed_lost'`)
+
+### Field Resolution UI
+- Per-field winner picker (click primary value or secondary value)
+- Highlighted selected field (emerald = primary, blue = secondary)
+- Automatic defaults based on which side has a non-null value
+- Swap primary/secondary button (resets resolutions)
+- Two-step confirm flow: Review → Confirm → Apply
+
+### Frontend
+Data Quality page → Duplicates tab:
+- Each cluster now shows **"Merge #X → #Y"** button (primary action) + Archive (secondary fallback)
+- Clicking Merge opens `MergeReviewPanel` overlay
+- "Merge History" button opens `MergeAuditPanel` overlay
+
+### Tests
+`tests/merge.test.js` — **84 assertions** covering account/contact/lead merges, linked object relinking, secondary archival, field resolution correctness, audit creation, prior-merge warning, entity filter, and full regression suite.
+
 ## External Dependencies
 
 - **PostgreSQL:** Primary database.

@@ -662,3 +662,30 @@ export async function migrateDeploymentSchema(): Promise<void> {
     console.error("[migration] Deployment schema migration error (non-fatal):", err);
   }
 }
+
+export async function migrateMergeAuditSchema(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS merge_audit_log (
+        id serial PRIMARY KEY,
+        entity_type text NOT NULL,
+        primary_id integer NOT NULL,
+        secondary_id integer NOT NULL,
+        merged_by_user_id integer NOT NULL,
+        merged_at timestamp NOT NULL DEFAULT now(),
+        field_resolutions jsonb,
+        linked_object_counts jsonb,
+        warnings jsonb,
+        primary_snapshot_json jsonb,
+        secondary_snapshot_json jsonb,
+        archived_secondary boolean DEFAULT true
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_merge_audit_entity ON merge_audit_log(entity_type, primary_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_merge_audit_secondary ON merge_audit_log(entity_type, secondary_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_merge_audit_merged_at ON merge_audit_log(merged_at DESC)`);
+    console.log("[migration] Merge audit schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Merge audit schema migration error (non-fatal):", err);
+  }
+}

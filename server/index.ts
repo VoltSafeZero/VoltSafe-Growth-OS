@@ -104,7 +104,7 @@ app.use((req, res, next) => {
 (async () => {
   // Run schema migrations FIRST before any route setup queries the DB
   try {
-    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema } = await import("./seed-production");
+    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema } = await import("./seed-production");
     await migrateUserSchema();
     await migrateEmailSchema();
     await migrateCalendarSchema();
@@ -112,6 +112,7 @@ app.use((req, res, next) => {
     await migrateExecutionSchema();
     await migrateProcurementSchema();
     await migrateDeploymentSchema();
+    await migrateMergeAuditSchema();
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }
@@ -151,7 +152,7 @@ app.use((req, res, next) => {
       log(`Listening on 0.0.0.0:${port}`);
 
       try {
-        const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, seedProductionData } = await import("./seed-production");
+        const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, seedProductionData } = await import("./seed-production");
         await migrateUserSchema();
         await migrateEmailSchema();
         await migrateCalendarSchema();
@@ -159,6 +160,7 @@ app.use((req, res, next) => {
         await migrateExecutionSchema();
         await migrateProcurementSchema();
         await migrateDeploymentSchema();
+        await migrateMergeAuditSchema();
         await seedProductionData();
       } catch (err) {
         console.error("Seed error (non-fatal):", err);

@@ -13604,6 +13604,380 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // MERGE ENGINE — /api/merge/*
+  // Phase 1: accounts, contacts, leads
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+  async function getMergeLinkedCounts(entityType: string, id: number) {
+    const r = (t: any) => (t as any).rows ?? [];
+    if (entityType === "account") {
+      const [c, o, q, t, n, e, iw, d] = await Promise.all([
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM contacts WHERE account_id = ${id}`)),
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM opportunities WHERE account_id = ${id}`)),
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM quotes WHERE account_id = ${id}`)),
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM tasks WHERE account_id = ${id}`)),
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM notes WHERE linked_object_type = 'account' AND linked_object_id = ${id}`)),
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM email_associations WHERE object_type = 'account' AND object_id = ${id}`)),
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM install_workflows WHERE account_id = ${id}`)),
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM deployments WHERE account_id = ${id}`)),
+      ]);
+      return {
+        contacts: parseInt(r(c)[0]?.cnt ?? "0"),
+        opportunities: parseInt(r(o)[0]?.cnt ?? "0"),
+        quotes: parseInt(r(q)[0]?.cnt ?? "0"),
+        tasks: parseInt(r(t)[0]?.cnt ?? "0"),
+        notes: parseInt(r(n)[0]?.cnt ?? "0"),
+        emails: parseInt(r(e)[0]?.cnt ?? "0"),
+        installWorkflows: parseInt(r(iw)[0]?.cnt ?? "0"),
+        deployments: parseInt(r(d)[0]?.cnt ?? "0"),
+      };
+    }
+    if (entityType === "contact") {
+      const [o, oc, t, n, e, a, l] = await Promise.all([
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM opportunities WHERE contact_id = ${id}`)),
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM opportunity_contacts WHERE contact_id = ${id}`)),
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM tasks WHERE linked_object_type = 'contact' AND linked_object_id = ${id}`)),
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM notes WHERE linked_object_type = 'contact' AND linked_object_id = ${id}`)),
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM email_associations WHERE object_type = 'contact' AND object_id = ${id}`)),
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM activities WHERE contact_id = ${id}`)),
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM leads WHERE converted_contact_id = ${id}`)),
+      ]);
+      return {
+        opportunities: parseInt(r(o)[0]?.cnt ?? "0"),
+        opportunityContacts: parseInt(r(oc)[0]?.cnt ?? "0"),
+        tasks: parseInt(r(t)[0]?.cnt ?? "0"),
+        notes: parseInt(r(n)[0]?.cnt ?? "0"),
+        emails: parseInt(r(e)[0]?.cnt ?? "0"),
+        activities: parseInt(r(a)[0]?.cnt ?? "0"),
+        convertedLeads: parseInt(r(l)[0]?.cnt ?? "0"),
+      };
+    }
+    if (entityType === "lead") {
+      const [t, n] = await Promise.all([
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM tasks WHERE linked_object_type = 'lead' AND linked_object_id = ${id}`)),
+        db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM notes WHERE linked_object_type = 'lead' AND linked_object_id = ${id}`)),
+      ]);
+      return {
+        tasks: parseInt(r(t)[0]?.cnt ?? "0"),
+        notes: parseInt(r(n)[0]?.cnt ?? "0"),
+      };
+    }
+    return {};
+  }
+
+  // ── GET /api/merge/audit ─────────────────────────────────────────────────────
+  app.get("/api/merge/audit", requireAuth, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(String(req.query.limit ?? "50")), 200);
+      const offset = parseInt(String(req.query.offset ?? "0")) || 0;
+      const entityType = req.query.entityType as string | undefined;
+      const whereClause = entityType ? `WHERE entity_type = '${entityType}'` : "";
+      const rows = await db.execute(sql.raw(
+        `SELECT mal.*, u.name AS merged_by_name
+         FROM merge_audit_log mal
+         LEFT JOIN users u ON u.id = mal.merged_by_user_id
+         ${whereClause}
+         ORDER BY mal.merged_at DESC
+         LIMIT ${limit} OFFSET ${offset}`
+      ));
+      res.json({ data: (rows as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── GET /api/merge/audit/:id ────────────────────────────────────────────────
+  app.get("/api/merge/audit/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(
+        `SELECT mal.*, u.name AS merged_by_name
+         FROM merge_audit_log mal
+         LEFT JOIN users u ON u.id = mal.merged_by_user_id
+         WHERE mal.id = ${id}`
+      ));
+      const row = (rows as any).rows?.[0];
+      if (!row) return res.status(404).json({ message: "Not found" });
+      res.json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── GET /api/merge/preview/:type/:primaryId/:secondaryId ────────────────────
+  app.get("/api/merge/preview/:type/:primaryId/:secondaryId", requireAuth, async (req, res) => {
+    try {
+      const { type, primaryId, secondaryId } = req.params;
+      const pid = parseInt(primaryId);
+      const sid = parseInt(secondaryId);
+      if (!["account", "contact", "lead"].includes(type))
+        return res.status(400).json({ message: "type must be account, contact, or lead" });
+      if (isNaN(pid) || isNaN(sid)) return res.status(400).json({ message: "Invalid IDs" });
+      if (pid === sid) return res.status(400).json({ message: "Cannot preview merge of a record with itself" });
+
+      let primary: any, secondary: any;
+      const r = (t: any) => (t as any).rows ?? [];
+      if (type === "account") {
+        const [pr, sr] = await Promise.all([
+          db.execute(sql.raw(`SELECT * FROM accounts WHERE id = ${pid}`)),
+          db.execute(sql.raw(`SELECT * FROM accounts WHERE id = ${sid}`)),
+        ]);
+        primary = r(pr)[0]; secondary = r(sr)[0];
+      } else if (type === "contact") {
+        const [pr, sr] = await Promise.all([
+          db.execute(sql.raw(`SELECT * FROM contacts WHERE id = ${pid}`)),
+          db.execute(sql.raw(`SELECT * FROM contacts WHERE id = ${sid}`)),
+        ]);
+        primary = r(pr)[0]; secondary = r(sr)[0];
+      } else {
+        const [pr, sr] = await Promise.all([
+          db.execute(sql.raw(`SELECT * FROM leads WHERE id = ${pid}`)),
+          db.execute(sql.raw(`SELECT * FROM leads WHERE id = ${sid}`)),
+        ]);
+        primary = r(pr)[0]; secondary = r(sr)[0];
+      }
+
+      if (!primary) return res.status(404).json({ message: `Primary ${type} #${pid} not found` });
+      if (!secondary) return res.status(404).json({ message: `Secondary ${type} #${sid} not found` });
+
+      // Check if either record is already merged/archived
+      const warnings: string[] = [];
+      if (type === "account") {
+        if (primary.lead_status === "archived") warnings.push("Primary account is archived — verify this is the correct target.");
+        if (secondary.lead_status === "archived") warnings.push("Secondary account is already archived.");
+      }
+      if (type === "lead") {
+        if (primary.status === "closed_lost") warnings.push("Primary lead is closed/lost.");
+        if (secondary.status === "closed_lost") warnings.push("Secondary lead is already closed/lost.");
+      }
+      // Check for prior merge involving these IDs
+      const priorMerge = await db.execute(sql.raw(
+        `SELECT id FROM merge_audit_log WHERE entity_type = '${type}' AND (
+          (primary_id = ${pid} AND secondary_id = ${sid}) OR
+          (primary_id = ${sid} AND secondary_id = ${pid})
+        ) LIMIT 1`
+      ));
+      if (r(priorMerge).length > 0) warnings.push("A merge has already been performed between these two records.");
+
+      // Linked counts for both records
+      const [primaryCounts, secondaryCounts] = await Promise.all([
+        getMergeLinkedCounts(type, pid),
+        getMergeLinkedCounts(type, sid),
+      ]);
+
+      // Build field comparison
+      let fieldKeys: string[] = [];
+      if (type === "account") {
+        fieldKeys = ["name","legal_name","website","address","city","state_province","postal_zip","country","region","slip_count","segment","lead_source","lead_status","priority","notes","notes_summary","next_action","tags","assigned_to_user_id","acquisition_channel","original_source"];
+      } else if (type === "contact") {
+        fieldKeys = ["name","first_name","last_name","title","email","phone","persona","role_type","preferred_contact_method","linkedin_url","relationship_strength","is_primary","notes","account_id"];
+      } else {
+        fieldKeys = ["company","contact_name","contact_email","contact_phone","source","status","owner_user_id","notes","city","state","country","deal_amount","acquisition_channel","original_source"];
+      }
+      const fields = fieldKeys.map(k => ({
+        key: k,
+        label: k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+        primaryValue: primary[k] ?? null,
+        secondaryValue: secondary[k] ?? null,
+        recommended: (primary[k] != null && primary[k] !== "") ? "primary" : (secondary[k] != null && secondary[k] !== "") ? "secondary" : "primary",
+        differs: String(primary[k] ?? "") !== String(secondary[k] ?? ""),
+      }));
+
+      const totalSecondaryLinks = Object.values(secondaryCounts).reduce((a: number, b) => a + (b as number), 0);
+      if (totalSecondaryLinks > 0) {
+        warnings.push(`${totalSecondaryLinks} linked record(s) on secondary will be relinked to primary.`);
+      }
+
+      res.json({ primary, secondary, fields, primaryCounts, secondaryCounts, warnings, suggestedPrimaryId: pid });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── POST /api/merge/apply ────────────────────────────────────────────────────
+  app.post("/api/merge/apply", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { isAdmin } = await getSessionUserAccess(req.session);
+      if (!isAdmin) return res.status(403).json({ message: "Only admins can perform merges." });
+
+      const { entityType, primaryId, secondaryId, fieldResolutions, archiveSecondary = true } = req.body;
+      if (!["account", "contact", "lead"].includes(entityType))
+        return res.status(400).json({ message: "entityType must be account, contact, or lead" });
+      const pid = parseInt(String(primaryId));
+      const sid = parseInt(String(secondaryId));
+      if (isNaN(pid) || isNaN(sid)) return res.status(400).json({ message: "Invalid IDs" });
+      if (pid === sid) return res.status(400).json({ message: "Cannot merge a record with itself" });
+
+      const r = (t: any) => (t as any).rows ?? [];
+
+      // Verify both records exist
+      let primary: any, secondary: any;
+      if (entityType === "account") {
+        const [pr, sr] = await Promise.all([
+          db.execute(sql.raw(`SELECT * FROM accounts WHERE id = ${pid}`)),
+          db.execute(sql.raw(`SELECT * FROM accounts WHERE id = ${sid}`)),
+        ]);
+        primary = r(pr)[0]; secondary = r(sr)[0];
+      } else if (entityType === "contact") {
+        const [pr, sr] = await Promise.all([
+          db.execute(sql.raw(`SELECT * FROM contacts WHERE id = ${pid}`)),
+          db.execute(sql.raw(`SELECT * FROM contacts WHERE id = ${sid}`)),
+        ]);
+        primary = r(pr)[0]; secondary = r(sr)[0];
+      } else {
+        const [pr, sr] = await Promise.all([
+          db.execute(sql.raw(`SELECT * FROM leads WHERE id = ${pid}`)),
+          db.execute(sql.raw(`SELECT * FROM leads WHERE id = ${sid}`)),
+        ]);
+        primary = r(pr)[0]; secondary = r(sr)[0];
+      }
+
+      if (!primary) return res.status(404).json({ message: `Primary ${entityType} #${pid} not found` });
+      if (!secondary) return res.status(404).json({ message: `Secondary ${entityType} #${sid} not found` });
+
+      // Snapshot counts before merge
+      const [primaryCounts, secondaryCounts] = await Promise.all([
+        getMergeLinkedCounts(entityType, pid),
+        getMergeLinkedCounts(entityType, sid),
+      ]);
+
+      // ── Apply field resolutions to primary ────────────────────────────────────
+      const resolutions: Record<string, any> = fieldResolutions ?? {};
+      const fieldUpdates: string[] = [];
+      for (const [field, resolution] of Object.entries(resolutions)) {
+        const rec = resolution as { chosen: string; finalValue: any };
+        const safeField = field.replace(/[^a-z0-9_]/gi, "");
+        let val: any = rec.finalValue;
+        if (val === null || val === undefined) {
+          fieldUpdates.push(`${safeField} = NULL`);
+        } else if (typeof val === "string") {
+          fieldUpdates.push(`${safeField} = '${val.replace(/'/g, "''")}'`);
+        } else if (typeof val === "boolean") {
+          fieldUpdates.push(`${safeField} = ${val}`);
+        } else {
+          fieldUpdates.push(`${safeField} = ${val}`);
+        }
+      }
+
+      const warnings: string[] = [];
+
+      // ── Re-link secondary's linked objects to primary ─────────────────────────
+      if (entityType === "account") {
+        await Promise.all([
+          db.execute(sql.raw(`UPDATE contacts SET account_id = ${pid}, updated_at = NOW() WHERE account_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE opportunities SET account_id = ${pid}, updated_at = NOW() WHERE account_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE quotes SET account_id = ${pid}, updated_at = NOW() WHERE account_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE tasks SET account_id = ${pid}, updated_at = NOW() WHERE account_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE notes SET linked_object_id = ${pid}, updated_at = NOW() WHERE linked_object_type = 'account' AND linked_object_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE activities SET linked_object_id = ${pid} WHERE linked_object_type = 'account' AND linked_object_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE email_associations SET object_id = ${pid}, updated_at = NOW() WHERE object_type = 'account' AND object_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE install_workflows SET account_id = ${pid}, updated_at = NOW() WHERE account_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE deployments SET account_id = ${pid}, updated_at = NOW() WHERE account_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE leads SET converted_account_id = ${pid} WHERE converted_account_id = ${sid}`)),
+        ]);
+
+        // Apply field resolutions
+        if (fieldUpdates.length > 0) {
+          await db.execute(sql.raw(`UPDATE accounts SET ${fieldUpdates.join(", ")}, updated_at = NOW() WHERE id = ${pid}`));
+        } else {
+          await db.execute(sql.raw(`UPDATE accounts SET updated_at = NOW() WHERE id = ${pid}`));
+        }
+
+        // Archive secondary
+        if (archiveSecondary) {
+          await db.execute(sql.raw(`UPDATE accounts SET lead_status = 'archived', updated_at = NOW() WHERE id = ${sid}`));
+        }
+
+        // Timeline activity on primary
+        const mergeNote = `Merged duplicate account #${sid} (${secondary.name ?? ""}) into this record. ${Object.keys(secondaryCounts).map(k => `${(secondaryCounts as any)[k]} ${k}`).filter(s => !s.startsWith("0 ")).join(", ")} relinked.`;
+        await db.execute(sql.raw(`INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at) VALUES ('account', ${pid}, 'merge', 'Account merge', '${mergeNote.replace(/'/g, "''")}', ${userId}, NOW())`));
+
+      } else if (entityType === "contact") {
+        // For opportunity_contacts: if primary contact already linked to same opp, delete secondary's link; else update
+        const ocRows = await db.execute(sql.raw(`SELECT oc.opportunity_id FROM opportunity_contacts oc WHERE oc.contact_id = ${sid}`));
+        for (const ocRow of (r(ocRows) as any[])) {
+          const oppId = ocRow.opportunity_id;
+          const exists = await db.execute(sql.raw(`SELECT id FROM opportunity_contacts WHERE contact_id = ${pid} AND opportunity_id = ${oppId}`));
+          if (r(exists).length > 0) {
+            await db.execute(sql.raw(`DELETE FROM opportunity_contacts WHERE contact_id = ${sid} AND opportunity_id = ${oppId}`));
+          } else {
+            await db.execute(sql.raw(`UPDATE opportunity_contacts SET contact_id = ${pid} WHERE contact_id = ${sid} AND opportunity_id = ${oppId}`));
+          }
+        }
+
+        await Promise.all([
+          db.execute(sql.raw(`UPDATE opportunities SET contact_id = ${pid}, updated_at = NOW() WHERE contact_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE quotes SET contact_id = ${pid}, updated_at = NOW() WHERE contact_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE tasks SET linked_object_id = ${pid}, updated_at = NOW() WHERE linked_object_type = 'contact' AND linked_object_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE notes SET linked_object_id = ${pid}, updated_at = NOW() WHERE linked_object_type = 'contact' AND linked_object_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE activities SET linked_object_id = ${pid} WHERE linked_object_type = 'contact' AND linked_object_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE activities SET contact_id = ${pid} WHERE contact_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE email_associations SET object_id = ${pid}, updated_at = NOW() WHERE object_type = 'contact' AND object_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE leads SET converted_contact_id = ${pid} WHERE converted_contact_id = ${sid}`)),
+        ]);
+
+        // Apply field resolutions
+        if (fieldUpdates.length > 0) {
+          await db.execute(sql.raw(`UPDATE contacts SET ${fieldUpdates.join(", ")}, updated_at = NOW() WHERE id = ${pid}`));
+        } else {
+          await db.execute(sql.raw(`UPDATE contacts SET updated_at = NOW() WHERE id = ${pid}`));
+        }
+
+        // Archive secondary contact (prefix notes, mark with merged-into marker in name for traceability)
+        if (archiveSecondary) {
+          const mergedNote = `[MERGED INTO #${pid}] `;
+          const existingNotes = secondary.notes ?? "";
+          const safeNote = (mergedNote + existingNotes).replace(/'/g, "''").slice(0, 2000);
+          await db.execute(sql.raw(`UPDATE contacts SET notes = '${safeNote}', name = CONCAT('[archived] ', COALESCE(name,'')), updated_at = NOW() WHERE id = ${sid}`));
+        }
+
+        // Timeline activity on primary
+        const mergeNoteC = `Merged duplicate contact #${sid} (${secondary.name ?? ""}) into this record.`;
+        await db.execute(sql.raw(`INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, contact_id, created_by, created_at) VALUES ('contact', ${pid}, 'merge', 'Contact merge', '${mergeNoteC.replace(/'/g, "''")}', ${pid}, ${userId}, NOW())`));
+
+      } else {
+        // Lead merge
+        await Promise.all([
+          db.execute(sql.raw(`UPDATE tasks SET linked_object_id = ${pid}, updated_at = NOW() WHERE linked_object_type = 'lead' AND linked_object_id = ${sid}`)),
+          db.execute(sql.raw(`UPDATE notes SET linked_object_id = ${pid}, updated_at = NOW() WHERE linked_object_type = 'lead' AND linked_object_id = ${sid}`)),
+        ]);
+
+        if (fieldUpdates.length > 0) {
+          await db.execute(sql.raw(`UPDATE leads SET ${fieldUpdates.join(", ")}, updated_at = NOW() WHERE id = ${pid}`));
+        } else {
+          await db.execute(sql.raw(`UPDATE leads SET updated_at = NOW() WHERE id = ${pid}`));
+        }
+
+        if (archiveSecondary) {
+          await db.execute(sql.raw(`UPDATE leads SET status = 'closed_lost', updated_at = NOW() WHERE id = ${sid}`));
+        }
+      }
+
+      // ── Create merge audit record ─────────────────────────────────────────────
+      const fieldResJson = JSON.stringify(resolutions ?? {}).replace(/'/g, "''");
+      const countsJson = JSON.stringify(secondaryCounts).replace(/'/g, "''");
+      const warnJson = JSON.stringify(warnings).replace(/'/g, "''");
+      const primarySnap = JSON.stringify(primary).replace(/'/g, "''");
+      const secondarySnap = JSON.stringify(secondary).replace(/'/g, "''");
+      const auditRow = await db.execute(sql.raw(
+        `INSERT INTO merge_audit_log
+          (entity_type, primary_id, secondary_id, merged_by_user_id, field_resolutions, linked_object_counts, warnings, primary_snapshot_json, secondary_snapshot_json, archived_secondary)
+         VALUES
+          ('${entityType}', ${pid}, ${sid}, ${userId}, '${fieldResJson}'::jsonb, '${countsJson}'::jsonb, '${warnJson}'::jsonb, '${primarySnap}'::jsonb, '${secondarySnap}'::jsonb, ${archiveSecondary})
+         RETURNING *`
+      ));
+      const auditRecord = r(auditRow)[0];
+
+      res.json({
+        ok: true,
+        auditId: auditRecord?.id,
+        primaryId: pid,
+        secondaryId: sid,
+        entityType,
+        linkedObjectsMoved: secondaryCounts,
+        warnings,
+      });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
   // ── Engagement scheduler + default rules ────────────────────────────────────
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
   startEngagementScheduler();

@@ -11,10 +11,13 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   AlertTriangle, CheckCircle2, Users, Building2, TrendingUp, FileText,
   UserX, Calendar, DollarSign, Link2Off, Archive, RefreshCw, Shield,
-  Eye, EyeOff, Zap, ChevronRight, X, UserPlus, Hash,
+  Eye, EyeOff, Zap, ChevronRight, X, UserPlus, Hash, GitMerge,
+  ArrowLeftRight, ChevronDown, ChevronUp, Loader2, History,
 } from "lucide-react";
 
 interface HealthScore { score: number; issues: number; }
@@ -210,6 +213,274 @@ function ActionRow({
   );
 }
 
+// ── Merge Review Panel ─────────────────────────────────────────────────────────
+function MergeReviewPanel({
+  entityType, primaryId, secondaryId, onClose, onMerged,
+}: {
+  entityType: string; primaryId: number; secondaryId: number;
+  onClose: () => void; onMerged: () => void;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [swapped, setSwapped] = useState(false);
+  const [fieldResolutions, setFieldResolutions] = useState<Record<string, { chosen: string; finalValue: any }>>({});
+  const [step, setStep] = useState<"review" | "confirm">("review");
+
+  const pid = swapped ? secondaryId : primaryId;
+  const sid = swapped ? primaryId : secondaryId;
+
+  const preview = useQuery<any>({
+    queryKey: ["/api/merge/preview", entityType, pid, sid],
+    queryFn: () => fetch(`/api/merge/preview/${entityType}/${pid}/${sid}`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!pid && !!sid,
+  });
+
+  const apply = useMutation({
+    mutationFn: (body: any) => apiRequest("POST", "/api/merge/apply", body),
+    onSuccess: (data: any) => {
+      toast({ title: "Merge complete", description: `Audit record #${data.auditId} created. Secondary archived.` });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/issues", "duplicates"] });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/summary"] });
+      qc.invalidateQueries({ queryKey: ["/api/merge/audit"] });
+      onMerged();
+    },
+    onError: (err: any) => toast({ title: "Merge failed", description: err.message, variant: "destructive" }),
+  });
+
+  const d = preview.data;
+
+  // Build field resolutions from defaults whenever preview loads or swap changes
+  const getResolution = (key: string) => {
+    if (fieldResolutions[key]) return fieldResolutions[key];
+    const f = d?.fields?.find((f: any) => f.key === key);
+    if (!f) return { chosen: "primary", finalValue: null };
+    return { chosen: f.recommended, finalValue: f.recommended === "primary" ? f.primaryValue : f.secondaryValue };
+  };
+
+  const handleFieldChoice = (key: string, chosen: string, value: any) => {
+    setFieldResolutions(prev => ({ ...prev, [key]: { chosen, finalValue: value } }));
+  };
+
+  const handleApply = () => {
+    // Build final resolutions from current UI state
+    const resolutions: Record<string, { chosen: string; finalValue: any }> = {};
+    if (d?.fields) {
+      for (const f of d.fields) {
+        const res = getResolution(f.key);
+        resolutions[f.key] = res;
+      }
+    }
+    apply.mutate({ entityType, primaryId: pid, secondaryId: sid, fieldResolutions: resolutions, archiveSecondary: true });
+  };
+
+  const fmtVal = (v: any) => {
+    if (v === null || v === undefined || v === "") return <span className="text-muted-foreground/40 italic">—</span>;
+    if (typeof v === "boolean") return v ? "Yes" : "No";
+    return String(v);
+  };
+
+  const linkedLabel: Record<string, string> = {
+    contacts: "Contacts", opportunities: "Opportunities", quotes: "Quotes", tasks: "Tasks",
+    notes: "Notes", emails: "Emails", installWorkflows: "Installs", deployments: "Deployments",
+    opportunityContacts: "Opp Contacts", activities: "Activities", convertedLeads: "Converted Leads",
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-background border border-border rounded-xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/50">
+          <div className="flex items-center gap-2.5">
+            <GitMerge className="h-4 w-4 text-primary" />
+            <span className="font-semibold text-sm capitalize">Merge {entityType} Records</span>
+            {step === "confirm" && <Badge variant="outline" className="text-xs text-amber-400 border-amber-400/40">Confirm</Badge>}
+          </div>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} data-testid="btn-merge-panel-close"><X className="h-4 w-4" /></Button>
+        </div>
+
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="p-5 space-y-5">
+            {preview.isLoading && (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            {!preview.isLoading && d && (
+              <>
+                {/* Warnings */}
+                {d.warnings?.length > 0 && (
+                  <Alert className="border-amber-500/30 bg-amber-500/5">
+                    <AlertTriangle className="h-4 w-4 text-amber-400" />
+                    <AlertDescription className="text-xs space-y-0.5">
+                      {d.warnings.map((w: string, i: number) => <div key={i}>{w}</div>)}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Primary / Secondary selection */}
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { label: "Primary (kept)", rec: d.primary, counts: d.primaryCounts, isPrimary: true },
+                    { label: "Secondary (archived after merge)", rec: d.secondary, counts: d.secondaryCounts, isPrimary: false },
+                  ].map(({ label, rec, counts, isPrimary }) => (
+                    <div key={label} className={`rounded-lg border p-3 space-y-1.5 ${isPrimary ? "border-emerald-500/40 bg-emerald-500/5" : "border-border/50"}`}>
+                      <div className={`text-[10px] font-bold uppercase tracking-wide ${isPrimary ? "text-emerald-400" : "text-muted-foreground/60"}`}>{label}</div>
+                      <div className="font-medium text-sm">{rec?.name ?? rec?.company ?? rec?.contact_name ?? `#${isPrimary ? pid : sid}`}</div>
+                      <div className="text-xs text-muted-foreground">ID #{isPrimary ? pid : sid}</div>
+                      {rec?.email && <div className="text-xs text-muted-foreground truncate">{rec.email}</div>}
+                      {rec?.contact_email && <div className="text-xs text-muted-foreground truncate">{rec.contact_email}</div>}
+                      {rec?.created_at && <div className="text-xs text-muted-foreground">Created {new Date(rec.created_at).toLocaleDateString()}</div>}
+                      <div className="pt-1 flex flex-wrap gap-1">
+                        {Object.entries(counts ?? {}).filter(([, v]) => (v as number) > 0).map(([k, v]) => (
+                          <span key={k} className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">{v} {linkedLabel[k] ?? k}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Swap button */}
+                <div className="flex justify-center">
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => { setSwapped(s => !s); setFieldResolutions({}); }}
+                    data-testid="btn-swap-primary-secondary">
+                    <ArrowLeftRight className="h-3.5 w-3.5" /> Swap Primary / Secondary
+                  </Button>
+                </div>
+
+                <Separator />
+
+                {/* Field resolution */}
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2.5">Field Resolution</div>
+                  <div className="space-y-1.5">
+                    {(d.fields ?? []).filter((f: any) => f.differs || (f.primaryValue != null && f.primaryValue !== "")).map((f: any) => {
+                      const res = getResolution(f.key);
+                      const chosenVal = res.chosen === "primary" ? f.primaryValue : f.secondaryValue;
+                      return (
+                        <div key={f.key} className={`grid grid-cols-[1fr_auto_1fr_auto] gap-2 items-center rounded-md px-2.5 py-2 text-xs ${f.differs ? "bg-muted/40" : "bg-transparent"}`}>
+                          <div>
+                            <div className="text-[10px] text-muted-foreground/60 uppercase mb-0.5">{f.label}</div>
+                            <button
+                              onClick={() => handleFieldChoice(f.key, "primary", f.primaryValue)}
+                              className={`text-left rounded px-1.5 py-0.5 w-full transition-colors ${res.chosen === "primary" ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30" : "text-foreground/70 hover:bg-muted"}`}
+                              data-testid={`field-choose-primary-${f.key}`}
+                            >
+                              {fmtVal(f.primaryValue)}
+                            </button>
+                          </div>
+                          <div className="text-[10px] text-muted-foreground/40 px-1">vs</div>
+                          <div>
+                            <div className="text-[10px] text-muted-foreground/60 uppercase mb-0.5 opacity-0">_</div>
+                            <button
+                              onClick={() => handleFieldChoice(f.key, "secondary", f.secondaryValue)}
+                              className={`text-left rounded px-1.5 py-0.5 w-full transition-colors ${res.chosen === "secondary" ? "bg-blue-500/15 text-blue-300 ring-1 ring-blue-500/30" : "text-foreground/70 hover:bg-muted"}`}
+                              data-testid={`field-choose-secondary-${f.key}`}
+                            >
+                              {fmtVal(f.secondaryValue)}
+                            </button>
+                          </div>
+                          <div className={`text-[10px] w-16 text-right ${res.chosen === "primary" ? "text-emerald-400" : "text-blue-400"}`}>
+                            {res.chosen === "primary" ? "← primary" : "secondary →"}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {step === "confirm" && (
+                  <>
+                    <Separator />
+                    <Alert className="border-red-500/30 bg-red-500/5">
+                      <AlertTriangle className="h-4 w-4 text-red-400" />
+                      <AlertDescription className="text-xs">
+                        <strong>This action is permanent.</strong> Record #{sid} will be archived and all its linked data relinked to #{pid}. An audit log entry will be created. Confirm to proceed.
+                      </AlertDescription>
+                    </Alert>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </ScrollArea>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-t border-border/50 gap-3">
+          <Button variant="ghost" size="sm" onClick={onClose} data-testid="btn-merge-cancel">Cancel</Button>
+          <div className="flex items-center gap-2">
+            {step === "review" ? (
+              <Button size="sm" className="gap-1.5" onClick={() => setStep("confirm")}
+                disabled={preview.isLoading || !d} data-testid="btn-merge-proceed">
+                <GitMerge className="h-3.5 w-3.5" /> Review & Confirm
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" size="sm" onClick={() => setStep("review")} data-testid="btn-merge-back">Back</Button>
+                <Button size="sm" variant="destructive" className="gap-1.5" onClick={handleApply}
+                  disabled={apply.isPending} data-testid="btn-merge-apply-confirm">
+                  {apply.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <GitMerge className="h-3.5 w-3.5" />}
+                  Apply Merge
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Merge Audit Log Panel ──────────────────────────────────────────────────────
+function MergeAuditPanel({ onClose }: { onClose: () => void }) {
+  const audit = useQuery<any>({
+    queryKey: ["/api/merge/audit"],
+    queryFn: () => fetch("/api/merge/audit?limit=50", { credentials: "include" }).then(r => r.json()),
+  });
+  const rows: any[] = audit.data?.data ?? [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-background border border-border rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/50">
+          <div className="flex items-center gap-2.5">
+            <History className="h-4 w-4 text-primary" />
+            <span className="font-semibold text-sm">Merge Audit Log</span>
+          </div>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}><X className="h-4 w-4" /></Button>
+        </div>
+        <ScrollArea className="flex-1 min-h-0 p-4">
+          {audit.isLoading && <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}
+          {!audit.isLoading && rows.length === 0 && <div className="text-center py-8 text-muted-foreground text-sm">No merges have been performed yet.</div>}
+          {rows.map((row: any) => (
+            <div key={row.id} className="border border-border/40 rounded-lg p-3.5 mb-2.5 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs capitalize">{row.entity_type}</Badge>
+                  <span className="text-xs font-medium">#{row.primary_id} ← #{row.secondary_id}</span>
+                </div>
+                <span className="text-[11px] text-muted-foreground">{new Date(row.merged_at).toLocaleString()}</span>
+              </div>
+              <div className="text-xs text-muted-foreground">By {row.merged_by_name ?? `User #${row.merged_by_user_id}`}</div>
+              {row.linked_object_counts && (
+                <div className="flex flex-wrap gap-1 pt-0.5">
+                  {Object.entries(row.linked_object_counts as Record<string, number>)
+                    .filter(([, v]) => v > 0)
+                    .map(([k, v]) => (
+                      <span key={k} className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">{v} {k}</span>
+                    ))}
+                </div>
+              )}
+              {row.warnings && Array.isArray(row.warnings) && row.warnings.length > 0 && (
+                <div className="text-[11px] text-amber-400">{row.warnings.join(" · ")}</div>
+              )}
+            </div>
+          ))}
+        </ScrollArea>
+      </div>
+    </div>
+  );
+}
+
 // ── Duplicates Tab ─────────────────────────────────────────────────────────────
 function DuplicatesTab() {
   const { data, isLoading } = useQuery<any>({
@@ -218,6 +489,8 @@ function DuplicatesTab() {
   });
   const qc = useQueryClient();
   const { toast } = useToast();
+  const [mergeTarget, setMergeTarget] = useState<{ type: string; primaryId: number; secondaryId: number } | null>(null);
+  const [showAudit, setShowAudit] = useState(false);
 
   const archive = useMutation({
     mutationFn: ({ objectType, objectId }: { objectType: string; objectId: number }) =>
@@ -233,56 +506,93 @@ function DuplicatesTab() {
   if (!data) return null;
 
   const total = (data.accounts?.length ?? 0) + (data.contacts?.length ?? 0) + (data.leads?.length ?? 0);
-  if (total === 0) return (
-    <div className="text-center py-12 text-muted-foreground">
-      <CheckCircle2 className="h-10 w-10 mx-auto mb-2 text-emerald-500" />
-      <p>No duplicate clusters detected.</p>
-    </div>
-  );
 
-  const renderCluster = (cluster: any, objectType: string, index: number) => (
-    <Card key={`${objectType}-${cluster.clusterKey}-${index}`} className="border border-border/50" data-testid={`cluster-${objectType}-${index}`}>
-      <CardHeader className="py-3 px-4 border-b border-border/30">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className="text-xs">{objectType}</Badge>
-            <span className="text-sm font-medium truncate max-w-[300px]">{cluster.clusterKey}</span>
-            <IssueBadge severity={cluster.count >= 3 ? "critical" : "warning"} />
-          </div>
-          <span className="text-xs text-muted-foreground">{cluster.count} records</span>
-        </div>
-      </CardHeader>
-      <CardContent className="p-4">
-        <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: `repeat(${Math.min(cluster.count, 3)}, 1fr)` }}>
-          {cluster.records.map((rec: any, i: number) => (
-            <div key={rec.id} className={`rounded-md border p-2.5 text-xs space-y-1 ${i === 0 ? "border-blue-500/40 bg-blue-500/5" : "border-border/50"}`}>
-              {i === 0 && <div className="text-blue-400 font-semibold text-[10px] uppercase tracking-wide">Suggested Primary</div>}
-              <div className="font-medium">{rec.name ?? rec.company ?? rec.contactName}</div>
-              {rec.city && <div className="text-muted-foreground">{rec.city}{rec.state ? `, ${rec.state}` : ""}</div>}
-              {rec.email && <div className="text-muted-foreground truncate">{rec.email}</div>}
-              <div className="text-muted-foreground">ID #{rec.id}</div>
-              {rec.createdAt && <div className="text-muted-foreground">{new Date(rec.createdAt).toLocaleDateString()}</div>}
+  const renderCluster = (cluster: any, objectType: string, index: number) => {
+    const suggestedPrimary = cluster.records[0];
+    const others = cluster.records.slice(1);
+    return (
+      <Card key={`${objectType}-${cluster.clusterKey}-${index}`} className="border border-border/50" data-testid={`cluster-${objectType}-${index}`}>
+        <CardHeader className="py-3 px-4 border-b border-border/30">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs capitalize">{objectType}</Badge>
+              <span className="text-sm font-medium truncate max-w-[300px]">{cluster.clusterKey}</span>
+              <IssueBadge severity={cluster.count >= 3 ? "critical" : "warning"} />
             </div>
-          ))}
-        </div>
-        <ActionRow objectType={`${objectType}_dup`} clusterKey={cluster.clusterKey} issueType="duplicate">
-          {cluster.records.slice(1).map((rec: any) => (
-            <Button key={rec.id} size="sm" variant="outline" className="h-7 text-xs"
-              onClick={() => archive.mutate({ objectType: objectType.replace("_dup","").replace("account","account").replace("contact","contact").replace("lead","lead"), objectId: rec.id })}
-              data-testid={`btn-archive-${objectType}-${rec.id}`}>
-              <Archive className="h-3 w-3 mr-1" /> Archive #{rec.id}
-            </Button>
-          ))}
-        </ActionRow>
-      </CardContent>
-    </Card>
-  );
+            <span className="text-xs text-muted-foreground">{cluster.count} records</span>
+          </div>
+        </CardHeader>
+        <CardContent className="p-4">
+          <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: `repeat(${Math.min(cluster.count, 3)}, 1fr)` }}>
+            {cluster.records.map((rec: any, i: number) => (
+              <div key={rec.id} className={`rounded-md border p-2.5 text-xs space-y-1 ${i === 0 ? "border-emerald-500/40 bg-emerald-500/5" : "border-border/50"}`}>
+                {i === 0 && <div className="text-emerald-400 font-semibold text-[10px] uppercase tracking-wide">Suggested Primary</div>}
+                <div className="font-medium">{rec.name ?? rec.company ?? rec.contactName}</div>
+                {rec.city && <div className="text-muted-foreground">{rec.city}{rec.state ? `, ${rec.state}` : ""}</div>}
+                {rec.email && <div className="text-muted-foreground truncate">{rec.email}</div>}
+                <div className="text-muted-foreground">ID #{rec.id}</div>
+                {rec.createdAt && <div className="text-muted-foreground">{new Date(rec.createdAt).toLocaleDateString()}</div>}
+              </div>
+            ))}
+          </div>
+          <ActionRow objectType={`${objectType}_dup`} clusterKey={cluster.clusterKey} issueType="duplicate">
+            {others.map((rec: any) => (
+              <Button
+                key={rec.id} size="sm" variant="default"
+                className="h-7 text-xs bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 gap-1"
+                onClick={() => setMergeTarget({ type: objectType, primaryId: suggestedPrimary.id, secondaryId: rec.id })}
+                data-testid={`btn-merge-${objectType}-${rec.id}`}
+              >
+                <GitMerge className="h-3 w-3" /> Merge #{rec.id} → #{suggestedPrimary.id}
+              </Button>
+            ))}
+            {others.map((rec: any) => (
+              <Button key={`arc-${rec.id}`} size="sm" variant="outline" className="h-7 text-xs"
+                onClick={() => archive.mutate({ objectType, objectId: rec.id })}
+                data-testid={`btn-archive-${objectType}-${rec.id}`}>
+                <Archive className="h-3 w-3 mr-1" /> Archive #{rec.id}
+              </Button>
+            ))}
+          </ActionRow>
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <div className="space-y-3">
+      {/* Header row with audit log link */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">{total} cluster{total !== 1 ? "s" : ""} found</span>
+        <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5" onClick={() => setShowAudit(true)} data-testid="btn-merge-audit-log">
+          <History className="h-3.5 w-3.5" /> Merge History
+        </Button>
+      </div>
+
+      {total === 0 && (
+        <div className="text-center py-12 text-muted-foreground">
+          <CheckCircle2 className="h-10 w-10 mx-auto mb-2 text-emerald-500" />
+          <p>No duplicate clusters detected.</p>
+        </div>
+      )}
+
       {data.accounts.map((c: any, i: number) => renderCluster(c, "account", i))}
       {data.contacts.map((c: any, i: number) => renderCluster(c, "contact", i))}
-      {data.leads.map((c: any,    i: number) => renderCluster(c, "lead", i))}
+      {data.leads.map((c: any, i: number) => renderCluster(c, "lead", i))}
+
+      {/* Merge review panel */}
+      {mergeTarget && (
+        <MergeReviewPanel
+          entityType={mergeTarget.type}
+          primaryId={mergeTarget.primaryId}
+          secondaryId={mergeTarget.secondaryId}
+          onClose={() => setMergeTarget(null)}
+          onMerged={() => setMergeTarget(null)}
+        />
+      )}
+
+      {/* Audit log panel */}
+      {showAudit && <MergeAuditPanel onClose={() => setShowAudit(false)} />}
     </div>
   );
 }

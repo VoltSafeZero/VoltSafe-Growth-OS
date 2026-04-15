@@ -1623,6 +1623,26 @@ export type InsertProductionBatch = z.infer<typeof insertProductionBatchSchema>;
 export type InventoryAllocation = typeof inventoryAllocations.$inferSelect;
 export type InsertInventoryAllocation = z.infer<typeof insertInventoryAllocationSchema>;
 
+// ── Merge Audit Log ──────────────────────────────────────────────────────────
+export const mergeAuditLog = pgTable("merge_audit_log", {
+  id: serial("id").primaryKey(),
+  entityType: text("entity_type").notNull(),       // 'account' | 'contact' | 'lead'
+  primaryId: integer("primary_id").notNull(),
+  secondaryId: integer("secondary_id").notNull(),
+  mergedByUserId: integer("merged_by_user_id").notNull(),
+  mergedAt: timestamp("merged_at").defaultNow().notNull(),
+  fieldResolutions: jsonb("field_resolutions"),    // { fieldName: { chosen, finalValue } }
+  linkedObjectCounts: jsonb("linked_object_counts"), // { contacts, opps, tasks, notes, emails, ... }
+  warnings: jsonb("warnings"),                     // string[]
+  primarySnapshotJson: jsonb("primary_snapshot_json"),
+  secondarySnapshotJson: jsonb("secondary_snapshot_json"),
+  archivedSecondary: boolean("archived_secondary").default(true),
+});
+
+export const insertMergeAuditLogSchema = createInsertSchema(mergeAuditLog).omit({ id: true, mergedAt: true });
+export type MergeAuditLog = typeof mergeAuditLog.$inferSelect;
+export type InsertMergeAuditLog = z.infer<typeof insertMergeAuditLogSchema>;
+
 // Deployment types
 export const insertDeploymentSchema = createInsertSchema(deployments).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertDeploymentHardwareAllocationSchema = createInsertSchema(deploymentHardwareAllocations).omit({ id: true, createdAt: true, updatedAt: true });
