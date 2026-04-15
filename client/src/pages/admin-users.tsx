@@ -76,7 +76,7 @@ const STATUS_CONFIG = {
 };
 
 const SECTION_DEFS = [
-  { key: "crm", label: "CRM", description: "Organizations, Contacts, Opportunities, Quotes", icon: Building2 },
+  { key: "crm", label: "Growth OS", description: "Organizations, Contacts, Opportunities, Pipeline", icon: Building2 },
   { key: "partnerships", label: "Industry Partnerships", description: "All partnership types", icon: Users2 },
   { key: "projects", label: "Projects", description: "Project management", icon: Layers },
   { key: "communications", label: "Communications", description: "Campaigns & comm lists", icon: Megaphone },

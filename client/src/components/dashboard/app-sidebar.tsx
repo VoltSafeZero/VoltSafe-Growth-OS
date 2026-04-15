@@ -1,14 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
-  Home, Users, TrendingUp, Activity, BookOpen, LifeBuoy, Settings2,
-  Building2, Contact, UserPlus, FileText, Mail, CalendarClock, Megaphone,
-  FolderOpen, Tags, Zap, Settings, ChevronRight, Users2, ClipboardList,
-  Layers, ShieldCheck, Circle, Truck, Factory, FlaskConical, Landmark,
-  Newspaper, BarChart3, Sun, GitBranch,
+  Home, Users, LifeBuoy, Settings2, Building2, Contact, FileText, Mail,
+  CalendarClock, FolderOpen, Tags, Zap, Settings, ChevronRight, Users2,
+  ClipboardList, Layers, ShieldCheck, Sun, GitBranch, Search, X,
+  LayoutDashboard, Target, Share2, Brain, SlidersHorizontal, BarChart3,
+  Megaphone, TrendingUp, Landmark, Truck, Factory, FlaskConical, Newspaper,
+  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, Sparkles,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import navLogo from "@assets/nav-logo.png";
 import { Sidebar, SidebarContent, SidebarHeader } from "@/components/ui/sidebar";
+import { Input } from "@/components/ui/input";
 import type { UserPermissions } from "@/App";
 
 type AccessLevel = "none" | "view" | "edit";
@@ -19,16 +21,18 @@ type NavItem = {
   icon: React.ElementType;
   adminOnly?: boolean;
   exactMatch?: boolean;
+  badge?: string;
   permKey?: keyof Pick<UserPermissions, "crm" | "partnerships" | "projects" | "communications" | "team_workload" | "knowledge" | "support" | "quoting" | "calendar">;
 };
 
 type NavSection = {
   id: string;
   label: string;
-  icon: React.ElementType;
+  icon?: React.ElementType;
   url?: string;
   items?: NavItem[];
   adminOnly?: boolean;
+  isDivider?: boolean;
   permKey?: keyof Pick<UserPermissions, "crm" | "partnerships" | "projects" | "communications" | "team_workload" | "knowledge" | "support" | "quoting" | "calendar">;
 };
 
@@ -39,63 +43,97 @@ const sections: NavSection[] = [
     icon: Sun,
     url: "/today",
   },
+
+  // ── Growth OS ─────────────────────────────────────────────────────────────
+  { id: "divider-growth", label: "GROWTH OS", isDivider: true },
+
   {
-    id: "home",
-    label: "Home",
-    icon: Home,
-    url: "/",
+    id: "command-center",
+    label: "Command Center",
+    icon: LayoutDashboard,
+    items: [
+      { title: "Dashboard", url: "/", icon: Home, exactMatch: true },
+      { title: "Activity Feed", url: "/activity", icon: BarChart3 },
+      { title: "Reports", url: "/relationships", icon: TrendingUp },
+      { title: "Forecasting", url: "/pipeline", icon: GitBranch },
+    ],
   },
+
   {
-    id: "crm",
-    label: "CRM",
+    id: "relationships",
+    label: "Relationships",
     icon: Users,
     permKey: "crm",
     items: [
-      { title: "Organizations", url: "/accounts", icon: Building2, permKey: "crm" },
       { title: "Contacts", url: "/contacts", icon: Contact, permKey: "crm" },
-      { title: "Opportunities", url: "/opportunities", icon: UserPlus, permKey: "crm" },
-      { title: "Pipeline Health", url: "/pipeline", icon: GitBranch, permKey: "crm" },
+      { title: "Organizations", url: "/accounts", icon: Building2, permKey: "crm" },
+      { title: "Notes", url: "/notes", icon: StickyNote },
+      { title: "Tasks", url: "/execution/team-workload", icon: CheckSquare, permKey: "team_workload" },
+    ],
+  },
+
+  {
+    id: "revenue",
+    label: "Revenue Engine",
+    icon: Target,
+    permKey: "crm",
+    items: [
+      { title: "Opportunities", url: "/opportunities", icon: Sparkles, permKey: "crm" },
+      { title: "Pipeline", url: "/pipeline", icon: GitBranch, permKey: "crm" },
+      { title: "Deals", url: "/opportunities", icon: Target, permKey: "crm" },
+      { title: "Renewals", url: "/renewals", icon: RefreshCcw },
       { title: "Quotes", url: "/quotes", icon: FileText, permKey: "quoting" },
     ],
   },
+
   {
-    id: "strategy",
-    label: "Industry Partnerships",
-    icon: TrendingUp,
+    id: "channels",
+    label: "Growth Channels",
+    icon: Share2,
     permKey: "partnerships",
     items: [
-      { title: "Industry & Associations", url: "/strategy/partnerships/industry-associations", icon: Users2 },
-      { title: "Govt & Public Sector", url: "/strategy/partnerships/government-public", icon: Landmark },
-      { title: "Channel Partners", url: "/strategy/partnerships/channel-commercial", icon: Truck },
-      { title: "Manufacturing", url: "/strategy/partnerships/manufacturing", icon: Factory },
-      { title: "Innovation & Research", url: "/strategy/partnerships/innovation-research", icon: FlaskConical },
+      { title: "Industry Partnerships", url: "/strategy/partnerships/industry-associations", icon: Users2 },
+      { title: "Dealers / Resellers", url: "/strategy/partnerships/channel-commercial", icon: Truck },
+      { title: "Strategic Alliances", url: "/strategy/partnerships/manufacturing", icon: Factory },
+      { title: "Investors", url: "/strategy/partnerships/innovation-research", icon: FlaskConical },
+      { title: "Govt & Grants", url: "/strategy/partnerships/government-public", icon: Landmark },
+      { title: "Referrals", url: "/strategy/partnerships/other", icon: Circle },
       { title: "Media & Tradeshows", url: "/strategy/partnerships/media-tradeshows", icon: Newspaper },
-      { title: "Other", url: "/strategy/partnerships/other", icon: Circle },
     ],
   },
+
   {
-    id: "execution",
-    label: "Execution",
-    icon: Activity,
+    id: "intelligence",
+    label: "Intelligence",
+    icon: Brain,
     items: [
-      { title: "Gmail", url: "/gmail", icon: Mail },
-      { title: "Rel. Intelligence", url: "/relationships", icon: BarChart3 },
+      { title: "Inbox", url: "/gmail", icon: Mail },
       { title: "Calendar", url: "/execution/calendar", icon: CalendarClock, permKey: "calendar" },
+      { title: "Meeting Briefs", url: "/today", icon: Sparkles },
+      { title: "Signals & Alerts", url: "/today", icon: Bell },
+      { title: "Rel. Intelligence", url: "/relationships", icon: BarChart3 },
+    ],
+  },
+
+  {
+    id: "operations",
+    label: "Operations",
+    icon: SlidersHorizontal,
+    items: [
+      { title: "Segments", url: "/segments", icon: Users2 },
+      { title: "Tags", url: "/tags", icon: Tags },
+      { title: "Automations", url: "/automations", icon: Zap },
+      { title: "Imports / Exports", url: "/imports", icon: FolderOpen },
       { title: "Projects", url: "/execution/projects", icon: Layers, permKey: "projects" },
       { title: "Communications", url: "/execution/communications", icon: Megaphone, permKey: "communications" },
-      { title: "Team Workload", url: "/execution/team-workload", icon: Users2, permKey: "team_workload" },
-    ],
-  },
-  {
-    id: "knowledge",
-    label: "Knowledge",
-    icon: BookOpen,
-    permKey: "knowledge",
-    items: [
       { title: "Assets", url: "/knowledge/assets", icon: FolderOpen, permKey: "knowledge" },
       { title: "Price Lists", url: "/price-lists", icon: Tags, permKey: "quoting" },
     ],
   },
+
+  // ── Tools ─────────────────────────────────────────────────────────────────
+  { id: "divider-tools", label: "TOOLS", isDivider: true },
+
   {
     id: "support",
     label: "Support",
@@ -119,10 +157,11 @@ const sections: NavSection[] = [
 ];
 
 function getActiveSectionId(location: string): string {
-  if (location === "/") return "home";
+  if (location === "/") return "command-center";
   for (const section of sections) {
+    if (section.isDivider) continue;
     if (section.url && location === section.url) return section.id;
-    if (section.items?.some((item) => location.startsWith(item.url))) return section.id;
+    if (section.items?.some((item) => item.exactMatch ? location === item.url : location.startsWith(item.url) && item.url !== "/")) return section.id;
   }
   return "";
 }
@@ -145,6 +184,7 @@ export function AppSidebar({
   const perms: UserPermissions = userPermissions ?? DEFAULT_PERMISSIONS;
   const [location, navigate] = useLocation();
   const [openSection, setOpenSection] = useState<string>(() => getActiveSectionId(location));
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     const active = getActiveSectionId(location);
@@ -152,6 +192,7 @@ export function AppSidebar({
   }, [location]);
 
   function canSeeSection(section: NavSection): boolean {
+    if (section.isDivider) return true;
     if (section.adminOnly && !isAdmin) return false;
     if (isAdmin) return true;
     if (!section.permKey) return true;
@@ -165,6 +206,35 @@ export function AppSidebar({
     return (perms[item.permKey] as AccessLevel) !== "none";
   }
 
+  const visibleSections = useMemo(() => {
+    return sections.filter(s => canSeeSection(s)).map(s => ({
+      ...s,
+      items: s.items?.filter(item => canSeeItem(item)),
+    })).filter(s => s.isDivider || !s.items || s.items.length > 0);
+  }, [isAdmin, perms]);
+
+  const filteredSections = useMemo(() => {
+    if (!searchQuery.trim()) return visibleSections;
+    const q = searchQuery.toLowerCase();
+    const results: NavSection[] = [];
+    for (const section of visibleSections) {
+      if (section.isDivider) continue;
+      if (!section.items) {
+        if (section.label.toLowerCase().includes(q)) results.push(section);
+        continue;
+      }
+      const matchingItems = section.items.filter(
+        item => item.title.toLowerCase().includes(q) || section.label.toLowerCase().includes(q)
+      );
+      if (matchingItems.length > 0) {
+        results.push({ ...section, items: matchingItems });
+      }
+    }
+    return results;
+  }, [searchQuery, visibleSections]);
+
+  const isSearching = searchQuery.trim().length > 0;
+
   const handleSectionClick = (section: NavSection) => {
     if (section.url) {
       navigate(section.url);
@@ -172,7 +242,7 @@ export function AppSidebar({
     } else {
       setOpenSection((prev) => (prev === section.id ? "" : section.id));
       if (section.items && section.items.length > 0) {
-        const firstActive = section.items.find((item) => location.startsWith(item.url));
+        const firstActive = section.items.find((item) => location.startsWith(item.url) && item.url !== "/");
         if (!firstActive) {
           const firstVisible = section.items.find(item => canSeeItem(item));
           if (firstVisible) navigate(firstVisible.url);
@@ -180,11 +250,6 @@ export function AppSidebar({
       }
     }
   };
-
-  const visibleSections = sections.filter(s => canSeeSection(s)).map(s => ({
-    ...s,
-    items: s.items?.filter(item => canSeeItem(item)),
-  })).filter(s => !s.items || s.items.length > 0);
 
   return (
     <Sidebar className="border-r border-border/50">
@@ -203,14 +268,47 @@ export function AppSidebar({
         </button>
       </SidebarHeader>
 
-      <SidebarContent className="px-3 py-2 overflow-y-auto">
+      <div className="px-4 pb-2">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="pl-8 pr-7 h-8 text-sm bg-secondary/30 border-transparent focus-visible:border-primary/30 focus-visible:ring-primary/10 rounded-lg"
+            data-testid="input-sidebar-search"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              data-testid="button-clear-search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <SidebarContent className="px-3 py-1 overflow-y-auto">
         <nav className="flex flex-col gap-0.5">
-          {visibleSections.map((section) => {
-            const isSectionOpen = openSection === section.id;
+          {filteredSections.map((section) => {
+            if (section.isDivider) {
+              return (
+                <div key={section.id} className="px-3 pt-4 pb-1 flex items-center gap-2">
+                  <span className="text-[10px] font-bold tracking-widest text-muted-foreground/50 uppercase select-none">
+                    {section.label}
+                  </span>
+                  <div className="flex-1 h-px bg-border/30" />
+                </div>
+              );
+            }
+
+            const isSectionOpen = isSearching || openSection === section.id;
             const isSectionActive = section.url
               ? location === section.url
-              : section.items?.some((item) => location.startsWith(item.url)) ?? false;
-            const SectionIcon = section.icon;
+              : section.items?.some((item) => item.exactMatch ? location === item.url : location.startsWith(item.url) && item.url !== "/") ?? false;
+            const SectionIcon = section.icon!;
 
             return (
               <div key={section.id}>
@@ -239,7 +337,7 @@ export function AppSidebar({
                       const ItemIcon = item.icon;
                       return (
                         <Link
-                          key={item.url}
+                          key={`${section.id}-${item.url}-${item.title}`}
                           href={item.url}
                           data-testid={`nav-${item.title.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
                           className={`flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm transition-all ${
@@ -249,7 +347,12 @@ export function AppSidebar({
                           }`}
                         >
                           <ItemIcon className={`w-3.5 h-3.5 shrink-0 ${isItemActive ? "text-primary" : ""}`} />
-                          <span>{item.title}</span>
+                          <span className="flex-1">{item.title}</span>
+                          {item.badge && (
+                            <span className="text-[10px] font-semibold text-muted-foreground/60 bg-secondary/60 px-1.5 py-0.5 rounded-full">
+                              {item.badge}
+                            </span>
+                          )}
                         </Link>
                       );
                     })}
@@ -258,6 +361,12 @@ export function AppSidebar({
               </div>
             );
           })}
+
+          {isSearching && filteredSections.length === 0 && (
+            <div className="px-3 py-6 text-center">
+              <p className="text-xs text-muted-foreground">No results for "{searchQuery}"</p>
+            </div>
+          )}
         </nav>
       </SidebarContent>
     </Sidebar>

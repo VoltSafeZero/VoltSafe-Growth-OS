@@ -1962,7 +1962,7 @@ function EventDetailDialog({
               Details
             </TabsTrigger>
             <TabsTrigger value="crm" className="text-xs h-6 px-3" data-testid="tab-crm">
-              CRM{crmCount > 0 ? ` (${crmCount})` : ""}
+              Relationships{crmCount > 0 ? ` (${crmCount})` : ""}
             </TabsTrigger>
             <TabsTrigger value="briefing" className="text-xs h-6 px-3" data-testid="tab-briefing">
               <Sparkles className="h-3 w-3 mr-1" />Briefing

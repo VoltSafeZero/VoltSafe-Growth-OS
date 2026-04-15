@@ -427,7 +427,7 @@ export function VoiceAssistant() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold leading-tight">Cortex AI</p>
-                  <p className="text-[10px] text-muted-foreground leading-tight">VoltSafe CRM Assistant</p>
+                  <p className="text-[10px] text-muted-foreground leading-tight">VoltSafe Growth OS Assistant</p>
                 </div>
               </div>
               <div className="flex items-center gap-1">
@@ -526,7 +526,7 @@ export function VoiceAssistant() {
                   </div>
                   <p className="text-base font-semibold mb-1">Cortex AI</p>
                   <p className="text-xs text-muted-foreground text-center max-w-[280px] mb-6">
-                    Your intelligent CRM assistant with full database access and web search. Ask me anything about your marina pipeline, accounts, tasks, or industry news.
+                    Your intelligent Growth OS assistant with full database access and web search. Ask me anything about your marina pipeline, accounts, tasks, or industry news.
                   </p>
                   <div className="grid grid-cols-2 gap-2 w-full max-w-[340px]">
                     {SUGGESTION_CHIPS.map((chip) => (

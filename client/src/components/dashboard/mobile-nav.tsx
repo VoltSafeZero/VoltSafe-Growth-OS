@@ -1,82 +1,83 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
-  Home,
-  Users,
-  TrendingUp,
-  Activity,
-  BookOpen,
-  LifeBuoy,
-  Settings2,
-  Building2,
-  Contact,
-  UserPlus,
-  FileText,
-  Handshake,
-  Mail,
-  CalendarClock,
-  Megaphone,
-  FolderOpen,
-  Tags,
-  Zap,
-  Settings,
-  MoreHorizontal,
-  X,
-  Users2,
-  ClipboardList,
-  Layers,
+  Home, Users, LifeBuoy, Settings2, Building2, Contact, UserPlus, FileText,
+  Mail, CalendarClock, Megaphone, FolderOpen, Tags, Zap, Settings,
+  MoreHorizontal, X, Users2, ClipboardList, Layers, Sun, LayoutDashboard,
+  Target, Share2, Brain, SlidersHorizontal, Truck, Landmark, Factory,
+  FlaskConical, Newspaper, Circle, ShieldCheck,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 const primaryNav = [
-  { title: "Home", url: "/", icon: Home },
-  { title: "CRM", url: "/accounts", icon: Users },
-  { title: "Execution", url: "/gmail", icon: Activity },
+  { title: "Today", url: "/today", icon: Sun },
+  { title: "Growth OS", url: "/accounts", icon: LayoutDashboard },
+  { title: "Intelligence", url: "/gmail", icon: Brain },
   { title: "Support", url: "/support/tickets", icon: LifeBuoy },
+];
+
+const GROWTH_OS_URLS = [
+  "/accounts", "/contacts", "/opportunities", "/quotes", "/pipeline",
+  "/strategy", "/relationships", "/activity", "/reports", "/forecasting",
+  "/notes", "/renewals", "/segments", "/tags", "/automations", "/imports",
 ];
 
 const allNavGroups = [
   {
-    label: "CRM",
+    label: "Command Center",
     items: [
-      { title: "Accounts", url: "/accounts", icon: Building2 },
+      { title: "Dashboard", url: "/", icon: Home },
+      { title: "Forecasting", url: "/pipeline", icon: Target },
+      { title: "Reports", url: "/relationships", icon: SlidersHorizontal },
+    ],
+  },
+  {
+    label: "Relationships",
+    items: [
+      { title: "Organizations", url: "/accounts", icon: Building2 },
       { title: "Contacts", url: "/contacts", icon: Contact },
+      { title: "Tasks", url: "/execution/team-workload", icon: Users2 },
+    ],
+  },
+  {
+    label: "Revenue Engine",
+    items: [
       { title: "Opportunities", url: "/opportunities", icon: UserPlus },
+      { title: "Pipeline", url: "/pipeline", icon: Target },
       { title: "Quotes", url: "/quotes", icon: FileText },
     ],
   },
   {
-    label: "Industry Partnerships",
+    label: "Growth Channels",
     items: [
-      { title: "ALL Partnerships", url: "/strategy/partnerships", icon: Handshake },
+      { title: "Industry Partnerships", url: "/strategy/partnerships/industry-associations", icon: Users2 },
+      { title: "Dealers / Resellers", url: "/strategy/partnerships/channel-commercial", icon: Truck },
+      { title: "Govt & Grants", url: "/strategy/partnerships/government-public", icon: Landmark },
+      { title: "Investors", url: "/strategy/partnerships/innovation-research", icon: FlaskConical },
+      { title: "Strategic Alliances", url: "/strategy/partnerships/manufacturing", icon: Factory },
     ],
   },
   {
-    label: "Execution",
+    label: "Intelligence",
     items: [
-      { title: "Gmail", url: "/gmail", icon: Mail },
+      { title: "Inbox", url: "/gmail", icon: Mail },
       { title: "Calendar", url: "/execution/calendar", icon: CalendarClock },
+      { title: "Rel. Intelligence", url: "/relationships", icon: SlidersHorizontal },
+    ],
+  },
+  {
+    label: "Operations",
+    items: [
       { title: "Projects", url: "/execution/projects", icon: Layers },
       { title: "Communications", url: "/execution/communications", icon: Megaphone },
-      { title: "Team Workload", url: "/execution/team-workload", icon: Users2 },
-    ],
-  },
-  {
-    label: "Knowledge",
-    items: [
       { title: "Assets", url: "/knowledge/assets", icon: FolderOpen },
       { title: "Price Lists", url: "/price-lists", icon: Tags },
     ],
   },
   {
-    label: "Support",
+    label: "Support & Admin",
     items: [
       { title: "Tickets", url: "/support/tickets", icon: ClipboardList },
-    ],
-  },
-  {
-    label: "Admin",
-    items: [
       { title: "Integrations", url: "/admin/integrations", icon: Zap },
       { title: "Settings", url: "/settings", icon: Settings },
     ],
@@ -107,7 +108,10 @@ export function MobileNav() {
       {showMore && (
         <div className="fixed bottom-16 left-0 right-0 z-50 bg-background border-t border-border/50 rounded-t-2xl max-h-[70vh] overflow-y-auto">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
-            <span className="text-sm font-semibold text-foreground">All Sections</span>
+            <div>
+              <span className="text-sm font-semibold text-foreground">Growth OS</span>
+              <p className="text-xs text-muted-foreground mt-0.5">All sections</p>
+            </div>
             <button
               onClick={() => setShowMore(false)}
               className="p-1.5 rounded-full bg-secondary/60 text-muted-foreground"
@@ -127,11 +131,12 @@ export function MobileNav() {
                 <div className="grid grid-cols-2 gap-1 px-3">
                   {group.items.map((item) => {
                     const isActive =
-                      location === item.url ||
-                      (item.url !== "/" && location.startsWith(item.url));
+                      item.url === "/"
+                        ? location === "/"
+                        : location.startsWith(item.url);
                     return (
                       <button
-                        key={item.url}
+                        key={`${group.label}-${item.url}`}
                         onClick={() => handleNavClick(item.url)}
                         className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-sm transition-all ${
                           isActive
@@ -158,11 +163,9 @@ export function MobileNav() {
             const isActive =
               item.url === "/"
                 ? location === "/"
-                : location.startsWith(item.url) ||
-                  (item.title === "CRM" &&
-                    ["/accounts", "/contacts", "/opportunities", "/quotes"].some((u) =>
-                      location.startsWith(u)
-                    ));
+                : item.title === "Growth OS"
+                  ? GROWTH_OS_URLS.some(u => location.startsWith(u))
+                  : location.startsWith(item.url);
             return (
               <Link
                 key={item.url}

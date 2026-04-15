@@ -150,11 +150,26 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/today">{() => wrap(<TodayPage />)}</Route>
       <Route path="/pipeline">{() => guard("crm", <PipelinePage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
 
-      {/* ── CRM ───────────────────────────────────────────────────── */}
+      {/* ── Growth OS: Relationships ───────────────────────────────── */}
       <Route path="/accounts">{() => guard("crm", <AccountsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
       <Route path="/contacts">{() => guard("crm", <ContactsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
       <Route path="/opportunities">{() => guard("crm", <LeadsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
       <Route path="/quotes">{() => guard("quoting", <QuotesPage canEdit={isAdmin(role) || perms.quoting === "edit"} />)}</Route>
+
+      {/* ── Growth OS: Coming Soon stubs ──────────────────────────── */}
+      {(["activity", "notes", "renewals", "segments", "tags", "automations", "imports"] as const).map(slug => (
+        <Route key={slug} path={`/${slug}`}>{() => wrap(
+          <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-6">
+            <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
+              <svg className="w-7 h-7 text-primary" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold capitalize">{slug.replace(/-/g, " / ")}</h2>
+              <p className="text-sm text-muted-foreground mt-1 max-w-xs">This Growth OS module is coming soon. Your data and settings will appear here.</p>
+            </div>
+          </div>
+        )}</Route>
+      ))}
 
       {/* ── STRATEGY ──────────────────────────────────────────────── */}
       <Route path="/strategy/partnerships/:typeSlug">{(params) => guard("partnerships", <PartnershipsPage typeSlug={(params as any)?.typeSlug || ""} canEdit={isAdmin(role) || perms.partnerships === "edit"} />)}</Route>
