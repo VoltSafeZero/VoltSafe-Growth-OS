@@ -3,7 +3,7 @@ import type { Server } from "http";
 import { pick } from "./utils";
 import { storage } from "./storage";
 import { db } from "./db";
-import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments } from "@shared/schema";
+import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications } from "@shared/schema";
 import {
   insertLeadSchema, insertAccountSchema, insertContactSchema,
   insertOpportunitySchema, insertTicketSchema, insertQuoteSchema,
@@ -4156,54 +4156,314 @@ export async function registerRoutes(
     }
   });
 
-  // Smart notifications — high-signal alerts
+  // ── Notification generation helper ──────────────────────────────────────
+  // Deterministic, deduped: runs on every GET /api/notifications call.
+  // Cooldown: a notification with the same dedupe_key won't be recreated
+  // within 24 hours (for daily types) or 7 days (for weekly types).
+  // Old notifications expire after 7 days.
+  async function generateNotifications(userId: number): Promise<void> {
+    const now = new Date();
+    const iso = (d: Date) => d.toISOString();
+    const sevenDaysAgo  = new Date(now.getTime() - 7  * 86400_000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400_000);
+    const twoHoursFrom  = new Date(now.getTime() + 2  * 3600_000);
+    const oneDayAgo     = new Date(now.getTime() - 86400_000);
+    const expiry        = new Date(now.getTime() + 7  * 86400_000);
+    const todayKey      = now.toISOString().slice(0, 10);
+    const weekKey       = `${now.getFullYear()}-W${Math.ceil(now.getDate() / 7)}`;
+
+    // Fetch existing dedupe keys for this user (created in last 24h) to skip duplicates
+    const existingRes = await db.execute(sql.raw(
+      `SELECT dedupe_key FROM notifications WHERE user_id = ${userId} AND dedupe_key IS NOT NULL AND created_at >= '${iso(oneDayAgo)}'`
+    ));
+    const existingKeys = new Set<string>((existingRes as any).rows.map((r: any) => r.dedupe_key));
+
+    // Also fetch weekly dedupe keys (created in last 7 days)
+    const existingWeeklyRes = await db.execute(sql.raw(
+      `SELECT dedupe_key FROM notifications WHERE user_id = ${userId} AND dedupe_key IS NOT NULL AND created_at >= '${iso(sevenDaysAgo)}'`
+    ));
+    const existingWeeklyKeys = new Set<string>((existingWeeklyRes as any).rows.map((r: any) => r.dedupe_key));
+
+    const toInsert: Array<{
+      userId: number; type: string; title: string; body: string;
+      severity: string; linkedObjectType?: string; linkedObjectId?: number;
+      actionUrl: string; dedupeKey: string; expiresAt: Date;
+    }> = [];
+
+    const maybeAdd = (key: string, row: typeof toInsert[0], weekly = false) => {
+      const seen = weekly ? existingWeeklyKeys : existingKeys;
+      if (!seen.has(key)) toInsert.push({ ...row, dedupeKey: key, expiresAt: expiry });
+    };
+
+    // 1. OVERDUE TASKS — per task, daily cooldown
+    const overdueRes = await db.execute(sql.raw(
+      `SELECT id, title FROM tasks WHERE owner_user_id = ${userId} AND status NOT IN ('done','completed') AND due_date < NOW() ORDER BY due_date ASC LIMIT 10`
+    ));
+    for (const t of (overdueRes as any).rows ?? []) {
+      maybeAdd(`overdue-task-${t.id}-${todayKey}`, {
+        userId, type: "overdue_task", severity: "high",
+        title: "Overdue Task", body: `"${t.title}" is past due`,
+        linkedObjectType: "task", linkedObjectId: Number(t.id),
+        actionUrl: "/execution/team-workload",
+      });
+    }
+
+    // 2. TASK REMINDERS — fire when reminder_at has passed, daily cooldown
+    const reminderRes = await db.execute(sql.raw(
+      `SELECT id, title FROM tasks WHERE owner_user_id = ${userId} AND reminder_at IS NOT NULL AND reminder_at <= NOW() AND status NOT IN ('done','completed') LIMIT 10`
+    ));
+    for (const t of (reminderRes as any).rows ?? []) {
+      maybeAdd(`reminder-task-${t.id}-${todayKey}`, {
+        userId, type: "reminder", severity: "high",
+        title: "Reminder", body: `"${t.title}" — your reminder is due`,
+        linkedObjectType: "task", linkedObjectId: Number(t.id),
+        actionUrl: "/execution/team-workload",
+      });
+    }
+
+    // 3. STALE OPPORTUNITIES — no activity in 7+ days, weekly cooldown
+    const staleOppRes = await db.execute(sql.raw(
+      `SELECT id, title, amount FROM opportunities WHERE owner_user_id = ${userId} AND stage NOT IN ('closed_won','closed_lost') AND (last_activity_date IS NULL OR last_activity_date <= '${iso(sevenDaysAgo)}') ORDER BY amount DESC NULLS LAST LIMIT 5`
+    ));
+    const staleOpps: any[] = (staleOppRes as any).rows ?? [];
+    if (staleOpps.length > 0) {
+      const top = staleOpps[0];
+      maybeAdd(`stale-opp-${top.id}-${weekKey}`, {
+        userId, type: "stale_opportunity", severity: "high",
+        title: "Stalled Deal",
+        body: `"${top.title}" has had no activity in 7+ days${staleOpps.length > 1 ? ` (+${staleOpps.length - 1} more)` : ""}`,
+        linkedObjectType: "opportunity", linkedObjectId: Number(top.id),
+        actionUrl: "/pipeline",
+      }, true);
+    }
+
+    // 4. ACCOUNT AT RISK — open deals, no contact in 30+ days, weekly cooldown
+    const atRiskRes = await db.execute(sql.raw(
+      `SELECT DISTINCT a.id, a.name, a.last_interaction_at FROM accounts a
+       JOIN opportunities o ON o.account_id = a.id
+       WHERE o.stage NOT IN ('closed_won','closed_lost')
+         AND o.owner_user_id = ${userId}
+         AND (a.last_interaction_at IS NULL OR a.last_interaction_at <= '${iso(thirtyDaysAgo)}')
+       ORDER BY a.last_interaction_at ASC NULLS FIRST LIMIT 3`
+    ));
+    for (const a of (atRiskRes as any).rows ?? []) {
+      maybeAdd(`account-at-risk-${a.id}-${weekKey}`, {
+        userId, type: "account_at_risk", severity: "high",
+        title: "Account at Risk",
+        body: `${a.name} has open deals but no activity in 30+ days`,
+        linkedObjectType: "account", linkedObjectId: Number(a.id),
+        actionUrl: `/accounts/${a.id}`,
+      }, true);
+    }
+
+    // 5. INBOX FOLLOW-UP NEEDED — inbound email >24h old with no outbound reply, daily cooldown
+    const followupRes = await db.execute(sql.raw(
+      `SELECT m.id, m.subject, m.from_email AS "fromEmail", m.gmail_thread_id AS "threadId"
+       FROM email_messages m
+       WHERE m.owner_user_id = ${userId}
+         AND m.direction = 'inbound'
+         AND m.sent_at <= '${iso(oneDayAgo)}'
+         AND m.sent_at >= '${iso(sevenDaysAgo)}'
+         AND NOT EXISTS (
+           SELECT 1 FROM email_messages r
+           WHERE r.owner_user_id = ${userId}
+             AND r.direction = 'outbound'
+             AND r.gmail_thread_id = m.gmail_thread_id
+             AND r.sent_at > m.sent_at
+         )
+       ORDER BY m.sent_at DESC LIMIT 3`
+    ));
+    for (const e of (followupRes as any).rows ?? []) {
+      maybeAdd(`followup-email-${e.id}-${todayKey}`, {
+        userId, type: "inbox_followup_needed", severity: "medium",
+        title: "Follow-Up Needed",
+        body: `${e.fromEmail}: "${e.subject || "(no subject)"}" — no reply yet`,
+        actionUrl: `/gmail`,
+      });
+    }
+
+    // 6. UPCOMING MEETING — within 2 hours, daily cooldown
+    const meetingRes = await db.execute(sql.raw(
+      `SELECT id, title, start_time AS "startTime" FROM calendar_events WHERE user_id = ${userId} AND start_time >= NOW() AND start_time <= '${iso(twoHoursFrom)}' AND status != 'cancelled' ORDER BY start_time ASC LIMIT 3`
+    ));
+    for (const m of (meetingRes as any).rows ?? []) {
+      const mins = Math.floor((new Date(m.startTime).getTime() - now.getTime()) / 60000);
+      maybeAdd(`meeting-${m.id}-${todayKey}`, {
+        userId, type: "meeting", severity: "high",
+        title: "Upcoming Meeting",
+        body: `"${m.title}" in ${mins} min`,
+        linkedObjectType: "event", linkedObjectId: Number(m.id),
+        actionUrl: "/calendar",
+      });
+    }
+
+    // 7. NEW INBOUND LEADS — weekly cooldown
+    const newLeadRes = await db.execute(sql.raw(
+      `SELECT COUNT(*)::int AS n FROM leads WHERE status = 'inbound_new' AND created_at >= '${iso(sevenDaysAgo)}'`
+    ));
+    const newLeadN = Number((newLeadRes as any).rows?.[0]?.n ?? 0);
+    if (newLeadN > 0) {
+      maybeAdd(`new-leads-${weekKey}`, {
+        userId, type: "lead", severity: "medium",
+        title: "New Leads",
+        body: `${newLeadN} new inbound lead${newLeadN > 1 ? "s" : ""} this week`,
+        actionUrl: "/opportunities",
+      }, true);
+    }
+
+    // Batch insert all new notifications
+    if (toInsert.length > 0) {
+      const vals = toInsert.map(n =>
+        `(${n.userId}, '${n.type.replace(/'/g, "''")}', '${n.title.replace(/'/g, "''")}', '${n.body.replace(/'/g, "''")}', '${n.severity}', ${n.linkedObjectType ? `'${n.linkedObjectType}'` : "NULL"}, ${n.linkedObjectId ?? "NULL"}, '${n.actionUrl.replace(/'/g, "''")}', false, '${n.dedupeKey.replace(/'/g, "''")}', '${n.expiresAt.toISOString()}', NOW())`
+      ).join(",\n");
+      await db.execute(sql.raw(
+        `INSERT INTO notifications (user_id, type, title, body, severity, linked_object_type, linked_object_id, action_url, is_read, dedupe_key, expires_at, created_at) VALUES ${vals}`
+      ));
+    }
+
+    // Clean up expired notifications
+    await db.execute(sql.raw(
+      `DELETE FROM notifications WHERE user_id = ${userId} AND expires_at < NOW()`
+    ));
+  }
+
+  // GET /api/notifications — run generator then return recent notifications
   app.get("/api/notifications", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId as number;
-      const now = new Date();
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const twoHoursFromNow = new Date(now.getTime() + 2 * 60 * 60 * 1000);
-      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      await generateNotifications(userId);
 
-      const alerts: Array<{ id: string; type: string; title: string; body: string; link: string; priority: string; createdAt: string }> = [];
-
-      const upcomingRes = await db.execute(sql.raw(
-        `SELECT id, title, start_time AS "startTime" FROM calendar_events WHERE user_id = ${userId} AND start_time >= NOW() AND start_time <= '${twoHoursFromNow.toISOString()}' AND status != 'cancelled' ORDER BY start_time ASC`
+      const rows = await db.execute(sql.raw(
+        `SELECT id, user_id AS "userId", type, title, body, severity, linked_object_type AS "linkedObjectType", linked_object_id AS "linkedObjectId", action_url AS "actionUrl", is_read AS "isRead", dedupe_key AS "dedupeKey", created_at AS "createdAt"
+         FROM notifications WHERE user_id = ${userId}
+         ORDER BY is_read ASC, severity = 'high' DESC, created_at DESC LIMIT 30`
       ));
-      for (const m of (upcomingRes as any).rows ?? []) {
-        const mins = Math.floor((new Date(m.startTime).getTime() - now.getTime()) / 60000);
-        alerts.push({ id: `meeting-${m.id}`, type: "meeting", title: "Upcoming Meeting", body: `"${m.title}" in ${mins} min`, link: "/execution/calendar", priority: "high", createdAt: now.toISOString() });
+      const notifs: any[] = (rows as any).rows ?? [];
+      const unreadCount = notifs.filter(n => !n.isRead).length;
+
+      res.json({ notifications: notifs, unreadCount });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PATCH /api/notifications/:id/read — mark single notification as read
+  app.patch("/api/notifications/:id/read", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      await db.execute(sql.raw(
+        `UPDATE notifications SET is_read = true WHERE id = ${id} AND user_id = ${userId}`
+      ));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PATCH /api/notifications/read-all — mark all user notifications as read
+  app.patch("/api/notifications/read-all", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      await db.execute(sql.raw(
+        `UPDATE notifications SET is_read = true WHERE user_id = ${userId} AND is_read = false`
+      ));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/tasks/:id/reminder — set or update reminder on a task
+  app.post("/api/tasks/:id/reminder", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const taskId = Number(req.params.id);
+      if (isNaN(taskId)) return res.status(400).json({ message: "Invalid task id" });
+
+      const { preset, reminderAt } = req.body as { preset?: string; reminderAt?: string };
+      let reminderDate: Date;
+
+      if (preset) {
+        const now = new Date();
+        if (preset === "later_today") {
+          reminderDate = new Date(now.getTime() + 3 * 3600_000); // 3 hours from now
+        } else if (preset === "tomorrow_morning") {
+          reminderDate = new Date(now);
+          reminderDate.setDate(reminderDate.getDate() + 1);
+          reminderDate.setHours(9, 0, 0, 0);
+        } else if (preset === "next_week") {
+          reminderDate = new Date(now);
+          reminderDate.setDate(reminderDate.getDate() + 7);
+          reminderDate.setHours(9, 0, 0, 0);
+        } else {
+          return res.status(400).json({ message: "Invalid preset. Use: later_today | tomorrow_morning | next_week" });
+        }
+      } else if (reminderAt) {
+        reminderDate = new Date(reminderAt);
+        if (isNaN(reminderDate.getTime())) return res.status(400).json({ message: "Invalid reminderAt date" });
+      } else {
+        return res.status(400).json({ message: "Provide preset or reminderAt" });
       }
 
-      const overdueRes = await db.execute(sql.raw(
-        `SELECT id, title, due_date AS "dueDate" FROM tasks WHERE owner_user_id = ${userId} AND status = 'pending' AND due_date < NOW() ORDER BY due_date ASC LIMIT 5`
+      // Verify the task belongs to this user
+      const taskCheck = await db.execute(sql.raw(
+        `SELECT id FROM tasks WHERE id = ${taskId} AND owner_user_id = ${userId}`
       ));
-      const overdueRows: any[] = (overdueRes as any).rows ?? [];
-      if (overdueRows.length > 0)
-        alerts.push({ id: "overdue-tasks", type: "task", title: "Overdue Tasks", body: `${overdueRows.length} task${overdueRows.length > 1 ? "s" : ""} past due — "${overdueRows[0].title}"`, link: "/execution/team-workload", priority: "high", createdAt: now.toISOString() });
+      if (!(taskCheck as any).rows?.length) return res.status(404).json({ message: "Task not found" });
 
-      const stalledRes = await db.execute(sql.raw(
-        `SELECT id, title FROM opportunities WHERE owner_user_id = ${userId} AND stage NOT IN ('closed_won','closed_lost') AND (last_activity_date IS NULL OR last_activity_date <= '${sevenDaysAgo.toISOString()}') ORDER BY last_activity_date ASC NULLS FIRST LIMIT 5`
+      await db.execute(sql.raw(
+        `UPDATE tasks SET reminder_at = '${reminderDate.toISOString()}', updated_at = NOW() WHERE id = ${taskId}`
       ));
-      const stalledRows: any[] = (stalledRes as any).rows ?? [];
-      if (stalledRows.length > 0)
-        alerts.push({ id: "stalled-deals", type: "deal", title: "Stalled Deals", body: `${stalledRows.length} deal${stalledRows.length > 1 ? "s" : ""} with no activity in 7+ days`, link: "/pipeline", priority: "high", createdAt: now.toISOString() });
 
-      const newLeadRes = await db.execute(sql.raw(
-        `SELECT COUNT(*)::int AS n FROM leads WHERE status = 'inbound_new' AND created_at >= '${sevenDaysAgo.toISOString()}'`
+      // Clear any existing reminder notification so it re-fires when the time comes
+      await db.execute(sql.raw(
+        `DELETE FROM notifications WHERE user_id = ${userId} AND type = 'reminder' AND linked_object_id = ${taskId}`
       ));
-      const newLeadN = Number((newLeadRes as any).rows?.[0]?.n ?? 0);
-      if (newLeadN > 0)
-        alerts.push({ id: "new-leads", type: "lead", title: "New Leads", body: `${newLeadN} new lead${newLeadN > 1 ? "s" : ""} this week`, link: "/opportunities", priority: "medium", createdAt: now.toISOString() });
 
-      const inboundRes = await db.execute(sql.raw(
-        `SELECT id, subject, from_email AS "fromEmail", sent_at AS "sentAt" FROM email_messages WHERE owner_user_id = ${userId} AND direction = 'inbound' AND sent_at >= '${oneDayAgo.toISOString()}' ORDER BY sent_at DESC LIMIT 3`
+      res.json({ ok: true, reminderAt: reminderDate.toISOString() });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // DELETE /api/tasks/:id/reminder — clear reminder from a task
+  app.delete("/api/tasks/:id/reminder", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const taskId = Number(req.params.id);
+      if (isNaN(taskId)) return res.status(400).json({ message: "Invalid task id" });
+      await db.execute(sql.raw(`UPDATE tasks SET reminder_at = NULL, updated_at = NOW() WHERE id = ${taskId} AND owner_user_id = ${userId}`));
+      await db.execute(sql.raw(`DELETE FROM notifications WHERE user_id = ${userId} AND type = 'reminder' AND linked_object_id = ${taskId}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/notifications/digest — today's high-signal summary
+  app.get("/api/notifications/digest", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      await generateNotifications(userId);
+
+      const rows = await db.execute(sql.raw(
+        `SELECT type, severity, COUNT(*)::int AS count
+         FROM notifications WHERE user_id = ${userId} AND is_read = false
+         GROUP BY type, severity ORDER BY severity = 'high' DESC, count DESC`
       ));
-      for (const email of ((inboundRes as any).rows ?? []).slice(0, 2)) {
-        alerts.push({ id: `email-${email.id}`, type: "email", title: "New Email", body: `${email.fromEmail}: ${email.subject || "(no subject)"}`, link: "/gmail", priority: "medium", createdAt: email.sentAt ?? now.toISOString() });
-      }
+      const summary: any[] = (rows as any).rows ?? [];
+      const totalUnread = summary.reduce((s, r) => s + Number(r.count), 0);
 
-      res.json({ notifications: alerts.sort((a, b) => a.priority === "high" && b.priority !== "high" ? -1 : 1), unreadCount: alerts.length });
+      // Top 3 most urgent unread
+      const topRows = await db.execute(sql.raw(
+        `SELECT id, type, title, body, severity, action_url AS "actionUrl", created_at AS "createdAt"
+         FROM notifications WHERE user_id = ${userId} AND is_read = false
+         ORDER BY severity = 'high' DESC, created_at DESC LIMIT 3`
+      ));
+
+      res.json({ totalUnread, summary, topAlerts: (topRows as any).rows ?? [] });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

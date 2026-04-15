@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, type ElementType } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import {
   Search, Bell, LogOut, X, Plus, CalendarDays, CheckSquare, UserPlus as UserPlusIcon,
   Mail, Flame, AlertTriangle, Building2, Contact, FileText, Ticket, FolderOpen, Layers,
@@ -25,7 +26,16 @@ import {
 import { useLocation } from "wouter";
 
 type NotificationAlert = {
-  id: string; type: string; title: string; body: string; link: string; priority: string;
+  id: number;
+  type: string;
+  title: string;
+  body: string;
+  severity: string;
+  linkedObjectType?: string;
+  linkedObjectId?: number;
+  actionUrl: string;
+  isRead: boolean;
+  createdAt: string;
 };
 type NotificationsResponse = { notifications: NotificationAlert[]; unreadCount: number };
 
@@ -39,8 +49,14 @@ type SearchResultItem = {
 };
 
 const NOTIF_ICON: Record<string, ElementType> = {
-  meeting: CalendarDays, task: CheckSquare, deal: Flame,
-  lead: UserPlusIcon, email: Mail,
+  meeting: CalendarDays,
+  overdue_task: CheckSquare,
+  reminder: Bell,
+  stale_opportunity: Flame,
+  account_at_risk: AlertTriangle,
+  inbox_followup_needed: Mail,
+  lead: UserPlusIcon,
+  email: Mail,
 };
 
 const SEARCH_TYPE_META: Record<string, { label: string; Icon: ElementType; color: string; href: string }> = {
@@ -320,35 +336,86 @@ function GlobalSearch() {
 }
 
 function NotificationPanel({ onNavigate }: { onNavigate: (href: string) => void }) {
+  const queryClient = useQueryClient();
   const { data, isLoading } = useQuery<NotificationsResponse>({
     queryKey: ["/api/notifications"],
     refetchInterval: 60_000,
   });
   const alerts = data?.notifications ?? [];
+  const unreadCount = alerts.filter(a => !a.isRead).length;
+
+  const markReadMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("PATCH", `/api/notifications/${id}/read`);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/notifications"] }),
+  });
+
+  const markAllReadMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("PATCH", `/api/notifications/read-all`);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/notifications"] }),
+  });
+
+  const handleClick = (a: NotificationAlert) => {
+    if (!a.isRead) markReadMutation.mutate(a.id);
+    onNavigate(a.actionUrl);
+  };
+
+  const severityColor = (s: string) =>
+    s === "high" ? "text-primary" : s === "medium" ? "text-amber-400" : "text-muted-foreground";
+  const severityDot = (s: string) =>
+    s === "high" ? "bg-primary" : s === "medium" ? "bg-amber-400" : "bg-muted-foreground/40";
 
   if (isLoading) return <div className="p-4 text-sm text-muted-foreground text-center">Loading…</div>;
-  if (alerts.length === 0) return <div className="p-6 text-sm text-muted-foreground text-center">No new alerts — you're all caught up!</div>;
 
   return (
-    <div className="divide-y divide-border/40">
-      {alerts.map(a => {
-        const Icon = NOTIF_ICON[a.type] ?? AlertTriangle;
-        return (
-          <button key={a.id} onClick={() => onNavigate(a.link)}
-            className="flex items-start gap-3 w-full px-4 py-3 hover:bg-secondary/30 transition-colors text-left"
-            data-testid={`notif-${a.id}`}>
-            <div className={`mt-0.5 shrink-0 ${a.priority === "high" ? "text-primary" : "text-muted-foreground"}`}>
-              <Icon className="h-4 w-4" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{a.title}</p>
-              <p className="text-sm mt-0.5 leading-tight">{a.body}</p>
-            </div>
-            {a.priority === "high" && <div className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />}
+    <>
+      {unreadCount > 0 && (
+        <div className="px-4 py-2 flex items-center justify-between border-b border-border/30 bg-secondary/10">
+          <span className="text-xs text-muted-foreground">{unreadCount} unread</span>
+          <button
+            onClick={() => markAllReadMutation.mutate()}
+            disabled={markAllReadMutation.isPending}
+            className="text-xs text-primary hover:underline disabled:opacity-50"
+            data-testid="button-mark-all-read"
+          >
+            {markAllReadMutation.isPending ? "Marking…" : "Mark all read"}
           </button>
-        );
-      })}
-    </div>
+        </div>
+      )}
+      {alerts.length === 0 ? (
+        <div className="p-6 text-sm text-muted-foreground text-center">
+          <CheckSquare className="h-8 w-8 mx-auto mb-2 opacity-20" />
+          You're all caught up!
+        </div>
+      ) : (
+        <div className="divide-y divide-border/30">
+          {alerts.map(a => {
+            const Icon = NOTIF_ICON[a.type] ?? AlertTriangle;
+            return (
+              <button
+                key={a.id}
+                onClick={() => handleClick(a)}
+                className={`flex items-start gap-3 w-full px-4 py-3 text-left transition-colors ${a.isRead ? "opacity-50 hover:opacity-70 hover:bg-secondary/20" : "hover:bg-secondary/30"}`}
+                data-testid={`notif-${a.id}`}
+              >
+                <div className={`mt-0.5 shrink-0 ${severityColor(a.severity)}`}>
+                  <Icon className="h-4 w-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide leading-none mb-0.5">{a.title}</p>
+                  <p className="text-sm leading-snug">{a.body}</p>
+                  <p className="text-[10px] text-muted-foreground/50 mt-0.5">{new Date(a.createdAt).toLocaleString("en-CA", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                </div>
+                {!a.isRead && <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${severityDot(a.severity)}`} />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -486,14 +553,21 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
                   data-testid="button-notifications"
                 >
                   <Bell className="w-5 h-5" />
-                  {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full ring-2 ring-background" />}
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-primary text-primary-foreground text-[10px] font-bold rounded-full ring-2 ring-background" data-testid="badge-notification-count">
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  )}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-80 p-0 max-h-[400px] overflow-y-auto">
-                <div className="px-4 py-3 border-b border-border/50">
+              <PopoverContent align="end" className="w-[340px] p-0 overflow-hidden">
+                <div className="px-4 py-3 border-b border-border/50 flex items-center justify-between">
                   <p className="text-sm font-semibold">Notifications</p>
+                  {unreadCount > 0 && <span className="text-xs text-muted-foreground">{unreadCount} unread</span>}
                 </div>
-                <NotificationPanel onNavigate={(href) => navigate(href)} />
+                <div className="max-h-[420px] overflow-y-auto">
+                  <NotificationPanel onNavigate={(href) => navigate(href)} />
+                </div>
               </PopoverContent>
             </Popover>
 
