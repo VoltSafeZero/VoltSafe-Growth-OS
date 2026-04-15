@@ -1823,7 +1823,7 @@ export async function registerRoutes(
     res.status(201).json(await storage.createTask(parsed.data));
   });
 
-  app.put("/api/tasks/:id", async (req, res) => {
+  app.put("/api/tasks/:id", requireAuth, async (req, res) => {
     const result = await storage.updateTask(Number(req.params.id), req.body);
     if (!result) return res.status(404).json({ message: "Task not found" });
     res.json(result);
@@ -1935,7 +1935,7 @@ export async function registerRoutes(
     res.sendFile(resolved);
   });
 
-  app.delete("/api/attachments/:id", async (req, res) => {
+  app.delete("/api/attachments/:id", requireAuth, async (req, res) => {
     const attachment = await storage.getAttachment(Number(req.params.id));
     if (!attachment) return res.status(404).json({ message: "Attachment not found" });
     const filePath = path.join(UPLOADS_DIR, path.basename(attachment.fileName));
@@ -6177,16 +6177,32 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // Returns true if the session user is the note's author OR holds an admin role.
+  // globalRole is set in session at login time (see requireAuth / login route).
+  function noteOwnerOrAdmin(session: any, authorId: number | null): boolean {
+    const role = String(session.globalRole || "");
+    if (["master_admin", "admin"].includes(role)) return true;
+    return authorId !== null && authorId !== undefined && authorId === session.userId;
+  }
+
   app.put("/api/notes/:id", requireAuth, async (req, res) => {
     try {
+      const existing = await storage.getNoteById(Number(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Note not found" });
+
+      if (!noteOwnerOrAdmin(req.session, existing.authorId ?? null)) {
+        return res.status(403).json({ message: "You do not have permission to edit this note" });
+      }
+
       // Whitelist: only 'content' is editable. Authorship, linkage, and timestamps
       // are system-managed and must not be alterable by the client.
       const safe = pick(req.body as Record<string, unknown>, ["content"] as const);
       if (!safe.content || typeof safe.content !== "string" || !(safe.content as string).trim()) {
         return res.status(400).json({ message: "content is required" });
       }
-      const note = await storage.updateNote(Number(req.params.id), safe as any);
-      if (!note) return res.status(404).json({ message: "Not found" });
+
+      const note = await storage.updateNote(existing.id, safe as any);
+      if (!note) return res.status(404).json({ message: "Note not found" });
       res.json(note);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -6195,8 +6211,14 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.delete("/api/notes/:id", requireAuth, async (req, res) => {
     try {
-      const ok = await storage.deleteNote(Number(req.params.id));
-      if (!ok) return res.status(404).json({ message: "Not found" });
+      const existing = await storage.getNoteById(Number(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Note not found" });
+
+      if (!noteOwnerOrAdmin(req.session, existing.authorId ?? null)) {
+        return res.status(403).json({ message: "You do not have permission to delete this note" });
+      }
+
+      await storage.deleteNote(existing.id);
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

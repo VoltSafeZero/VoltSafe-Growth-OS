@@ -219,6 +219,7 @@ export interface IStorage {
 
   // Stage 3 — Notes
   getNotes(linkedObjectType: string, linkedObjectId: number): Promise<Note[]>;
+  getNoteById(id: number): Promise<Note | undefined>;
   createNote(data: InsertNote): Promise<Note>;
   updateNote(id: number, data: Partial<InsertNote>): Promise<Note | undefined>;
   deleteNote(id: number): Promise<boolean>;
@@ -1165,6 +1166,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(notes)
       .where(and(eq(notes.linkedObjectType, linkedObjectType), eq(notes.linkedObjectId, linkedObjectId)))
       .orderBy(desc(notes.createdAt));
+  }
+
+  async getNoteById(id: number): Promise<Note | undefined> {
+    const [r] = await db.select().from(notes).where(eq(notes.id, id)).limit(1);
+    return r;
   }
 
   async createNote(data: InsertNote): Promise<Note> {

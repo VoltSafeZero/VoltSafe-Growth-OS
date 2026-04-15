@@ -441,6 +441,135 @@ async function run() {
     fail("Note edit whitelist tests skipped — note creation in section 2 failed");
   }
 
+  // ── 10. NOTE EDIT/DELETE AUTHORIZATION (owner-or-admin) ──────────────────
+  // Tests: owner can edit/delete, non-owner gets 403, admin override works,
+  // 404 for missing note, 400 for blank content on owned note.
+  console.log("\n── 10. Note edit/delete authorization ──");
+
+  // Trevor creates a fresh note for ownership tests
+  const ownerNoteRes = await t("/api/notes", {
+    method: "POST",
+    body: JSON.stringify({
+      content: "Auth ownership test " + Date.now(),
+      linkedObjectType: "account",
+      linkedObjectId: accountId,
+    }),
+  });
+
+  let ownerNoteId = null;
+  if (ownerNoteRes.status === 201) {
+    const on = await ownerNoteRes.json();
+    ownerNoteId = on.id;
+    ok(`Created ownership test note (id=${ownerNoteId}) as Trevor`);
+  } else {
+    const b = await ownerNoteRes.text().catch(() => "");
+    fail("Could not create ownership test note", b.slice(0, 100));
+  }
+
+  // Log in as a different non-admin user
+  let viewerCookie2 = null;
+  try {
+    viewerCookie2 = await login("viewer@voltsafe.com", "testpass1234");
+    ok("Login as viewer@voltsafe.com succeeded");
+  } catch (e) {
+    fail("Login as viewer@voltsafe.com", e.message);
+  }
+
+  if (ownerNoteId !== null && viewerCookie2) {
+    const v = authed(viewerCookie2);
+
+    // Viewer cannot edit Trevor's note
+    const forbidEdit = await v(`/api/notes/${ownerNoteId}`, {
+      method: "PUT",
+      body: JSON.stringify({ content: "Viewer override attempt" }),
+    });
+    forbidEdit.status === 403
+      ? ok("Non-owner cannot edit note \u2192 403")
+      : fail(`Expected 403 for non-owner edit, got ${forbidEdit.status}`, await forbidEdit.text().catch(() => ""));
+
+    // Viewer cannot delete Trevor's note
+    const forbidDelete = await v(`/api/notes/${ownerNoteId}`, { method: "DELETE" });
+    forbidDelete.status === 403
+      ? ok("Non-owner cannot delete note \u2192 403")
+      : fail(`Expected 403 for non-owner delete, got ${forbidDelete.status}`);
+  }
+
+  // Trevor (owner) can edit his own note
+  if (ownerNoteId !== null) {
+    const ownerEdit = await t(`/api/notes/${ownerNoteId}`, {
+      method: "PUT",
+      body: JSON.stringify({ content: "Owner-confirmed edit" }),
+    });
+    ownerEdit.ok
+      ? ok("Owner can edit own note \u2192 200")
+      : fail(`Owner edit returned ${ownerEdit.status}`, await ownerEdit.text().catch(() => ""));
+  }
+
+  // Admin override: viewer creates a note, Trevor (master_admin) edits and deletes it
+  if (viewerCookie2) {
+    const v = authed(viewerCookie2);
+    const vnRes = await v("/api/notes", {
+      method: "POST",
+      body: JSON.stringify({
+        content: "Viewer-authored note for admin override test",
+        linkedObjectType: "account",
+        linkedObjectId: accountId,
+      }),
+    });
+    if (vnRes.status === 201) {
+      const vn = await vnRes.json();
+      ok(`Viewer created note (id=${vn.id}) for admin override test`);
+
+      const adminEdit = await t(`/api/notes/${vn.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ content: "Admin override — edited" }),
+      });
+      adminEdit.ok
+        ? ok("Admin (master_admin) can edit any note \u2192 200")
+        : fail(`Admin override edit returned ${adminEdit.status}`, await adminEdit.text().catch(() => ""));
+
+      const adminDel = await t(`/api/notes/${vn.id}`, { method: "DELETE" });
+      adminDel.ok
+        ? ok("Admin (master_admin) can delete any note \u2192 200")
+        : fail(`Admin override delete returned ${adminDel.status}`);
+    } else {
+      fail("Viewer note creation failed — admin override test skipped");
+    }
+  }
+
+  // Non-existent note → 404 on both edit and delete
+  const missingEdit = await t("/api/notes/9999999", {
+    method: "PUT",
+    body: JSON.stringify({ content: "Should 404" }),
+  });
+  missingEdit.status === 404
+    ? ok("PUT on non-existent note \u2192 404")
+    : fail(`Expected 404, got ${missingEdit.status}`);
+
+  const missingDelete = await t("/api/notes/9999999", { method: "DELETE" });
+  missingDelete.status === 404
+    ? ok("DELETE on non-existent note \u2192 404")
+    : fail(`Expected 404, got ${missingDelete.status}`);
+
+  // Blank content on an owned note still → 400
+  if (ownerNoteId !== null) {
+    const blankEdit = await t(`/api/notes/${ownerNoteId}`, {
+      method: "PUT",
+      body: JSON.stringify({ content: "   " }),
+    });
+    blankEdit.status === 400
+      ? ok("Blank content on owned note still \u2192 400")
+      : fail(`Expected 400 for blank content, got ${blankEdit.status}`);
+  }
+
+  // Cleanup: Trevor deletes his own note
+  if (ownerNoteId !== null) {
+    const cleanup = await t(`/api/notes/${ownerNoteId}`, { method: "DELETE" });
+    cleanup.ok
+      ? ok(`Ownership test note cleaned up (id=${ownerNoteId})`)
+      : fail(`Cleanup of ownership note failed: ${cleanup.status}`);
+  }
+
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log(`\n${"─".repeat(50)}`);
   console.log(`Results: ${passed} passed, ${failed} failed`);
