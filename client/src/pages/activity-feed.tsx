@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import {
   Activity, Mail, CalendarDays, CheckSquare, MessageSquare,
-  AlertTriangle, RefreshCw, Search, Building2, User, TrendingUp, Filter,
+  AlertTriangle, RefreshCw, Search, Building2, User, TrendingUp,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 

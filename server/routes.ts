@@ -1113,7 +1113,7 @@ export async function registerRoutes(
           ORDER BY created_at DESC LIMIT 10
         `)),
         db.execute(sql.raw(`
-          SELECT id, title, status, priority, due_date, owner_user_id
+          SELECT DISTINCT id, title, status, priority, due_date, owner_user_id
           FROM tasks
           WHERE account_id = ${id}
              OR (linked_object_type = 'account' AND linked_object_id = ${id})
@@ -6031,12 +6031,12 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ─── Stage 3 — Notes ────────────────────────────────────────────────────
-  app.get("/api/notes/all", requireAuth, async (req, res) => {
+  app.get("/api/notes/all", requirePermission("crm", "view"), async (req, res) => {
     try {
       const { type, search, limit: limitQ } = req.query as Record<string, string>;
       const lim = Math.min(Number(limitQ) || 50, 100);
       const typeFilter = type && type !== "all" ? `AND linked_object_type = '${type.replace(/'/g,"''")}'` : "";
-      const searchFilter = search ? `AND content ILIKE '%${search.replace(/'/g,"''").replace(/%/g,"\\%")}%'` : "";
+      const searchFilter = search ? `AND content ILIKE '%${search.replace(/'/g,"''").replace(/%/g,"\\%").replace(/_/g,"\\_")}%'` : "";
       const rows = await db.execute(sql.raw(`
         SELECT n.*, 
           CASE n.linked_object_type
@@ -6056,7 +6056,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.get("/api/activity-feed", requireAuth, async (req, res) => {
+  app.get("/api/activity-feed", requirePermission("crm", "view"), async (req, res) => {
     try {
       const { limit: limitQ } = req.query as Record<string, string>;
       const lim = Math.min(Number(limitQ) || 50, 100);
@@ -6103,7 +6103,7 @@ export function registerConfluenceRoutes(app: Express) {
           FROM tasks t
           UNION ALL
           SELECT 'activity' as feed_type, a.id, a.summary,
-                 COALESCE(a.created_by, 'System') as actor, a.created_at,
+                 COALESCE((SELECT name FROM users WHERE id = a.created_by), 'System') as actor, a.created_at,
                  a.linked_object_type, a.linked_object_id,
                  NULL::text as linked_object_name,
                  a.type::text as extra

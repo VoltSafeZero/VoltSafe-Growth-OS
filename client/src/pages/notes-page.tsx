@@ -269,7 +269,8 @@ export default function NotesPage() {
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
                       <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400"
-                        onClick={() => deleteMutation.mutate(note.id)} disabled={deleteMutation.isPending}
+                        onClick={() => { if (window.confirm("Delete this note?")) deleteMutation.mutate(note.id); }}
+                        disabled={deleteMutation.isPending}
                         data-testid={`button-delete-note-${note.id}`}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
