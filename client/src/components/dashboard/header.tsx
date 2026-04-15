@@ -5,6 +5,7 @@ import {
   Search, Bell, LogOut, X, Plus, CalendarDays, CheckSquare, UserPlus as UserPlusIcon,
   Mail, Flame, AlertTriangle, Building2, Contact, FileText, Ticket, FolderOpen, Layers,
   Users, Target, StickyNote, ArrowRight, Sun, LayoutDashboard, Zap, Clock, GitBranch,
+  ExternalLink, Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -159,12 +160,84 @@ const PINNED_SHORTCUTS = [
 // ── GlobalSearch command bar ──────────────────────────────────────────────────
 type NavItem = { kind: "action"; data: CmdAction } | { kind: "result"; data: SearchResultItem };
 
-function GlobalSearch() {
+// ── Record action types ───────────────────────────────────────────────────────
+type RecordAction = {
+  id: string;
+  label: string;
+  icon: ElementType;
+  requiresEdit?: boolean;
+  primary?: boolean;
+};
+
+type SmartActionHint = {
+  actionId: string;
+  actionLabel: string;
+  entityQuery: string;
+  icon: ElementType;
+};
+
+const RECORD_ACTIONS: Record<string, RecordAction[]> = {
+  account: [
+    { id: "open",          label: "Open",   icon: ExternalLink, primary: true },
+    { id: "add-note",      label: "Note",   icon: StickyNote,   requiresEdit: true },
+    { id: "create-task",   label: "Task",   icon: CheckSquare,  requiresEdit: true },
+    { id: "search-emails", label: "Emails", icon: Mail },
+    { id: "create-quote",  label: "Quote",  icon: FileText,     requiresEdit: true },
+  ],
+  lead: [
+    { id: "open",          label: "Open",    icon: ExternalLink, primary: true },
+    { id: "add-note",      label: "Note",    icon: StickyNote,   requiresEdit: true },
+    { id: "create-task",   label: "Task",    icon: CheckSquare,  requiresEdit: true },
+    { id: "convert-lead",  label: "Convert", icon: Zap,          requiresEdit: true },
+    { id: "assign-owner",  label: "Assign",  icon: Users,        requiresEdit: true },
+  ],
+  contact: [
+    { id: "open",          label: "Open",  icon: ExternalLink, primary: true },
+    { id: "create-task",   label: "Task",  icon: CheckSquare,  requiresEdit: true },
+    { id: "compose-email", label: "Email", icon: Mail },
+    { id: "add-note",      label: "Note",  icon: StickyNote,   requiresEdit: true },
+  ],
+  opportunity: [
+    { id: "open",         label: "Open",  icon: ExternalLink, primary: true },
+    { id: "create-task",  label: "Task",  icon: CheckSquare,  requiresEdit: true },
+    { id: "add-note",     label: "Note",  icon: StickyNote,   requiresEdit: true },
+    { id: "create-quote", label: "Quote", icon: FileText,     requiresEdit: true },
+    { id: "update-stage", label: "Stage", icon: GitBranch,    requiresEdit: true },
+  ],
+  note: [
+    { id: "open-context", label: "Open",   icon: ExternalLink, primary: true },
+    { id: "copy-note",    label: "Copy",   icon: Copy },
+    { id: "open-linked",  label: "Linked", icon: ArrowRight },
+  ],
+};
+
+function getRecordActions(type: string, canEdit: boolean): RecordAction[] {
+  const base = RECORD_ACTIONS[type] ?? [];
+  return canEdit ? base : base.filter(a => !a.requiresEdit);
+}
+
+function parseSmartAction(q: string): SmartActionHint | null {
+  const patterns: { re: RegExp; actionId: string; label: string; icon: ElementType }[] = [
+    { re: /^(?:task|add task|create task|new task)\s+(?:for|on|about|re)\s+(.+)$/i,                  actionId: "create-task",   label: "Create Task for",  icon: CheckSquare },
+    { re: /^(?:note|add note|new note)\s+(?:on|for|about|re)\s+(.+)$/i,                              actionId: "add-note",      label: "Add Note for",     icon: StickyNote },
+    { re: /^(?:email|compose|send)(?:\s+(?:email\s+to|email|to))?\s+(.+)$/i,                         actionId: "compose-email", label: "Email",            icon: Mail },
+    { re: /^(?:quote|create quote|new quote|draft quote)\s+(?:for|on)\s+(.+)$/i,                      actionId: "create-quote",  label: "Create Quote for", icon: FileText },
+  ];
+  for (const p of patterns) {
+    const m = q.match(p.re);
+    if (m) return { actionId: p.actionId, actionLabel: p.label, entityQuery: m[1].trim(), icon: p.icon };
+  }
+  return null;
+}
+
+function GlobalSearch({ canEdit }: { canEdit: boolean }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [recentRecords, setRecentRecords]   = useState<RecentRecord[]>([]);
+  const [actionMode, setActionMode] = useState(false);
+  const [actionIndex, setActionIndex] = useState(-1);
   const inputRef    = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const itemRefs    = useRef<(HTMLButtonElement | null)[]>([]);
@@ -172,6 +245,8 @@ function GlobalSearch() {
 
   const trimmed = query.trim();
   const isShortQuery = trimmed.length === 1;
+  const smartAction = trimmed.length >= 4 ? parseSmartAction(trimmed) : null;
+  const searchQuery = smartAction ? smartAction.entityQuery : trimmed;
 
   // Load recents whenever the dropdown opens
   useEffect(() => {
@@ -181,9 +256,12 @@ function GlobalSearch() {
     }
   }, [open]);
 
+  // Reset action mode whenever the active index changes
+  useEffect(() => { setActionMode(false); setActionIndex(-1); }, [activeIndex]);
+
   const { data, isFetching } = useQuery<{ results: SearchResultItem[] }>({
-    queryKey: [`/api/search?q=${encodeURIComponent(trimmed)}`],
-    enabled: trimmed.length >= 2,
+    queryKey: [`/api/search?q=${encodeURIComponent(searchQuery)}`],
+    enabled: searchQuery.length >= 2,
     staleTime: 10_000,
   });
 
@@ -267,31 +345,142 @@ function GlobalSearch() {
     if (a.event) setTimeout(() => window.dispatchEvent(new CustomEvent(a.event)), 80);
   }, [navigate]);
 
-  // Unified select handler
+  // Execute a record-level action from the action pill bar
+  const executeRecordAction = useCallback((action: RecordAction, r: SearchResultItem) => {
+    setOpen(false);
+    if (trimmed.length >= 2) saveRecentSearch(trimmed);
+    setQuery("");
+    setActiveIndex(-1);
+    setActionMode(false);
+    setActionIndex(-1);
+    saveRecentRecord({ type: r.type, id: r.id, label: r.label, sub: r.sub2 || r.sub || undefined });
+
+    switch (action.id) {
+      case "open":
+      case "open-context":
+        navigateToResult(r);
+        break;
+      case "add-note":
+        navigateToResult(r);
+        setTimeout(() => window.dispatchEvent(new CustomEvent("open-note-panel", { detail: { type: r.type, id: r.id, label: r.label } })), 150);
+        break;
+      case "create-task":
+        (window as any).__cmdbarCtx = { type: r.type, id: r.id, label: r.label };
+        navigate("/execution/team-workload");
+        setTimeout(() => window.dispatchEvent(new CustomEvent("open-create-task")), 150);
+        break;
+      case "search-emails":
+        navigate(`/gmail?search=${encodeURIComponent(r.label)}`);
+        break;
+      case "create-quote":
+        navigate(`/quotes?linked=${r.type}:${r.id}`);
+        break;
+      case "convert-lead":
+        navigate(`/opportunities?selected=${r.id}&action=convert`);
+        break;
+      case "assign-owner":
+        navigate(`/opportunities?selected=${r.id}&action=assign`);
+        break;
+      case "compose-email":
+        if (r.sub) navigate(`/gmail?compose=${encodeURIComponent(r.sub)}`);
+        else navigate("/gmail");
+        break;
+      case "copy-note":
+        navigator.clipboard.writeText(r.label).catch(() => {});
+        break;
+      case "open-linked":
+        if (r.sub === "account"     && r.linked_id) navigate(`/accounts/${r.linked_id}`);
+        else if (r.sub === "contact"     && r.linked_id) navigate(`/contacts/${r.linked_id}`);
+        else if (r.sub === "opportunity" && r.linked_id) navigate(`/opportunities/${r.linked_id}`);
+        else navigate("/notes");
+        break;
+      case "update-stage":
+        navigate(`/pipeline?opportunity=${r.id}`);
+        break;
+      default:
+        navigateToResult(r);
+    }
+  }, [trimmed, navigate, navigateToResult]);
+
+  // Unified select handler — respects active smart action if present
   const handleSelect = useCallback((item: NavItem) => {
     setOpen(false);
     if (trimmed.length >= 2) saveRecentSearch(trimmed);
     setQuery("");
     setActiveIndex(-1);
-    if (item.kind === "action") navigateToAction(item.data);
-    else navigateToResult(item.data);
-  }, [trimmed, navigateToAction, navigateToResult]);
+    setActionMode(false);
+    setActionIndex(-1);
+    if (item.kind === "action") {
+      navigateToAction(item.data);
+    } else if (smartAction) {
+      // Smart action: execute the detected action against the selected record
+      const matchingAction = getRecordActions(item.data.type, canEdit).find(a => a.id === smartAction.actionId);
+      if (matchingAction) executeRecordAction(matchingAction, item.data);
+      else navigateToResult(item.data);
+    } else {
+      navigateToResult(item.data);
+    }
+  }, [trimmed, smartAction, canEdit, navigateToAction, navigateToResult, executeRecordAction]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
       if (!showDropdown) { setOpen(true); return; }
+      // Exit action mode and move to next result
+      if (actionMode) { setActionMode(false); setActionIndex(-1); }
       setActiveIndex(i => Math.min(i + 1, navItems.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
+      if (actionMode) { setActionMode(false); setActionIndex(-1); }
       setActiveIndex(i => Math.max(i - 1, -1));
+    } else if (e.key === "Tab") {
+      if (!showDropdown || activeIndex < 0) return;
+      if (e.shiftKey) {
+        // Shift+Tab: exit action mode
+        if (actionMode) { e.preventDefault(); setActionMode(false); setActionIndex(-1); }
+        return;
+      }
+      e.preventDefault();
+      const item = navItems[activeIndex];
+      if (!item || item.kind !== "result") return;
+      const actions = getRecordActions(item.data.type, canEdit);
+      if (!actionMode) {
+        if (actions.length > 0) { setActionMode(true); setActionIndex(0); }
+      } else {
+        const next = actionIndex + 1;
+        if (next < actions.length) setActionIndex(next);
+        else { setActionMode(false); setActionIndex(-1); setActiveIndex(i => Math.min(i + 1, navItems.length - 1)); }
+      }
+    } else if (e.key === "ArrowRight") {
+      if (!showDropdown || activeIndex < 0) return;
+      const item = navItems[activeIndex];
+      if (!item || item.kind !== "result") return;
+      e.preventDefault();
+      const actions = getRecordActions(item.data.type, canEdit);
+      if (!actionMode) {
+        if (actions.length > 0) { setActionMode(true); setActionIndex(0); }
+      } else {
+        setActionIndex(i => Math.min(i + 1, actions.length - 1));
+      }
+    } else if (e.key === "ArrowLeft") {
+      if (!showDropdown || !actionMode) return;
+      e.preventDefault();
+      if (actionIndex > 0) setActionIndex(i => i - 1);
+      else { setActionMode(false); setActionIndex(-1); }
     } else if (e.key === "Enter") {
       e.preventDefault();
+      if (actionMode && activeIndex >= 0) {
+        const item = navItems[activeIndex];
+        if (item?.kind === "result") {
+          const actions = getRecordActions(item.data.type, canEdit);
+          const action = actions[actionIndex];
+          if (action) { executeRecordAction(action, item.data); return; }
+        }
+      }
       if (activeIndex >= 0 && navItems[activeIndex]) handleSelect(navItems[activeIndex]);
     } else if (e.key === "Escape") {
-      setOpen(false);
-      setActiveIndex(-1);
-      inputRef.current?.blur();
+      if (actionMode) { setActionMode(false); setActionIndex(-1); }
+      else { setOpen(false); setActiveIndex(-1); inputRef.current?.blur(); }
     }
   };
 
@@ -453,6 +642,15 @@ function GlobalSearch() {
             return (
               <div className="max-h-[420px] overflow-y-auto" ref={el => { if (el) itemRefs.current = []; }}>
 
+                {/* Smart action banner */}
+                {smartAction && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-primary/20">
+                    <smartAction.icon className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <span className="text-xs font-medium text-primary">{smartAction.actionLabel}</span>
+                    <span className="text-xs text-muted-foreground">— select a result then ↵</span>
+                  </div>
+                )}
+
                 {/* Actions section */}
                 {actions.length > 0 && (
                   <div>
@@ -469,7 +667,7 @@ function GlobalSearch() {
                           key={action.id}
                           ref={el => { itemRefs.current[itemNavIdx] = el; }}
                           onClick={() => handleSelect({ kind: "action", data: action })}
-                          onMouseEnter={() => setActiveIndex(itemNavIdx)}
+                          onMouseEnter={() => { setActiveIndex(itemNavIdx); }}
                           className={`flex items-center gap-3 w-full px-3 py-2.5 transition-colors text-left border-b border-border/20 last:border-0 ${isActive ? "bg-secondary/60" : "hover:bg-secondary/40"}`}
                           data-testid={`search-action-${action.id}`}
                           role="option"
@@ -524,37 +722,76 @@ function GlobalSearch() {
                       {group.map((r, i) => {
                         const itemNavIdx = sectionStart + i;
                         const isActive = activeIndex === itemNavIdx;
+                        const recordActions = getRecordActions(r.type, canEdit);
+                        const highlightQuery = smartAction ? smartAction.entityQuery : trimmed;
                         return (
-                          <button
+                          <div
                             key={r.id}
-                            ref={el => { itemRefs.current[itemNavIdx] = el; }}
-                            onClick={() => handleSelect({ kind: "result", data: r })}
-                            onMouseEnter={() => setActiveIndex(itemNavIdx)}
-                            className={`flex items-center gap-3 w-full px-3 py-2.5 transition-colors text-left border-b border-border/20 last:border-0 ${isActive ? "bg-secondary/60" : "hover:bg-secondary/40"}`}
+                            className={`border-b border-border/20 last:border-0 transition-colors ${isActive ? "bg-secondary/60" : "hover:bg-secondary/30"}`}
                             data-testid={`search-result-${r.type}-${r.id}`}
-                            role="option"
-                            aria-selected={isActive}
                           >
-                            <Icon className={`h-4 w-4 shrink-0 ${color}`} />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">
-                                <HighlightMatch text={r.label} query={trimmed} />
-                              </p>
-                              {(r.sub || r.sub2) && (
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {[r.sub2, r.sub].filter(Boolean).join(" · ")}
+                            <button
+                              ref={el => { itemRefs.current[itemNavIdx] = el; }}
+                              onClick={() => handleSelect({ kind: "result", data: r })}
+                              onMouseEnter={() => setActiveIndex(itemNavIdx)}
+                              className="flex items-center gap-3 w-full px-3 py-2.5 text-left"
+                              role="option"
+                              aria-selected={isActive}
+                            >
+                              <Icon className={`h-4 w-4 shrink-0 ${color}`} />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate">
+                                  <HighlightMatch text={r.label} query={highlightQuery} />
                                 </p>
-                              )}
-                            </div>
-                            <div className="shrink-0 flex items-center gap-1">
-                              {r.type === "lead" && (
-                                <span className="text-[9px] font-semibold uppercase tracking-wide text-cyan-400 border border-cyan-400/30 bg-cyan-400/5 rounded px-1 py-0.5">Lead</span>
-                              )}
-                              {isActive && (
-                                <span className="text-[9px] text-muted-foreground border border-border/50 rounded px-1 py-0.5">↵</span>
-                              )}
-                            </div>
-                          </button>
+                                {(r.sub || r.sub2) && (
+                                  <p className="text-xs text-muted-foreground truncate">
+                                    {[r.sub2, r.sub].filter(Boolean).join(" · ")}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="shrink-0 flex items-center gap-1">
+                                {r.type === "lead" && (
+                                  <span className="text-[9px] font-semibold uppercase tracking-wide text-cyan-400 border border-cyan-400/30 bg-cyan-400/5 rounded px-1 py-0.5">Lead</span>
+                                )}
+                                {isActive && !actionMode && (
+                                  <span className="text-[9px] text-muted-foreground border border-border/50 rounded px-1 py-0.5">↵</span>
+                                )}
+                                {isActive && !actionMode && recordActions.length > 0 && (
+                                  <span className="text-[9px] text-muted-foreground/70 border border-border/40 rounded px-1 py-0.5">Tab →</span>
+                                )}
+                              </div>
+                            </button>
+
+                            {/* Action pills — shown when this result is active */}
+                            {isActive && recordActions.length > 0 && (
+                              <div className="flex items-center gap-1 px-3 pb-2 flex-wrap" data-testid={`action-bar-${r.id}`}>
+                                {recordActions.map((action, ai) => {
+                                  const isActionActive = actionMode && actionIndex === ai;
+                                  const ActionIcon = action.icon;
+                                  return (
+                                    <button
+                                      key={action.id}
+                                      onClick={e => { e.stopPropagation(); executeRecordAction(action, r); }}
+                                      onMouseEnter={() => { setActionMode(true); setActionIndex(ai); }}
+                                      onMouseLeave={() => { setActionMode(false); setActionIndex(-1); }}
+                                      className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] border transition-all ${
+                                        isActionActive
+                                          ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                          : action.primary
+                                            ? "bg-secondary text-foreground border-border/60 hover:border-primary/40 hover:bg-secondary/80"
+                                            : "bg-secondary/40 text-muted-foreground border-border/30 hover:bg-secondary/70 hover:text-foreground"
+                                      }`}
+                                      data-testid={`action-pill-${r.id}-${action.id}`}
+                                      tabIndex={-1}
+                                    >
+                                      <ActionIcon className="h-3 w-3 shrink-0" />
+                                      {action.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
                         );
                       })}
                     </div>
@@ -563,8 +800,8 @@ function GlobalSearch() {
 
                 {/* Footer */}
                 <div className="px-3 py-1.5 flex items-center justify-between text-[10px] text-muted-foreground/60 bg-secondary/10 border-t border-border/20">
-                  <span>↑↓ navigate · ⌘K open</span>
-                  <span>↵ select · Esc close</span>
+                  <span>↑↓ navigate · Tab/→ actions</span>
+                  <span>↵ select · Esc {actionMode ? "back" : "close"}</span>
                 </div>
               </div>
             );
@@ -737,7 +974,7 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
               <Search className="w-5 h-5" />
             </Button>
 
-            <GlobalSearch />
+            <GlobalSearch canEdit={user?.role !== "view_only"} />
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">

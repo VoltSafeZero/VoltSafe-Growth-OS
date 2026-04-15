@@ -1,0 +1,86 @@
+Great. The command bar search is now working and tested. Next, turn it into a record actions command bar.
+
+Goal:
+Let users do useful work directly from search results, not just navigate to pages.
+
+Build this in phases.
+
+PHASE 1 — CONTEXTUAL RECORD ACTIONS
+For eligible result types, show inline actions or a secondary action state for the selected result.
+
+Accounts:
+- Open account
+- Add note
+- Create task
+- Open inbox/search related emails
+- Create quote
+
+Leads:
+- Open lead
+- Add note
+- Create task
+- Convert lead
+- Assign owner
+
+Contacts:
+- Open contact
+- Create task
+- Compose email
+- Add note
+
+Opportunities:
+- Open opportunity
+- Create task
+- Add note
+- Create quote
+- Update stage
+
+Notes:
+- Open note context
+- Copy note
+- Open linked record
+
+PHASE 2 — ACTION MODE UX
+Add a clean keyboard flow:
+- typing selects results
+- tab or right-arrow opens actions for selected result
+- enter executes primary action
+- esc backs out of action mode
+- keep this fast and simple
+
+PHASE 3 — BACKEND SUPPORT
+Add minimal endpoints only where needed for quick actions:
+- create task from record
+- create note from record
+- lead conversion shortcut if not already supported
+- quote creation shortcut if already supported by current data model
+Reuse existing permissions and CRUD patterns.
+
+PHASE 4 — SMART ACTIONS
+When a query strongly implies an action, surface that directly:
+- "task for barrie marina"
+- "note on quay west"
+- "email greg"
+- "quote for port credit"
+Keep parsing deterministic and lightweight. No AI layer.
+
+PHASE 5 — PERMISSIONS
+Respect current permissions:
+- view-only users can navigate
+- edit permissions required for create/update actions
+- hide or disable actions the user cannot perform
+
+PHASE 6 — TESTS
+Add tests for:
+- keyboard action mode
+- record action rendering by type
+- task creation shortcut
+- note creation shortcut
+- permission gating
+- no regression to current command bar behavior
+
+Implementation rules:
+- do not slow down the command bar
+- keep UI uncluttered
+- prefer a small set of high-value actions over too many
+- summarize changed files and pass/fail at the end

@@ -2376,6 +2376,31 @@ export async function registerRoutes(
     res.status(201).json(await storage.createTask(parsed.data));
   });
 
+  // POST /api/quick-actions/task — create a linked task from the command bar
+  app.post("/api/quick-actions/task", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const { linkedObjectType, linkedObjectId, linkedLabel } = req.body;
+      if (!linkedObjectType || !linkedObjectId) {
+        return res.status(400).json({ message: "linkedObjectType and linkedObjectId are required" });
+      }
+      const safe = (s: string) => String(s).replace(/'/g, "''").slice(0, 120);
+      const title = linkedLabel ? `Follow up: ${safe(String(linkedLabel))}` : "Follow up";
+      const task = await storage.createTask({
+        title,
+        status: "pending",
+        priority: "medium",
+        linkedObjectType: String(linkedObjectType),
+        linkedObjectId: Number(linkedObjectId),
+        ownerUserId: userId ?? undefined,
+        createdByUserId: userId ?? undefined,
+      });
+      res.status(201).json(task);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.put("/api/tasks/:id", requireAuth, async (req, res) => {
     const body = { ...req.body };
     if (body.dueDate && typeof body.dueDate === "string") body.dueDate = new Date(body.dueDate);
