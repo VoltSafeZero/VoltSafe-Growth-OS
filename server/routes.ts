@@ -6454,9 +6454,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         .where(and(eq(emailAccounts.isActive, true), eq(emailAccounts.userId, userId))),
       db.select().from(emailAccounts).where(allSharedCondition),
     ]);
-    const visibleShared = isAdmin
+    const ownIds = new Set(ownAccts.map((a) => a.id));
+    const visibleShared = (isAdmin
       ? sharedAccts
-      : sharedAccts.filter((a) => mailTeamPerms[String(a.id)]?.view === true);
+      : sharedAccts.filter((a) => mailTeamPerms[String(a.id)]?.view === true)
+    ).filter((a) => !ownIds.has(a.id)); // never duplicate an account the user already owns
     return [...ownAccts, ...visibleShared];
   }
 
