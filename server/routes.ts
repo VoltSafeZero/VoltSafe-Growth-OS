@@ -773,11 +773,33 @@ export async function registerRoutes(
   });
 
   app.put("/api/leads/:id", requirePermission("crm", "edit"), async (req, res) => {
+    const lid = Number(req.params.id);
+    const existing = await storage.getLead(lid);
+    if (!existing) return res.status(404).json({ message: "Lead not found" });
     const body = { ...req.body };
     if (body.dueDate && typeof body.dueDate === "string") body.dueDate = new Date(body.dueDate);
     if (body.estCloseDate && typeof body.estCloseDate === "string") body.estCloseDate = new Date(body.estCloseDate);
-    const result = await storage.updateLead(Number(req.params.id), body);
+    const result = await storage.updateLead(lid, body);
     if (!result) return res.status(404).json({ message: "Lead not found" });
+    const userId = getSessionUserId(req) ?? null;
+    if (body.status && body.status !== existing.status) {
+      await storage.createActivity({
+        linkedObjectType: "lead",
+        linkedObjectId: lid,
+        type: "status_change",
+        summary: `Status changed from ${existing.status} to ${body.status}`,
+        createdBy: userId,
+      });
+    }
+    if (body.ownerUserId !== undefined && body.ownerUserId !== existing.ownerUserId) {
+      await storage.createActivity({
+        linkedObjectType: "lead",
+        linkedObjectId: lid,
+        type: "owner_change",
+        summary: `Owner changed`,
+        createdBy: userId,
+      });
+    }
     res.json(result);
   });
 
@@ -7473,21 +7495,63 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   // ─── UNIFIED TIMELINE ────────────────────────────────────────────────────────
 
   const TIMELINE_OBJECT_TYPES = new Set(["account", "contact", "opportunity", "lead", "partner", "ticket", "quote"]);
-  const TIMELINE_ITEM_TYPES = new Set(["note", "activity", "attachment", "email"]);
+  const TIMELINE_ITEM_TYPES = new Set(["note", "activity", "attachment", "email", "task", "quote", "stage_change"]);
 
-  app.get("/api/timeline", requirePermission("crm", "view"), async (req, res) => {
-    try {
-      const { objectType, objectId, type: typeFilter, limit: limitQ } = req.query as Record<string, string>;
-      if (!objectType || !objectId) return res.status(400).json({ message: "objectType and objectId required" });
-      if (!TIMELINE_OBJECT_TYPES.has(objectType)) return res.status(400).json({ message: "Invalid objectType" });
-      const oid = parseInt(objectId);
-      if (isNaN(oid) || oid < 1) return res.status(400).json({ message: "objectId must be a positive integer" });
-      if (typeFilter && !TIMELINE_ITEM_TYPES.has(typeFilter)) return res.status(400).json({ message: "Invalid type filter" });
-      const lim = Math.min(parseInt(limitQ || "150"), 300);
-      const ot = objectType;
-      const typeWhere = typeFilter ? `WHERE tl.type = '${typeFilter}'` : "";
+  async function buildTimeline(objectType: string, objectId: number, typeFilter: string | undefined, limit: number) {
+    const ot = objectType;
+    const oid = objectId;
+    const lim = limit;
+    const typeWhere = typeFilter ? `WHERE tl.type = '${typeFilter}'` : "";
 
-      const rows = await db.execute(sql.raw(`
+    // Exclude status_change/stage_change activities for opportunities — they surface via stage_change union
+    const activityTypeExclude = ot === "opportunity"
+      ? `AND a.type NOT IN ('status_change', 'stage_change')`
+      : "";
+
+    // Quotes sub-query — only applicable for account and opportunity records
+    const quoteUnion = (ot === "account" || ot === "opportunity") ? `
+          UNION ALL
+
+          SELECT
+            CONCAT('quote_', q.id::text)                                                AS timeline_id,
+            'quote'                                                                     AS type,
+            q.quote_number                                                              AS title,
+            CONCAT(INITCAP(q.status), ' · $', ROUND(q.total::numeric, 0)::text)       AS body,
+            q.created_at,
+            COALESCE((SELECT name FROM users WHERE id = q.created_by), 'System')       AS created_by,
+            json_build_object(
+              'quoteId',     q.id,
+              'quoteNumber', q.quote_number,
+              'status',      q.status,
+              'total',       q.total,
+              'sentAt',      q.sent_at,
+              'acceptedAt',  q.accepted_at
+            )::text                                                                     AS metadata
+          FROM quotes q
+          WHERE ${ot === "account" ? `q.account_id = ${oid}` : `q.opportunity_id = ${oid}`}
+    ` : "";
+
+    // Stage-change sub-query — only for opportunity records
+    const stageChangeUnion = ot === "opportunity" ? `
+          UNION ALL
+
+          SELECT
+            CONCAT('stage_', dsh.id::text)                                              AS timeline_id,
+            'stage_change'                                                               AS type,
+            CONCAT(COALESCE(dsh.from_stage, 'New'), ' → ', dsh.to_stage)               AS title,
+            NULL                                                                         AS body,
+            dsh.changed_at                                                               AS created_at,
+            COALESCE((SELECT name FROM users WHERE id = dsh.changed_by_user_id), 'System') AS created_by,
+            json_build_object(
+              'fromStage', dsh.from_stage,
+              'toStage',   dsh.to_stage,
+              'dealId',    dsh.deal_id
+            )::text                                                                     AS metadata
+          FROM deal_stage_history dsh
+          WHERE dsh.deal_id = ${oid}
+    ` : "";
+
+    const rows = await db.execute(sql.raw(`
         SELECT * FROM (
           SELECT
             CONCAT('note_', n.id::text)   AS timeline_id,
@@ -7521,7 +7585,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
               'contactId',    a.contact_id
             )::text                                                                    AS metadata
           FROM activities a
-          WHERE a.linked_object_type = '${ot}' AND a.linked_object_id = ${oid}
+          WHERE a.linked_object_type = '${ot}' AND a.linked_object_id = ${oid} ${activityTypeExclude}
 
           UNION ALL
 
@@ -7567,23 +7631,74 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           FROM email_messages em
           JOIN email_associations ea ON ea.email_message_id = em.id
           WHERE ea.object_type = '${ot}' AND ea.object_id = ${oid}
+
+          UNION ALL
+
+          SELECT
+            CONCAT('task_', t.id::text)                                              AS timeline_id,
+            'task'                                                                   AS type,
+            t.title                                                                  AS title,
+            t.description                                                            AS body,
+            t.created_at,
+            COALESCE((SELECT name FROM users WHERE id = t.created_by_user_id), 'System') AS created_by,
+            json_build_object(
+              'taskId',      t.id,
+              'status',      t.status,
+              'priority',    t.priority,
+              'dueDate',     t.due_date,
+              'completedAt', t.completed_at,
+              'ownerUserId', t.owner_user_id
+            )::text                                                                  AS metadata
+          FROM tasks t
+          WHERE t.linked_object_type = '${ot}' AND t.linked_object_id = ${oid}
+          ${quoteUnion}
+          ${stageChangeUnion}
         ) tl
         ${typeWhere}
         ORDER BY tl.created_at DESC NULLS LAST
         LIMIT ${lim}
-      `));
+    `));
 
-      const items = rows.rows.map((r: any) => ({
-        ...r,
-        metadata: r.metadata ? JSON.parse(r.metadata) : {},
-      }));
+    return rows.rows.map((r: any) => ({
+      ...r,
+      metadata: r.metadata ? JSON.parse(r.metadata) : {},
+    }));
+  }
 
+  app.get("/api/timeline", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const { objectType, objectId, type: typeFilter, limit: limitQ } = req.query as Record<string, string>;
+      if (!objectType || !objectId) return res.status(400).json({ message: "objectType and objectId required" });
+      if (!TIMELINE_OBJECT_TYPES.has(objectType)) return res.status(400).json({ message: "Invalid objectType" });
+      const oid = parseInt(objectId);
+      if (isNaN(oid) || oid < 1) return res.status(400).json({ message: "objectId must be a positive integer" });
+      if (typeFilter && !TIMELINE_ITEM_TYPES.has(typeFilter)) return res.status(400).json({ message: "Invalid type filter" });
+      const lim = Math.min(parseInt(limitQ || "150"), 300);
+      const items = await buildTimeline(objectType, oid, typeFilter, lim);
       res.json({ items, total: items.length });
     } catch (err: any) {
       console.error("Timeline error:", err);
       res.status(500).json({ message: err.message });
     }
   });
+
+  // Per-record timeline shortcut endpoints
+  for (const recType of ["account", "lead", "contact", "opportunity"] as const) {
+    app.get(`/api/timeline/${recType}/:id`, requirePermission("crm", "view"), async (req, res) => {
+      try {
+        const oid = parseInt(req.params.id);
+        if (isNaN(oid) || oid < 1) return res.status(400).json({ message: "id must be a positive integer" });
+        const typeFilter = req.query.type as string | undefined;
+        if (typeFilter && !TIMELINE_ITEM_TYPES.has(typeFilter)) return res.status(400).json({ message: "Invalid type filter" });
+        const lim = Math.min(parseInt((req.query.limit as string) || "150"), 300);
+        const items = await buildTimeline(recType, oid, typeFilter, lim);
+        res.json({ items, total: items.length });
+      } catch (err: any) {
+        console.error(`Timeline/${recType} error:`, err);
+        res.status(500).json({ message: err.message });
+      }
+    });
+  }
 
   app.post("/api/timeline/link-email", requirePermission("crm", "view"), async (req, res) => {
     try {

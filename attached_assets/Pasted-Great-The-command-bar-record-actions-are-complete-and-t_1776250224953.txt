@@ -1,0 +1,138 @@
+Great. The command bar record actions are complete and tested. Next, build the Unified Record Timeline.
+
+Goal:
+Every core CRM record should have one chronological activity feed that shows the full story of what happened on that record.
+
+Build this in phases.
+
+PHASE 1 — TIMELINE DATA MODEL / NORMALIZATION
+Create a unified backend timeline shape that can represent these event types:
+- note_created
+- note_updated
+- task_created
+- task_completed
+- task_reassigned
+- task_snoozed
+- task_suggestion_accepted
+- email_received
+- email_sent
+- email_replied
+- status_changed
+- owner_changed
+- quote_created
+- quote_sent
+- quote_status_changed
+- lead_converted
+- opportunity_stage_changed
+
+Each timeline item should include:
+- id
+- eventType
+- timestamp
+- actor { id, name }
+- subject/title
+- body/snippet
+- linkedObjectType
+- linkedObjectId
+- metadata JSON
+- icon/severity hint if useful
+
+Do not overcomplicate storage if a computed/union feed is enough for now.
+Prefer deriving from existing tables first, then add audit logging only where needed.
+
+PHASE 2 — BACKEND TIMELINE ENDPOINTS
+Add endpoints:
+- GET /api/timeline/account/:id
+- GET /api/timeline/lead/:id
+- GET /api/timeline/contact/:id
+- GET /api/timeline/opportunity/:id
+
+Requirements:
+- return newest first
+- support pagination or cursor-based loading
+- support optional filter by event type
+- include enough linked context to render useful rows
+- keep queries efficient
+
+PHASE 3 — AUDIT EVENTS FOR IMPORTANT CHANGES
+Where timeline gaps exist, add structured activity logging for:
+- owner changes
+- status changes
+- stage changes
+- lead conversion
+- quote status changes
+- task reassignment / completion if not already captured cleanly
+
+Keep this deterministic and explainable.
+For value changes, store before/after where practical.
+
+PHASE 4 — FRONTEND TIMELINE UI
+Add a “Timeline” tab or section to:
+- account detail
+- lead detail
+- contact detail
+- opportunity detail
+
+Render a clean chronological feed with:
+- icon per event type
+- readable sentence format
+- timestamp
+- actor
+- snippet/details
+- linked object badges when relevant
+
+Examples:
+- Trevor created task “Follow up with Barrie Marina”
+- Sarah changed lead status from New to Qualified
+- Inbound email received from Greg at Pier 32 Marina
+- Quote sent for $45,000
+- Task completed 2 days late
+
+PHASE 5 — TIMELINE FILTERS
+Add simple filter chips:
+- All
+- Notes
+- Tasks
+- Emails
+- Status Changes
+- Quotes
+
+Optional:
+- show only user actions
+- show only system actions
+
+PHASE 6 — TIMELINE COMPOSER SHORTCUTS
+From the timeline area, allow quick actions:
+- add note
+- create task
+- log activity
+Reuse existing endpoints and permissions.
+
+PHASE 7 — PERFORMANCE / UX
+- initial page should load quickly
+- paginate long histories
+- avoid N+1 queries
+- show empty state if no activity exists
+- preserve scroll position where reasonable
+
+PHASE 8 — PERMISSIONS
+Respect existing permission model:
+- crm:view can read timelines for records they can access
+- crm:edit required for create/update actions from timeline
+- do not leak restricted records via linked metadata
+
+PHASE 9 — TESTING
+Add tests for:
+- each endpoint returns correctly shaped timeline items
+- mixed event ordering is correct
+- filters work
+- owner/status/stage changes appear
+- task/email/note events appear
+- permission enforcement
+- no regressions to existing record pages
+
+Implementation rules:
+- do not break existing detail pages
+- prefer reusing existing notes/tasks/email/activity data
+- keep the feed readable in plain English
+- summarize changed files and final pass/fail at the end

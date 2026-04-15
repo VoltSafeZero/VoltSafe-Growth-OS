@@ -17,6 +17,7 @@ import { formatDistanceToNow, format, isPast } from "date-fns";
 import { Link } from "wouter";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
 import { SuggestedActionsCard } from "@/components/suggested-actions-card";
+import { TimelineTab } from "@/components/timeline-tab";
 
 const STAGE_LABEL: Record<string, string> = {
   inbound_new: "New", qualified: "Qualified", discovery: "Discovery",
@@ -458,6 +459,21 @@ export default function AccountProfilePage() {
             )}
           </SectionCard>
         </div>
+      </div>
+
+      {/* Timeline */}
+      <div id="account-timeline-section">
+        <Card className="border-border/50">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <div className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-primary" />
+              <CardTitle className="text-sm font-semibold">Timeline</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <TimelineTab objectType="account" objectId={id} />
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
