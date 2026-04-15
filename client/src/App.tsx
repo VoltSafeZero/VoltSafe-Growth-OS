@@ -11,6 +11,8 @@ import { Header } from "@/components/dashboard/header";
 import { MobileNav } from "@/components/dashboard/mobile-nav";
 
 import Dashboard from "@/pages/dashboard";
+import TodayPage from "@/pages/today";
+import PipelinePage from "@/pages/pipeline";
 import MarinasPage from "@/pages/marinas";
 import LeadsPage from "@/pages/leads";
 import AccountsPage from "@/pages/accounts";
@@ -31,6 +33,7 @@ import LoginPage from "@/pages/login";
 import ChangePasswordPage from "@/pages/change-password";
 import NotFound from "@/pages/not-found";
 import { VoiceAssistant } from "@/components/voice-assistant";
+import { QuickCapture } from "@/components/quick-capture";
 import GmailInboxPage from "@/pages/gmail-inbox";
 import AssetsPage from "@/pages/assets";
 import PriceListsPage from "@/pages/price-lists";
@@ -144,6 +147,8 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
   return (
     <Switch>
       <Route path="/">{() => wrap(<Dashboard />)}</Route>
+      <Route path="/today">{() => wrap(<TodayPage />)}</Route>
+      <Route path="/pipeline">{() => guard("crm", <PipelinePage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
 
       {/* ── CRM ───────────────────────────────────────────────────── */}
       <Route path="/accounts">{() => guard("crm", <AccountsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
@@ -274,6 +279,7 @@ function App() {
           <Toaster />
           <AuthenticatedRouter user={user} onLogout={handleLogout} />
           <VoiceAssistant />
+          <QuickCapture />
         </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>

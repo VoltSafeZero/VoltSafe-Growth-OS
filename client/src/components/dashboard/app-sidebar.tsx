@@ -4,7 +4,7 @@ import {
   Building2, Contact, UserPlus, FileText, Mail, CalendarClock, Megaphone,
   FolderOpen, Tags, Zap, Settings, ChevronRight, Users2, ClipboardList,
   Layers, ShieldCheck, Circle, Truck, Factory, FlaskConical, Landmark,
-  Newspaper, BarChart3,
+  Newspaper, BarChart3, Sun, GitBranch,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import navLogo from "@assets/nav-logo.png";
@@ -34,6 +34,12 @@ type NavSection = {
 
 const sections: NavSection[] = [
   {
+    id: "today",
+    label: "Today",
+    icon: Sun,
+    url: "/today",
+  },
+  {
     id: "home",
     label: "Home",
     icon: Home,
@@ -48,6 +54,7 @@ const sections: NavSection[] = [
       { title: "Organizations", url: "/accounts", icon: Building2, permKey: "crm" },
       { title: "Contacts", url: "/contacts", icon: Contact, permKey: "crm" },
       { title: "Opportunities", url: "/opportunities", icon: UserPlus, permKey: "crm" },
+      { title: "Pipeline Health", url: "/pipeline", icon: GitBranch, permKey: "crm" },
       { title: "Quotes", url: "/quotes", icon: FileText, permKey: "quoting" },
     ],
   },

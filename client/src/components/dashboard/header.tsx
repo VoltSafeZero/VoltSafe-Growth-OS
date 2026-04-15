@@ -1,5 +1,9 @@
-import { useState, useRef, useEffect } from "react";
-import { Search, Bell, LogOut, X, Plus } from "lucide-react";
+import { useState, useRef, useEffect, type ElementType } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Search, Bell, LogOut, X, Plus, CalendarDays, CheckSquare, UserPlus as UserPlusIcon,
+  Mail, Flame, AlertTriangle, Building2, Contact, FileText, Ticket, FolderOpen, Layers,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -12,17 +16,53 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useLocation } from "wouter";
 import {
-  Building2,
-  Contact,
-  UserPlus,
-  FileText,
-  CheckSquare,
-  Ticket,
-  FolderOpen,
-  Layers,
-} from "lucide-react";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { useLocation } from "wouter";
+
+type NotificationAlert = {
+  id: string; type: string; title: string; body: string; link: string; priority: string;
+};
+
+const NOTIF_ICON: Record<string, ElementType> = {
+  meeting: CalendarDays, task: CheckSquare, deal: Flame,
+  lead: UserPlusIcon, email: Mail,
+};
+
+function NotificationPanel({ onNavigate }: { onNavigate: (href: string) => void }) {
+  const { data: alerts = [], isLoading } = useQuery<NotificationAlert[]>({
+    queryKey: ["/api/notifications"],
+    refetchInterval: 60_000,
+  });
+
+  if (isLoading) return <div className="p-4 text-sm text-muted-foreground text-center">Loading…</div>;
+  if (alerts.length === 0) return <div className="p-6 text-sm text-muted-foreground text-center">No new alerts — you're all caught up!</div>;
+
+  return (
+    <div className="divide-y divide-border/40">
+      {alerts.map(a => {
+        const Icon = NOTIF_ICON[a.type] ?? AlertTriangle;
+        return (
+          <button key={a.id} onClick={() => onNavigate(a.link)}
+            className="flex items-start gap-3 w-full px-4 py-3 hover:bg-secondary/30 transition-colors text-left"
+            data-testid={`notif-${a.id}`}>
+            <div className={`mt-0.5 shrink-0 ${a.priority === "high" ? "text-primary" : "text-muted-foreground"}`}>
+              <Icon className="h-4 w-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{a.title}</p>
+              <p className="text-sm mt-0.5 leading-tight">{a.body}</p>
+            </div>
+            {a.priority === "high" && <div className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 type AuthUser = {
   id: number;
@@ -35,7 +75,7 @@ type AuthUser = {
 const quickCreateItems = [
   { label: "New Account", icon: Building2, url: "/accounts", event: "open-create-account" },
   { label: "New Contact", icon: Contact, url: "/contacts", event: "open-create-contact" },
-  { label: "New Opportunity", icon: UserPlus, url: "/opportunities", event: "open-create-opportunity" },
+  { label: "New Opportunity", icon: UserPlusIcon, url: "/opportunities", event: "open-create-opportunity" },
   { label: "New Quote", icon: FileText, url: "/quotes", event: "open-create-quote" },
   { label: "New Task", icon: CheckSquare, url: "/execution/team-workload", event: "open-create-task" },
   { label: "New Ticket", icon: Ticket, url: "/support/tickets", event: "open-create-ticket" },
@@ -151,15 +191,25 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
               />
             </button>
 
-            <Button
-              variant="ghost"
-              size="icon"
-              className="relative text-muted-foreground rounded-full"
-              data-testid="button-notifications"
-            >
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full ring-2 ring-background"></span>
-            </Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="relative text-muted-foreground rounded-full"
+                  data-testid="button-notifications"
+                >
+                  <Bell className="w-5 h-5" />
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full ring-2 ring-background" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80 p-0 max-h-[400px] overflow-y-auto">
+                <div className="px-4 py-3 border-b border-border/50">
+                  <p className="text-sm font-semibold">Notifications</p>
+                </div>
+                <NotificationPanel onNavigate={(href) => navigate(href)} />
+              </PopoverContent>
+            </Popover>
 
             <div className="h-6 w-px bg-border/50 mx-0.5 hidden sm:block"></div>
 

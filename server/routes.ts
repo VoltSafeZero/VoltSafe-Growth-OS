@@ -2824,6 +2824,374 @@ export async function registerRoutes(
     }
   });
 
+  // ── Daily Command Center ──────────────────────────────────────────────────
+
+  // Personal Today Dashboard
+  app.get("/api/dashboard/today", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const now = new Date();
+      const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date(now); todayEnd.setHours(23, 59, 59, 999);
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const twoHoursFromNow = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+
+      // Today's meetings
+      const todaysMeetings = await db.select({
+        id: calendarEvents.id, title: calendarEvents.title,
+        startTime: calendarEvents.startTime, endTime: calendarEvents.endTime,
+        eventType: calendarEvents.eventType, location: calendarEvents.location,
+        meetingUrl: calendarEvents.meetingUrl, status: calendarEvents.status,
+        invitees: calendarEvents.invitees,
+      }).from(calendarEvents)
+        .where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startTime, todayStart), lte(calendarEvents.startTime, todayEnd), ne(calendarEvents.status, "cancelled")))
+        .orderBy(asc(calendarEvents.startTime));
+
+      // Tasks due today
+      const tasksDueToday = await db.select().from(tasks)
+        .where(and(eq(tasks.ownerUserId, userId), eq(tasks.status, "pending"), gte(tasks.dueDate, todayStart), lte(tasks.dueDate, todayEnd)))
+        .orderBy(asc(tasks.dueDate)).limit(10);
+
+      // Overdue tasks
+      const overdueTasks = await db.select().from(tasks)
+        .where(and(eq(tasks.ownerUserId, userId), eq(tasks.status, "pending"), lte(tasks.dueDate, todayStart)))
+        .orderBy(desc(tasks.dueDate)).limit(10);
+
+      // New leads this week (opportunities in early stages assigned to user's accounts)
+      const newLeadRecords = await db.select({
+        id: leads.id, company: leads.company, contactName: leads.contactName,
+        contactEmail: leads.contactEmail, status: leads.status,
+        city: leads.city, state: leads.state, country: leads.country,
+        createdAt: leads.createdAt, dealAmount: leads.dealAmount,
+      }).from(leads)
+        .where(and(eq(leads.status, "inbound_new"), gte(leads.createdAt, sevenDaysAgo)))
+        .orderBy(desc(leads.createdAt)).limit(8);
+
+      // Hot opportunities (high priority/stage, assigned to user)
+      const hotOpportunities = await db.select({
+        id: opportunities.id, title: opportunities.title, stage: opportunities.stage,
+        amount: opportunities.amount, accountId: opportunities.accountId,
+        updatedAt: opportunities.updatedAt,
+      }).from(opportunities)
+        .where(and(
+          eq(opportunities.assignedToUserId, userId),
+          not(eq(opportunities.stage, "closed_won")),
+          not(eq(opportunities.stage, "closed_lost")),
+        ))
+        .orderBy(desc(opportunities.amount)).limit(6);
+
+      // Enrich hot opportunities with account names
+      const enrichedOpps = await Promise.all(hotOpportunities.map(async o => {
+        const [acc] = await db.select({ name: accounts.name }).from(accounts).where(eq(accounts.id, o.accountId)).limit(1);
+        return { ...o, accountName: acc?.name ?? "" };
+      }));
+
+      // Recent activity (recent email messages)
+      const recentActivity = await db.select({
+        id: emailMessages.id, subject: emailMessages.subject,
+        fromEmail: emailMessages.fromEmail, sentAt: emailMessages.sentAt,
+        direction: emailMessages.direction, snippet: emailMessages.snippet,
+      }).from(emailMessages)
+        .where(and(eq(emailMessages.userId, userId), gte(emailMessages.sentAt, sevenDaysAgo)))
+        .orderBy(desc(emailMessages.sentAt)).limit(8);
+
+      // Suggested next actions — opportunities with no recent activity
+      const stalledOpps = await db.select({
+        id: opportunities.id, title: opportunities.title, stage: opportunities.stage,
+        accountId: opportunities.accountId, lastActivityDate: opportunities.lastActivityDate,
+        amount: opportunities.amount,
+      }).from(opportunities)
+        .where(and(
+          eq(opportunities.assignedToUserId, userId),
+          not(eq(opportunities.stage, "closed_won")),
+          not(eq(opportunities.stage, "closed_lost")),
+          or(isNull(opportunities.lastActivityDate), lte(opportunities.lastActivityDate, sevenDaysAgo)),
+        ))
+        .orderBy(desc(opportunities.amount)).limit(5);
+
+      const suggestedActions: Array<{ type: string; text: string; link: string; priority: "high" | "medium" | "low" }> = [];
+
+      if (overdueTasks.length > 0)
+        suggestedActions.push({ type: "task", text: `You have ${overdueTasks.length} overdue task${overdueTasks.length > 1 ? "s" : ""}`, link: "/execution/team-workload", priority: "high" });
+
+      for (const opp of stalledOpps.slice(0, 3)) {
+        const [acc] = await db.select({ name: accounts.name }).from(accounts).where(eq(accounts.id, opp.accountId)).limit(1);
+        const daysStalled = opp.lastActivityDate ? Math.floor((now.getTime() - new Date(opp.lastActivityDate).getTime()) / 86400000) : 30;
+        suggestedActions.push({ type: "opportunity", text: `Follow up on "${opp.title}" (${acc?.name ?? ""}) — stalled ${daysStalled}d`, link: "/opportunities", priority: daysStalled > 14 ? "high" : "medium" });
+      }
+
+      if (newLeadRecords.length > 0)
+        suggestedActions.push({ type: "lead", text: `${newLeadRecords.length} new lead${newLeadRecords.length > 1 ? "s" : ""} arrived this week`, link: "/opportunities", priority: "medium" });
+
+      // Upcoming meeting (next 2 hours)
+      const nextMeeting = await db.select({ id: calendarEvents.id, title: calendarEvents.title, startTime: calendarEvents.startTime }).from(calendarEvents)
+        .where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startTime, now), lte(calendarEvents.startTime, twoHoursFromNow), ne(calendarEvents.status, "cancelled")))
+        .orderBy(asc(calendarEvents.startTime)).limit(1);
+
+      if (nextMeeting.length > 0) {
+        const mins = Math.floor((new Date(nextMeeting[0].startTime).getTime() - now.getTime()) / 60000);
+        suggestedActions.unshift({ type: "meeting", text: `"${nextMeeting[0].title}" starts in ${mins} min — review briefing`, link: "/execution/calendar", priority: "high" });
+      }
+
+      res.json({
+        todaysMeetings, tasksDueToday, overdueTasks, newLeads: newLeadRecords,
+        hotOpportunities: enrichedOpps, recentActivity, suggestedActions,
+        stats: {
+          meetingsToday: todaysMeetings.length, tasksDueCount: tasksDueToday.length,
+          overdueCount: overdueTasks.length, newLeadsCount: newLeadRecords.length,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Pipeline insights — stalled deals, no next step, forecast
+  app.get("/api/pipeline/insights", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const now = new Date();
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+
+      const [me] = await db.select({ globalRole: users.globalRole }).from(users).where(eq(users.id, userId)).limit(1);
+      const isAdminUser = me && ["master_admin", "admin"].includes(me.globalRole);
+
+      // Base condition: admin sees all, others see their own
+      const ownerCondition = isAdminUser ? undefined : eq(opportunities.assignedToUserId, userId);
+
+      const activeFilter = and(
+        ownerCondition,
+        not(eq(opportunities.stage, "closed_won")),
+        not(eq(opportunities.stage, "closed_lost")),
+      );
+
+      // All active opportunities
+      const allActive = await db.select({
+        id: opportunities.id, title: opportunities.title, stage: opportunities.stage,
+        amount: opportunities.amount, accountId: opportunities.accountId,
+        assignedToUserId: opportunities.assignedToUserId,
+        lastActivityDate: opportunities.lastActivityDate,
+        updatedAt: opportunities.updatedAt, createdAt: opportunities.createdAt,
+      }).from(opportunities)
+        .where(activeFilter)
+        .orderBy(desc(opportunities.amount));
+
+      // Enrich with account names
+      const accountMap = new Map<number, string>();
+      for (const o of allActive) {
+        if (!accountMap.has(o.accountId)) {
+          const [acc] = await db.select({ name: accounts.name }).from(accounts).where(eq(accounts.id, o.accountId)).limit(1);
+          if (acc) accountMap.set(o.accountId, acc.name);
+        }
+      }
+
+      // Enrich with user names
+      const userMap = new Map<number, string>();
+      const allUsers = await db.select({ id: users.id, name: users.name }).from(users);
+      for (const u of allUsers) userMap.set(u.id, u.name);
+
+      const enrich = (o: typeof allActive[0]) => ({
+        ...o,
+        accountName: accountMap.get(o.accountId) ?? "",
+        ownerName: o.assignedToUserId ? (userMap.get(o.assignedToUserId) ?? "Unassigned") : "Unassigned",
+        daysSinceActivity: o.lastActivityDate
+          ? Math.floor((now.getTime() - new Date(o.lastActivityDate).getTime()) / 86400000)
+          : Math.floor((now.getTime() - new Date(o.updatedAt).getTime()) / 86400000),
+      });
+
+      const enriched = allActive.map(enrich);
+
+      // Stalled: no activity in 7+ days
+      const stalled = enriched.filter(o => o.daysSinceActivity >= 7);
+
+      // No next step: just show all active for now (tasks with linkedObjectId)
+      const noNextStep = enriched.filter(o => o.daysSinceActivity >= 3 && o.stage !== "verbal_commit");
+
+      // High-value inactive (top 25% by amount, stalled 14+ days)
+      const amounts = enriched.map(o => o.amount ?? 0).sort((a, b) => b - a);
+      const p75 = amounts[Math.floor(amounts.length * 0.25)] ?? 0;
+      const highValueInactive = enriched.filter(o => (o.amount ?? 0) >= p75 && o.daysSinceActivity >= 14);
+
+      // Forecast by stage
+      const STAGE_PROBABILITY: Record<string, number> = {
+        inbound_new: 10, qualifying: 20, proposal: 40, negotiation: 65, verbal_commit: 85,
+      };
+      const byStage = Object.entries(STAGE_PROBABILITY).map(([stage, prob]) => {
+        const stageOpps = enriched.filter(o => o.stage === stage);
+        const totalAmount = stageOpps.reduce((sum, o) => sum + (o.amount ?? 0), 0);
+        return { stage, probability: prob, count: stageOpps.length, totalAmount, weightedAmount: Math.round(totalAmount * prob / 100) };
+      });
+
+      // Activity by owner
+      const byOwner = Array.from(
+        enriched.reduce((map, o) => {
+          const name = o.ownerName;
+          const entry = map.get(name) ?? { owner: name, count: 0, totalAmount: 0, stalled: 0 };
+          entry.count++;
+          entry.totalAmount += o.amount ?? 0;
+          if (o.daysSinceActivity >= 7) entry.stalled++;
+          return map.set(name, entry);
+        }, new Map<string, { owner: string; count: number; totalAmount: number; stalled: number }>())
+      ).map(([, v]) => v).sort((a, b) => b.totalAmount - a.totalAmount);
+
+      res.json({ stalled, noNextStep, highValueInactive, byStage, byOwner, totalActive: enriched.length, totalPipeline: enriched.reduce((s, o) => s + (o.amount ?? 0), 0) });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Smart notifications — high-signal alerts
+  app.get("/api/notifications", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const now = new Date();
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const twoHoursFromNow = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+
+      const alerts: Array<{ id: string; type: string; title: string; body: string; link: string; priority: string; createdAt: string }> = [];
+
+      // Upcoming meetings in next 2 hours
+      const upcomingMeetings = await db.select({ id: calendarEvents.id, title: calendarEvents.title, startTime: calendarEvents.startTime }).from(calendarEvents)
+        .where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startTime, now), lte(calendarEvents.startTime, twoHoursFromNow), ne(calendarEvents.status, "cancelled")))
+        .orderBy(asc(calendarEvents.startTime));
+      for (const m of upcomingMeetings) {
+        const mins = Math.floor((new Date(m.startTime).getTime() - now.getTime()) / 60000);
+        alerts.push({ id: `meeting-${m.id}`, type: "meeting", title: "Upcoming Meeting", body: `"${m.title}" in ${mins} min`, link: "/execution/calendar", priority: "high", createdAt: now.toISOString() });
+      }
+
+      // Overdue tasks
+      const overdueTasks = await db.select({ id: tasks.id, title: tasks.title, dueDate: tasks.dueDate }).from(tasks)
+        .where(and(eq(tasks.ownerUserId, userId), eq(tasks.status, "pending"), lte(tasks.dueDate, now)))
+        .orderBy(asc(tasks.dueDate)).limit(5);
+      if (overdueTasks.length > 0)
+        alerts.push({ id: "overdue-tasks", type: "task", title: "Overdue Tasks", body: `${overdueTasks.length} task${overdueTasks.length > 1 ? "s" : ""} past due — "${overdueTasks[0].title}"`, link: "/execution/team-workload", priority: "high", createdAt: now.toISOString() });
+
+      // Stalled deals (no activity 7+ days)
+      const stalledDeals = await db.select({ id: opportunities.id, title: opportunities.title, lastActivityDate: opportunities.lastActivityDate, accountId: opportunities.accountId })
+        .from(opportunities)
+        .where(and(
+          eq(opportunities.assignedToUserId, userId),
+          not(eq(opportunities.stage, "closed_won")),
+          not(eq(opportunities.stage, "closed_lost")),
+          or(isNull(opportunities.lastActivityDate), lte(opportunities.lastActivityDate, sevenDaysAgo)),
+        ))
+        .orderBy(asc(opportunities.lastActivityDate)).limit(5);
+      if (stalledDeals.length > 0)
+        alerts.push({ id: "stalled-deals", type: "deal", title: "Stalled Deals", body: `${stalledDeals.length} deal${stalledDeals.length > 1 ? "s" : ""} with no activity in 7+ days`, link: "/pipeline", priority: "high", createdAt: now.toISOString() });
+
+      // New leads this week
+      const newLeadCount = await db.select({ n: count() }).from(leads)
+        .where(and(eq(leads.status, "inbound_new"), gte(leads.createdAt, sevenDaysAgo)));
+      if (Number(newLeadCount[0]?.n ?? 0) > 0)
+        alerts.push({ id: "new-leads", type: "lead", title: "New Leads", body: `${newLeadCount[0].n} new lead${Number(newLeadCount[0].n) > 1 ? "s" : ""} this week`, link: "/opportunities", priority: "medium", createdAt: now.toISOString() });
+
+      // Recent important inbound emails (last 24h)
+      const recentInbound = await db.select({ id: emailMessages.id, subject: emailMessages.subject, fromEmail: emailMessages.fromEmail, sentAt: emailMessages.sentAt })
+        .from(emailMessages)
+        .where(and(eq(emailMessages.userId, userId), eq(emailMessages.direction, "inbound"), gte(emailMessages.sentAt, new Date(now.getTime() - 24 * 60 * 60 * 1000))))
+        .orderBy(desc(emailMessages.sentAt)).limit(3);
+      for (const email of recentInbound.slice(0, 2)) {
+        alerts.push({ id: `email-${email.id}`, type: "email", title: "New Email", body: `${email.fromEmail}: ${email.subject || "(no subject)"}`, link: "/gmail", priority: "medium", createdAt: email.sentAt?.toISOString() ?? now.toISOString() });
+      }
+
+      res.json(alerts.sort((a, b) => a.priority === "high" && b.priority !== "high" ? -1 : 1));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // AI Meeting Briefing
+  app.post("/api/calendar/events/:id/briefing", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const now = new Date();
+      const eventId = Number(req.params.id);
+      const [event] = await db.select().from(calendarEvents)
+        .where(and(eq(calendarEvents.id, eventId), eq(calendarEvents.userId, userId))).limit(1);
+      if (!event) return res.status(404).json({ message: "Event not found" });
+
+      const invitees: string[] = (event.invitees || []).filter(Boolean);
+
+      // Build CRM context
+      const matchedContactsList: string[] = [];
+      const accountNames: string[] = [];
+      const accountIdSet = new Set<number>();
+
+      for (const email of invitees) {
+        const [contact] = await db.select({ name: contacts.name, title: contacts.title, accountId: contacts.accountId }).from(contacts).where(eq(contacts.email, email.toLowerCase())).limit(1);
+        if (contact) {
+          const [acc] = await db.select({ name: accounts.name, segment: accounts.segment, leadStatus: accounts.leadStatus }).from(accounts).where(eq(accounts.id, contact.accountId)).limit(1);
+          matchedContactsList.push(`${contact.name}${contact.title ? ` (${contact.title})` : ""} at ${acc?.name ?? "Unknown"}`);
+          if (acc) { accountNames.push(`${acc.name} — ${acc.segment ?? ""}, status: ${acc.leadStatus ?? "unknown"}`); accountIdSet.add(contact.accountId); }
+        } else {
+          const domain = email.split("@")[1];
+          if (domain && !["gmail.com","outlook.com","yahoo.com","hotmail.com"].includes(domain)) {
+            const [acc] = await db.select({ id: accounts.id, name: accounts.name, segment: accounts.segment, leadStatus: accounts.leadStatus }).from(accounts).where(sql`website ILIKE ${"%" + domain + "%"}`).limit(1);
+            if (acc) { accountNames.push(`${acc.name} — ${acc.segment ?? ""}, status: ${acc.leadStatus ?? "unknown"}`); accountIdSet.add(acc.id); }
+            else matchedContactsList.push(`Unknown (${email})`);
+          } else {
+            matchedContactsList.push(`Unknown (${email})`);
+          }
+        }
+      }
+
+      // Open opportunities
+      const oppLines: string[] = [];
+      for (const id of accountIdSet) {
+        const opps = await db.select({ title: opportunities.title, stage: opportunities.stage, amount: opportunities.amount }).from(opportunities)
+          .where(and(eq(opportunities.accountId, id), not(eq(opportunities.stage, "closed_won")), not(eq(opportunities.stage, "closed_lost")))).limit(3);
+        for (const o of opps) oppLines.push(`"${o.title}" — stage: ${o.stage}, value: $${(o.amount ?? 0).toLocaleString()}`);
+      }
+
+      // Recent emails
+      const emailLines: string[] = [];
+      for (const email of invitees.slice(0, 2)) {
+        const msgs = await db.select({ subject: emailMessages.subject, direction: emailMessages.direction, sentAt: emailMessages.sentAt, snippet: emailMessages.snippet })
+          .from(emailMessages).where(sql`(from_email ILIKE ${"%" + email + "%"} OR to_emails ILIKE ${"%" + email + "%"})`).orderBy(desc(emailMessages.sentAt)).limit(3);
+        for (const m of msgs) emailLines.push(`[${m.direction}] ${m.subject ?? "(no subject)"} on ${m.sentAt ? new Date(m.sentAt).toLocaleDateString() : "?"}${m.snippet ? " — " + m.snippet.substring(0, 80) : ""}`);
+      }
+
+      // Build prompt
+      const { openai } = await import("./replit_integrations/audio/client");
+      const prompt = `You are an expert sales strategist preparing a briefing for a B2B sales meeting at VoltSafe (marine EV charging company).
+
+MEETING: "${event.title}"
+DATE: ${new Date(event.startTime).toLocaleString()}
+${event.description ? `NOTES: ${event.description.substring(0, 300)}` : ""}
+
+ATTENDEES: ${matchedContactsList.length > 0 ? matchedContactsList.join("; ") : "Unknown"}
+
+ACCOUNTS: ${accountNames.length > 0 ? accountNames.join(" | ") : "Not in CRM"}
+
+OPEN DEALS: ${oppLines.length > 0 ? oppLines.join(" | ") : "None found"}
+
+RECENT EMAILS: ${emailLines.length > 0 ? emailLines.join(" | ") : "None found"}
+
+Generate a concise pre-meeting briefing in JSON format with these exact keys:
+{
+  "context": "2-3 sentence company/relationship summary",
+  "talkingPoints": ["point 1", "point 2", "point 3", "point 4"],
+  "risks": ["risk 1", "risk 2"],
+  "desiredOutcome": "single sentence — the #1 goal of this meeting",
+  "openingQuestion": "a strong opening question to ask the prospect"
+}`;
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+        max_tokens: 600,
+        temperature: 0.5,
+      });
+
+      const briefing = JSON.parse(completion.choices[0].message.content ?? "{}");
+      res.json({ ...briefing, generatedAt: now.toISOString() });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Gmail mailbox isolation helper (Phase 1) ─────────────────────────────
   // Returns the user's own active email_accounts record (first one found).
   async function getUserGmailAccount(userId: number) {

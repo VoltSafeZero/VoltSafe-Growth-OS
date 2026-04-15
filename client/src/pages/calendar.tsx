@@ -64,6 +64,8 @@ import {
   ChevronDown,
   CircleCheck,
   AlertTriangle,
+  Sparkles,
+  Bot,
 } from "lucide-react";
 import {
   Tabs,
@@ -1793,6 +1795,80 @@ function MetricsBar() {
   );
 }
 
+// ─── AI Briefing Tab ──────────────────────────────────────────────────────────
+
+function BriefingTab({ eventId }: { eventId: number }) {
+  const [briefing, setBriefing] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const generate = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiRequest("POST", `/api/calendar/events/${eventId}/briefing`);
+      const data = await res.json();
+      setBriefing(data.briefing ?? data.summary ?? JSON.stringify(data));
+    } catch (e: any) {
+      setError(e.message ?? "Failed to generate briefing");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {!briefing && !loading && (
+        <div className="flex flex-col items-center gap-4 py-8 text-center">
+          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <Sparkles className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <p className="text-sm font-medium">AI Meeting Briefing</p>
+            <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+              Generate an AI-powered briefing with CRM context, talking points, and preparation notes for this meeting.
+            </p>
+          </div>
+          <Button size="sm" onClick={generate} data-testid="button-generate-briefing">
+            <Bot className="h-4 w-4 mr-2" /> Generate Briefing
+          </Button>
+        </div>
+      )}
+
+      {loading && (
+        <div className="flex flex-col items-center gap-3 py-10">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Preparing your briefing…</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-md bg-destructive/10 border border-destructive/20 p-4 text-sm text-destructive">
+          {error}
+          <Button variant="ghost" size="sm" className="mt-2 w-full" onClick={generate}>Retry</Button>
+        </div>
+      )}
+
+      {briefing && !loading && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              AI-generated briefing
+            </div>
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={generate} data-testid="button-regenerate-briefing">
+              <RefreshCw className="h-3 w-3 mr-1" /> Regenerate
+            </Button>
+          </div>
+          <div className="rounded-lg bg-secondary/30 border border-border/40 p-4 text-sm leading-relaxed whitespace-pre-wrap">
+            {briefing}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Event Detail Dialog (tabbed) ────────────────────────────────────────────
 
 function EventDetailDialog({
@@ -1888,6 +1964,9 @@ function EventDetailDialog({
             <TabsTrigger value="crm" className="text-xs h-6 px-3" data-testid="tab-crm">
               CRM{crmCount > 0 ? ` (${crmCount})` : ""}
             </TabsTrigger>
+            <TabsTrigger value="briefing" className="text-xs h-6 px-3" data-testid="tab-briefing">
+              <Sparkles className="h-3 w-3 mr-1" />Briefing
+            </TabsTrigger>
             {isPast && (
               <TabsTrigger value="post-meeting" className="text-xs h-6 px-3" data-testid="tab-post-meeting">
                 Post-Meeting
@@ -1969,6 +2048,11 @@ function EventDetailDialog({
           {/* CRM tab */}
           <TabsContent value="crm" className="flex-1 overflow-y-auto px-6 pb-6 mt-3">
             <CRMContextTab eventId={event.id} crmCtx={crmCtx} isLoading={crmLoading} />
+          </TabsContent>
+
+          {/* AI Briefing tab */}
+          <TabsContent value="briefing" className="flex-1 overflow-y-auto px-6 pb-6 mt-3">
+            <BriefingTab eventId={event.id} />
           </TabsContent>
 
           {/* Post-Meeting tab */}
