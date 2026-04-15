@@ -142,6 +142,17 @@ async function getAccessibleAccountIds(
   return [...new Set([...ownIds, ...sharedIds])];
 }
 
+// Module-level admin guard — available to all route-registration functions.
+// Checks globalRole stored in session at login time (set by requireAuth flow).
+function requireAdmin(req: any, res: any, next: any) {
+  if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
+  const role = String((req.session as any).globalRole || "");
+  if (!["master_admin", "admin"].includes(role)) {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  next();
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -408,7 +419,7 @@ export async function registerRoutes(
   app.use("/api/asset-folders", requireAuth, requirePermission("knowledge", "view"));
   // Partnerships section — view permission required for all reads
   app.use("/api/partnerships", requireAuth, requirePermission("partnerships", "view"));
-  app.use("/api/ecosystem", requireAuth);
+  app.use("/api/ecosystem", requireAuth, requirePermission("partnerships", "view"));
   app.use("/api/geocode", requireAuth);
 
   app.get("/api/metrics", async (_req, res) => {
@@ -6245,7 +6256,9 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/tags/:id", requireAuth, async (req, res) => {
+  // Global tag deletion removes the tag for every record that uses it —
+  // scoped to admin-only to prevent accidental shared-vocabulary destruction.
+  app.delete("/api/tags/:id", requireAdmin, async (req, res) => {
     try {
       const ok = await storage.deleteTag(Number(req.params.id));
       if (!ok) return res.status(404).json({ message: "Not found" });

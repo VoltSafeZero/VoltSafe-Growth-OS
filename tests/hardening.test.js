@@ -719,6 +719,123 @@ async function run() {
     fail(`Admin POST ecosystem region returned ${adminEcoCreateRes.status}`, b.slice(0, 100));
   }
 
+  // ── 13. ECOSYSTEM READS require partnerships:view ─────────────────────────
+  // app.use("/api/ecosystem", requireAuth, requirePermission("partnerships","view"))
+  // now guards ALL ecosystem routes including GETs.
+  // viewer@voltsafe.com has no partnerships permission → 403.
+  // Admin (Trevor, master_admin) → 200.
+  console.log("\n── 13. Ecosystem reads require partnerships=view ──");
+
+  // Unauthenticated → 401
+  await check(
+    "GET /api/ecosystem/organizations (unauthed)    [401]",
+    fetch(`${BASE}/api/ecosystem/organizations`),
+    401
+  );
+  await check(
+    "GET /api/ecosystem/people (unauthed)           [401]",
+    fetch(`${BASE}/api/ecosystem/people`),
+    401
+  );
+
+  // Viewer (no partnerships:view) → 403 on all ecosystem GETs
+  if (viewerCookie2) {
+    const v = authed(viewerCookie2);
+    const vOrgRes = await v("/api/ecosystem/organizations");
+    vOrgRes.status === 403
+      ? ok("Viewer (no partnerships perm) GET ecosystem/organizations \u2192 403")
+      : fail(`Expected 403, got ${vOrgRes.status}`);
+
+    const vPplRes = await v("/api/ecosystem/people");
+    vPplRes.status === 403
+      ? ok("Viewer GET ecosystem/people \u2192 403")
+      : fail(`Expected 403, got ${vPplRes.status}`);
+
+    const vRelRes = await v("/api/ecosystem/relationships");
+    vRelRes.status === 403
+      ? ok("Viewer GET ecosystem/relationships \u2192 403")
+      : fail(`Expected 403, got ${vRelRes.status}`);
+
+    const vEvtRes = await v("/api/ecosystem/events");
+    vEvtRes.status === 403
+      ? ok("Viewer GET ecosystem/events \u2192 403")
+      : fail(`Expected 403, got ${vEvtRes.status}`);
+
+    const vRegRes = await v("/api/ecosystem/regions");
+    vRegRes.status === 403
+      ? ok("Viewer GET ecosystem/regions \u2192 403")
+      : fail(`Expected 403, got ${vRegRes.status}`);
+  }
+
+  // Admin (Trevor) → 200 on ecosystem reads
+  const adminOrgRes = await t("/api/ecosystem/organizations");
+  await checkOneOf(
+    "Admin GET /api/ecosystem/organizations         [200]",
+    Promise.resolve(adminOrgRes),
+    200
+  );
+  const adminRegRes = await t("/api/ecosystem/regions");
+  await checkOneOf(
+    "Admin GET /api/ecosystem/regions              [200]",
+    Promise.resolve(adminRegRes),
+    200
+  );
+
+  // ── 14. TAG DELETION requires admin ─────────────────────────────────────
+  // DELETE /api/tags/:id uses requireAdmin — removes a global tag for all records.
+  // DELETE /api/record-tags uses requireAuth — unlinks a tag from one record only.
+  console.log("\n── 14. Tag deletion permissions ──");
+
+  // Unauthenticated → 401 on global tag delete (requireAdmin checks session.userId)
+  await check(
+    "DELETE /api/tags/99999 (unauthed)              [401]",
+    fetch(`${BASE}/api/tags/99999`, { method: "DELETE" }),
+    401
+  );
+
+  // Viewer → 403 on global tag delete (not an admin)
+  if (viewerCookie2) {
+    const v = authed(viewerCookie2);
+    const viewerTagDelRes = await v("/api/tags/99999", { method: "DELETE" });
+    viewerTagDelRes.status === 403
+      ? ok("Viewer cannot DELETE global tag \u2192 403")
+      : fail(`Expected 403 for viewer tag delete, got ${viewerTagDelRes.status}`);
+  }
+
+  // Admin (Trevor) — create a tag then delete it
+  const adminTagCreateRes = await t("/api/tags", {
+    method: "POST",
+    body: JSON.stringify({ name: "hardening-test-tag-" + Date.now(), category: "test" }),
+  });
+  if (adminTagCreateRes.status === 201) {
+    const newTag = await adminTagCreateRes.json();
+    ok(`Admin created test tag (id=${newTag.id})`);
+    const adminTagDelRes = await t(`/api/tags/${newTag.id}`, { method: "DELETE" });
+    adminTagDelRes.ok
+      ? ok(`Admin can DELETE global tag \u2192 200 (cleaned up id=${newTag.id})`)
+      : fail(`Admin tag delete returned ${adminTagDelRes.status}`);
+  } else {
+    const b = await adminTagCreateRes.text().catch(() => "");
+    fail(`Admin POST /api/tags returned ${adminTagCreateRes.status}`, b.slice(0, 100));
+  }
+
+  // Unauthenticated → 401 on record-tag unlink (requireAuth gate)
+  await check(
+    "DELETE /api/record-tags (unauthed)             [401]",
+    fetch(`${BASE}/api/record-tags`, { method: "DELETE" }),
+    401
+  );
+
+  // Authenticated viewer → 400 (requireAuth passes; missing params caught by validation)
+  // This confirms the endpoint is auth-gated but intentionally broader than admin.
+  if (viewerCookie2) {
+    const v = authed(viewerCookie2);
+    const viewerRecTagRes = await v("/api/record-tags", { method: "DELETE" });
+    viewerRecTagRes.status === 400
+      ? ok("Viewer DELETE /api/record-tags without params \u2192 400 (auth passes, validation rejects)")
+      : fail(`Expected 400, got ${viewerRecTagRes.status}`);
+  }
+
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log(`\n${"─".repeat(50)}`);
   console.log(`Results: ${passed} passed, ${failed} failed`);
