@@ -17,7 +17,7 @@ const DEDUPE_WINDOW   = 60;   // seconds — rapid same-source events within thi
 
 // ── Bot UA patterns ────────────────────────────────────────────────────────────
 const BOT_UA: RegExp[] = [
-  /googleimageproxy/i, /yahoo.*mail/i, /yahooysmtp/i,
+  /googleimageproxy/i, /yahoo.*mail/i, /yahooysmtp/i, /yahoo.*slurp/i,
   /outlook.*safelin/i, /safelinks\.protection\.outlook/i,
   /applemail.*prefetch/i, /apple.*mail/i,   // Apple MPP privacy relay
   /thunderbird/i, /mailtrack/i, /litmus/i,

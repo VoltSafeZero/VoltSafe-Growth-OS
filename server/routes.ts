@@ -43,6 +43,8 @@ import { generateGlobalSuggestions } from "./services/global-suggestions";
 import {
   generateTrackingId, injectTracking, recordOpen, recordClick, getEngagementStats,
 } from "./tracking";
+import { startEngagementScheduler } from "./services/engagement-scheduler";
+import { seedDefaultRules } from "./services/engagement-defaults";
 import {
   emailMessages, emailThreads, emailAssociations, associationFeedback, emailFilters, scheduledEmails,
   emailAccounts,
@@ -235,7 +237,7 @@ export async function registerRoutes(
         WHERE gmail_message_id = '${gmailMessageId.replace(/'/g, "''")}'
         LIMIT 1
       `))).rows as any[];
-      if (!pixel) return res.json({ trackingId: null, opens: 0, uniqueOpens: 0, clicks: 0, uniqueClicks: 0, firstOpenAt: null, lastOpenAt: null, events: [] });
+      if (!pixel) return res.json({ trackingId: null, opens: 0, uniqueOpens: 0, clicks: 0, uniqueClicks: 0, firstOpenAt: null, lastOpenAt: null, score: 0, signalLevel: "none", isHot: false, events: [] });
       const stats = await getEngagementStats(pixel.tracking_id);
       res.json({ trackingId: pixel.tracking_id, ...stats });
     } catch (err: any) {
@@ -255,16 +257,19 @@ export async function registerRoutes(
 
   app.post("/api/email-engagement-rules", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
     try {
-      const { name, triggerType, minEvents, actionType, actionConfig, isEnabled } = req.body;
+      const { name, triggerType, minEvents, actionType, actionConfig, triggerConfig, cooldownHours, isEnabled } = req.body;
       if (!name || !triggerType || !actionType) return res.status(400).json({ message: "name, triggerType, actionType required" });
       const [row] = (await db.execute(sql.raw(`
-        INSERT INTO email_engagement_rules (name, trigger_type, min_events, action_type, action_config, is_enabled, created_at, updated_at)
+        INSERT INTO email_engagement_rules
+          (name, trigger_type, min_events, action_type, action_config, trigger_config, cooldown_hours, is_enabled, created_at, updated_at)
         VALUES (
           '${String(name).replace(/'/g, "''")}',
           '${String(triggerType).replace(/'/g, "''")}',
           ${Number(minEvents) || 1},
           '${String(actionType).replace(/'/g, "''")}',
           ${actionConfig ? `'${JSON.stringify(actionConfig).replace(/'/g, "''")}'::jsonb` : "NULL"},
+          ${triggerConfig ? `'${JSON.stringify(triggerConfig).replace(/'/g, "''")}'::jsonb` : "'{}'::jsonb"},
+          ${Number(cooldownHours) || 24},
           ${isEnabled !== false},
           NOW(), NOW()
         ) RETURNING *
@@ -278,12 +283,19 @@ export async function registerRoutes(
   app.patch("/api/email-engagement-rules/:id", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
     try {
       const id = Number(req.params.id);
+      const r = req.body;
       const updates: string[] = ["updated_at = NOW()"];
-      if (req.body.isEnabled !== undefined) updates.push(`is_enabled = ${Boolean(req.body.isEnabled)}`);
-      if (req.body.name) updates.push(`name = '${String(req.body.name).replace(/'/g, "''")}'`);
-      if (req.body.minEvents) updates.push(`min_events = ${Number(req.body.minEvents)}`);
-      if (req.body.actionConfig !== undefined) updates.push(`action_config = '${JSON.stringify(req.body.actionConfig).replace(/'/g, "''")}'::jsonb`);
-      const [row] = (await db.execute(sql.raw(`UPDATE email_engagement_rules SET ${updates.join(", ")} WHERE id = ${id} RETURNING *`))).rows as any[];
+      if (r.isEnabled !== undefined)  updates.push(`is_enabled = ${Boolean(r.isEnabled)}`);
+      if (r.name)                     updates.push(`name = '${String(r.name).replace(/'/g, "''")}'`);
+      if (r.minEvents !== undefined)  updates.push(`min_events = ${Number(r.minEvents)}`);
+      if (r.cooldownHours !== undefined) updates.push(`cooldown_hours = ${Number(r.cooldownHours)}`);
+      if (r.actionConfig !== undefined)  updates.push(`action_config = '${JSON.stringify(r.actionConfig).replace(/'/g, "''")}'::jsonb`);
+      if (r.triggerConfig !== undefined) updates.push(`trigger_config = '${JSON.stringify(r.triggerConfig).replace(/'/g, "''")}'::jsonb`);
+      if (r.triggerType) updates.push(`trigger_type = '${String(r.triggerType).replace(/'/g, "''")}'`);
+      if (r.actionType)  updates.push(`action_type  = '${String(r.actionType).replace(/'/g, "''")}'`);
+      const [row] = (await db.execute(sql.raw(
+        `UPDATE email_engagement_rules SET ${updates.join(", ")} WHERE id = ${id} RETURNING *`
+      ))).rows as any[];
       if (!row) return res.status(404).json({ message: "Rule not found" });
       res.json(row);
     } catch (err: any) {
@@ -7798,11 +7810,36 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const msgs = await db.select().from(emailMessages)
         .where(inArray(emailMessages.id, msgIds));
 
+      // Batch-fetch signal data for outbound emails
+      const outboundGmailIds = msgs
+        .filter(m => m.direction === "outbound" && m.gmailMessageId)
+        .map(m => `'${String(m.gmailMessageId).replace(/'/g, "''")}'`);
+
+      const signalMap: Record<string, { signalLevel: string; isHot: boolean; engagementScore: number }> = {};
+      if (outboundGmailIds.length > 0) {
+        const pixelRows = (await db.execute(sql.raw(`
+          SELECT gmail_message_id, signal_level, is_hot, engagement_score
+          FROM email_tracking_pixels
+          WHERE gmail_message_id IN (${outboundGmailIds.join(",")})
+        `))).rows as any[];
+        for (const r of pixelRows) {
+          signalMap[r.gmail_message_id] = {
+            signalLevel: r.signal_level || "none",
+            isHot: Boolean(r.is_hot),
+            engagementScore: Number(r.engagement_score || 0),
+          };
+        }
+      }
+
       const result = msgs.map(msg => {
         const assoc = assocs.find(a => a.emailMessageId === msg.id);
+        const signal = msg.gmailMessageId ? (signalMap[msg.gmailMessageId] ?? null) : null;
         return {
           ...msg,
           association: assoc,
+          signalLevel: signal?.signalLevel ?? null,
+          isHot: signal?.isHot ?? false,
+          engagementScore: signal?.engagementScore ?? 0,
         };
       }).sort((a, b) => {
         const aTime = a.sentAt ? new Date(a.sentAt).getTime() : 0;
@@ -9665,4 +9702,8 @@ export function registerConfluenceRoutes(app: Express) {
       res.status(500).json({ message: err.message });
     }
   });
+
+  // ── Engagement scheduler + default rules ────────────────────────────────────
+  seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
+  startEngagementScheduler();
 }
