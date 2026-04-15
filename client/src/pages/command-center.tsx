@@ -344,7 +344,7 @@ export default function CommandCenter() {
   const statCards = [
     { label: "Open Opportunities", value: stats.openOpportunities, icon: TrendingUp, color: "bg-blue-500/10 text-blue-400", link: "/opportunities" },
     { label: "Hot Deals", value: stats.hotDeals, icon: Flame, color: "bg-orange-500/10 text-orange-400", link: "/pipeline" },
-    { label: "Overdue Follow-ups", value: stats.overdueFollowUps, icon: AlertTriangle, color: stats.overdueFollowUps > 0 ? "bg-red-500/10 text-red-400" : "bg-muted text-muted-foreground", link: "/execution/team-workload" },
+    { label: "Overdue Follow-ups", value: stats.overdueFollowUps, icon: AlertTriangle, color: stats.overdueFollowUps > 0 ? "bg-red-500/10 text-red-400" : "bg-muted text-muted-foreground", link: "/execution/tasks" },
     { label: "Meetings Today", value: stats.meetingsToday, icon: CalendarDays, color: "bg-purple-500/10 text-purple-400", link: "/execution/calendar" },
     { label: "Partnerships", value: stats.activePartnerships, icon: Handshake, color: "bg-violet-500/10 text-violet-400", link: "/strategy/partnerships" },
     { label: "Investor Conversations", value: stats.investorConversations, icon: Star, color: "bg-amber-500/10 text-amber-400", link: "/strategy/partnerships" },

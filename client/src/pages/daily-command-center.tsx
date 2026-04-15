@@ -400,7 +400,7 @@ function WeekPrioritiesSection({ section }: { section: DailyCommandCenterData["s
                             `Due ${format(due, "EEE MMM d")}`;
               const link = t.linked_object_type && t.linked_object_id
                 ? `/${t.linked_object_type}s/${t.linked_object_id}`
-                : "/tasks";
+                : "/execution/tasks";
               return (
                 <Link key={t.id} href={link}>
                   <div className="flex items-center gap-2 py-2 px-2 -mx-2 rounded-md hover:bg-muted/40 cursor-pointer transition-colors" data-testid={`task-week-${t.id}`}>
@@ -496,7 +496,7 @@ export default function DailyCommandCenter() {
         <div className="lg:col-span-2 flex flex-col gap-4">
 
           {/* Overdue Tasks */}
-          <Section icon={AlertTriangle} title="Overdue Tasks" count={sections?.overdueTasks.count ?? 0} viewAllLink="/tasks" accent={sections?.overdueTasks.count ? "border-red-500/30" : undefined}>
+          <Section icon={AlertTriangle} title="Overdue Tasks" count={sections?.overdueTasks.count ?? 0} viewAllLink="/execution/tasks" accent={sections?.overdueTasks.count ? "border-red-500/30" : undefined}>
             {isLoading ? <SectionSkeleton /> : <OverdueTasksSection section={sections!.overdueTasks} />}
           </Section>
 
@@ -546,7 +546,7 @@ export default function DailyCommandCenter() {
                 ["/opportunities", TrendingUp, "Pipeline"],
                 ["/accounts",     Building2,  "Accounts"],
                 ["/contacts",     Users,      "Contacts"],
-                ["/tasks",        CheckSquare,"Tasks"],
+                ["/execution/tasks",        CheckSquare,"Tasks"],
                 ["/pipeline",     Flame,      "Pipeline Health"],
                 ["/inbox",        Mail,       "Inbox"],
               ] as [string, React.ElementType, string][]).map(([href, Icon, label]) => (

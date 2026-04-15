@@ -51,6 +51,7 @@ import AccountProfilePage from "@/pages/account-profile";
 import OpportunityProfilePage from "@/pages/opportunity-profile";
 import ActivityFeedPage from "@/pages/activity-feed";
 import NotesPage from "@/pages/notes-page";
+import TasksHubPage from "@/pages/tasks-hub";
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -200,6 +201,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/execution/projects">{() => guard("projects", <ProjectsPage />)}</Route>
       <Route path="/execution/communications">{() => guard("communications", <CommunicationsPage />)}</Route>
       <Route path="/execution/team-workload">{() => guard("team_workload", <TeamWorkloadPage />)}</Route>
+      <Route path="/execution/tasks">{() => wrap(<TasksHubPage />)}</Route>
 
       {/* ── KNOWLEDGE ─────────────────────────────────────────────── */}
       <Route path="/knowledge/assets">{() => guard("knowledge", <AssetsPage />)}</Route>
@@ -216,6 +218,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/settings">{() => wrap(<SettingsPage />)}</Route>
 
       {/* ── LEGACY REDIRECTS ──────────────────────────────────────── */}
+      <Route path="/tasks">{() => <Redirect to="/execution/tasks" />}</Route>
       <Route path="/leads">{() => <Redirect to="/opportunities" />}</Route>
       <Route path="/tickets">{() => <Redirect to="/support/tickets" />}</Route>
       <Route path="/calendar">{() => <Redirect to="/execution/calendar" />}</Route>

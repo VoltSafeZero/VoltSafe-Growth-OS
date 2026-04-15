@@ -382,6 +382,8 @@ export const tasks = pgTable("tasks", {
   priority: text("priority").notNull().default("medium"),
   aiSuggested: boolean("ai_suggested").default(false),
   reminderAt: timestamp("reminder_at"),
+  source: text("source").default("manual"),
+  snoozedUntil: timestamp("snoozed_until"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

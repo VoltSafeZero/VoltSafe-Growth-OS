@@ -202,7 +202,7 @@ export default function Dashboard() {
 
       {/* Overdue alert */}
       {summary && summary.overdueTasks > 0 && (
-        <Link href="/execution/team-workload" data-testid="card-overdue-tasks">
+        <Link href="/execution/tasks" data-testid="card-overdue-tasks">
           <Card className="border-orange-500/30 bg-orange-500/5 hover:border-orange-500/50 transition-colors cursor-pointer">
             <CardContent className="flex items-center gap-3 p-4">
               <AlertTriangle className="h-5 w-5 text-orange-400" />

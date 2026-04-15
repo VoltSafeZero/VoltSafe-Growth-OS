@@ -2376,9 +2376,182 @@ export async function registerRoutes(
   });
 
   app.put("/api/tasks/:id", requireAuth, async (req, res) => {
-    const result = await storage.updateTask(Number(req.params.id), req.body);
+    const body = { ...req.body };
+    if (body.dueDate && typeof body.dueDate === "string") body.dueDate = new Date(body.dueDate);
+    if (body.reminderAt && typeof body.reminderAt === "string") body.reminderAt = new Date(body.reminderAt);
+    if (body.snoozedUntil && typeof body.snoozedUntil === "string") body.snoozedUntil = new Date(body.snoozedUntil);
+    if (body.snoozedUntil === null) body.snoozedUntil = null;
+    const result = await storage.updateTask(Number(req.params.id), body);
     if (!result) return res.status(404).json({ message: "Task not found" });
     res.json(result);
+  });
+
+  // ── Tasks Hub — rich read with joins, views, grouping ──────────────────
+  app.get("/api/tasks/hub", async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const isAdminUser = req.session.globalRole === "master_admin" || req.session.globalRole === "admin";
+      const view = (req.query.view as string) || "my";
+      const groupBy = (req.query.groupBy as string) || "due_date";
+      const now = new Date();
+      const todayStart = new Date(now); todayStart.setHours(0,0,0,0);
+      const todayEnd = new Date(now); todayEnd.setHours(23,59,59,999);
+      const sevenDaysOut = new Date(now); sevenDaysOut.setDate(now.getDate() + 7);
+
+      let whereClause = "";
+      switch (view) {
+        case "my":
+          whereClause = `t.owner_user_id = ${userId} AND t.status NOT IN ('done','completed') AND (t.snoozed_until IS NULL OR t.snoozed_until <= NOW())`;
+          break;
+        case "team":
+          whereClause = `t.status NOT IN ('done','completed') AND (t.snoozed_until IS NULL OR t.snoozed_until <= NOW())`;
+          break;
+        case "today":
+          whereClause = `t.status NOT IN ('done','completed') AND t.due_date >= '${todayStart.toISOString()}' AND t.due_date <= '${todayEnd.toISOString()}' ${isAdminUser ? "" : `AND t.owner_user_id = ${userId}`}`;
+          break;
+        case "overdue":
+          whereClause = `t.status NOT IN ('done','completed') AND t.due_date < '${todayStart.toISOString()}' ${isAdminUser ? "" : `AND t.owner_user_id = ${userId}`}`;
+          break;
+        case "upcoming":
+          whereClause = `t.status NOT IN ('done','completed') AND t.due_date > '${todayEnd.toISOString()}' AND t.due_date <= '${sevenDaysOut.toISOString()}' ${isAdminUser ? "" : `AND t.owner_user_id = ${userId}`}`;
+          break;
+        case "completed":
+          whereClause = `t.status IN ('done','completed') ${isAdminUser ? "" : `AND t.owner_user_id = ${userId}`}`;
+          break;
+        default:
+          whereClause = `t.owner_user_id = ${userId} AND t.status NOT IN ('done','completed')`;
+      }
+
+      const taskRes = await db.execute(sql.raw(`
+        SELECT
+          t.id, t.title, t.description, t.status, t.priority, t.due_date AS "dueDate",
+          t.reminder_at AS "reminderAt", t.snoozed_until AS "snoozedUntil",
+          t.linked_object_type AS "linkedObjectType", t.linked_object_id AS "linkedObjectId",
+          t.account_id AS "accountId", t.ai_suggested AS "aiSuggested",
+          t.source, t.created_at AS "createdAt", t.updated_at AS "updatedAt",
+          t.owner_user_id AS "ownerUserId",
+          u.name AS "ownerName",
+          a.name AS "accountName"
+        FROM tasks t
+        LEFT JOIN users u ON u.id = t.owner_user_id
+        LEFT JOIN accounts a ON a.id = t.account_id
+        WHERE ${whereClause}
+        ORDER BY
+          CASE WHEN t.status IN ('done','completed') THEN 1 ELSE 0 END ASC,
+          CASE WHEN t.due_date < NOW() AND t.status NOT IN ('done','completed') THEN 0 ELSE 1 END ASC,
+          t.due_date ASC NULLS LAST,
+          CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END ASC
+        LIMIT 500
+      `));
+      const taskRows: any[] = (taskRes as any).rows ?? [];
+
+      // Build groups
+      const groups: Record<string, any[]> = {};
+      const addToGroup = (key: string, task: any) => {
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(task);
+      };
+
+      for (const t of taskRows) {
+        let key: string;
+        if (groupBy === "priority") {
+          key = t.priority || "medium";
+        } else if (groupBy === "assignee") {
+          key = t.ownerName || "Unassigned";
+        } else if (groupBy === "linked_record") {
+          key = t.accountName ? `${t.accountName}` : (t.linkedObjectType ? `${t.linkedObjectType} #${t.linkedObjectId}` : "No linked record");
+        } else {
+          // default: due_date
+          if (!t.dueDate) { key = "No due date"; }
+          else {
+            const d = new Date(t.dueDate);
+            const taskDay = new Date(d); taskDay.setHours(0,0,0,0);
+            const today = new Date(); today.setHours(0,0,0,0);
+            const diffDays = Math.round((taskDay.getTime() - today.getTime()) / 86400000);
+            if (diffDays < 0) key = "Overdue";
+            else if (diffDays === 0) key = "Today";
+            else if (diffDays === 1) key = "Tomorrow";
+            else if (diffDays <= 7) key = "This week";
+            else key = "Later";
+          }
+        }
+        addToGroup(key, t);
+      }
+
+      // Counts for sidebar badges
+      const countsRes = await db.execute(sql.raw(`
+        SELECT
+          COUNT(*) FILTER (WHERE owner_user_id = ${userId} AND status NOT IN ('done','completed') AND (snoozed_until IS NULL OR snoozed_until <= NOW()))::int AS my_count,
+          COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND (snoozed_until IS NULL OR snoozed_until <= NOW()))::int AS team_count,
+          COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date >= '${todayStart.toISOString()}' AND due_date <= '${todayEnd.toISOString()}' ${isAdminUser ? "" : `AND owner_user_id = ${userId}`})::int AS today_count,
+          COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date < '${todayStart.toISOString()}' ${isAdminUser ? "" : `AND owner_user_id = ${userId}`})::int AS overdue_count,
+          COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date > '${todayEnd.toISOString()}' AND due_date <= '${sevenDaysOut.toISOString()}' ${isAdminUser ? "" : `AND owner_user_id = ${userId}`})::int AS upcoming_count
+        FROM tasks
+      `));
+      const counts = (countsRes as any).rows?.[0] ?? {};
+
+      res.json({ tasks: taskRows, groups, counts, view, groupBy, total: taskRows.length });
+    } catch (err: any) {
+      console.error("[tasks/hub]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Task quick actions ──────────────────────────────────────────────────
+  app.post("/api/tasks/:id/complete", async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const taskId = Number(req.params.id);
+      const result = await storage.updateTask(taskId, { status: "done" });
+      if (!result) return res.status(404).json({ message: "Task not found" });
+      res.json({ ok: true, task: result });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/tasks/:id/snooze", async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const { preset, snoozedUntil } = req.body;
+      const taskId = Number(req.params.id);
+      let snoozeDate: Date;
+      const now = new Date();
+      if (preset === "later_today") {
+        snoozeDate = new Date(now.getTime() + 3 * 3600_000);
+      } else if (preset === "tomorrow_morning") {
+        snoozeDate = new Date(now); snoozeDate.setDate(snoozeDate.getDate() + 1); snoozeDate.setHours(9,0,0,0);
+      } else if (preset === "next_week") {
+        snoozeDate = new Date(now); snoozeDate.setDate(snoozeDate.getDate() + 7); snoozeDate.setHours(9,0,0,0);
+      } else if (snoozedUntil) {
+        snoozeDate = new Date(snoozedUntil);
+      } else {
+        return res.status(400).json({ message: "preset or snoozedUntil required" });
+      }
+      const result = await storage.updateTask(taskId, { snoozedUntil: snoozeDate } as any);
+      if (!result) return res.status(404).json({ message: "Task not found" });
+      res.json({ ok: true, snoozedUntil: snoozeDate, task: result });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/tasks/:id/reassign", async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const { ownerUserId } = req.body;
+      if (!ownerUserId) return res.status(400).json({ message: "ownerUserId required" });
+      const taskId = Number(req.params.id);
+      const result = await storage.updateTask(taskId, { ownerUserId: Number(ownerUserId) });
+      if (!result) return res.status(404).json({ message: "Task not found" });
+      res.json({ ok: true, task: result });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.get("/api/comm-lists", async (_req, res) => {

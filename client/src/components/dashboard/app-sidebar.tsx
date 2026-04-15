@@ -68,7 +68,7 @@ const sections: NavSection[] = [
       { title: "Contacts", url: "/contacts", icon: Contact, permKey: "crm" },
       { title: "Organizations", url: "/accounts", icon: Building2, permKey: "crm" },
       { title: "Notes", url: "/notes", icon: StickyNote },
-      { title: "Tasks", url: "/execution/team-workload", icon: CheckSquare, permKey: "team_workload" },
+      { title: "Tasks Hub", url: "/execution/tasks", icon: CheckSquare },
     ],
   },
 

@@ -200,7 +200,7 @@ export default function TodayPage() {
 
           {/* Tasks Due Today + Overdue */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <SectionCard title="Due Today" icon={CheckSquare} count={data?.tasksDueToday.length} linkTo="/execution/team-workload">
+            <SectionCard title="Due Today" icon={CheckSquare} count={data?.tasksDueToday.length} linkTo="/execution/tasks">
               {isLoading ? <Skeleton className="h-20" /> :
                 data?.tasksDueToday.length === 0 ? <EmptyState text="No tasks due today" /> :
                   <div className="space-y-1.5">
@@ -214,7 +214,7 @@ export default function TodayPage() {
               }
             </SectionCard>
 
-            <SectionCard title="Overdue" icon={AlertTriangle} count={data?.overdueTasks.length} linkTo="/execution/team-workload">
+            <SectionCard title="Overdue" icon={AlertTriangle} count={data?.overdueTasks.length} linkTo="/execution/tasks">
               {isLoading ? <Skeleton className="h-20" /> :
                 data?.overdueTasks.length === 0 ? <EmptyState text="No overdue tasks — great!" /> :
                   <div className="space-y-1.5">
