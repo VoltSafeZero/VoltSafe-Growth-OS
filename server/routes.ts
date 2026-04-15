@@ -13978,6 +13978,433 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // CUSTOMER SUCCESS + RENEWALS — /api/cs/*
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ── Health Score Engine ──────────────────────────────────────────────────────
+  async function computeCustomerHealth(cs: any): Promise<{ score: number; status: string; flags: string[] }> {
+    const r = (t: any) => (t as any).rows ?? [];
+    const flags: string[] = [];
+    let score = 100;
+
+    const accountId = cs.account_id;
+
+    // Signal 1: Open deployment blockers (-15 each, max -30)
+    if (cs.deployment_id) {
+      const blockers = await db.execute(sql.raw(
+        `SELECT COUNT(*) AS cnt FROM deployment_blockers WHERE deployment_id = ${cs.deployment_id} AND status = 'open'`
+      ));
+      const cnt = parseInt(r(blockers)[0]?.cnt ?? "0");
+      if (cnt > 0) {
+        const deduction = Math.min(cnt * 15, 30);
+        score -= deduction;
+        flags.push(`${cnt} open deployment blocker${cnt > 1 ? "s" : ""}`);
+      }
+    }
+
+    // Signal 2: Overdue tasks for this account (-10, max -20)
+    const overdueTasks = await db.execute(sql.raw(
+      `SELECT COUNT(*) AS cnt FROM tasks WHERE account_id = ${accountId} AND status NOT IN ('done','completed','dismissed') AND due_date < NOW()`
+    ));
+    const overdueCnt = parseInt(r(overdueTasks)[0]?.cnt ?? "0");
+    if (overdueCnt > 0) {
+      score -= Math.min(overdueCnt * 10, 20);
+      flags.push(`${overdueCnt} overdue task${overdueCnt > 1 ? "s" : ""}`);
+    }
+
+    // Signal 3: No activity in last 60 days (-20)
+    const lastActivity = await db.execute(sql.raw(
+      `SELECT MAX(created_at) AS last FROM activities WHERE linked_object_type = 'account' AND linked_object_id = ${accountId}`
+    ));
+    const lastAct = r(lastActivity)[0]?.last;
+    if (!lastAct || new Date(lastAct) < new Date(Date.now() - 60 * 24 * 3600 * 1000)) {
+      score -= 20;
+      flags.push("No activity in 60+ days");
+    }
+
+    // Signal 4: Billing overdue (-25)
+    if (cs.billing_status === "overdue") {
+      score -= 25;
+      flags.push("Billing overdue");
+    }
+
+    // Signal 5: Renewal within 30 days but still renewal_due (-10)
+    if (cs.renewal_date && cs.status === "renewal_due") {
+      const daysToRenewal = Math.ceil((new Date(cs.renewal_date).getTime() - Date.now()) / (24 * 3600 * 1000));
+      if (daysToRenewal <= 30) {
+        score -= 10;
+        flags.push(`Renewal ${daysToRenewal < 0 ? "overdue" : `in ${daysToRenewal}d`} — not yet in progress`);
+      }
+    }
+
+    // Signal 6: Recent checkin within 30 days (+20)
+    if (cs.last_checkin_at && new Date(cs.last_checkin_at) > new Date(Date.now() - 30 * 24 * 3600 * 1000)) {
+      score += 20;
+    }
+
+    score = Math.max(0, Math.min(100, score));
+    const status = score >= 75 ? "healthy" : score >= 50 ? "at_risk" : "critical";
+    return { score, status, flags };
+  }
+
+  // ── Renewal reminder task creation ──────────────────────────────────────────
+  async function createRenewalReminderTasks(cs: any, defaultOwnerId: number) {
+    if (!cs.renewal_date) return;
+    const daysToRenewal = Math.ceil((new Date(cs.renewal_date).getTime() - Date.now()) / (24 * 3600 * 1000));
+    const accountName = cs.account_name ?? `Account #${cs.account_id}`;
+    const ownerId = cs.owner_user_id ?? defaultOwnerId;
+
+    const reminders = [
+      { days: 120, label: "120-day", title: `[Renewal] Prepare renewal plan for ${accountName}`, priority: "medium" },
+      { days: 90,  label: "90-day",  title: `[Renewal] Review renewal terms for ${accountName}`, priority: "medium" },
+      { days: 60,  label: "60-day",  title: `[Renewal] Send renewal proposal to ${accountName}`, priority: "high" },
+      { days: 30,  label: "30-day",  title: `[Renewal] Final renewal follow-up for ${accountName}`, priority: "high" },
+      { days: -1,  label: "overdue", title: `[URGENT] Renewal overdue for ${accountName}`, priority: "urgent" },
+    ];
+
+    for (const rem of reminders) {
+      if (daysToRenewal <= rem.days || (rem.days === -1 && daysToRenewal < 0)) {
+        // Dedup: check if task with same source label for this CS record already exists
+        const existing = await db.execute(sql.raw(
+          `SELECT id FROM tasks WHERE linked_object_type = 'customer_subscription' AND linked_object_id = ${cs.id} AND source_label = '${rem.label}-renewal' AND status NOT IN ('done','completed','dismissed') LIMIT 1`
+        ));
+        if (((existing as any).rows ?? []).length > 0) continue;
+
+        const dueDate = new Date(cs.renewal_date);
+        dueDate.setDate(dueDate.getDate() - Math.max(rem.days, 0));
+
+        await db.execute(sql.raw(
+          `INSERT INTO tasks (linked_object_type, linked_object_id, account_id, owner_user_id, title, priority, status, source, source_label, due_date, created_at, updated_at)
+           VALUES ('customer_subscription', ${cs.id}, ${cs.account_id}, ${ownerId}, '${rem.title.replace(/'/g, "''")}', '${rem.priority}', 'pending', 'cs_renewal', '${rem.label}-renewal', '${dueDate.toISOString()}', NOW(), NOW())`
+        ));
+      }
+    }
+  }
+
+  // ── GET /api/cs/dashboard ────────────────────────────────────────────────────
+  app.get("/api/cs/dashboard", requireAuth, async (req, res) => {
+    try {
+      const r = (t: any) => (t as any).rows ?? [];
+      const [overview, byStatus, byHealth, upcoming, atRisk, expansionRows] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE status = 'active') AS active,
+            COUNT(*) FILTER (WHERE status = 'renewal_due') AS renewal_due,
+            COUNT(*) FILTER (WHERE status = 'renewal_in_progress') AS renewal_in_progress,
+            COUNT(*) FILTER (WHERE status = 'churn_risk') AS churn_risk,
+            COUNT(*) FILTER (WHERE status = 'renewed') AS renewed,
+            COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled,
+            COALESCE(SUM(mrr), 0) AS total_mrr,
+            COALESCE(SUM(arr), 0) AS total_arr
+          FROM customer_subscriptions WHERE status != 'cancelled'
+        `)),
+        db.execute(sql.raw(`SELECT status, COUNT(*) AS cnt, COALESCE(SUM(arr),0) AS arr FROM customer_subscriptions WHERE status != 'cancelled' GROUP BY status ORDER BY cnt DESC`)),
+        db.execute(sql.raw(`SELECT health_status, COUNT(*) AS cnt FROM customer_subscriptions WHERE status != 'cancelled' GROUP BY health_status`)),
+        db.execute(sql.raw(`
+          SELECT cs.*, a.name AS account_name, a.city, u.name AS owner_name
+          FROM customer_subscriptions cs
+          LEFT JOIN accounts a ON a.id = cs.account_id
+          LEFT JOIN users u ON u.id = cs.owner_user_id
+          WHERE cs.status NOT IN ('cancelled','renewed') AND cs.renewal_date IS NOT NULL
+          ORDER BY cs.renewal_date ASC LIMIT 10
+        `)),
+        db.execute(sql.raw(`
+          SELECT cs.*, a.name AS account_name, a.city, u.name AS owner_name
+          FROM customer_subscriptions cs
+          LEFT JOIN accounts a ON a.id = cs.account_id
+          LEFT JOIN users u ON u.id = cs.owner_user_id
+          WHERE cs.health_status IN ('at_risk','critical') AND cs.status != 'cancelled'
+          ORDER BY cs.health_score ASC LIMIT 10
+        `)),
+        db.execute(sql.raw(`
+          SELECT cs.*, a.name AS account_name, a.city, u.name AS owner_name
+          FROM customer_subscriptions cs
+          LEFT JOIN accounts a ON a.id = cs.account_id
+          LEFT JOIN users u ON u.id = cs.owner_user_id
+          WHERE cs.expansion_potential IN ('medium','high') AND cs.status NOT IN ('cancelled','churned')
+          ORDER BY cs.arr DESC LIMIT 10
+        `)),
+      ]);
+
+      const ov = r(overview)[0] ?? {};
+      res.json({
+        overview: {
+          total: parseInt(ov.total ?? "0"),
+          active: parseInt(ov.active ?? "0"),
+          renewalDue: parseInt(ov.renewal_due ?? "0"),
+          renewalInProgress: parseInt(ov.renewal_in_progress ?? "0"),
+          churnRisk: parseInt(ov.churn_risk ?? "0"),
+          renewed: parseInt(ov.renewed ?? "0"),
+          cancelled: parseInt(ov.cancelled ?? "0"),
+          totalMrr: parseFloat(ov.total_mrr ?? "0"),
+          totalArr: parseFloat(ov.total_arr ?? "0"),
+        },
+        byStatus: r(byStatus),
+        byHealth: r(byHealth),
+        upcomingRenewals: r(upcoming),
+        atRisk: r(atRisk),
+        expansionOpportunities: r(expansionRows),
+      });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── GET /api/cs ──────────────────────────────────────────────────────────────
+  app.get("/api/cs", requireAuth, async (req, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const health = req.query.health as string | undefined;
+      const ownerId = req.query.ownerId as string | undefined;
+      const expansion = req.query.expansion as string | undefined;
+      const limit = Math.min(parseInt(String(req.query.limit ?? "100")), 500);
+      const offset = parseInt(String(req.query.offset ?? "0")) || 0;
+
+      const wheres: string[] = [];
+      if (status) wheres.push(`cs.status = '${status}'`);
+      if (health) wheres.push(`cs.health_status = '${health}'`);
+      if (ownerId) wheres.push(`cs.owner_user_id = ${parseInt(ownerId)}`);
+      if (expansion) wheres.push(`cs.expansion_potential = '${expansion}'`);
+      const where = wheres.length > 0 ? `WHERE ${wheres.join(" AND ")}` : "";
+
+      const rows = await db.execute(sql.raw(`
+        SELECT cs.*, a.name AS account_name, a.city, a.state_province, a.country,
+               u.name AS owner_name,
+               d.status AS deployment_status, d.actual_go_live,
+               iw.status AS install_status
+        FROM customer_subscriptions cs
+        LEFT JOIN accounts a ON a.id = cs.account_id
+        LEFT JOIN users u ON u.id = cs.owner_user_id
+        LEFT JOIN deployments d ON d.id = cs.deployment_id
+        LEFT JOIN install_workflows iw ON iw.id = cs.install_workflow_id
+        ${where}
+        ORDER BY cs.renewal_date ASC NULLS LAST, cs.arr DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `));
+      res.json({ data: (rows as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── POST /api/cs ─────────────────────────────────────────────────────────────
+  app.post("/api/cs", requireAuth, async (req, res) => {
+    try {
+      const { isAdmin } = await getSessionUserAccess(req.session);
+      if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+
+      const { accountId, deploymentId, installWorkflowId, opportunityId, ownerUserId, status,
+              goLiveDate, subscriptionStart, subscriptionEnd, renewalDate, contractTermMonths,
+              mrr, arr, billingStatus, expansionPotential, expansionNotes, notes, tags } = req.body;
+
+      if (!accountId) return res.status(400).json({ message: "accountId is required" });
+
+      // Auto-compute ARR from MRR if not provided
+      const mrrVal = parseFloat(mrr ?? "0") || 0;
+      const arrVal = parseFloat(arr ?? "0") || (mrrVal * 12);
+
+      const r = await db.execute(sql.raw(`
+        INSERT INTO customer_subscriptions
+          (account_id, deployment_id, install_workflow_id, opportunity_id, owner_user_id, status,
+           go_live_date, subscription_start, subscription_end, renewal_date, contract_term_months,
+           mrr, arr, billing_status, expansion_potential, expansion_notes, notes, tags, created_at, updated_at)
+        VALUES
+          (${accountId},
+           ${deploymentId ?? "NULL"},
+           ${installWorkflowId ?? "NULL"},
+           ${opportunityId ?? "NULL"},
+           ${ownerUserId ?? "NULL"},
+           '${(status ?? "active").replace(/'/g, "''")}',
+           ${goLiveDate ? `'${goLiveDate}'` : "NULL"},
+           ${subscriptionStart ? `'${subscriptionStart}'` : "NULL"},
+           ${subscriptionEnd ? `'${subscriptionEnd}'` : "NULL"},
+           ${renewalDate ? `'${renewalDate}'` : "NULL"},
+           ${parseInt(contractTermMonths ?? "12") || 12},
+           ${mrrVal}, ${arrVal},
+           '${(billingStatus ?? "current").replace(/'/g, "''")}',
+           '${(expansionPotential ?? "none").replace(/'/g, "''")}',
+           ${expansionNotes ? `'${expansionNotes.replace(/'/g, "''")}'` : "NULL"},
+           ${notes ? `'${notes.replace(/'/g, "''")}'` : "NULL"},
+           ${tags ? `'${tags.replace(/'/g, "''")}'` : "NULL"},
+           NOW(), NOW())
+        RETURNING *
+      `));
+      const row = ((r as any).rows ?? [])[0];
+      if (!row) return res.status(500).json({ message: "Insert failed" });
+
+      // Create activity on account
+      await db.execute(sql.raw(
+        `INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at)
+         VALUES ('account', ${accountId}, 'cs_created', 'Customer subscription created', 'Customer added to CS workspace', ${(req.session as any).userId}, NOW())`
+      ));
+
+      res.status(201).json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── GET /api/cs/:id ──────────────────────────────────────────────────────────
+  app.get("/api/cs/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(`
+        SELECT cs.*, a.name AS account_name, a.city, a.state_province, a.country, a.slip_count,
+               u.name AS owner_name,
+               d.status AS deployment_status, d.actual_go_live, d.deploy_number,
+               iw.status AS install_status, iw.title AS install_title,
+               o.title AS opportunity_title, o.amount AS opportunity_amount
+        FROM customer_subscriptions cs
+        LEFT JOIN accounts a ON a.id = cs.account_id
+        LEFT JOIN users u ON u.id = cs.owner_user_id
+        LEFT JOIN deployments d ON d.id = cs.deployment_id
+        LEFT JOIN install_workflows iw ON iw.id = cs.install_workflow_id
+        LEFT JOIN opportunities o ON o.id = cs.opportunity_id
+        WHERE cs.id = ${id}
+      `));
+      const row = (rows as any).rows?.[0];
+      if (!row) return res.status(404).json({ message: "Not found" });
+
+      // Compute health on every fetch
+      const health = await computeCustomerHealth(row);
+      // Persist health score
+      await db.execute(sql.raw(
+        `UPDATE customer_subscriptions SET health_score = ${health.score}, health_status = '${health.status}', churn_risk_flags = '${JSON.stringify(health.flags).replace(/'/g, "''")}', updated_at = NOW() WHERE id = ${id}`
+      ));
+
+      // Get linked tasks
+      const tasks = await db.execute(sql.raw(
+        `SELECT t.*, u.name AS owner_name FROM tasks t LEFT JOIN users u ON u.id = t.owner_user_id WHERE t.linked_object_type = 'customer_subscription' AND t.linked_object_id = ${id} ORDER BY t.due_date ASC NULLS LAST LIMIT 20`
+      ));
+
+      res.json({ ...row, health, tasks: (tasks as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── PATCH /api/cs/:id ────────────────────────────────────────────────────────
+  app.patch("/api/cs/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+
+      const allowedFields = [
+        "status","billing_status","owner_user_id","renewal_date","subscription_start",
+        "subscription_end","go_live_date","contract_term_months","mrr","arr",
+        "expansion_potential","expansion_notes","expansion_opportunity_id",
+        "last_checkin_at","notes","tags","health_score","health_status",
+      ];
+      const sets: string[] = [];
+      const body = req.body;
+
+      // Handle camelCase → snake_case mapping
+      const camelToSnake = (s: string) => s.replace(/[A-Z]/g, l => `_${l.toLowerCase()}`);
+      for (const [key, val] of Object.entries(body)) {
+        const snakeKey = camelToSnake(key);
+        if (!allowedFields.includes(snakeKey)) continue;
+        if (val === null || val === undefined) {
+          sets.push(`${snakeKey} = NULL`);
+        } else if (typeof val === "string") {
+          sets.push(`${snakeKey} = '${val.replace(/'/g, "''")}'`);
+        } else if (typeof val === "boolean") {
+          sets.push(`${snakeKey} = ${val}`);
+        } else {
+          sets.push(`${snakeKey} = ${val}`);
+        }
+      }
+
+      if (sets.length === 0) return res.status(400).json({ message: "No valid fields to update" });
+      sets.push("updated_at = NOW()");
+
+      const r = await db.execute(sql.raw(`UPDATE customer_subscriptions SET ${sets.join(", ")} WHERE id = ${id} RETURNING *`));
+      const row = ((r as any).rows ?? [])[0];
+      if (!row) return res.status(404).json({ message: "Not found" });
+
+      // If status changed, log activity on account
+      if (body.status) {
+        const userId = (req.session as any).userId;
+        const statusLabels: Record<string, string> = {
+          active: "Subscription marked active",
+          renewal_due: "Renewal date coming up",
+          renewal_in_progress: "Renewal in progress",
+          renewed: "Subscription renewed",
+          churn_risk: "Customer flagged as churn risk",
+          cancelled: "Subscription cancelled",
+        };
+        const summary = statusLabels[body.status] ?? `Status updated to ${body.status}`;
+        await db.execute(sql.raw(
+          `INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at)
+           VALUES ('account', ${row.account_id}, 'cs_status_change', 'CS status update', '${summary.replace(/'/g, "''")}', ${userId}, NOW())`
+        ));
+      }
+
+      // Auto-advance to renewal_due if renewal_date is within 120 days and status is still active
+      if (row.renewal_date && row.status === "active") {
+        const daysToRenewal = Math.ceil((new Date(row.renewal_date).getTime() - Date.now()) / (24 * 3600 * 1000));
+        if (daysToRenewal <= 120) {
+          await db.execute(sql.raw(`UPDATE customer_subscriptions SET status = 'renewal_due', updated_at = NOW() WHERE id = ${id}`));
+          row.status = "renewal_due";
+        }
+      }
+
+      res.json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── POST /api/cs/:id/compute-health ─────────────────────────────────────────
+  app.post("/api/cs/:id/compute-health", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(`SELECT * FROM customer_subscriptions WHERE id = ${id}`));
+      const cs = ((rows as any).rows ?? [])[0];
+      if (!cs) return res.status(404).json({ message: "Not found" });
+
+      const health = await computeCustomerHealth(cs);
+      await db.execute(sql.raw(
+        `UPDATE customer_subscriptions SET health_score = ${health.score}, health_status = '${health.status}', churn_risk_flags = '${JSON.stringify(health.flags).replace(/'/g, "''")}', updated_at = NOW() WHERE id = ${id}`
+      ));
+      res.json(health);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── POST /api/cs/renewal-check ───────────────────────────────────────────────
+  // Run renewal reminders — create tasks for upcoming renewals (idempotent / de-duped)
+  app.post("/api/cs/renewal-check", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const rows = await db.execute(sql.raw(`
+        SELECT cs.*, a.name AS account_name FROM customer_subscriptions cs
+        LEFT JOIN accounts a ON a.id = cs.account_id
+        WHERE cs.status NOT IN ('cancelled','renewed') AND cs.renewal_date IS NOT NULL
+        AND cs.renewal_date >= NOW() - INTERVAL '30 days'
+      `));
+      const csRecords = (rows as any).rows ?? [];
+      let tasksCreated = 0;
+
+      for (const cs of csRecords) {
+        const before = tasksCreated;
+        await createRenewalReminderTasks(cs, userId);
+        // Count how many tasks were created (approximate via query)
+        const after = await db.execute(sql.raw(
+          `SELECT COUNT(*) AS cnt FROM tasks WHERE linked_object_type = 'customer_subscription' AND linked_object_id = ${cs.id}`
+        ));
+        tasksCreated += parseInt(((after as any).rows ?? [])[0]?.cnt ?? "0");
+      }
+
+      res.json({ ok: true, recordsChecked: csRecords.length, tasksCreated });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── DELETE /api/cs/:id ───────────────────────────────────────────────────────
+  app.delete("/api/cs/:id", requireAuth, async (req, res) => {
+    try {
+      const { isAdmin } = await getSessionUserAccess(req.session);
+      if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const r = await db.execute(sql.raw(`UPDATE customer_subscriptions SET status = 'cancelled', updated_at = NOW() WHERE id = ${id} RETURNING id`));
+      if (!((r as any).rows ?? [])[0]) return res.status(404).json({ message: "Not found" });
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
   // ── Engagement scheduler + default rules ────────────────────────────────────
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
   startEngagementScheduler();

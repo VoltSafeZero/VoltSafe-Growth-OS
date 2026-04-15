@@ -1,0 +1,96 @@
+True Duplicate Merge Engine is complete and tested. Next, build the Customer Success + Renewals layer.
+
+Goal:
+Manage live customers after deployment, including subscriptions, renewal prep, customer health, churn risk, and expansion opportunities.
+
+Build this in phases.
+
+PHASE 1 — CORE DATA MODEL
+Add lightweight objects/fields for:
+- customer success records
+- subscription records
+- renewal dates
+- contract term
+- billing status
+- customer health score
+- success owner
+- churn risk flags
+- expansion potential notes
+
+Track at minimum:
+- linked account
+- linked deployment/install workflow where relevant
+- go-live date
+- subscription start/end
+- renewal date
+- MRR/ARR if applicable
+- status
+- owner
+- notes / blockers
+
+PHASE 2 — RENEWAL WORKFLOW
+Support statuses like:
+- active
+- renewal_due
+- renewal_in_progress
+- renewed
+- churn_risk
+- cancelled
+
+Add deterministic reminders:
+- 120/90/60/30 day renewal prep
+- overdue renewal follow-up
+- renewal task creation
+
+PHASE 3 — CUSTOMER HEALTH
+Create a simple explainable health model using signals like:
+- support issues / blockers
+- overdue tasks
+- unresolved deployment issues
+- email engagement / response gaps
+- billing flags if available
+- recent activity / check-ins
+
+Keep it deterministic and readable.
+
+PHASE 4 — SUCCESS WORKSPACE UI
+Create a page with:
+- active customers
+- renewals due
+- churn risks
+- health score cards
+- expansion opportunities
+- owner filters
+- upcoming renewals
+- at-risk accounts
+
+PHASE 5 — TIMELINE / TASK / ALERT INTEGRATION
+Add timeline/task support for:
+- customer went live
+- renewal due
+- renewal won/lost
+- health score worsened materially
+- churn risk flagged
+- expansion opportunity identified
+
+PHASE 6 — EXPANSION TRACKING
+Allow simple tracking for:
+- additional docks/slips/sites
+- software upsell
+- hardware expansion
+- follow-up opportunities linked back to the customer
+
+PHASE 7 — TESTING
+Add tests for:
+- renewal status transitions
+- reminder task creation
+- health classification
+- success dashboard rollups
+- expansion linkage
+- no regression to deployment, install, quote, and executive dashboard flows
+
+Implementation rules:
+- keep it practical for VoltSafe post-sale operations
+- do not build a bloated ticketing suite
+- reuse existing tasks, timelines, saved views, and account/opportunity systems
+- summarize changed files and final pass/fail at the end

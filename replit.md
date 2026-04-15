@@ -350,6 +350,59 @@ Data Quality page → Duplicates tab:
 ### Tests
 `tests/merge.test.js` — **84 assertions** covering account/contact/lead merges, linked object relinking, secondary archival, field resolution correctness, audit creation, prior-merge warning, entity filter, and full regression suite.
 
+## Customer Success + Renewals Layer
+
+Post-deployment layer for tracking live customers, health scores, renewals, and expansion.
+
+### New DB Table
+`customer_subscriptions` — full customer lifecycle tracking: MRR/ARR, health score, renewal date, billing status, expansion potential, churn risk flags, renewal task automation. Migrated via `migrateCustomerSuccessSchema()` in `server/seed-production.ts`.
+
+### API Endpoints (`/api/cs/*`)
+| Endpoint | Description |
+|---|---|
+| `GET /api/cs/dashboard` | KPI overview, upcoming renewals, at-risk accounts, expansion opps |
+| `GET /api/cs` | Paginated list with status/health/owner/expansion filters |
+| `POST /api/cs` | Create subscription (admin); auto-computes ARR from MRR |
+| `GET /api/cs/:id` | Detail + live health recompute + linked tasks |
+| `PATCH /api/cs/:id` | Update any field; camelCase→snake_case auto-mapped |
+| `POST /api/cs/:id/compute-health` | Recompute & persist health score |
+| `POST /api/cs/renewal-check` | Create idempotent renewal reminder tasks (de-duped by source_label) |
+| `DELETE /api/cs/:id` | Soft-cancel (sets status = 'cancelled') |
+
+### Health Score Engine (deterministic, 0-100)
+6 weighted signals computed at `GET /api/cs/:id` and `POST .../compute-health`:
+1. Open deployment blockers (−15 each, max −30)
+2. Overdue tasks (−10 each, max −20)
+3. No activity in 60+ days (−20)
+4. Billing status overdue (−25)
+5. Renewal within 30 days but not in-progress (−10)
+6. Recent check-in within 30 days (+20)
+
+Health status thresholds: ≥75 = healthy, ≥50 = at_risk, <50 = critical
+
+### Renewal Reminder Automation
+`createRenewalReminderTasks()` creates tasks at 120d/90d/60d/30d/overdue milestones, idempotently tagged via `source_label = '{n}d-renewal'` on tasks table. `POST /api/cs/renewal-check` triggers this for all non-cancelled accounts with upcoming renewals.
+
+### Frontend — Customer Success Workspace (`/renewals`)
+5-tab workspace page at `client/src/pages/renewals.tsx`:
+- **Customers** — grid of CustomerCards with status + health filters
+- **Renewals** — list sorted by urgency with countdown badges
+- **Churn Risk** — at-risk accounts with flag chips
+- **Expansion** — expansion opportunity grid
+- **Dashboard** — KPI strip, upcoming renewals, health breakdown, at-risk accounts, expansion list + "Run Renewal Check" button
+- Slide-in `CustomerDetailPanel` with inline edit, health bar + flag list, recompute button, linked record summary, task list
+- `NewCustomerModal` with account search, owner assign, MRR/ARR, dates, expansion
+
+### Tests
+`tests/cs.test.js` — **44 assertions** covering full CRUD, health engine signals, renewal-check idempotency, task creation, auth guards, status transitions, ARR auto-compute, dashboard shapes.
+
+### Test Totals
+- Procurement: 93 tests
+- Deployment: 102 tests
+- Merge Engine: 84 tests
+- Customer Success: 44 tests
+- **Total: 323 tests**
+
 ## External Dependencies
 
 - **PostgreSQL:** Primary database.

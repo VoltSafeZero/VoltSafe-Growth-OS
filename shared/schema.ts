@@ -1657,3 +1657,38 @@ export type CommissioningCheckpoint = typeof commissioningCheckpoints.$inferSele
 export type InsertCommissioningCheckpoint = z.infer<typeof insertCommissioningCheckpointSchema>;
 export type DeploymentBlocker = typeof deploymentBlockers.$inferSelect;
 export type InsertDeploymentBlocker = z.infer<typeof insertDeploymentBlockerSchema>;
+
+// ── Customer Success / Renewals ───────────────────────────────────────────────
+export const customerSubscriptions = pgTable("customer_subscriptions", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id").notNull(),
+  deploymentId: integer("deployment_id"),
+  installWorkflowId: integer("install_workflow_id"),
+  opportunityId: integer("opportunity_id"),
+  ownerUserId: integer("owner_user_id"),
+  status: text("status").notNull().default("active"),             // active|renewal_due|renewal_in_progress|renewed|churn_risk|cancelled
+  goLiveDate: timestamp("go_live_date"),
+  subscriptionStart: timestamp("subscription_start"),
+  subscriptionEnd: timestamp("subscription_end"),
+  renewalDate: timestamp("renewal_date"),
+  contractTermMonths: integer("contract_term_months").default(12),
+  mrr: real("mrr").default(0),
+  arr: real("arr").default(0),
+  billingStatus: text("billing_status").default("current"),       // current|overdue|paused
+  healthScore: integer("health_score").default(100),
+  healthStatus: text("health_status").default("healthy"),         // healthy|at_risk|critical|churned
+  churnRiskFlags: jsonb("churn_risk_flags"),                      // string[]
+  expansionPotential: text("expansion_potential").default("none"), // none|low|medium|high
+  expansionNotes: text("expansion_notes"),
+  expansionOpportunityId: integer("expansion_opportunity_id"),
+  lastCheckinAt: timestamp("last_checkin_at"),
+  renewalTaskCreated: boolean("renewal_task_created").default(false),
+  notes: text("notes"),
+  tags: text("tags"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCustomerSubscriptionSchema = createInsertSchema(customerSubscriptions).omit({ id: true, createdAt: true, updatedAt: true });
+export type CustomerSubscription = typeof customerSubscriptions.$inferSelect;
+export type InsertCustomerSubscription = z.infer<typeof insertCustomerSubscriptionSchema>;

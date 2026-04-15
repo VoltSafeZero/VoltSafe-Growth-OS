@@ -663,6 +663,50 @@ export async function migrateDeploymentSchema(): Promise<void> {
   }
 }
 
+export async function migrateCustomerSuccessSchema(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS customer_subscriptions (
+        id serial PRIMARY KEY,
+        account_id integer NOT NULL,
+        deployment_id integer,
+        install_workflow_id integer,
+        opportunity_id integer,
+        owner_user_id integer,
+        status text NOT NULL DEFAULT 'active',
+        go_live_date timestamp,
+        subscription_start timestamp,
+        subscription_end timestamp,
+        renewal_date timestamp,
+        contract_term_months integer DEFAULT 12,
+        mrr real DEFAULT 0,
+        arr real DEFAULT 0,
+        billing_status text DEFAULT 'current',
+        health_score integer DEFAULT 100,
+        health_status text DEFAULT 'healthy',
+        churn_risk_flags jsonb,
+        expansion_potential text DEFAULT 'none',
+        expansion_notes text,
+        expansion_opportunity_id integer,
+        last_checkin_at timestamp,
+        renewal_task_created boolean DEFAULT false,
+        notes text,
+        tags text,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_cs_account ON customer_subscriptions(account_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_cs_status ON customer_subscriptions(status)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_cs_renewal ON customer_subscriptions(renewal_date)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_cs_health ON customer_subscriptions(health_status)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_cs_owner ON customer_subscriptions(owner_user_id)`);
+    console.log("[migration] Customer success schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Customer success schema migration error (non-fatal):", err);
+  }
+}
+
 export async function migrateMergeAuditSchema(): Promise<void> {
   try {
     await db.execute(sql`
