@@ -59,12 +59,19 @@ The sidebar also includes a **search box** that filters all nav items in real ti
 - **Activity & Tasks:** Universal timeline for activities and task management.
 - **Cortex AI Voice Assistant:** Slide-out sidebar powered by OpenAI, supporting voice/text input, markdown, conversation history, and CRM write capabilities via tool calling.
 
-### Daily Command Center
-- **Today Dashboard (`/today`):** Personal daily briefing page — shows today's meetings, tasks due today, overdue tasks, hot opportunities, new leads this week, recent activity, and AI-suggested actions. Powered by `GET /api/dashboard/today`. Added as "Today" (Sun icon) at the top of the sidebar.
-- **Pipeline Health (`/pipeline`):** Multi-tab pipeline management view — Stalled Deals, No Next Step, High Value, Revenue Forecast, and By Owner tabs with inline stage advance. Powered by `GET /api/pipeline/insights`. Listed under CRM in the sidebar as "Pipeline Health".
+### Daily Command Center (Growth OS Command Center)
+- **Command Center (`/`):** Default landing screen — greeting header, 7 stat cards (open opps, hot deals, overdue, meetings today, partnerships, investor convos, govt/grants), Today section (meetings + tasks), Needs Attention (overdue tasks, stalled deals, no next step), Pipeline Momentum, Partnership Activity, Relationship Activity, Intelligence panel, and Suggested Actions. Supports Mine/Team view toggle for admins. Powered by `GET /api/command-center?view=mine|team`.
+- **Today Dashboard (`/today`):** Personal daily briefing page — shows today's meetings, tasks due today, overdue tasks, hot opportunities, new leads this week, recent activity, and AI-suggested actions. Powered by `GET /api/dashboard/today`.
+- **Pipeline Health (`/pipeline`):** Multi-tab pipeline management view — Stalled Deals, No Next Step, High Value, Revenue Forecast, and By Owner tabs with inline stage advance. Powered by `GET /api/pipeline/insights`.
 - **Quick Capture:** Global floating "+" button (bottom-right) + Cmd/Ctrl+K shortcut opens a 5-tab capture dialog (Note, Task, Contact, Opportunity, Meeting Note). Wired globally in App.tsx. Opens programmatically via `window.dispatchEvent(new CustomEvent("open-quick-capture", { detail: { tab: "task" } }))`.
-- **Smart Notifications:** Bell icon in header opens a popover driven by `GET /api/notifications`. Returns high-signal alerts: overdue tasks, stalled deals, missed meetings, unread contacts. Refreshes every 60 seconds.
+- **Smart Notifications:** Bell icon in header opens a popover driven by `GET /api/notifications`. Returns `{ notifications: [...], unreadCount: N }` with overdue tasks, stalled deals, new leads, inbound emails. Badge is dynamic (only shows when unreadCount > 0). Refreshes every 60 seconds.
 - **AI Meeting Briefing:** "Briefing" tab (✨ icon) in the EventDetailDialog on the Calendar page. Calls `POST /api/calendar/events/:id/briefing` which uses GPT-4o-mini to generate pre-meeting prep with talking points, CRM context, and recommended questions.
+
+### Critical DB/ORM Notes
+- **Drizzle 0.39 + PostgreSQL bug**: Using `and()` with multiple `ne()` or `not(eq())` conditions generates invalid SQL ("syntax error at or near '='"). All new complex queries in the Command Center routes use `db.execute(sql.raw(...))` with plain PostgreSQL strings instead of Drizzle query builders.
+- **opportunities table**: Uses `owner_user_id` (Drizzle: `ownerUserId`) — there is NO `assignedToUserId` on opportunities.
+- **email_messages table**: Uses `owner_user_id` (NOT `user_id`) for user filtering.
+- **calendar_events table**: Uses `user_id` (not `owner_user_id`).
 
 ### Quoting System (Pro Forma Invoice Generator)
 - **Features:** Multi-tab QuoteBuilder for customer, products, pricing, and terms. Supports 6 countries with auto-set currency and tax rates. Includes a product catalog with discounting.

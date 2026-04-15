@@ -11,6 +11,7 @@ import { Header } from "@/components/dashboard/header";
 import { MobileNav } from "@/components/dashboard/mobile-nav";
 
 import Dashboard from "@/pages/dashboard";
+import CommandCenter from "@/pages/command-center";
 import TodayPage from "@/pages/today";
 import PipelinePage from "@/pages/pipeline";
 import MarinasPage from "@/pages/marinas";
@@ -146,7 +147,8 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
 
   return (
     <Switch>
-      <Route path="/">{() => wrap(<Dashboard />)}</Route>
+      <Route path="/">{() => wrap(<CommandCenter />)}</Route>
+      <Route path="/dashboard">{() => wrap(<Dashboard />)}</Route>
       <Route path="/today">{() => wrap(<TodayPage />)}</Route>
       <Route path="/pipeline">{() => guard("crm", <PipelinePage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
 

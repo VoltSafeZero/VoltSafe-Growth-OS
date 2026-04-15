@@ -2836,78 +2836,40 @@ export async function registerRoutes(
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       const twoHoursFromNow = new Date(now.getTime() + 2 * 60 * 60 * 1000);
 
-      // Today's meetings
-      const todaysMeetings = await db.select({
-        id: calendarEvents.id, title: calendarEvents.title,
-        startTime: calendarEvents.startTime, endTime: calendarEvents.endTime,
-        eventType: calendarEvents.eventType, location: calendarEvents.location,
-        meetingUrl: calendarEvents.meetingUrl, status: calendarEvents.status,
-        invitees: calendarEvents.invitees,
-      }).from(calendarEvents)
-        .where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startTime, todayStart), lte(calendarEvents.startTime, todayEnd), ne(calendarEvents.status, "cancelled")))
-        .orderBy(asc(calendarEvents.startTime));
+      const todaysMeetingsRes = await db.execute(sql.raw(
+        `SELECT id, title, start_time AS "startTime", end_time AS "endTime", event_type AS "eventType", location, meeting_url AS "meetingUrl", status, invitees FROM calendar_events WHERE user_id = ${userId} AND start_time >= '${todayStart.toISOString()}' AND start_time <= '${todayEnd.toISOString()}' AND status != 'cancelled' ORDER BY start_time ASC`
+      ));
+      const todaysMeetings = (todaysMeetingsRes as any).rows ?? [];
 
-      // Tasks due today
-      const tasksDueToday = await db.select().from(tasks)
-        .where(and(eq(tasks.ownerUserId, userId), eq(tasks.status, "pending"), gte(tasks.dueDate, todayStart), lte(tasks.dueDate, todayEnd)))
-        .orderBy(asc(tasks.dueDate)).limit(10);
+      const tasksDueTodayRes = await db.execute(sql.raw(
+        `SELECT id, title, due_date AS "dueDate", priority, status FROM tasks WHERE owner_user_id = ${userId} AND status = 'pending' AND due_date >= '${todayStart.toISOString()}' AND due_date <= '${todayEnd.toISOString()}' ORDER BY due_date ASC LIMIT 10`
+      ));
+      const tasksDueToday = (tasksDueTodayRes as any).rows ?? [];
 
-      // Overdue tasks
-      const overdueTasks = await db.select().from(tasks)
-        .where(and(eq(tasks.ownerUserId, userId), eq(tasks.status, "pending"), lte(tasks.dueDate, todayStart)))
-        .orderBy(desc(tasks.dueDate)).limit(10);
+      const overdueTasksRes = await db.execute(sql.raw(
+        `SELECT id, title, due_date AS "dueDate", priority, status FROM tasks WHERE owner_user_id = ${userId} AND status = 'pending' AND due_date < '${todayStart.toISOString()}' ORDER BY due_date DESC LIMIT 10`
+      ));
+      const overdueTasks = (overdueTasksRes as any).rows ?? [];
 
-      // New leads this week (opportunities in early stages assigned to user's accounts)
-      const newLeadRecords = await db.select({
-        id: leads.id, company: leads.company, contactName: leads.contactName,
-        contactEmail: leads.contactEmail, status: leads.status,
-        city: leads.city, state: leads.state, country: leads.country,
-        createdAt: leads.createdAt, dealAmount: leads.dealAmount,
-      }).from(leads)
-        .where(and(eq(leads.status, "inbound_new"), gte(leads.createdAt, sevenDaysAgo)))
-        .orderBy(desc(leads.createdAt)).limit(8);
+      const newLeadsRes = await db.execute(sql.raw(
+        `SELECT id, company, contact_name AS "contactName", contact_email AS "contactEmail", status, city, state, country, created_at AS "createdAt", deal_amount AS "dealAmount" FROM leads WHERE status = 'inbound_new' AND created_at >= '${sevenDaysAgo.toISOString()}' ORDER BY created_at DESC LIMIT 8`
+      ));
+      const newLeadRecords = (newLeadsRes as any).rows ?? [];
 
-      // Hot opportunities (high priority/stage, assigned to user)
-      const hotOpportunities = await db.select({
-        id: opportunities.id, title: opportunities.title, stage: opportunities.stage,
-        amount: opportunities.amount, accountId: opportunities.accountId,
-        updatedAt: opportunities.updatedAt,
-      }).from(opportunities)
-        .where(and(
-          eq(opportunities.assignedToUserId, userId),
-          not(eq(opportunities.stage, "closed_won")),
-          not(eq(opportunities.stage, "closed_lost")),
-        ))
-        .orderBy(desc(opportunities.amount)).limit(6);
+      const hotOppsRes = await db.execute(sql.raw(
+        `SELECT o.id, o.title, o.stage, o.amount, o.account_id AS "accountId", o.updated_at AS "updatedAt", a.name AS "accountName" FROM opportunities o LEFT JOIN accounts a ON a.id = o.account_id WHERE o.owner_user_id = ${userId} AND o.stage NOT IN ('closed_won','closed_lost') ORDER BY o.amount DESC NULLS LAST LIMIT 6`
+      ));
+      const enrichedOpps = (hotOppsRes as any).rows ?? [];
 
-      // Enrich hot opportunities with account names
-      const enrichedOpps = await Promise.all(hotOpportunities.map(async o => {
-        const [acc] = await db.select({ name: accounts.name }).from(accounts).where(eq(accounts.id, o.accountId)).limit(1);
-        return { ...o, accountName: acc?.name ?? "" };
-      }));
+      const recentActivityRes = await db.execute(sql.raw(
+        `SELECT id, subject, from_email AS "fromEmail", sent_at AS "sentAt", direction, snippet FROM email_messages WHERE owner_user_id = ${userId} AND sent_at >= '${sevenDaysAgo.toISOString()}' ORDER BY sent_at DESC LIMIT 8`
+      ));
+      const recentActivity = (recentActivityRes as any).rows ?? [];
 
-      // Recent activity (recent email messages)
-      const recentActivity = await db.select({
-        id: emailMessages.id, subject: emailMessages.subject,
-        fromEmail: emailMessages.fromEmail, sentAt: emailMessages.sentAt,
-        direction: emailMessages.direction, snippet: emailMessages.snippet,
-      }).from(emailMessages)
-        .where(and(eq(emailMessages.userId, userId), gte(emailMessages.sentAt, sevenDaysAgo)))
-        .orderBy(desc(emailMessages.sentAt)).limit(8);
-
-      // Suggested next actions — opportunities with no recent activity
-      const stalledOpps = await db.select({
-        id: opportunities.id, title: opportunities.title, stage: opportunities.stage,
-        accountId: opportunities.accountId, lastActivityDate: opportunities.lastActivityDate,
-        amount: opportunities.amount,
-      }).from(opportunities)
-        .where(and(
-          eq(opportunities.assignedToUserId, userId),
-          not(eq(opportunities.stage, "closed_won")),
-          not(eq(opportunities.stage, "closed_lost")),
-          or(isNull(opportunities.lastActivityDate), lte(opportunities.lastActivityDate, sevenDaysAgo)),
-        ))
-        .orderBy(desc(opportunities.amount)).limit(5);
+      const stalledOppsRes = await db.execute(sql.raw(
+        `SELECT o.id, o.title, o.stage, o.account_id AS "accountId", o.last_activity_date AS "lastActivityDate", o.amount, a.name AS "accountName" FROM opportunities o LEFT JOIN accounts a ON a.id = o.account_id WHERE o.owner_user_id = ${userId} AND o.stage NOT IN ('closed_won','closed_lost') AND (o.last_activity_date IS NULL OR o.last_activity_date <= '${sevenDaysAgo.toISOString()}') ORDER BY o.amount DESC NULLS LAST LIMIT 5`
+      ));
+      const stalledOpps = (stalledOppsRes as any).rows ?? [];
 
       const suggestedActions: Array<{ type: string; text: string; link: string; priority: "high" | "medium" | "low" }> = [];
 
@@ -2915,22 +2877,20 @@ export async function registerRoutes(
         suggestedActions.push({ type: "task", text: `You have ${overdueTasks.length} overdue task${overdueTasks.length > 1 ? "s" : ""}`, link: "/execution/team-workload", priority: "high" });
 
       for (const opp of stalledOpps.slice(0, 3)) {
-        const [acc] = await db.select({ name: accounts.name }).from(accounts).where(eq(accounts.id, opp.accountId)).limit(1);
         const daysStalled = opp.lastActivityDate ? Math.floor((now.getTime() - new Date(opp.lastActivityDate).getTime()) / 86400000) : 30;
-        suggestedActions.push({ type: "opportunity", text: `Follow up on "${opp.title}" (${acc?.name ?? ""}) — stalled ${daysStalled}d`, link: "/opportunities", priority: daysStalled > 14 ? "high" : "medium" });
+        suggestedActions.push({ type: "opportunity", text: `Follow up on "${opp.title}" (${opp.accountName ?? ""}) — stalled ${daysStalled}d`, link: "/opportunities", priority: daysStalled > 14 ? "high" : "medium" });
       }
 
       if (newLeadRecords.length > 0)
         suggestedActions.push({ type: "lead", text: `${newLeadRecords.length} new lead${newLeadRecords.length > 1 ? "s" : ""} arrived this week`, link: "/opportunities", priority: "medium" });
 
-      // Upcoming meeting (next 2 hours)
-      const nextMeeting = await db.select({ id: calendarEvents.id, title: calendarEvents.title, startTime: calendarEvents.startTime }).from(calendarEvents)
-        .where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startTime, now), lte(calendarEvents.startTime, twoHoursFromNow), ne(calendarEvents.status, "cancelled")))
-        .orderBy(asc(calendarEvents.startTime)).limit(1);
-
-      if (nextMeeting.length > 0) {
-        const mins = Math.floor((new Date(nextMeeting[0].startTime).getTime() - now.getTime()) / 60000);
-        suggestedActions.unshift({ type: "meeting", text: `"${nextMeeting[0].title}" starts in ${mins} min — review briefing`, link: "/execution/calendar", priority: "high" });
+      const nextMeetingRes = await db.execute(sql.raw(
+        `SELECT id, title, start_time AS "startTime" FROM calendar_events WHERE user_id = ${userId} AND start_time >= NOW() AND start_time <= '${twoHoursFromNow.toISOString()}' AND status != 'cancelled' ORDER BY start_time ASC LIMIT 1`
+      ));
+      const nextMeetingRows = (nextMeetingRes as any).rows ?? [];
+      if (nextMeetingRows.length > 0) {
+        const mins = Math.floor((new Date(nextMeetingRows[0].startTime).getTime() - now.getTime()) / 60000);
+        suggestedActions.unshift({ type: "meeting", text: `"${nextMeetingRows[0].title}" starts in ${mins} min — review briefing`, link: "/execution/calendar", priority: "high" });
       }
 
       res.json({
@@ -2946,96 +2906,231 @@ export async function registerRoutes(
     }
   });
 
+  // ── Growth OS Command Center ───────────────────────────────────────────
+  app.get("/api/command-center", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const now = new Date();
+      const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date(now); todayEnd.setHours(23, 59, 59, 999);
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+
+      const [me] = await db.select({ globalRole: users.globalRole, name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
+      const isAdminUser = !!me && ["master_admin", "admin"].includes(me.globalRole ?? "");
+      const viewMode = (req.query.view === "team" && isAdminUser) ? "team" : "mine";
+      const isMine = viewMode === "mine";
+
+      // All users map for name lookups
+      const allUsersMap = new Map<number, string>();
+      const allUsersList = await db.select({ id: users.id, name: users.name }).from(users);
+      for (const u of allUsersList) allUsersMap.set(u.id, u.name);
+
+      // ── All queries via raw SQL to avoid Drizzle query builder issues ──
+      const mineFilter = isMine ? userId : null;
+
+      // Stat counts
+      const openOppsRes = await db.execute(sql.raw(
+        mineFilter !== null
+          ? `SELECT COUNT(*)::int AS n FROM opportunities WHERE owner_user_id = ${mineFilter} AND stage NOT IN ('closed_won','closed_lost')`
+          : `SELECT COUNT(*)::int AS n FROM opportunities WHERE stage NOT IN ('closed_won','closed_lost')`
+      ));
+      const openOpportunities = Number((openOppsRes as any).rows?.[0]?.n ?? 0);
+
+      const hotOppsRes = await db.execute(sql.raw(
+        mineFilter !== null
+          ? `SELECT COUNT(*)::int AS n FROM opportunities WHERE owner_user_id = ${mineFilter} AND stage IN ('verbal_commit','negotiation','proposal')`
+          : `SELECT COUNT(*)::int AS n FROM opportunities WHERE stage IN ('verbal_commit','negotiation','proposal')`
+      ));
+      const hotDeals = Number((hotOppsRes as any).rows?.[0]?.n ?? 0);
+
+      const overdueRes = await db.execute(sql.raw(
+        mineFilter !== null
+          ? `SELECT COUNT(*)::int AS n FROM tasks WHERE owner_user_id = ${mineFilter} AND status = 'pending' AND due_date < NOW()`
+          : `SELECT COUNT(*)::int AS n FROM tasks WHERE status = 'pending' AND due_date < NOW()`
+      ));
+      const overdueFollowUps = Number((overdueRes as any).rows?.[0]?.n ?? 0);
+
+      const meetingsTodayRes = await db.execute(sql.raw(
+        `SELECT COUNT(*)::int AS n FROM calendar_events WHERE user_id = ${userId} AND start_time >= '${todayStart.toISOString()}' AND start_time <= '${todayEnd.toISOString()}' AND status != 'cancelled'`
+      ));
+      const meetingsToday = Number((meetingsTodayRes as any).rows?.[0]?.n ?? 0);
+
+      const partnersTotalRes = await db.execute(sql.raw(`SELECT COUNT(*)::int AS n FROM partnerships`));
+      const activePartnerships = Number((partnersTotalRes as any).rows?.[0]?.n ?? 0);
+
+      const investorRes = await db.execute(sql.raw(`SELECT COUNT(*)::int AS n FROM partnerships WHERE category IN ('investor','innovation_research','research')`));
+      const investorConversations = Number((investorRes as any).rows?.[0]?.n ?? 0);
+
+      const govtRes = await db.execute(sql.raw(`SELECT COUNT(*)::int AS n FROM partnerships WHERE category IN ('government','government_public')`));
+      const grantsGovt = Number((govtRes as any).rows?.[0]?.n ?? 0);
+
+      // Today's data
+      const todayMeetingsRes = await db.execute(sql.raw(
+        `SELECT id, title, start_time AS "startTime", end_time AS "endTime", event_type AS "eventType", location, meeting_url AS "meetingUrl", status FROM calendar_events WHERE user_id = ${userId} AND start_time >= '${todayStart.toISOString()}' AND start_time <= '${todayEnd.toISOString()}' AND status != 'cancelled' ORDER BY start_time ASC LIMIT 8`
+      ));
+      const todayMeetings = (todayMeetingsRes as any).rows ?? [];
+
+      const tasksDueTodayRes = await db.execute(sql.raw(
+        mineFilter !== null
+          ? `SELECT id, title, due_date AS "dueDate", priority, status FROM tasks WHERE owner_user_id = ${mineFilter} AND status = 'pending' AND due_date >= '${todayStart.toISOString()}' AND due_date <= '${todayEnd.toISOString()}' ORDER BY due_date ASC LIMIT 8`
+          : `SELECT id, title, due_date AS "dueDate", priority, status FROM tasks WHERE status = 'pending' AND due_date >= '${todayStart.toISOString()}' AND due_date <= '${todayEnd.toISOString()}' ORDER BY due_date ASC LIMIT 8`
+      ));
+      const tasksDueToday = (tasksDueTodayRes as any).rows ?? [];
+
+      // Needs attention
+      const overdueTasksRes = await db.execute(sql.raw(
+        mineFilter !== null
+          ? `SELECT id, title, due_date AS "dueDate", priority FROM tasks WHERE owner_user_id = ${mineFilter} AND status = 'pending' AND due_date < NOW() ORDER BY due_date ASC LIMIT 8`
+          : `SELECT id, title, due_date AS "dueDate", priority FROM tasks WHERE status = 'pending' AND due_date < NOW() ORDER BY due_date ASC LIMIT 8`
+      ));
+      const overdueTasksList = (overdueTasksRes as any).rows ?? [];
+
+      const stalledRes = await db.execute(sql.raw(
+        mineFilter !== null
+          ? `SELECT o.id, o.title, o.stage, o.amount, o.account_id AS "accountId", o.owner_user_id AS "ownerUserId", o.last_activity_date AS "lastActivityDate", a.name AS "accountName" FROM opportunities o LEFT JOIN accounts a ON a.id = o.account_id WHERE o.owner_user_id = ${mineFilter} AND o.stage NOT IN ('closed_won','closed_lost') AND (o.last_activity_date IS NULL OR o.last_activity_date <= '${sevenDaysAgo.toISOString()}') ORDER BY o.amount DESC NULLS LAST LIMIT 8`
+          : `SELECT o.id, o.title, o.stage, o.amount, o.account_id AS "accountId", o.owner_user_id AS "ownerUserId", o.last_activity_date AS "lastActivityDate", a.name AS "accountName" FROM opportunities o LEFT JOIN accounts a ON a.id = o.account_id WHERE o.stage NOT IN ('closed_won','closed_lost') AND (o.last_activity_date IS NULL OR o.last_activity_date <= '${sevenDaysAgo.toISOString()}') ORDER BY o.amount DESC NULLS LAST LIMIT 8`
+      ));
+      const stalledDeals = ((stalledRes as any).rows ?? []).map((o: any) => ({
+        ...o,
+        ownerName: o.ownerUserId ? (allUsersMap.get(o.ownerUserId) ?? "Unassigned") : "Unassigned",
+        daysSinceActivity: o.lastActivityDate ? Math.floor((now.getTime() - new Date(o.lastActivityDate).getTime()) / 86400000) : 30,
+      }));
+
+      const noNextStepRes = await db.execute(sql.raw(
+        mineFilter !== null
+          ? `SELECT o.id, o.title, o.stage, o.amount, o.account_id AS "accountId", o.owner_user_id AS "ownerUserId", a.name AS "accountName" FROM opportunities o LEFT JOIN accounts a ON a.id = o.account_id WHERE o.owner_user_id = ${mineFilter} AND o.stage NOT IN ('closed_won','closed_lost') AND o.next_step IS NULL ORDER BY o.amount DESC NULLS LAST LIMIT 8`
+          : `SELECT o.id, o.title, o.stage, o.amount, o.account_id AS "accountId", o.owner_user_id AS "ownerUserId", a.name AS "accountName" FROM opportunities o LEFT JOIN accounts a ON a.id = o.account_id WHERE o.stage NOT IN ('closed_won','closed_lost') AND o.next_step IS NULL ORDER BY o.amount DESC NULLS LAST LIMIT 8`
+      ));
+      const noNextStep = ((noNextStepRes as any).rows ?? []).map((o: any) => ({
+        ...o,
+        ownerName: o.ownerUserId ? (allUsersMap.get(o.ownerUserId) ?? "Unassigned") : "Unassigned",
+      }));
+
+      // Pipeline momentum
+      const topOppsRes = await db.execute(sql.raw(
+        mineFilter !== null
+          ? `SELECT o.id, o.title, o.stage, o.amount, o.account_id AS "accountId", o.owner_user_id AS "ownerUserId", o.updated_at AS "updatedAt", o.est_close_date AS "estCloseDate", a.name AS "accountName" FROM opportunities o LEFT JOIN accounts a ON a.id = o.account_id WHERE o.owner_user_id = ${mineFilter} AND o.stage NOT IN ('closed_won','closed_lost') ORDER BY o.amount DESC NULLS LAST LIMIT 8`
+          : `SELECT o.id, o.title, o.stage, o.amount, o.account_id AS "accountId", o.owner_user_id AS "ownerUserId", o.updated_at AS "updatedAt", o.est_close_date AS "estCloseDate", a.name AS "accountName" FROM opportunities o LEFT JOIN accounts a ON a.id = o.account_id WHERE o.stage NOT IN ('closed_won','closed_lost') ORDER BY o.amount DESC NULLS LAST LIMIT 8`
+      ));
+      const topOpportunities = ((topOppsRes as any).rows ?? []).map((o: any) => ({
+        ...o,
+        ownerName: o.ownerUserId ? (allUsersMap.get(o.ownerUserId) ?? "Unassigned") : "Unassigned",
+      }));
+
+      // Partnership activity
+      const partnerRes = await db.execute(sql.raw(
+        `SELECT id, name, category, strategic_importance AS "strategicImportance", priority_level AS "priorityLevel", region, updated_at AS "updatedAt" FROM partnerships ORDER BY updated_at DESC LIMIT 6`
+      ));
+      const partnershipActivity = (partnerRes as any).rows ?? [];
+
+      // Recent contacts
+      const contactsRes = await db.execute(sql.raw(
+        `SELECT c.id, c.name, c.email, c.account_id AS "accountId", c.created_at AS "createdAt", a.name AS "accountName" FROM contacts c LEFT JOIN accounts a ON a.id = c.account_id ORDER BY c.created_at DESC LIMIT 6`
+      ));
+      const recentContacts = (contactsRes as any).rows ?? [];
+
+      // Recent emails
+      const emailsRes = await db.execute(sql.raw(
+        `SELECT id, subject, from_email AS "fromEmail", sent_at AS "sentAt", direction, snippet FROM email_messages WHERE owner_user_id = ${userId} AND sent_at >= '${sevenDaysAgo.toISOString()}' ORDER BY sent_at DESC LIMIT 6`
+      ));
+      const recentEmails = (emailsRes as any).rows ?? [];
+
+      // Upcoming meetings
+      const upcomingRes = await db.execute(sql.raw(
+        `SELECT id, title, start_time AS "startTime", end_time AS "endTime", location, meeting_url AS "meetingUrl" FROM calendar_events WHERE user_id = ${userId} AND start_time >= NOW() AND start_time <= '${threeDaysFromNow.toISOString()}' AND status != 'cancelled' ORDER BY start_time ASC LIMIT 6`
+      ));
+      const upcomingMeetings = (upcomingRes as any).rows ?? [];
+
+      // ── Suggested Actions ─────────────────────────────────────────────
+      const suggestedActions: Array<{ type: string; text: string; link: string; priority: "high" | "medium" | "low" }> = [];
+      if (overdueFollowUps > 0)
+        suggestedActions.push({ type: "task", text: `${overdueFollowUps} overdue task${overdueFollowUps > 1 ? "s" : ""} need attention`, link: "/execution/team-workload", priority: "high" });
+      for (const d of stalledDeals.slice(0, 2))
+        suggestedActions.push({ type: "opportunity", text: `Follow up on "${d.title}" — stalled ${d.daysSinceActivity}d`, link: "/opportunities", priority: d.daysSinceActivity > 14 ? "high" : "medium" });
+      if (noNextStep.length > 0)
+        suggestedActions.push({ type: "deal", text: `${noNextStep.length} deal${noNextStep.length > 1 ? "s" : ""} missing a next step`, link: "/pipeline", priority: "medium" });
+      const nextMeeting = upcomingMeetings[0];
+      if (nextMeeting) {
+        const mins = Math.floor((new Date(nextMeeting.startTime).getTime() - now.getTime()) / 60000);
+        if (mins > 0 && mins < 120)
+          suggestedActions.unshift({ type: "meeting", text: `"${nextMeeting.title}" in ${mins} min — review briefing`, link: "/execution/calendar", priority: "high" });
+      }
+
+      res.json({
+        userName: me?.name ?? "there",
+        viewMode,
+        isAdmin: isAdminUser,
+        stats: { openOpportunities, hotDeals, overdueFollowUps, meetingsToday, activePartnerships, investorConversations, grantsGovt },
+        today: { meetings: todayMeetings, tasksDue: tasksDueToday },
+        needsAttention: { overdueTasks: overdueTasksList, stalledDeals, noNextStep },
+        pipelineMomentum: { topOpportunities },
+        partnershipActivity,
+        recentRelationshipActivity: { contacts: recentContacts, emails: recentEmails },
+        suggestedActions,
+        intelligence: { upcomingMeetings, inboxSignals: recentEmails.filter((e: any) => e.direction === "inbound"), newContacts: recentContacts },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // Pipeline insights — stalled deals, no next step, forecast
   app.get("/api/pipeline/insights", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId as number;
       const now = new Date();
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
 
-      const [me] = await db.select({ globalRole: users.globalRole }).from(users).where(eq(users.id, userId)).limit(1);
-      const isAdminUser = me && ["master_admin", "admin"].includes(me.globalRole);
+      const [meRow] = await db.select({ globalRole: users.globalRole }).from(users).where(eq(users.id, userId)).limit(1);
+      const isAdminUser = !!meRow && ["master_admin", "admin"].includes(meRow.globalRole ?? "");
 
-      // Base condition: admin sees all, others see their own
-      const ownerCondition = isAdminUser ? undefined : eq(opportunities.assignedToUserId, userId);
+      const ownerClause = isAdminUser ? "" : `AND o.owner_user_id = ${userId}`;
 
-      const activeFilter = and(
-        ownerCondition,
-        not(eq(opportunities.stage, "closed_won")),
-        not(eq(opportunities.stage, "closed_lost")),
-      );
+      const allActiveRes = await db.execute(sql.raw(
+        `SELECT o.id, o.title, o.stage, o.amount, o.account_id AS "accountId", o.owner_user_id AS "ownerUserId", o.last_activity_date AS "lastActivityDate", o.updated_at AS "updatedAt", o.created_at AS "createdAt", a.name AS "accountName" FROM opportunities o LEFT JOIN accounts a ON a.id = o.account_id WHERE o.stage NOT IN ('closed_won','closed_lost') ${ownerClause} ORDER BY o.amount DESC NULLS LAST`
+      ));
+      const allActiveRaw: any[] = (allActiveRes as any).rows ?? [];
 
-      // All active opportunities
-      const allActive = await db.select({
-        id: opportunities.id, title: opportunities.title, stage: opportunities.stage,
-        amount: opportunities.amount, accountId: opportunities.accountId,
-        assignedToUserId: opportunities.assignedToUserId,
-        lastActivityDate: opportunities.lastActivityDate,
-        updatedAt: opportunities.updatedAt, createdAt: opportunities.createdAt,
-      }).from(opportunities)
-        .where(activeFilter)
-        .orderBy(desc(opportunities.amount));
-
-      // Enrich with account names
-      const accountMap = new Map<number, string>();
-      for (const o of allActive) {
-        if (!accountMap.has(o.accountId)) {
-          const [acc] = await db.select({ name: accounts.name }).from(accounts).where(eq(accounts.id, o.accountId)).limit(1);
-          if (acc) accountMap.set(o.accountId, acc.name);
-        }
-      }
-
-      // Enrich with user names
       const userMap = new Map<number, string>();
       const allUsers = await db.select({ id: users.id, name: users.name }).from(users);
       for (const u of allUsers) userMap.set(u.id, u.name);
 
-      const enrich = (o: typeof allActive[0]) => ({
+      const enriched = allActiveRaw.map(o => ({
         ...o,
-        accountName: accountMap.get(o.accountId) ?? "",
-        ownerName: o.assignedToUserId ? (userMap.get(o.assignedToUserId) ?? "Unassigned") : "Unassigned",
+        ownerName: o.ownerUserId ? (userMap.get(o.ownerUserId) ?? "Unassigned") : "Unassigned",
         daysSinceActivity: o.lastActivityDate
           ? Math.floor((now.getTime() - new Date(o.lastActivityDate).getTime()) / 86400000)
           : Math.floor((now.getTime() - new Date(o.updatedAt).getTime()) / 86400000),
-      });
+      }));
 
-      const enriched = allActive.map(enrich);
-
-      // Stalled: no activity in 7+ days
       const stalled = enriched.filter(o => o.daysSinceActivity >= 7);
-
-      // No next step: just show all active for now (tasks with linkedObjectId)
       const noNextStep = enriched.filter(o => o.daysSinceActivity >= 3 && o.stage !== "verbal_commit");
-
-      // High-value inactive (top 25% by amount, stalled 14+ days)
-      const amounts = enriched.map(o => o.amount ?? 0).sort((a, b) => b - a);
+      const amounts = enriched.map(o => o.amount ?? 0).sort((a: number, b: number) => b - a);
       const p75 = amounts[Math.floor(amounts.length * 0.25)] ?? 0;
       const highValueInactive = enriched.filter(o => (o.amount ?? 0) >= p75 && o.daysSinceActivity >= 14);
 
-      // Forecast by stage
       const STAGE_PROBABILITY: Record<string, number> = {
         inbound_new: 10, qualifying: 20, proposal: 40, negotiation: 65, verbal_commit: 85,
       };
       const byStage = Object.entries(STAGE_PROBABILITY).map(([stage, prob]) => {
         const stageOpps = enriched.filter(o => o.stage === stage);
-        const totalAmount = stageOpps.reduce((sum, o) => sum + (o.amount ?? 0), 0);
+        const totalAmount = stageOpps.reduce((sum: number, o: any) => sum + (o.amount ?? 0), 0);
         return { stage, probability: prob, count: stageOpps.length, totalAmount, weightedAmount: Math.round(totalAmount * prob / 100) };
       });
 
-      // Activity by owner
       const byOwner = Array.from(
-        enriched.reduce((map, o) => {
+        enriched.reduce((map: Map<string, any>, o: any) => {
           const name = o.ownerName;
           const entry = map.get(name) ?? { owner: name, count: 0, totalAmount: 0, stalled: 0 };
           entry.count++;
           entry.totalAmount += o.amount ?? 0;
           if (o.daysSinceActivity >= 7) entry.stalled++;
           return map.set(name, entry);
-        }, new Map<string, { owner: string; count: number; totalAmount: number; stalled: number }>())
-      ).map(([, v]) => v).sort((a, b) => b.totalAmount - a.totalAmount);
+        }, new Map<string, any>())
+      ).map(([, v]) => v).sort((a: any, b: any) => b.totalAmount - a.totalAmount);
 
-      res.json({ stalled, noNextStep, highValueInactive, byStage, byOwner, totalActive: enriched.length, totalPipeline: enriched.reduce((s, o) => s + (o.amount ?? 0), 0) });
+      res.json({ stalled, noNextStep, highValueInactive, byStage, byOwner, totalActive: enriched.length, totalPipeline: enriched.reduce((s: number, o: any) => s + (o.amount ?? 0), 0) });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -3048,54 +3143,47 @@ export async function registerRoutes(
       const now = new Date();
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       const twoHoursFromNow = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
       const alerts: Array<{ id: string; type: string; title: string; body: string; link: string; priority: string; createdAt: string }> = [];
 
-      // Upcoming meetings in next 2 hours
-      const upcomingMeetings = await db.select({ id: calendarEvents.id, title: calendarEvents.title, startTime: calendarEvents.startTime }).from(calendarEvents)
-        .where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startTime, now), lte(calendarEvents.startTime, twoHoursFromNow), ne(calendarEvents.status, "cancelled")))
-        .orderBy(asc(calendarEvents.startTime));
-      for (const m of upcomingMeetings) {
+      const upcomingRes = await db.execute(sql.raw(
+        `SELECT id, title, start_time AS "startTime" FROM calendar_events WHERE user_id = ${userId} AND start_time >= NOW() AND start_time <= '${twoHoursFromNow.toISOString()}' AND status != 'cancelled' ORDER BY start_time ASC`
+      ));
+      for (const m of (upcomingRes as any).rows ?? []) {
         const mins = Math.floor((new Date(m.startTime).getTime() - now.getTime()) / 60000);
         alerts.push({ id: `meeting-${m.id}`, type: "meeting", title: "Upcoming Meeting", body: `"${m.title}" in ${mins} min`, link: "/execution/calendar", priority: "high", createdAt: now.toISOString() });
       }
 
-      // Overdue tasks
-      const overdueTasks = await db.select({ id: tasks.id, title: tasks.title, dueDate: tasks.dueDate }).from(tasks)
-        .where(and(eq(tasks.ownerUserId, userId), eq(tasks.status, "pending"), lte(tasks.dueDate, now)))
-        .orderBy(asc(tasks.dueDate)).limit(5);
-      if (overdueTasks.length > 0)
-        alerts.push({ id: "overdue-tasks", type: "task", title: "Overdue Tasks", body: `${overdueTasks.length} task${overdueTasks.length > 1 ? "s" : ""} past due — "${overdueTasks[0].title}"`, link: "/execution/team-workload", priority: "high", createdAt: now.toISOString() });
+      const overdueRes = await db.execute(sql.raw(
+        `SELECT id, title, due_date AS "dueDate" FROM tasks WHERE owner_user_id = ${userId} AND status = 'pending' AND due_date < NOW() ORDER BY due_date ASC LIMIT 5`
+      ));
+      const overdueRows: any[] = (overdueRes as any).rows ?? [];
+      if (overdueRows.length > 0)
+        alerts.push({ id: "overdue-tasks", type: "task", title: "Overdue Tasks", body: `${overdueRows.length} task${overdueRows.length > 1 ? "s" : ""} past due — "${overdueRows[0].title}"`, link: "/execution/team-workload", priority: "high", createdAt: now.toISOString() });
 
-      // Stalled deals (no activity 7+ days)
-      const stalledDeals = await db.select({ id: opportunities.id, title: opportunities.title, lastActivityDate: opportunities.lastActivityDate, accountId: opportunities.accountId })
-        .from(opportunities)
-        .where(and(
-          eq(opportunities.assignedToUserId, userId),
-          not(eq(opportunities.stage, "closed_won")),
-          not(eq(opportunities.stage, "closed_lost")),
-          or(isNull(opportunities.lastActivityDate), lte(opportunities.lastActivityDate, sevenDaysAgo)),
-        ))
-        .orderBy(asc(opportunities.lastActivityDate)).limit(5);
-      if (stalledDeals.length > 0)
-        alerts.push({ id: "stalled-deals", type: "deal", title: "Stalled Deals", body: `${stalledDeals.length} deal${stalledDeals.length > 1 ? "s" : ""} with no activity in 7+ days`, link: "/pipeline", priority: "high", createdAt: now.toISOString() });
+      const stalledRes = await db.execute(sql.raw(
+        `SELECT id, title FROM opportunities WHERE owner_user_id = ${userId} AND stage NOT IN ('closed_won','closed_lost') AND (last_activity_date IS NULL OR last_activity_date <= '${sevenDaysAgo.toISOString()}') ORDER BY last_activity_date ASC NULLS FIRST LIMIT 5`
+      ));
+      const stalledRows: any[] = (stalledRes as any).rows ?? [];
+      if (stalledRows.length > 0)
+        alerts.push({ id: "stalled-deals", type: "deal", title: "Stalled Deals", body: `${stalledRows.length} deal${stalledRows.length > 1 ? "s" : ""} with no activity in 7+ days`, link: "/pipeline", priority: "high", createdAt: now.toISOString() });
 
-      // New leads this week
-      const newLeadCount = await db.select({ n: count() }).from(leads)
-        .where(and(eq(leads.status, "inbound_new"), gte(leads.createdAt, sevenDaysAgo)));
-      if (Number(newLeadCount[0]?.n ?? 0) > 0)
-        alerts.push({ id: "new-leads", type: "lead", title: "New Leads", body: `${newLeadCount[0].n} new lead${Number(newLeadCount[0].n) > 1 ? "s" : ""} this week`, link: "/opportunities", priority: "medium", createdAt: now.toISOString() });
+      const newLeadRes = await db.execute(sql.raw(
+        `SELECT COUNT(*)::int AS n FROM leads WHERE status = 'inbound_new' AND created_at >= '${sevenDaysAgo.toISOString()}'`
+      ));
+      const newLeadN = Number((newLeadRes as any).rows?.[0]?.n ?? 0);
+      if (newLeadN > 0)
+        alerts.push({ id: "new-leads", type: "lead", title: "New Leads", body: `${newLeadN} new lead${newLeadN > 1 ? "s" : ""} this week`, link: "/opportunities", priority: "medium", createdAt: now.toISOString() });
 
-      // Recent important inbound emails (last 24h)
-      const recentInbound = await db.select({ id: emailMessages.id, subject: emailMessages.subject, fromEmail: emailMessages.fromEmail, sentAt: emailMessages.sentAt })
-        .from(emailMessages)
-        .where(and(eq(emailMessages.userId, userId), eq(emailMessages.direction, "inbound"), gte(emailMessages.sentAt, new Date(now.getTime() - 24 * 60 * 60 * 1000))))
-        .orderBy(desc(emailMessages.sentAt)).limit(3);
-      for (const email of recentInbound.slice(0, 2)) {
-        alerts.push({ id: `email-${email.id}`, type: "email", title: "New Email", body: `${email.fromEmail}: ${email.subject || "(no subject)"}`, link: "/gmail", priority: "medium", createdAt: email.sentAt?.toISOString() ?? now.toISOString() });
+      const inboundRes = await db.execute(sql.raw(
+        `SELECT id, subject, from_email AS "fromEmail", sent_at AS "sentAt" FROM email_messages WHERE owner_user_id = ${userId} AND direction = 'inbound' AND sent_at >= '${oneDayAgo.toISOString()}' ORDER BY sent_at DESC LIMIT 3`
+      ));
+      for (const email of ((inboundRes as any).rows ?? []).slice(0, 2)) {
+        alerts.push({ id: `email-${email.id}`, type: "email", title: "New Email", body: `${email.fromEmail}: ${email.subject || "(no subject)"}`, link: "/gmail", priority: "medium", createdAt: email.sentAt ?? now.toISOString() });
       }
 
-      res.json(alerts.sort((a, b) => a.priority === "high" && b.priority !== "high" ? -1 : 1));
+      res.json({ notifications: alerts.sort((a, b) => a.priority === "high" && b.priority !== "high" ? -1 : 1), unreadCount: alerts.length });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

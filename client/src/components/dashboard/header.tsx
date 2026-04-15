@@ -26,6 +26,7 @@ import { useLocation } from "wouter";
 type NotificationAlert = {
   id: string; type: string; title: string; body: string; link: string; priority: string;
 };
+type NotificationsResponse = { notifications: NotificationAlert[]; unreadCount: number };
 
 const NOTIF_ICON: Record<string, ElementType> = {
   meeting: CalendarDays, task: CheckSquare, deal: Flame,
@@ -33,10 +34,11 @@ const NOTIF_ICON: Record<string, ElementType> = {
 };
 
 function NotificationPanel({ onNavigate }: { onNavigate: (href: string) => void }) {
-  const { data: alerts = [], isLoading } = useQuery<NotificationAlert[]>({
+  const { data, isLoading } = useQuery<NotificationsResponse>({
     queryKey: ["/api/notifications"],
     refetchInterval: 60_000,
   });
+  const alerts = data?.notifications ?? [];
 
   if (isLoading) return <div className="p-4 text-sm text-muted-foreground text-center">Loading…</div>;
   if (alerts.length === 0) return <div className="p-6 text-sm text-muted-foreground text-center">No new alerts — you're all caught up!</div>;
@@ -89,6 +91,11 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const mobileSearchRef = useRef<HTMLInputElement>(null);
   const [, navigate] = useLocation();
+  const { data: notifData } = useQuery<NotificationsResponse>({
+    queryKey: ["/api/notifications"],
+    refetchInterval: 60_000,
+  });
+  const unreadCount = notifData?.unreadCount ?? 0;
 
   useEffect(() => {
     if (mobileSearchOpen && mobileSearchRef.current) {
@@ -200,7 +207,7 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
                   data-testid="button-notifications"
                 >
                   <Bell className="w-5 h-5" />
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full ring-2 ring-background" />
+                  {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full ring-2 ring-background" />}
                 </Button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-80 p-0 max-h-[400px] overflow-y-auto">
