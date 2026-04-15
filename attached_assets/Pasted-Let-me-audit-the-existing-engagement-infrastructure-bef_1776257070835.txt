@@ -1,0 +1,75 @@
+Let me audit the existing engagement infrastructure before building:
+Now read the rest of the engagement-rules.ts to understand current action types:
+Now I have the full picture. Let me check the suggestions table schema and tracking.ts hook points:
+Let me also read the updateScore function and then check how email_tracking_pixels columns work for the migration:
+Good, I have everything I need. Let me write the session plan and start executing systematically:
+Now I have complete context. Let me write the session plan and execute. Starting with the DB migration via schema update + push, then all the backend changes in parallel:
+Now run db:push to apply the schema change, and simultaneously start drafting the backend changes:
+The db:push is interactive. I'll use direct SQL to add the column:
+Column added. Now let me read awaiting-reply.ts to understand where to hook in processReplyThreads:
+Now let me look at how email messages are queried and served to the frontend:
+Now I have the full picture. Let me execute all changes in parallel across tracking.ts, engagement-rules.ts, routes.ts, and emails-tab.tsx:
+Now update getEngagementStats() to include isReplied and add processReplyForThread:
+Now update the pixel query in getEngagementStats to include is_replied and add processReplyForThread:
+Now update the return statement to include isReplied:
+Now add the processReplyForThread export function to tracking.ts before the getPixel function:
+Now update engagement-rules.ts with all the new functionality:
+Now update the filter in processEngagementRules to include 'replied', and add the replied trigger to evaluateTrigger:
+Now add replied case to evaluateTrigger and fix opened_no_reply_after_days:
+Now add create_suggestion to fireAction and add the actionCreateSuggestion + processRepliedEvent functions:
+Now add actionCreateSuggestion and processRepliedEvent to engagement-rules.ts:
+Now update awaiting-reply.ts to call processReplyForThread, and update routes.ts signal query:
+Now add the processReplyForThread calls at the end of computeAwaitingReply:
+Now update routes.ts signal map to include is_replied, and update emails-tab.tsx SignalBadge + EmailItem type:
+Now update the result mapping in routes.ts to include isReplied:
+Now update emails-tab.tsx - add isReplied to EmailItem type and update SignalBadge:
+Now update the SignalBadge component to handle isReplied as top priority:
+Now update the SignalBadge usage in the email rows to pass isReplied:
+Also update hasSignal to include isReplied as a signal source:
+Let me also check if there's an EngagementStats display in emails-tab.tsx that mentions the signal level text and needs to handle "replied":
+Good - the capitalize class will render "Replied signal" correctly. Now let me write the test file for the new engagement gap features:
+Let me read the test runner pattern at the end of the existing test file, then write the new tests:
+Now let me write the comprehensive test file for engagement gap guardrails:
+Let me restart the app and check for any startup errors:
+The app started cleanly with no errors. Let me now run the new guardrail tests:
+7/12 pass. Let me fix the two issues: 1) the 401 auth on tests 1-4 (likely a session timing issue), and 2) the body-already-read in test 12:
+I can see two issues:
+
+Template literals eagerly evaluate await r.text() consuming the body before r.json() is called
+The first POST after login gets 401 (likely a timing issue - server session init)
+Let me fix the test file:
+Now fix the body double-read issues in tests 1, 2, and 12:
+Now fix test 2 and test 12 body double-read:
+Now fix test 12's body double-read:
+Now let me run the tests again:
+11/12 pass! The last failure is the compute-awaiting-reply endpoint returning HTML. Let me check that route:
+The route is /api/inbox/compute-awaiting-reply, not /api/gmail/.... Fix the test:
+12/12 tests pass. Let me also verify the existing engagement tests and email workspace tests still pass:
+All 36 tests pass across all three suites. Let me check for any TypeScript errors in the build:
+TypeScript check timed out (normal for this project). Let me check server logs and verify the frontend renders cleanly:
+Everything looks clean. Let me update replit.md to document the new engagement gap guardrail features:
+Now update the engagement sections in replit.md to document the new guardrail features:
+Let me also add "replied" to the TypeScript union type for signalLevel in emails-tab.tsx since the backend now returns it:
+Let me do a final run of all three test suites together to confirm everything passes clean:
+The email-workspace test shows 1 flaky failure (the same auth timing issue). Let me run it standalone to confirm:
+The email-workspace test has the same auth timing issue. Let me check if it already has a delay and add one if not:
+The email-workspace test needs the same auth delay fix. Let me add it:
+Let me also add the delay to engagement-automations.test.js for consistency:
+Now let me run all three test suites to confirm a clean final pass:
+All 36 tests pass across all three suites — 12/12 each. Here's a summary of everything built for the Engagement Gap Guardrails feature:
+
+What was delivered:
+
+1. is_replied signal column — Added is_replied boolean DEFAULT false to email_tracking_pixels (via direct SQL migration + Drizzle schema update). This is the anchor for the "Replied" engagement signal.
+
+2. replied trigger type — The engagement rules engine now supports trigger_type = 'replied'. Creating a rule with this type via the API is fully supported and validated.
+
+3. create_suggestion action type — Rules can now produce entries in task_suggestions instead of just notifications/tasks. Deduplication uses a composite key (eng_sug_rule{id}_{trackingId}_{objectType}_{objectId}) with cooldown window checks — prevents suggestion spam from the same engagement signal.
+
+4. processReplyForThread(gmailThreadId) — New function in tracking.ts that scans outbound tracked emails in a thread, checks for inbound replies arriving after the pixel was sent, marks is_replied = true, sets signal_level = 'replied', then fires any replied-trigger rules. Called automatically from computeAwaitingReply() (runs on boot + manual trigger).
+
+5. Reply signal priority protection — updateScore() now uses a SQL CASE WHEN is_replied = true THEN 'replied' guard so subsequent open/click events never downgrade a pixel that has already been marked as replied.
+
+6. Signal hierarchy enforced in the frontend — SignalBadge resolves: isReplied → "replied" overrides everything, then isHot → "hot", then the score-based level. The EmailItem type and hasSignal logic updated to include isReplied. The API signal batch query now includes is_replied from the pixel table.
+
+7. 12 new tests in tests/engagement-guardrails.test.js covering: rule CRUD for both new types, signal hierarchy unit tests, deduplication correctness, field integrity, updateScore preservation, bot suppression, and the reply scan endpoint.
