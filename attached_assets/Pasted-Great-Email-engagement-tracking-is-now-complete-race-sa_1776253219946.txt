@@ -1,0 +1,94 @@
+Great. Email engagement tracking is now complete, race-safe, and fully tested. Next, build Engagement-Driven Follow-Up Automations.
+
+Goal:
+Turn engagement signals into useful CRM follow-up actions without creating noise or spam.
+
+Build this in phases.
+
+PHASE 1 — ENGAGEMENT SUMMARY / SCORING
+Create a deterministic engagement summary per outbound email and thread:
+- real_open_count
+- unique_real_open_count
+- click_count
+- unique_click_count
+- first_real_open_at
+- last_real_open_at
+- first_click_at
+- last_click_at
+- replied_at if available
+- engagement_level enum: none / low / medium / high / replied
+Use clicks and replies as stronger signals than opens.
+
+PHASE 2 — RULE EVALUATION ENGINE
+Extend the existing email_engagement_rules system to support triggers like:
+- first real open
+- N real opens within X hours/days
+- first click
+- clicked URL containing pricing/spec/quote
+- opened but no reply after X days
+- no opens after X days
+- replied
+Actions:
+- create task
+- create notification
+- create suggestion
+- mark thread hot
+- bump linked opportunity/lead priority
+- assign owner
+Keep all logic deterministic and explainable.
+
+PHASE 3 — DEFAULT SALES RULES
+Seed useful defaults:
+- Quote email opened 3+ times in 48h → create follow-up suggestion
+- Pricing/spec link clicked → create high-priority task
+- Opened but no reply after 3 days → remind owner
+- No open after 5 days → suggest resend/follow-up
+- Replied → resolve awaiting-reply state if applicable
+
+PHASE 4 — TASKS / SUGGESTIONS INTEGRATION
+Integrate with existing task + suggestion infrastructure:
+- source = automation
+- sourceLabel like "Quote opened repeatedly"
+- sourceMeta including trackingId, gmailMessageId, ruleId, counts, clickedUrl
+Deduplicate by message/thread/rule so weak signals do not generate repeated clutter.
+
+PHASE 5 — EMAIL WORKSPACE / RECORD BADGES
+Show engagement health clearly in:
+- email workspace
+- linked account timeline
+- lead timeline
+- contact timeline
+- opportunity/quote context where relevant
+Useful labels:
+- Unopened
+- Opened
+- Opened repeatedly
+- Clicked
+- Replied
+- Hot
+
+PHASE 6 — COOLDOWNS / DEDUPE
+Prevent repeated automation spam:
+- cooldown windows per rule
+- signal escalation only when strength materially changes
+- suppress duplicate notifications/tasks for same message/thread/rule
+- duplicate open events should not retrigger rules
+
+PHASE 7 — TESTING
+Add comprehensive tests for:
+- scoring
+- rule evaluation
+- task creation
+- notification creation
+- suggestion creation
+- dedupe/cooldowns
+- click-based triggers
+- reply-based triggers
+- no regression to tracking/send/timeline behavior
+
+Implementation rules:
+- opens are soft signals, not guaranteed reads
+- clicks and replies carry more weight
+- do not build newsletter marketing logic
+- keep it focused on B2B relationship follow-up
+- summarize changed files and final pass/fail at the end
