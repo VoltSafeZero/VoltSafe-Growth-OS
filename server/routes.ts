@@ -2664,6 +2664,524 @@ export async function registerRoutes(
     }
   });
 
+  // ── Execution: Daily + Summary + Reminders + Bulk ─────────────────────────
+
+  // SQL-safe string escaping: wraps in single quotes and escapes internal single quotes/backslashes.
+  const sqlStr = (s: string | null | undefined): string => {
+    if (s == null) return "NULL";
+    return `'${String(s).replace(/\\/g, "\\\\").replace(/'/g, "''")}'`;
+  };
+
+  app.get("/api/execution/today", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req)!;
+      const now = new Date();
+      const todayStart = `${now.toISOString().slice(0, 10)}T00:00:00.000Z`;
+      const todayEnd = `${now.toISOString().slice(0, 10)}T23:59:59.999Z`;
+
+      const [mustDoRes, overdueRes, newlyRes, awaitingRes, recentRes, suggestionsRes] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT t.id, t.title, t.priority, t.status, t.due_date, t.reminder_count, t.escalation_level,
+            t.source, t.source_label, t.account_id, t.linked_object_type, t.linked_object_id,
+            t.owner_user_id, u.name AS owner_name, a.name AS account_name,
+            EXTRACT(EPOCH FROM (NOW() - t.due_date))/86400 AS days_overdue
+          FROM tasks t
+          LEFT JOIN users u ON u.id = t.owner_user_id
+          LEFT JOIN accounts a ON a.id = t.account_id
+          WHERE t.owner_user_id = ${userId}
+            AND t.status NOT IN ('completed','cancelled')
+            AND t.due_date >= '${todayStart}' AND t.due_date <= '${todayEnd}'
+            AND (t.snoozed_until IS NULL OR t.snoozed_until < NOW())
+          ORDER BY t.priority DESC, t.due_date ASC
+          LIMIT 20
+        `)),
+        db.execute(sql.raw(`
+          SELECT t.id, t.title, t.priority, t.status, t.due_date, t.reminder_count, t.escalation_level,
+            t.source, t.source_label, t.account_id, t.linked_object_type, t.linked_object_id,
+            t.owner_user_id, u.name AS owner_name, a.name AS account_name,
+            EXTRACT(EPOCH FROM (NOW() - t.due_date))/86400 AS days_overdue
+          FROM tasks t
+          LEFT JOIN users u ON u.id = t.owner_user_id
+          LEFT JOIN accounts a ON a.id = t.account_id
+          WHERE t.owner_user_id = ${userId}
+            AND t.status NOT IN ('completed','cancelled')
+            AND t.due_date < '${todayStart}'
+            AND (t.snoozed_until IS NULL OR t.snoozed_until < NOW())
+          ORDER BY t.priority DESC, t.due_date ASC
+          LIMIT 20
+        `)),
+        db.execute(sql.raw(`
+          SELECT t.id, t.title, t.priority, t.status, t.due_date, t.reminder_count, t.escalation_level,
+            t.source, t.source_label, t.account_id, t.linked_object_type, t.linked_object_id,
+            t.owner_user_id, u.name AS owner_name, a.name AS account_name
+          FROM tasks t
+          LEFT JOIN users u ON u.id = t.owner_user_id
+          LEFT JOIN accounts a ON a.id = t.account_id
+          WHERE t.owner_user_id = ${userId}
+            AND t.status NOT IN ('completed','cancelled')
+            AND t.created_at >= NOW() - INTERVAL '24 hours'
+          ORDER BY t.created_at DESC
+          LIMIT 10
+        `)),
+        db.execute(sql.raw(`
+          SELECT t.id, t.title, t.priority, t.status, t.due_date, t.reminder_count, t.escalation_level,
+            t.source, t.source_label, t.account_id, t.linked_object_type, t.linked_object_id,
+            t.owner_user_id, u.name AS owner_name, a.name AS account_name
+          FROM tasks t
+          LEFT JOIN users u ON u.id = t.owner_user_id
+          LEFT JOIN accounts a ON a.id = t.account_id
+          WHERE t.owner_user_id = ${userId}
+            AND t.status NOT IN ('completed','cancelled')
+            AND t.source IN ('email','suggestion')
+          ORDER BY t.due_date ASC NULLS LAST
+          LIMIT 10
+        `)),
+        db.execute(sql.raw(`
+          SELECT t.id, t.title, t.priority, t.status, t.completed_at,
+            t.owner_user_id, u.name AS owner_name, a.name AS account_name
+          FROM tasks t
+          LEFT JOIN users u ON u.id = t.owner_user_id
+          LEFT JOIN accounts a ON a.id = t.account_id
+          WHERE t.owner_user_id = ${userId}
+            AND t.status = 'completed'
+            AND t.completed_at >= NOW() - INTERVAL '24 hours'
+          ORDER BY t.completed_at DESC
+          LIMIT 10
+        `)),
+        db.execute(sql.raw(`
+          SELECT COUNT(*) AS cnt FROM task_suggestions
+          WHERE status = 'pending'
+            AND (snoozed_until IS NULL OR snoozed_until < NOW())
+        `)),
+      ]);
+
+      const suggestionsReady = Number((suggestionsRes.rows[0] as any)?.cnt) || 0;
+
+      res.json({
+        mustDoToday: mustDoRes.rows,
+        overdue: overdueRes.rows,
+        newlyAssigned: newlyRes.rows,
+        awaitingReply: awaitingRes.rows,
+        recentlyCompleted: recentRes.rows,
+        suggestionsReady,
+        meta: {
+          userId,
+          generatedAt: now.toISOString(),
+          counts: {
+            mustDoToday: mustDoRes.rows.length,
+            overdue: overdueRes.rows.length,
+            newlyAssigned: newlyRes.rows.length,
+            awaitingReply: awaitingRes.rows.length,
+            recentlyCompleted: recentRes.rows.length,
+          },
+        },
+      });
+    } catch (err: any) {
+      console.error("[execution/today]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/execution/summary", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req)!;
+
+      const [statsRes, avgAgeRes, blockedRes, staleRes] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT
+            COUNT(*) FILTER (WHERE status NOT IN ('completed','cancelled')) AS total_open,
+            COUNT(*) FILTER (WHERE status NOT IN ('completed','cancelled') AND due_date < NOW()) AS overdue_count,
+            COUNT(*) FILTER (WHERE status NOT IN ('completed','cancelled') AND due_date >= CURRENT_DATE AND due_date < CURRENT_DATE + INTERVAL '1 day') AS due_today,
+            COUNT(*) FILTER (WHERE status = 'completed' AND completed_at >= NOW() - INTERVAL '7 days') AS completed_7d,
+            COUNT(*) FILTER (WHERE status NOT IN ('completed','cancelled') AND created_at >= NOW() - INTERVAL '7 days') AS created_7d
+          FROM tasks
+          WHERE owner_user_id = ${userId}
+        `)),
+        db.execute(sql.raw(`
+          SELECT AVG(EXTRACT(EPOCH FROM (NOW() - created_at))/86400)::int AS avg_age_days
+          FROM tasks
+          WHERE owner_user_id = ${userId} AND status NOT IN ('completed','cancelled')
+        `)),
+        db.execute(sql.raw(`
+          SELECT u.name AS owner_name, COUNT(*) AS overdue_count
+          FROM tasks t
+          JOIN users u ON u.id = t.owner_user_id
+          WHERE t.status NOT IN ('completed','cancelled') AND t.due_date < NOW()
+          GROUP BY u.id, u.name
+          ORDER BY overdue_count DESC
+          LIMIT 5
+        `)),
+        db.execute(sql.raw(`
+          SELECT COALESCE(a.name, t.linked_object_type) AS record_name,
+            t.linked_object_type,
+            COUNT(*) AS task_count
+          FROM tasks t
+          LEFT JOIN accounts a ON a.id = t.account_id
+          WHERE t.status NOT IN ('completed','cancelled')
+            AND t.due_date < NOW() - INTERVAL '7 days'
+          GROUP BY a.name, t.linked_object_type
+          ORDER BY task_count DESC
+          LIMIT 5
+        `)),
+      ]);
+
+      const statsRow = statsRes.rows[0] as any || {};
+      const totalOpen = Number(statsRow.total_open) || 0;
+      const completedLast7d = Number(statsRow.completed_7d) || 0;
+      const createdLast7d = Number(statsRow.created_7d) || 0;
+      const completionRate = createdLast7d > 0
+        ? Math.round((completedLast7d / (completedLast7d + totalOpen)) * 100)
+        : 0;
+
+      res.json({
+        totalOpen,
+        overdueCount: Number(statsRow.overdue_count) || 0,
+        dueToday: Number(statsRow.due_today) || 0,
+        completionRateLast7d: completionRate,
+        avgAgeOfOpenTasksDays: Number((avgAgeRes.rows[0] as any)?.avg_age_days) || 0,
+        topBlockedOwners: blockedRes.rows,
+        topStaleLinkedRecords: staleRes.rows,
+      });
+    } catch (err: any) {
+      console.error("[execution/summary]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/tasks/:id/remind-now", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req)!;
+      const taskId = Number(req.params.id);
+
+      const taskRes = await db.execute(sql.raw(`SELECT * FROM tasks WHERE id = ${taskId} LIMIT 1`));
+      if (taskRes.rows.length === 0) return res.status(404).json({ message: "Task not found" });
+      const task = taskRes.rows[0] as any;
+
+      const dedupeKey = `manual-reminder-${taskId}-${userId}-${new Date().toISOString().slice(0, 13)}`;
+      const notifResult = await db.execute(sql.raw(`
+        INSERT INTO notifications (user_id, type, title, body, severity, linked_object_type, linked_object_id, action_url, is_read, dedupe_key)
+        VALUES (
+          ${task.owner_user_id || userId},
+          'task_reminder',
+          'Task Reminder',
+          ${sqlStr(`"${task.title}" — reminder sent by your manager.`)},
+          'medium',
+          'task',
+          ${taskId},
+          '/execution/daily',
+          false,
+          ${sqlStr(dedupeKey)}
+        )
+        ON CONFLICT (dedupe_key) DO NOTHING
+        RETURNING id
+      `));
+
+      if (notifResult.rows.length > 0) {
+        const notifId = (notifResult.rows[0] as any).id;
+        await db.execute(sql.raw(`
+          INSERT INTO task_reminder_logs (task_id, user_id, reminder_type, channel, notification_id)
+          VALUES (${taskId}, ${userId}, 'manual', 'in_app', ${notifId})
+        `));
+        await db.execute(sql.raw(`
+          UPDATE tasks SET last_reminded_at = NOW(), reminder_count = COALESCE(reminder_count,0)+1, updated_at = NOW()
+          WHERE id = ${taskId}
+        `));
+      }
+
+      res.json({ ok: true, sent: notifResult.rows.length > 0 });
+    } catch (err: any) {
+      console.error("[tasks/remind-now]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/tasks/:id/escalate", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req)!;
+      const taskId = Number(req.params.id);
+
+      const taskRes = await db.execute(sql.raw(`SELECT * FROM tasks WHERE id = ${taskId} LIMIT 1`));
+      if (taskRes.rows.length === 0) return res.status(404).json({ message: "Task not found" });
+      const task = taskRes.rows[0] as any;
+
+      const newLevel = (task.escalation_level || 0) + 1;
+      await db.execute(sql.raw(`
+        UPDATE tasks SET escalation_level = ${newLevel}, updated_at = NOW() WHERE id = ${taskId}
+      `));
+
+      const dedupeKey = `escalate-${taskId}-${newLevel}-${new Date().toISOString().slice(0, 10)}`;
+      await db.execute(sql.raw(`
+        INSERT INTO notifications (user_id, type, title, body, severity, linked_object_type, linked_object_id, action_url, is_read, dedupe_key)
+        VALUES (
+          ${task.owner_user_id || userId},
+          'task_escalation',
+          'Task Escalated',
+          ${sqlStr(`"${task.title}" has been escalated to level ${newLevel}.`)},
+          'high',
+          'task',
+          ${taskId},
+          '/execution/daily',
+          false,
+          ${sqlStr(dedupeKey)}
+        )
+        ON CONFLICT (dedupe_key) DO NOTHING
+      `));
+
+      await db.execute(sql.raw(`
+        INSERT INTO task_reminder_logs (task_id, user_id, reminder_type, channel)
+        VALUES (${taskId}, ${userId}, 'escalation', 'in_app')
+      `));
+
+      res.json({ ok: true, escalationLevel: newLevel });
+    } catch (err: any) {
+      console.error("[tasks/escalate]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/tasks/bulk/complete", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req)!;
+      const { taskIds } = req.body as { taskIds: number[] };
+      if (!Array.isArray(taskIds) || taskIds.length === 0)
+        return res.status(400).json({ message: "taskIds array required" });
+
+      const ids = taskIds.map(Number).filter(Boolean);
+      await db.execute(sql.raw(`
+        UPDATE tasks SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+        WHERE id = ANY(ARRAY[${ids.join(",")}])
+          AND (owner_user_id = ${userId} OR ${userId} IN (SELECT id FROM users WHERE global_role IN ('admin','master_admin')))
+      `));
+
+      res.json({ ok: true, updated: ids.length });
+    } catch (err: any) {
+      console.error("[tasks/bulk/complete]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/tasks/bulk/reassign", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req)!;
+      const { taskIds, assigneeUserId } = req.body as { taskIds: number[]; assigneeUserId: number };
+      if (!Array.isArray(taskIds) || taskIds.length === 0)
+        return res.status(400).json({ message: "taskIds array required" });
+      if (!assigneeUserId) return res.status(400).json({ message: "assigneeUserId required" });
+
+      const ids = taskIds.map(Number).filter(Boolean);
+      const assignee = Number(assigneeUserId);
+
+      await db.execute(sql.raw(`
+        UPDATE tasks SET owner_user_id = ${assignee}, updated_at = NOW()
+        WHERE id = ANY(ARRAY[${ids.join(",")}])
+      `));
+
+      const userRes = await db.execute(sql.raw(`SELECT name FROM users WHERE id = ${assignee} LIMIT 1`));
+      const assigneeName = (userRes.rows[0] as any)?.name || "someone";
+
+      for (const id of ids) {
+        const dedupeKey = `reassign-${id}-${assignee}-${Date.now()}`;
+        await db.execute(sql.raw(`
+          INSERT INTO notifications (user_id, type, title, body, severity, linked_object_type, linked_object_id, action_url, is_read, dedupe_key)
+          VALUES (
+            ${assignee},
+            'task_reassigned',
+            'Task Assigned to You',
+            ${sqlStr(`A task has been reassigned to you by ${assigneeName}.`)},
+            'medium',
+            'task',
+            ${id},
+            '/execution/daily',
+            false,
+            ${sqlStr(dedupeKey)}
+          )
+          ON CONFLICT (dedupe_key) DO NOTHING
+        `));
+      }
+
+      res.json({ ok: true, updated: ids.length });
+    } catch (err: any) {
+      console.error("[tasks/bulk/reassign]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/tasks/bulk/snooze", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req)!;
+      const { taskIds, days, until } = req.body as { taskIds: number[]; days?: number; until?: string };
+      if (!Array.isArray(taskIds) || taskIds.length === 0)
+        return res.status(400).json({ message: "taskIds array required" });
+
+      let snoozedUntil: Date;
+      if (until) {
+        snoozedUntil = new Date(until);
+      } else {
+        const d = days !== undefined && days !== null ? Number(days) : 1;
+        if (!Number.isFinite(d) || d < 1 || d > 90) return res.status(400).json({ message: "days must be 1–90" });
+        snoozedUntil = new Date(Date.now() + d * 86_400_000);
+      }
+
+      const ids = taskIds.map(Number).filter(Boolean);
+      await db.execute(sql.raw(`
+        UPDATE tasks SET snoozed_until = '${snoozedUntil.toISOString()}', updated_at = NOW()
+        WHERE id = ANY(ARRAY[${ids.join(",")}])
+          AND (owner_user_id = ${userId} OR ${userId} IN (SELECT id FROM users WHERE global_role IN ('admin','master_admin')))
+      `));
+
+      res.json({ ok: true, updated: ids.length, snoozedUntil: snoozedUntil.toISOString() });
+    } catch (err: any) {
+      console.error("[tasks/bulk/snooze]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Execution Settings ─────────────────────────────────────────────────────
+
+  app.get("/api/execution/settings", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req)!;
+      const result = await db.execute(sql.raw(
+        `SELECT * FROM execution_settings WHERE user_id = ${userId} LIMIT 1`
+      ));
+      if (result.rows.length === 0) {
+        return res.json({
+          userId,
+          reminderHour: 9,
+          overdueEscalationDays: 3,
+          maxRemindersPerDay: 3,
+          managerDigestEnabled: true,
+          suggestionsInDigest: true,
+          bulkConfirmEnabled: true,
+        });
+      }
+      const row = result.rows[0] as any;
+      res.json({
+        userId: Number(row.user_id),
+        reminderHour: Number(row.reminder_hour),
+        overdueEscalationDays: Number(row.overdue_escalation_days),
+        maxRemindersPerDay: Number(row.max_reminders_per_day),
+        managerDigestEnabled: Boolean(row.manager_digest_enabled),
+        suggestionsInDigest: Boolean(row.suggestions_in_digest),
+        bulkConfirmEnabled: Boolean(row.bulk_confirm_enabled),
+      });
+    } catch (err: any) {
+      console.error("[execution/settings GET]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/execution/settings", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req)!;
+      const {
+        reminderHour, overdueEscalationDays, maxRemindersPerDay,
+        managerDigestEnabled, suggestionsInDigest, bulkConfirmEnabled
+      } = req.body;
+
+      if (reminderHour !== undefined && (reminderHour < 0 || reminderHour > 23))
+        return res.status(400).json({ message: "reminderHour must be 0–23" });
+      if (maxRemindersPerDay !== undefined && (maxRemindersPerDay < 1 || maxRemindersPerDay > 10))
+        return res.status(400).json({ message: "maxRemindersPerDay must be 1–10" });
+
+      const existing = await db.execute(sql.raw(
+        `SELECT id FROM execution_settings WHERE user_id = ${userId} LIMIT 1`
+      ));
+
+      if (existing.rows.length === 0) {
+        await db.execute(sql.raw(`
+          INSERT INTO execution_settings (user_id, reminder_hour, overdue_escalation_days, max_reminders_per_day, manager_digest_enabled, suggestions_in_digest, bulk_confirm_enabled)
+          VALUES (
+            ${userId},
+            ${reminderHour ?? 9},
+            ${overdueEscalationDays ?? 3},
+            ${maxRemindersPerDay ?? 3},
+            ${managerDigestEnabled ?? true},
+            ${suggestionsInDigest ?? true},
+            ${bulkConfirmEnabled ?? true}
+          )
+        `));
+      } else {
+        const updates: string[] = [];
+        if (reminderHour !== undefined) updates.push(`reminder_hour = ${Number(reminderHour)}`);
+        if (overdueEscalationDays !== undefined) updates.push(`overdue_escalation_days = ${Number(overdueEscalationDays)}`);
+        if (maxRemindersPerDay !== undefined) updates.push(`max_reminders_per_day = ${Number(maxRemindersPerDay)}`);
+        if (managerDigestEnabled !== undefined) updates.push(`manager_digest_enabled = ${Boolean(managerDigestEnabled)}`);
+        if (suggestionsInDigest !== undefined) updates.push(`suggestions_in_digest = ${Boolean(suggestionsInDigest)}`);
+        if (bulkConfirmEnabled !== undefined) updates.push(`bulk_confirm_enabled = ${Boolean(bulkConfirmEnabled)}`);
+        updates.push("updated_at = NOW()");
+        if (updates.length > 1) {
+          await db.execute(sql.raw(`UPDATE execution_settings SET ${updates.join(", ")} WHERE user_id = ${userId}`));
+        }
+      }
+
+      const updated = await db.execute(sql.raw(
+        `SELECT * FROM execution_settings WHERE user_id = ${userId} LIMIT 1`
+      ));
+      const row = updated.rows[0] as any;
+      res.json({
+        userId: Number(row.user_id),
+        reminderHour: Number(row.reminder_hour),
+        overdueEscalationDays: Number(row.overdue_escalation_days),
+        maxRemindersPerDay: Number(row.max_reminders_per_day),
+        managerDigestEnabled: Boolean(row.manager_digest_enabled),
+        suggestionsInDigest: Boolean(row.suggestions_in_digest),
+        bulkConfirmEnabled: Boolean(row.bulk_confirm_enabled),
+      });
+    } catch (err: any) {
+      console.error("[execution/settings PUT]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Digest ─────────────────────────────────────────────────────────────────
+
+  app.post("/api/execution/digest", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req)!;
+      const { type, force } = req.body as { type?: string; force?: boolean };
+      const digestType = (type as any) || "morning_personal";
+      const validTypes = ["morning_personal", "evening_unresolved", "manager_team"];
+      if (!validTypes.includes(digestType))
+        return res.status(400).json({ message: "Invalid digest type" });
+
+      const { generateDigest } = await import("./services/digest-engine");
+      const payload = await generateDigest(userId, digestType, false, Boolean(force));
+      if (!payload) return res.json({ skipped: true, reason: "Already delivered today" });
+      res.json(payload);
+    } catch (err: any) {
+      console.error("[execution/digest]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Reminder trigger (manual run for a user) ───────────────────────────────
+
+  app.post("/api/execution/run-reminders", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req)!;
+      const { generateRemindersForUser } = await import("./services/reminder-engine");
+      const result = await generateRemindersForUser(userId);
+      res.json({ ok: true, ...result });
+    } catch (err: any) {
+      console.error("[execution/run-reminders]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/execution/rules", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const { REMINDER_RULES } = await import("./services/reminder-engine");
+      const rules = REMINDER_RULES.map(({ id, label, description, reminderType, escalates, cooldownHours }) => ({
+        id, label, description, reminderType, escalates, cooldownHours,
+      }));
+      res.json({ rules });
+    } catch (err: any) {
+      console.error("[execution/rules]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Task quick actions ──────────────────────────────────────────────────
   app.post("/api/tasks/:id/complete", async (req, res) => {
     try {

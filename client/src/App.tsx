@@ -53,6 +53,7 @@ import ActivityFeedPage from "@/pages/activity-feed";
 import NotesPage from "@/pages/notes-page";
 import TasksHubPage from "@/pages/tasks-hub";
 import TaskRulesSettingsPage from "@/pages/task-rules-settings";
+import DailyExecutionPage from "@/pages/daily-execution";
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -213,6 +214,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
 
       {/* ── AUTOMATION ────────────────────────────────────────────── */}
       <Route path="/automation/tasks">{() => wrap(<TaskRulesSettingsPage />)}</Route>
+      <Route path="/execution/daily">{() => wrap(<DailyExecutionPage />)}</Route>
 
       {/* ── ADMIN ─────────────────────────────────────────────────── */}
       <Route path="/admin/users">{() => wrap(<AdminUsersPage currentUserGlobalRole={user.globalRole || "sales"} />)}</Route>

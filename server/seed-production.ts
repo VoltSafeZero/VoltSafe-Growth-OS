@@ -355,6 +355,69 @@ export async function migrateCalendarSchema(): Promise<void> {
   }
 }
 
+export async function migrateExecutionSchema(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at timestamp`);
+    await db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS last_reminded_at timestamp`);
+    await db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS reminder_count integer NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS escalation_level integer NOT NULL DEFAULT 0`);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS task_reminder_logs (
+        id serial PRIMARY KEY,
+        task_id integer NOT NULL,
+        user_id integer NOT NULL,
+        reminder_type text NOT NULL,
+        channel text NOT NULL DEFAULT 'in_app',
+        notification_id integer,
+        created_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_reminder_logs_task ON task_reminder_logs(task_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_reminder_logs_user ON task_reminder_logs(user_id, created_at)`);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS task_digests (
+        id serial PRIMARY KEY,
+        user_id integer NOT NULL,
+        digest_type text NOT NULL,
+        period_start timestamp NOT NULL,
+        period_end timestamp NOT NULL,
+        payload jsonb NOT NULL,
+        delivered_at timestamp NOT NULL DEFAULT now(),
+        created_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_task_digests_user ON task_digests(user_id, digest_type, delivered_at)`);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS execution_settings (
+        id serial PRIMARY KEY,
+        user_id integer NOT NULL UNIQUE,
+        reminder_hour integer NOT NULL DEFAULT 9,
+        overdue_escalation_days integer NOT NULL DEFAULT 3,
+        max_reminders_per_day integer NOT NULL DEFAULT 3,
+        manager_digest_enabled boolean NOT NULL DEFAULT true,
+        suggestions_in_digest boolean NOT NULL DEFAULT true,
+        bulk_confirm_enabled boolean NOT NULL DEFAULT true,
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+
+    // Unique index on notifications.dedupe_key so ON CONFLICT (dedupe_key) works.
+    // Drop any partial version first (idempotent), then ensure full unique index exists.
+    await db.execute(sql.raw(`DROP INDEX IF EXISTS idx_notifications_dedupe_key_unique`));
+    await db.execute(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_dedupe_key_unique
+      ON notifications (dedupe_key) NULLS NOT DISTINCT
+    `));
+
+    console.log("[migration] Execution schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Execution schema migration error (non-fatal):", err);
+  }
+}
+
 export async function migrateSuggestionsSchema(): Promise<void> {
   try {
     await db.execute(sql`

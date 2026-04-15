@@ -388,6 +388,10 @@ export const tasks = pgTable("tasks", {
   snoozedUntil: timestamp("snoozed_until"),
   dismissedAt: timestamp("dismissed_at"),
   dismissedBy: integer("dismissed_by"),
+  completedAt: timestamp("completed_at"),
+  lastRemindedAt: timestamp("last_reminded_at"),
+  reminderCount: integer("reminder_count").default(0),
+  escalationLevel: integer("escalation_level").default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1248,4 +1252,43 @@ export const migrationLog = pgTable("migration_log", {
 
 export const insertMigrationLogSchema = createInsertSchema(migrationLog).omit({ id: true, createdAt: true });
 export type MigrationLog = typeof migrationLog.$inferSelect;
+
+// ── Execution / Reminder System ───────────────────────────────────────────────
+
+export const taskReminderLogs = pgTable("task_reminder_logs", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id").notNull(),
+  userId: integer("user_id").notNull(),
+  reminderType: text("reminder_type").notNull(),
+  channel: text("channel").notNull().default("in_app"),
+  notificationId: integer("notification_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const taskDigests = pgTable("task_digests", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  digestType: text("digest_type").notNull(),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  payload: jsonb("payload").notNull(),
+  deliveredAt: timestamp("delivered_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const executionSettings = pgTable("execution_settings", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  reminderHour: integer("reminder_hour").notNull().default(9),
+  overdueEscalationDays: integer("overdue_escalation_days").notNull().default(3),
+  maxRemindersPerDay: integer("max_reminders_per_day").notNull().default(3),
+  managerDigestEnabled: boolean("manager_digest_enabled").notNull().default(true),
+  suggestionsInDigest: boolean("suggestions_in_digest").notNull().default(true),
+  bulkConfirmEnabled: boolean("bulk_confirm_enabled").notNull().default(true),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type TaskReminderLog = typeof taskReminderLogs.$inferSelect;
+export type TaskDigest = typeof taskDigests.$inferSelect;
+export type ExecutionSettings = typeof executionSettings.$inferSelect;
 export type InsertMigrationLog = z.infer<typeof insertMigrationLogSchema>;

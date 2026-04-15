@@ -5,7 +5,7 @@ import {
   ClipboardList, Layers, ShieldCheck, Sun, GitBranch, Search, X,
   LayoutDashboard, Target, Share2, Brain, SlidersHorizontal, BarChart3,
   Megaphone, TrendingUp, Landmark, Truck, Factory, FlaskConical, Newspaper,
-  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, Sparkles,
+  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, Sparkles, PlayCircle,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import navLogo from "@assets/nav-logo.png";
@@ -69,6 +69,7 @@ const sections: NavSection[] = [
       { title: "Organizations", url: "/accounts", icon: Building2, permKey: "crm" },
       { title: "Notes", url: "/notes", icon: StickyNote },
       { title: "Tasks Hub", url: "/execution/tasks", icon: CheckSquare },
+      { title: "Daily Execution", url: "/execution/daily", icon: PlayCircle },
     ],
   },
 
