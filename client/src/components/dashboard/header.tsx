@@ -40,7 +40,7 @@ type NotificationAlert = {
 type NotificationsResponse = { notifications: NotificationAlert[]; unreadCount: number };
 
 type SearchResultItem = {
-  type: "account" | "contact" | "opportunity" | "note";
+  type: "account" | "contact" | "opportunity" | "lead" | "note";
   id: string;
   label: string;
   sub: string | null;
@@ -60,13 +60,14 @@ const NOTIF_ICON: Record<string, ElementType> = {
 };
 
 const SEARCH_TYPE_META: Record<string, { label: string; Icon: ElementType; color: string; href: string }> = {
-  account:     { label: "Accounts",      Icon: Building2,  color: "text-blue-400",    href: "/accounts" },
-  contact:     { label: "Contacts",      Icon: Users,      color: "text-violet-400",  href: "/contacts" },
-  opportunity: { label: "Opportunities", Icon: Target,     color: "text-emerald-400", href: "/opportunities" },
-  note:        { label: "Notes",         Icon: StickyNote, color: "text-amber-400",   href: "/notes" },
+  account:     { label: "Accounts",      Icon: Building2,    color: "text-blue-400",    href: "/accounts" },
+  contact:     { label: "Contacts",      Icon: Users,        color: "text-violet-400",  href: "/contacts" },
+  opportunity: { label: "Opportunities", Icon: Target,       color: "text-emerald-400", href: "/opportunities" },
+  lead:        { label: "Leads",         Icon: UserPlusIcon, color: "text-cyan-400",    href: "/leads" },
+  note:        { label: "Notes",         Icon: StickyNote,   color: "text-amber-400",   href: "/notes" },
 };
 
-const TYPE_ORDER = ["account", "contact", "opportunity", "note"] as const;
+const TYPE_ORDER = ["account", "contact", "opportunity", "lead", "note"] as const;
 
 function escapeRegex(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -154,6 +155,7 @@ function GlobalSearch() {
     if (r.type === "account") { navigate(`/accounts/${r.id}`); return; }
     if (r.type === "contact") { navigate(`/contacts/${r.id}`); return; }
     if (r.type === "opportunity") { navigate(`/opportunities/${r.id}`); return; }
+    if (r.type === "lead") { navigate(`/leads`); return; }
     if (r.type === "note") {
       if (r.sub === "account" && r.linked_id) { navigate(`/accounts/${r.linked_id}`); return; }
       if (r.sub === "contact" && r.linked_id) { navigate(`/contacts/${r.linked_id}`); return; }

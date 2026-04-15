@@ -8555,10 +8555,14 @@ export function registerConfluenceRoutes(app: Express) {
          FROM opportunities o LEFT JOIN accounts ac ON o.account_id = ac.id
          WHERE o.title ILIKE '${term}' OR ac.name ILIKE '${term}' LIMIT 5)
         UNION ALL
+        (SELECT 'lead' as type, l.id::text, l.company as label, l.status as sub, l.city as sub2, NULL as linked_id
+         FROM leads l
+         WHERE l.company ILIKE '${term}' OR l.contact_name ILIKE '${term}' OR l.city ILIKE '${term}' LIMIT 5)
+        UNION ALL
         (SELECT 'note' as type, n.id::text, SUBSTRING(n.content, 1, 90) as label,
                 n.linked_object_type as sub, NULL as sub2, n.linked_object_id::text as linked_id
          FROM notes n WHERE n.content ILIKE '${term}' LIMIT 4)
-        LIMIT 19
+        LIMIT 24
       `));
       res.json({ results: result.rows });
     } catch (err: any) {
