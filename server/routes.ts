@@ -45,6 +45,7 @@ import {
 } from "./tracking";
 import { startEngagementScheduler } from "./services/engagement-scheduler";
 import { seedDefaultRules } from "./services/engagement-defaults";
+import { computeAwaitingReply, clearAwaitingReply, getTriageSummary, getAwaitingReplyThreads } from "./services/awaiting-reply";
 import {
   emailMessages, emailThreads, emailAssociations, associationFeedback, emailFilters, scheduledEmails,
   emailAccounts,
@@ -5974,10 +5975,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
-  // PATCH /api/gmail/thread-record/:threadId — upsert workflow state / snooze / follow-up
+  // PATCH /api/gmail/thread-record/:threadId — upsert workflow state / snooze / follow-up / reply status
   app.patch("/api/gmail/thread-record/:threadId", requireAuth, async (req, res) => {
     const threadId = String(req.params.threadId);
-    const { workflowState, snoozedUntil, followUpAt } = req.body;
+    const { workflowState, snoozedUntil, followUpAt, replyStatus } = req.body;
     try {
       const existing = await db
         .select({ id: emailThreads.id })
@@ -5997,6 +5998,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         if (workflowState !== undefined) updates.workflowState = workflowState || null;
         if (snoozedUntil !== undefined) updates.snoozedUntil = snoozedUntil ? new Date(snoozedUntil) : null;
         if (followUpAt !== undefined) updates.followUpAt = followUpAt ? new Date(followUpAt) : null;
+        if (replyStatus !== undefined) {
+          updates.replyStatus = replyStatus || null;
+          // When marked as "waiting_on_them" or "done", clear awaiting_reply_since
+          if (replyStatus === "waiting_on_them" || replyStatus === "done") {
+            updates.awaitingReplySince = null;
+          }
+          // When manually set to "needs_reply", set awaiting_reply_since to now
+          if (replyStatus === "needs_reply") {
+            updates.awaitingReplySince = new Date();
+          }
+        }
         await db.update(emailThreads).set(updates as any).where(eq(emailThreads.gmailThreadId, threadId));
       }
       res.json({ ok: true });
@@ -7317,6 +7329,65 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       res.json({ success, failed });
     } catch (err: any) {
       res.status(503).json({ message: "Gmail API error", error: err.message });
+    }
+  });
+
+  // ── Inbox Triage API ──────────────────────────────────────────────────────
+
+  // GET /api/inbox/triage-summary — badge counts for triage tabs
+  app.get("/api/inbox/triage-summary", requireAuth, async (_req, res) => {
+    try {
+      const summary = await getTriageSummary();
+      res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/inbox/awaiting-reply — threads where we owe an external reply
+  app.get("/api/inbox/awaiting-reply", requireAuth, async (_req, res) => {
+    try {
+      const threads = await getAwaitingReplyThreads();
+      res.json(threads);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/inbox/triage-thread-ids — all thread IDs bucketed by triage category
+  // Used by the frontend to filter Gmail API results locally
+  app.get("/api/inbox/triage-thread-ids", requireAuth, async (_req, res) => {
+    try {
+      const [awaitingRows, hotRows, unlinkedRows] = await Promise.all([
+        db.execute(sql`SELECT gmail_thread_id FROM email_threads WHERE awaiting_reply_since IS NOT NULL`),
+        db.execute(sql`
+          SELECT DISTINCT em.gmail_thread_id
+          FROM email_tracking_pixels p
+          JOIN email_messages em ON em.id = p.email_message_id
+          WHERE p.is_hot = true
+        `),
+        db.execute(sql`
+          SELECT gmail_thread_id FROM email_threads
+          WHERE association_status = 'unassociated'
+        `),
+      ]);
+      res.json({
+        awaitingReply: (awaitingRows.rows as any[]).map(r => r.gmail_thread_id),
+        hot:           (hotRows.rows as any[]).map(r => r.gmail_thread_id),
+        unlinked:      (unlinkedRows.rows as any[]).map(r => r.gmail_thread_id),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/inbox/compute-awaiting-reply — manually trigger triage computation
+  app.post("/api/inbox/compute-awaiting-reply", requireAuth, async (_req, res) => {
+    try {
+      const result = await computeAwaitingReply();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

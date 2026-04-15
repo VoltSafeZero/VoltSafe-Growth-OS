@@ -899,6 +899,11 @@ export const emailThreads = pgTable("email_threads", {
   snoozedUntil: timestamp("snoozed_until"),
   followUpAt: timestamp("follow_up_at"),
   assignedUserId: integer("assigned_user_id"),
+  // Reply-status tracking
+  replyStatus: text("reply_status").default("none"),
+  awaitingReplySince: timestamp("awaiting_reply_since", { withTimezone: true }),
+  lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }),
+  lastOutboundAt: timestamp("last_outbound_at", { withTimezone: true }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
