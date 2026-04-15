@@ -1,0 +1,59 @@
+Good. Stay in validation/fix mode.
+
+Now execute the next sprint in this exact order:
+
+1. SECURITY FIRST
+Patch the pre-existing unauthenticated read exposure:
+- add requireAuth to /api/contacts/:id
+- add requireAuth to /api/opportunities/:id
+- verify both still enforce requirePermission where appropriate
+- test unauthenticated access returns 401/403
+
+2. NOTES UX FIX
+Replace raw numeric ID entry in Add Note with a real entity picker:
+- add debounced search inputs for Contacts, Accounts, and Opportunities
+- use existing list/search APIs if available
+- user should be able to search by name, click result, and attach note without knowing any DB ID
+- preserve current create/edit/delete behavior
+- keep cross-linking intact
+
+3. NOTES CACHE CONSISTENCY
+When a note is created from any profile NoteComposer:
+- invalidate /api/notes/all
+- invalidate the current entity profile query
+- verify new notes appear immediately on /notes and the originating profile page without manual refresh
+
+4. ACTIVITY FEED PERFORMANCE HARDENING
+Refactor /api/activity-feed so the UNION does not materialize huge intermediate sets:
+- add per-source LIMITs before outer UNION sort
+- keep final output sorted globally by created_at desc
+- preserve existing filters/search behavior
+- confirm identical output shape
+
+5. CONTACT PROFILE EMAIL QUERY PERFORMANCE
+Audit the contact email lookup using all_participants ILIKE
+- identify exact query cost risk
+- add the most appropriate index or safer lookup strategy
+- do not guess; verify against current schema
+
+6. FULL REGRESSION TEST
+After all fixes:
+- test /activity
+- test /notes
+- test /contacts/:id
+- test /accounts/:id
+- test /opportunities/:id
+- test note create/edit/delete from both Notes page and profile pages
+- test back button behavior
+- test empty state, loading state, error state
+- test unauthorized and authenticated flows
+
+Return only:
+A. What changed
+B. What broke during implementation
+C. What remains risky
+D. Exact files modified
+E. Recommended next sprint after this one
+
+Do not build new features beyond these items.
+Do not say “done” unless everything above is verified.

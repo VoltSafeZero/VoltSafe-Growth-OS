@@ -46,15 +46,112 @@ const ENTITY_LINK: Record<string, (id: number) => string> = {
   opportunity: (id) => `/opportunities/${id}`,
 };
 
+type EntityResult = { id: number; label: string };
+
+function EntityPicker({
+  objType, setObjType, selected, setSelected,
+}: {
+  objType: string;
+  setObjType: (t: string) => void;
+  selected: EntityResult | null;
+  setSelected: (e: EntityResult | null) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const { data: results = [] } = useQuery<EntityResult[]>({
+    queryKey: ["/api/entity-search", objType, q],
+    queryFn: async () => {
+      if (q.length < 2) return [];
+      const params = new URLSearchParams({ search: q, limit: "8" });
+      if (objType === "account") {
+        const r = await fetch(`/api/accounts?${params}`).then(x => x.json());
+        return (r.data ?? []).map((a: any) => ({ id: a.id, label: a.name }));
+      }
+      if (objType === "contact") {
+        const r = await fetch(`/api/contacts?${params}`).then(x => x.json());
+        return (Array.isArray(r) ? r : []).map((c: any) => ({ id: c.id, label: c.name }));
+      }
+      if (objType === "opportunity") {
+        const r = await fetch(`/api/opportunities?${params}`).then(x => x.json());
+        return (r.data ?? []).map((o: any) => ({ id: o.id, label: o.title }));
+      }
+      return [];
+    },
+    enabled: q.length >= 2,
+  });
+
+  const handleTypeChange = (t: string) => {
+    setObjType(t);
+    setSelected(null);
+    setQ("");
+    setOpen(false);
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label className="text-xs">Linked To</Label>
+      <Select value={objType} onValueChange={handleTypeChange}>
+        <SelectTrigger data-testid="select-note-type">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="account">Account</SelectItem>
+          <SelectItem value="contact">Contact</SelectItem>
+          <SelectItem value="opportunity">Opportunity</SelectItem>
+        </SelectContent>
+      </Select>
+      {selected ? (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-muted/40 text-sm">
+          <span className="flex-1 truncate text-foreground">{selected.label}</span>
+          <button type="button" onClick={() => { setSelected(null); setQ(""); }}
+            className="text-muted-foreground hover:text-foreground transition-colors text-xs"
+            data-testid="button-clear-entity">✕</button>
+        </div>
+      ) : (
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <Input
+            value={q}
+            onChange={e => { setQ(e.target.value); setOpen(true); }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setTimeout(() => setOpen(false), 150)}
+            placeholder={`Search ${objType}s…`}
+            className="pl-8 text-sm"
+            data-testid="input-entity-search"
+          />
+          {open && results.length > 0 && (
+            <div className="absolute z-50 left-0 right-0 top-full mt-1 rounded-md border border-border bg-popover shadow-lg overflow-hidden">
+              {results.map(r => (
+                <button key={r.id} type="button"
+                  onMouseDown={() => { setSelected(r); setQ(""); setOpen(false); }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors truncate"
+                  data-testid={`option-entity-${r.id}`}>
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {open && q.length >= 2 && results.length === 0 && (
+            <div className="absolute z-50 left-0 right-0 top-full mt-1 rounded-md border border-border bg-popover shadow-sm px-3 py-2 text-xs text-muted-foreground">
+              No results
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddNoteDialog({ onClose }: { onClose: () => void }) {
   const [content, setContent] = useState("");
   const [objType, setObjType] = useState("account");
-  const [objId, setObjId] = useState("");
+  const [selected, setSelected] = useState<EntityResult | null>(null);
   const { toast } = useToast();
 
   const mutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/notes", {
-      content, linkedObjectType: objType, linkedObjectId: Number(objId),
+      content, linkedObjectType: objType, linkedObjectId: selected!.id,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notes/all"] });
@@ -73,26 +170,7 @@ function AddNoteDialog({ onClose }: { onClose: () => void }) {
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 mt-2">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Linked To</Label>
-              <Select value={objType} onValueChange={setObjType}>
-                <SelectTrigger data-testid="select-note-type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="account">Account</SelectItem>
-                  <SelectItem value="contact">Contact</SelectItem>
-                  <SelectItem value="opportunity">Opportunity</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">ID</Label>
-              <Input type="number" placeholder="Object ID" value={objId}
-                onChange={e => setObjId(e.target.value)} data-testid="input-note-object-id" />
-            </div>
-          </div>
+          <EntityPicker objType={objType} setObjType={setObjType} selected={selected} setSelected={setSelected} />
           <div className="space-y-1.5">
             <Label className="text-xs">Note</Label>
             <Textarea value={content} onChange={e => setContent(e.target.value)}
@@ -101,7 +179,7 @@ function AddNoteDialog({ onClose }: { onClose: () => void }) {
           </div>
           <div className="flex gap-2 justify-end">
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button disabled={!content.trim() || !objId || mutation.isPending}
+            <Button disabled={!content.trim() || !selected || mutation.isPending}
               onClick={() => mutation.mutate()} className="gap-1.5" data-testid="button-save-note">
               <Send className="h-3.5 w-3.5" /> Save Note
             </Button>

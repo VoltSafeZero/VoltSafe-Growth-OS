@@ -589,12 +589,24 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async getOpportunities(options?: { accountId?: number; stage?: string; ownerId?: number; forecastCategory?: string; page?: number; limit?: number }) {
+  async getOpportunities(options?: { accountId?: number; stage?: string; ownerId?: number; forecastCategory?: string; search?: string; page?: number; limit?: number }) {
     const page = options?.page || 1;
     const limit = options?.limit || 50;
     const offset = (page - 1) * limit;
-    const conditions = [];
 
+    if (options?.search) {
+      const q = options.search.replace(/'/g, "''").replace(/%/g, "\\%").replace(/_/g, "\\_");
+      const rows = await db.execute(sql.raw(
+        `SELECT * FROM opportunities WHERE title ILIKE '%${q}%' ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`
+      ));
+      const countRows = await db.execute(sql.raw(
+        `SELECT count(*) FROM opportunities WHERE title ILIKE '%${q}%'`
+      ));
+      const total = Number((countRows.rows[0] as any).count);
+      return { data: rows.rows as any[], total, page, totalPages: Math.ceil(total / limit) };
+    }
+
+    const conditions = [];
     if (options?.accountId) conditions.push(eq(opportunities.accountId, options.accountId));
     if (options?.stage) conditions.push(eq(opportunities.stage, options.stage));
     if (options?.ownerId) conditions.push(eq(opportunities.ownerUserId, options.ownerId));

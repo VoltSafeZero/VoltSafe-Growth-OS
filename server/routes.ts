@@ -1242,10 +1242,19 @@ export async function registerRoutes(
           ORDER BY o.updated_at DESC LIMIT 10
         `)),
         contact.email ? db.execute(sql.raw(`
-          SELECT id, subject, from_email, from_name, direction, snippet, sent_at
-          FROM email_messages
-          WHERE from_email = ${emailQ}
-             OR all_participants::text ILIKE '%${contact.email.replace(/'/g, "''")}%'
+          SELECT DISTINCT id, subject, from_email, from_name, direction, snippet, sent_at FROM (
+            SELECT id, subject, from_email, from_name, direction, snippet, sent_at
+            FROM email_messages
+            WHERE from_email = ${emailQ}
+            ORDER BY sent_at DESC LIMIT 8
+            UNION ALL
+            SELECT id, subject, from_email, from_name, direction, snippet, sent_at
+            FROM email_messages
+            WHERE from_email != ${emailQ}
+              AND all_participants::text ILIKE '%${contact.email.replace(/'/g, "''")}%'
+              AND sent_at > NOW() - INTERVAL '180 days'
+            ORDER BY sent_at DESC LIMIT 8
+          ) em
           ORDER BY sent_at DESC LIMIT 8
         `)) : Promise.resolve({ rows: [] }),
         db.execute(sql.raw(`
@@ -1299,7 +1308,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/contacts/:id", async (req, res) => {
+  app.get("/api/contacts/:id", requirePermission("crm", "view"), async (req, res) => {
     const contact = await storage.getContact(Number(req.params.id));
     if (!contact) return res.status(404).json({ message: "Contact not found" });
     res.json(contact);
@@ -1324,12 +1333,13 @@ export async function registerRoutes(
   });
 
   app.get("/api/opportunities", async (req, res) => {
-    const { accountId, stage, ownerId, forecastCategory, page, limit } = req.query;
+    const { accountId, stage, ownerId, forecastCategory, search, page, limit } = req.query;
     res.json(await storage.getOpportunities({
       accountId: accountId ? Number(accountId) : undefined,
       stage: stage as string | undefined,
       ownerId: ownerId ? Number(ownerId) : undefined,
       forecastCategory: forecastCategory as string | undefined,
+      search: search as string | undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     }));
@@ -1421,7 +1431,7 @@ export async function registerRoutes(
     res.json(await storage.getDealStageHistory(Number(req.params.id)));
   });
 
-  app.get("/api/opportunities/:id", async (req, res) => {
+  app.get("/api/opportunities/:id", requirePermission("crm", "view"), async (req, res) => {
     const opp = await storage.getOpportunity(Number(req.params.id));
     if (!opp) return res.status(404).json({ message: "Opportunity not found" });
     res.json(opp);
@@ -6073,7 +6083,10 @@ export function registerConfluenceRoutes(app: Express) {
                  END AS linked_object_name,
                  NULL::text as extra
           FROM notes n
-          UNION ALL
+          ORDER BY n.created_at DESC LIMIT ${lim}
+        ) notes_arm
+        UNION ALL
+        SELECT * FROM (
           SELECT 'email' as feed_type, em.id, em.subject as summary,
                  COALESCE(em.from_name, em.from_email) as actor, em.sent_at as created_at,
                  'account' as linked_object_type, em.source_account_id::int as linked_object_id,
@@ -6081,7 +6094,10 @@ export function registerConfluenceRoutes(app: Express) {
                  em.direction::text as extra
           FROM email_messages em
           WHERE em.source_account_id IS NOT NULL AND em.sent_at IS NOT NULL
-          UNION ALL
+          ORDER BY em.sent_at DESC LIMIT ${lim}
+        ) email_arm
+        UNION ALL
+        SELECT * FROM (
           SELECT 'meeting' as feed_type, ce.id, ce.title as summary,
                  'Calendar' as actor, ce.created_at,
                  ce.linked_object_type, ce.linked_object_id,
@@ -6089,7 +6105,10 @@ export function registerConfluenceRoutes(app: Express) {
                  ce.event_type::text as extra
           FROM calendar_events ce
           WHERE ce.created_at IS NOT NULL
-          UNION ALL
+          ORDER BY ce.created_at DESC LIMIT ${lim}
+        ) meeting_arm
+        UNION ALL
+        SELECT * FROM (
           SELECT 'task' as feed_type, t.id, t.title as summary,
                  (SELECT name FROM users WHERE id = t.owner_user_id) as actor, t.created_at,
                  t.linked_object_type, t.linked_object_id,
@@ -6101,14 +6120,18 @@ export function registerConfluenceRoutes(app: Express) {
                  END AS linked_object_name,
                  t.status::text as extra
           FROM tasks t
-          UNION ALL
+          ORDER BY t.created_at DESC LIMIT ${lim}
+        ) task_arm
+        UNION ALL
+        SELECT * FROM (
           SELECT 'activity' as feed_type, a.id, a.summary,
                  COALESCE((SELECT name FROM users WHERE id = a.created_by), 'System') as actor, a.created_at,
                  a.linked_object_type, a.linked_object_id,
                  NULL::text as linked_object_name,
                  a.type::text as extra
           FROM activities a
-        ) feed
+          ORDER BY a.created_at DESC LIMIT ${lim}
+        ) activity_arm
         ORDER BY created_at DESC
         LIMIT ${lim}
       `));

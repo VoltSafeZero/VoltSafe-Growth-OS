@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -81,7 +81,7 @@ function NoteComposer({ accountId, onAdded }: { accountId: number; onAdded: () =
     mutationFn: () => apiRequest("POST", "/api/notes", {
       content: text, linkedObjectType: "account", linkedObjectId: accountId,
     }),
-    onSuccess: () => { setText(""); setOpen(false); onAdded(); toast({ title: "Note saved" }); },
+    onSuccess: () => { setText(""); setOpen(false); queryClient.invalidateQueries({ queryKey: ["/api/notes/all"] }); onAdded(); toast({ title: "Note saved" }); },
     onError: () => toast({ title: "Failed to save note", variant: "destructive" }),
   });
   if (!open) return (
