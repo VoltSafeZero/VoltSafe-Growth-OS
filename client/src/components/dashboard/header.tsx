@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Search, Bell, LogOut, X, Plus, CalendarDays, CheckSquare, UserPlus as UserPlusIcon,
   Mail, Flame, AlertTriangle, Building2, Contact, FileText, Ticket, FolderOpen, Layers,
+  Users, Target, StickyNote,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,10 +29,156 @@ type NotificationAlert = {
 };
 type NotificationsResponse = { notifications: NotificationAlert[]; unreadCount: number };
 
+type SearchResultItem = {
+  type: "account" | "contact" | "opportunity" | "note";
+  id: string;
+  label: string;
+  sub: string | null;
+  sub2: string | null;
+  linked_id: string | null;
+};
+
 const NOTIF_ICON: Record<string, ElementType> = {
   meeting: CalendarDays, task: CheckSquare, deal: Flame,
   lead: UserPlusIcon, email: Mail,
 };
+
+const SEARCH_TYPE_META: Record<string, { label: string; Icon: ElementType; color: string }> = {
+  account:     { label: "Accounts",      Icon: Building2, color: "text-blue-400" },
+  contact:     { label: "Contacts",      Icon: Users,     color: "text-violet-400" },
+  opportunity: { label: "Opportunities", Icon: Target,    color: "text-emerald-400" },
+  note:        { label: "Notes",         Icon: StickyNote, color: "text-amber-400" },
+};
+
+function GlobalSearch() {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [, navigate] = useLocation();
+
+  const { data, isFetching } = useQuery<{ results: SearchResultItem[] }>({
+    queryKey: ["/api/search", { q: query }],
+    enabled: query.trim().length >= 2,
+    staleTime: 10_000,
+  });
+
+  const results = data?.results ?? [];
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+        setOpen(true);
+      }
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const handleSelect = (r: SearchResultItem) => {
+    setOpen(false);
+    setQuery("");
+    if (r.type === "account") { navigate(`/accounts/${r.id}`); return; }
+    if (r.type === "contact") { navigate(`/contacts/${r.id}`); return; }
+    if (r.type === "opportunity") { navigate(`/opportunities/${r.id}`); return; }
+    if (r.type === "note") {
+      if (r.sub === "account" && r.linked_id) { navigate(`/accounts/${r.linked_id}`); return; }
+      if (r.sub === "contact" && r.linked_id) { navigate(`/contacts/${r.linked_id}`); return; }
+      if (r.sub === "opportunity" && r.linked_id) { navigate(`/opportunities/${r.linked_id}`); return; }
+      navigate("/notes");
+    }
+  };
+
+  const grouped = results.reduce((acc, r) => {
+    if (!acc[r.type]) acc[r.type] = [];
+    acc[r.type].push(r);
+    return acc;
+  }, {} as Record<string, SearchResultItem[]>);
+
+  const hasResults = results.length > 0;
+  const showDropdown = open && query.trim().length >= 2;
+
+  return (
+    <div ref={containerRef} className="relative w-full max-w-md hidden md:block">
+      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none z-10" />
+      <Input
+        ref={inputRef}
+        value={query}
+        onChange={e => { setQuery(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder="Search accounts, contacts, opportunities… ⌘K"
+        className="pl-9 pr-4 bg-secondary/30 border-transparent focus-visible:border-primary/50 focus-visible:ring-primary/20 rounded-full h-10 transition-all"
+        data-testid="input-global-search"
+      />
+      {query && (
+        <button
+          onClick={() => { setQuery(""); setOpen(false); inputRef.current?.focus(); }}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          data-testid="button-search-clear"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
+
+      {showDropdown && (
+        <div className="absolute top-full left-0 right-0 mt-1.5 bg-popover border border-border/60 rounded-xl shadow-2xl z-50 overflow-hidden max-h-[440px] overflow-y-auto">
+          {isFetching && !hasResults && (
+            <div className="p-4 text-sm text-muted-foreground text-center">Searching…</div>
+          )}
+          {!isFetching && !hasResults && (
+            <div className="p-5 text-sm text-muted-foreground text-center">
+              No results for <span className="font-medium text-foreground">"{query}"</span>
+            </div>
+          )}
+          {(["account", "contact", "opportunity", "note"] as const).map(type => {
+            const group = grouped[type];
+            if (!group?.length) return null;
+            const { label, Icon, color } = SEARCH_TYPE_META[type];
+            return (
+              <div key={type}>
+                <div className="px-3 py-1.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground bg-secondary/20 sticky top-0">
+                  <Icon className={`h-3 w-3 ${color}`} />
+                  {label}
+                </div>
+                {group.map(r => (
+                  <button
+                    key={r.id}
+                    onClick={() => handleSelect(r)}
+                    className="flex items-center gap-3 w-full px-3 py-2.5 hover:bg-secondary/40 transition-colors text-left border-b border-border/20 last:border-0"
+                    data-testid={`search-result-${r.type}-${r.id}`}
+                  >
+                    <Icon className={`h-4 w-4 shrink-0 ${color}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{r.label}</p>
+                      {(r.sub || r.sub2) && (
+                        <p className="text-xs text-muted-foreground truncate">
+                          {[r.sub2, r.sub].filter(Boolean).join(" · ")}
+                        </p>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function NotificationPanel({ onNavigate }: { onNavigate: (href: string) => void }) {
   const { data, isLoading } = useQuery<NotificationsResponse>({
@@ -144,14 +291,7 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
               <Search className="w-5 h-5" />
             </Button>
 
-            <div className="relative w-full max-w-md hidden md:flex items-center">
-              <Search className="w-4 h-4 absolute left-3 text-muted-foreground" />
-              <Input
-                placeholder="Search accounts, contacts, quotes..."
-                className="pl-9 bg-secondary/30 border-transparent focus-visible:border-primary/50 focus-visible:ring-primary/20 rounded-full h-10 transition-all"
-                data-testid="input-global-search"
-              />
-            </div>
+            <GlobalSearch />
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">

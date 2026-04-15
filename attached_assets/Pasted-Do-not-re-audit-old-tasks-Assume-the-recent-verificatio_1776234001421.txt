@@ -1,0 +1,69 @@
+Do not re-audit old tasks. Assume the recent verification is correct: most of the prior CRM/profile work already exists, and the only recent completed changes were navigation improvements.
+
+Your job now is to move into true product-gap execution mode.
+
+Objective:
+Identify the highest-value missing CRM capabilities in VoltSafe Cortex and start building the most important ones immediately.
+
+Rules:
+1. Before saying something is missing, first verify whether it already exists in the current codebase.
+2. Clearly separate:
+   - already built
+   - partially built
+   - actually missing
+3. Do not waste time on broad re-audits of areas that were just inspected unless necessary for implementation.
+4. Focus on practical day-to-day operator value, not cosmetic UI polish.
+
+Phase 1 — Fresh gap audit
+Perform a targeted gap audit of the live CRM and produce a prioritized table with:
+- Feature
+- Current state (exists / partial / missing)
+- Business value
+- Implementation complexity
+- Recommended priority
+
+Prioritize the top 10 highest-value missing features for real daily use.
+
+You must specifically evaluate these items:
+1. Universal global search across accounts, contacts, opportunities, notes, activities, and emails
+2. Relationship timeline on every profile page
+3. Email-to-record auto-association confidence scoring and manual correction UI
+4. Pinned notes / key facts section on account and opportunity profiles
+5. Next best action widget for accounts and opportunities
+6. Duplicate detection and merge flow for accounts, contacts, and opportunities
+7. Saved filters and custom views for list pages
+8. Bulk actions for accounts, contacts, opportunities, notes
+9. Unified attachment panel across all record types
+10. Better cross-linking between accounts, contacts, notes, emails, meetings, and opportunities
+
+Phase 2 — Build plan
+After the audit, select the top 3 highest-value items and provide for each:
+- exact files to modify
+- backend changes
+- frontend changes
+- database/schema changes if needed
+- API changes
+- acceptance criteria
+- any migration or backfill needed
+
+Phase 3 — Implementation
+Then immediately implement the highest-value item first.
+After that, implement item #2 and item #3 in sequence.
+Do not stop after the plan.
+
+Execution preference:
+Prioritize these if they are not already done:
+1. Universal global search
+2. Relationship timeline
+3. Email/record auto-association confidence + manual correction UI
+
+Deliverables:
+- concise findings report
+- exact implementation summary
+- list of files changed
+- any schema migrations
+- validation results
+- note any assumptions
+
+Important:
+VoltSafe Cortex should feel like an operator cockpit, not a pile of pages. Optimize for speed, context, and relationship intelligence.

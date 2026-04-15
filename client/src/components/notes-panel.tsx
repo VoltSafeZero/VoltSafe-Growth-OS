@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquarePlus, Trash2, Pencil, Check, X } from "lucide-react";
+import { MessageSquarePlus, Trash2, Pencil, Check, X, Pin, PinOff } from "lucide-react";
 import type { Note } from "@shared/schema";
 
 interface NotesPanelProps {
@@ -33,6 +33,8 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
   });
 
   const notes = data || [];
+  const pinnedNotes = notes.filter(n => n.isPinned);
+  const unpinnedNotes = notes.filter(n => !n.isPinned);
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -70,10 +72,109 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
     onError: () => toast({ title: "Failed to delete note", variant: "destructive" }),
   });
 
+  const pinMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("PATCH", `/api/notes/${id}/pin`, {});
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onError: () => toast({ title: "Failed to pin note", variant: "destructive" }),
+  });
+
   const startEdit = (note: Note) => {
     setEditingId(note.id);
     setEditContent(note.content);
   };
+
+  const renderNote = (note: Note) => (
+    <div
+      key={note.id}
+      className={`rounded-lg border p-3 group transition-colors ${note.isPinned ? "border-primary/30 bg-primary/5" : "border-border/50 bg-muted/10"}`}
+      data-testid={`note-${note.id}`}
+    >
+      {editingId === note.id ? (
+        <div className="space-y-2">
+          <Textarea
+            value={editContent}
+            onChange={e => setEditContent(e.target.value)}
+            rows={3}
+            className="text-sm resize-none"
+            data-testid={`input-edit-note-${note.id}`}
+            autoFocus
+          />
+          <div className="flex gap-1.5">
+            <Button
+              size="sm"
+              className="h-6 text-xs"
+              disabled={!editContent.trim() || updateMutation.isPending}
+              onClick={() => updateMutation.mutate({ id: note.id, content: editContent })}
+              data-testid={`button-save-note-${note.id}`}
+            >
+              <Check className="h-3 w-3 mr-1" /> Save
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-xs"
+              onClick={() => setEditingId(null)}
+              data-testid={`button-cancel-edit-note-${note.id}`}
+            >
+              <X className="h-3 w-3 mr-1" /> Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {note.isPinned && (
+            <div className="flex items-center gap-1 mb-1.5">
+              <Pin className="h-2.5 w-2.5 text-primary" />
+              <span className="text-[10px] font-semibold text-primary uppercase tracking-wide">Pinned</span>
+            </div>
+          )}
+          <p className="text-sm whitespace-pre-wrap">{note.content}</p>
+          <div className="flex items-center justify-between mt-2">
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{note.authorName}</Badge>
+              <span className="text-[10px] text-muted-foreground">
+                {new Date(note.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                {note.updatedAt && note.updatedAt !== note.createdAt && " (edited)"}
+              </span>
+            </div>
+            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`h-5 w-5 p-0 transition-colors ${note.isPinned ? "text-primary opacity-100" : "text-muted-foreground hover:text-primary"}`}
+                onClick={() => pinMutation.mutate(note.id)}
+                title={note.isPinned ? "Unpin note" : "Pin note"}
+                data-testid={`button-pin-note-${note.id}`}
+              >
+                {note.isPinned ? <PinOff className="h-2.5 w-2.5" /> : <Pin className="h-2.5 w-2.5" />}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
+                onClick={() => startEdit(note)}
+                data-testid={`button-edit-note-${note.id}`}
+              >
+                <Pencil className="h-2.5 w-2.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
+                onClick={() => deleteMutation.mutate(note.id)}
+                data-testid={`button-delete-note-${note.id}`}
+              >
+                <Trash2 className="h-2.5 w-2.5" />
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-3">
@@ -117,75 +218,11 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
         <p className="text-sm text-muted-foreground text-center py-4">No notes yet</p>
       ) : (
         <div className="space-y-2">
-          {notes.map(note => (
-            <div key={note.id} className="rounded-lg border border-border/50 bg-muted/10 p-3 group" data-testid={`note-${note.id}`}>
-              {editingId === note.id ? (
-                <div className="space-y-2">
-                  <Textarea
-                    value={editContent}
-                    onChange={e => setEditContent(e.target.value)}
-                    rows={3}
-                    className="text-sm resize-none"
-                    data-testid={`input-edit-note-${note.id}`}
-                    autoFocus
-                  />
-                  <div className="flex gap-1.5">
-                    <Button
-                      size="sm"
-                      className="h-6 text-xs"
-                      disabled={!editContent.trim() || updateMutation.isPending}
-                      onClick={() => updateMutation.mutate({ id: note.id, content: editContent })}
-                      data-testid={`button-save-note-${note.id}`}
-                    >
-                      <Check className="h-3 w-3 mr-1" /> Save
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 text-xs"
-                      onClick={() => setEditingId(null)}
-                      data-testid={`button-cancel-edit-note-${note.id}`}
-                    >
-                      <X className="h-3 w-3 mr-1" /> Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <p className="text-sm whitespace-pre-wrap">{note.content}</p>
-                  <div className="flex items-center justify-between mt-2">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{note.authorName}</Badge>
-                      <span className="text-[10px] text-muted-foreground">
-                        {new Date(note.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                        {note.updatedAt && note.updatedAt !== note.createdAt && " (edited)"}
-                      </span>
-                    </div>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
-                        onClick={() => startEdit(note)}
-                        data-testid={`button-edit-note-${note.id}`}
-                      >
-                        <Pencil className="h-2.5 w-2.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
-                        onClick={() => deleteMutation.mutate(note.id)}
-                        data-testid={`button-delete-note-${note.id}`}
-                      >
-                        <Trash2 className="h-2.5 w-2.5" />
-                      </Button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          ))}
+          {pinnedNotes.length > 0 && pinnedNotes.map(renderNote)}
+          {pinnedNotes.length > 0 && unpinnedNotes.length > 0 && (
+            <div className="border-t border-border/30 pt-1" />
+          )}
+          {unpinnedNotes.map(renderNote)}
         </div>
       )}
     </div>

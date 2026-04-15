@@ -996,6 +996,7 @@ export const notes = pgTable("notes", {
   authorId: integer("author_id"),
   authorName: text("author_name").notNull().default("System"),
   content: text("content").notNull(),
+  isPinned: boolean("is_pinned").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

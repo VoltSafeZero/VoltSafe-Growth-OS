@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft, Mail, Phone, Building2, Users, Zap, CheckSquare,
   CalendarDays, TrendingUp, MessageSquare, AlertTriangle, RefreshCw,
-  MapPin, Globe, Clock, ExternalLink, Send, Plus, User, Anchor,
+  MapPin, Globe, Clock, ExternalLink, Send, Plus, User, Anchor, Pin,
 } from "lucide-react";
 import { formatDistanceToNow, format, isPast } from "date-fns";
 import { Link } from "wouter";
@@ -284,19 +284,37 @@ export default function AccountProfilePage() {
             )}
           </SectionCard>
 
-          {/* Notes */}
-          <SectionCard title="Notes" icon={MessageSquare} count={notes.length}
-            action={<NoteComposer accountId={id} onAdded={() => refetch()} />}>
-            {notes.length === 0 ? <EmptyRow text="No notes yet — add one above" /> : (
-              <div className="space-y-3">
-                {notes.map((n: any) => (
-                  <div key={n.id} className="rounded-lg bg-secondary/30 p-3">
-                    <p className="text-sm whitespace-pre-wrap">{n.content}</p>
+          {/* Key Facts (pinned notes) */}
+          {notes.some((n: any) => n.is_pinned) && (
+            <SectionCard title="Key Facts" icon={Pin}>
+              <div className="space-y-2">
+                {notes.filter((n: any) => n.is_pinned).map((n: any) => (
+                  <div key={n.id} className="rounded-lg border border-primary/25 bg-primary/8 p-3" data-testid={`key-fact-${n.id}`}>
+                    <p className="text-sm whitespace-pre-wrap font-medium">{n.content}</p>
                     <p className="text-xs text-muted-foreground mt-1.5">
                       {n.author_name} · {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
                     </p>
                   </div>
                 ))}
+              </div>
+            </SectionCard>
+          )}
+
+          {/* Notes */}
+          <SectionCard title="Notes" icon={MessageSquare} count={notes.length}
+            action={<NoteComposer accountId={id} onAdded={() => refetch()} />}>
+            {notes.length === 0 ? <EmptyRow text="No notes yet — add one above" /> : (
+              <div className="space-y-3">
+                {notes.filter((n: any) => !n.is_pinned).length === 0
+                  ? <EmptyRow text="All notes pinned as key facts above" />
+                  : notes.filter((n: any) => !n.is_pinned).map((n: any) => (
+                    <div key={n.id} className="rounded-lg bg-secondary/30 p-3">
+                      <p className="text-sm whitespace-pre-wrap">{n.content}</p>
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        {n.author_name} · {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
+                      </p>
+                    </div>
+                  ))}
               </div>
             )}
           </SectionCard>

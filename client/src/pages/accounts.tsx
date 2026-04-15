@@ -17,8 +17,9 @@ import {
   Plus, Search, Building2, Users, Loader2, Phone, Mail, Trash2,
   ArrowUpDown, MapPin, Globe, Zap, Star, AlertTriangle, Calendar,
   Settings2, Wrench, Shield, Wifi, LinkIcon, List, LayoutGrid, Map, FolderPlus, ArrowRightLeft, ExternalLink,
-  ChevronDown, ChevronRight, Clock
+  ChevronDown, ChevronRight, Clock, Bookmark, X as XIcon,
 } from "lucide-react";
+import type { SavedView } from "@shared/schema";
 import { ExportButton } from "@/components/ui/export-button";
 import { NotesPanel } from "@/components/notes-panel";
 import L from "leaflet";
@@ -115,6 +116,8 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
   const { toast } = useToast();
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
   const [sortOption, setSortOption] = useState("default");
+  const [saveViewOpen, setSaveViewOpen] = useState(false);
+  const [saveViewName, setSaveViewName] = useState("");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -149,6 +152,44 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
 
   const allAccounts = data?.pages.flatMap(p => p.data ?? []).filter(Boolean) || [];
   const totalCount = data?.pages[0]?.total || 0;
+
+  const { data: savedViews } = useQuery<SavedView[]>({
+    queryKey: ["/api/saved-views", "accounts"],
+    queryFn: async () => {
+      const res = await fetch("/api/saved-views?pageKey=accounts", { credentials: "include" });
+      return res.json();
+    },
+  });
+
+  const saveViewMutation = useMutation({
+    mutationFn: async (name: string) => {
+      await apiRequest("POST", "/api/saved-views", {
+        name,
+        pageKey: "accounts",
+        filtersJson: JSON.stringify({ segment: segmentFilter, status: statusFilter, priority: priorityFilter, orgType: orgTypeFilter, sort: sortOption }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/saved-views", "accounts"] });
+      setSaveViewName("");
+      setSaveViewOpen(false);
+      toast({ title: "View saved" });
+    },
+  });
+
+  const deleteViewMutation = useMutation({
+    mutationFn: async (id: number) => { await apiRequest("DELETE", `/api/saved-views/${id}`); },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/saved-views", "accounts"] }),
+  });
+
+  const loadSavedView = (sv: SavedView) => {
+    const f = sv.filtersJson ? JSON.parse(sv.filtersJson) : {};
+    setSegmentFilter(f.segment ?? "all");
+    setStatusFilter(f.status ?? "all");
+    setPriorityFilter(f.priority ?? "all");
+    setOrgTypeFilter(f.orgType ?? "all");
+    setSortOption(f.sort ?? "default");
+  };
 
   useEffect(() => {
     const sentinel = scrollSentinelRef.current;
@@ -287,6 +328,55 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
             <SelectItem value="slipCount:asc">Fewest Slips</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+
+      {/* Saved Views Row */}
+      <div className="flex items-center gap-2 flex-wrap min-h-[28px]">
+        {savedViews?.map(sv => (
+          <div key={sv.id} className="flex items-center gap-1 bg-secondary/50 border border-border/50 rounded-full pl-3 pr-2 py-1 text-xs group hover:border-primary/40 transition-colors">
+            <button onClick={() => loadSavedView(sv)} className="font-medium hover:text-primary transition-colors" data-testid={`saved-view-${sv.id}`}>
+              {sv.name}
+            </button>
+            <button
+              onClick={() => deleteViewMutation.mutate(sv.id)}
+              className="ml-0.5 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
+              data-testid={`delete-view-${sv.id}`}
+            >
+              <XIcon className="h-3 w-3" />
+            </button>
+          </div>
+        ))}
+        {saveViewOpen ? (
+          <div className="flex items-center gap-1.5">
+            <Input
+              value={saveViewName}
+              onChange={e => setSaveViewName(e.target.value)}
+              placeholder="View name..."
+              className="h-7 text-xs w-36 rounded-full"
+              onKeyDown={e => {
+                if (e.key === "Enter" && saveViewName.trim()) saveViewMutation.mutate(saveViewName.trim());
+                if (e.key === "Escape") { setSaveViewOpen(false); setSaveViewName(""); }
+              }}
+              autoFocus
+              data-testid="input-save-view-name"
+            />
+            <Button size="sm" className="h-7 text-xs px-3 rounded-full" disabled={!saveViewName.trim() || saveViewMutation.isPending} onClick={() => saveViewMutation.mutate(saveViewName.trim())} data-testid="button-confirm-save-view">
+              Save
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs px-2 rounded-full" onClick={() => { setSaveViewOpen(false); setSaveViewName(""); }}>
+              <XIcon className="h-3 w-3" />
+            </Button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setSaveViewOpen(true)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-dashed border-border/50 rounded-full px-3 py-1 hover:border-primary/50 transition-colors"
+            data-testid="button-save-view"
+          >
+            <Bookmark className="h-3 w-3" />
+            Save view
+          </button>
+        )}
       </div>
 
       {view === "map" ? (

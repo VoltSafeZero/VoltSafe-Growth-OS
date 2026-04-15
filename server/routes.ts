@@ -1120,9 +1120,9 @@ export async function registerRoutes(
           ORDER BY start_time DESC LIMIT 8
         `)),
         db.execute(sql.raw(`
-          SELECT id, content, author_name, created_at, updated_at
+          SELECT id, content, author_name, created_at, updated_at, is_pinned
           FROM notes WHERE linked_object_type = 'account' AND linked_object_id = ${id}
-          ORDER BY created_at DESC LIMIT 10
+          ORDER BY is_pinned DESC, created_at DESC LIMIT 15
         `)),
         db.execute(sql.raw(`
           SELECT id, title, status, priority, due_date, owner_user_id
@@ -1390,9 +1390,9 @@ export async function registerRoutes(
           ORDER BY start_time DESC LIMIT 8
         `)),
         db.execute(sql.raw(`
-          SELECT id, content, author_name, created_at, updated_at
+          SELECT id, content, author_name, created_at, updated_at, is_pinned
           FROM notes WHERE linked_object_type = 'opportunity' AND linked_object_id = ${id}
-          ORDER BY created_at DESC LIMIT 10
+          ORDER BY is_pinned DESC, created_at DESC LIMIT 15
         `)),
         db.execute(sql.raw(`
           SELECT id, title, status, priority, due_date
@@ -6241,6 +6241,44 @@ export function registerConfluenceRoutes(app: Express) {
 
       await storage.deleteNote(existing.id);
       res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/notes/:id/pin", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const existing = await storage.getNoteById(id);
+      if (!existing) return res.status(404).json({ message: "Note not found" });
+      const newPinned = !existing.isPinned;
+      await db.execute(sql`UPDATE notes SET is_pinned = ${newPinned}, updated_at = NOW() WHERE id = ${id}`);
+      res.json({ ok: true, isPinned: newPinned });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Global Search ────────────────────────────────────────────────────────
+  app.get("/api/search", requireAuth, async (req, res) => {
+    try {
+      const q = ((req.query.q as string) || "").trim();
+      if (q.length < 2) return res.json({ results: [] });
+      const term = `%${q}%`;
+      const result = await db.execute(sql`
+        SELECT 'account' as type, id::text, name as label, lead_status as sub, NULL as sub2, NULL as linked_id
+        FROM accounts WHERE name ILIKE ${term} LIMIT 5
+        UNION ALL
+        SELECT 'contact' as type, id::text, (first_name || ' ' || last_name) as label, email as sub, account_name as sub2, NULL as linked_id
+        FROM contacts WHERE (first_name || ' ' || last_name) ILIKE ${term} OR email ILIKE ${term} LIMIT 5
+        UNION ALL
+        SELECT 'opportunity' as type, id::text, title as label, stage as sub, account_name as sub2, NULL as linked_id
+        FROM opportunities WHERE title ILIKE ${term} OR account_name ILIKE ${term} LIMIT 5
+        UNION ALL
+        SELECT 'note' as type, n.id::text, SUBSTRING(n.content, 1, 90) as label, n.linked_object_type as sub, NULL as sub2, n.linked_object_id::text as linked_id
+        FROM notes n WHERE n.content ILIKE ${term} LIMIT 4
+      `);
+      res.json({ results: result.rows });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
