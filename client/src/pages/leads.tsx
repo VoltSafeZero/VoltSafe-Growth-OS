@@ -148,7 +148,7 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
       setStatusFilter(statusParam);
     }
     if (selectedId || statusParam) {
-      window.history.replaceState({}, "", "/leads");
+      window.history.replaceState({}, "", "/opportunities");
     }
   }, []);
 

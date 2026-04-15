@@ -155,7 +155,7 @@ function GlobalSearch() {
     if (r.type === "account") { navigate(`/accounts/${r.id}`); return; }
     if (r.type === "contact") { navigate(`/contacts/${r.id}`); return; }
     if (r.type === "opportunity") { navigate(`/opportunities/${r.id}`); return; }
-    if (r.type === "lead") { navigate(`/leads`); return; }
+    if (r.type === "lead") { navigate(`/opportunities?selected=${r.id}`); return; }
     if (r.type === "note") {
       if (r.sub === "account" && r.linked_id) { navigate(`/accounts/${r.linked_id}`); return; }
       if (r.sub === "contact" && r.linked_id) { navigate(`/contacts/${r.linked_id}`); return; }
@@ -195,7 +195,7 @@ function GlobalSearch() {
         onChange={e => { setQuery(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
         onKeyDown={handleKeyDown}
-        placeholder="Search accounts, contacts, opportunities… ⌘K"
+        placeholder="Search accounts, contacts, leads… ⌘K"
         className="pl-9 pr-4 bg-secondary/30 border-transparent focus-visible:border-primary/50 focus-visible:ring-primary/20 rounded-full h-10 transition-all"
         data-testid="input-global-search"
         autoComplete="off"
@@ -305,13 +305,20 @@ function GlobalSearch() {
                             </p>
                             {(r.sub || r.sub2) && (
                               <p className="text-xs text-muted-foreground truncate">
-                                {[r.sub2, r.sub].filter(Boolean).join(" · ")}
+                                {r.type === "lead"
+                                  ? [r.sub2, r.sub].filter(Boolean).join("  ·  ")
+                                  : [r.sub2, r.sub].filter(Boolean).join(" · ")}
                               </p>
                             )}
                           </div>
-                          {isActive && (
-                            <span className="text-[9px] text-muted-foreground shrink-0 border border-border/50 rounded px-1 py-0.5">↵</span>
-                          )}
+                          <div className="shrink-0 flex items-center gap-1">
+                            {r.type === "lead" && (
+                              <span className="text-[9px] font-semibold uppercase tracking-wide text-cyan-400 border border-cyan-400/30 bg-cyan-400/5 rounded px-1 py-0.5">Lead</span>
+                            )}
+                            {isActive && (
+                              <span className="text-[9px] text-muted-foreground border border-border/50 rounded px-1 py-0.5">↵</span>
+                            )}
+                          </div>
                         </button>
                       );
                     })}
