@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -17,12 +17,15 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Plus, List, Columns3, DollarSign, AlertTriangle, Clock, CalendarClock,
   ArrowRight, CheckCircle2, XCircle, Target, ShieldAlert, Zap, MessageSquare,
-  ExternalLink,
+  ExternalLink, UserCheck, Shuffle, ClipboardList,
 } from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
 import { NotesPanel } from "@/components/notes-panel";
 import { TimelineTab } from "@/components/timeline-tab";
-import type { Opportunity, Account } from "@shared/schema";
+import { SavedViewsBar } from "@/components/saved-views-bar";
+import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
+import { AssignUserSelect } from "@/components/assign-user-select";
+import type { Opportunity, Account, SavedView } from "@shared/schema";
 
 const DEAL_STAGES = [
   { key: "inbound_new", label: "Inbound New", color: "bg-slate-500", badgeColor: "bg-slate-500/10 text-slate-400 border-slate-500/20" },
@@ -150,6 +153,11 @@ export default function OpportunitiesPage({ canEdit = true }: { canEdit?: boolea
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<Opportunity | null>(null);
   const { toast } = useToast();
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [activeViewId, setActiveViewId] = useState<number | null>(null);
+  const [stageFilter, setStageFilter] = useState<string>("");
+  const [bulkStageValue, setBulkStageValue] = useState("");
+  const [bulkAssignValue, setBulkAssignValue] = useState<number | null>(null);
 
   const { data, isLoading } = useQuery<{ data: Opportunity[]; total: number }>({
     queryKey: ["/api/opportunities"],
@@ -190,6 +198,52 @@ export default function OpportunitiesPage({ canEdit = true }: { canEdit?: boolea
     },
   });
 
+  const bulkAssignMutation = useMutation({
+    mutationFn: async (ownerUserId: number) => {
+      const res = await apiRequest("POST", "/api/opportunities/bulk/assign", { opportunityIds: Array.from(selectedIds), ownerUserId });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (d) => { queryClient.invalidateQueries({ queryKey: ["/api/opportunities"] }); setSelectedIds(new Set()); toast({ title: `Assigned ${d.updated} deals` }); },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const bulkStageMutation = useMutation({
+    mutationFn: async (stage: string) => {
+      const res = await apiRequest("POST", "/api/opportunities/bulk/stage", { opportunityIds: Array.from(selectedIds), stage });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (d) => { queryClient.invalidateQueries({ queryKey: ["/api/opportunities"] }); setSelectedIds(new Set()); toast({ title: `Updated ${d.updated} deals` }); },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const bulkTaskMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/opportunities/bulk/task", { opportunityIds: Array.from(selectedIds), title: "Follow up on deal" });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (d) => { setSelectedIds(new Set()); toast({ title: `Created ${d.created} tasks` }); },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const currentFiltersJson = useMemo(() => JSON.stringify({ stageFilter }), [stageFilter]);
+
+  const applyView = (sv: SavedView) => {
+    setActiveViewId(sv.id);
+    if (sv.filtersJson) {
+      try {
+        const f = JSON.parse(sv.filtersJson);
+        if (f.stageFilter !== undefined) setStageFilter(f.stageFilter);
+      } catch {}
+    }
+  };
+
+  const clearView = () => { setActiveViewId(null); setStageFilter(""); };
+
+  const toggleSelect = (id: number) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
   const accountMap = new Map(accountsData?.data?.map(a => [a.id, a.name]) || []);
 
   const activeStages = DEAL_STAGES.filter(s => s.key !== "closed_won" && s.key !== "closed_lost" && s.key !== "nurture");
@@ -204,6 +258,10 @@ export default function OpportunitiesPage({ canEdit = true }: { canEdit?: boolea
   const pipelineTotal = data?.data?.filter(o => !["closed_won", "closed_lost", "nurture"].includes(o.stage)).reduce((sum, d) => sum + (d.amount || d.valueTotal || 0), 0) || 0;
   const stalledCount = data?.data?.filter(d => d.isStalled).length || 0;
   const overdueCount = data?.data?.filter(d => d.nextStepDueDate && isOverdue(d.nextStepDueDate) && !["closed_won", "closed_lost"].includes(d.stage)).length || 0;
+
+  const allDeals = data?.data ?? [];
+  const filteredDeals = stageFilter ? allDeals.filter(d => d.stage === stageFilter) : allDeals;
+  const isAllSelected = filteredDeals.length > 0 && filteredDeals.every(d => selectedIds.has(d.id));
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
@@ -253,6 +311,59 @@ export default function OpportunitiesPage({ canEdit = true }: { canEdit?: boolea
         </div>
       </div>
 
+      {/* Saved views bar */}
+      <SavedViewsBar
+        pageKey="opportunities"
+        activeViewId={activeViewId}
+        currentFiltersJson={currentFiltersJson}
+        onApply={applyView}
+        onClear={clearView}
+        className="px-0"
+      />
+
+      {/* Bulk actions bar */}
+      {selectedIds.size > 0 && (
+        <BulkActionsBar
+          selectedCount={selectedIds.size}
+          totalCount={filteredDeals.length}
+          onSelectAll={() => setSelectedIds(new Set(filteredDeals.map(d => d.id)))}
+          onClearSelection={() => setSelectedIds(new Set())}
+          entityLabel="deal"
+          actions={[
+            {
+              key: "assign",
+              label: "Assign Owner",
+              icon: <UserCheck className="h-3.5 w-3.5" />,
+              testId: "button-bulk-deals-assign",
+              confirmText: (count) => `Assign ${count} deal${count !== 1 ? "s" : ""} to a new owner`,
+              requiresPermission: canEdit,
+              isPending: bulkAssignMutation.isPending,
+              onClick: async () => { if (bulkAssignValue) await bulkAssignMutation.mutateAsync(bulkAssignValue); },
+            },
+            {
+              key: "stage",
+              label: "Change Stage",
+              icon: <Shuffle className="h-3.5 w-3.5" />,
+              testId: "button-bulk-deals-stage",
+              confirmText: (count) => `Move ${count} deal${count !== 1 ? "s" : ""} to a new stage`,
+              requiresPermission: canEdit,
+              isPending: bulkStageMutation.isPending,
+              onClick: async () => { if (bulkStageValue) await bulkStageMutation.mutateAsync(bulkStageValue); },
+            },
+            {
+              key: "task",
+              label: "Create Task",
+              icon: <ClipboardList className="h-3.5 w-3.5" />,
+              testId: "button-bulk-deals-task",
+              confirmText: (count) => `Create a follow-up task for ${count} deal${count !== 1 ? "s" : ""}`,
+              requiresPermission: canEdit,
+              isPending: bulkTaskMutation.isPending,
+              onClick: async () => { await bulkTaskMutation.mutateAsync(); },
+            },
+          ]}
+        />
+      )}
+
       {isLoading ? (
         <div className="flex gap-4 overflow-x-auto">{[...Array(6)].map((_, i) => <Skeleton key={i} className="min-w-[300px] h-[400px]" />)}</div>
       ) : viewMode === "kanban" ? (
@@ -266,19 +377,24 @@ export default function OpportunitiesPage({ canEdit = true }: { canEdit?: boolea
               </div>
               <div className="space-y-2 max-h-[calc(100vh-280px)] overflow-y-auto">
                 {stage.items.map(deal => (
-                  <Card key={deal.id} className="border-border/50 hover:border-primary/30 cursor-pointer transition-colors" onClick={() => setSelectedDeal(deal)} data-testid={`card-deal-${deal.id}`}>
+                  <Card key={deal.id} className={`border-border/50 hover:border-primary/30 cursor-pointer transition-colors ${selectedIds.has(deal.id) ? "border-primary/50 bg-primary/5" : ""}`} data-testid={`card-deal-${deal.id}`}>
                     <CardContent className="p-3 space-y-2">
                       <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="font-medium text-sm leading-tight truncate">{deal.title}</p>
-                          <p className="text-xs text-muted-foreground truncate">{accountMap.get(deal.accountId) || "Unknown"}</p>
+                        <div className="flex items-start gap-2 min-w-0">
+                          <div onClick={e => { e.stopPropagation(); toggleSelect(deal.id); }} className="mt-0.5 shrink-0">
+                            <BulkCheckbox checked={selectedIds.has(deal.id)} onChange={() => toggleSelect(deal.id)} testId={`checkbox-deal-${deal.id}`} />
+                          </div>
+                          <div className="min-w-0" onClick={() => setSelectedDeal(deal)}>
+                            <p className="font-medium text-sm leading-tight truncate">{deal.title}</p>
+                            <p className="text-xs text-muted-foreground truncate">{accountMap.get(deal.accountId) || "Unknown"}</p>
+                          </div>
                         </div>
-                        <span className="text-sm font-semibold text-primary whitespace-nowrap flex items-center gap-0.5">
+                        <span className="text-sm font-semibold text-primary whitespace-nowrap flex items-center gap-0.5 cursor-pointer" onClick={() => setSelectedDeal(deal)}>
                           <DollarSign className="h-3 w-3" />
                           {(deal.amount || deal.valueTotal || 0).toLocaleString()}
                         </span>
                       </div>
-                      <DealSignals deal={deal} />
+                      <div onClick={() => setSelectedDeal(deal)}><DealSignals deal={deal} /></div>
                     </CardContent>
                   </Card>
                 ))}
@@ -297,6 +413,13 @@ export default function OpportunitiesPage({ canEdit = true }: { canEdit?: boolea
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border/50">
+                  <th className="p-3 w-8">
+                    <BulkCheckbox
+                      checked={isAllSelected}
+                      onChange={() => isAllSelected ? setSelectedIds(new Set()) : setSelectedIds(new Set(filteredDeals.map(d => d.id)))}
+                      testId="checkbox-deals-select-all"
+                    />
+                  </th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground">Deal</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground">Account</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground">Stage</th>
@@ -308,38 +431,41 @@ export default function OpportunitiesPage({ canEdit = true }: { canEdit?: boolea
                 </tr>
               </thead>
               <tbody>
-                {data?.data?.map(deal => {
+                {filteredDeals.map(deal => {
                   const risks = parseRiskFlags(deal.riskFlags);
                   const nextOverdue = deal.nextStepDueDate ? isOverdue(deal.nextStepDueDate) : false;
                   const actDays = daysAgo(deal.lastActivityDate);
                   const stale = actDays !== null && actDays > 14;
                   return (
-                    <tr key={deal.id} className="border-b border-border/30 hover:bg-muted/30 cursor-pointer" onClick={() => setSelectedDeal(deal)} data-testid={`row-deal-${deal.id}`}>
-                      <td className="p-3">
+                    <tr key={deal.id} className={`border-b border-border/30 hover:bg-muted/30 cursor-pointer ${selectedIds.has(deal.id) ? "bg-primary/5" : ""}`} data-testid={`row-deal-${deal.id}`}>
+                      <td className="p-3" onClick={e => { e.stopPropagation(); toggleSelect(deal.id); }}>
+                        <BulkCheckbox checked={selectedIds.has(deal.id)} onChange={() => toggleSelect(deal.id)} testId={`checkbox-deal-${deal.id}`} />
+                      </td>
+                      <td className="p-3" onClick={() => setSelectedDeal(deal)}>
                         <p className="font-medium text-sm">{deal.title}</p>
                         {deal.forecastCategory && deal.forecastCategory !== "pipeline" && (
                           <span className="text-[10px] text-muted-foreground uppercase">{deal.forecastCategory}</span>
                         )}
                       </td>
-                      <td className="p-3 text-sm text-muted-foreground">{accountMap.get(deal.accountId) || "—"}</td>
-                      <td className="p-3"><Badge variant="outline" className={`text-[11px] ${getStageBadgeColor(deal.stage)}`}>{getStageLabel(deal.stage)}</Badge></td>
-                      <td className="p-3 text-sm font-medium">${(deal.amount || deal.valueTotal || 0).toLocaleString()}</td>
-                      <td className="p-3">
+                      <td className="p-3 text-sm text-muted-foreground" onClick={() => setSelectedDeal(deal)}>{accountMap.get(deal.accountId) || "—"}</td>
+                      <td className="p-3" onClick={() => setSelectedDeal(deal)}><Badge variant="outline" className={`text-[11px] ${getStageBadgeColor(deal.stage)}`}>{getStageLabel(deal.stage)}</Badge></td>
+                      <td className="p-3 text-sm font-medium" onClick={() => setSelectedDeal(deal)}>${(deal.amount || deal.valueTotal || 0).toLocaleString()}</td>
+                      <td className="p-3" onClick={() => setSelectedDeal(deal)}>
                         <p className={`text-xs max-w-[160px] truncate ${!deal.nextStep ? "text-yellow-400 italic" : ""}`}>
                           {deal.nextStep || "Not set"}
                         </p>
                       </td>
-                      <td className="p-3">
+                      <td className="p-3" onClick={() => setSelectedDeal(deal)}>
                         <span className={`text-xs ${nextOverdue ? "text-red-400 font-semibold" : "text-muted-foreground"}`}>
                           {nextOverdue && "⚠ "}{formatDate(deal.nextStepDueDate)}
                         </span>
                       </td>
-                      <td className="p-3">
+                      <td className="p-3" onClick={() => setSelectedDeal(deal)}>
                         <span className={`text-xs ${stale ? "text-amber-400 font-medium" : "text-muted-foreground"}`}>
                           {deal.lastActivityDate ? `${actDays}d ago` : "None"}
                         </span>
                       </td>
-                      <td className="p-3">
+                      <td className="p-3" onClick={() => setSelectedDeal(deal)}>
                         <div className="flex gap-1">
                           {risks.slice(0, 2).map(f => (
                             <span key={f} className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded px-1.5 py-0.5">

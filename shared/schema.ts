@@ -1104,6 +1104,7 @@ export const savedViews = pgTable("saved_views", {
   sortOrder: text("sort_order").default("asc"),
   userId: integer("user_id"),
   isShared: boolean("is_shared").default(false),
+  isDefault: boolean("is_default").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

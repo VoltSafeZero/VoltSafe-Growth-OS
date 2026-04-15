@@ -17,9 +17,10 @@ import {
   Plus, Search, Building2, Users, Loader2, Phone, Mail, Trash2,
   ArrowUpDown, MapPin, Globe, Zap, Star, AlertTriangle, Calendar,
   Settings2, Wrench, Shield, Wifi, LinkIcon, List, LayoutGrid, Map, FolderPlus, ArrowRightLeft, ExternalLink,
-  ChevronDown, ChevronRight, Clock, Bookmark, X as XIcon,
+  ChevronDown, ChevronRight, Clock, Bookmark, X as XIcon, UserCheck, ClipboardList,
 } from "lucide-react";
 import type { SavedView } from "@shared/schema";
+import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 import { ExportButton } from "@/components/ui/export-button";
 import { NotesPanel } from "@/components/notes-panel";
 import L from "leaflet";
@@ -122,6 +123,8 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
   const [saveViewIsShared, setSaveViewIsShared] = useState(false);
   const [activeViewId, setActiveViewId] = useState<number | null>(null);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const toggleSelect = (id: number) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -266,6 +269,26 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
       toast({ title: "Organization stage updated" });
     },
+  });
+
+  const bulkAssignMutation = useMutation({
+    mutationFn: async (ownerUserId: number) => {
+      const res = await apiRequest("POST", "/api/accounts/bulk/assign", { accountIds: Array.from(selectedIds), ownerUserId });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (d) => { queryClient.invalidateQueries({ queryKey: ["/api/accounts"] }); setSelectedIds(new Set()); toast({ title: `Assigned ${d.updated} accounts` }); },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const bulkTaskMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/accounts/bulk/task", { accountIds: Array.from(selectedIds), title: "Follow up on account" });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (d) => { setSelectedIds(new Set()); toast({ title: `Created ${d.created} tasks` }); },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
   });
 
   return (
@@ -501,6 +524,38 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
         )}
       </div>
 
+      {selectedIds.size > 0 && (
+        <BulkActionsBar
+          selectedCount={selectedIds.size}
+          totalCount={allAccounts.length}
+          onSelectAll={() => setSelectedIds(new Set(allAccounts.map(a => a.id)))}
+          onClearSelection={() => setSelectedIds(new Set())}
+          entityLabel="account"
+          actions={[
+            {
+              key: "assign",
+              label: "Assign Owner",
+              icon: <UserCheck className="h-3.5 w-3.5" />,
+              testId: "button-bulk-accounts-assign",
+              confirmText: (count) => `Assign ${count} account${count !== 1 ? "s" : ""} to a new owner`,
+              requiresPermission: true,
+              isPending: bulkAssignMutation.isPending,
+              onClick: async () => { await bulkAssignMutation.mutateAsync(4); },
+            },
+            {
+              key: "task",
+              label: "Create Task",
+              icon: <ClipboardList className="h-3.5 w-3.5" />,
+              testId: "button-bulk-accounts-task",
+              confirmText: (count) => `Create follow-up tasks for ${count} account${count !== 1 ? "s" : ""}`,
+              requiresPermission: true,
+              isPending: bulkTaskMutation.isPending,
+              onClick: async () => { await bulkTaskMutation.mutateAsync(); },
+            },
+          ]}
+        />
+      )}
+
       {view === "map" ? (
         <AccountsMapView accounts={allAccounts} onSelect={setSelectedAccount} />
       ) : view === "pipeline" ? (
@@ -524,21 +579,26 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {allAccounts.map((account) => (
-                <Card key={account.id} className="border-border/50 hover:border-primary/30 cursor-pointer transition-colors" onClick={() => setSelectedAccount(account)} data-testid={`card-account-${account.id}`}>
+                <Card key={account.id} className={`border-border/50 hover:border-primary/30 cursor-pointer transition-colors ${selectedIds.has(account.id) ? "border-primary/50 bg-primary/5" : ""}`} data-testid={`card-account-${account.id}`}>
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-2">
-                        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                          <Building2 className="w-5 h-5 text-primary" />
+                        <div className="flex items-start gap-1.5 shrink-0">
+                          <div className="pt-0.5" onClick={e => { e.stopPropagation(); toggleSelect(account.id); }}>
+                            <BulkCheckbox checked={selectedIds.has(account.id)} onChange={() => toggleSelect(account.id)} testId={`checkbox-account-${account.id}`} />
+                          </div>
+                          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center" onClick={() => setSelectedAccount(account)}>
+                            <Building2 className="w-5 h-5 text-primary" />
+                          </div>
                         </div>
-                        <div>
+                        <div onClick={() => setSelectedAccount(account)}>
                           <CardTitle className="text-base">{account.name}</CardTitle>
                           <p className="text-xs text-muted-foreground">
                             {[account.city, account.stateProvince, account.country].filter(Boolean).join(", ") || account.region || "No location"}
                           </p>
                         </div>
                       </div>
-                      <div className="flex flex-col items-end gap-1">
+                      <div className="flex flex-col items-end gap-1" onClick={() => setSelectedAccount(account)}>
                         <Badge variant="outline" className={segmentColors[account.segment] || ""}>{account.segment}</Badge>
                         <Badge variant="outline" className={priorityColors[account.priority] || ""}>{account.priority}</Badge>
                       </div>

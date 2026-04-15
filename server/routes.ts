@@ -9436,6 +9436,240 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // PATCH /api/saved-views/:id/set-default — mark one view as default for a pageKey
+  app.patch("/api/saved-views/:id/set-default", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req)!;
+      const id = Number(req.params.id);
+      await db.execute(sql.raw(`
+        UPDATE saved_views sv
+        SET is_default = (sv.id = ${id})
+        WHERE sv.page_key = (SELECT page_key FROM saved_views WHERE id = ${id})
+          AND (sv.user_id = ${userId} OR sv.is_shared = true)
+      `));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Bulk Actions — Leads ───────────────────────────────────────────────────
+  app.post("/api/leads/bulk/assign", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const { leadIds, ownerUserId } = req.body as { leadIds: number[]; ownerUserId: number };
+      if (!Array.isArray(leadIds) || !leadIds.length) return res.status(400).json({ message: "leadIds required" });
+      if (!ownerUserId) return res.status(400).json({ message: "ownerUserId required" });
+      const ids = leadIds.map(Number).filter(Boolean);
+      const owner = Number(ownerUserId);
+      await db.execute(sql.raw(`UPDATE leads SET owner_user_id = ${owner}, updated_at = NOW() WHERE id = ANY(ARRAY[${ids.join(",")}])`));
+      res.json({ ok: true, updated: ids.length });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/leads/bulk/status", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const { leadIds, status } = req.body as { leadIds: number[]; status: string };
+      if (!Array.isArray(leadIds) || !leadIds.length) return res.status(400).json({ message: "leadIds required" });
+      if (!status) return res.status(400).json({ message: "status required" });
+      const ids = leadIds.map(Number).filter(Boolean);
+      const safe = status.replace(/'/g, "");
+      await db.execute(sql.raw(`UPDATE leads SET status = '${safe}', updated_at = NOW() WHERE id = ANY(ARRAY[${ids.join(",")}])`));
+      res.json({ ok: true, updated: ids.length });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/leads/bulk/archive", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const { leadIds } = req.body as { leadIds: number[] };
+      if (!Array.isArray(leadIds) || !leadIds.length) return res.status(400).json({ message: "leadIds required" });
+      const ids = leadIds.map(Number).filter(Boolean);
+      await db.execute(sql.raw(`UPDATE leads SET status = 'archived', updated_at = NOW() WHERE id = ANY(ARRAY[${ids.join(",")}])`));
+      res.json({ ok: true, updated: ids.length });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/leads/bulk/task", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req)!;
+      const { leadIds, title, dueDate } = req.body as { leadIds: number[]; title: string; dueDate?: string };
+      if (!Array.isArray(leadIds) || !leadIds.length) return res.status(400).json({ message: "leadIds required" });
+      if (!title?.trim()) return res.status(400).json({ message: "title required" });
+      const ids = leadIds.map(Number).filter(Boolean);
+      const due = dueDate ? `'${new Date(dueDate).toISOString()}'` : "NULL";
+      const safeTitle = title.trim().replace(/'/g, "''");
+      let created = 0;
+      for (const id of ids) {
+        await db.execute(sql.raw(`
+          INSERT INTO tasks (title, status, owner_user_id, linked_object_type, linked_object_id, due_date, created_at, updated_at)
+          VALUES ('${safeTitle}', 'pending', ${userId}, 'lead', ${id}, ${due}, NOW(), NOW())
+        `));
+        created++;
+      }
+      res.json({ ok: true, created });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ─── Bulk Actions — Accounts ────────────────────────────────────────────────
+  app.post("/api/accounts/bulk/assign", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const { accountIds, ownerUserId } = req.body as { accountIds: number[]; ownerUserId: number };
+      if (!Array.isArray(accountIds) || !accountIds.length) return res.status(400).json({ message: "accountIds required" });
+      if (!ownerUserId) return res.status(400).json({ message: "ownerUserId required" });
+      const ids = accountIds.map(Number).filter(Boolean);
+      await db.execute(sql.raw(`UPDATE accounts SET assigned_to_user_id = ${Number(ownerUserId)}, updated_at = NOW() WHERE id = ANY(ARRAY[${ids.join(",")}])`));
+      res.json({ ok: true, updated: ids.length });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/accounts/bulk/tag", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const { accountIds, tagId } = req.body as { accountIds: number[]; tagId: number };
+      if (!Array.isArray(accountIds) || !accountIds.length) return res.status(400).json({ message: "accountIds required" });
+      if (!tagId) return res.status(400).json({ message: "tagId required" });
+      const ids = accountIds.map(Number).filter(Boolean);
+      const tid = Number(tagId);
+      let added = 0;
+      for (const id of ids) {
+        await db.execute(sql.raw(`
+          INSERT INTO record_tags (tag_id, record_type, record_id, created_at)
+          VALUES (${tid}, 'account', ${id}, NOW())
+          ON CONFLICT DO NOTHING
+        `));
+        added++;
+      }
+      res.json({ ok: true, added });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/accounts/bulk/task", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req)!;
+      const { accountIds, title, dueDate } = req.body as { accountIds: number[]; title: string; dueDate?: string };
+      if (!Array.isArray(accountIds) || !accountIds.length) return res.status(400).json({ message: "accountIds required" });
+      if (!title?.trim()) return res.status(400).json({ message: "title required" });
+      const ids = accountIds.map(Number).filter(Boolean);
+      const due = dueDate ? `'${new Date(dueDate).toISOString()}'` : "NULL";
+      const safeTitle = title.trim().replace(/'/g, "''");
+      let created = 0;
+      for (const id of ids) {
+        await db.execute(sql.raw(`
+          INSERT INTO tasks (title, status, owner_user_id, linked_object_type, linked_object_id, due_date, created_at, updated_at)
+          VALUES ('${safeTitle}', 'pending', ${userId}, 'account', ${id}, ${due}, NOW(), NOW())
+        `));
+        created++;
+      }
+      res.json({ ok: true, created });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ─── Bulk Actions — Contacts ────────────────────────────────────────────────
+  app.post("/api/contacts/bulk/tag", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const { contactIds, tagId, tagName } = req.body as { contactIds: number[]; tagId?: number; tagName?: string };
+      if (!Array.isArray(contactIds) || !contactIds.length) return res.status(400).json({ message: "contactIds required" });
+      let tid: number | null = tagId ? Number(tagId) : null;
+      if (!tid && tagName) {
+        const safeName = tagName.trim().replace(/'/g, "''");
+        const existing = await db.execute(sql.raw(`SELECT id FROM tags WHERE name = '${safeName}' LIMIT 1`));
+        if (existing.rows.length > 0) {
+          tid = Number((existing.rows[0] as any).id);
+        } else {
+          const inserted = await db.execute(sql.raw(`INSERT INTO tags (name, color, created_at) VALUES ('${safeName}', '#6366f1', NOW()) RETURNING id`));
+          tid = Number((inserted.rows[0] as any).id);
+        }
+      }
+      if (!tid) return res.status(400).json({ message: "tagId or tagName required" });
+      const ids = contactIds.map(Number).filter(Boolean);
+      for (const id of ids) {
+        await db.execute(sql.raw(`
+          INSERT INTO record_tags (tag_id, record_type, record_id, created_at)
+          VALUES (${tid}, 'contact', ${id}, NOW())
+          ON CONFLICT DO NOTHING
+        `));
+      }
+      res.json({ ok: true, added: ids.length });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/contacts/bulk/task", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req)!;
+      const { contactIds, title, dueDate } = req.body as { contactIds: number[]; title: string; dueDate?: string };
+      if (!Array.isArray(contactIds) || !contactIds.length) return res.status(400).json({ message: "contactIds required" });
+      if (!title?.trim()) return res.status(400).json({ message: "title required" });
+      const ids = contactIds.map(Number).filter(Boolean);
+      const due = dueDate ? `'${new Date(dueDate).toISOString()}'` : "NULL";
+      const safeTitle = title.trim().replace(/'/g, "''");
+      let created = 0;
+      for (const id of ids) {
+        await db.execute(sql.raw(`
+          INSERT INTO tasks (title, status, owner_user_id, linked_object_type, linked_object_id, due_date, created_at, updated_at)
+          VALUES ('${safeTitle}', 'pending', ${userId}, 'contact', ${id}, ${due}, NOW(), NOW())
+        `));
+        created++;
+      }
+      res.json({ ok: true, created });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ─── Bulk Actions — Opportunities ──────────────────────────────────────────
+  app.post("/api/opportunities/bulk/assign", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const { opportunityIds, ownerUserId } = req.body as { opportunityIds: number[]; ownerUserId: number };
+      if (!Array.isArray(opportunityIds) || !opportunityIds.length) return res.status(400).json({ message: "opportunityIds required" });
+      if (!ownerUserId) return res.status(400).json({ message: "ownerUserId required" });
+      const ids = opportunityIds.map(Number).filter(Boolean);
+      await db.execute(sql.raw(`UPDATE opportunities SET owner_user_id = ${Number(ownerUserId)}, updated_at = NOW() WHERE id = ANY(ARRAY[${ids.join(",")}])`));
+      res.json({ ok: true, updated: ids.length });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/opportunities/bulk/stage", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const { opportunityIds, stage } = req.body as { opportunityIds: number[]; stage: string };
+      if (!Array.isArray(opportunityIds) || !opportunityIds.length) return res.status(400).json({ message: "opportunityIds required" });
+      if (!stage) return res.status(400).json({ message: "stage required" });
+      const ids = opportunityIds.map(Number).filter(Boolean);
+      const safe = stage.replace(/'/g, "");
+      await db.execute(sql.raw(`UPDATE opportunities SET stage = '${safe}', updated_at = NOW() WHERE id = ANY(ARRAY[${ids.join(",")}])`));
+      res.json({ ok: true, updated: ids.length });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/opportunities/bulk/task", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const userId = getSessionUserId(req)!;
+      const { opportunityIds, title, dueDate } = req.body as { opportunityIds: number[]; title: string; dueDate?: string };
+      if (!Array.isArray(opportunityIds) || !opportunityIds.length) return res.status(400).json({ message: "opportunityIds required" });
+      if (!title?.trim()) return res.status(400).json({ message: "title required" });
+      const ids = opportunityIds.map(Number).filter(Boolean);
+      const due = dueDate ? `'${new Date(dueDate).toISOString()}'` : "NULL";
+      const safeTitle = title.trim().replace(/'/g, "''");
+      let created = 0;
+      for (const id of ids) {
+        await db.execute(sql.raw(`
+          INSERT INTO tasks (title, status, owner_user_id, linked_object_type, linked_object_id, due_date, created_at, updated_at)
+          VALUES ('${safeTitle}', 'pending', ${userId}, 'opportunity', ${id}, ${due}, NOW(), NOW())
+        `));
+        created++;
+      }
+      res.json({ ok: true, created });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ─── Bulk Actions — Tasks (priority, in addition to complete/reassign/snooze) ─
+  app.post("/api/tasks/bulk/priority", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const { taskIds, priority } = req.body as { taskIds: number[]; priority: string };
+      if (!Array.isArray(taskIds) || !taskIds.length) return res.status(400).json({ message: "taskIds required" });
+      const validPriorities = ["low", "medium", "high", "urgent"];
+      if (!validPriorities.includes(priority)) return res.status(400).json({ message: "priority must be low|medium|high|urgent" });
+      const ids = taskIds.map(Number).filter(Boolean);
+      await db.execute(sql.raw(`UPDATE tasks SET priority = '${priority}', updated_at = NOW() WHERE id = ANY(ARRAY[${ids.join(",")}])`));
+      res.json({ ok: true, updated: ids.length });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
   // ─── Stage 3 — Opportunity Contacts ────────────────────────────────────
   app.get("/api/opportunities/:id/contacts", requireAuth, async (req, res) => {
     try {

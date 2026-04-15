@@ -20,6 +20,7 @@ import {
   SlidersHorizontal, ListTodo, CheckSquare, Users, RefreshCcw, Bell,
   Building2, ArrowRight, Zap, Sparkles, ThumbsDown, Settings2,
 } from "lucide-react";
+import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 
 type HubTask = {
   id: number;
@@ -215,6 +216,8 @@ function TaskRow({
   onReassign,
   onDueDate,
   onNavigate,
+  isSelected,
+  onToggleSelect,
 }: {
   task: HubTask;
   users: { id: number; name: string }[];
@@ -223,6 +226,8 @@ function TaskRow({
   onReassign: (userId: number) => void;
   onDueDate: (date: string) => void;
   onNavigate: (href: string) => void;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const overdue = isOverdue(task.dueDate) && task.status !== "done";
   const days = daysUntil(task.dueDate);
@@ -240,9 +245,16 @@ function TaskRow({
 
   return (
     <div
-      className={`group flex items-start gap-3 px-4 py-3 hover:bg-secondary/20 transition-colors border-b border-border/20 last:border-0 ${isDone ? "opacity-50" : ""} ${overdue && !isDone ? "bg-red-950/10" : ""}`}
+      className={`group flex items-start gap-3 px-4 py-3 hover:bg-secondary/20 transition-colors border-b border-border/20 last:border-0 ${isDone ? "opacity-50" : ""} ${overdue && !isDone ? "bg-red-950/10" : ""} ${isSelected ? "bg-primary/5" : ""}`}
       data-testid={`task-row-${task.id}`}
     >
+      {/* Bulk checkbox */}
+      {onToggleSelect && (
+        <div className="mt-0.5 shrink-0" onClick={e => { e.stopPropagation(); onToggleSelect(); }}>
+          <BulkCheckbox checked={!!isSelected} onChange={onToggleSelect} testId={`checkbox-task-${task.id}`} />
+        </div>
+      )}
+
       {/* Complete toggle */}
       <button
         onClick={onComplete}
@@ -325,6 +337,8 @@ function GroupSection({
   onReassign,
   onDueDate,
   onNavigate,
+  selectedIds,
+  onToggleSelect,
 }: {
   label: string;
   tasks: HubTask[];
@@ -335,6 +349,8 @@ function GroupSection({
   onReassign: (id: number, userId: number) => void;
   onDueDate: (id: number, date: string) => void;
   onNavigate: (href: string) => void;
+  selectedIds?: Set<number>;
+  onToggleSelect?: (id: number) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen ?? true);
   const isOverdueGroup = label === "Overdue";
@@ -363,6 +379,8 @@ function GroupSection({
               onReassign={(userId) => onReassign(t.id, userId)}
               onDueDate={(date) => onDueDate(t.id, date)}
               onNavigate={onNavigate}
+              isSelected={selectedIds?.has(t.id)}
+              onToggleSelect={onToggleSelect ? () => onToggleSelect(t.id) : undefined}
             />
           ))}
         </div>
@@ -557,6 +575,8 @@ export default function TasksHubPage() {
   const [groupBy, setGroupBy] = useState<GroupBy>("due_date");
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const toggleSelect = (id: number) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   // Keyboard shortcut: / to focus search
   useEffect(() => {
@@ -643,6 +663,16 @@ export default function TasksHubPage() {
     mutationFn: ({ id, dueDate }: { id: number; dueDate: string }) =>
       apiRequest("PUT", `/api/tasks/${id}`, { dueDate: new Date(dueDate).toISOString() }),
     onSuccess: () => { toast({ description: "Due date updated" }); invalidate(); },
+  });
+
+  const bulkPriorityMut = useMutation({
+    mutationFn: async (priority: string) => {
+      const res = await apiRequest("POST", "/api/tasks/bulk/priority", { taskIds: Array.from(selectedIds), priority });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (d: any) => { setSelectedIds(new Set()); toast({ description: `Updated priority for ${d.updated} tasks` }); invalidate(); },
+    onError: () => toast({ variant: "destructive", description: "Failed to update priority" }),
   });
 
   const openCapture = () => {
@@ -832,6 +862,49 @@ export default function TasksHubPage() {
           <EmptyState view={view} />
         ) : (
           <div className="pb-8">
+            {selectedIds.size > 0 && (
+              <div className="px-4 pt-3">
+                <BulkActionsBar
+                  selectedCount={selectedIds.size}
+                  totalCount={filtered.length}
+                  onSelectAll={() => setSelectedIds(new Set(filtered.map(t => t.id)))}
+                  onClearSelection={() => setSelectedIds(new Set())}
+                  entityLabel="task"
+                  actions={[
+                    {
+                      key: "priority-high",
+                      label: "Set High Priority",
+                      icon: <Flag className="h-3.5 w-3.5 text-red-400" />,
+                      testId: "button-bulk-tasks-priority-high",
+                      confirmText: (count) => `Set ${count} task${count !== 1 ? "s" : ""} to high priority`,
+                      requiresPermission: true,
+                      isPending: bulkPriorityMut.isPending,
+                      onClick: async () => { await bulkPriorityMut.mutateAsync("high"); },
+                    },
+                    {
+                      key: "priority-medium",
+                      label: "Set Medium Priority",
+                      icon: <Flag className="h-3.5 w-3.5 text-amber-400" />,
+                      testId: "button-bulk-tasks-priority-medium",
+                      confirmText: (count) => `Set ${count} task${count !== 1 ? "s" : ""} to medium priority`,
+                      requiresPermission: true,
+                      isPending: bulkPriorityMut.isPending,
+                      onClick: async () => { await bulkPriorityMut.mutateAsync("medium"); },
+                    },
+                    {
+                      key: "priority-low",
+                      label: "Set Low Priority",
+                      icon: <Flag className="h-3.5 w-3.5 text-muted-foreground" />,
+                      testId: "button-bulk-tasks-priority-low",
+                      confirmText: (count) => `Set ${count} task${count !== 1 ? "s" : ""} to low priority`,
+                      requiresPermission: true,
+                      isPending: bulkPriorityMut.isPending,
+                      onClick: async () => { await bulkPriorityMut.mutateAsync("low"); },
+                    },
+                  ]}
+                />
+              </div>
+            )}
             {sortedGroupKeys.map((key, idx) => {
               const groupTasks = filteredGroups[key] ?? [];
               if (!groupTasks.length) return null;
@@ -847,6 +920,8 @@ export default function TasksHubPage() {
                   onReassign={(id, userId) => reassignMut.mutate({ id, ownerUserId: userId })}
                   onDueDate={(id, date) => dueDateMut.mutate({ id, dueDate: date })}
                   onNavigate={(href) => navigate(href)}
+                  selectedIds={selectedIds}
+                  onToggleSelect={toggleSelect}
                 />
               );
             })}

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { Link } from "wouter";
 import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -16,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Search, ArrowRightLeft, Trash2, Loader2, Undo2,
   LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar, DollarSign, Map, ExternalLink,
-  CheckCircle2, AlertCircle, Link2,
+  CheckCircle2, AlertCircle, Link2, UserCheck, Shuffle, ClipboardList, Archive,
 } from "lucide-react";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
@@ -27,9 +27,11 @@ import { CommentsFeed } from "@/components/comments-feed";
 import { AttachmentsSection } from "@/components/attachments-section";
 import { AssignUserSelect } from "@/components/assign-user-select";
 import { CreateActionItem } from "@/components/create-action-item";
-import type { Lead, Account } from "@shared/schema";
+import type { Lead, Account, SavedView } from "@shared/schema";
 import { AccountDetailDialog } from "./accounts";
 import { EmailsTab } from "@/components/emails-tab";
+import { SavedViewsBar } from "@/components/saved-views-bar";
+import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 
 const US_STATES = [
   "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware",
@@ -113,6 +115,9 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [selectedOrg, setSelectedOrg] = useState<Account | null>(null);
   const [pendingOrgId, setPendingOrgId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [activeViewId, setActiveViewId] = useState<number | null>(null);
+  const toggleSelect = (id: number) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const { toast } = useToast();
 
   const { data: pendingOrgData } = useQuery<Account>({
@@ -286,6 +291,64 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
     },
   });
 
+  const bulkAssignMutation = useMutation({
+    mutationFn: async (ownerUserId: number) => {
+      const res = await apiRequest("POST", "/api/leads/bulk/assign", { leadIds: Array.from(selectedIds), ownerUserId });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (d) => { queryClient.invalidateQueries({ queryKey: ["/api/leads"] }); setSelectedIds(new Set()); toast({ title: `Assigned ${d.updated} leads` }); },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const bulkStatusMutation = useMutation({
+    mutationFn: async (status: string) => {
+      const res = await apiRequest("POST", "/api/leads/bulk/status", { leadIds: Array.from(selectedIds), status });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (d) => { queryClient.invalidateQueries({ queryKey: ["/api/leads"] }); setSelectedIds(new Set()); toast({ title: `Updated ${d.updated} leads` }); },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const bulkArchiveMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/leads/bulk/archive", { leadIds: Array.from(selectedIds) });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (d) => { queryClient.invalidateQueries({ queryKey: ["/api/leads"] }); setSelectedIds(new Set()); toast({ title: `Archived ${d.updated} leads` }); },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const bulkTaskMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/leads/bulk/task", { leadIds: Array.from(selectedIds), title: "Follow up on lead" });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (d) => { setSelectedIds(new Set()); toast({ title: `Created ${d.created} tasks` }); },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const currentFiltersJson = useMemo(() => JSON.stringify({ status: statusFilter, country: countryFilter, state: stateFilter }), [statusFilter, countryFilter, stateFilter]);
+
+  const applyView = (sv: SavedView) => {
+    setActiveViewId(sv.id);
+    if (sv.filtersJson) {
+      try {
+        const f = JSON.parse(sv.filtersJson);
+        if (f.status !== undefined) setStatusFilter(f.status);
+        if (f.country !== undefined) setCountryFilter(f.country);
+        if (f.state !== undefined) setStateFilter(f.state);
+      } catch {}
+    }
+  };
+
+  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); };
+
+  const isAllSelected = allLeads.length > 0 && allLeads.every(l => selectedIds.has(l.id));
+
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -414,6 +477,69 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
         </>}
       </div>
 
+      {/* Saved views */}
+      <SavedViewsBar
+        pageKey="leads"
+        activeViewId={activeViewId}
+        currentFiltersJson={currentFiltersJson}
+        onApply={applyView}
+        onClear={clearView}
+        className="px-0"
+      />
+
+      {/* Bulk actions bar */}
+      {selectedIds.size > 0 && (
+        <BulkActionsBar
+          selectedCount={selectedIds.size}
+          totalCount={allLeads.length}
+          onSelectAll={() => setSelectedIds(new Set(allLeads.map(l => l.id)))}
+          onClearSelection={() => setSelectedIds(new Set())}
+          entityLabel="lead"
+          actions={[
+            {
+              key: "assign",
+              label: "Assign Owner",
+              icon: <UserCheck className="h-3.5 w-3.5" />,
+              testId: "button-bulk-leads-assign",
+              confirmText: (count) => `Assign ${count} lead${count !== 1 ? "s" : ""} to a new owner`,
+              requiresPermission: canEdit,
+              isPending: bulkAssignMutation.isPending,
+              onClick: async () => { await bulkAssignMutation.mutateAsync(4); },
+            },
+            {
+              key: "status",
+              label: "Change Stage",
+              icon: <Shuffle className="h-3.5 w-3.5" />,
+              testId: "button-bulk-leads-status",
+              confirmText: (count) => `Update stage for ${count} lead${count !== 1 ? "s" : ""}`,
+              requiresPermission: canEdit,
+              isPending: bulkStatusMutation.isPending,
+              onClick: async () => { await bulkStatusMutation.mutateAsync("contacted"); },
+            },
+            {
+              key: "archive",
+              label: "Archive",
+              icon: <Archive className="h-3.5 w-3.5" />,
+              testId: "button-bulk-leads-archive",
+              confirmText: (count) => `Archive ${count} lead${count !== 1 ? "s" : ""}`,
+              requiresPermission: canEdit,
+              isPending: bulkArchiveMutation.isPending,
+              onClick: async () => { await bulkArchiveMutation.mutateAsync(); },
+            },
+            {
+              key: "task",
+              label: "Create Task",
+              icon: <ClipboardList className="h-3.5 w-3.5" />,
+              testId: "button-bulk-leads-task",
+              confirmText: (count) => `Create follow-up tasks for ${count} lead${count !== 1 ? "s" : ""}`,
+              requiresPermission: canEdit,
+              isPending: bulkTaskMutation.isPending,
+              onClick: async () => { await bulkTaskMutation.mutateAsync(); },
+            },
+          ]}
+        />
+      )}
+
       {view === "map" ? (
         <Suspense fallback={<div className="flex items-center justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
           <NearbyMarinasMap onSelectLead={(id) => {
@@ -438,6 +564,13 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
               <table className="w-full min-w-[600px]">
                 <thead>
                   <tr className="border-b border-border/50">
+                    <th className="p-3 sm:p-4 w-8">
+                      <BulkCheckbox
+                        checked={isAllSelected}
+                        onChange={() => isAllSelected ? setSelectedIds(new Set()) : setSelectedIds(new Set(allLeads.map(l => l.id)))}
+                        testId="checkbox-leads-select-all"
+                      />
+                    </th>
                     <SortableHeader label="Marina / Company" sortKey="company" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Location" sortKey="state" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Contact" sortKey="contactName" sort={sort} onSort={handleSort} className="hidden md:table-cell" />
@@ -450,8 +583,11 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
                 </thead>
                 <tbody>
                   {allLeads.map((lead) => (
-                    <tr key={lead.id} className="border-b border-border/30 hover:bg-muted/30 cursor-pointer" onClick={() => setSelectedLead(lead)} data-testid={`row-lead-${lead.id}`}>
-                      <td className="p-3 sm:p-4">
+                    <tr key={lead.id} className={`border-b border-border/30 hover:bg-muted/30 cursor-pointer ${selectedIds.has(lead.id) ? "bg-primary/5" : ""}`} data-testid={`row-lead-${lead.id}`}>
+                      <td className="p-3 sm:p-4 w-8" onClick={e => { e.stopPropagation(); toggleSelect(lead.id); }}>
+                        <BulkCheckbox checked={selectedIds.has(lead.id)} onChange={() => toggleSelect(lead.id)} testId={`checkbox-lead-${lead.id}`} />
+                      </td>
+                      <td className="p-3 sm:p-4" onClick={() => setSelectedLead(lead)}>
                         <div className="flex items-center gap-2">
                           {lead.marinaId && <Anchor className="h-4 w-4 text-primary shrink-0" />}
                           <div className="min-w-0">
@@ -462,27 +598,27 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
                           </div>
                         </div>
                       </td>
-                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden sm:table-cell">
+                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden sm:table-cell" onClick={() => setSelectedLead(lead)}>
                         {lead.city && lead.state ? `${lead.city}, ${lead.state}` : lead.state || "—"}
                       </td>
-                      <td className="p-3 sm:p-4 text-sm hidden md:table-cell">
+                      <td className="p-3 sm:p-4 text-sm hidden md:table-cell" onClick={() => setSelectedLead(lead)}>
                         <div>{lead.contactName}</div>
                         {lead.contactPhone && <div className="text-muted-foreground text-xs">{lead.contactPhone}</div>}
                       </td>
-                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell">{!lead.slips || lead.slips === "-" ? "Unknown" : lead.slips}</td>
-                      <td className="p-3 sm:p-4 text-sm hidden xl:table-cell">
+                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell" onClick={() => setSelectedLead(lead)}>{!lead.slips || lead.slips === "-" ? "Unknown" : lead.slips}</td>
+                      <td className="p-3 sm:p-4 text-sm hidden xl:table-cell" onClick={() => setSelectedLead(lead)}>
                         {lead.dealAmount ? (
                           <span className="text-emerald-400 font-medium">${Number(lead.dealAmount).toLocaleString()}</span>
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
                       </td>
-                      <td className="p-3 sm:p-4">
+                      <td className="p-3 sm:p-4" onClick={() => setSelectedLead(lead)}>
                         <Badge variant="outline" className={`text-xs ${statusColors[lead.status] || ""}`} data-testid={`badge-status-${lead.id}`}>
                           {getStageLabel(lead.status)}
                         </Badge>
                       </td>
-                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell">{lead.source || "—"}</td>
+                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell" onClick={() => setSelectedLead(lead)}>{lead.source || "—"}</td>
                       <td className="p-3 sm:p-4 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <Link href={`/opportunities/${lead.id}`}>
@@ -504,7 +640,7 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
                     </tr>
                   ))}
                   {allLeads.length === 0 && (
-                    <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No leads found. Click "Import Marinas" to populate your pipeline.</td></tr>
+                    <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No leads found. Click "Import Marinas" to populate your pipeline.</td></tr>
                   )}
                 </tbody>
               </table>
