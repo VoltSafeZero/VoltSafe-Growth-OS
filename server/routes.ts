@@ -15055,6 +15055,420 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
+  // ══════════════════════════════════════════════════════════════════════════════
+  // TERRITORY + GEOGRAPHIC INTELLIGENCE
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  // ── GET /api/territories ────────────────────────────────────────────────────
+  app.get("/api/territories", requireAuth, async (req, res) => {
+    try {
+      const { status, search } = req.query;
+      let where = "1=1";
+      if (status) where += ` AND t.status = '${(status as string).replace(/'/g, "''")}'`;
+      if (search) {
+        const s = (search as string).replace(/'/g, "''");
+        where += ` AND (t.name ILIKE '%${s}%' OR t.code ILIKE '%${s}%')`;
+      }
+      const rows = await db.execute(sql.raw(`
+        SELECT t.*,
+               u.name AS owner_name,
+               COUNT(DISTINCT a.id) AS account_count,
+               COUNT(DISTINCT l.id) AS lead_count
+        FROM territories t
+        LEFT JOIN users u ON u.id = t.owner_user_id
+        LEFT JOIN accounts a ON a.territory_id = t.id
+        LEFT JOIN leads l ON l.territory_id = t.id
+        WHERE ${where}
+        GROUP BY t.id, u.name
+        ORDER BY t.name ASC
+      `));
+      res.json((rows as any).rows ?? []);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── POST /api/territories ───────────────────────────────────────────────────
+  app.post("/api/territories", requireAuth, async (req, res) => {
+    try {
+      const { name, code, ownerUserId, status, notes, color, regions, countries } = req.body;
+      if (!name) return res.status(400).json({ message: "name is required" });
+      const safeStr = (v: any) => v ? `'${String(v).replace(/'/g, "''")}'` : "NULL";
+      const rows = await db.execute(sql.raw(`
+        INSERT INTO territories (name, code, owner_user_id, status, notes, color, regions, countries)
+        VALUES (${safeStr(name)}, ${safeStr(code)}, ${ownerUserId ? Number(ownerUserId) : "NULL"},
+                ${safeStr(status ?? "active")}, ${safeStr(notes)}, ${safeStr(color)},
+                ${safeStr(regions)}, ${safeStr(countries)})
+        RETURNING *
+      `));
+      res.status(201).json((rows as any).rows?.[0] ?? {});
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── GET /api/territories/:id ────────────────────────────────────────────────
+  app.get("/api/territories/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(`
+        SELECT t.*, u.name AS owner_name,
+               COUNT(DISTINCT a.id) AS account_count,
+               COUNT(DISTINCT l.id) AS lead_count
+        FROM territories t
+        LEFT JOIN users u ON u.id = t.owner_user_id
+        LEFT JOIN accounts a ON a.territory_id = t.id
+        LEFT JOIN leads l ON l.territory_id = t.id
+        WHERE t.id = ${id}
+        GROUP BY t.id, u.name
+      `));
+      const row = (rows as any).rows?.[0];
+      if (!row) return res.status(404).json({ message: "Territory not found" });
+      res.json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── PATCH /api/territories/:id ──────────────────────────────────────────────
+  app.patch("/api/territories/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const body = req.body;
+      if (!body || Object.keys(body).length === 0) return res.status(400).json({ message: "No fields to update" });
+      const allowed = ["name", "code", "owner_user_id", "status", "notes", "color", "regions", "countries"];
+      const camelToSnake = (s: string) => s.replace(/[A-Z]/g, l => `_${l.toLowerCase()}`);
+      const sets: string[] = [];
+      for (const [k, v] of Object.entries(body)) {
+        const snakeK = camelToSnake(k);
+        if (!allowed.includes(snakeK)) continue;
+        if (v === null || v === undefined) sets.push(`${snakeK} = NULL`);
+        else if (typeof v === "number") sets.push(`${snakeK} = ${v}`);
+        else sets.push(`${snakeK} = '${String(v).replace(/'/g, "''")}'`);
+      }
+      sets.push(`updated_at = NOW()`);
+      if (sets.length <= 1) return res.status(400).json({ message: "No valid fields to update" });
+      const rows = await db.execute(sql.raw(`UPDATE territories SET ${sets.join(", ")} WHERE id = ${id} RETURNING *`));
+      const row = (rows as any).rows?.[0];
+      if (!row) return res.status(404).json({ message: "Territory not found" });
+      res.json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── DELETE /api/territories/:id ─────────────────────────────────────────────
+  app.delete("/api/territories/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      // Unlink accounts/leads before deleting
+      await db.execute(sql.raw(`UPDATE accounts SET territory_id = NULL WHERE territory_id = ${id}`));
+      await db.execute(sql.raw(`UPDATE leads SET territory_id = NULL WHERE territory_id = ${id}`));
+      const rows = await db.execute(sql.raw(`DELETE FROM territories WHERE id = ${id} RETURNING id`));
+      if (!(rows as any).rows?.length) return res.status(404).json({ message: "Territory not found" });
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── POST /api/territories/:id/assign ───────────────────────────────────────
+  // Bulk-assign accounts and/or leads to a territory.
+  // Body: { accountIds?: number[], leadIds?: number[] }
+  app.post("/api/territories/:id/assign", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      // Verify territory exists
+      const terr = await db.execute(sql.raw(`SELECT id FROM territories WHERE id = ${id}`));
+      if (!(terr as any).rows?.length) return res.status(404).json({ message: "Territory not found" });
+      const { accountIds, leadIds } = req.body;
+      let accountsUpdated = 0, leadsUpdated = 0;
+      if (Array.isArray(accountIds) && accountIds.length > 0) {
+        const ids = accountIds.map(Number).filter(n => !isNaN(n)).join(",");
+        if (ids) {
+          const r = await db.execute(sql.raw(`UPDATE accounts SET territory_id = ${id} WHERE id IN (${ids})`));
+          accountsUpdated = (r as any).rowCount ?? 0;
+        }
+      }
+      if (Array.isArray(leadIds) && leadIds.length > 0) {
+        const ids = leadIds.map(Number).filter(n => !isNaN(n)).join(",");
+        if (ids) {
+          const r = await db.execute(sql.raw(`UPDATE leads SET territory_id = ${id} WHERE id IN (${ids})`));
+          leadsUpdated = (r as any).rowCount ?? 0;
+        }
+      }
+      res.json({ ok: true, accountsUpdated, leadsUpdated });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── POST /api/territories/:id/unassign ─────────────────────────────────────
+  // Remove accounts and/or leads from a territory (set territory_id = NULL).
+  app.post("/api/territories/:id/unassign", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const { accountIds, leadIds } = req.body;
+      let accountsUpdated = 0, leadsUpdated = 0;
+      if (Array.isArray(accountIds) && accountIds.length > 0) {
+        const ids = accountIds.map(Number).filter(n => !isNaN(n)).join(",");
+        if (ids) {
+          const r = await db.execute(sql.raw(`UPDATE accounts SET territory_id = NULL WHERE id IN (${ids}) AND territory_id = ${id}`));
+          accountsUpdated = (r as any).rowCount ?? 0;
+        }
+      }
+      if (Array.isArray(leadIds) && leadIds.length > 0) {
+        const ids = leadIds.map(Number).filter(n => !isNaN(n)).join(",");
+        if (ids) {
+          const r = await db.execute(sql.raw(`UPDATE leads SET territory_id = NULL WHERE id IN (${ids}) AND territory_id = ${id}`));
+          leadsUpdated = (r as any).rowCount ?? 0;
+        }
+      }
+      res.json({ ok: true, accountsUpdated, leadsUpdated });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── GET /api/analytics/geo/overview ────────────────────────────────────────
+  // Region-level rollup: counts of leads / accounts / deployments / live CS per region.
+  app.get("/api/analytics/geo/overview", requireAuth, async (req, res) => {
+    try {
+      // Accounts by region
+      const accByRegion = await db.execute(sql.raw(`
+        SELECT COALESCE(region, 'Unassigned') AS region, COUNT(*) AS accounts
+        FROM accounts GROUP BY region ORDER BY accounts DESC
+      `));
+      // Leads by region (use state as region if region col is null, normalized from state)
+      const leadsByRegion = await db.execute(sql.raw(`
+        SELECT COALESCE(region, state, 'Unassigned') AS region, COUNT(*) AS leads
+        FROM leads WHERE status != 'converted' GROUP BY COALESCE(region, state, 'Unassigned') ORDER BY leads DESC
+      `));
+      // Deployments by region
+      const depByRegion = await db.execute(sql.raw(`
+        SELECT COALESCE(d.region, a.region, a.state_province, 'Unassigned') AS region,
+               COUNT(*) AS deployments,
+               COUNT(CASE WHEN d.status = 'live' THEN 1 END) AS live_deployments
+        FROM deployments d
+        LEFT JOIN accounts a ON a.id = d.account_id
+        GROUP BY COALESCE(d.region, a.region, a.state_province, 'Unassigned') ORDER BY deployments DESC
+      `));
+      // Live CS by region (via account)
+      const csByRegion = await db.execute(sql.raw(`
+        SELECT COALESCE(a.region, a.state_province, 'Unassigned') AS region,
+               COUNT(*) AS customers,
+               SUM(cs.arr) AS total_arr
+        FROM customer_subscriptions cs
+        LEFT JOIN accounts a ON a.id = cs.account_id
+        WHERE cs.status IN ('active','renewal_due','renewal_in_progress')
+        GROUP BY COALESCE(a.region, a.state_province, 'Unassigned') ORDER BY customers DESC
+      `));
+      // Merge all regions into one unified map
+      const regionMap: Record<string, any> = {};
+      for (const r of ((accByRegion as any).rows ?? [])) {
+        const reg = r.region || "Unassigned";
+        if (!regionMap[reg]) regionMap[reg] = { region: reg, accounts: 0, leads: 0, deployments: 0, live_deployments: 0, customers: 0, arr: 0 };
+        regionMap[reg].accounts = Number(r.accounts);
+      }
+      for (const r of ((leadsByRegion as any).rows ?? [])) {
+        const reg = r.region || "Unassigned";
+        if (!regionMap[reg]) regionMap[reg] = { region: reg, accounts: 0, leads: 0, deployments: 0, live_deployments: 0, customers: 0, arr: 0 };
+        regionMap[reg].leads = Number(r.leads);
+      }
+      for (const r of ((depByRegion as any).rows ?? [])) {
+        const reg = r.region || "Unassigned";
+        if (!regionMap[reg]) regionMap[reg] = { region: reg, accounts: 0, leads: 0, deployments: 0, live_deployments: 0, customers: 0, arr: 0 };
+        regionMap[reg].deployments = Number(r.deployments);
+        regionMap[reg].live_deployments = Number(r.live_deployments);
+      }
+      for (const r of ((csByRegion as any).rows ?? [])) {
+        const reg = r.region || "Unassigned";
+        if (!regionMap[reg]) regionMap[reg] = { region: reg, accounts: 0, leads: 0, deployments: 0, live_deployments: 0, customers: 0, arr: 0 };
+        regionMap[reg].customers = Number(r.customers);
+        regionMap[reg].arr = Number(r.total_arr ?? 0);
+      }
+      const regions = Object.values(regionMap).sort((a: any, b: any) => b.accounts - a.accounts);
+      // Totals
+      const totals = regions.reduce((acc: any, r: any) => ({
+        accounts: acc.accounts + r.accounts,
+        leads: acc.leads + r.leads,
+        deployments: acc.deployments + r.deployments,
+        customers: acc.customers + r.customers,
+        arr: acc.arr + r.arr,
+      }), { accounts: 0, leads: 0, deployments: 0, customers: 0, arr: 0 });
+      res.json({ regions, totals, regionCount: regions.length });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── GET /api/analytics/geo/territories ─────────────────────────────────────
+  app.get("/api/analytics/geo/territories", requireAuth, async (req, res) => {
+    try {
+      const rows = await db.execute(sql.raw(`
+        SELECT t.*,
+               u.name AS owner_name,
+               COUNT(DISTINCT a.id) AS account_count,
+               COUNT(DISTINCT l.id) AS lead_count,
+               COUNT(DISTINCT d.id) AS deployment_count,
+               COUNT(DISTINCT cs.id) AS customer_count,
+               COALESCE(SUM(cs.arr), 0) AS total_arr
+        FROM territories t
+        LEFT JOIN users u ON u.id = t.owner_user_id
+        LEFT JOIN accounts a ON a.territory_id = t.id
+        LEFT JOIN leads l ON l.territory_id = t.id
+        LEFT JOIN deployments d ON d.account_id = a.id
+        LEFT JOIN customer_subscriptions cs ON cs.account_id = a.id AND cs.status IN ('active','renewal_due','renewal_in_progress','renewed')
+        WHERE t.status = 'active'
+        GROUP BY t.id, u.name
+        ORDER BY t.name ASC
+      `));
+      res.json((rows as any).rows ?? []);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── GET /api/analytics/geo/whitespace ──────────────────────────────────────
+  // Regions/states where we have leads but no accounts or no deployments.
+  app.get("/api/analytics/geo/whitespace", requireAuth, async (req, res) => {
+    try {
+      // Regions with leads but no accounts
+      const leadsOnly = await db.execute(sql.raw(`
+        SELECT COALESCE(l.region, l.state, 'Unknown') AS region,
+               l.country,
+               COUNT(*) AS lead_count,
+               0 AS account_count,
+               0 AS deployment_count,
+               'leads_no_accounts' AS whitespace_type
+        FROM leads l
+        WHERE status NOT IN ('converted','closed_won','closed_lost')
+          AND NOT EXISTS (
+            SELECT 1 FROM accounts a
+            WHERE (a.region = l.region OR a.state_province = l.state)
+              AND (a.country = l.country OR l.country IS NULL)
+          )
+          AND (l.region IS NOT NULL OR l.state IS NOT NULL)
+        GROUP BY COALESCE(l.region, l.state, 'Unknown'), l.country
+        ORDER BY lead_count DESC
+        LIMIT 50
+      `));
+      // Regions with accounts but no deployments
+      const accountsOnly = await db.execute(sql.raw(`
+        SELECT COALESCE(a.region, a.state_province, 'Unknown') AS region,
+               a.country,
+               COUNT(DISTINCT a.id) AS account_count,
+               0 AS lead_count,
+               0 AS deployment_count,
+               'accounts_no_deployments' AS whitespace_type
+        FROM accounts a
+        WHERE NOT EXISTS (
+          SELECT 1 FROM deployments d WHERE d.account_id = a.id
+        )
+          AND (a.region IS NOT NULL OR a.state_province IS NOT NULL)
+          AND a.lead_status NOT IN ('converted','customer')
+        GROUP BY COALESCE(a.region, a.state_province, 'Unknown'), a.country
+        ORDER BY account_count DESC
+        LIMIT 50
+      `));
+      res.json({
+        leadsWithoutAccounts: (leadsOnly as any).rows ?? [],
+        accountsWithoutDeployments: (accountsOnly as any).rows ?? [],
+      });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── GET /api/analytics/geo/win-rate ────────────────────────────────────────
+  // Win rate by region (closed_won vs closed_lost opportunities via account region).
+  app.get("/api/analytics/geo/win-rate", requireAuth, async (req, res) => {
+    try {
+      const rows = await db.execute(sql.raw(`
+        SELECT COALESCE(a.region, a.state_province, 'Unassigned') AS region,
+               COUNT(CASE WHEN o.stage = 'closed_won' THEN 1 END) AS won,
+               COUNT(CASE WHEN o.stage = 'closed_lost' THEN 1 END) AS lost,
+               COUNT(*) AS total,
+               CASE WHEN COUNT(*) > 0
+                 THEN ROUND(100.0 * COUNT(CASE WHEN o.stage = 'closed_won' THEN 1 END) / COUNT(*), 1)
+                 ELSE 0 END AS win_rate,
+               COALESCE(SUM(CASE WHEN o.stage = 'closed_won' THEN o.amount ELSE 0 END), 0) AS won_revenue
+        FROM opportunities o
+        JOIN accounts a ON a.id = o.account_id
+        GROUP BY COALESCE(a.region, a.state_province, 'Unassigned')
+        ORDER BY won_revenue DESC
+      `));
+      res.json((rows as any).rows ?? []);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── GET /api/analytics/geo/accounts?region=X&territory_id=Y ───────────────
+  app.get("/api/analytics/geo/accounts", requireAuth, async (req, res) => {
+    try {
+      const { region, territory_id, country, limit: lim = "100" } = req.query;
+      const conditions: string[] = [];
+      if (region) conditions.push(`(a.region ILIKE '${(region as string).replace(/'/g, "''")}' OR a.state_province ILIKE '${(region as string).replace(/'/g, "''")}')`);
+      if (territory_id) conditions.push(`a.territory_id = ${Number(territory_id)}`);
+      if (country) conditions.push(`a.country ILIKE '${(country as string).replace(/'/g, "''")}'`);
+      const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+      const rows = await db.execute(sql.raw(`
+        SELECT a.id, a.name, a.city, a.state_province, a.country, a.region, a.territory_id,
+               a.latitude, a.longitude, a.lead_status, a.slip_count, t.name AS territory_name
+        FROM accounts a
+        LEFT JOIN territories t ON t.id = a.territory_id
+        ${where}
+        ORDER BY a.name ASC
+        LIMIT ${Number(lim)}
+      `));
+      res.json((rows as any).rows ?? []);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── GET /api/analytics/geo/leads?region=X&territory_id=Y ──────────────────
+  app.get("/api/analytics/geo/leads", requireAuth, async (req, res) => {
+    try {
+      const { region, territory_id, country, limit: lim = "100" } = req.query;
+      const conditions: string[] = ["l.status NOT IN ('converted')"];
+      if (region) conditions.push(`(l.region ILIKE '${(region as string).replace(/'/g, "''")}' OR l.state ILIKE '${(region as string).replace(/'/g, "''")}')`);
+      if (territory_id) conditions.push(`l.territory_id = ${Number(territory_id)}`);
+      if (country) conditions.push(`l.country ILIKE '${(country as string).replace(/'/g, "''")}'`);
+      const where = `WHERE ${conditions.join(" AND ")}`;
+      const rows = await db.execute(sql.raw(`
+        SELECT l.id, l.company, l.city, l.state, l.country, l.region, l.territory_id,
+               l.lead_lat, l.lead_lng, l.status, l.deal_amount, t.name AS territory_name
+        FROM leads l
+        LEFT JOIN territories t ON t.id = l.territory_id
+        ${where}
+        ORDER BY l.company ASC
+        LIMIT ${Number(lim)}
+      `));
+      res.json((rows as any).rows ?? []);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── PATCH /api/accounts/:id — territory_id assignment ───────────────────────
+  // Add territory_id support to individual account updates (already handled generically elsewhere,
+  // but also add a dedicated territory assignment endpoint for clarity)
+  app.patch("/api/accounts/:id/territory", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const { territoryId } = req.body;
+      if (territoryId !== null && isNaN(Number(territoryId))) return res.status(400).json({ message: "Invalid territoryId" });
+      const val = territoryId === null || territoryId === undefined ? "NULL" : Number(territoryId);
+      const rows = await db.execute(sql.raw(`UPDATE accounts SET territory_id = ${val}, updated_at = NOW() WHERE id = ${id} RETURNING id, territory_id`));
+      if (!(rows as any).rows?.length) return res.status(404).json({ message: "Account not found" });
+      res.json({ ok: true, ...((rows as any).rows[0]) });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── PATCH /api/leads/:id/territory ──────────────────────────────────────────
+  app.patch("/api/leads/:id/territory", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const { territoryId, region } = req.body;
+      const sets: string[] = [];
+      if ("territoryId" in req.body) {
+        const val = territoryId === null || territoryId === undefined ? "NULL" : Number(territoryId);
+        sets.push(`territory_id = ${val}`);
+      }
+      if ("region" in req.body) {
+        sets.push(region === null ? "region = NULL" : `region = '${String(region).replace(/'/g, "''")}'`);
+      }
+      if (!sets.length) return res.status(400).json({ message: "No fields to update" });
+      sets.push("updated_at = NOW()");
+      const rows = await db.execute(sql.raw(`UPDATE leads SET ${sets.join(", ")} WHERE id = ${id} RETURNING id, territory_id, region`));
+      if (!(rows as any).rows?.length) return res.status(404).json({ message: "Lead not found" });
+      res.json({ ok: true, ...((rows as any).rows[0]) });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
   // ── Engagement scheduler + default rules ────────────────────────────────────
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
   startEngagementScheduler();

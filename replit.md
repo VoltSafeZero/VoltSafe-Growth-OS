@@ -4,6 +4,15 @@
 
 **VoltSafe Growth OS** is VoltSafe's internal sales intelligence and CRM platform for marina-focused sales, support, and relationship management. It features a comprehensive sales pipeline (Leads to Quotes), support ticketing, a marina directory, communication tools, and an analytics dashboard. **Cortex** is the embedded AI assistant within the platform.
 
+### Territory + Geographic Intelligence Layer (complete)
+- **Schema**: `territories` table (id, name, code, owner_user_id, status, notes, color, regions, countries); `territory_id` FK added to `accounts` and `leads`; `region` field added to `leads` for region normalization.
+- **Territory CRUD**: Full REST — `GET/POST /api/territories`, `GET/PATCH/DELETE /api/territories/:id`; search + status filter support; account/lead count rollups in list + detail.
+- **Assignment**: `POST /api/territories/:id/assign` (bulk assign accounts + leads); `POST /api/territories/:id/unassign`; `PATCH /api/accounts/:id/territory`; `PATCH /api/leads/:id/territory`.
+- **Geo Analytics**: `/api/analytics/geo/overview` (region-level rollup: accounts/leads/deployments/customers/ARR); `/api/analytics/geo/territories` (per-territory rollup); `/api/analytics/geo/whitespace` (regions with leads but no accounts, accounts with no deployments); `/api/analytics/geo/win-rate` (win rate + revenue by region); `/api/analytics/geo/accounts` + `/api/analytics/geo/leads` (filtered by region/territory/country).
+- **Geography UI** (`/geography`): 5-tab page — Region Overview (card grid + detail pane), Territories (CRUD table + TerritoryForm), Whitespace (leadsWithoutAccounts + accountsWithoutDeployments), Analytics (win-rate bar chart table), Saved Views (BC, Ontario, SoCal, Great Lakes, Atlantic, Pacific NW quick-filter chips).
+- **Nav**: Globe icon "Territory & Geo" item added to Intelligence section in sidebar.
+- **Tests**: `tests/geography.test.js` — 111 assertions; 0 failures. All 217 prior CS/oversight tests still pass.
+
 ### Certification Oversight Layer (complete)
 - **CertSummaryStrip**: Live dashboard banner on /projects showing total/blocked/at-risk/on-track/retest/certified/expiring-90d counts + due-soon items; clicking a stat activates the cert quick-filter.
 - **Cert quick-filter chips** (Phase 2): Second filter row on /projects for All Certification / Blocked / Retest Required / Due in 30 days / Cert Expiring / Passed+Certified — maps to `?certFilter=` backend param.

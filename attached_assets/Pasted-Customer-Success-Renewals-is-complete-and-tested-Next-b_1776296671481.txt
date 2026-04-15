@@ -1,0 +1,98 @@
+Customer Success + Renewals is complete and tested. Next, build Territory + Geographic Intelligence.
+
+Goal:
+Add a geographic intelligence layer to Cortex so we can understand, filter, and operate by region, territory, cluster, and map-based deployment/sales activity.
+
+Build this in phases.
+
+PHASE 1 — LOCATION NORMALIZATION
+Standardize and enrich location data across:
+- leads
+- accounts
+- opportunities
+- install workflows
+- deployments
+- customer success records
+
+Support:
+- city
+- state/province
+- country
+- region
+- postal/zip
+- lat/lng if available or derivable
+- territory assignment
+- marina/site grouping where relevant
+
+Keep it deterministic and safe. Do not overcomplicate geocoding if only partial location data exists.
+
+PHASE 2 — TERRITORY MODEL
+Add lightweight territory support:
+- territory name
+- territory owner
+- territory status
+- optional notes
+- linked regions / rules
+
+Allow accounts/leads/deployments to be associated to territories.
+
+PHASE 3 — MAP / CLUSTER VIEWS
+Create views for:
+- leads on map
+- accounts on map
+- deployments on map
+- live customers on map
+- cluster heat / counts by region
+- whitespace regions with no penetration
+
+If full map rendering is too heavy initially, start with region/cluster tables plus simple geo summaries.
+
+PHASE 4 — GEO ANALYTICS
+Add analytics like:
+- leads by region
+- win rate by region
+- accepted quote revenue by region
+- live customers by region
+- installs by region
+- deployments in progress by region
+- renewal risk by region
+- source conversion by region
+
+PHASE 5 — OPERATIONAL USE CASES
+Support practical flows:
+- nearby accounts/leads
+- travel planning clusters
+- deployments by territory
+- blocked installs by region
+- certification/deployment/procurement risk by region where meaningful
+
+PHASE 6 — UI / FILTERS
+Add territory and region filters to key pages where useful:
+- leads
+- accounts
+- pipeline
+- deployments
+- customer success
+- executive dashboard
+
+Add saved views like:
+- Ontario marinas
+- SoCal active pipeline
+- BC live customers
+- Great Lakes deployments
+- Atlantic Canada whitespace
+
+PHASE 7 — TESTING
+Add tests for:
+- territory assignment
+- region rollups
+- location normalization
+- geo analytics correctness
+- filter behavior
+- no regression to leads/accounts/deployments/customer-success/executive-dashboard flows
+
+Implementation rules:
+- keep it practical for VoltSafe field operations and sales coverage
+- do not build a bloated GIS platform
+- reuse existing analytics, dashboard, and saved-view systems
+- summarize changed files and final pass/fail at the end

@@ -61,6 +61,7 @@ import ExecutiveDashboardPage from "@/pages/executive-dashboard";
 import ProcurementPage from "@/pages/procurement";
 import DeploymentsPage from "@/pages/deployments";
 import RenewalsPage from "@/pages/renewals";
+import GeographyPage from "@/pages/geography";
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -175,6 +176,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/procurement">{() => guard("crm", <ProcurementPage />)}</Route>
       <Route path="/deployments">{() => guard("crm", <DeploymentsPage />)}</Route>
       <Route path="/renewals">{() => guard("crm", <RenewalsPage />)}</Route>
+      <Route path="/geography">{() => guard("crm", <GeographyPage />)}</Route>
 
       {/* ── Sidebar alias routes — each nav item gets a unique URL so active   */}
       {/* ── state never leaks across sections (no shared paths between items). */}

@@ -104,7 +104,7 @@ app.use((req, res, next) => {
 (async () => {
   // Run schema migrations FIRST before any route setup queries the DB
   try {
-    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema } = await import("./seed-production");
+    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema } = await import("./seed-production");
     await migrateUserSchema();
     await migrateEmailSchema();
     await migrateCalendarSchema();
@@ -117,6 +117,7 @@ app.use((req, res, next) => {
     await migrateProjectCertificationSchema();
     await migrateProjectOversightSchema();
     await migrateCsTimelineSchema();
+    await migrateTerritorySchema();
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }
@@ -156,7 +157,7 @@ app.use((req, res, next) => {
       log(`Listening on 0.0.0.0:${port}`);
 
       try {
-        const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, seedProductionData } = await import("./seed-production");
+        const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, seedProductionData } = await import("./seed-production");
         await migrateUserSchema();
         await migrateEmailSchema();
         await migrateCalendarSchema();
@@ -169,6 +170,7 @@ app.use((req, res, next) => {
         await migrateProjectCertificationSchema();
         await migrateProjectOversightSchema();
         await migrateCsTimelineSchema();
+        await migrateTerritorySchema();
         await seedProductionData();
       } catch (err) {
         console.error("Seed error (non-fatal):", err);

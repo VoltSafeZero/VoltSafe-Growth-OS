@@ -878,3 +878,33 @@ export async function migrateCsTimelineSchema(): Promise<void> {
     console.error("[migration] CS timeline schema migration error (non-fatal):", err);
   }
 }
+
+export async function migrateTerritorySchema(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS territories (
+        id serial PRIMARY KEY,
+        name text NOT NULL,
+        code text,
+        owner_user_id integer,
+        status text NOT NULL DEFAULT 'active',
+        notes text,
+        color text,
+        regions text,
+        countries text,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_territories_status ON territories(status)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_territories_owner ON territories(owner_user_id)`);
+    // Add territory_id to accounts
+    await db.execute(sql`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS territory_id integer`);
+    // Add territory_id and region to leads
+    await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS territory_id integer`);
+    await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS region text`);
+    console.log("[migration] Territory schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Territory schema migration error (non-fatal):", err);
+  }
+}

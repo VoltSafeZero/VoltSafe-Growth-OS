@@ -111,6 +111,9 @@ export const leads = pgTable("leads", {
   campaignTag: text("campaign_tag"),
   originalSource: text("original_source"),
   sourceCapturedAt: timestamp("source_captured_at"),
+  // ── Territory + Geo Intelligence ────────────────────────────────────────────
+  region: text("region"),
+  territoryId: integer("territory_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -197,6 +200,8 @@ export const accounts = pgTable("accounts", {
   acquisitionChannel: text("acquisition_channel"),
   originalSource: text("original_source"),
   sourceCapturedAt: timestamp("source_captured_at"),
+  // ── Territory + Geo Intelligence ────────────────────────────────────────────
+  territoryId: integer("territory_id"),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -1782,3 +1787,22 @@ export const customerSubscriptions = pgTable("customer_subscriptions", {
 export const insertCustomerSubscriptionSchema = createInsertSchema(customerSubscriptions).omit({ id: true, createdAt: true, updatedAt: true });
 export type CustomerSubscription = typeof customerSubscriptions.$inferSelect;
 export type InsertCustomerSubscription = z.infer<typeof insertCustomerSubscriptionSchema>;
+
+// ── Territory + Geographic Intelligence ───────────────────────────────────────
+export const territories = pgTable("territories", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  code: text("code"),
+  ownerUserId: integer("owner_user_id"),
+  status: text("status").notNull().default("active"),
+  notes: text("notes"),
+  color: text("color"),
+  regions: text("regions"),
+  countries: text("countries"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertTerritorySchema = createInsertSchema(territories).omit({ id: true, createdAt: true, updatedAt: true });
+export type Territory = typeof territories.$inferSelect;
+export type InsertTerritory = z.infer<typeof insertTerritorySchema>;
