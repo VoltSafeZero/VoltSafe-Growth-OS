@@ -273,15 +273,15 @@ export function AppSidebar({
       <SidebarHeader className="h-auto py-2 flex items-center px-5">
         <button
           onClick={() => window.dispatchEvent(new Event("open-cortex-ai"))}
-          className="flex items-center gap-1.5 font-bold text-lg tracking-tight cursor-pointer transition-opacity hover:opacity-80 active:scale-[0.98]"
+          className="flex items-center gap-2 font-bold tracking-tight cursor-pointer transition-opacity hover:opacity-80 active:scale-[0.98]"
           data-testid="button-sidebar-cortex-ai"
         >
           <img
             src={navLogo}
             alt="VoltSafe Growth OS"
-            className="w-[6.75rem] h-[6.75rem] object-contain mix-blend-screen brightness-125 shrink-0"
+            className="w-14 h-14 object-contain mix-blend-screen brightness-125 shrink-0"
           />
-          <span>VoltSafe <span className="text-primary">Growth OS</span></span>
+          <span className="text-xl leading-tight">VoltSafe<br /><span className="text-primary">Growth OS</span></span>
         </button>
       </SidebarHeader>
 
