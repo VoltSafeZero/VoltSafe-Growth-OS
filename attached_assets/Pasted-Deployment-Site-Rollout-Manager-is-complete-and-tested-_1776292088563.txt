@@ -1,0 +1,101 @@
+Deployment / Site Rollout Manager is complete and tested. Next, build the True Duplicate Merge Engine.
+
+Goal:
+Let admins safely merge duplicate CRM records without losing history, linked tasks, emails, quotes, installs, procurement links, or reporting integrity.
+
+Build this in phases.
+
+PHASE 1 — MERGE SCOPE
+Support safe merge flows for:
+- accounts
+- contacts
+- leads (where appropriate)
+Do NOT start with opportunities, quotes, install workflows, deployments, or procurement objects as primary mergeable objects unless clearly safe.
+Those should be relinked, not merged directly at first.
+
+PHASE 2 — DUPLICATE CLUSTER REVIEW
+Extend the existing Data Quality / Dedupe Center so duplicate clusters can open a merge review screen.
+
+For each cluster show side-by-side:
+- core fields
+- owner
+- status
+- source/original_source
+- last activity
+- created date
+- linked contacts
+- linked opportunities
+- linked quotes
+- linked tasks
+- linked emails
+- linked install/deployment counts
+
+Suggest a recommended primary record, but do not auto-merge.
+
+PHASE 3 — FIELD RESOLUTION UI
+Let the user choose:
+- primary record
+- per-field winning values
+- whether to preserve secondary values in notes/metadata
+- whether to archive the secondary record after merge
+
+For important fields, show:
+- current primary value
+- secondary value
+- chosen final value
+
+PHASE 4 — SAFE RE-LINKING ENGINE
+When merging, safely move/relink:
+- contacts to primary account
+- opportunities to primary account/contact
+- tasks
+- notes
+- activities/timeline items
+- email associations
+- quotes
+- install workflows
+- deployments
+- procurement links where relevant
+- source attribution lineage
+- converted lead references
+
+The merge must preserve reporting correctness and record continuity.
+
+PHASE 5 — MERGE AUDITABILITY
+Create merge audit records capturing:
+- who merged
+- when
+- source record ID
+- target record ID
+- field resolutions
+- linked object counts moved
+- any warnings
+
+Add timeline events like:
+- “Merged duplicate account into this record”
+- “Merged duplicate contact into this record”
+
+PHASE 6 — SAFETY RULES
+Include strong guardrails:
+- preview before apply
+- permission-gated (admin or explicit edit permission only)
+- prevent self-merge / circular merge
+- prevent merging already-archived/merged records incorrectly
+- soft-delete/archive secondary records rather than hard delete
+- transactionally safe where possible
+
+PHASE 7 — TESTING
+Add tests for:
+- account merge with linked contacts/opps/tasks/emails/quotes/install workflows
+- contact merge with email/task/history preservation
+- field resolution correctness
+- timeline/audit creation
+- source attribution preservation
+- executive dashboard / pipeline totals remain correct after merge
+- no regression to data quality, deployment, procurement, install, quote, and analytics flows
+
+Implementation rules:
+- prioritize safety and traceability over speed
+- do not silently discard data
+- do not build a reckless one-click merge
+- summarize changed files and final pass/fail at the end
