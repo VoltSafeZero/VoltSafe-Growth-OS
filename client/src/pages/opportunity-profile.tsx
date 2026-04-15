@@ -12,6 +12,7 @@ import {
   ArrowLeft, Mail, Phone, Building2, Users, Zap, CheckSquare,
   CalendarDays, TrendingUp, MessageSquare, AlertTriangle, RefreshCw,
   Clock, ExternalLink, Send, Plus, ChevronRight, DollarSign, Target, User, Pin,
+  FileText, CheckCircle2, XCircle,
 } from "lucide-react";
 import { formatDistanceToNow, format, isPast } from "date-fns";
 import { Link } from "wouter";
@@ -148,6 +149,12 @@ export default function OpportunityProfilePage() {
       if (!r.ok) throw new Error("Not found");
       return r.json();
     }),
+  });
+
+  const quoteSummaryQuery = useQuery<any>({
+    queryKey: ["/api/opportunities", id, "quote-summary"],
+    queryFn: () => fetch(`/api/opportunities/${id}/quote-summary`).then(r => r.ok ? r.json() : null),
+    enabled: !!id,
   });
 
   if (isLoading) return (
@@ -470,6 +477,63 @@ export default function OpportunityProfilePage() {
               </div>
             )}
           </SectionCard>
+
+          {/* Quote Summary */}
+          {quoteSummaryQuery.data && (
+            <SectionCard title="Quotes" icon={FileText} count={quoteSummaryQuery.data.quoteCount}>
+              {quoteSummaryQuery.data.quoteCount === 0 ? (
+                <EmptyRow text="No quotes linked to this deal" />
+              ) : (
+                <div className="space-y-2">
+                  {quoteSummaryQuery.data.latestQuote && (
+                    <div className="rounded-lg border border-border/40 bg-muted/20 p-3 space-y-1.5" data-testid="quote-summary-latest">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium truncate">{quoteSummaryQuery.data.latestQuote.title || `Quote #${quoteSummaryQuery.data.latestQuote.id}`}</span>
+                        <Badge variant="outline" className={`text-[10px] px-1.5 py-0 flex-shrink-0 ${
+                          quoteSummaryQuery.data.latestQuote.status === "accepted" ? "text-green-400 border-green-400/30" :
+                          quoteSummaryQuery.data.latestQuote.status === "sent" ? "text-blue-400 border-blue-400/30" :
+                          quoteSummaryQuery.data.latestQuote.status === "declined" ? "text-red-400 border-red-400/30" :
+                          quoteSummaryQuery.data.latestQuote.status === "expired" ? "text-yellow-400 border-yellow-400/30" :
+                          "text-muted-foreground border-border"
+                        }`} data-testid="quote-summary-status">
+                          {quoteSummaryQuery.data.latestQuote.status}
+                        </Badge>
+                      </div>
+                      {quoteSummaryQuery.data.latestQuote.total && (
+                        <div className="flex items-center gap-1 text-sm font-semibold text-primary">
+                          <DollarSign className="h-3.5 w-3.5" />
+                          {Number(quoteSummaryQuery.data.latestQuote.total).toLocaleString()}
+                        </div>
+                      )}
+                      {quoteSummaryQuery.data.latestQuote.valid_until && (
+                        <div className={`flex items-center gap-1 text-xs ${
+                          isPast(new Date(quoteSummaryQuery.data.latestQuote.valid_until)) && !["accepted","archived"].includes(quoteSummaryQuery.data.latestQuote.status)
+                            ? "text-red-400" : "text-muted-foreground"
+                        }`}>
+                          <Clock className="h-3 w-3" />
+                          {isPast(new Date(quoteSummaryQuery.data.latestQuote.valid_until)) ? "Expired " : "Expires "}
+                          {format(new Date(quoteSummaryQuery.data.latestQuote.valid_until), "MMM d, yyyy")}
+                        </div>
+                      )}
+                      {quoteSummaryQuery.data.isStale && (
+                        <div className="flex items-center gap-1 text-xs text-amber-400">
+                          <AlertTriangle className="h-3 w-3" /> Quote may need follow-up
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {quoteSummaryQuery.data.quoteCount > 1 && (
+                    <p className="text-xs text-muted-foreground text-center">+{quoteSummaryQuery.data.quoteCount - 1} more quote{quoteSummaryQuery.data.quoteCount > 2 ? "s" : ""}</p>
+                  )}
+                  <Link href={`/quotes?opportunityId=${id}`}>
+                    <Button variant="outline" size="sm" className="w-full h-7 text-xs" data-testid="button-view-all-quotes">
+                      <FileText className="h-3.5 w-3.5 mr-1" /> View All Quotes
+                    </Button>
+                  </Link>
+                </div>
+              )}
+            </SectionCard>
+          )}
 
           {/* Deal detail */}
           <Card className="border-border/50">

@@ -305,6 +305,9 @@ export const quotes = pgTable("quotes", {
   notes: text("notes"),
   sentAt: timestamp("sent_at"),
   acceptedAt: timestamp("accepted_at"),
+  declinedAt: timestamp("declined_at"),
+  archivedAt: timestamp("archived_at"),
+  ownerUserId: integer("owner_user_id"),
   customerName: text("customer_name"),
   customerEmail: text("customer_email"),
   customerPhone: text("customer_phone"),
@@ -353,6 +356,16 @@ export const servicesEstimates = pgTable("services_estimates", {
   hourlyRate: real("hourly_rate").notNull().default(0),
   subtotal: real("subtotal").notNull().default(0),
   sortOrder: integer("sort_order").default(0),
+});
+
+export const quoteStatusHistory = pgTable("quote_status_history", {
+  id: serial("id").primaryKey(),
+  quoteId: integer("quote_id").notNull(),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  userId: integer("user_id"),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const activities = pgTable("activities", {
@@ -520,6 +533,7 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({ id: true, c
 export const insertQuoteSchema = createInsertSchema(quotes).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertQuoteLineItemSchema = createInsertSchema(quoteLineItems).omit({ id: true });
 export const insertServicesEstimateSchema = createInsertSchema(servicesEstimates).omit({ id: true });
+export const insertQuoteStatusHistorySchema = createInsertSchema(quoteStatusHistory).omit({ id: true, createdAt: true });
 export const insertActivitySchema = createInsertSchema(activities).omit({ id: true, createdAt: true });
 export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertCommunicationListSchema = createInsertSchema(communicationLists).omit({ id: true, createdAt: true });
@@ -554,6 +568,8 @@ export type QuoteLineItem = typeof quoteLineItems.$inferSelect;
 export type InsertQuoteLineItem = z.infer<typeof insertQuoteLineItemSchema>;
 export type ServicesEstimate = typeof servicesEstimates.$inferSelect;
 export type InsertServicesEstimate = z.infer<typeof insertServicesEstimateSchema>;
+export type QuoteStatusHistory = typeof quoteStatusHistory.$inferSelect;
+export type InsertQuoteStatusHistory = z.infer<typeof insertQuoteStatusHistorySchema>;
 export type Activity = typeof activities.$inferSelect;
 export type InsertActivity = z.infer<typeof insertActivitySchema>;
 export type Task = typeof tasks.$inferSelect;

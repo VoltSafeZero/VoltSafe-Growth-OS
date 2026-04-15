@@ -278,9 +278,9 @@ async function runQuoteNoFollowupRule(cfg: RuleConfig, _userId: number): Promise
   const days = cfg.thresholdValue;
   const { rows } = await db.execute(sql.raw(`
     SELECT
-      q.id, q.quote_number, q.status, q.total_amount,
+      q.id, q.quote_number, q.status, q.total,
       q.account_id, a.name AS account_name,
-      a.owner_user_id,
+      COALESCE(q.owner_user_id, a.owner_user_id) AS owner_user_id,
       EXTRACT(EPOCH FROM (NOW() - q.updated_at)) / 86400 AS days_since_sent
     FROM quotes q
     LEFT JOIN accounts a ON a.id = q.account_id
@@ -300,9 +300,9 @@ async function runQuoteNoFollowupRule(cfg: RuleConfig, _userId: number): Promise
   const results: any[] = [];
   for (const row of rows as any[]) {
     const daysAgo = Math.round(Number(row.days_since_sent));
-    const valueStr = row.total_amount >= 1000
-      ? `$${(row.total_amount / 1000).toFixed(0)}k`
-      : `$${row.total_amount ?? 0}`;
+    const valueStr = Number(row.total) >= 1000
+      ? `$${(Number(row.total) / 1000).toFixed(0)}k`
+      : `$${Number(row.total ?? 0).toFixed(0)}`;
     const due = new Date(Date.now() + 24 * 3600000).toISOString();
     const suggestion = await upsertSuggestion("account", row.account_id, "quote_no_followup", {
       severity: daysAgo > days * 2 ? "high" : "medium",
@@ -314,6 +314,47 @@ async function runQuoteNoFollowupRule(cfg: RuleConfig, _userId: number): Promise
       dueDateIso: due,
       sourceLabel: "Quote follow-up",
       confidence: Math.min(90, 55 + daysAgo * 3),
+      suggestedAssigneeId: row.owner_user_id ?? null,
+    });
+    if (suggestion) results.push({ ...suggestion, accountName: row.account_name ?? null, objectLabel: row.quote_number });
+  }
+  return results;
+}
+
+async function runExpiredQuoteRule(_cfg: RuleConfig, _userId: number): Promise<any[]> {
+  const { rows } = await db.execute(sql.raw(`
+    SELECT
+      q.id, q.quote_number, q.total,
+      q.account_id, a.name AS account_name,
+      COALESCE(q.owner_user_id, a.owner_user_id) AS owner_user_id,
+      EXTRACT(EPOCH FROM (NOW() - q.valid_until)) / 86400 AS days_expired
+    FROM quotes q
+    LEFT JOIN accounts a ON a.id = q.account_id
+    WHERE q.status IN ('sent', 'follow_up_due')
+      AND q.valid_until IS NOT NULL
+      AND q.valid_until < NOW()
+    ORDER BY days_expired DESC
+    LIMIT 20
+  `));
+
+  const results: any[] = [];
+  for (const row of rows as any[]) {
+    if (!row.account_id) continue;
+    const daysExp = Math.round(Number(row.days_expired));
+    const valueStr = Number(row.total) >= 1000
+      ? `$${(Number(row.total) / 1000).toFixed(0)}k`
+      : `$${Number(row.total ?? 0).toFixed(0)}`;
+    const due = new Date(Date.now() + 24 * 3600000).toISOString();
+    const suggestion = await upsertSuggestion("account", row.account_id, "quote_expired", {
+      severity: daysExp > 14 ? "high" : "medium",
+      title: `Quote expired — renew or close ${row.account_name ?? ""}`,
+      reason: `Quote ${row.quote_number} (${valueStr}) expired ${daysExp} day${daysExp !== 1 ? "s" : ""} ago`,
+      actionType: "create_task",
+      actionLabel: "Renew or close quote",
+      priority: daysExp > 14 ? "high" : "medium",
+      dueDateIso: due,
+      sourceLabel: "Expired quote",
+      confidence: Math.min(90, 60 + daysExp * 2),
       suggestedAssigneeId: row.owner_user_id ?? null,
     });
     if (suggestion) results.push({ ...suggestion, accountName: row.account_name ?? null, objectLabel: row.quote_number });
@@ -437,6 +478,16 @@ export async function generateGlobalSuggestions(userId: number): Promise<GlobalS
   await runRule("stale_lead", runStaleLeadRule);
   await runRule("missing_next_step", runMissingNextStepRule);
   await runRule("quote_no_followup", runQuoteNoFollowupRule);
+  // expired quote rule uses a fallback config if not in DB
+  const expiredCfg = configs["quote_expired"] ?? { ruleId: "quote_expired", label: "Expired quote", thresholdValue: 0, thresholdUnit: "days", isEnabled: true, assigneeStrategy: "record_owner", defaultAssigneeUserId: null };
+  if (expiredCfg.isEnabled) {
+    try {
+      const expiredResults = await runExpiredQuoteRule(expiredCfg, userId);
+      all.push(...expiredResults.filter(Boolean));
+    } catch (err: any) {
+      console.error("[global-suggestions] Rule quote_expired error:", err.message);
+    }
+  }
   await runRule("account_needs_attention", runAccountNeedsAttentionRule);
   await runRule("overdue_task_reminder", runOverdueTaskReminderRule);
 

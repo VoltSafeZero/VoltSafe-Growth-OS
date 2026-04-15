@@ -1,0 +1,115 @@
+Bulk Actions + Saved Views is complete and tested. Next, build the Quote-to-Close Workflow.
+
+Goal:
+Make Cortex handle the full commercial flow from quote creation through quote outcome and handoff, with clean CRM visibility and automation.
+
+Build this in phases.
+
+PHASE 1 — QUOTE STATUS MODEL
+Add/standardize quote lifecycle statuses:
+- draft
+- sent
+- viewed if already trackable
+- follow_up_due
+- accepted
+- declined
+- expired
+
+Make sure status transitions are explicit and auditable.
+
+PHASE 2 — QUOTE DETAIL / LIST UX
+Upgrade quote views to clearly show:
+- status
+- amount
+- sent date
+- accepted/declined date
+- expiry date
+- linked account
+- linked opportunity
+- owner
+- last engagement signal if available
+
+Add useful list filters:
+- draft
+- sent
+- awaiting response
+- accepted
+- declined
+- expired
+
+PHASE 3 — STATUS TRANSITION ACTIONS
+Support actions like:
+- mark sent
+- mark accepted
+- mark declined
+- mark expired
+- duplicate quote
+- archive if supported
+
+Require confirmations where appropriate.
+
+PHASE 4 — TIMELINE + AUDIT INTEGRATION
+Ensure quote events appear in record timelines:
+- quote created
+- quote sent
+- quote viewed if available
+- quote accepted
+- quote declined
+- quote expired
+
+Include actor, timestamp, and before/after status where useful.
+
+PHASE 5 — FOLLOW-UP AUTOMATIONS
+Add deterministic quote automations:
+- quote sent → create follow-up task in X days
+- quote opened repeatedly → create suggestion/task
+- quote clicked but no reply → reminder
+- quote not opened after X days → resend/follow-up suggestion
+- quote accepted → create handoff/onboarding task(s)
+
+Reuse existing engagement, task, and suggestion infrastructure.
+
+PHASE 6 — OPPORTUNITY LINKAGE
+Make quote state visible from the linked opportunity:
+- latest quote status
+- latest quote amount
+- quote count
+- accepted quote marker
+- stale quote warning
+
+Allow opportunity pipeline views to reflect quote state where relevant.
+
+PHASE 7 — ACCEPTED QUOTE HANDOFF
+When a quote is accepted, optionally trigger:
+- onboarding/install task creation
+- project kickoff task
+- owner reassignment if needed
+- status change on opportunity/account
+
+Keep it lightweight and deterministic.
+
+PHASE 8 — BULK / SAVED VIEW SUPPORT
+Support bulk actions and saved views for quotes:
+- bulk status update where safe
+- bulk assign owner if applicable
+- saved views like:
+  - awaiting quote response
+  - expired quotes
+  - accepted this month
+  - quotes with no follow-up task
+
+PHASE 9 — TESTING
+Add tests for:
+- quote status transitions
+- timeline events
+- automation triggers
+- accepted quote handoff
+- opportunity linkage
+- saved views / filters
+- no regression to tasks, engagement, and timelines
+
+Implementation rules:
+- do not build a bloated CPQ system
+- keep it focused on practical B2B quote tracking and follow-through
+- reuse existing tasks, timeline, engagement, and suggestion systems
+- summarize changed files and final pass/fail at the end

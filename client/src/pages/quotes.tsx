@@ -16,19 +16,43 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Plus, FileText, Loader2, Trash2, Download, Printer, ExternalLink,
   Package, Cloud, Tag, Globe, Mail, DollarSign, Send, CheckCircle2,
-  AlertCircle, BarChart2,
+  AlertCircle, BarChart2, MoreHorizontal, Copy, Archive, Clock,
+  XCircle, CheckSquare, ChevronDown, History, UserCheck,
 } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { BulkActionsBar } from "@/components/bulk-actions-bar";
+import { SavedViewsBar } from "@/components/saved-views-bar";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ExportButton } from "@/components/ui/export-button";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
 import type { Quote, Account } from "@shared/schema";
 
 const statusColors: Record<string, string> = {
-  draft: "bg-gray-500/10 text-gray-400 border-gray-500/20",
-  sent: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  accepted: "bg-green-500/10 text-green-400 border-green-500/20",
-  rejected: "bg-red-500/10 text-red-400 border-red-500/20",
-  expired: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+  draft:         "bg-gray-500/10 text-gray-400 border-gray-500/20",
+  sent:          "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  follow_up_due: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+  accepted:      "bg-green-500/10 text-green-400 border-green-500/20",
+  declined:      "bg-red-500/10 text-red-400 border-red-500/20",
+  rejected:      "bg-red-500/10 text-red-400 border-red-500/20",
+  expired:       "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+  archived:      "bg-gray-500/10 text-gray-500 border-gray-500/20",
 };
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Draft", sent: "Sent", follow_up_due: "Follow-up Due",
+  accepted: "Accepted", declined: "Declined", expired: "Expired", archived: "Archived",
+};
+
+const STATUS_TABS = [
+  { key: "all", label: "All" },
+  { key: "draft", label: "Draft" },
+  { key: "sent", label: "Sent" },
+  { key: "follow_up_due", label: "Awaiting" },
+  { key: "accepted", label: "Accepted" },
+  { key: "declined", label: "Declined" },
+  { key: "expired", label: "Expired" },
+];
 
 type LineItem = {
   name: string;
@@ -121,6 +145,8 @@ export default function QuotesPage({ canEdit = true }: { canEdit?: boolean }) {
   const [selectedQuote, setSelectedQuote] = useState<number | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeDefaults, setComposeDefaults] = useState<{ to?: string; subject?: string; body?: string; quoteId?: number }>({});
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [transitionDialog, setTransitionDialog] = useState<{ quoteId: number; toStatus: string; quoteNumber: string } | null>(null);
   const { toast } = useToast();
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
   const { sort, handleSort } = useSortState();
@@ -186,6 +212,43 @@ export default function QuotesPage({ canEdit = true }: { canEdit?: boolean }) {
       if (created?.id) setSelectedQuote(created.id);
     },
     onError: () => toast({ title: "Failed to create quote", variant: "destructive" }),
+  });
+
+  const transitionMutation = useMutation({
+    mutationFn: async ({ quoteId, toStatus }: { quoteId: number; toStatus: string }) => {
+      const res = await apiRequest("PATCH", `/api/quotes/${quoteId}/transition`, { toStatus });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      setTransitionDialog(null);
+      toast({ title: "Quote status updated" });
+    },
+    onError: (err: any) => toast({ title: "Transition failed", description: err.message, variant: "destructive" }),
+  });
+
+  const duplicateMutation = useMutation({
+    mutationFn: async (quoteId: number) => {
+      const res = await apiRequest("POST", `/api/quotes/${quoteId}/duplicate`, {});
+      return res.json();
+    },
+    onSuccess: (newQuote) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      toast({ title: "Quote duplicated", description: `${newQuote?.quote_number ?? "New quote"} created as draft` });
+    },
+    onError: () => toast({ title: "Duplicate failed", variant: "destructive" }),
+  });
+
+  const bulkStatusMutation = useMutation({
+    mutationFn: async ({ quoteIds, status }: { quoteIds: number[]; status: string }) => {
+      const res = await apiRequest("POST", "/api/quotes/bulk/status", { quoteIds, status });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      setSelectedIds(new Set());
+      toast({ title: "Bulk status updated" });
+    },
   });
 
   // KPI derived data
@@ -262,70 +325,202 @@ export default function QuotesPage({ canEdit = true }: { canEdit?: boolean }) {
         </div>
       )}
 
-      <div className="flex gap-3">
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-full sm:w-40" data-testid="select-quote-status-filter">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="draft">Draft</SelectItem>
-            <SelectItem value="sent">Sent</SelectItem>
-            <SelectItem value="accepted">Accepted</SelectItem>
-            <SelectItem value="rejected">Rejected</SelectItem>
-            <SelectItem value="expired">Expired</SelectItem>
-          </SelectContent>
-        </Select>
+      {/* Status Tabs */}
+      <div className="flex gap-1 flex-wrap" data-testid="quote-status-tabs">
+        {STATUS_TABS.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => { setStatusFilter(tab.key); setSelectedIds(new Set()); }}
+            className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${
+              statusFilter === tab.key
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted/40 text-muted-foreground hover:bg-muted/70"
+            }`}
+            data-testid={`tab-status-${tab.key}`}
+          >
+            {tab.label}
+            {tab.key !== "all" && allQuotes.filter(q => q.status === tab.key).length > 0 && (
+              <span className="ml-1.5 opacity-70">({allQuotes.filter(q => q.status === tab.key).length})</span>
+            )}
+          </button>
+        ))}
       </div>
+
+      <SavedViewsBar pageKey="quotes" />
+
+      {/* Bulk Actions Bar */}
+      {selectedIds.size > 0 && (
+        <BulkActionsBar
+          selectedCount={selectedIds.size}
+          totalCount={allQuotes.length}
+          onSelectAll={() => setSelectedIds(new Set(allQuotes.map(q => q.id)))}
+          onClearSelection={() => setSelectedIds(new Set())}
+          entityLabel="quote"
+          actions={[
+            {
+              key: "mark_sent",
+              label: "Mark Sent",
+              icon: Send,
+              testId: "bulk-mark-sent",
+              isPending: bulkStatusMutation.isPending,
+              onClick: () => bulkStatusMutation.mutate({ quoteIds: Array.from(selectedIds), status: "sent" }),
+            },
+            {
+              key: "mark_accepted",
+              label: "Mark Accepted",
+              icon: CheckCircle2,
+              testId: "bulk-mark-accepted",
+              isPending: bulkStatusMutation.isPending,
+              onClick: () => bulkStatusMutation.mutate({ quoteIds: Array.from(selectedIds), status: "accepted" }),
+            },
+            {
+              key: "mark_declined",
+              label: "Mark Declined",
+              icon: XCircle,
+              testId: "bulk-mark-declined",
+              isPending: bulkStatusMutation.isPending,
+              onClick: () => bulkStatusMutation.mutate({ quoteIds: Array.from(selectedIds), status: "declined" }),
+            },
+            {
+              key: "archive",
+              label: "Archive",
+              icon: Archive,
+              testId: "bulk-archive",
+              isPending: bulkStatusMutation.isPending,
+              onClick: () => bulkStatusMutation.mutate({ quoteIds: Array.from(selectedIds), status: "archived" }),
+            },
+          ]}
+        />
+      )}
 
       {isLoading ? (
         <div className="space-y-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div>
       ) : (
         <Card className="border-border/50">
           <CardContent className="p-0 overflow-x-auto">
-            <table className="w-full min-w-[560px]">
+            <table className="w-full min-w-[640px]">
               <thead>
                 <tr className="border-b border-border/50">
+                  <th className="p-3 sm:p-4 w-10">
+                    <Checkbox
+                      checked={allQuotes.length > 0 && selectedIds.size === allQuotes.length}
+                      onCheckedChange={(checked) => setSelectedIds(checked ? new Set(allQuotes.map(q => q.id)) : new Set())}
+                      data-testid="checkbox-select-all-quotes"
+                    />
+                  </th>
                   <SortableHeader label="Quote #" sortKey="quoteNumber" sort={sort} onSort={handleSort} />
-                  <SortableHeader label="Customer" sortKey="customerName" sort={sort} onSort={handleSort} className="hidden md:table-cell" />
+                  <SortableHeader label="Customer / Account" sortKey="customerName" sort={sort} onSort={handleSort} className="hidden md:table-cell" />
                   <SortableHeader label="Status" sortKey="status" sort={sort} onSort={handleSort} />
-                  <SortableHeader label="Currency" sortKey="currency" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />
                   <SortableHeader label="Total" sortKey="total" sort={sort} onSort={handleSort} align="right" />
-                  <SortableHeader label="Created" sortKey="createdAt" sort={sort} onSort={handleSort} className="hidden sm:table-cell" />
+                  <SortableHeader label="Sent" sortKey="sentAt" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />
+                  <SortableHeader label="Expires" sortKey="validUntil" sort={sort} onSort={handleSort} className="hidden xl:table-cell" />
                   <th className="p-3 sm:p-4 w-28 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {allQuotes.map(quote => (
-                  <tr key={quote.id} className="border-b border-border/30 hover:bg-muted/30 cursor-pointer" onClick={() => setSelectedQuote(quote.id)} data-testid={`row-quote-${quote.id}`}>
-                    <td className="p-3 sm:p-4 font-medium font-mono text-sm">{quote.quoteNumber}</td>
-                    <td className="p-3 sm:p-4 text-sm hidden md:table-cell">{(quote as any).customerName || "—"}</td>
-                    <td className="p-3 sm:p-4"><Badge variant="outline" className={statusColors[quote.status] || ""}>{quote.status}</Badge></td>
-                    <td className="p-3 sm:p-4 text-sm hidden lg:table-cell">{quote.currency}</td>
-                    <td className="p-3 sm:p-4 text-right font-medium">{fmtMoney(quote.total || 0, quote.currency)}</td>
-                    <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden sm:table-cell">{new Date(quote.createdAt).toLocaleDateString()}</td>
-                    <td className="p-3 sm:p-4 text-right" onClick={e => e.stopPropagation()}>
-                      <div className="flex gap-1 justify-end">
-                        {(quote as any).xlsxAssetId && (
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => window.open(`/api/quotes/${quote.id}/download/xlsx`, "_blank")} title="Download XLSX" data-testid={`button-download-xlsx-${quote.id}`}>
-                            <Download className="h-3.5 w-3.5" />
+                {allQuotes.map(quote => {
+                  const isExpired = quote.validUntil && new Date(quote.validUntil) < new Date() && !["accepted","declined","archived"].includes(quote.status);
+                  const account = accountMap.get(quote.accountId ?? 0);
+                  return (
+                    <tr
+                      key={quote.id}
+                      className={`border-b border-border/30 hover:bg-muted/30 cursor-pointer ${selectedIds.has(quote.id) ? "bg-primary/5" : ""}`}
+                      onClick={() => setSelectedQuote(quote.id)}
+                      data-testid={`row-quote-${quote.id}`}
+                    >
+                      <td className="p-3 sm:p-4" onClick={e => e.stopPropagation()}>
+                        <Checkbox
+                          checked={selectedIds.has(quote.id)}
+                          onCheckedChange={(checked) => {
+                            setSelectedIds(prev => {
+                              const next = new Set(prev);
+                              checked ? next.add(quote.id) : next.delete(quote.id);
+                              return next;
+                            });
+                          }}
+                          data-testid={`checkbox-quote-${quote.id}`}
+                        />
+                      </td>
+                      <td className="p-3 sm:p-4 font-medium font-mono text-sm">{quote.quoteNumber}</td>
+                      <td className="p-3 sm:p-4 text-sm hidden md:table-cell">
+                        <div className="truncate max-w-[180px]">
+                          {(quote as any).customerName || account || <span className="text-muted-foreground">—</span>}
+                        </div>
+                      </td>
+                      <td className="p-3 sm:p-4">
+                        <Badge variant="outline" className={statusColors[quote.status] || ""}>
+                          {STATUS_LABELS[quote.status] ?? quote.status}
+                        </Badge>
+                        {isExpired && <span className="ml-1 text-[10px] text-yellow-500">⚠ expired</span>}
+                      </td>
+                      <td className="p-3 sm:p-4 text-right font-medium">{fmtMoney(quote.total || 0, quote.currency)}</td>
+                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell">
+                        {(quote as any).sentAt ? new Date((quote as any).sentAt).toLocaleDateString() : "—"}
+                      </td>
+                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden xl:table-cell">
+                        {quote.validUntil ? <span className={isExpired ? "text-yellow-500" : ""}>{new Date(quote.validUntil).toLocaleDateString()}</span> : "—"}
+                      </td>
+                      <td className="p-3 sm:p-4 text-right" onClick={e => e.stopPropagation()}>
+                        <div className="flex gap-1 justify-end items-center">
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => window.open(`/api/quotes/${quote.id}/print`, "_blank")} title="View Invoice" data-testid={`button-print-${quote.id}`}>
+                            <Printer className="h-3.5 w-3.5" />
                           </Button>
-                        )}
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => window.open(`/api/quotes/${quote.id}/print`, "_blank")} title="View Invoice" data-testid={`button-print-${quote.id}`}>
-                          <Printer className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400 hover:text-blue-300" onClick={() => {
-                          setComposeDefaults({ to: (quote as any).customerEmail || "", subject: `VoltSafe Quote ${quote.quoteNumber}`, body: `Hi,\n\nPlease find attached your VoltSafe quote ${quote.quoteNumber} for ${fmtMoney(quote.total || 0, quote.currency)}.\n\nPlease don't hesitate to reach out with any questions.\n\nBest regards,\nTrevor\nVoltSafe Inc.`, quoteId: quote.id });
-                          setComposeOpen(true);
-                        }} title="Send via Gmail" data-testid={`button-send-gmail-${quote.id}`}>
-                          <Mail className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-400 hover:text-blue-300" onClick={() => {
+                            setComposeDefaults({ to: (quote as any).customerEmail || "", subject: `VoltSafe Quote ${quote.quoteNumber}`, body: `Hi,\n\nPlease find attached your VoltSafe quote ${quote.quoteNumber} for ${fmtMoney(quote.total || 0, quote.currency)}.\n\nPlease don't hesitate to reach out with any questions.\n\nBest regards,\nTrevor\nVoltSafe Inc.`, quoteId: quote.id });
+                            setComposeOpen(true);
+                          }} title="Send via Gmail" data-testid={`button-send-gmail-${quote.id}`}>
+                            <Mail className="h-3.5 w-3.5" />
+                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" data-testid={`button-actions-${quote.id}`}>
+                                <MoreHorizontal className="h-3.5 w-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-48">
+                              {quote.status === "draft" && (
+                                <DropdownMenuItem onClick={() => setTransitionDialog({ quoteId: quote.id, toStatus: "sent", quoteNumber: quote.quoteNumber })} data-testid={`action-mark-sent-${quote.id}`}>
+                                  <Send className="h-3.5 w-3.5 mr-2 text-blue-400" /> Mark Sent
+                                </DropdownMenuItem>
+                              )}
+                              {["sent","follow_up_due"].includes(quote.status) && (
+                                <>
+                                  <DropdownMenuItem onClick={() => setTransitionDialog({ quoteId: quote.id, toStatus: "accepted", quoteNumber: quote.quoteNumber })} data-testid={`action-mark-accepted-${quote.id}`}>
+                                    <CheckCircle2 className="h-3.5 w-3.5 mr-2 text-green-400" /> Mark Accepted
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => setTransitionDialog({ quoteId: quote.id, toStatus: "declined", quoteNumber: quote.quoteNumber })} data-testid={`action-mark-declined-${quote.id}`}>
+                                    <XCircle className="h-3.5 w-3.5 mr-2 text-red-400" /> Mark Declined
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => setTransitionDialog({ quoteId: quote.id, toStatus: "expired", quoteNumber: quote.quoteNumber })} data-testid={`action-mark-expired-${quote.id}`}>
+                                    <Clock className="h-3.5 w-3.5 mr-2 text-yellow-400" /> Mark Expired
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                              <DropdownMenuItem onClick={() => duplicateMutation.mutate(quote.id)} data-testid={`action-duplicate-${quote.id}`}>
+                                <Copy className="h-3.5 w-3.5 mr-2" /> Duplicate
+                              </DropdownMenuItem>
+                              {(quote as any).xlsxAssetId && (
+                                <DropdownMenuItem onClick={() => window.open(`/api/quotes/${quote.id}/download/xlsx`, "_blank")} data-testid={`action-download-xlsx-${quote.id}`}>
+                                  <Download className="h-3.5 w-3.5 mr-2" /> Download XLSX
+                                </DropdownMenuItem>
+                              )}
+                              {!["archived"].includes(quote.status) && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem className="text-muted-foreground" onClick={() => setTransitionDialog({ quoteId: quote.id, toStatus: "archived", quoteNumber: quote.quoteNumber })} data-testid={`action-archive-${quote.id}`}>
+                                    <Archive className="h-3.5 w-3.5 mr-2" /> Archive
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {allQuotes.length === 0 && (
-                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No quotes found</td></tr>
+                  <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No quotes found</td></tr>
                 )}
               </tbody>
             </table>
@@ -362,6 +557,43 @@ export default function QuotesPage({ canEdit = true }: { canEdit?: boolean }) {
           defaults={composeDefaults}
           onClose={() => setComposeOpen(false)}
         />
+      )}
+
+      {/* Status Transition Confirmation */}
+      {transitionDialog && (
+        <AlertDialog open onOpenChange={() => setTransitionDialog(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {transitionDialog.toStatus === "accepted" ? "Mark Quote Accepted" :
+                 transitionDialog.toStatus === "declined" ? "Mark Quote Declined" :
+                 transitionDialog.toStatus === "expired"  ? "Mark Quote Expired" :
+                 transitionDialog.toStatus === "sent"     ? "Mark Quote Sent" :
+                 transitionDialog.toStatus === "archived" ? "Archive Quote" :
+                 `Set status to ${transitionDialog.toStatus}`}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {transitionDialog.toStatus === "accepted"
+                  ? `Mark ${transitionDialog.quoteNumber} as accepted? This will log the event and optionally create an onboarding task.`
+                  : transitionDialog.toStatus === "declined"
+                  ? `Mark ${transitionDialog.quoteNumber} as declined? This will record the outcome in the audit trail.`
+                  : transitionDialog.toStatus === "sent"
+                  ? `Mark ${transitionDialog.quoteNumber} as sent? A follow-up task will be created automatically.`
+                  : `Update ${transitionDialog.quoteNumber} to "${transitionDialog.toStatus}"?`}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => transitionMutation.mutate({ quoteId: transitionDialog.quoteId, toStatus: transitionDialog.toStatus })}
+                disabled={transitionMutation.isPending}
+                data-testid="button-confirm-transition"
+              >
+                {transitionMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
     </div>
   );
@@ -451,12 +683,48 @@ function QuoteDetailDialog({ quoteId, accountMap, onClose, onSendViaGmail }: {
     },
   });
 
+  const [transitionTo, setTransitionTo] = useState<string | null>(null);
+  const { toast } = useToast();
+
   const updateMutation = useMutation({
     mutationFn: async (d: Record<string, unknown>) => {
       const res = await apiRequest("PUT", `/api/quotes/${quoteId}`, d);
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/quotes"] }),
+  });
+
+  const transitionMutation = useMutation({
+    mutationFn: async (toStatus: string) => {
+      const res = await apiRequest("PATCH", `/api/quotes/${quoteId}/transition`, { toStatus });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes", quoteId] });
+      setTransitionTo(null);
+      toast({ title: "Status updated" });
+    },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const duplicateMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/quotes/${quoteId}/duplicate`, {});
+      return res.json();
+    },
+    onSuccess: (newQ) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      toast({ title: "Duplicated", description: `${newQ?.quote_number ?? "New quote"} created as draft` });
+    },
+  });
+
+  const { data: history } = useQuery<any[]>({
+    queryKey: ["/api/quotes", quoteId, "status-history"],
+    queryFn: async () => {
+      const res = await fetch(`/api/quotes/${quoteId}/status-history`);
+      return res.json();
+    },
   });
 
   if (isLoading || !data) return (
@@ -506,18 +774,30 @@ function QuoteDetailDialog({ quoteId, accountMap, onClose, onSendViaGmail }: {
             {q.validUntil && <div><Label className="text-xs text-muted-foreground">Valid Until</Label><p className="text-sm">{new Date(q.validUntil).toLocaleDateString()}</p></div>}
             {q.entitlementNumber && <div><Label className="text-xs text-muted-foreground">Entitlement #</Label><p className="text-sm font-mono">{q.entitlementNumber}</p></div>}
             {q.slipsCount && <div><Label className="text-xs text-muted-foreground">Slip Count</Label><p className="text-sm">{q.slipsCount}</p></div>}
-            <div>
+            <div className="col-span-2 sm:col-span-1">
               <Label className="text-xs text-muted-foreground">Status</Label>
-              <Select value={q.status} onValueChange={(v) => updateMutation.mutate({ status: v })}>
-                <SelectTrigger className="mt-1 h-8" data-testid="select-quote-status"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="draft">Draft</SelectItem>
-                  <SelectItem value="sent">Sent</SelectItem>
-                  <SelectItem value="accepted">Accepted</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
-                  <SelectItem value="expired">Expired</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2 mt-1">
+                <Badge variant="outline" className={statusColors[q.status] || ""}>{STATUS_LABELS[q.status] ?? q.status}</Badge>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-7 px-2 text-xs" data-testid="select-quote-status">
+                      Change <ChevronDown className="h-3 w-3 ml-1" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-44">
+                    {q.status === "draft" && <DropdownMenuItem onClick={() => transitionMutation.mutate("sent")}><Send className="h-3.5 w-3.5 mr-2 text-blue-400" />Mark Sent</DropdownMenuItem>}
+                    {["sent","follow_up_due"].includes(q.status) && <>
+                      <DropdownMenuItem onClick={() => transitionMutation.mutate("accepted")}><CheckCircle2 className="h-3.5 w-3.5 mr-2 text-green-400" />Mark Accepted</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => transitionMutation.mutate("declined")}><XCircle className="h-3.5 w-3.5 mr-2 text-red-400" />Mark Declined</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => transitionMutation.mutate("expired")}><Clock className="h-3.5 w-3.5 mr-2 text-yellow-400" />Mark Expired</DropdownMenuItem>
+                    </>}
+                    {!["archived"].includes(q.status) && <><DropdownMenuSeparator /><DropdownMenuItem className="text-muted-foreground" onClick={() => transitionMutation.mutate("archived")}><Archive className="h-3.5 w-3.5 mr-2" />Archive</DropdownMenuItem></>}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => duplicateMutation.mutate()} data-testid="button-duplicate-quote">
+                  <Copy className="h-3 w-3 mr-1" /> Duplicate
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -583,6 +863,27 @@ function QuoteDetailDialog({ quoteId, accountMap, onClose, onSendViaGmail }: {
           {q.notes && <div><Label className="text-xs text-muted-foreground">Notes</Label><p className="text-sm whitespace-pre-wrap mt-1">{q.notes}</p></div>}
           {q.assumptions && <div><Label className="text-xs text-muted-foreground">Assumptions</Label><p className="text-sm whitespace-pre-wrap mt-1">{q.assumptions}</p></div>}
           {q.exclusions && <div><Label className="text-xs text-muted-foreground">Exclusions</Label><p className="text-sm whitespace-pre-wrap mt-1">{q.exclusions}</p></div>}
+
+          {/* Status History */}
+          {history && history.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <History className="h-4 w-4 text-muted-foreground" />
+                <Label className="text-xs text-muted-foreground uppercase tracking-wide">Status History</Label>
+              </div>
+              <div className="space-y-1.5">
+                {history.slice(0, 5).map((entry: any, i: number) => (
+                  <div key={i} className="flex items-start gap-2 text-xs">
+                    <span className="text-muted-foreground shrink-0 mt-0.5">{new Date(entry.created_at).toLocaleDateString()}</span>
+                    <span className="text-muted-foreground">→</span>
+                    <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${statusColors[entry.to_status] || ""}`}>{STATUS_LABELS[entry.to_status] ?? entry.to_status}</Badge>
+                    {entry.from_status && <span className="text-muted-foreground">from {STATUS_LABELS[entry.from_status] ?? entry.from_status}</span>}
+                    {entry.user_name && <span className="text-muted-foreground ml-auto shrink-0">{entry.user_name}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {(q.htmlAssetId || q.xlsxAssetId) && (
             <div className="flex gap-3 pt-1 border-t border-border/50">

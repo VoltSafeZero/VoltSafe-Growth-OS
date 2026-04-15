@@ -2667,6 +2667,261 @@ export async function registerRoutes(
     res.json({ message: "Deleted" });
   });
 
+  // ─── Quote Status Transitions ─────────────────────────────────────────────────
+  // Valid transitions map
+  const QUOTE_TRANSITIONS: Record<string, string[]> = {
+    draft:          ["sent", "archived"],
+    sent:           ["accepted", "declined", "expired", "follow_up_due", "draft"],
+    follow_up_due:  ["accepted", "declined", "expired", "sent"],
+    accepted:       ["archived"],
+    declined:       ["draft", "archived"],
+    expired:        ["draft", "archived"],
+    archived:       ["draft"],
+  };
+
+  app.patch("/api/quotes/:id/transition", requirePermission("quoting", "edit"), async (req, res) => {
+    try {
+      const quoteId = Number(req.params.id);
+      const userId = getSessionUserId(req)!;
+      const { toStatus, note, createFollowUpTask, followUpDays, createHandoffTask } = req.body as {
+        toStatus: string;
+        note?: string;
+        createFollowUpTask?: boolean;
+        followUpDays?: number;
+        createHandoffTask?: boolean;
+      };
+
+      const [existing] = (await db.execute(sql.raw(`SELECT * FROM quotes WHERE id = ${quoteId} LIMIT 1`))).rows as any[];
+      if (!existing) return res.status(404).json({ message: "Quote not found" });
+
+      const fromStatus = existing.status;
+      const allowed = QUOTE_TRANSITIONS[fromStatus] ?? [];
+      if (!allowed.includes(toStatus)) {
+        return res.status(400).json({ message: `Cannot transition from '${fromStatus}' to '${toStatus}'` });
+      }
+
+      // Build update fields
+      const now = new Date().toISOString();
+      const updates: string[] = [`status = '${toStatus}'`, `updated_at = NOW()`];
+      if (toStatus === "sent" && !existing.sent_at)   updates.push(`sent_at = NOW()`);
+      if (toStatus === "accepted" && !existing.accepted_at) updates.push(`accepted_at = NOW()`);
+      if (toStatus === "declined" && !existing.declined_at) updates.push(`declined_at = NOW()`);
+      if (toStatus === "archived" && !existing.archived_at) updates.push(`archived_at = NOW()`);
+
+      await db.execute(sql.raw(`UPDATE quotes SET ${updates.join(", ")} WHERE id = ${quoteId}`));
+
+      // Audit trail
+      const safeNote = note ? `'${note.replace(/'/g, "''")}'` : "NULL";
+      await db.execute(sql.raw(`
+        INSERT INTO quote_status_history (quote_id, from_status, to_status, user_id, note, created_at)
+        VALUES (${quoteId}, '${fromStatus}', '${toStatus}', ${userId}, ${safeNote}, NOW())
+      `));
+
+      // Activity for timeline
+      const activitySummary = `Quote status changed from ${fromStatus} to ${toStatus}`;
+      await db.execute(sql.raw(`
+        INSERT INTO activities (linked_object_type, linked_object_id, type, summary, created_at)
+        VALUES ('quote', ${quoteId}, 'quote_status_change', '${activitySummary}', NOW())
+      `));
+      if (existing.account_id) {
+        await db.execute(sql.raw(`
+          INSERT INTO activities (linked_object_type, linked_object_id, type, summary, created_at)
+          VALUES ('account', ${existing.account_id}, 'quote_status_change', '${activitySummary} (${existing.quote_number})', NOW())
+        `));
+      }
+      if (existing.opportunity_id) {
+        await db.execute(sql.raw(`
+          INSERT INTO activities (linked_object_type, linked_object_id, type, summary, created_at)
+          VALUES ('opportunity', ${existing.opportunity_id}, 'quote_status_change', '${activitySummary} (${existing.quote_number})', NOW())
+        `));
+      }
+
+      // Auto: quote sent → create follow-up task
+      if (toStatus === "sent" && createFollowUpTask !== false) {
+        const daysOut = followUpDays ?? 3;
+        const dueDate = new Date(Date.now() + daysOut * 86400000).toISOString();
+        const taskTitle = `Follow up on Quote ${existing.quote_number}`;
+        await db.execute(sql.raw(`
+          INSERT INTO tasks (title, status, priority, owner_user_id, linked_object_type, linked_object_id, due_date, created_at, updated_at)
+          VALUES ('${taskTitle}', 'pending', 'medium', ${userId}, 'quote', ${quoteId}, '${dueDate}', NOW(), NOW())
+        `));
+        if (existing.account_id) {
+          await db.execute(sql.raw(`
+            INSERT INTO tasks (title, status, priority, owner_user_id, linked_object_type, linked_object_id, due_date, created_at, updated_at)
+            VALUES ('${taskTitle}', 'pending', 'medium', ${userId}, 'account', ${existing.account_id}, '${dueDate}', NOW(), NOW())
+          `));
+        }
+      }
+
+      // Auto: quote accepted → optionally create onboarding/handoff task
+      if (toStatus === "accepted" && createHandoffTask) {
+        const taskTitle = `Onboarding handoff for ${existing.customer_name ?? existing.quote_number}`;
+        const dueDate = new Date(Date.now() + 7 * 86400000).toISOString();
+        await db.execute(sql.raw(`
+          INSERT INTO tasks (title, status, priority, owner_user_id, linked_object_type, linked_object_id, due_date, created_at, updated_at)
+          VALUES ('${taskTitle.replace(/'/g, "''")}', 'pending', 'high', ${userId}, 'quote', ${quoteId}, '${dueDate}', NOW(), NOW())
+        `));
+        if (existing.account_id) {
+          await db.execute(sql.raw(`
+            INSERT INTO tasks (title, status, priority, owner_user_id, linked_object_type, linked_object_id, due_date, created_at, updated_at)
+            VALUES ('${taskTitle.replace(/'/g, "''")}', 'pending', 'high', ${userId}, 'account', ${existing.account_id}, '${dueDate}', NOW(), NOW())
+          `));
+        }
+        // Move linked opportunity to closed_won if applicable
+        if (existing.opportunity_id) {
+          await db.execute(sql.raw(`UPDATE opportunities SET stage = 'closed_won', updated_at = NOW() WHERE id = ${existing.opportunity_id}`));
+        }
+      }
+
+      const updated = (await db.execute(sql.raw(`SELECT * FROM quotes WHERE id = ${quoteId} LIMIT 1`))).rows[0];
+      res.json({ ok: true, quote: updated });
+    } catch (err: any) {
+      console.error("[quote/transition]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Quote Status History ─────────────────────────────────────────────────────
+  app.get("/api/quotes/:id/status-history", requirePermission("quoting", "view"), async (req, res) => {
+    try {
+      const quoteId = Number(req.params.id);
+      const { rows } = await db.execute(sql.raw(`
+        SELECT qsh.*, u.name AS user_name, u.email AS user_email
+        FROM quote_status_history qsh
+        LEFT JOIN users u ON u.id = qsh.user_id
+        WHERE qsh.quote_id = ${quoteId}
+        ORDER BY qsh.created_at DESC
+      `));
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Quote Duplicate ──────────────────────────────────────────────────────────
+  app.post("/api/quotes/:id/duplicate", requirePermission("quoting", "edit"), async (req, res) => {
+    try {
+      const quoteId = Number(req.params.id);
+      const userId = getSessionUserId(req)!;
+
+      const [orig] = (await db.execute(sql.raw(`SELECT * FROM quotes WHERE id = ${quoteId} LIMIT 1`))).rows as any[];
+      if (!orig) return res.status(404).json({ message: "Quote not found" });
+
+      const newNumber = await storage.getNextQuoteNumber();
+      const { rows: [newQuote] } = await db.execute(sql.raw(`
+        INSERT INTO quotes (
+          quote_number, version, status, quote_type, account_id, opportunity_id, contact_id,
+          currency, country, created_by, owner_user_id, valid_until,
+          subtotal, tax, total, tax_rate, tax_amount, hardware_subtotal, software_subtotal,
+          deposit_due, slips_count, payment_term_deposit, payment_term_production, payment_term_install,
+          assumptions, exclusions, notes,
+          customer_name, customer_email, customer_phone, marina_address, site_address,
+          billing_period_start, billing_period_end, entitlement_number, licensed_to,
+          created_at, updated_at
+        )
+        SELECT
+          '${newNumber}', 1, 'draft', quote_type, account_id, opportunity_id, contact_id,
+          currency, country, ${userId}, ${userId}, valid_until,
+          subtotal, tax, total, tax_rate, tax_amount, hardware_subtotal, software_subtotal,
+          deposit_due, slips_count, payment_term_deposit, payment_term_production, payment_term_install,
+          assumptions, exclusions, notes,
+          customer_name, customer_email, customer_phone, marina_address, site_address,
+          billing_period_start, billing_period_end, entitlement_number, licensed_to,
+          NOW(), NOW()
+        FROM quotes WHERE id = ${quoteId}
+        RETURNING *
+      `));
+
+      // Duplicate line items
+      await db.execute(sql.raw(`
+        INSERT INTO quote_line_items (quote_id, category, name, description, qty, unit_price, list_price, discount_percent, unit_type, line_total, is_recurring, sort_order)
+        SELECT ${newQuote.id}, category, name, description, qty, unit_price, list_price, discount_percent, unit_type, line_total, is_recurring, sort_order
+        FROM quote_line_items WHERE quote_id = ${quoteId}
+      `));
+
+      // Duplicate services estimates
+      await db.execute(sql.raw(`
+        INSERT INTO services_estimates (quote_id, role, hours_estimate, hourly_rate, subtotal, sort_order)
+        SELECT ${newQuote.id}, role, hours_estimate, hourly_rate, subtotal, sort_order
+        FROM services_estimates WHERE quote_id = ${quoteId}
+      `));
+
+      res.status(201).json(newQuote);
+    } catch (err: any) {
+      console.error("[quote/duplicate]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Opportunity Quote Summary ────────────────────────────────────────────────
+  app.get("/api/opportunities/:id/quote-summary", requirePermission("quoting", "view"), async (req, res) => {
+    try {
+      const oppId = Number(req.params.id);
+      const { rows: countRows } = await db.execute(sql.raw(`
+        SELECT COUNT(*) AS cnt, SUM(total) AS total_value
+        FROM quotes WHERE opportunity_id = ${oppId}
+      `));
+      const quoteCount = Number(countRows[0]?.cnt ?? 0);
+      const totalValue = Number(countRows[0]?.total_value ?? 0);
+
+      let latestQuote = null;
+      let isStale = false;
+      if (quoteCount > 0) {
+        const { rows: latestRows } = await db.execute(sql.raw(`
+          SELECT id, quote_number, status, total, valid_until, sent_at, accepted_at, declined_at, customer_name, title
+          FROM quotes WHERE opportunity_id = ${oppId}
+          ORDER BY created_at DESC LIMIT 1
+        `));
+        latestQuote = latestRows[0] ?? null;
+        if (latestQuote && latestQuote.status === "sent" && latestQuote.sent_at) {
+          const sentMs = new Date(latestQuote.sent_at as string).getTime();
+          isStale = (Date.now() - sentMs) > 14 * 24 * 60 * 60 * 1000;
+        }
+      }
+
+      res.json({ quoteCount, totalValue, latestQuote, isStale });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Bulk Actions — Quotes ────────────────────────────────────────────────────
+  app.post("/api/quotes/bulk/status", requirePermission("quoting", "edit"), async (req, res) => {
+    try {
+      const { quoteIds, status } = req.body as { quoteIds: number[]; status: string };
+      if (!Array.isArray(quoteIds) || !quoteIds.length) return res.status(400).json({ message: "quoteIds required" });
+      const allowedStatuses = ["draft", "sent", "accepted", "declined", "expired", "archived", "follow_up_due"];
+      if (!allowedStatuses.includes(status)) return res.status(400).json({ message: "Invalid status" });
+      const userId = getSessionUserId(req)!;
+      const ids = quoteIds.map(Number).filter(Boolean);
+
+      for (const id of ids) {
+        const extraUpdates = status === "sent" ? ", sent_at = COALESCE(sent_at, NOW())"
+          : status === "accepted" ? ", accepted_at = COALESCE(accepted_at, NOW())"
+          : status === "declined" ? ", declined_at = COALESCE(declined_at, NOW())"
+          : status === "archived" ? ", archived_at = COALESCE(archived_at, NOW())"
+          : "";
+        await db.execute(sql.raw(`UPDATE quotes SET status = '${status}', updated_at = NOW()${extraUpdates} WHERE id = ${id}`));
+        await db.execute(sql.raw(`
+          INSERT INTO quote_status_history (quote_id, to_status, user_id, note, created_at)
+          VALUES (${id}, '${status}', ${userId}, 'bulk update', NOW())
+        `));
+      }
+      res.json({ ok: true, updated: ids.length });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/quotes/bulk/assign", requirePermission("quoting", "edit"), async (req, res) => {
+    try {
+      const { quoteIds, ownerUserId } = req.body as { quoteIds: number[]; ownerUserId: number };
+      if (!Array.isArray(quoteIds) || !quoteIds.length) return res.status(400).json({ message: "quoteIds required" });
+      if (!ownerUserId) return res.status(400).json({ message: "ownerUserId required" });
+      const ids = quoteIds.map(Number).filter(Boolean);
+      await db.execute(sql.raw(`UPDATE quotes SET owner_user_id = ${Number(ownerUserId)}, updated_at = NOW() WHERE id = ANY(ARRAY[${ids.join(",")}])`));
+      res.json({ ok: true, updated: ids.length });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
   app.get("/api/activities", async (req, res) => {
     const { objectType, objectId } = req.query;
     if (!objectType || !objectId) return res.status(400).json({ message: "objectType and objectId required" });
