@@ -1,0 +1,65 @@
+Good. Accept this sprint.
+
+Next sprint goal:
+Close the remaining note-level authorization gap and identify any similar record-level edit/delete endpoints that still rely only on broad CRM access instead of ownership/admin rules.
+
+Execute the following in order, non-destructively:
+
+1. Enforce note edit authorization
+Fix PUT /api/notes/:id so users cannot edit notes they do not own unless they are allowed by an explicit admin override rule.
+
+Requirements:
+- load the existing note before update
+- compare existing note.authorId to req.session.userId
+- if the current user is not the author, reject with 403
+- allow override only for approved admin roles if that already exists in the system (for example master admin / admin / equivalent)
+- do not trust client-sent authorship fields
+- preserve existing whitelist behavior for editable fields
+- return clear error responses:
+  - 404 if note does not exist
+  - 403 if user lacks permission
+  - 400 for invalid content
+  - 200 for valid edit
+
+2. Review note delete authorization
+Check whether DELETE note routes exist and whether they have the same ownership/admin protection gap.
+
+If delete exists:
+- apply the same author-or-admin rule
+- add tests
+
+If delete does not exist:
+- confirm that explicitly in the report
+
+3. Audit similar record-level mutation endpoints
+Do a focused audit of mutation routes for:
+- notes
+- comments
+- activities
+- tasks
+- attachments/doc links if editable/removable
+- any profile-level inline edit endpoints
+
+Goal:
+find any route that currently allows “any CRM user can modify any record” when it should really be owner-or-admin or explicitly broader.
+
+Do not do a giant rewrite.
+Just identify and patch the obvious integrity/security gaps in this family of endpoints.
+
+4. Add regression tests
+Add tests for:
+- note author can edit own note
+- different authenticated CRM user cannot edit someone else’s note
+- admin override works if supported
+- nonexistent note returns 404
+- blank content still returns 400
+- delete authorization behaves correctly if delete route exists
+
+5. Deliver a focused authorization report
+Provide:
+- exact files changed
+- routes audited
+- which routes were patched
+- which routes remain intentionally broad access
+- whether note edit/delete is now author-or-admin protected
+- next highest-risk mutation endpoint after this
