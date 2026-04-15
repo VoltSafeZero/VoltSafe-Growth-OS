@@ -715,6 +715,7 @@ export const calendarEvents = pgTable("calendar_events", {
   visibility: text("visibility").default("default"),
   // External provider sync fields
   externalId: text("external_id"),
+  externalEtag: text("external_etag"),
   externalProvider: text("external_provider"),
   externalCalendarId: text("external_calendar_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -747,6 +748,8 @@ export const calendarConnections = pgTable("calendar_connections", {
   syncEnabled: boolean("sync_enabled").default(true).notNull(),
   syncDirection: text("sync_direction").default("both"), // 'both' | 'pull' | 'push'
   syncFrequencyMinutes: integer("sync_frequency_minutes").default(15),
+  conflictResolution: text("conflict_resolution").default("latest_wins"), // 'provider_wins' | 'cortex_wins' | 'latest_wins'
+  calendarsDiscovered: jsonb("calendars_discovered"), // [{ id, name, url }]
   lastSyncedAt: timestamp("last_synced_at"),
   syncToken: text("sync_token"),
   syncError: text("sync_error"),

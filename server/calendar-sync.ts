@@ -520,7 +520,103 @@ export async function testCalDavConnection(
   }
 }
 
-// Minimal iCal VEVENT parser
+// ─── iCal builder (for push to CalDAV) ───────────────────────────────────────
+
+function escapeIcal(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+}
+
+function foldLine(line: string): string {
+  if (line.length <= 75) return line;
+  const parts: string[] = [line.slice(0, 75)];
+  let pos = 75;
+  while (pos < line.length) { parts.push(" " + line.slice(pos, pos + 74)); pos += 74; }
+  return parts.join("\r\n");
+}
+
+function buildIcal(uid: string, ev: {
+  title: string; startTime: Date; endTime: Date;
+  description?: string | null; location?: string | null; allDay?: boolean;
+}): string {
+  const fmtZ = (d: Date) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+  const fmtD = (d: Date) => d.toISOString().split("T")[0].replace(/-/g, "");
+  const now = new Date();
+  const lines = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//VoltSafe Cortex//EN", "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    `UID:${uid}`,
+    `DTSTAMP:${fmtZ(now)}`,
+    `LAST-MODIFIED:${fmtZ(now)}`,
+  ];
+  if (ev.allDay) {
+    lines.push(`DTSTART;VALUE=DATE:${fmtD(ev.startTime)}`);
+    const endExcl = new Date(ev.endTime); endExcl.setDate(endExcl.getDate() + 1);
+    lines.push(`DTEND;VALUE=DATE:${fmtD(endExcl)}`);
+  } else {
+    lines.push(`DTSTART:${fmtZ(ev.startTime)}`);
+    lines.push(`DTEND:${fmtZ(ev.endTime)}`);
+  }
+  lines.push(foldLine(`SUMMARY:${escapeIcal(ev.title)}`));
+  if (ev.description) lines.push(foldLine(`DESCRIPTION:${escapeIcal(ev.description)}`));
+  if (ev.location) lines.push(foldLine(`LOCATION:${escapeIcal(ev.location)}`));
+  lines.push("END:VEVENT", "END:VCALENDAR");
+  return lines.join("\r\n");
+}
+
+async function caldavPutEvent(
+  calendarUrl: string, username: string, password: string,
+  uid: string, ev: { title: string; startTime: Date; endTime: Date; description?: string | null; location?: string | null; allDay?: boolean },
+  existingEtag?: string | null
+): Promise<{ ok: boolean; etag?: string; error?: string }> {
+  const base = calendarUrl.endsWith("/") ? calendarUrl : calendarUrl + "/";
+  const eventUrl = `${base}${uid}.ics`;
+  const body = buildIcal(uid, ev);
+  const headers: Record<string, string> = {
+    Authorization: makeBasicAuth(username, password),
+    "Content-Type": "text/calendar; charset=utf-8",
+  };
+  if (existingEtag) {
+    headers["If-Match"] = existingEtag;
+  } else {
+    headers["If-None-Match"] = "*";
+  }
+  try {
+    let resp = await fetch(eventUrl, { method: "PUT", headers, body });
+    // 412 = precondition failed (event already exists), retry without If-None-Match
+    if (resp.status === 412 && !existingEtag) {
+      resp = await fetch(eventUrl, {
+        method: "PUT",
+        headers: { Authorization: makeBasicAuth(username, password), "Content-Type": "text/calendar; charset=utf-8" },
+        body,
+      });
+    }
+    if (resp.status === 200 || resp.status === 201 || resp.status === 204) {
+      return { ok: true, etag: resp.headers.get("ETag") || undefined };
+    }
+    return { ok: false, error: `HTTP ${resp.status}` };
+  } catch (e: any) {
+    return { ok: false, error: e.message };
+  }
+}
+
+async function caldavDeleteEvent(
+  calendarUrl: string, username: string, password: string,
+  uid: string, etag?: string | null
+): Promise<{ ok: boolean }> {
+  const base = calendarUrl.endsWith("/") ? calendarUrl : calendarUrl + "/";
+  const eventUrl = `${base}${uid}.ics`;
+  const headers: Record<string, string> = { Authorization: makeBasicAuth(username, password) };
+  if (etag) headers["If-Match"] = etag;
+  try {
+    const resp = await fetch(eventUrl, { method: "DELETE", headers });
+    return { ok: resp.status === 200 || resp.status === 204 || resp.status === 404 };
+  } catch {
+    return { ok: false };
+  }
+}
+
+// ─── Minimal iCal VEVENT parser ───────────────────────────────────────────────
+
 function parseIcal(ical: string) {
   const events: {
     uid: string;
@@ -533,6 +629,7 @@ function parseIcal(ical: string) {
     cancelled: boolean;
     attendees: string[];
     url?: string;
+    lastModified?: Date;
   }[] = [];
 
   const vevents = ical.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/g) || [];
@@ -571,6 +668,14 @@ function parseIcal(ical: string) {
       .map((m) => m[1].match(/mailto:([^\s;:]+)/i)?.[1] || "")
       .filter(Boolean);
 
+    const lastModifiedRaw = get("LAST-MODIFIED") || get("DTSTAMP");
+    const lastModified = lastModifiedRaw
+      ? (() => {
+          const d = new Date(toISO(lastModifiedRaw));
+          return isNaN(d.getTime()) ? undefined : d;
+        })()
+      : undefined;
+
     events.push({
       uid,
       summary,
@@ -582,6 +687,7 @@ function parseIcal(ical: string) {
       cancelled: get("STATUS").toUpperCase() === "CANCELLED",
       attendees,
       url: get("URL") || undefined,
+      lastModified,
     });
   }
 
@@ -591,7 +697,7 @@ function parseIcal(ical: string) {
 export async function syncCalDav(
   connectionId: number,
   userId: number
-): Promise<{ imported: number; updated: number; errors: string[] }> {
+): Promise<{ imported: number; updated: number; pushed: number; deleted: number; errors: string[] }> {
   const [conn] = await db
     .select()
     .from(calendarConnections)
@@ -605,6 +711,9 @@ export async function syncCalDav(
   const errors: string[] = [];
   let imported = 0;
   let updated = 0;
+  let pushed = 0;
+  let deleted = 0;
+  const conflictResolution = conn.conflictResolution || "latest_wins";
 
   try {
     const calendarUrl = conn.defaultCalendarId || conn.caldavUrl;
@@ -613,10 +722,9 @@ export async function syncCalDav(
     timeMin.setMonth(timeMin.getMonth() - 2);
     const timeMax = new Date();
     timeMax.setMonth(timeMax.getMonth() + 6);
+    const fmtZ = (d: Date) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
 
-    const fmt = (d: Date) =>
-      d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
-
+    // ── PULL: import CalDAV events into Cortex ────────────────────────────
     const reportBody = `<?xml version="1.0" encoding="UTF-8"?>
 <C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
   <D:prop>
@@ -626,107 +734,189 @@ export async function syncCalDav(
   <C:filter>
     <C:comp-filter name="VCALENDAR">
       <C:comp-filter name="VEVENT">
-        <C:time-range start="${fmt(timeMin)}" end="${fmt(timeMax)}"/>
+        <C:time-range start="${fmtZ(timeMin)}" end="${fmtZ(timeMax)}"/>
       </C:comp-filter>
     </C:comp-filter>
   </C:filter>
 </C:calendar-query>`;
 
-    const resp = await caldavRequest(
-      "REPORT",
-      calendarUrl,
-      conn.caldavUsername,
-      conn.caldavPassword,
-      reportBody,
-      { Depth: "1" }
-    );
+    const resp = await caldavRequest("REPORT", calendarUrl, conn.caldavUsername, conn.caldavPassword, reportBody, { Depth: "1" });
 
-    const calDataMatches =
-      resp.body.match(/<[^:]*:?calendar-data[^>]*>([\s\S]*?)<\/[^:]*:?calendar-data>/gi) || [];
+    // Parse response into per-response blocks to correlate ETags with calendar-data
+    const responseBlocks = resp.body.match(/<[^:]*:?response[\s\S]*?<\/[^:]*:?response>/gi) || [];
+    const remoteUidSet = new Set<string>();
 
-    for (const block of calDataMatches) {
-      const icalData = block
-        .replace(/<[^:]*:?calendar-data[^>]*>/i, "")
-        .replace(/<\/[^:]*:?calendar-data>/i, "")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&amp;/g, "&")
-        .trim();
+    if (conn.syncDirection !== "push") {
+      for (const block of responseBlocks) {
+        const etagMatch = block.match(/<[^:]*:?getetag[^>]*>\s*"?([^"<\s]+)"?\s*<\/[^:]*:?getetag>/i);
+        const calDataMatch = block.match(/<[^:]*:?calendar-data[^>]*>([\s\S]*?)<\/[^:]*:?calendar-data>/i);
+        if (!calDataMatch) continue;
 
-      const events = parseIcal(icalData);
-      for (const ev of events) {
-        try {
-          const startTime = new Date(ev.dtstart);
-          const endTime = new Date(ev.dtend);
-          if (isNaN(startTime.getTime())) continue;
+        const remoteEtag = etagMatch?.[1]?.trim();
+        const icalData = calDataMatch[1]
+          .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").trim();
 
-          const [existing] = await db
-            .select({ id: calendarEvents.id })
-            .from(calendarEvents)
-            .where(
-              and(
-                eq(calendarEvents.externalId, ev.uid),
-                eq(calendarEvents.externalProvider, conn.provider)
-              )
-            )
-            .limit(1);
+        const events = parseIcal(icalData);
+        for (const ev of events) {
+          remoteUidSet.add(ev.uid);
+          try {
+            const startTime = new Date(ev.dtstart);
+            const endTime = new Date(ev.dtend);
+            if (isNaN(startTime.getTime())) continue;
 
-          if (existing) {
-            await db
-              .update(calendarEvents)
-              .set({
+            const [existing] = await db
+              .select({ id: calendarEvents.id, updatedAt: calendarEvents.updatedAt, externalEtag: calendarEvents.externalEtag })
+              .from(calendarEvents)
+              .where(and(eq(calendarEvents.externalId, ev.uid), eq(calendarEvents.externalProvider, conn.provider)))
+              .limit(1);
+
+            if (existing) {
+              // Conflict resolution
+              let shouldUpdate = true;
+              if (conflictResolution === "cortex_wins") {
+                // Keep Cortex version — skip provider update
+                shouldUpdate = false;
+              } else if (conflictResolution === "latest_wins" && ev.lastModified && existing.updatedAt) {
+                // Provider wins only if provider's version is newer
+                shouldUpdate = ev.lastModified >= existing.updatedAt;
+              }
+
+              if (shouldUpdate) {
+                await db.update(calendarEvents).set({
+                  title: ev.summary,
+                  description: ev.description || null,
+                  location: ev.location || null,
+                  startTime,
+                  endTime: isNaN(endTime.getTime()) ? startTime : endTime,
+                  allDay: ev.allDay,
+                  invitees: ev.attendees,
+                  meetingUrl: ev.url || null,
+                  status: ev.cancelled ? "cancelled" : "scheduled",
+                  externalEtag: remoteEtag || null,
+                  updatedAt: new Date(),
+                }).where(eq(calendarEvents.id, existing.id));
+                updated++;
+              }
+            } else {
+              await db.insert(calendarEvents).values({
+                userId,
                 title: ev.summary,
                 description: ev.description || null,
                 location: ev.location || null,
+                eventType: "meeting",
                 startTime,
                 endTime: isNaN(endTime.getTime()) ? startTime : endTime,
                 allDay: ev.allDay,
                 invitees: ev.attendees,
                 meetingUrl: ev.url || null,
                 status: ev.cancelled ? "cancelled" : "scheduled",
-                updatedAt: new Date(),
-              })
-              .where(eq(calendarEvents.id, existing.id));
-            updated++;
-          } else {
-            await db.insert(calendarEvents).values({
-              userId,
-              title: ev.summary,
-              description: ev.description || null,
-              location: ev.location || null,
-              eventType: "meeting",
-              startTime,
-              endTime: isNaN(endTime.getTime()) ? startTime : endTime,
-              allDay: ev.allDay,
-              invitees: ev.attendees,
-              meetingUrl: ev.url || null,
-              status: ev.cancelled ? "cancelled" : "scheduled",
-              externalId: ev.uid,
-              externalProvider: conn.provider,
-              externalCalendarId: calendarUrl,
-            });
-            imported++;
+                externalId: ev.uid,
+                externalEtag: remoteEtag || null,
+                externalProvider: conn.provider,
+                externalCalendarId: calendarUrl,
+              });
+              imported++;
+            }
+          } catch (e: any) {
+            errors.push(`Pull "${ev.summary}": ${e.message}`);
           }
-        } catch (e: any) {
-          errors.push(`"${ev.summary}": ${e.message}`);
+        }
+      }
+
+      // ── DELETION DETECTION: mark cancelled if gone from server ──────────
+      const dbEvents = await db
+        .select({ id: calendarEvents.id, externalId: calendarEvents.externalId, externalEtag: calendarEvents.externalEtag })
+        .from(calendarEvents)
+        .where(and(
+          eq(calendarEvents.userId, userId),
+          eq(calendarEvents.externalProvider, conn.provider),
+        ));
+
+      for (const dbEv of dbEvents) {
+        if (dbEv.externalId && !remoteUidSet.has(dbEv.externalId) && !dbEv.externalId.startsWith("cortex-")) {
+          await db.update(calendarEvents)
+            .set({ status: "cancelled", updatedAt: new Date() })
+            .where(eq(calendarEvents.id, dbEv.id));
+          deleted++;
         }
       }
     }
 
-    await db
-      .update(calendarConnections)
+    // ── PUSH: send Cortex-native events to CalDAV server ─────────────────
+    if (conn.syncDirection === "both" || conn.syncDirection === "push") {
+      // Push truly native events (no external provider) that haven't been pushed yet
+      const nativeEvents = await db
+        .select()
+        .from(calendarEvents)
+        .where(and(
+          eq(calendarEvents.userId, userId),
+          isNull(calendarEvents.externalProvider),
+        ));
+
+      for (const ev of nativeEvents) {
+        if (!ev.startTime) continue;
+        const uid = `cortex-${ev.id}@voltsafe.com`;
+        const result = await caldavPutEvent(
+          calendarUrl, conn.caldavUsername, conn.caldavPassword, uid,
+          { title: ev.title, startTime: ev.startTime, endTime: ev.endTime || ev.startTime, description: ev.description, location: ev.location, allDay: ev.allDay || false },
+          null
+        );
+        if (result.ok) {
+          await db.update(calendarEvents).set({
+            externalId: uid,
+            externalEtag: result.etag || null,
+            externalProvider: conn.provider,
+            externalCalendarId: calendarUrl,
+            updatedAt: new Date(),
+          }).where(eq(calendarEvents.id, ev.id));
+          pushed++;
+        } else {
+          errors.push(`Push "${ev.title}": ${result.error}`);
+        }
+      }
+
+      // Re-push already-pushed Cortex events that were updated locally (cortex-prefixed UIDs)
+      const pushedEvents = await db
+        .select()
+        .from(calendarEvents)
+        .where(and(
+          eq(calendarEvents.userId, userId),
+          eq(calendarEvents.externalProvider, conn.provider),
+        ));
+
+      for (const ev of pushedEvents) {
+        if (!ev.externalId?.startsWith("cortex-") || !ev.startTime) continue;
+        // Re-push if Cortex version is newer than last sync
+        if (conn.lastSyncedAt && ev.updatedAt && ev.updatedAt <= conn.lastSyncedAt) continue;
+        const result = await caldavPutEvent(
+          calendarUrl, conn.caldavUsername, conn.caldavPassword, ev.externalId,
+          { title: ev.title, startTime: ev.startTime, endTime: ev.endTime || ev.startTime, description: ev.description, location: ev.location, allDay: ev.allDay || false },
+          ev.externalEtag
+        );
+        if (result.ok) {
+          await db.update(calendarEvents).set({
+            externalEtag: result.etag || ev.externalEtag,
+            updatedAt: new Date(),
+          }).where(eq(calendarEvents.id, ev.id));
+          pushed++;
+        } else {
+          errors.push(`Re-push "${ev.title}": ${result.error}`);
+        }
+      }
+    }
+
+    await db.update(calendarConnections)
       .set({ lastSyncedAt: new Date(), syncError: null, updatedAt: new Date() })
       .where(eq(calendarConnections.id, connectionId));
   } catch (err: any) {
     const friendly = friendlyCalendarError(err);
-    await db
-      .update(calendarConnections)
+    await db.update(calendarConnections)
       .set({ syncError: friendly, updatedAt: new Date() })
       .where(eq(calendarConnections.id, connectionId));
     throw new Error(friendly);
   }
 
-  return { imported, updated, errors };
+  return { imported, updated, pushed, deleted, errors };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

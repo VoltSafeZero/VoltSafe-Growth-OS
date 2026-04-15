@@ -25,7 +25,8 @@ import {
 import {
   Fingerprint, Trash2, Shield, Smartphone, Loader2,
   CalendarDays, RefreshCw, Link2, Link2Off, CheckCircle2,
-  AlertCircle, Clock, Settings2, Apple,
+  AlertCircle, Clock, Settings2, Apple, ChevronLeft, FlaskConical,
+  CalendarCheck, ShieldAlert,
 } from "lucide-react";
 import { SiGooglecalendar } from "react-icons/si";
 import { startRegistration } from "@simplewebauthn/browser";
@@ -50,9 +51,13 @@ type CalendarConnection = {
   syncFrequencyMinutes: number | null;
   lastSyncedAt: string | null;
   syncError: string | null;
+  conflictResolution: string | null;
+  calendarsDiscovered: { name: string; url: string; color?: string }[] | null;
 };
 
 // ─── CalDAV Connect Dialog ────────────────────────────────────────────────────
+
+type DiscoveredCalendar = { name: string; url: string; color?: string };
 
 function CalDavConnectDialog({
   open,
@@ -64,11 +69,28 @@ function CalDavConnectDialog({
   provider: "apple" | "caldav";
 }) {
   const { toast } = useToast();
-  const [url, setUrl] = useState(
-    provider === "apple" ? "https://caldav.icloud.com" : ""
-  );
+  const [step, setStep] = useState<"credentials" | "confirm">("credentials");
+  const [url, setUrl] = useState(provider === "apple" ? "https://caldav.icloud.com" : "");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [discovered, setDiscovered] = useState<DiscoveredCalendar[]>([]);
+  const [conflictResolution, setConflictResolution] = useState("latest_wins");
+
+  const testMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", "/api/calendar/integrations/caldav/test", { url, username, password }),
+    onSuccess: (data: any) => {
+      setDiscovered(data.calendars || []);
+      setStep("confirm");
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Connection failed",
+        description: err.message || "Could not reach the calendar server. Check your credentials.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const connectMutation = useMutation({
     mutationFn: () =>
@@ -77,6 +99,7 @@ function CalDavConnectDialog({
         username,
         password,
         provider,
+        conflictResolution,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/calendar/integrations"] });
@@ -85,120 +108,198 @@ function CalDavConnectDialog({
     },
     onError: (err: any) => {
       toast({
-        title: "Connection failed",
-        description: err.message || "Could not connect to the calendar server.",
+        title: "Save failed",
+        description: err.message || "Could not save the connection.",
         variant: "destructive",
       });
     },
   });
 
-  const handleSubmit = () => {
+  const handleTest = () => {
     if (!url || !username || !password) {
       toast({ title: "Missing fields", description: "Please fill in all fields.", variant: "destructive" });
       return;
     }
-    connectMutation.mutate();
+    testMutation.mutate();
+  };
+
+  const handleClose = () => {
+    setStep("credentials");
+    setDiscovered([]);
+    onClose();
   };
 
   const isApple = provider === "apple";
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {isApple ? (
-              <>
-                <Apple className="h-5 w-5" /> Connect Apple iCloud Calendar
-              </>
+              <><Apple className="h-5 w-5" /> Connect Apple iCloud Calendar</>
             ) : (
-              <>
-                <CalendarDays className="h-5 w-5" /> Connect CalDAV Calendar
-              </>
+              <><CalendarDays className="h-5 w-5" /> Connect CalDAV Calendar</>
             )}
           </DialogTitle>
           <DialogDescription>
-            {isApple
-              ? "Connect your iCloud calendar using an app-specific password."
-              : "Connect a CalDAV-compatible calendar server."}
+            {step === "credentials"
+              ? isApple
+                ? "Connect your iCloud calendar using an app-specific password."
+                : "Connect a CalDAV-compatible calendar server."
+              : "Connection successful — review your calendars before saving."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {isApple && (
-            <div className="text-xs text-muted-foreground bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 space-y-1">
-              <p className="font-medium text-blue-400">Apple App-Specific Password Required</p>
-              <p>
-                Apple requires an app-specific password for third-party calendar access.{" "}
-                <a
-                  href="https://appleid.apple.com/account/manage"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline text-blue-400 hover:text-blue-300"
-                >
-                  Generate one at appleid.apple.com
-                </a>{" "}
-                under Security → App-Specific Passwords.
+        {step === "credentials" ? (
+          <div className="space-y-4">
+            {isApple && (
+              <div className="text-xs text-muted-foreground bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 space-y-1">
+                <p className="font-medium text-blue-400">Apple App-Specific Password Required</p>
+                <p>
+                  Apple requires an app-specific password for third-party calendar access.{" "}
+                  <a
+                    href="https://appleid.apple.com/account/manage"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline text-blue-400 hover:text-blue-300"
+                  >
+                    Generate one at appleid.apple.com
+                  </a>{" "}
+                  under Security → App-Specific Passwords.
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="caldav-url" data-testid="label-caldav-url">
+                {isApple ? "Server URL" : "CalDAV Server URL"}
+              </Label>
+              <Input
+                id="caldav-url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://caldav.icloud.com"
+                data-testid="input-caldav-url"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="caldav-username" data-testid="label-caldav-username">
+                {isApple ? "Apple ID (email)" : "Username"}
+              </Label>
+              <Input
+                id="caldav-username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder={isApple ? "you@icloud.com" : "username"}
+                data-testid="input-caldav-username"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="caldav-password" data-testid="label-caldav-password">
+                {isApple ? "App-Specific Password" : "Password"}
+              </Label>
+              <Input
+                id="caldav-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={isApple ? "xxxx-xxxx-xxxx-xxxx" : "password"}
+                data-testid="input-caldav-password"
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Success banner */}
+            <div className="flex items-center gap-2 text-sm text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              <span>Connected to <span className="font-medium">{url}</span></span>
+            </div>
+
+            {/* Discovered calendars */}
+            {discovered.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Discovered Calendars ({discovered.length})
+                </p>
+                <div className="space-y-1 max-h-40 overflow-y-auto rounded-lg border border-border/50 divide-y divide-border/30">
+                  {discovered.map((cal, i) => (
+                    <div key={i} className="flex items-center gap-2 px-3 py-2">
+                      {cal.color ? (
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: cal.color }} />
+                      ) : (
+                        <CalendarCheck className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      )}
+                      <span className="text-sm truncate">{cal.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Conflict resolution */}
+            <div className="space-y-2">
+              <Label data-testid="label-conflict-resolution">Conflict Resolution</Label>
+              <Select value={conflictResolution} onValueChange={setConflictResolution}>
+                <SelectTrigger data-testid="select-conflict-resolution">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="latest_wins">Latest update wins</SelectItem>
+                  <SelectItem value="provider_wins">Provider always wins</SelectItem>
+                  <SelectItem value="cortex_wins">Cortex always wins</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Determines which version to keep when the same event is edited in both places.
               </p>
             </div>
-          )}
-
-          <div className="space-y-2">
-            <Label htmlFor="caldav-url" data-testid="label-caldav-url">
-              {isApple ? "Server URL" : "CalDAV Server URL"}
-            </Label>
-            <Input
-              id="caldav-url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://caldav.icloud.com"
-              data-testid="input-caldav-url"
-            />
           </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="caldav-username" data-testid="label-caldav-username">
-              {isApple ? "Apple ID (email)" : "Username"}
-            </Label>
-            <Input
-              id="caldav-username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder={isApple ? "you@icloud.com" : "username"}
-              data-testid="input-caldav-username"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="caldav-password" data-testid="label-caldav-password">
-              {isApple ? "App-Specific Password" : "Password"}
-            </Label>
-            <Input
-              id="caldav-password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={isApple ? "xxxx-xxxx-xxxx-xxxx" : "password"}
-              data-testid="input-caldav-password"
-            />
-          </div>
-        </div>
+        )}
 
         <DialogFooter className="mt-2">
-          <Button variant="outline" onClick={onClose} data-testid="button-caldav-cancel">
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={connectMutation.isPending}
-            data-testid="button-caldav-connect"
-          >
-            {connectMutation.isPending ? (
-              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Connecting…</>
-            ) : (
-              <><Link2 className="mr-2 h-4 w-4" /> Connect</>
-            )}
-          </Button>
+          {step === "credentials" ? (
+            <>
+              <Button variant="outline" onClick={handleClose} data-testid="button-caldav-cancel">
+                Cancel
+              </Button>
+              <Button
+                onClick={handleTest}
+                disabled={testMutation.isPending}
+                data-testid="button-caldav-test"
+              >
+                {testMutation.isPending ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Testing…</>
+                ) : (
+                  <><FlaskConical className="mr-2 h-4 w-4" /> Test Connection</>
+                )}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => setStep("credentials")}
+                data-testid="button-caldav-back"
+              >
+                <ChevronLeft className="mr-1 h-4 w-4" /> Back
+              </Button>
+              <Button
+                onClick={() => connectMutation.mutate()}
+                disabled={connectMutation.isPending}
+                data-testid="button-caldav-connect"
+              >
+                {connectMutation.isPending ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving…</>
+                ) : (
+                  <><Link2 className="mr-2 h-4 w-4" /> Save & Connect</>
+                )}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -215,14 +316,16 @@ function SyncSettingsDialog({
   onClose: () => void;
 }) {
   const { toast } = useToast();
-  const [direction, setDirection] = useState(connection.syncDirection || "both");
+  const [direction, setDirection] = useState(connection.syncDirection || "pull");
   const [frequency, setFrequency] = useState(String(connection.syncFrequencyMinutes || 15));
+  const [conflictResolution, setConflictResolution] = useState(connection.conflictResolution || "latest_wins");
 
   const updateMutation = useMutation({
     mutationFn: () =>
       apiRequest("PATCH", `/api/calendar/integrations/${connection.id}`, {
         syncDirection: direction,
         syncFrequencyMinutes: Number(frequency),
+        conflictResolution,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/calendar/integrations"] });
@@ -233,6 +336,8 @@ function SyncSettingsDialog({
       toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
+
+  const isCalDav = connection.provider === "caldav" || connection.provider === "apple";
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
@@ -261,6 +366,25 @@ function SyncSettingsDialog({
               Pull imports events from your external calendar. Push sends Cortex events out.
             </p>
           </div>
+
+          {isCalDav && (
+            <div className="space-y-2">
+              <Label data-testid="label-conflict-resolution-settings">Conflict Resolution</Label>
+              <Select value={conflictResolution} onValueChange={setConflictResolution}>
+                <SelectTrigger data-testid="select-conflict-resolution-settings">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="latest_wins">Latest update wins</SelectItem>
+                  <SelectItem value="provider_wins">Provider always wins</SelectItem>
+                  <SelectItem value="cortex_wins">Cortex always wins</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Which version to keep when the same event is edited in both places.
+              </p>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label data-testid="label-sync-frequency">Sync Frequency</Label>
@@ -371,35 +495,72 @@ function ProviderCard({
             </div>
             <p className="text-xs text-muted-foreground">{description}</p>
             {isConnected && (
-              <div className="text-xs text-muted-foreground space-y-0.5 mt-1">
+              <div className="text-xs text-muted-foreground space-y-1 mt-1.5">
                 {connection.accountEmail && (
                   <p className="truncate max-w-[220px]" data-testid={`text-account-email-${providerKey}`}>
                     {connection.accountEmail}
                   </p>
                 )}
-                {connection.defaultCalendarName && (
-                  <p className="text-muted-foreground/70">
-                    Calendar: {connection.defaultCalendarName}
-                  </p>
-                )}
-                {lastSync && (
-                  <p className="flex items-center gap-1" data-testid={`text-last-sync-${providerKey}`}>
-                    <Clock className="h-3 w-3" /> Last sync {lastSync}
-                  </p>
-                )}
-                {connection.syncError && (
-                  <p className="text-red-400 text-xs truncate max-w-[240px]">
-                    {connection.syncError}
-                  </p>
-                )}
-                <p className="text-muted-foreground/60">
+
+                {/* Sync info row */}
+                <p className="text-muted-foreground/60" data-testid={`text-sync-direction-${providerKey}`}>
                   {connection.syncDirection === "pull"
                     ? "Pull only"
                     : connection.syncDirection === "push"
                     ? "Push only"
                     : "Two-way sync"}{" "}
                   · every {connection.syncFrequencyMinutes || 15}m
+                  {connection.conflictResolution && connection.conflictResolution !== "latest_wins" && (
+                    <span className="ml-1 opacity-75">
+                      · {connection.conflictResolution === "provider_wins" ? "provider wins" : "cortex wins"}
+                    </span>
+                  )}
                 </p>
+
+                {/* Last sync */}
+                {lastSync && (
+                  <p className="flex items-center gap-1" data-testid={`text-last-sync-${providerKey}`}>
+                    <Clock className="h-3 w-3" /> Last sync {lastSync}
+                  </p>
+                )}
+                {!lastSync && (
+                  <p className="text-muted-foreground/50" data-testid={`text-no-sync-${providerKey}`}>Never synced</p>
+                )}
+
+                {/* Sync error */}
+                {connection.syncError && (
+                  <p className="flex items-start gap-1 text-red-400 max-w-[260px]" data-testid={`text-sync-error-${providerKey}`}>
+                    <ShieldAlert className="h-3 w-3 mt-0.5 shrink-0" />
+                    <span className="truncate">{connection.syncError}</span>
+                  </p>
+                )}
+
+                {/* Discovered calendars */}
+                {connection.calendarsDiscovered && connection.calendarsDiscovered.length > 0 && (
+                  <div className="mt-1.5 space-y-0.5" data-testid={`text-calendars-discovered-${providerKey}`}>
+                    <p className="text-muted-foreground/50 uppercase tracking-wide text-[10px] font-medium">
+                      {connection.calendarsDiscovered.length} calendar{connection.calendarsDiscovered.length !== 1 ? "s" : ""} on server
+                    </p>
+                    {connection.calendarsDiscovered.slice(0, 3).map((cal, i) => (
+                      <p key={i} className="flex items-center gap-1.5 text-muted-foreground/70">
+                        {cal.color ? (
+                          <span className="w-2 h-2 rounded-full shrink-0 inline-block" style={{ background: cal.color }} />
+                        ) : (
+                          <CalendarCheck className="h-3 w-3 shrink-0" />
+                        )}
+                        <span className="truncate max-w-[200px]">{cal.name}</span>
+                        {cal.url === connection.defaultCalendarId && (
+                          <span className="text-primary/70 text-[10px]">active</span>
+                        )}
+                      </p>
+                    ))}
+                    {connection.calendarsDiscovered.length > 3 && (
+                      <p className="text-muted-foreground/40">
+                        +{connection.calendarsDiscovered.length - 3} more
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

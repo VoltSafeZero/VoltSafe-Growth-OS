@@ -311,6 +311,7 @@ export async function migrateCalendarSchema(): Promise<void> {
     await db.execute(sql`ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS external_id text`);
     await db.execute(sql`ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS external_provider text`);
     await db.execute(sql`ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS external_calendar_id text`);
+    await db.execute(sql`ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS external_etag text`);
 
     // Create calendar_connections table
     await db.execute(sql`
@@ -339,6 +340,10 @@ export async function migrateCalendarSchema(): Promise<void> {
         updated_at timestamp NOT NULL DEFAULT now()
       )
     `);
+
+    // Add new columns to existing tables (idempotent)
+    await db.execute(sql`ALTER TABLE calendar_connections ADD COLUMN IF NOT EXISTS conflict_resolution text DEFAULT 'latest_wins'`);
+    await db.execute(sql`ALTER TABLE calendar_connections ADD COLUMN IF NOT EXISTS calendars_discovered jsonb`);
 
     // Indexes
     await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_calendar_connections_user ON calendar_connections(user_id)`);

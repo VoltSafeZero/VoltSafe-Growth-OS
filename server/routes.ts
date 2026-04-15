@@ -2384,15 +2384,33 @@ export async function registerRoutes(
     }
   });
 
+  // Test CalDAV connection without saving — returns discovered calendars
+  app.post("/api/calendar/integrations/caldav/test", requireAuth, async (req, res) => {
+    try {
+      const { url, username, password } = req.body as { url: string; username: string; password: string };
+      if (!url || !username || !password) {
+        return res.status(400).json({ message: "url, username, and password are required" });
+      }
+      const result = await testCalDavConnection(url, username, password);
+      if (!result.ok) {
+        return res.status(400).json({ message: result.error || "Could not connect to CalDAV server" });
+      }
+      res.json({ ok: true, calendars: result.calendars });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // Connect Apple/iCloud or generic CalDAV calendar
   app.post("/api/calendar/integrations/caldav/connect", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId as number;
-      const { url, username, password, provider = "caldav" } = req.body as {
+      const { url, username, password, provider = "caldav", conflictResolution } = req.body as {
         url: string;
         username: string;
         password: string;
         provider?: string;
+        conflictResolution?: string;
       };
 
       if (!url || !username || !password) {
@@ -2406,17 +2424,14 @@ export async function registerRoutes(
 
       // Pick the first calendar as default
       const defaultCal = test.calendars[0];
+      const calendarsDiscovered = test.calendars;
+      const resolvedConflict = conflictResolution || "latest_wins";
 
       // Upsert connection
       const [existing] = await db
         .select({ id: calendarConnections.id })
         .from(calendarConnections)
-        .where(
-          and(
-            eq(calendarConnections.userId, userId),
-            eq(calendarConnections.provider, provider)
-          )
-        )
+        .where(and(eq(calendarConnections.userId, userId), eq(calendarConnections.provider, provider)))
         .limit(1);
 
       const displayName = provider === "apple"
@@ -2434,6 +2449,8 @@ export async function registerRoutes(
             displayName,
             defaultCalendarId: defaultCal?.url || url,
             defaultCalendarName: defaultCal?.name || "Calendar",
+            calendarsDiscovered,
+            conflictResolution: resolvedConflict,
             isActive: true,
             syncEnabled: true,
             syncError: null,
@@ -2451,6 +2468,8 @@ export async function registerRoutes(
           displayName,
           defaultCalendarId: defaultCal?.url || url,
           defaultCalendarName: defaultCal?.name || "Calendar",
+          calendarsDiscovered,
+          conflictResolution: resolvedConflict,
           isActive: true,
           syncEnabled: true,
           syncDirection: "pull",
@@ -2490,13 +2509,20 @@ export async function registerRoutes(
         result = await syncCalDav(connectionId, userId);
       }
 
-      res.json({ message: "Sync complete", ...result });
+      res.json({
+        message: "Sync complete",
+        imported: result.imported ?? 0,
+        updated: result.updated ?? 0,
+        pushed: result.pushed ?? 0,
+        deleted: result.deleted ?? 0,
+        errors: result.errors ?? [],
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
-  // Update calendar integration settings (syncDirection, syncFrequency, defaultCalendarId)
+  // Update calendar integration settings
   app.patch("/api/calendar/integrations/:id", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId as number;
@@ -2512,12 +2538,13 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Integration not found" });
       }
 
-      const { syncDirection, syncEnabled, syncFrequencyMinutes, defaultCalendarId, defaultCalendarName } = req.body as {
+      const { syncDirection, syncEnabled, syncFrequencyMinutes, defaultCalendarId, defaultCalendarName, conflictResolution } = req.body as {
         syncDirection?: string;
         syncEnabled?: boolean;
         syncFrequencyMinutes?: number;
         defaultCalendarId?: string;
         defaultCalendarName?: string;
+        conflictResolution?: string;
       };
 
       await db
@@ -2528,6 +2555,7 @@ export async function registerRoutes(
           ...(syncFrequencyMinutes !== undefined && { syncFrequencyMinutes }),
           ...(defaultCalendarId !== undefined && { defaultCalendarId }),
           ...(defaultCalendarName !== undefined && { defaultCalendarName }),
+          ...(conflictResolution !== undefined && { conflictResolution }),
           updatedAt: new Date(),
         })
         .where(eq(calendarConnections.id, connectionId));
