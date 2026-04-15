@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import type { Server } from "http";
 import { pick } from "./utils";
+import { normalizeSource, buildNormalizeCaseExpr, BUCKET_LABELS, SOURCE_BUCKETS } from "./source-attribution";
 import { storage } from "./storage";
 import { db } from "./db";
 import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications } from "@shared/schema";
@@ -1190,6 +1191,11 @@ export async function registerRoutes(
           orgType: (fieldOverrides.orgType ?? orgType) as any,
           convertedFromLeadId: lead.id,
           assignedToUserId: lead.ownerUserId as any,
+          // ── Source lineage preserved from lead ──────────────────────────────
+          leadSource: (lead as any).source ?? null,
+          originalSource: (lead as any).original_source ?? (lead as any).originalSource ?? (lead as any).source ?? null,
+          acquisitionChannel: (lead as any).acquisition_channel ?? (lead as any).acquisitionChannel ?? null,
+          sourceCapturedAt: (lead as any).source_captured_at ?? (lead as any).sourceCapturedAt ?? (lead as any).created_at ?? null,
         } as any);
       }
 
@@ -1233,6 +1239,10 @@ export async function registerRoutes(
           estCloseDate: lead.estCloseDate ?? null,
           primaryValueDriver: lead.primaryValueDriver ?? null,
           ownerUserId: lead.ownerUserId ?? null,
+          // ── Source lineage preserved from lead ────────────────────────────
+          leadSource: (lead as any).source ?? null,
+          originalSource: (lead as any).original_source ?? (lead as any).originalSource ?? (lead as any).source ?? null,
+          acquisitionChannel: (lead as any).acquisition_channel ?? (lead as any).acquisitionChannel ?? null,
         } as any);
       }
 
@@ -10775,6 +10785,298 @@ export function registerConfluenceRoutes(app: Express) {
           count: parseInt(r.count),
         })),
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LEAD SOURCE ATTRIBUTION + CONVERSION ANALYTICS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Shared helper: build WHERE clause for attribution queries.
+   * Filters by date range (based on lead created_at), owner, region, orgType.
+   */
+  function buildAttrWhere(q: Record<string, string>) {
+    const parts: string[] = ["1=1"];
+    if (q.dateFrom) parts.push(`l.created_at >= '${new Date(q.dateFrom).toISOString()}'`);
+    if (q.dateTo)   parts.push(`l.created_at <= '${new Date(q.dateTo).toISOString()}'`);
+    if (q.ownerId && !isNaN(parseInt(q.ownerId))) parts.push(`l.owner_user_id = ${parseInt(q.ownerId)}`);
+    if (q.region)   parts.push(`l.state ILIKE '%${q.region.replace(/'/g,"''")}%'`);
+    if (q.orgType)  parts.push(`(l.segment ILIKE '%${q.orgType.replace(/'/g,"''")}%' OR a.org_type = '${q.orgType.replace(/'/g,"''")}' )`);
+    return parts.join(" AND ");
+  }
+
+  // ── GET /api/analytics/source-attribution/summary ─────────────────────────
+  app.get("/api/analytics/source-attribution/summary", requireAuth, async (req, res) => {
+    try {
+      const where = buildAttrWhere(req.query as Record<string, string>);
+      const normCase = buildNormalizeCaseExpr("l.source");
+
+      const r = await db.execute(sql.raw(`
+        SELECT
+          count(*) FILTER (WHERE l.id IS NOT NULL) AS total_leads,
+          count(*) FILTER (WHERE l.status = 'converted') AS converted_leads,
+          count(DISTINCT o.id) AS total_opps,
+          count(DISTINCT q.id) FILTER (WHERE q.status IN ('sent','accepted','declined')) AS quoted_opps,
+          count(DISTINCT q.id) FILTER (WHERE q.status = 'accepted') AS won_opps,
+          count(DISTINCT iw.id) AS installs,
+          ROUND(AVG(EXTRACT(EPOCH FROM (l.converted_at - l.created_at)) / 86400) FILTER (WHERE l.converted_at IS NOT NULL))::float AS avg_days_to_qualify,
+          ROUND(AVG(q.total) FILTER (WHERE q.status = 'accepted'))::float AS avg_won_value,
+          SUM(q.total) FILTER (WHERE q.status = 'accepted') AS total_won_revenue
+        FROM leads l
+        LEFT JOIN accounts a ON a.id = l.converted_account_id
+        LEFT JOIN opportunities o ON o.id = l.converted_opportunity_id
+        LEFT JOIN quotes q ON q.opportunity_id = o.id
+        LEFT JOIN install_workflows iw ON iw.opportunity_id = o.id
+        WHERE ${where}
+      `));
+
+      const row = (r as any).rows?.[0] ?? {};
+      const totalLeads = parseInt(row.total_leads ?? "0");
+      const convertedLeads = parseInt(row.converted_leads ?? "0");
+      const wonOpps = parseInt(row.won_opps ?? "0");
+      const quotedOpps = parseInt(row.quoted_opps ?? "0");
+
+      res.json({
+        totalLeads,
+        convertedLeads,
+        qualifyRate: totalLeads > 0 ? Math.round(convertedLeads / totalLeads * 100) : 0,
+        totalOpps:   parseInt(row.total_opps ?? "0"),
+        quotedOpps,
+        wonOpps,
+        winRate: quotedOpps > 0 ? Math.round(wonOpps / quotedOpps * 100) : 0,
+        installs: parseInt(row.installs ?? "0"),
+        avgDaysToQualify: parseFloat(row.avg_days_to_qualify ?? "0") || 0,
+        avgWonValue:      parseFloat(row.avg_won_value ?? "0") || 0,
+        totalWonRevenue:  parseFloat(row.total_won_revenue ?? "0") || 0,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── GET /api/analytics/source-attribution — funnel by normalized source ────
+  app.get("/api/analytics/source-attribution", requireAuth, async (req, res) => {
+    try {
+      const where = buildAttrWhere(req.query as Record<string, string>);
+      const normCase = buildNormalizeCaseExpr("l.source");
+
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          COALESCE(${normCase}, 'other') AS bucket,
+          count(*) AS total_leads,
+          count(*) FILTER (WHERE l.status = 'converted') AS converted_leads,
+          count(DISTINCT o.id) AS opps,
+          count(DISTINCT q.id) FILTER (WHERE q.status IN ('sent','accepted','declined')) AS quoted,
+          count(DISTINCT q.id) FILTER (WHERE q.status = 'accepted') AS won,
+          count(DISTINCT iw.id) AS installs,
+          ROUND(AVG(EXTRACT(EPOCH FROM (l.converted_at - l.created_at)) / 86400) FILTER (WHERE l.converted_at IS NOT NULL))::float AS avg_days_to_qualify,
+          ROUND(AVG(EXTRACT(EPOCH FROM (q.accepted_at - o.created_at)) / 86400) FILTER (WHERE q.accepted_at IS NOT NULL))::float AS avg_days_to_win,
+          ROUND(AVG(q.total) FILTER (WHERE q.status = 'accepted'))::float AS avg_won_value,
+          ROUND(SUM(q.total) FILTER (WHERE q.status = 'accepted'))::float AS total_won_value
+        FROM leads l
+        LEFT JOIN accounts a ON a.id = l.converted_account_id
+        LEFT JOIN opportunities o ON o.id = l.converted_opportunity_id
+        LEFT JOIN quotes q ON q.opportunity_id = o.id
+        LEFT JOIN install_workflows iw ON iw.opportunity_id = o.id
+        WHERE ${where}
+        GROUP BY bucket
+        ORDER BY total_leads DESC
+      `));
+
+      const data = ((rows as any).rows ?? []).map((r: any) => {
+        const totalLeads = parseInt(r.total_leads ?? "0");
+        const converted  = parseInt(r.converted_leads ?? "0");
+        const quoted     = parseInt(r.quoted ?? "0");
+        const won        = parseInt(r.won ?? "0");
+        return {
+          bucket:           r.bucket,
+          label:            BUCKET_LABELS[r.bucket as keyof typeof BUCKET_LABELS] ?? r.bucket,
+          totalLeads,
+          convertedLeads:   converted,
+          opps:             parseInt(r.opps ?? "0"),
+          quoted,
+          won,
+          installs:         parseInt(r.installs ?? "0"),
+          qualifyRate:      totalLeads > 0 ? Math.round(converted / totalLeads * 100) : 0,
+          quoteRate:        converted > 0 ? Math.round(quoted / converted * 100) : 0,
+          winRate:          quoted > 0 ? Math.round(won / quoted * 100) : 0,
+          installRate:      won > 0 ? Math.round(parseInt(r.installs ?? "0") / won * 100) : 0,
+          avgDaysToQualify: parseFloat(r.avg_days_to_qualify ?? "0") || 0,
+          avgDaysToWin:     parseFloat(r.avg_days_to_win ?? "0") || 0,
+          avgWonValue:      parseFloat(r.avg_won_value ?? "0") || 0,
+          totalWonValue:    parseFloat(r.total_won_value ?? "0") || 0,
+        };
+      });
+
+      res.json({ data });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── GET /api/analytics/source-attribution/owner-breakdown ─────────────────
+  app.get("/api/analytics/source-attribution/owner-breakdown", requireAuth, async (req, res) => {
+    try {
+      const where = buildAttrWhere(req.query as Record<string, string>);
+      const normCase = buildNormalizeCaseExpr("l.source");
+
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          u.name AS owner_name,
+          l.owner_user_id,
+          COALESCE(${normCase}, 'other') AS bucket,
+          count(*) AS total_leads,
+          count(*) FILTER (WHERE l.status = 'converted') AS converted_leads,
+          count(DISTINCT q.id) FILTER (WHERE q.status = 'accepted') AS won,
+          ROUND(SUM(q.total) FILTER (WHERE q.status = 'accepted'))::float AS total_won_value
+        FROM leads l
+        LEFT JOIN users u ON u.id = l.owner_user_id
+        LEFT JOIN opportunities o ON o.id = l.converted_opportunity_id
+        LEFT JOIN quotes q ON q.opportunity_id = o.id
+        WHERE ${where}
+        GROUP BY l.owner_user_id, u.name, bucket
+        ORDER BY total_leads DESC
+        LIMIT 200
+      `));
+
+      const data = ((rows as any).rows ?? []).map((r: any) => ({
+        ownerName:      r.owner_name ?? "Unassigned",
+        ownerUserId:    r.owner_user_id,
+        bucket:         r.bucket,
+        label:          BUCKET_LABELS[r.bucket as keyof typeof BUCKET_LABELS] ?? r.bucket,
+        totalLeads:     parseInt(r.total_leads ?? "0"),
+        convertedLeads: parseInt(r.converted_leads ?? "0"),
+        won:            parseInt(r.won ?? "0"),
+        totalWonValue:  parseFloat(r.total_won_value ?? "0") || 0,
+      }));
+
+      res.json({ data });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── GET /api/analytics/source-attribution/timeline ────────────────────────
+  app.get("/api/analytics/source-attribution/timeline", requireAuth, async (req, res) => {
+    try {
+      const where = buildAttrWhere(req.query as Record<string, string>);
+      const normCase = buildNormalizeCaseExpr("l.source");
+
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          TO_CHAR(DATE_TRUNC('month', l.created_at), 'YYYY-MM') AS month,
+          COALESCE(${normCase}, 'other') AS bucket,
+          count(*) AS total_leads,
+          count(*) FILTER (WHERE l.status = 'converted') AS converted_leads,
+          count(DISTINCT q.id) FILTER (WHERE q.status = 'accepted') AS won
+        FROM leads l
+        LEFT JOIN opportunities o ON o.id = l.converted_opportunity_id
+        LEFT JOIN quotes q ON q.opportunity_id = o.id
+        WHERE ${where}
+        GROUP BY month, bucket
+        ORDER BY month DESC, total_leads DESC
+        LIMIT 500
+      `));
+
+      const data = ((rows as any).rows ?? []).map((r: any) => ({
+        month:          r.month,
+        bucket:         r.bucket,
+        label:          BUCKET_LABELS[r.bucket as keyof typeof BUCKET_LABELS] ?? r.bucket,
+        totalLeads:     parseInt(r.total_leads ?? "0"),
+        convertedLeads: parseInt(r.converted_leads ?? "0"),
+        won:            parseInt(r.won ?? "0"),
+      }));
+
+      res.json({ data });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── GET /api/analytics/source-attribution/raw-sources ─────────────────────
+  // Returns the top raw source values with their normalized bucket (for audit)
+  app.get("/api/analytics/source-attribution/raw-sources", requireAuth, async (req, res) => {
+    try {
+      const rows = await db.execute(sql.raw(`
+        SELECT source, count(*) AS cnt
+        FROM leads
+        WHERE source IS NOT NULL AND source != ''
+        GROUP BY source
+        ORDER BY cnt DESC
+        LIMIT 100
+      `));
+      const data = ((rows as any).rows ?? []).map((r: any) => ({
+        raw:    r.source,
+        bucket: normalizeSource(r.source),
+        label:  BUCKET_LABELS[normalizeSource(r.source) as keyof typeof BUCKET_LABELS],
+        count:  parseInt(r.cnt ?? "0"),
+      }));
+      res.json({ data });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── GET /api/analytics/source-attribution/export ──────────────────────────
+  app.get("/api/analytics/source-attribution/export", requireAuth, async (req, res) => {
+    try {
+      const where = buildAttrWhere(req.query as Record<string, string>);
+      const normCase = buildNormalizeCaseExpr("l.source");
+
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          l.id AS lead_id,
+          l.company,
+          l.source AS raw_source,
+          COALESCE(${normCase}, 'other') AS normalized_source,
+          l.acquisition_channel,
+          l.campaign_tag,
+          l.referrer_name,
+          l.status AS lead_status,
+          l.state AS region,
+          u.name AS owner_name,
+          l.created_at AS lead_created_at,
+          l.converted_at,
+          a.name AS account_name,
+          o.title AS opportunity_title,
+          o.stage AS opp_stage,
+          q.quote_number,
+          q.status AS quote_status,
+          q.total AS quote_value,
+          q.accepted_at,
+          iw.id AS install_workflow_id,
+          iw.status AS install_status
+        FROM leads l
+        LEFT JOIN users u ON u.id = l.owner_user_id
+        LEFT JOIN accounts a ON a.id = l.converted_account_id
+        LEFT JOIN opportunities o ON o.id = l.converted_opportunity_id
+        LEFT JOIN quotes q ON q.opportunity_id = o.id AND q.status = 'accepted'
+        LEFT JOIN install_workflows iw ON iw.opportunity_id = o.id
+        WHERE ${where}
+        ORDER BY l.created_at DESC
+        LIMIT 5000
+      `));
+
+      const dataRows = (rows as any).rows ?? [];
+      const headers = Object.keys(dataRows[0] ?? {});
+      const csv = [
+        headers.join(","),
+        ...dataRows.map((r: any) =>
+          headers.map(h => {
+            const v = r[h];
+            if (v === null || v === undefined) return "";
+            const s = String(v).replace(/"/g, '""');
+            return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s}"` : s;
+          }).join(",")
+        ),
+      ].join("\n");
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="source-attribution-${new Date().toISOString().slice(0,10)}.csv"`);
+      res.send(csv);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

@@ -103,6 +103,14 @@ export const leads = pgTable("leads", {
   convertedContactId: integer("converted_contact_id"),
   convertedOpportunityId: integer("converted_opportunity_id"),
   convertedAt: timestamp("converted_at"),
+  // ── Source Attribution (Phase 1) ────────────────────────────────────────────
+  sourceDetail: text("source_detail"),
+  acquisitionChannel: text("acquisition_channel"),
+  referrerName: text("referrer_name"),
+  referrerContactId: integer("referrer_contact_id"),
+  campaignTag: text("campaign_tag"),
+  originalSource: text("original_source"),
+  sourceCapturedAt: timestamp("source_captured_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -185,6 +193,11 @@ export const accounts = pgTable("accounts", {
   convertedFromLeadId: integer("converted_from_lead_id"),
   convertedFromPartnershipId: integer("converted_from_partnership_id"),
 
+  // ── Source Attribution (Phase 1) ────────────────────────────────────────────
+  acquisitionChannel: text("acquisition_channel"),
+  originalSource: text("original_source"),
+  sourceCapturedAt: timestamp("source_captured_at"),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -247,6 +260,10 @@ export const opportunities = pgTable("opportunities", {
   closedWonNotes: text("closed_won_notes"),
   competitors: text("competitors"),
   notes: text("notes"),
+  // ── Source Attribution (Phase 1) ────────────────────────────────────────────
+  leadSource: text("lead_source"),
+  acquisitionChannel: text("acquisition_channel"),
+  originalSource: text("original_source"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

@@ -56,6 +56,7 @@ const sections: NavSection[] = [
       { title: "Activity Feed", url: "/activity", icon: BarChart3 },
       { title: "Reports", url: "/relationships", icon: TrendingUp },
       { title: "Forecasting", url: "/execution/forecast", icon: GitBranch },
+      { title: "Source Attribution", url: "/analytics/source-attribution", icon: TrendingUp, permKey: "crm" },
     ],
   },
 

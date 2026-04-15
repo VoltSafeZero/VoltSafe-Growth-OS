@@ -1,0 +1,83 @@
+Install & Onboarding Workflow is complete and tested. Next, build Lead Source Attribution + Conversion Analytics.
+
+Goal:
+Measure which lead sources, channels, and relationship paths actually produce qualified pipeline, accepted quotes, and delivered installs.
+
+Build this in phases.
+
+PHASE 1 — LEAD SOURCE DATA MODEL
+Standardize lead/account/opportunity source tracking.
+
+Support fields like:
+- lead_source (manual enum/text)
+- lead_source_detail
+- acquisition_channel
+- campaign/event/referral source
+- source_contact / referrer
+- original_source preserved through conversion
+- attribution timestamps
+
+Ensure lead → account/opportunity conversion preserves source lineage.
+
+PHASE 2 — SOURCE NORMALIZATION
+Create a deterministic normalization layer so messy source values roll up cleanly into buckets like:
+- inbound web
+- referral
+- partner
+- event / conference
+- outbound
+- association
+- marina walk-in / field prospecting
+- investor / network intro
+- other
+
+Do not rely on AI. Keep mapping editable later.
+
+PHASE 3 — CONVERSION ANALYTICS API
+Add backend endpoints for:
+- leads by source
+- qualified rate by source
+- quote rate by source
+- accepted quote / win rate by source
+- average time to convert by source
+- average quote value by source
+- install workflow creation / completion by source
+- owner-by-source performance where useful
+
+PHASE 4 — ANALYTICS UI
+Create a Source Analytics page with:
+- source summary cards
+- funnel by source
+- conversion tables
+- win-rate ranking
+- average cycle length
+- average quote value
+- accepted revenue by source
+- filters by date range, owner, region, org type
+
+PHASE 5 — TIMELINE / HISTORY INTEGRATION
+Ensure source changes or attribution corrections are auditable where important.
+Preserve original source even if current source fields are edited later.
+
+PHASE 6 — SAVED VIEWS / EXPORT
+Support useful saved views and export/report slices like:
+- best converting sources this quarter
+- high-volume low-conversion sources
+- referral leads in Ontario
+- accepted quotes from association channels
+- installs sourced from outbound
+
+PHASE 7 — TESTING
+Add tests for:
+- source lineage preservation on lead conversion
+- normalization correctness
+- conversion calculations
+- date window filtering
+- accepted revenue attribution
+- no regression to leads/opportunities/quotes/install workflows
+
+Implementation rules:
+- keep attribution simple and explainable
+- preserve original source history
+- do not build bloated marketing attribution tooling
+- summarize changed files and final pass/fail at the end
