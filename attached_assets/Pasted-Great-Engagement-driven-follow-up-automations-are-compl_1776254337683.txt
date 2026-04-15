@@ -1,0 +1,104 @@
+Great. Engagement-driven follow-up automations are complete and tested. Next, build the Email Workspace + Awaiting Reply triage layer.
+
+Goal:
+Make Cortex a practical daily email workspace for B2B relationship management, with deterministic awaiting-reply logic and strong CRM context.
+
+Build this in phases.
+
+PHASE 1 — EMAIL WORKSPACE CORE
+Create or refine a dedicated email workspace page with:
+- inbox list
+- thread view
+- filters/tabs for:
+  - All Inbox
+  - Awaiting Reply
+  - Hot / Engaged
+  - Unlinked
+  - Sent
+  - Archived if supported
+
+PHASE 2 — AWAITING REPLY LOGIC
+Add deterministic thread-level logic:
+- external inbound email with no outbound reply after X time => awaiting reply
+- mark awaiting_reply_since
+- clear awaiting reply when we send a reply
+- exclude internal-only threads
+- exclude archived/spam/trash if applicable
+- support manual status override:
+  - waiting on us
+  - waiting on them
+  - done
+
+PHASE 3 — CRM LINKING
+Strengthen auto-linking and manual linking of email threads to:
+- account
+- lead
+- contact
+- opportunity where appropriate
+
+Rules:
+- exact contact email match
+- safe domain-to-account match
+- inherited linking from existing thread context
+- show link reason / confidence
+- allow manual relink/unlink in UI
+- do not auto-create duplicate CRM records
+
+PHASE 4 — THREAD ACTIONS
+From the thread view, support:
+- reply
+- forward
+- archive
+- create task from email
+- add note from email
+- link/unlink CRM record
+- mark waiting on us / waiting on them / done
+
+Reuse existing Gmail integration and permissions.
+
+PHASE 5 — CONTEXT PANEL
+When viewing a thread, show related CRM context:
+- linked account / lead / contact / opportunity
+- open tasks
+- recent timeline items
+- signal/engagement summary
+- quick actions
+
+Goal:
+Every thread should feel tied to the relevant relationship record.
+
+PHASE 6 — TIMELINE INTEGRATION
+Ensure record timelines show important email events cleanly:
+- email received
+- reply sent
+- thread linked/unlinked
+- awaiting reply started/resolved
+- hot engagement state changes when meaningful
+
+Avoid duplicate/noisy entries.
+
+PHASE 7 — TRIAGE TOOLS
+Add high-value bulk actions:
+- bulk archive
+- bulk link
+- bulk mark done
+- bulk create follow-up task
+- filter by owner / linked record / awaiting reply / hot
+
+PHASE 8 — TESTING
+Add tests for:
+- awaiting reply detection
+- awaiting reply resolution after reply
+- link/unlink logic
+- auto-link confidence/reason
+- thread action endpoints
+- timeline integration
+- permission enforcement
+- no regression to engagement tracking / tasks / timelines
+
+Implementation rules:
+- do not break current Gmail send/read flow
+- do not build newsletter tooling
+- keep this focused on practical B2B email triage
+- use deterministic logic only
+- summarize changed files and final pass/fail at the end

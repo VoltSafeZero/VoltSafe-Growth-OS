@@ -110,11 +110,12 @@ function ConfidenceBadge({ score, isAuto, isUserConfirmed }: {
 // ── SignalBadge (inline row-level) ─────────────────────────────────────────────
 
 const SIGNAL_CONFIG = {
-  hot:    { label: "Hot",    color: "text-orange-400 border-orange-500/40 bg-orange-500/10", Icon: Flame },
-  high:   { label: "Clicked", color: "text-blue-400 border-blue-500/30 bg-blue-500/8",      Icon: MousePointerClick },
-  medium: { label: "Active",  color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/8", Icon: Eye },
-  low:    { label: "Opened",  color: "text-emerald-400/70 border-emerald-500/20",            Icon: Eye },
-  none:   null,
+  hot:     { label: "Hot",              color: "text-orange-400 border-orange-500/40 bg-orange-500/10", Icon: Flame },
+  replied: { label: "Replied",          color: "text-violet-400 border-violet-500/30 bg-violet-500/8",  Icon: Zap },
+  high:    { label: "Clicked",          color: "text-blue-400 border-blue-500/30 bg-blue-500/8",        Icon: MousePointerClick },
+  medium:  { label: "Opened repeatedly", color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/8", Icon: Eye },
+  low:     { label: "Opened",           color: "text-emerald-400/70 border-emerald-500/20",             Icon: Eye },
+  none:    null,
 } as const;
 
 function SignalBadge({ level, isHot }: { level: string | null; isHot: boolean }) {
