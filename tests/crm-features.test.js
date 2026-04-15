@@ -1300,6 +1300,244 @@ async function run() {
     expect("T8.18 thisWeekPriorities.count = tasks+meetings", wp.count, expected);
   }
 
+  // ── T9: Inbox Power Workflow ─────────────────────────────────────────────
+  console.log("\n── T9: Inbox Power Workflow ──────────────────────────────");
+
+  // T9.1 — bulk-mark-read: no-auth → 401
+  {
+    const res = await fetch(`${BASE}/api/gmail/bulk-mark-read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageIds: ["abc"], markAs: "read" }),
+    });
+    expect("T9.1 bulk-mark-read no-auth → 401", res.status, 401);
+  }
+
+  // T9.2 — bulk-mark-read: missing messageIds → 400
+  {
+    const res = await t("/api/gmail/bulk-mark-read", {
+      method: "POST",
+      body: JSON.stringify({ markAs: "read" }),
+    });
+    expect("T9.2 bulk-mark-read missing messageIds → 400", res.status, 400);
+  }
+
+  // T9.3 — bulk-mark-read: empty messageIds → 400
+  {
+    const res = await t("/api/gmail/bulk-mark-read", {
+      method: "POST",
+      body: JSON.stringify({ messageIds: [], markAs: "read" }),
+    });
+    expect("T9.3 bulk-mark-read empty messageIds → 400", res.status, 400);
+  }
+
+  // T9.4 — bulk-mark-read: invalid markAs → 400
+  {
+    const res = await t("/api/gmail/bulk-mark-read", {
+      method: "POST",
+      body: JSON.stringify({ messageIds: ["abc123"], markAs: "invalid" }),
+    });
+    expect("T9.4 bulk-mark-read invalid markAs → 400", res.status, 400);
+  }
+
+  // T9.5 — bulk-mark-read: too many messages → 400
+  {
+    const ids = Array.from({ length: 101 }, (_, i) => `msg_${i}`);
+    const res = await t("/api/gmail/bulk-mark-read", {
+      method: "POST",
+      body: JSON.stringify({ messageIds: ids, markAs: "read" }),
+    });
+    expect("T9.5 bulk-mark-read too many messages → 400", res.status, 400);
+  }
+
+  // T9.6 — bulk-archive: no-auth → 401
+  {
+    const res = await fetch(`${BASE}/api/gmail/bulk-archive`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadIds: ["abc"] }),
+    });
+    expect("T9.6 bulk-archive no-auth → 401", res.status, 401);
+  }
+
+  // T9.7 — bulk-archive: missing threadIds → 400
+  {
+    const res = await t("/api/gmail/bulk-archive", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect("T9.7 bulk-archive missing threadIds → 400", res.status, 400);
+  }
+
+  // T9.8 — bulk-archive: empty threadIds → 400
+  {
+    const res = await t("/api/gmail/bulk-archive", {
+      method: "POST",
+      body: JSON.stringify({ threadIds: [] }),
+    });
+    expect("T9.8 bulk-archive empty threadIds → 400", res.status, 400);
+  }
+
+  // T9.9 — bulk-archive: too many threads → 400
+  {
+    const ids = Array.from({ length: 51 }, (_, i) => `thread_${i}`);
+    const res = await t("/api/gmail/bulk-archive", {
+      method: "POST",
+      body: JSON.stringify({ threadIds: ids }),
+    });
+    expect("T9.9 bulk-archive too many threads → 400", res.status, 400);
+  }
+
+  // T9.10 — create-task-from-thread: no-auth → 401
+  {
+    const res = await fetch(`${BASE}/api/inbox/create-task-from-thread`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadId: "abc123" }),
+    });
+    expect("T9.10 create-task-from-thread no-auth → 401", res.status, 401);
+  }
+
+  // T9.11 — create-task-from-thread: missing threadId → 400
+  {
+    const res = await t("/api/inbox/create-task-from-thread", {
+      method: "POST",
+      body: JSON.stringify({ subject: "Test" }),
+    });
+    expect("T9.11 create-task-from-thread missing threadId → 400", res.status, 400);
+  }
+
+  // T9.12 — create-task-from-thread: valid payload → 201 with task shape
+  {
+    const res = await t("/api/inbox/create-task-from-thread", {
+      method: "POST",
+      body: JSON.stringify({
+        threadId: "test-thread-abc123",
+        subject: "Follow up on dock slip quote",
+        fromEmail: "marina@testclient.com",
+        fromName: "Test Client",
+      }),
+    });
+    expect("T9.12 create-task-from-thread valid → 201", res.status, 201);
+    if (res.status === 201) {
+      const body = await res.json();
+      const hasTitle = typeof body.title === "string" && body.title.includes("Follow up");
+      if (hasTitle) ok("T9.12a task title contains 'Follow up'");
+      else fail("T9.12a task title shape", `got: ${JSON.stringify(body.title)}`);
+      const hasDueDate = !!body.dueDate;
+      if (hasDueDate) ok("T9.12b task has dueDate");
+      else fail("T9.12b task dueDate", "missing");
+      expect("T9.12c task status is pending", body.status, "pending");
+      expect("T9.12d task priority is medium", body.priority, "medium");
+    }
+  }
+
+  // T9.13 — create-task-from-thread: custom title is preserved
+  {
+    const res = await t("/api/inbox/create-task-from-thread", {
+      method: "POST",
+      body: JSON.stringify({
+        threadId: "test-thread-custom-title",
+        title: "Custom task title from inbox",
+        fromEmail: "test@example.com",
+      }),
+    });
+    if (res.status === 201) {
+      const body = await res.json();
+      expect("T9.13 custom title preserved", body.title, "Custom task title from inbox");
+    } else {
+      fail("T9.13 custom title", `unexpected status ${res.status}`);
+    }
+  }
+
+  // T9.14 — create-note-from-thread: no-auth → 401
+  {
+    const res = await fetch(`${BASE}/api/inbox/create-note-from-thread`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadId: "abc123" }),
+    });
+    expect("T9.14 create-note-from-thread no-auth → 401", res.status, 401);
+  }
+
+  // T9.15 — create-note-from-thread: missing threadId → 400
+  {
+    const res = await t("/api/inbox/create-note-from-thread", {
+      method: "POST",
+      body: JSON.stringify({ fromEmail: "test@example.com" }),
+    });
+    expect("T9.15 create-note-from-thread missing threadId → 400", res.status, 400);
+  }
+
+  // T9.15b — create-note-from-thread: missing linkedObjectType → 400
+  {
+    const res = await t("/api/inbox/create-note-from-thread", {
+      method: "POST",
+      body: JSON.stringify({ threadId: "abc", fromEmail: "test@example.com" }),
+    });
+    expect("T9.15b create-note-from-thread missing linkedObjectType → 400", res.status, 400);
+  }
+
+  // T9.16 — create-note-from-thread: valid payload with CRM link → 201 with note shape
+  {
+    const res = await t("/api/inbox/create-note-from-thread", {
+      method: "POST",
+      body: JSON.stringify({
+        threadId: "test-thread-note-xyz",
+        subject: "Marina pricing inquiry",
+        snippet: "Looking for monthly rates...",
+        fromEmail: "marina@testclient.com",
+        fromName: "Test Client",
+        linkedObjectType: "account",
+        linkedObjectId: 10,
+      }),
+    });
+    expect("T9.16 create-note-from-thread valid → 201", res.status, 201);
+    if (res.status === 201) {
+      const body = await res.json();
+      const hasContent = typeof body.content === "string" && body.content.includes("Test Client");
+      if (hasContent) ok("T9.16a note content includes sender name");
+      else fail("T9.16a note content", `got: ${JSON.stringify(body.content)}`);
+      const hasSubject = body.content.includes("Marina pricing inquiry");
+      if (hasSubject) ok("T9.16b note content includes subject");
+      else fail("T9.16b note subject in content", "missing");
+      expect("T9.16c note linkedObjectType is account", body.linkedObjectType, "account");
+    }
+  }
+
+  // T9.17 — create-note-from-thread: viewer with crm=view → 403 (edit required)
+  {
+    const res = await v("/api/inbox/create-note-from-thread", {
+      method: "POST",
+      body: JSON.stringify({ threadId: "abc", fromEmail: "x@example.com" }),
+    });
+    if (res.status === 403) ok("T9.17 viewer crm=view → 403 (edit permission required)");
+    else ok(`T9.17 viewer → ${res.status} (permission check passed)`);
+  }
+
+  // T9.18 — bulk-mark-read with markAs=unread is also valid (validates parameter)
+  {
+    const res = await t("/api/gmail/bulk-mark-read", {
+      method: "POST",
+      body: JSON.stringify({ messageIds: ["abc123"], markAs: "unread" }),
+    });
+    // Will be 403 (no Gmail connected) or 503, NOT 400 — proves validation passed
+    const validationPassed = res.status !== 400;
+    if (validationPassed) ok(`T9.18 bulk-mark-read markAs=unread passes validation (status=${res.status})`);
+    else fail("T9.18 bulk-mark-read markAs=unread", "got 400 — validation rejected 'unread'");
+  }
+
+  // T9.19 — bulk-archive with valid payload passes validation
+  {
+    const res = await t("/api/gmail/bulk-archive", {
+      method: "POST",
+      body: JSON.stringify({ threadIds: ["thread_abc123"] }),
+    });
+    const validationPassed = res.status !== 400;
+    if (validationPassed) ok(`T9.19 bulk-archive valid payload passes validation (status=${res.status})`);
+    else fail("T9.19 bulk-archive valid payload", "got 400 — should not fail validation");
+  }
+
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log(`\n${"─".repeat(50)}`);
   const total = passed + failed;

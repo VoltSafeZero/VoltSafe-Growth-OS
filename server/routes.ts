@@ -5794,6 +5794,123 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  app.post("/api/gmail/bulk-mark-read", requireAuth, async (req, res) => {
+    const userId = (req.session as any).userId;
+    const { messageIds, markAs, asAccountId } = req.body;
+    if (!Array.isArray(messageIds) || messageIds.length === 0) {
+      return res.status(400).json({ message: "messageIds array required" });
+    }
+    if (messageIds.length > 100) {
+      return res.status(400).json({ message: "Maximum 100 messages per request" });
+    }
+    if (!["read", "unread"].includes(markAs)) {
+      return res.status(400).json({ message: "markAs must be 'read' or 'unread'" });
+    }
+    const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+    const resolved = await resolveAccount(userId, asAccountId ? Number(asAccountId) : undefined, _ia, _mtp);
+    if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
+    try {
+      const gmail = await getGmailClient(resolved.userId, resolved.accountId);
+      let success = 0; let failed = 0;
+      for (const messageId of messageIds) {
+        try {
+          await gmail.users.messages.modify({
+            userId: "me", id: messageId,
+            requestBody: markAs === "read" ? { removeLabelIds: ["UNREAD"] } : { addLabelIds: ["UNREAD"] },
+          });
+          success++;
+        } catch { failed++; }
+      }
+      res.json({ success, failed });
+    } catch (err: any) {
+      res.status(503).json({ message: "Gmail API error", error: err.message });
+    }
+  });
+
+  app.post("/api/gmail/bulk-archive", requireAuth, async (req, res) => {
+    const userId = (req.session as any).userId;
+    const { threadIds, asAccountId } = req.body;
+    if (!Array.isArray(threadIds) || threadIds.length === 0) {
+      return res.status(400).json({ message: "threadIds array required" });
+    }
+    if (threadIds.length > 50) {
+      return res.status(400).json({ message: "Maximum 50 threads per request" });
+    }
+    const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+    const resolved = await resolveAccount(userId, asAccountId ? Number(asAccountId) : undefined, _ia, _mtp);
+    if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
+    try {
+      const gmail = await getGmailClient(resolved.userId, resolved.accountId);
+      let success = 0; let failed = 0;
+      for (const threadId of threadIds) {
+        try {
+          await gmail.users.threads.modify({
+            userId: "me", id: threadId,
+            requestBody: { removeLabelIds: ["INBOX"] },
+          });
+          success++;
+        } catch { failed++; }
+      }
+      res.json({ success, failed });
+    } catch (err: any) {
+      res.status(503).json({ message: "Gmail API error", error: err.message });
+    }
+  });
+
+  app.post("/api/inbox/create-task-from-thread", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    const userId = getSessionUserId(req);
+    const { threadId, subject, fromEmail, fromName, linkedObjectType, linkedObjectId, title, dueDate } = req.body;
+    if (!threadId) return res.status(400).json({ message: "threadId required" });
+    const taskTitle = title || `Follow up: ${subject || fromEmail || "Email"}`;
+    const taskDueDate = dueDate ? new Date(dueDate) : (() => {
+      const d = new Date(); d.setDate(d.getDate() + 1); return d;
+    })();
+    const taskData: any = {
+      title: taskTitle,
+      description: `Created from email thread: ${subject || "(no subject)"}${fromName ? ` from ${fromName}` : fromEmail ? ` from ${fromEmail}` : ""}`,
+      dueDate: taskDueDate,
+      priority: "medium",
+      status: "pending",
+      ownerUserId: userId,
+      createdByUserId: userId,
+    };
+    if (linkedObjectType) taskData.linkedObjectType = linkedObjectType;
+    if (linkedObjectId) taskData.linkedObjectId = Number(linkedObjectId);
+    try {
+      const task = await storage.createTask(taskData);
+      res.status(201).json(task);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/inbox/create-note-from-thread", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    const userId = getSessionUserId(req);
+    const { threadId, subject, snippet, fromEmail, fromName, linkedObjectType, linkedObjectId } = req.body;
+    if (!threadId) return res.status(400).json({ message: "threadId required" });
+    if (!linkedObjectType || !linkedObjectId) {
+      return res.status(400).json({ message: "linkedObjectType and linkedObjectId required — link this thread to a CRM record first" });
+    }
+    const noteContent = [
+      `Email from: ${fromName || fromEmail || "Unknown"}`,
+      `Subject: ${subject || "(no subject)"}`,
+      snippet ? `\n${snippet}` : "",
+    ].filter(Boolean).join("\n");
+    const noteData: any = {
+      content: noteContent,
+      noteType: "note",
+      authorUserId: userId,
+      linkedObjectType,
+      linkedObjectId: Number(linkedObjectId),
+    };
+    try {
+      const note = await storage.createNote(noteData);
+      res.status(201).json(note);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/gmail/send", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;
