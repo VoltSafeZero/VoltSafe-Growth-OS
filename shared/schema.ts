@@ -1433,3 +1433,122 @@ export type TaskReminderLog = typeof taskReminderLogs.$inferSelect;
 export type TaskDigest = typeof taskDigests.$inferSelect;
 export type ExecutionSettings = typeof executionSettings.$inferSelect;
 export type InsertMigrationLog = z.infer<typeof insertMigrationLogSchema>;
+
+// ─── Procurement / Manufacturing Layer ────────────────────────────────────────
+
+export const suppliers = pgTable("suppliers", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  contactName: text("contact_name"),
+  contactEmail: text("contact_email"),
+  phone: text("phone"),
+  country: text("country"),
+  region: text("region"),
+  leadTimeDays: integer("lead_time_days"),
+  status: text("status").notNull().default("active"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const parts = pgTable("parts", {
+  id: serial("id").primaryKey(),
+  sku: text("sku").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category"),
+  unit: text("unit").notNull().default("each"),
+  unitCost: real("unit_cost"),
+  supplierId: integer("supplier_id"),
+  leadTimeDays: integer("lead_time_days"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const purchaseOrders = pgTable("purchase_orders", {
+  id: serial("id").primaryKey(),
+  poNumber: text("po_number").notNull(),
+  supplierId: integer("supplier_id"),
+  status: text("status").notNull().default("draft"),
+  accountId: integer("account_id"),
+  opportunityId: integer("opportunity_id"),
+  installWorkflowId: integer("install_workflow_id"),
+  ownerUserId: integer("owner_user_id"),
+  expectedDeliveryDate: timestamp("expected_delivery_date"),
+  actualDeliveryDate: timestamp("actual_delivery_date"),
+  issuedAt: timestamp("issued_at"),
+  totalAmount: real("total_amount"),
+  currency: text("currency").notNull().default("USD"),
+  notes: text("notes"),
+  blockers: text("blockers"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const purchaseOrderLines = pgTable("purchase_order_lines", {
+  id: serial("id").primaryKey(),
+  purchaseOrderId: integer("purchase_order_id").notNull(),
+  partId: integer("part_id"),
+  description: text("description"),
+  quantity: real("quantity").notNull().default(1),
+  quantityReceived: real("quantity_received").notNull().default(0),
+  unitCost: real("unit_cost"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const productionBatches = pgTable("production_batches", {
+  id: serial("id").primaryKey(),
+  batchNumber: text("batch_number").notNull(),
+  partId: integer("part_id"),
+  partName: text("part_name"),
+  quantity: real("quantity").notNull().default(1),
+  status: text("status").notNull().default("planned"),
+  installWorkflowId: integer("install_workflow_id"),
+  accountId: integer("account_id"),
+  ownerUserId: integer("owner_user_id"),
+  plannedStartDate: timestamp("planned_start_date"),
+  actualStartDate: timestamp("actual_start_date"),
+  targetCompletionDate: timestamp("target_completion_date"),
+  actualCompletionDate: timestamp("actual_completion_date"),
+  notes: text("notes"),
+  blockers: text("blockers"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const inventoryAllocations = pgTable("inventory_allocations", {
+  id: serial("id").primaryKey(),
+  partId: integer("part_id").notNull(),
+  location: text("location").notNull().default("warehouse"),
+  quantityOnHand: real("quantity_on_hand").notNull().default(0),
+  quantityAllocated: real("quantity_allocated").notNull().default(0),
+  quantityReservedCert: real("quantity_reserved_cert").notNull().default(0),
+  installWorkflowId: integer("install_workflow_id"),
+  notes: text("notes"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ── Insert schemas ─────────────────────────────────────────────────────────────
+export const insertSupplierSchema = createInsertSchema(suppliers).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertPartSchema = createInsertSchema(parts).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertPurchaseOrderLineSchema = createInsertSchema(purchaseOrderLines).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertProductionBatchSchema = createInsertSchema(productionBatches).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertInventoryAllocationSchema = createInsertSchema(inventoryAllocations).omit({ id: true, updatedAt: true });
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+export type Supplier = typeof suppliers.$inferSelect;
+export type InsertSupplier = z.infer<typeof insertSupplierSchema>;
+export type Part = typeof parts.$inferSelect;
+export type InsertPart = z.infer<typeof insertPartSchema>;
+export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
+export type InsertPurchaseOrder = z.infer<typeof insertPurchaseOrderSchema>;
+export type PurchaseOrderLine = typeof purchaseOrderLines.$inferSelect;
+export type InsertPurchaseOrderLine = z.infer<typeof insertPurchaseOrderLineSchema>;
+export type ProductionBatch = typeof productionBatches.$inferSelect;
+export type InsertProductionBatch = z.infer<typeof insertProductionBatchSchema>;
+export type InventoryAllocation = typeof inventoryAllocations.$inferSelect;
+export type InsertInventoryAllocation = z.infer<typeof insertInventoryAllocationSchema>;

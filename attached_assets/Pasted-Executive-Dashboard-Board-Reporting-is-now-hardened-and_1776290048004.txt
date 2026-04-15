@@ -1,0 +1,86 @@
+Executive Dashboard / Board Reporting is now hardened and fully tested. Next, build the Procurement / Manufacturing Workflow layer.
+
+Goal:
+Extend Cortex beyond sales and onboarding into hardware delivery operations, so we can track purchasing, production, allocation, and readiness for installs/certification.
+
+Build this in phases.
+
+PHASE 1 — CORE DATA MODEL
+Add lightweight operational objects for:
+- suppliers
+- parts / SKUs
+- purchase orders
+- purchase order lines
+- production batches
+- inventory allocations
+- certification/test units if useful
+
+Track at minimum:
+- status
+- quantity
+- ETA / due dates
+- owner
+- linked account / opportunity / install workflow when relevant
+- notes / blockers
+
+PHASE 2 — PROCUREMENT WORKFLOW
+Support:
+- draft PO
+- issued PO
+- partially received
+- received
+- delayed
+- cancelled
+
+Include supplier, expected dates, quantities, and line items.
+
+PHASE 3 — PRODUCTION / BUILD WORKFLOW
+Support production batches with statuses like:
+- planned
+- in assembly
+- testing
+- ready
+- shipped
+- blocked
+
+Allow linkage to install workflows or accepted quotes where useful.
+
+PHASE 4 — INVENTORY / ALLOCATION
+Track inventory availability and allocation:
+- on hand
+- allocated
+- available
+- reserved for project/install
+- reserved for certification/testing
+
+PHASE 5 — OPERATIONAL DASHBOARD
+Create a page showing:
+- open POs
+- delayed suppliers
+- production batches by status
+- inventory risks
+- installs blocked by hardware readiness
+- certification units in progress
+
+PHASE 6 — TASK / TIMELINE INTEGRATION
+Create timeline events and tasks for:
+- PO issued
+- delayed shipment
+- batch moved to testing
+- inventory shortfall
+- install blocked due to missing hardware
+
+PHASE 7 — TESTING
+Add tests for:
+- PO lifecycle
+- batch lifecycle
+- allocation math
+- blocked install detection
+- timeline/task integration
+- no regression to install workflow and executive dashboard
+
+Implementation rules:
+- keep it practical for VoltSafe hardware operations
+- do not build a bloated ERP
+- reuse existing task, timeline, and saved-view systems where possible
+- summarize changed files and final pass/fail at the end
