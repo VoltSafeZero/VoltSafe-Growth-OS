@@ -14625,6 +14625,17 @@ export function registerConfluenceRoutes(app: Express) {
     }
   }
 
+  // ── CS Timeline event helper ──────────────────────────────────────────────────
+  async function addCsTimelineEvent(csId: number, eventType: string, description: string, data: Record<string, any>, actorUserId?: number) {
+    try {
+      const dataJson = JSON.stringify(data).replace(/'/g, "''");
+      await db.execute(sql.raw(
+        `INSERT INTO cs_timeline_events (cs_id, event_type, description, event_data, actor_user_id, created_at)
+         VALUES (${csId}, '${eventType}', '${description.replace(/'/g, "''")}', '${dataJson}'::jsonb, ${actorUserId ?? "NULL"}, NOW())`
+      ));
+    } catch { /* non-fatal */ }
+  }
+
   // ── GET /api/cs/dashboard ────────────────────────────────────────────────────
   app.get("/api/cs/dashboard", requireAuth, async (req, res) => {
     try {
@@ -14793,13 +14804,15 @@ export function registerConfluenceRoutes(app: Express) {
                u.name AS owner_name,
                d.status AS deployment_status, d.actual_go_live, d.deploy_number,
                iw.status AS install_status, iw.title AS install_title,
-               o.title AS opportunity_title, o.amount AS opportunity_amount
+               o.title AS opportunity_title, o.amount AS opportunity_amount,
+               eo.id AS exp_opp_id, eo.title AS exp_opp_title, eo.amount AS exp_opp_amount, eo.stage AS exp_opp_status
         FROM customer_subscriptions cs
         LEFT JOIN accounts a ON a.id = cs.account_id
         LEFT JOIN users u ON u.id = cs.owner_user_id
         LEFT JOIN deployments d ON d.id = cs.deployment_id
         LEFT JOIN install_workflows iw ON iw.id = cs.install_workflow_id
         LEFT JOIN opportunities o ON o.id = cs.opportunity_id
+        LEFT JOIN opportunities eo ON eo.id = cs.expansion_opportunity_id
         WHERE cs.id = ${id}
       `));
       const row = (rows as any).rows?.[0];
@@ -14855,27 +14868,52 @@ export function registerConfluenceRoutes(app: Express) {
       if (sets.length === 0) return res.status(400).json({ message: "No valid fields to update" });
       sets.push("updated_at = NOW()");
 
+      const userId = (req.session as any).userId;
+
+      // Read previous state for timeline diffing
+      const prevRows = await db.execute(sql.raw(`SELECT * FROM customer_subscriptions WHERE id = ${id}`));
+      const prev = ((prevRows as any).rows ?? [])[0] ?? {};
+
       const r = await db.execute(sql.raw(`UPDATE customer_subscriptions SET ${sets.join(", ")} WHERE id = ${id} RETURNING *`));
       const row = ((r as any).rows ?? [])[0];
       if (!row) return res.status(404).json({ message: "Not found" });
 
-      // If status changed, log activity on account
-      if (body.status) {
-        const userId = (req.session as any).userId;
+      // ── Timeline events ──────────────────────────────────────────────────────
+      // Status change
+      if (body.status && body.status !== prev.status) {
         const statusLabels: Record<string, string> = {
           active: "Subscription marked active",
           renewal_due: "Renewal date coming up",
           renewal_in_progress: "Renewal in progress",
-          renewed: "Subscription renewed",
+          renewed: "Subscription renewed — renewal won",
           churn_risk: "Customer flagged as churn risk",
           cancelled: "Subscription cancelled",
         };
-        const summary = statusLabels[body.status] ?? `Status updated to ${body.status}`;
+        const desc = statusLabels[body.status] ?? `Status updated to ${body.status}`;
+
+        if (body.status === "churn_risk")
+          await addCsTimelineEvent(id, "churn_flagged", desc, { from: prev.status, to: body.status }, userId);
+        else if (body.status === "renewed")
+          await addCsTimelineEvent(id, "renewal_won", desc, { from: prev.status }, userId);
+        else if (body.status === "cancelled" && prev.status !== "cancelled")
+          await addCsTimelineEvent(id, "renewal_lost", "Subscription cancelled — renewal lost", { from: prev.status }, userId);
+        else
+          await addCsTimelineEvent(id, "status_change", desc, { from: prev.status, to: body.status }, userId);
+
+        // Log activity on account
         await db.execute(sql.raw(
           `INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at)
-           VALUES ('account', ${row.account_id}, 'cs_status_change', 'CS status update', '${summary.replace(/'/g, "''")}', ${userId}, NOW())`
+           VALUES ('account', ${row.account_id}, 'cs_status_change', 'CS status update', '${desc.replace(/'/g, "''")}', ${userId}, NOW())`
         ));
       }
+
+      // Go-live set for first time
+      if (body.goLiveDate && !prev.go_live_date)
+        await addCsTimelineEvent(id, "went_live", `Customer went live on ${body.goLiveDate}`, { go_live_date: body.goLiveDate }, userId);
+
+      // Expansion potential raised to medium/high
+      if (body.expansionPotential && ["medium", "high"].includes(body.expansionPotential) && !["medium", "high"].includes(prev.expansion_potential))
+        await addCsTimelineEvent(id, "expansion_identified", `Expansion opportunity identified — ${body.expansionPotential} potential${body.expansionNotes ? ": " + body.expansionNotes : ""}`, { potential: body.expansionPotential, notes: body.expansionNotes }, userId);
 
       // Auto-advance to renewal_due if renewal_date is within 120 days and status is still active
       if (row.renewal_date && row.status === "active") {
@@ -14895,14 +14933,31 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId = (req.session as any).userId;
       const rows = await db.execute(sql.raw(`SELECT * FROM customer_subscriptions WHERE id = ${id}`));
       const cs = ((rows as any).rows ?? [])[0];
       if (!cs) return res.status(404).json({ message: "Not found" });
+
+      const prevScore = cs.health_score ?? 100;
+      const prevStatus = cs.health_status ?? "healthy";
 
       const health = await computeCustomerHealth(cs);
       await db.execute(sql.raw(
         `UPDATE customer_subscriptions SET health_score = ${health.score}, health_status = '${health.status}', churn_risk_flags = '${JSON.stringify(health.flags).replace(/'/g, "''")}', updated_at = NOW() WHERE id = ${id}`
       ));
+
+      // Emit health_worsened event if score dropped materially (≥15 points) or status worsened
+      const statusOrder = { healthy: 2, at_risk: 1, critical: 0 };
+      const prevOrd = (statusOrder as any)[prevStatus] ?? 2;
+      const newOrd = (statusOrder as any)[health.status] ?? 2;
+      if (newOrd < prevOrd || (prevScore - health.score >= 15)) {
+        await addCsTimelineEvent(id, "health_worsened",
+          `Health worsened: ${prevScore} → ${health.score} (${prevStatus} → ${health.status})`,
+          { prev_score: prevScore, new_score: health.score, prev_status: prevStatus, new_status: health.status, flags: health.flags },
+          userId
+        );
+      }
+
       res.json(health);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
@@ -14944,6 +14999,58 @@ export function registerConfluenceRoutes(app: Express) {
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
       const r = await db.execute(sql.raw(`UPDATE customer_subscriptions SET status = 'cancelled', updated_at = NOW() WHERE id = ${id} RETURNING id`));
       if (!((r as any).rows ?? [])[0]) return res.status(404).json({ message: "Not found" });
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── GET /api/cs/:id/timeline ──────────────────────────────────────────────────
+  app.get("/api/cs/:id/timeline", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const limit = Math.min(parseInt((req.query.limit as string) ?? "50"), 100);
+      const rows = await db.execute(sql.raw(`
+        SELECT te.*, u.name AS actor_name
+        FROM cs_timeline_events te
+        LEFT JOIN users u ON u.id = te.actor_user_id
+        WHERE te.cs_id = ${id}
+        ORDER BY te.created_at DESC
+        LIMIT ${limit}
+      `));
+      res.json((rows as any).rows ?? []);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── POST /api/cs/:id/link-opportunity ─────────────────────────────────────────
+  // Link an existing opportunity as the expansion opportunity for this CS record
+  app.post("/api/cs/:id/link-opportunity", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId = (req.session as any).userId;
+      const { opportunityId } = req.body;
+      if (!opportunityId) return res.status(400).json({ message: "opportunityId is required" });
+
+      // Verify opportunity exists
+      const oppRows = await db.execute(sql.raw(`SELECT id, title, amount FROM opportunities WHERE id = ${parseInt(opportunityId)}`));
+      const opp = ((oppRows as any).rows ?? [])[0];
+      if (!opp) return res.status(404).json({ message: "Opportunity not found" });
+
+      const r = await db.execute(sql.raw(`UPDATE customer_subscriptions SET expansion_opportunity_id = ${opp.id}, updated_at = NOW() WHERE id = ${id} RETURNING *`));
+      const cs = ((r as any).rows ?? [])[0];
+      if (!cs) return res.status(404).json({ message: "CS record not found" });
+
+      await addCsTimelineEvent(id, "expansion_linked", `Expansion opportunity linked: "${opp.title}"${opp.amount ? ` ($${Number(opp.amount).toLocaleString()})` : ""}`, { opportunity_id: opp.id, title: opp.title, amount: opp.amount }, userId);
+      res.json({ ok: true, cs, opportunity: opp });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── DELETE /api/cs/:id/link-opportunity ───────────────────────────────────────
+  app.delete("/api/cs/:id/link-opportunity", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      await db.execute(sql.raw(`UPDATE customer_subscriptions SET expansion_opportunity_id = NULL, updated_at = NOW() WHERE id = ${id}`));
       res.json({ ok: true });
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });

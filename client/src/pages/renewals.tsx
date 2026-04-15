@@ -13,9 +13,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
-  RefreshCcw, Heart, AlertTriangle, TrendingUp, X, Plus, ChevronRight,
-  Building2, CalendarClock, DollarSign, User, Zap, CheckCircle2,
-  Activity, Loader2, Shield, ArrowUpRight, Clock, Ban,
+  RefreshCcw, Heart, AlertTriangle, TrendingUp, TrendingDown, X, Plus, ChevronRight,
+  Building2, CalendarClock, DollarSign, User, Zap, CheckCircle2, XCircle,
+  Activity, Loader2, Shield, ArrowUpRight, Clock, Ban, Link2,
 } from "lucide-react";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -134,11 +134,65 @@ function KpiCard({ label, value, sub, icon: Icon, color }: { label: string; valu
 }
 
 // ── Customer Detail Panel ─────────────────────────────────────────────────────
+// ── CS Timeline icons ─────────────────────────────────────────────────────────
+const CS_TIMELINE_ICONS: Record<string, { icon: any; color: string }> = {
+  went_live:            { icon: Activity,      color: "text-emerald-400" },
+  status_change:        { icon: Activity,      color: "text-blue-400"    },
+  churn_flagged:        { icon: AlertTriangle, color: "text-red-400"     },
+  renewal_won:          { icon: CheckCircle2,  color: "text-emerald-400" },
+  renewal_lost:         { icon: XCircle,       color: "text-red-400"     },
+  health_worsened:      { icon: TrendingDown,  color: "text-red-400"     },
+  expansion_identified: { icon: TrendingUp,    color: "text-primary"     },
+  expansion_linked:     { icon: Link2,         color: "text-primary"     },
+  default:              { icon: Clock,         color: "text-muted-foreground" },
+};
+
+function CsTimelinePanel({ csId }: { csId: number }) {
+  const { data: events = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/cs", csId, "timeline"],
+    queryFn: () => fetch(`/api/cs/${csId}/timeline`, { credentials: "include" }).then(r => r.json()),
+    refetchInterval: 30000,
+  });
+
+  if (isLoading) return <div className="space-y-2 p-4">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-12" />)}</div>;
+  if (!events.length) return (
+    <div className="flex flex-col items-center justify-center py-10 gap-2 px-4">
+      <Activity className="h-8 w-8 text-muted-foreground/30" />
+      <p className="text-sm text-muted-foreground/60 text-center">No activity recorded yet</p>
+      <p className="text-xs text-muted-foreground/40 text-center">Events appear when status changes, health worsens, renewals are won/lost, or expansion opportunities are identified.</p>
+    </div>
+  );
+
+  return (
+    <div className="relative p-4 space-y-0">
+      <div className="absolute left-8 top-10 bottom-4 w-px bg-border/40" />
+      {events.map((ev, i) => {
+        const { icon: Icon, color } = CS_TIMELINE_ICONS[ev.event_type] ?? CS_TIMELINE_ICONS.default;
+        return (
+          <div key={ev.id} className="flex gap-3 relative py-1.5" data-testid={`cs-timeline-event-${ev.id}`}>
+            <div className={`z-10 w-8 h-8 rounded-full bg-background border-2 shrink-0 flex items-center justify-center ${i === 0 ? "border-primary/40" : "border-border/60"}`}>
+              <Icon className={`h-3.5 w-3.5 ${color}`} />
+            </div>
+            <div className="flex-1 min-w-0 pt-1">
+              <p className="text-xs leading-snug">{ev.description}</p>
+              <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                {ev.actor_name ? `${ev.actor_name} · ` : ""}{fmtDate(ev.created_at)}
+              </p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function CustomerDetailPanel({ csId, onClose }: { csId: number; onClose: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [editMode, setEditMode] = useState(false);
   const [editFields, setEditFields] = useState<Record<string, any>>({});
+  const [detailTab, setDetailTab] = useState("detail");
+  const [linkOppId, setLinkOppId] = useState("");
 
   const detail = useQuery<any>({
     queryKey: ["/api/cs", csId],
@@ -162,6 +216,26 @@ function CustomerDetailPanel({ csId, onClose }: { csId: number; onClose: () => v
     mutationFn: () => apiRequest("POST", `/api/cs/${csId}/compute-health`, {}),
     onSuccess: (d: any) => {
       toast({ title: "Health recomputed", description: `Score: ${d.score} (${d.status})` });
+      qc.invalidateQueries({ queryKey: ["/api/cs", csId] });
+      qc.invalidateQueries({ queryKey: ["/api/cs", csId, "timeline"] });
+    },
+  });
+
+  const linkOpp = useMutation({
+    mutationFn: (opportunityId: number) => apiRequest("POST", `/api/cs/${csId}/link-opportunity`, { opportunityId }),
+    onSuccess: () => {
+      toast({ title: "Expansion opportunity linked" });
+      setLinkOppId("");
+      qc.invalidateQueries({ queryKey: ["/api/cs", csId] });
+      qc.invalidateQueries({ queryKey: ["/api/cs", csId, "timeline"] });
+    },
+    onError: (e: any) => toast({ title: "Link failed", description: e.message, variant: "destructive" }),
+  });
+
+  const unlinkOpp = useMutation({
+    mutationFn: () => apiRequest("DELETE", `/api/cs/${csId}/link-opportunity`),
+    onSuccess: () => {
+      toast({ title: "Expansion opportunity unlinked" });
       qc.invalidateQueries({ queryKey: ["/api/cs", csId] });
     },
   });
@@ -224,6 +298,20 @@ function CustomerDetailPanel({ csId, onClose }: { csId: number; onClose: () => v
         </div>
       </div>
 
+      {/* Sub-tabs: Detail | Timeline */}
+      <div className="border-b border-border/50 px-5 flex gap-4">
+        {["detail", "timeline"].map(t => (
+          <button key={t} onClick={() => setDetailTab(t)}
+            className={`py-2 text-xs font-medium capitalize border-b-2 transition-colors ${detailTab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+            data-testid={`cs-tab-${t}`}>
+            {t === "timeline" ? "Timeline" : "Detail"}
+          </button>
+        ))}
+      </div>
+
+      {detailTab === "timeline" ? (
+        <ScrollArea className="flex-1 min-h-0"><CsTimelinePanel csId={csId} /></ScrollArea>
+      ) : (
       <ScrollArea className="flex-1 min-h-0">
         {detail.isLoading && (
           <div className="p-5 space-y-3">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-8" />)}</div>
@@ -296,6 +384,26 @@ function CustomerDetailPanel({ csId, onClose }: { csId: number; onClose: () => v
                 {field("Potential", "expansionPotential", d.expansion_potential, "select", expansionOptions)}
                 {field("Expansion Notes", "expansionNotes", d.expansion_notes, "text")}
               </div>
+              {/* Linked expansion opportunity */}
+              <div className="rounded-md border border-border/50 bg-muted/20 p-3 space-y-2">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Expansion Opportunity</div>
+                {d.exp_opp_id ? (
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-medium">{d.exp_opp_title}</p>
+                      <p className="text-[10px] text-muted-foreground capitalize">{d.exp_opp_status}{d.exp_opp_amount ? ` · $${Number(d.exp_opp_amount).toLocaleString()}` : ""}</p>
+                    </div>
+                    <button onClick={() => unlinkOpp.mutate()} className="text-[10px] text-red-400 hover:text-red-500 shrink-0" data-testid="btn-unlink-opp">Unlink</button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <Input placeholder="Opportunity ID" value={linkOppId} onChange={e => setLinkOppId(e.target.value)} className="h-7 text-xs flex-1" type="number" min="1" data-testid="input-link-opp-id" />
+                    <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={() => linkOppId && linkOpp.mutate(parseInt(linkOppId))} disabled={!linkOppId || linkOpp.isPending} data-testid="btn-link-opp">
+                      {linkOpp.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Link"}
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <Separator />
@@ -343,6 +451,7 @@ function CustomerDetailPanel({ csId, onClose }: { csId: number; onClose: () => v
           </div>
         )}
       </ScrollArea>
+      )}
     </div>
   );
 }

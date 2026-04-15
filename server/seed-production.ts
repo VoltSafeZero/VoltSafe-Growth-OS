@@ -855,3 +855,26 @@ export async function migrateMergeAuditSchema(): Promise<void> {
     console.error("[migration] Merge audit schema migration error (non-fatal):", err);
   }
 }
+
+
+export async function migrateCsTimelineSchema(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS cs_timeline_events (
+        id serial PRIMARY KEY,
+        cs_id integer NOT NULL REFERENCES customer_subscriptions(id) ON DELETE CASCADE,
+        event_type text NOT NULL,
+        description text NOT NULL,
+        event_data jsonb DEFAULT '{}'::jsonb,
+        actor_user_id integer,
+        created_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_cs_events_cs_id ON cs_timeline_events(cs_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_cs_events_type ON cs_timeline_events(event_type)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_cs_events_created ON cs_timeline_events(created_at DESC)`);
+    console.log("[migration] CS timeline schema migration complete.");
+  } catch (err) {
+    console.error("[migration] CS timeline schema migration error (non-fatal):", err);
+  }
+}
