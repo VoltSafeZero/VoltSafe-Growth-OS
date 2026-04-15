@@ -1,0 +1,74 @@
+Great. Global search for leads is now fixed and fully tested. Next, upgrade search into a true command bar.
+
+Goal:
+Make search the fastest way to navigate and act inside Cortex, not just a lookup box.
+
+Build this in phases.
+
+PHASE 1 — KEYBOARD / UX POLISH
+1. Add keyboard navigation:
+- up/down arrows move selection
+- enter opens selected result
+- esc closes search
+- cmd+k / ctrl+k opens search
+2. Auto-highlight the top result
+3. Keep the current / shortcut working if already implemented
+4. Preserve fast typeahead performance
+
+PHASE 2 — BETTER RESULT GROUPS
+Group results clearly by type:
+- Accounts
+- Leads
+- Contacts
+- Opportunities
+- Notes
+Show a small count per group when available.
+Keep balanced per-type caps.
+
+PHASE 3 — ACTION RESULTS
+Add non-record action results at the top when relevant:
+- Create account
+- Create lead
+- Create task
+- Go to Tasks Hub
+- Go to Command Center
+- Go to Contacts
+These should appear based on simple query heuristics and always work with keyboard navigation.
+
+PHASE 4 — RECENT + PINNED SEARCH ITEMS
+Add:
+- recent searches
+- recently opened records
+- optional pinned shortcuts
+When the search box is opened empty, show useful recent items instead of nothing.
+
+PHASE 5 — FUZZY MATCHING / TYPOS
+Improve matching slightly for:
+- marina vs marna style typos
+- port credit vs portcredit
+- plural/singular
+Keep this lightweight and deterministic.
+Do not over-engineer with heavy search infra yet.
+
+PHASE 6 — RESULT PREVIEW
+For notes and records, optionally show a richer preview on hover/selection:
+- account owner / status
+- lead status / location
+- opportunity stage
+- note snippet
+Only use fields that are already cheap to fetch.
+
+PHASE 7 — TESTS
+Add tests for:
+- keyboard navigation
+- command shortcuts
+- action results
+- recent items display
+- group rendering
+- no regression for existing search result routing and ranking
+
+Implementation rules:
+- do not break current lead search behavior
+- keep search fast
+- prefer deterministic logic over fancy magic
+- summarize changed files and pass/fail at the end
