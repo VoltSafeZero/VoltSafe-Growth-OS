@@ -4583,6 +4583,118 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // POST /api/gmail/sender/create-lead
+  // Create a Lead from an unmatched email sender (no existing contact/account).
+  // Used from the inbox no-match quick-create panel.
+  app.post("/api/gmail/sender/create-lead", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    const { fromEmail, company, contactName } = req.body;
+
+    if (!fromEmail || typeof fromEmail !== "string" || !fromEmail.trim()) {
+      return res.status(400).json({ message: "fromEmail is required" });
+    }
+    if (!company || typeof company !== "string" || !company.trim()) {
+      return res.status(400).json({ message: "company is required" });
+    }
+
+    try {
+      const normalizedEmail = fromEmail.trim().toLowerCase();
+
+      // Duplicate check — same email already on a lead
+      const [existingLead] = await db
+        .select({ id: leads.id })
+        .from(leads)
+        .where(sql`LOWER(${leads.contactEmail}) = ${normalizedEmail}`)
+        .limit(1);
+      if (existingLead) {
+        return res.status(409).json({
+          code: "LEAD_EXISTS",
+          message: "A lead with this email already exists",
+          existingLeadId: existingLead.id,
+        });
+      }
+
+      const [newLead] = await db
+        .insert(leads)
+        .values({
+          contactEmail: normalizedEmail,
+          contactName: contactName?.trim() || normalizedEmail,
+          company: company.trim(),
+          status: "new",
+          source: "email_inbox",
+        } as any)
+        .returning();
+
+      res.status(201).json({ lead: newLead });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // POST /api/gmail/sender/create-account
+  // Create an Account stub from a sender domain when no org exists for that domain.
+  app.post("/api/gmail/sender/create-account", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    const { fromEmail, name, orgType } = req.body;
+
+    if (!fromEmail || typeof fromEmail !== "string" || !fromEmail.trim()) {
+      return res.status(400).json({ message: "fromEmail is required" });
+    }
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ message: "name is required" });
+    }
+
+    try {
+      const domain = fromEmail.trim().toLowerCase().split("@")[1] ?? "";
+      const normalizedDomain = domain.replace(/^www\./, "");
+
+      if (!normalizedDomain) {
+        return res.status(400).json({ message: "Could not extract domain from fromEmail" });
+      }
+
+      // Duplicate check — org with same domain
+      const [domainConflict] = await db
+        .select({ id: accounts.id, name: accounts.name })
+        .from(accounts)
+        .where(sql`LOWER(${accounts.website}) ILIKE ${"%" + normalizedDomain + "%"}`)
+        .limit(1);
+      if (domainConflict) {
+        return res.status(409).json({
+          code: "DOMAIN_CONFLICT",
+          message: `An organization with domain "${normalizedDomain}" already exists`,
+          conflictAccountId: domainConflict.id,
+          conflictAccountName: domainConflict.name,
+        });
+      }
+
+      const resolvedOrgType = orgType && typeof orgType === "string" ? orgType : "unclassified";
+      const segmentMap: Record<string, string> = {
+        marina: "marina", port_harbor: "marina", shipyard: "marina", boatyard: "marina",
+        yacht_club: "marina", marina_group: "marina", utility: "government",
+        municipality: "government", government_agency: "government",
+        defense_military: "government", oem: "vendor", distributor: "vendor",
+        dealer_reseller: "vendor", installer: "vendor", supplier_manufacturer: "vendor",
+        industry_association: "association", accelerator: "investor", investor: "investor",
+        university_research: "research",
+      };
+      const segment = segmentMap[resolvedOrgType] ?? "other";
+
+      const [newAccount] = await db
+        .insert(accounts)
+        .values({
+          name: name.trim(),
+          website: `https://${normalizedDomain}`,
+          segment,
+          orgType: resolvedOrgType,
+          leadStatus: "new",
+          priority: "medium",
+        } as any)
+        .returning();
+
+      res.status(201).json({ account: newAccount });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // GET /api/org-types — full list of organisation types supported by Cortex
   app.get("/api/org-types", requireAuth, (_req, res) => {
     res.json([

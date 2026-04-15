@@ -1,0 +1,90 @@
+The unified timeline feature is complete, tested, and passing. Freeze it unless a real bug is found.
+
+Now build the next highest-value layer: true automatic email association and inbox-to-CRM workflow.
+
+Goal:
+Make incoming and sent emails automatically attach to the correct CRM records with visible confidence labels, minimal false positives, and manual override controls.
+
+Execute in this order:
+
+1. Audit current email ingestion flow
+   - Trace exactly how emails enter the system now
+   - Identify where Gmail sync/import happens
+   - Identify current storage tables for:
+     - emails
+     - email associations
+     - contacts
+     - accounts
+     - opportunities
+     - leads
+     - partners
+   - Document the current flow before changing logic
+
+2. Build deterministic auto-association engine
+   - On email ingest or sync, evaluate association candidates in this priority order:
+     1. exact contact email match
+     2. exact known internal record participant match
+     3. account domain match
+     4. linked opportunity via matched contact/account
+     5. linked lead via matched contact/account
+     6. linked partner via mapped domain
+   - Assign:
+     - associationSource
+     - confidenceScore
+     - associationReasons[]
+   - Prevent duplicates
+   - Preserve existing manual links and never overwrite them
+   - Add idempotency so re-syncing the same email does not create duplicate associations
+
+3. Explanations + confidence
+   - Every auto-linked email must clearly explain why it was linked
+   - Add human-readable reasons such as:
+     - sender matched contact email
+     - recipient domain matched account domain
+     - contact belongs to linked opportunity account
+   - Add confidence tiers:
+     - High
+     - Medium
+     - Low
+
+4. Inbox UI integration
+   - In the email/inbox UI, show linked CRM records on each email row/card
+   - Show confidence badge
+   - Show “why linked” drawer/popover
+   - Add quick actions:
+     - link to another record
+     - unlink
+     - confirm link
+   - Make confirmed/manual actions visually distinct from auto-linked ones
+
+5. CRM record creation assist
+   - For emails with no confident match, add fast actions:
+     - create contact
+     - create lead
+     - create account from domain
+   - After creation, offer immediate link
+
+6. Tests
+   - Add backend tests for:
+     - exact email match
+     - domain match
+     - linked opportunity propagation
+     - linked lead propagation
+     - partner domain match
+     - duplicate prevention
+     - idempotent re-sync
+     - manual override precedence
+   - Add frontend tests if supported for:
+     - confidence badge rendering
+     - reason display
+     - manual confirm/unlink actions
+
+7. Final verification
+   - Run TypeScript
+   - Run full test suite
+   - Provide:
+     - exact files changed
+     - auto-link rules implemented
+     - confidence model
+     - UI changes shipped
+     - final PASS/FAIL

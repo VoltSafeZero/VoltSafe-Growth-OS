@@ -835,6 +835,13 @@ function CrmContextPanel({
   const [cNewOrgName, setCNewOrgName] = useState("");
   const [cNewOrgType, setCNewOrgType] = useState("unclassified");
 
+  const [showCreateLeadForm, setShowCreateLeadForm] = useState(false);
+  const [lCompany, setLCompany] = useState("");
+  const [lContactName, setLContactName] = useState("");
+
+  const [showCreateAccountForm, setShowCreateAccountForm] = useState(false);
+  const [aName, setAName] = useState("");
+
   const canViewCrm = isAdminUser || (userPermissions?.crm !== "none" && userPermissions?.crm != null);
   const canEditCrm = isAdminUser || userPermissions?.crm === "edit";
   const canViewPartnerships = isAdminUser || (userPermissions?.partnerships !== "none" && userPermissions?.partnerships != null);
@@ -1019,6 +1026,60 @@ function CrmContextPanel({
         toast({ title: "Contact already exists", description: msg, variant: "destructive" });
       } else {
         toast({ title: "Failed to create contact", description: msg, variant: "destructive" });
+      }
+    },
+  });
+
+  // Create lead from sender
+  const createLeadMutation = useMutation({
+    mutationFn: async (payload: { fromEmail: string; company: string; contactName?: string }) => {
+      const res = await apiRequest("POST", "/api/gmail/sender/create-lead", payload);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as any).message || `Error ${res.status}`);
+      }
+      return res.json();
+    },
+    onSuccess: async (result: any) => {
+      setShowCreateLeadForm(false);
+      toast({ title: `Lead created: ${result?.lead?.company ?? lCompany}` });
+      try { await refreshAssocMutation.mutateAsync(); } catch {}
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-associations", threadId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", threadId] });
+    },
+    onError: (err: any) => {
+      const msg = err.message || "Unknown error";
+      if (msg.includes("LEAD_EXISTS")) {
+        toast({ title: "Lead already exists for this email", variant: "destructive" });
+      } else {
+        toast({ title: "Failed to create lead", description: msg, variant: "destructive" });
+      }
+    },
+  });
+
+  // Create account (org stub) from sender domain
+  const createAccountMutation = useMutation({
+    mutationFn: async (payload: { fromEmail: string; name: string; orgType?: string }) => {
+      const res = await apiRequest("POST", "/api/gmail/sender/create-account", payload);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as any).message || `Error ${res.status}`);
+      }
+      return res.json();
+    },
+    onSuccess: async (result: any) => {
+      setShowCreateAccountForm(false);
+      toast({ title: `Organization created: ${result?.account?.name ?? aName}` });
+      try { await refreshAssocMutation.mutateAsync(); } catch {}
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-associations", threadId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", threadId] });
+    },
+    onError: (err: any) => {
+      const msg = err.message || "Unknown error";
+      if (msg.includes("DOMAIN_CONFLICT")) {
+        toast({ title: "Organization for this domain already exists", description: msg, variant: "destructive" });
+      } else {
+        toast({ title: "Failed to create organization", description: msg, variant: "destructive" });
       }
     },
   });
@@ -1253,24 +1314,149 @@ function CrmContextPanel({
               </div>
             )}
 
-            {!assocQuery.isLoading && candidates.length === 0 && !showCreateForm && (
+            {!assocQuery.isLoading && candidates.length === 0 && !showCreateForm && !showCreateLeadForm && !showCreateAccountForm && (
               <div className="space-y-1">
                 <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/35 italic py-0.5">
                   <AlertCircle className="h-3 w-3 flex-shrink-0" />
                   No CRM matches found — sync or link manually
                 </div>
                 {senderEligible && (
-                  <button
-                    onClick={openCreateForm}
-                    data-testid="create-contact-from-sender-btn"
-                    className="flex items-center gap-1 text-[10px] text-sky-400/70 hover:text-sky-400 border border-sky-500/20 hover:border-sky-500/50 px-2 py-[2px] rounded transition-all"
-                  >
-                    <Plus className="h-2.5 w-2.5" />
-                    Create Contact from Sender
-                  </button>
+                  <div className="flex flex-wrap gap-1">
+                    <button
+                      onClick={openCreateForm}
+                      data-testid="create-contact-from-sender-btn"
+                      className="flex items-center gap-1 text-[10px] text-sky-400/70 hover:text-sky-400 border border-sky-500/20 hover:border-sky-500/50 px-2 py-[2px] rounded transition-all"
+                    >
+                      <Plus className="h-2.5 w-2.5" />
+                      Contact
+                    </button>
+                    <button
+                      onClick={() => {
+                        const s = threadRecordQuery.data?.sender;
+                        const email = s?.fromEmail || hintSenderEmail || "";
+                        const name = s?.fromName?.trim() || hintSenderName || "";
+                        const domain = email.split("@")[1]?.toLowerCase() ?? "";
+                        setLContactName(name);
+                        setLCompany(domain ? orgNameFromDomain(domain) : "");
+                        setShowCreateLeadForm(true);
+                        setShowManualLink(false);
+                      }}
+                      data-testid="create-lead-from-sender-btn"
+                      className="flex items-center gap-1 text-[10px] text-amber-400/70 hover:text-amber-400 border border-amber-500/20 hover:border-amber-500/50 px-2 py-[2px] rounded transition-all"
+                    >
+                      <Plus className="h-2.5 w-2.5" />
+                      Lead
+                    </button>
+                    <button
+                      onClick={() => {
+                        const s = threadRecordQuery.data?.sender;
+                        const email = s?.fromEmail || hintSenderEmail || "";
+                        const domain = email.split("@")[1]?.toLowerCase() ?? "";
+                        setAName(domain ? orgNameFromDomain(domain) : "");
+                        setShowCreateAccountForm(true);
+                        setShowManualLink(false);
+                      }}
+                      data-testid="create-account-from-domain-btn"
+                      className="flex items-center gap-1 text-[10px] text-violet-400/70 hover:text-violet-400 border border-violet-500/20 hover:border-violet-500/50 px-2 py-[2px] rounded transition-all"
+                    >
+                      <Plus className="h-2.5 w-2.5" />
+                      Organization
+                    </button>
+                  </div>
                 )}
               </div>
             )}
+
+            {/* Inline create-lead form */}
+            {showCreateLeadForm && (() => {
+              const senderEmail = threadRecordQuery.data?.sender?.fromEmail ?? hintSenderEmail ?? "";
+              const isPending = createLeadMutation.isPending;
+              return (
+                <div className="border border-amber-500/20 rounded bg-amber-500/5 p-2.5 space-y-2 text-[11px]" data-testid="create-lead-form">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-medium text-amber-400/80">New Lead</span>
+                    <button onClick={() => setShowCreateLeadForm(false)} className="text-muted-foreground/40 hover:text-muted-foreground"><X className="h-3 w-3" /></button>
+                  </div>
+                  <div className="space-y-0.5">
+                    <label className="text-[10px] text-muted-foreground/60 font-medium">Email</label>
+                    <div className="px-2 py-1 text-[11px] bg-muted/10 border border-border/20 rounded text-muted-foreground/60 truncate">{senderEmail}</div>
+                  </div>
+                  <div className="space-y-0.5">
+                    <label className="text-[10px] text-muted-foreground/60 font-medium">Company *</label>
+                    <input
+                      value={lCompany}
+                      onChange={e => setLCompany(e.target.value)}
+                      placeholder="e.g. Harbour Marine Group"
+                      data-testid="create-lead-company-input"
+                      className="w-full px-2 py-1 text-[11px] bg-muted/20 border border-border/30 rounded focus:outline-none focus:border-border/70 placeholder:text-muted-foreground/40"
+                      disabled={isPending}
+                    />
+                  </div>
+                  <div className="space-y-0.5">
+                    <label className="text-[10px] text-muted-foreground/60 font-medium">Contact name <span className="text-muted-foreground/40 font-normal">(optional)</span></label>
+                    <input
+                      value={lContactName}
+                      onChange={e => setLContactName(e.target.value)}
+                      placeholder="Full name"
+                      data-testid="create-lead-name-input"
+                      className="w-full px-2 py-1 text-[11px] bg-muted/20 border border-border/30 rounded focus:outline-none focus:border-border/70 placeholder:text-muted-foreground/40"
+                      disabled={isPending}
+                    />
+                  </div>
+                  <div className="flex gap-1.5 pt-0.5">
+                    <button
+                      onClick={() => createLeadMutation.mutate({ fromEmail: senderEmail, company: lCompany.trim(), contactName: lContactName.trim() || undefined })}
+                      disabled={isPending || !lCompany.trim()}
+                      data-testid="create-lead-submit-btn"
+                      className="flex-1 py-1 text-[10px] font-medium rounded bg-amber-500/80 hover:bg-amber-500 text-black disabled:opacity-40 transition-colors"
+                    >
+                      {isPending ? "Creating…" : "Create Lead"}
+                    </button>
+                    <button onClick={() => setShowCreateLeadForm(false)} disabled={isPending} className="px-2 py-1 text-[10px] text-muted-foreground/50 hover:text-muted-foreground border border-border/30 rounded">Cancel</button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Inline create-account form */}
+            {showCreateAccountForm && (() => {
+              const senderEmail = threadRecordQuery.data?.sender?.fromEmail ?? hintSenderEmail ?? "";
+              const domain = senderEmail.split("@")[1]?.toLowerCase() ?? "";
+              const isPending = createAccountMutation.isPending;
+              return (
+                <div className="border border-violet-500/20 rounded bg-violet-500/5 p-2.5 space-y-2 text-[11px]" data-testid="create-account-form">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-medium text-violet-400/80">New Organization</span>
+                    <button onClick={() => setShowCreateAccountForm(false)} className="text-muted-foreground/40 hover:text-muted-foreground"><X className="h-3 w-3" /></button>
+                  </div>
+                  {domain && (
+                    <div className="text-[10px] text-muted-foreground/50">Domain: <span className="text-muted-foreground/70">{domain}</span></div>
+                  )}
+                  <div className="space-y-0.5">
+                    <label className="text-[10px] text-muted-foreground/60 font-medium">Organization name *</label>
+                    <input
+                      value={aName}
+                      onChange={e => setAName(e.target.value)}
+                      placeholder="e.g. Harbour Marine Group"
+                      data-testid="create-account-name-input"
+                      className="w-full px-2 py-1 text-[11px] bg-muted/20 border border-border/30 rounded focus:outline-none focus:border-border/70 placeholder:text-muted-foreground/40"
+                      disabled={isPending}
+                    />
+                  </div>
+                  <div className="flex gap-1.5 pt-0.5">
+                    <button
+                      onClick={() => createAccountMutation.mutate({ fromEmail: senderEmail, name: aName.trim() })}
+                      disabled={isPending || !aName.trim()}
+                      data-testid="create-account-submit-btn"
+                      className="flex-1 py-1 text-[10px] font-medium rounded bg-violet-500/80 hover:bg-violet-500 text-white disabled:opacity-40 transition-colors"
+                    >
+                      {isPending ? "Creating…" : "Create Organization"}
+                    </button>
+                    <button onClick={() => setShowCreateAccountForm(false)} disabled={isPending} className="px-2 py-1 text-[10px] text-muted-foreground/50 hover:text-muted-foreground border border-border/30 rounded">Cancel</button>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Inline create-contact form */}
             {showCreateForm && (() => {

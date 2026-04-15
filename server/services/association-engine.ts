@@ -20,7 +20,7 @@ import {
   contacts, accounts, leads, opportunities, partnerships,
   type EmailMessage,
 } from "@shared/schema";
-import { eq, and, ilike, inArray } from "drizzle-orm";
+import { eq, and, ilike, inArray, sql } from "drizzle-orm";
 import { resolveParticipants, isInternalEmail } from "./identity-resolver";
 
 interface AssocCandidate {
@@ -197,18 +197,20 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
     }
 
     // Signal 1b: Open opportunity via contact (+20 base, +30 if title in subject)
-    const openOpps = await db
-      .select()
-      .from(opportunities)
-      .where(and(eq(opportunities.contactId, contact.id), eq(opportunities.stage, "inbound_new")));
-    for (const opp of openOpps) {
+    // Matches ALL active stages — avoids ne()/not(eq()) Drizzle bug via raw sql
+    const openOpps = await db.execute(
+      sql`SELECT id, title, account_id, stage FROM opportunities
+          WHERE contact_id = ${contact.id}
+          AND stage NOT IN ('closed_won', 'closed_lost')`
+    );
+    for (const opp of openOpps.rows as any[]) {
       if (isRejected("opportunity", opp.id)) continue;
       if (candidates.some(c => c.objectType === "opportunity" && c.objectId === opp.id)) continue;
-      const oReasons: string[] = [`Open opportunity via "${contact.name}"`];
+      const oReasons: string[] = [`Open opportunity via contact "${contact.name}" (${opp.stage} stage)`];
       let oScore = 20;
       if (nameInText(opp.title, normalizedSubject)) {
         oScore += 30;
-        oReasons.push("Opportunity title in subject");
+        oReasons.push("Opportunity title found in email subject");
       }
       oScore = applyPenalties(oScore, msg, oReasons);
       if (oScore >= 40) {
@@ -231,6 +233,35 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
     score = applyPenalties(score, msg, reasons);
     if (score > 0) {
       candidates.push({ objectType: "account", objectId: account.id, objectName: account.name, score, reasons, isAmbiguous: false });
+    }
+  }
+
+  // ── Signal 2b: Open opportunity via account (domain match) (+15) ─────────
+  // For every account found via domain, also link open opportunities.
+  // Lower base score than contact-routed opps since it's one degree more indirect.
+  const accountCandidateIds = candidates
+    .filter(c => c.objectType === "account")
+    .map(c => c.objectId);
+  for (const accountId of accountCandidateIds) {
+    const acctOpps = await db.execute(
+      sql`SELECT id, title, stage FROM opportunities
+          WHERE account_id = ${accountId}
+          AND stage NOT IN ('closed_won', 'closed_lost')`
+    );
+    for (const opp of acctOpps.rows as any[]) {
+      if (isRejected("opportunity", opp.id)) continue;
+      if (candidates.some(c => c.objectType === "opportunity" && c.objectId === opp.id)) continue;
+      const acctName = candidates.find(c => c.objectType === "account" && c.objectId === accountId)?.objectName ?? "";
+      const oReasons: string[] = [`Open opportunity via account "${acctName}" (domain match, ${opp.stage} stage)`];
+      let oScore = 15;
+      if (nameInText(opp.title, normalizedSubject)) {
+        oScore += 25;
+        oReasons.push("Opportunity title found in email subject");
+      }
+      oScore = applyPenalties(oScore, msg, oReasons);
+      if (oScore >= 30) {
+        candidates.push({ objectType: "opportunity", objectId: opp.id, objectName: opp.title, score: oScore, reasons: oReasons, isAmbiguous: false });
+      }
     }
   }
 
