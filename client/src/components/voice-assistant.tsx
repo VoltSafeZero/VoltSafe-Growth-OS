@@ -423,10 +423,10 @@ export function VoiceAssistant() {
             <>
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center ring-1 ring-primary/20">
-                  <img src={cortexLogo} alt="Cortex AI" className="w-6 h-6 object-contain" />
+                  <img src={cortexLogo} alt="Cortex" className="w-6 h-6 object-contain" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold leading-tight">Cortex AI</p>
+                  <p className="text-sm font-semibold leading-tight">Cortex</p>
                   <p className="text-[10px] text-muted-foreground leading-tight">VoltSafe Growth OS Assistant</p>
                 </div>
               </div>
@@ -522,11 +522,11 @@ export function VoiceAssistant() {
               {messages.length === 0 && !currentTranscript && (
                 <div className="flex flex-col items-center justify-center h-full py-8">
                   <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center mb-4 ring-1 ring-primary/10">
-                    <img src={cortexLogo} alt="Cortex AI" className="w-10 h-10 object-contain" />
+                    <img src={cortexLogo} alt="Cortex" className="w-10 h-10 object-contain" />
                   </div>
-                  <p className="text-base font-semibold mb-1">Cortex AI</p>
+                  <p className="text-base font-semibold mb-1">Cortex</p>
                   <p className="text-xs text-muted-foreground text-center max-w-[280px] mb-6">
-                    Your intelligent Growth OS assistant with full database access and web search. Ask me anything about your marina pipeline, accounts, tasks, or industry news.
+                    Your VoltSafe Growth OS AI assistant — full database access and web search. Ask me anything about your marina pipeline, accounts, tasks, or industry news.
                   </p>
                   <div className="grid grid-cols-2 gap-2 w-full max-w-[340px]">
                     {SUGGESTION_CHIPS.map((chip) => (
@@ -668,7 +668,7 @@ export function VoiceAssistant() {
                   <Input
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
-                    placeholder="Ask Cortex AI anything..."
+                    placeholder="Ask Cortex anything..."
                     disabled={isProcessing}
                     className="flex-1 rounded-full bg-secondary/30 border-border/30 focus-visible:border-primary/50 focus-visible:ring-primary/20 h-10"
                     data-testid="input-text-assistant"

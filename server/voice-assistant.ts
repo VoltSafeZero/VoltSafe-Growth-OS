@@ -737,7 +737,7 @@ async function gatherContext(query: string): Promise<string> {
   return results.filter(r => r.length > 0).join("\n\n");
 }
 
-const SYSTEM_PROMPT = `You are Cortex AI, the intelligent assistant for VoltSafe Cortex — VoltSafe's internal CRM and management system. You have full access to all CRM data and the internet.
+const SYSTEM_PROMPT = `You are Cortex, the intelligent AI assistant for VoltSafe Growth OS — VoltSafe's internal CRM and sales intelligence platform. You have full access to all CRM data and the internet.
 
 Your capabilities:
 1. FULL CRM DATABASE ACCESS (READ & WRITE) — You can query AND modify:

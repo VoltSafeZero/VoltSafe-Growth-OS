@@ -105,7 +105,7 @@ export default function ResetPasswordPage({ onLogin, token }: { onLogin: (user: 
             </div>
           </div>
           <CardTitle className="text-2xl font-bold">
-            VoltSafe <span className="text-primary">Cortex</span>
+            VoltSafe <span className="text-primary">Growth OS</span>
           </CardTitle>
           <p className="text-sm text-muted-foreground mt-1">Set a new password</p>
         </CardHeader>

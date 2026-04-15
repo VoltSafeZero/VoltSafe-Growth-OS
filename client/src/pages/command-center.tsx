@@ -361,7 +361,7 @@ export default function CommandCenter() {
             {greeting}, {data.userName.split(" ")[0]}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {format(today, "EEEE, MMMM d, yyyy")} · Growth OS Command Center
+            {format(today, "EEEE, MMMM d, yyyy")} · VoltSafe Growth OS
           </p>
         </div>
         {data.isAdmin && (

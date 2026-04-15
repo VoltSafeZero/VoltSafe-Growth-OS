@@ -261,10 +261,10 @@ export function AppSidebar({
         >
           <img
             src={navLogo}
-            alt="VoltSafe Cortex"
+            alt="VoltSafe Growth OS"
             className="w-[6.75rem] h-[6.75rem] object-contain mix-blend-screen brightness-125 shrink-0"
           />
-          <span>VoltSafe <span className="text-primary">Cortex</span></span>
+          <span>VoltSafe <span className="text-primary">Growth OS</span></span>
         </button>
       </SidebarHeader>
 

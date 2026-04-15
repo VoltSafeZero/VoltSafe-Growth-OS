@@ -271,7 +271,7 @@ export async function registerRoutes(
 
     const html = `
 <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
-  <h2 style="margin-bottom: 4px;">Password Reset — VoltSafe Cortex</h2>
+  <h2 style="margin-bottom: 4px;">Password Reset — VoltSafe Growth OS</h2>
   <p style="color: #555; margin-top: 0;">Hi ${user.name}, we received a request to reset your password.</p>
   <div style="margin: 24px 0;">
     <a href="${resetUrl}" style="display: inline-block; background: #00C1DE; color: #fff; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-weight: 600; font-size: 15px;">
@@ -285,7 +285,7 @@ export async function registerRoutes(
   </p>
 </div>`;
 
-    sendEmail(SYSTEM_SENDER_ID, user.email, "Reset your VoltSafe Cortex password", html)
+    sendEmail(SYSTEM_SENDER_ID, user.email, "Reset your VoltSafe Growth OS password", html)
       .catch((err) => console.error("[reset-email] Failed to send reset email to", user.email, err?.message));
 
     res.json({ message: "If that email exists you'll receive a reset link shortly." });
@@ -2793,7 +2793,7 @@ export async function registerRoutes(
     const loginUrl = process.env.APP_URL || "https://image-linker-burgesstrevor76.replit.app";
     const welcomeHtml = `
 <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
-  <h2 style="margin-bottom: 4px;">Welcome to VoltSafe Cortex</h2>
+  <h2 style="margin-bottom: 4px;">Welcome to VoltSafe Growth OS</h2>
   <p style="color: #555; margin-top: 0;">Hi ${name}, your account has been created.</p>
   <div style="background: #f5f5f5; border-radius: 8px; padding: 16px 20px; margin: 20px 0;">
     <p style="margin: 0 0 8px;"><strong>Login URL:</strong><br>
@@ -2808,7 +2808,7 @@ export async function registerRoutes(
   <p style="color: #999; font-size: 12px;">If you were not expecting this email, please ignore it or contact your administrator.</p>
 </div>`;
 
-    sendEmail(SYSTEM_SENDER_ID, email.toLowerCase().trim(), "Welcome to VoltSafe Cortex — Your Login Details", welcomeHtml)
+    sendEmail(SYSTEM_SENDER_ID, email.toLowerCase().trim(), "Welcome to VoltSafe Growth OS — Your Login Details", welcomeHtml)
       .catch((err) => console.error("[welcome-email] Failed to send welcome email to", email, err?.message));
 
     res.json({ ...created, tempPassword });
@@ -2831,7 +2831,7 @@ export async function registerRoutes(
     const loginUrl = process.env.APP_URL || "https://image-linker-burgesstrevor76.replit.app";
     const welcomeHtml = `
 <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
-  <h2 style="margin-bottom: 4px;">Your VoltSafe Cortex Login Details</h2>
+  <h2 style="margin-bottom: 4px;">Your VoltSafe Growth OS Login Details</h2>
   <p style="color: #555; margin-top: 0;">Hi ${target.name}, here are your updated login credentials.</p>
   <div style="background: #f5f5f5; border-radius: 8px; padding: 16px 20px; margin: 20px 0;">
     <p style="margin: 0 0 8px;"><strong>Login URL:</strong><br>
@@ -2846,7 +2846,7 @@ export async function registerRoutes(
   <p style="color: #999; font-size: 12px;">If you were not expecting this email, please ignore it or contact your administrator.</p>
 </div>`;
 
-    sendEmail(SYSTEM_SENDER_ID, target.email, "VoltSafe Cortex — Your Login Details", welcomeHtml)
+    sendEmail(SYSTEM_SENDER_ID, target.email, "VoltSafe Growth OS — Your Login Details", welcomeHtml)
       .catch((err) => console.error("[resend-invite] Failed to send invite email to", target.email, err?.message));
 
     res.json({ message: "Invite resent" });
@@ -6113,7 +6113,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         res.send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
           <div style="text-align:center">
             <h2 style="color:#22c55e">✓ Google Calendar Connected</h2>
-            <p>${email ? email + " has been" : "Your calendar has been"} connected to VoltSafe Cortex.</p>
+            <p>${email ? email + " has been" : "Your calendar has been"} connected to VoltSafe Growth OS.</p>
             <p style="color:#94a3b8;font-size:0.85rem">Syncing your events now…</p>
             <a href="/settings" style="color:#14b8a6">← Back to Settings</a>
             <script>
@@ -6145,7 +6145,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       res.send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
         <div style="text-align:center">
           <h2 style="color:#22c55e">✓ ${label} Connected</h2>
-          <p>${emailAddress ? emailAddress + " has been" : "The account has been"} connected to VoltSafe Cortex${isShared ? " as a shared team inbox" : ""}.</p>
+          <p>${emailAddress ? emailAddress + " has been" : "The account has been"} connected to VoltSafe Growth OS${isShared ? " as a shared team inbox" : ""}.</p>
           <a href="/gmail" style="color:#14b8a6">Go to Gmail Inbox →</a>
         </div>
       </body></html>`);

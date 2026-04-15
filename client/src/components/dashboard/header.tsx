@@ -472,7 +472,7 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
             >
               <img
                 src={navLogo}
-                alt="VoltSafe Cortex"
+                alt="VoltSafe Growth OS"
                 className="w-[6.75rem] h-[6.75rem] object-contain mix-blend-screen brightness-125"
               />
             </button>

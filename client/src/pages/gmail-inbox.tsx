@@ -3505,7 +3505,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     <p className="text-xs text-muted-foreground mb-4">
                       {statusQuery.data.connected && !statusQuery.data.tokenValid
                         ? "Gmail session has expired. Please reconnect your account."
-                        : "Gmail is not connected to VoltSafe Cortex."}
+                        : "Gmail is not connected to VoltSafe Growth OS."}
                     </p>
                     <a
                       href="/api/auth/gmail/connect"
@@ -3587,7 +3587,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   <Mail className="h-12 w-12 mx-auto mb-4 opacity-20" />
                   <p className="text-sm font-medium text-foreground mb-1">Connect Your Gmail Account</p>
                   <p className="text-xs text-muted-foreground mb-5">
-                    Link your Google account to see your inbox inside VoltSafe Cortex.
+                    Link your Google account to see your inbox inside VoltSafe Growth OS.
                   </p>
                   {statusQuery.data.hasCredentials ? (
                     <a

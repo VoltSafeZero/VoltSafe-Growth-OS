@@ -10,7 +10,7 @@ import { db } from "./db";
 import { webauthnCredentials, users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
-const rpName = "VoltSafe Cortex";
+const rpName = "VoltSafe Growth OS";
 
 function getRpConfig(req: Request) {
   const host = req.get("host") || "localhost:5000";
