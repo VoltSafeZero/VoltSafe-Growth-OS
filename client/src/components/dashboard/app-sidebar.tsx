@@ -2,11 +2,12 @@ import { useState, useEffect, useMemo } from "react";
 import {
   Home, Users, LifeBuoy, Settings2, Building2, Contact, FileText, Mail,
   CalendarClock, FolderOpen, Tags, Zap, Settings, ChevronRight, Users2,
-  ClipboardList, Layers, ShieldCheck, Sun, GitBranch, Search, X,
+  ClipboardList, Layers, ShieldCheck, Sun, Moon, GitBranch, Search, X,
   LayoutDashboard, Target, Share2, Brain, SlidersHorizontal, BarChart3,
   Megaphone, TrendingUp, Landmark, Truck, Factory, FlaskConical, Newspaper,
   Circle, StickyNote, CheckSquare, RefreshCcw, Bell, Sparkles, PlayCircle, Trophy, Package, Globe,
 } from "lucide-react";
+import { useTheme } from "@/components/theme-provider";
 import { Link, useLocation } from "wouter";
 import navLogo from "@assets/nav-logo.png";
 import { Sidebar, SidebarContent, SidebarHeader } from "@/components/ui/sidebar";
@@ -203,6 +204,8 @@ export function AppSidebar({
   const [location, navigate] = useLocation();
   const [openSection, setOpenSection] = useState<string>(() => getActiveSectionId(location));
   const [searchQuery, setSearchQuery] = useState("");
+  const { theme, setTheme } = useTheme();
+  const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
 
   useEffect(() => {
     const active = getActiveSectionId(location);
@@ -386,6 +389,28 @@ export function AppSidebar({
             </div>
           )}
         </nav>
+
+        {/* Theme toggle */}
+        <div className="px-3 py-3 border-t border-border/40 mt-auto shrink-0">
+          <button
+            onClick={() => setTheme(isDark ? "light" : "dark")}
+            data-testid="button-theme-toggle"
+            className="w-full flex items-center justify-between px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-secondary/50 hover:text-foreground transition-colors"
+          >
+            <span className="flex items-center gap-2.5">
+              {isDark ? <Moon className="w-3.5 h-3.5 shrink-0" /> : <Sun className="w-3.5 h-3.5 shrink-0" />}
+              <span>{isDark ? "Dark mode" : "Light mode"}</span>
+            </span>
+            <span className="flex items-center gap-0.5 bg-secondary rounded-full p-0.5">
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${!isDark ? "bg-background shadow text-foreground" : "text-muted-foreground"}`}>
+                <Sun className="w-3 h-3" />
+              </span>
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${isDark ? "bg-background shadow text-foreground" : "text-muted-foreground"}`}>
+                <Moon className="w-3 h-3" />
+              </span>
+            </span>
+          </button>
+        </div>
       </SidebarContent>
     </Sidebar>
   );
