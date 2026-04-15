@@ -1,0 +1,89 @@
+The email auto-association engine and inbox quick-create workflow are complete and passing. Freeze them unless a real bug appears.
+
+Now build the next highest-value CRM layer: Record Summary Bars + Relationship Health.
+
+Goal:
+Make every Account, Opportunity, Contact, Lead, and Partner page instantly answer:
+- what’s happening
+- what’s stuck
+- what needs attention
+- how warm/cold the relationship is
+
+Execute in this order:
+
+1. Add a reusable Record Summary Bar component
+   - Build a shared component that can render at the top of major profile pages
+   - Show compact key metrics/cards such as:
+     - latest email date
+     - latest note date
+     - latest activity date
+     - open tasks count
+     - open opportunities count / value (where relevant)
+     - last inbound communication
+     - last outbound communication
+     - linked contacts count
+     - linked attachments count
+   - Keep it dense, fast to scan, and visually consistent
+
+2. Add Relationship Health scoring
+   - Create a deterministic health model per record using factors like:
+     - recency of inbound email
+     - recency of outbound email
+     - recency of notes/activities
+     - open deal age
+     - stale opportunities
+     - no-touch duration
+     - number of unanswered outbound emails
+   - Output:
+     - healthScore 0–100
+     - healthLabel: Strong / Active / Warm / Cooling / At Risk / Stale
+     - reason list explaining the score
+   - Keep it explainable, not magical
+
+3. Add stale warnings and action nudges
+   - Show warnings like:
+     - No outbound touch in 21 days
+     - Opportunity has had no activity in 30 days
+     - Last inbound was 45 days ago
+     - Multiple unanswered outbound emails
+   - Add one-click actions where possible:
+     - add note
+     - create task
+     - send email
+     - log activity
+
+4. Profile integrations
+   - Add the summary bar to:
+     - Accounts
+     - Opportunities
+     - Contacts
+     - Leads
+     - Partners
+   - Place it high enough that it becomes the instant “status strip” for the record
+
+5. Backend support
+   - Add summary endpoint(s) or extend existing profile endpoints
+   - Keep response normalized and reusable across record types
+   - Apply crm=view permission checks
+   - Avoid N+1 query patterns
+
+6. Tests
+   - Add backend tests for:
+     - summary metrics shape
+     - health scoring rules
+     - stale warning triggers
+     - permission enforcement
+   - Add frontend tests if supported for:
+     - summary bar rendering
+     - warning states
+     - action buttons visibility
+
+7. Final verification
+   - Run TypeScript
+   - Run full test suite
+   - Provide:
+     - exact files changed
+     - scoring model
+     - warning thresholds
+     - pages integrated
+     - final PASS/FAIL

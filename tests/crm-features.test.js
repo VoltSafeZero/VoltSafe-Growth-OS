@@ -599,6 +599,238 @@ async function run() {
     ok("Email link/unlink tests skipped (no email_associations data in DB)");
   }
 
+  // ════════════════════════════════════════════════════════════════════════
+  // T6 — RECORD SUMMARY BAR (Relationship Health Endpoint)
+  // Tests GET /api/record-summary/:objectType/:objectId
+  // ════════════════════════════════════════════════════════════════════════
+  console.log("\n── T6: Record Summary Bar ──");
+
+  // Helper: validate the standard summary shape
+  function validateSummaryShape(status, body) {
+    if (status !== 200) return `expected 200, got ${status}`;
+    const required = [
+      "objectType", "objectId",
+      "lastInboundEmail", "lastOutboundEmail",
+      "lastNote", "lastActivity", "lastTouch",
+      "openTasksCount", "overdueTasksCount",
+      "openOppsCount", "openOppsValue",
+      "contactsCount", "attachmentsCount",
+      "healthScore", "healthLabel",
+      "healthReasons", "warnings",
+    ];
+    for (const k of required) {
+      if (!(k in body)) return `missing field: ${k}`;
+    }
+    if (typeof body.healthScore !== "number") return "healthScore must be a number";
+    if (body.healthScore < 0 || body.healthScore > 100) return `healthScore out of range: ${body.healthScore}`;
+    const validLabels = ["Strong", "Active", "Warm", "Cooling", "At Risk", "Stale"];
+    if (!validLabels.includes(body.healthLabel)) return `invalid healthLabel: ${body.healthLabel}`;
+    if (!Array.isArray(body.healthReasons)) return "healthReasons must be an array";
+    if (!Array.isArray(body.warnings)) return "warnings must be an array";
+    if (typeof body.openTasksCount !== "number") return "openTasksCount must be a number";
+    if (typeof body.overdueTasksCount !== "number") return "overdueTasksCount must be a number";
+    if (body.overdueTasksCount > body.openTasksCount) return "overdueTasksCount cannot exceed openTasksCount";
+    // warnings must have type+message
+    for (const w of body.warnings) {
+      if (!w.type || !w.message) return `warning missing type or message: ${JSON.stringify(w)}`;
+    }
+    return null; // ok
+  }
+
+  // Fetch a real account ID for the summary tests
+  let testSummaryAccountId = null;
+  {
+    const res = await t("/api/accounts?limit=1");
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      // accounts API returns { data: Account[], total, page, totalPages }
+      const accounts = Array.isArray(data) ? data : (data?.data ?? data?.accounts ?? data?.results ?? []);
+      testSummaryAccountId = accounts?.[0]?.id ?? null;
+    }
+  }
+  const summaryAccountUrl = testSummaryAccountId
+    ? `/api/record-summary/account/${testSummaryAccountId}`
+    : "/api/record-summary/account/10";
+
+  // T6.1 — Auth guard: unauthenticated request should 401
+  await check(
+    `GET ${summaryAccountUrl}   [no auth → 401]`,
+    fetch(`${BASE}${summaryAccountUrl}`),
+    401
+  );
+
+  // T6.2 — Invalid objectType → 400
+  await check(
+    "GET /api/record-summary/foobar/1    [bad type → 400]",
+    t("/api/record-summary/foobar/1"),
+    400
+  );
+
+  // T6.3 — Non-existent ID → 404
+  await check(
+    "GET /api/record-summary/account/99999999 [missing → 404]",
+    t("/api/record-summary/account/99999999"),
+    404
+  );
+
+  // T6.4 — account summary shape
+  await checkBody(
+    `GET ${summaryAccountUrl}   [shape + score range]`,
+    t(summaryAccountUrl),
+    (status, body) => {
+      const err = validateSummaryShape(status, body);
+      if (err) return err;
+      if (body.objectType !== "account") return `objectType mismatch: ${body.objectType}`;
+      if (body.objectId !== testSummaryAccountId) return `objectId mismatch: ${body.objectId} vs ${testSummaryAccountId}`;
+      return null;
+    }
+  );
+
+  // T6.5 — viewer (crm=view) can access summary
+  await check(
+    `GET ${summaryAccountUrl}   [viewer crm=view → 200]`,
+    v(summaryAccountUrl),
+    200
+  );
+
+  // Fetch the first available contact from DB
+  let testContactId = null;
+  {
+    const res = await t("/api/contacts?limit=1");
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      const contacts = Array.isArray(data) ? data : (data?.contacts ?? data?.results ?? []);
+      testContactId = contacts?.[0]?.id ?? null;
+    }
+  }
+
+  // T6.6 — contact summary shape (if we have a contact)
+  if (testContactId) {
+    await checkBody(
+      `GET /api/record-summary/contact/${testContactId}  [shape check]`,
+      t(`/api/record-summary/contact/${testContactId}`),
+      (status, body) => {
+        const err = validateSummaryShape(status, body);
+        if (err) return err;
+        if (body.objectType !== "contact") return `objectType mismatch: ${body.objectType}`;
+        return null;
+      }
+    );
+  } else {
+    ok("contact summary skipped (no contacts in DB)");
+  }
+
+  // Fetch first available opportunity
+  let testOppId = null;
+  {
+    const res = await t("/api/opportunities?limit=1");
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      const opps = Array.isArray(data) ? data : (data?.opportunities ?? data?.results ?? []);
+      testOppId = opps?.[0]?.id ?? null;
+    }
+  }
+
+  // T6.7 — opportunity summary shape
+  if (testOppId) {
+    await checkBody(
+      `GET /api/record-summary/opportunity/${testOppId}  [shape check]`,
+      t(`/api/record-summary/opportunity/${testOppId}`),
+      (status, body) => {
+        const err = validateSummaryShape(status, body);
+        if (err) return err;
+        if (body.objectType !== "opportunity") return `objectType mismatch: ${body.objectType}`;
+        return null;
+      }
+    );
+  } else {
+    ok("opportunity summary skipped (no opportunities in DB)");
+  }
+
+  // Fetch first available lead
+  let testLeadId = null;
+  {
+    const res = await t("/api/leads?limit=1");
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      const leads = Array.isArray(data) ? data : (data?.leads ?? data?.items ?? []);
+      testLeadId = leads?.[0]?.id ?? null;
+    }
+  }
+
+  // T6.8 — lead summary shape
+  if (testLeadId) {
+    await checkBody(
+      `GET /api/record-summary/lead/${testLeadId}  [shape check]`,
+      t(`/api/record-summary/lead/${testLeadId}`),
+      (status, body) => {
+        const err = validateSummaryShape(status, body);
+        if (err) return err;
+        if (body.objectType !== "lead") return `objectType mismatch: ${body.objectType}`;
+        return null;
+      }
+    );
+  } else {
+    ok("lead summary skipped (no leads in DB)");
+  }
+
+  // Fetch first available partner
+  let testPartnerId = null;
+  {
+    const res = await t("/api/partnerships");
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      const partners = Array.isArray(data) ? data : [];
+      testPartnerId = partners?.[0]?.id ?? null;
+    }
+  }
+
+  // T6.9 — partner summary shape
+  if (testPartnerId) {
+    await checkBody(
+      `GET /api/record-summary/partner/${testPartnerId}  [shape check]`,
+      t(`/api/record-summary/partner/${testPartnerId}`),
+      (status, body) => {
+        const err = validateSummaryShape(status, body);
+        if (err) return err;
+        if (body.objectType !== "partner") return `objectType mismatch: ${body.objectType}`;
+        return null;
+      }
+    );
+  } else {
+    ok("partner summary skipped (no partners in DB)");
+  }
+
+  // T6.10 — health score is deterministic (two calls same result)
+  {
+    const [r1, r2] = await Promise.all([
+      t(summaryAccountUrl).then(r => r.json()),
+      t(summaryAccountUrl).then(r => r.json()),
+    ]);
+    if (r1.healthScore === r2.healthScore && r1.healthLabel === r2.healthLabel) {
+      ok("record-summary account/1 health score is deterministic across two calls");
+    } else {
+      fail("record-summary health score non-deterministic", `${r1.healthScore} vs ${r2.healthScore}`);
+    }
+  }
+
+  // T6.11 — all objectType variants return 200 (smoke test)
+  for (const type of ["account", "contact", "opportunity", "lead", "partner"]) {
+    const id = type === "account" ? (testSummaryAccountId || 10)
+      : type === "contact" ? (testContactId || 10)
+      : type === "opportunity" ? (testOppId || 10)
+      : type === "lead" ? (testLeadId || 10)
+      : (testPartnerId || 10);
+    const res = await t(`/api/record-summary/${type}/${id}`);
+    // 200 = found, 404 = record doesn't exist but endpoint works (still valid)
+    if (res.status === 200 || res.status === 404) {
+      ok(`GET /api/record-summary/${type}/${id}  [smoke: ${res.status}]`);
+    } else {
+      const txt = await res.text().catch(() => "");
+      fail(`GET /api/record-summary/${type}/${id}  [smoke]`, `expected 200|404, got ${res.status}: ${txt.slice(0, 80)}`);
+    }
+  }
+
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log(`\n${"─".repeat(50)}`);
   const total = passed + failed;

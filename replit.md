@@ -51,6 +51,24 @@ Clickable detail pages for every CRM entity:
 - **`/opportunities/:id`** — OpportunityProfilePage: same + deal stage bar, stakeholders list. Powered by `GET /api/opportunities/:id/profile`.
 - Contacts list rows are clickable (→ `/contacts/:id`). Pipeline cards titles link to `/opportunities/:id`. AccountDetailDialog has "Intelligence Profile" button.
 
+### Record Summary Bar + Relationship Health
+A compact activity/health strip added to every CRM profile surface.
+- **Component:** `client/src/components/record-summary-bar.tsx` (`RecordSummaryBar`)
+  - Props: `objectType` ("account" | "contact" | "opportunity" | "lead" | "partner"), `objectId`, `compact?` (boolean, default false)
+  - Shows: health badge (score 0–100, label), last inbound email, last outbound email, last note, last activity, open tasks (with overdue highlighted red), open deals + pipeline value, contacts count, attachments count
+  - Warning strip for: no outbound 21d, no touch 30d, inbound stale 45d, overdue tasks, stale opportunity
+  - Tooltips on hover for every metric pill; health badge tooltip shows score breakdown
+- **API Endpoint:** `GET /api/record-summary/:objectType/:objectId`
+  - Permission: `requirePermission("crm", "view")`
+  - Returns standardized shape for all 5 object types
+  - Health scoring: base 100, touch recency deductions, inbound warmth bonus/deduction, overdue task penalty, stale opportunity penalty; clamped 0–100
+- **Integration points:**
+  - `account-profile.tsx` — full bar between identity card and main grid
+  - `contact-profile.tsx` — full bar between identity card and main grid
+  - `opportunity-profile.tsx` — full bar between identity card and main grid
+  - `leads.tsx` — compact bar inside LeadDetailDialog (below header)
+  - `partnerships.tsx` — compact bar inside PartnerDetailDialog (below header)
+
 ### Activity Feed (`/activity`)
 Real aggregated activity timeline replacing the "Coming Soon" stub. Pulls from `notes`, `email_messages`, `calendar_events`, `tasks`, and `activities` tables via `GET /api/activity-feed`. Features per-type filter tabs (Note/Email/Meeting/Task/Activity) and live text search. Auto-refreshes every 2 minutes.
 

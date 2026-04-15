@@ -1081,6 +1081,236 @@ export async function registerRoutes(
     }));
   });
 
+  // ── GET /api/record-summary/:objectType/:objectId ─────────────────────────
+  // Unified record health + activity summary used by RecordSummaryBar.
+  // Returns: lastInbound, lastOutbound, lastNote, lastActivity, openTasksCount,
+  //   overdueTasksCount, openOppsCount, openOppsValue, contactsCount,
+  //   attachmentsCount, healthScore (0-100), healthLabel, healthReasons, warnings.
+  //
+  // Health model:
+  //   Base 100. Deductions by days since last touch (any channel):
+  //     0-7d: 0  |  8-14d: -10  |  15-21d: -20  |  22-30d: -30
+  //     31-45d: -40  |  46-60d: -50  |  60+d: -60
+  //   Inbound warmth:  0-14d: +5  |  31-60d: -10  |  60+d: -20
+  //   Overdue tasks:   1: -5  |  2+: -10
+  //   Stale open opp (updated_at 30+d, acct/opp only): -10 per (max -20)
+  //   Clamped 0–100.  Labels: 80+ Strong | 65+ Active | 50+ Warm | 35+ Cooling | 20+ At Risk | else Stale
+  //
+  // Warnings (thresholds):
+  //   no_outbound_21d  — no outbound email in 21+ days
+  //   no_touch_30d     — no touch (any channel) in 30+ days
+  //   inbound_stale_45d — last inbound email 45+ days ago
+  //   overdue_tasks     — at least one overdue task
+  //   stale_opportunity — open opp updated_at 30+ days ago (acct/opp only)
+
+  const SUMMARY_TYPES = ["account", "contact", "opportunity", "lead", "partner"] as const;
+
+  function daysSince(date: string | null | undefined): number | null {
+    if (!date) return null;
+    const ms = Date.now() - new Date(date).getTime();
+    return Math.floor(ms / (1000 * 60 * 60 * 24));
+  }
+
+  function computeHealth(
+    lastTouchDate: string | null,
+    lastInbound: string | null,
+    overdueCount: number,
+    staleOppCount: number,
+  ): { score: number; label: string; reasons: string[]; warnings: Array<{ type: string; message: string }> } {
+    let score = 100;
+    const reasons: string[] = [];
+    const warnings: Array<{ type: string; message: string }> = [];
+
+    const touchDays = daysSince(lastTouchDate);
+    const inboundDays = daysSince(lastInbound);
+
+    // Touch recency deductions
+    if (touchDays === null) {
+      score -= 50;
+      reasons.push("No recorded interactions");
+    } else if (touchDays <= 7) {
+      reasons.push(`Touched ${touchDays}d ago`);
+    } else if (touchDays <= 14) { score -= 10; reasons.push(`Last touch ${touchDays}d ago`); }
+    else if (touchDays <= 21) { score -= 20; reasons.push(`Last touch ${touchDays}d ago`); }
+    else if (touchDays <= 30) { score -= 30; reasons.push(`Last touch ${touchDays}d ago`); }
+    else if (touchDays <= 45) { score -= 40; reasons.push(`Last touch ${touchDays}d ago`); }
+    else if (touchDays <= 60) { score -= 50; reasons.push(`Last touch ${touchDays}d ago`); }
+    else { score -= 60; reasons.push(`Last touch ${touchDays}d ago — no recent contact`); }
+
+    if (touchDays !== null && touchDays >= 30) {
+      warnings.push({ type: "no_touch_30d", message: `No touch in ${touchDays} days` });
+    }
+
+    // Inbound email warmth
+    if (inboundDays !== null) {
+      if (inboundDays <= 14) { score += 5; reasons.push("Recent inbound email"); }
+      else if (inboundDays >= 31 && inboundDays <= 60) { score -= 10; }
+      else if (inboundDays > 60) { score -= 20; reasons.push(`Inbound email ${inboundDays}d ago`); }
+      if (inboundDays >= 45) {
+        warnings.push({ type: "inbound_stale_45d", message: `Last inbound email ${inboundDays} days ago` });
+      }
+    }
+
+    // Overdue tasks
+    if (overdueCount === 1) { score -= 5; reasons.push("1 overdue task"); warnings.push({ type: "overdue_tasks", message: "1 overdue task" }); }
+    else if (overdueCount >= 2) { score -= 10; reasons.push(`${overdueCount} overdue tasks`); warnings.push({ type: "overdue_tasks", message: `${overdueCount} overdue tasks` }); }
+
+    // Stale opportunities
+    const staleApplied = Math.min(staleOppCount, 2);
+    if (staleApplied > 0) {
+      score -= staleApplied * 10;
+      reasons.push(`${staleApplied} open deal${staleApplied > 1 ? "s" : ""} with no recent activity`);
+      warnings.push({ type: "stale_opportunity", message: `${staleApplied} open opportunity${staleApplied > 1 ? "ies" : "y"} without activity in 30+ days` });
+    }
+
+    score = Math.max(0, Math.min(100, score));
+    const label =
+      score >= 80 ? "Strong" :
+      score >= 65 ? "Active" :
+      score >= 50 ? "Warm" :
+      score >= 35 ? "Cooling" :
+      score >= 20 ? "At Risk" : "Stale";
+
+    return { score, label, reasons, warnings };
+  }
+
+  app.get("/api/record-summary/:objectType/:objectId", requirePermission("crm", "view"), async (req, res) => {
+    const { objectType, objectId: objectIdStr } = req.params;
+    if (!SUMMARY_TYPES.includes(objectType as any)) {
+      return res.status(400).json({ message: `Invalid objectType. Must be one of: ${SUMMARY_TYPES.join(", ")}` });
+    }
+    const objectId = Number(objectIdStr);
+    if (!Number.isInteger(objectId) || objectId <= 0) {
+      return res.status(400).json({ message: "objectId must be a positive integer" });
+    }
+
+    try {
+      // ── Per-type query strategy ───────────────────────────────────────────
+      let emailAccountId: number | null = null;
+      let contactEmail: string | null = null;
+      let opportunityAccountId: number | null = null;
+      let opportunityUpdatedAt: string | null = null;
+
+      if (objectType === "account") {
+        const { rows } = await db.execute(sql.raw(`SELECT id FROM accounts WHERE id = ${objectId} LIMIT 1`));
+        if (!rows.length) return res.status(404).json({ message: "Account not found" });
+        emailAccountId = objectId;
+      } else if (objectType === "contact") {
+        const { rows } = await db.execute(sql.raw(`SELECT id, email FROM contacts WHERE id = ${objectId} LIMIT 1`));
+        if (!rows.length) return res.status(404).json({ message: "Contact not found" });
+        contactEmail = (rows[0] as any).email ?? null;
+      } else if (objectType === "opportunity") {
+        const { rows } = await db.execute(sql.raw(`SELECT id, account_id, updated_at FROM opportunities WHERE id = ${objectId} LIMIT 1`));
+        if (!rows.length) return res.status(404).json({ message: "Opportunity not found" });
+        opportunityAccountId = (rows[0] as any).account_id ?? null;
+        opportunityUpdatedAt = (rows[0] as any).updated_at ?? null;
+      } else if (objectType === "lead") {
+        const { rows } = await db.execute(sql.raw(`SELECT id FROM leads WHERE id = ${objectId} LIMIT 1`));
+        if (!rows.length) return res.status(404).json({ message: "Lead not found" });
+      } else if (objectType === "partner") {
+        const { rows } = await db.execute(sql.raw(`SELECT id FROM partnerships WHERE id = ${objectId} LIMIT 1`));
+        if (!rows.length) return res.status(404).json({ message: "Partner not found" });
+      }
+
+      // ── Build email query ─────────────────────────────────────────────────
+      let emailQuery: string | null = null;
+      if (objectType === "account" && emailAccountId) {
+        emailQuery = `SELECT direction, MAX(sent_at) as last_date FROM email_messages WHERE source_account_id = ${emailAccountId} GROUP BY direction`;
+      } else if (objectType === "contact" && contactEmail) {
+        const safeEmail = contactEmail.replace(/'/g, "''");
+        emailQuery = `SELECT direction, MAX(sent_at) as last_date FROM email_messages WHERE from_email = '${safeEmail}' OR all_participants ILIKE '%${safeEmail}%' GROUP BY direction`;
+      } else if (objectType === "opportunity" && opportunityAccountId) {
+        emailQuery = `SELECT direction, MAX(sent_at) as last_date FROM email_messages WHERE source_account_id = ${opportunityAccountId} GROUP BY direction`;
+      } else if (objectType === "partner") {
+        emailQuery = `SELECT direction, MAX(sent_at) as last_date FROM email_associations ea JOIN email_messages em ON ea.email_message_id = em.id WHERE ea.object_type = 'partner' AND ea.object_id = ${objectId} GROUP BY em.direction`;
+      }
+
+      // ── Parallel queries ──────────────────────────────────────────────────
+      const linkedType = objectType === "partner" ? "partner" : objectType;
+      const linkedId = objectId;
+
+      const [emailRows, noteRow, activityRow, taskRow, oppRow, contactCountRow, attachRow, staleOppRow] =
+        await Promise.all([
+          emailQuery ? db.execute(sql.raw(emailQuery)) : Promise.resolve({ rows: [] }),
+          db.execute(sql.raw(`SELECT MAX(created_at) as last_date FROM notes WHERE linked_object_type = '${linkedType}' AND linked_object_id = ${linkedId}`)),
+          db.execute(sql.raw(`SELECT MAX(created_at) as last_date FROM activities WHERE linked_object_type = '${linkedType}' AND linked_object_id = ${linkedId}${objectType === "contact" ? ` OR contact_id = ${linkedId}` : ""}`)),
+          // open tasks + overdue tasks
+          objectType === "account"
+            ? db.execute(sql.raw(`SELECT COUNT(*) FILTER (WHERE status != 'done') as open_count, COUNT(*) FILTER (WHERE status != 'done' AND due_date < NOW()) as overdue_count FROM (SELECT DISTINCT id, status, due_date FROM tasks WHERE account_id = ${linkedId} OR (linked_object_type = 'account' AND linked_object_id = ${linkedId})) t`))
+            : db.execute(sql.raw(`SELECT COUNT(*) FILTER (WHERE status != 'done') as open_count, COUNT(*) FILTER (WHERE status != 'done' AND due_date < NOW()) as overdue_count FROM tasks WHERE linked_object_type = '${linkedType}' AND linked_object_id = ${linkedId}`)),
+          // open opportunities count + value
+          objectType === "account"
+            ? db.execute(sql.raw(`SELECT COUNT(*) FILTER (WHERE stage NOT IN ('closed_won','closed_lost')) as open_count, COALESCE(SUM(amount) FILTER (WHERE stage NOT IN ('closed_won','closed_lost')), 0) as open_value FROM opportunities WHERE account_id = ${linkedId}`))
+            : objectType === "contact"
+              ? db.execute(sql.raw(`SELECT COUNT(*) FILTER (WHERE o.stage NOT IN ('closed_won','closed_lost')) as open_count, COALESCE(SUM(o.amount) FILTER (WHERE o.stage NOT IN ('closed_won','closed_lost')), 0) as open_value FROM opportunities o LEFT JOIN opportunity_contacts oc ON o.id = oc.opportunity_id WHERE oc.contact_id = ${linkedId} OR o.contact_id = ${linkedId}`))
+              : Promise.resolve({ rows: [{ open_count: 0, open_value: 0 }] }),
+          // contacts count (account only)
+          objectType === "account"
+            ? db.execute(sql.raw(`SELECT COUNT(*) as cnt FROM contacts WHERE account_id = ${linkedId}`))
+            : Promise.resolve({ rows: [{ cnt: 0 }] }),
+          // attachments count (attachments table uses object_type/object_id, not linked_object_*)
+          db.execute(sql.raw(`SELECT COUNT(*) as cnt FROM attachments WHERE object_type = '${linkedType}' AND object_id = ${linkedId}`)),
+          // stale open opportunities (updated_at 30+ days ago) — account or opportunity
+          objectType === "account"
+            ? db.execute(sql.raw(`SELECT COUNT(*) as cnt FROM opportunities WHERE account_id = ${linkedId} AND stage NOT IN ('closed_won','closed_lost') AND updated_at < NOW() - INTERVAL '30 days'`))
+            : objectType === "opportunity"
+              ? Promise.resolve({ rows: [{ cnt: opportunityUpdatedAt && daysSince(opportunityUpdatedAt)! >= 30 ? 1 : 0 }] })
+              : Promise.resolve({ rows: [{ cnt: 0 }] }),
+        ]);
+
+      const emailData = emailRows.rows as any[];
+      const lastInbound = emailData.find((r: any) => r.direction === "inbound")?.last_date ?? null;
+      const lastOutbound = emailData.find((r: any) => r.direction === "outbound")?.last_date ?? null;
+      const lastNote = (noteRow.rows[0] as any)?.last_date ?? null;
+      const lastActivity = (activityRow.rows[0] as any)?.last_date ?? null;
+      const openTasksCount = Number((taskRow.rows[0] as any)?.open_count ?? 0);
+      const overdueTasksCount = Number((taskRow.rows[0] as any)?.overdue_count ?? 0);
+      const openOppsCount = Number((oppRow.rows[0] as any)?.open_count ?? 0);
+      const openOppsValue = Number((oppRow.rows[0] as any)?.open_value ?? 0);
+      const contactsCount = Number((contactCountRow.rows[0] as any)?.cnt ?? 0);
+      const attachmentsCount = Number((attachRow.rows[0] as any)?.cnt ?? 0);
+      const staleOppCount = Number((staleOppRow.rows[0] as any)?.cnt ?? 0);
+
+      // Last touch = most recent across all channels
+      const allDates = [lastInbound, lastOutbound, lastNote, lastActivity].filter(Boolean) as string[];
+      const lastTouchDate = allDates.length ? allDates.reduce((a, b) => (new Date(a) > new Date(b) ? a : b)) : null;
+
+      // Outbound warning — find last outbound specifically
+      const outboundDays = daysSince(lastOutbound);
+
+      const { score, label, reasons, warnings } = computeHealth(lastTouchDate, lastInbound, overdueTasksCount, staleOppCount);
+
+      if (outboundDays !== null && outboundDays >= 21 && !warnings.find(w => w.type === "no_outbound_21d")) {
+        warnings.push({ type: "no_outbound_21d", message: `No outbound email in ${outboundDays} days` });
+      } else if (outboundDays === null && !warnings.find(w => w.type === "no_outbound_21d")) {
+        warnings.push({ type: "no_outbound_21d", message: "No outbound email recorded" });
+      }
+
+      res.json({
+        objectType,
+        objectId,
+        lastInboundEmail: lastInbound,
+        lastOutboundEmail: lastOutbound,
+        lastNote,
+        lastActivity,
+        lastTouch: lastTouchDate,
+        openTasksCount,
+        overdueTasksCount,
+        openOppsCount,
+        openOppsValue,
+        contactsCount,
+        attachmentsCount,
+        healthScore: score,
+        healthLabel: label,
+        healthReasons: reasons,
+        warnings,
+      });
+    } catch (err: any) {
+      console.error("record-summary error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/accounts/:id/profile", requirePermission("crm", "view"), async (req, res) => {
     try {
       const id = Number(req.params.id);

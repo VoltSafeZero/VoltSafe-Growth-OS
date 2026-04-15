@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Search, Trash2, Loader2, Globe, MapPin, Pencil, ChevronDown, SlidersHorizontal, X } from "lucide-react";
+import { RecordSummaryBar } from "@/components/record-summary-bar";
 import type { Partnership } from "@shared/schema";
 
 const INDUSTRY_TYPES = [
@@ -632,6 +633,8 @@ function PartnerDetailDialog({
                 </div>
               )}
             </DialogHeader>
+
+            <RecordSummaryBar objectType="partner" objectId={partner.id} compact />
 
             <div className="space-y-4 mt-2">
               <div className="grid grid-cols-2 gap-3">

@@ -16,6 +16,7 @@ import {
 import { formatDistanceToNow, format, isPast } from "date-fns";
 import { Link } from "wouter";
 import { TimelineTab } from "@/components/timeline-tab";
+import { RecordSummaryBar } from "@/components/record-summary-bar";
 
 const STAGE_LABEL: Record<string, string> = {
   inbound_new: "New", qualified: "Qualified", discovery: "Discovery",
@@ -217,6 +218,13 @@ export default function ContactProfilePage() {
               <p className="text-sm text-foreground" data-testid="text-suggested-action">{suggestedAction}</p>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Record Summary Bar */}
+      <Card>
+        <CardContent className="pt-4 pb-3 px-4">
+          <RecordSummaryBar objectType="contact" objectId={id} />
         </CardContent>
       </Card>
 

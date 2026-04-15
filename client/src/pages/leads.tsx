@@ -18,6 +18,7 @@ import {
   LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar, DollarSign, Map, ExternalLink,
   CheckCircle2, AlertCircle, Link2,
 } from "lucide-react";
+import { RecordSummaryBar } from "@/components/record-summary-bar";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
 import { lazy, Suspense } from "react";
 const NearbyMarinasMap = lazy(() => import("@/components/nearby-marinas-map"));
@@ -891,6 +892,8 @@ function LeadDetailDialog({
             </div>
           </div>
         </DialogHeader>
+
+        <RecordSummaryBar objectType="lead" objectId={lead.id} compact />
 
         {editing ? (
           <EditLeadForm lead={lead} onSubmit={(d) => updateMutation.mutate(d)} onCancel={() => setEditing(false)} isPending={updateMutation.isPending} />
