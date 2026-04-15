@@ -5,7 +5,7 @@ import {
   ClipboardList, Layers, ShieldCheck, Sun, GitBranch, Search, X,
   LayoutDashboard, Target, Share2, Brain, SlidersHorizontal, BarChart3,
   Megaphone, TrendingUp, Landmark, Truck, Factory, FlaskConical, Newspaper,
-  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, Sparkles, PlayCircle, Trophy,
+  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, Sparkles, PlayCircle, Trophy, Package,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import navLogo from "@assets/nav-logo.png";
@@ -88,6 +88,16 @@ const sections: NavSection[] = [
       { title: "Install Workflows", url: "/install-workflows", icon: Layers, permKey: "crm" },
       { title: "Renewals", url: "/renewals", icon: RefreshCcw },
       { title: "Quotes", url: "/quotes", icon: FileText, permKey: "quoting" },
+    ],
+  },
+
+  {
+    id: "procurement",
+    label: "Procurement & Mfg",
+    icon: Package,
+    permKey: "crm",
+    items: [
+      { title: "Procurement", url: "/procurement", icon: Package, permKey: "crm" },
     ],
   },
 

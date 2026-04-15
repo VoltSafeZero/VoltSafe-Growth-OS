@@ -450,3 +450,126 @@ export async function migrateSuggestionsSchema(): Promise<void> {
     console.error("[migration] Suggestions schema migration error (non-fatal):", err);
   }
 }
+
+export async function migrateProcurementSchema(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS suppliers (
+        id serial PRIMARY KEY,
+        name text NOT NULL,
+        contact_name text,
+        contact_email text,
+        phone text,
+        country text,
+        region text,
+        lead_time_days integer,
+        status text NOT NULL DEFAULT 'active',
+        notes text,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS parts (
+        id serial PRIMARY KEY,
+        sku text NOT NULL,
+        name text NOT NULL,
+        description text,
+        category text,
+        unit text NOT NULL DEFAULT 'each',
+        unit_cost real,
+        supplier_id integer,
+        lead_time_days integer,
+        notes text,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS purchase_orders (
+        id serial PRIMARY KEY,
+        po_number text NOT NULL,
+        supplier_id integer,
+        status text NOT NULL DEFAULT 'draft',
+        account_id integer,
+        opportunity_id integer,
+        install_workflow_id integer,
+        owner_user_id integer,
+        expected_delivery_date timestamp,
+        actual_delivery_date timestamp,
+        issued_at timestamp,
+        total_amount real,
+        currency text NOT NULL DEFAULT 'USD',
+        notes text,
+        blockers text,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS purchase_order_lines (
+        id serial PRIMARY KEY,
+        purchase_order_id integer NOT NULL,
+        part_id integer,
+        description text,
+        quantity real NOT NULL DEFAULT 1,
+        quantity_received real NOT NULL DEFAULT 0,
+        unit_cost real,
+        notes text,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS production_batches (
+        id serial PRIMARY KEY,
+        batch_number text NOT NULL,
+        part_id integer,
+        part_name text,
+        quantity real NOT NULL DEFAULT 1,
+        status text NOT NULL DEFAULT 'planned',
+        install_workflow_id integer,
+        account_id integer,
+        owner_user_id integer,
+        planned_start_date timestamp,
+        actual_start_date timestamp,
+        target_completion_date timestamp,
+        actual_completion_date timestamp,
+        notes text,
+        blockers text,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS inventory_allocations (
+        id serial PRIMARY KEY,
+        part_id integer NOT NULL,
+        location text NOT NULL DEFAULT 'warehouse',
+        quantity_on_hand real NOT NULL DEFAULT 0,
+        quantity_allocated real NOT NULL DEFAULT 0,
+        quantity_reserved_cert real NOT NULL DEFAULT 0,
+        install_workflow_id integer,
+        notes text,
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+
+    // Indexes
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_purchase_orders_status ON purchase_orders(status)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_purchase_orders_supplier ON purchase_orders(supplier_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_po_lines_po ON purchase_order_lines(purchase_order_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_prod_batches_status ON production_batches(status)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_prod_batches_install ON production_batches(install_workflow_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_inventory_part ON inventory_allocations(part_id)`);
+
+    console.log("[migration] Procurement schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Procurement schema migration error (non-fatal):", err);
+  }
+}

@@ -223,6 +223,44 @@ Full CRUD notes module replacing the "Coming Soon" stub. Powered by `GET /api/no
 - **Actions per tab:** Ignore (dismiss), Assign Owner (dialog with user select), Set Close Date (date picker dialog), Set Amount (number input dialog), Archive, Bulk Create Follow-up Tasks.
 - **Tests:** `tests/data-quality.test.js` — 20/20 passing.
 
+## Procurement / Manufacturing Workflow
+
+End-to-end hardware delivery layer sitting beneath the Install Workflows. All tables migrated via `migrateProcurementSchema()` in `server/seed-production.ts`.
+
+### DB Tables (6 new)
+| Table | Purpose |
+|---|---|
+| `suppliers` | Vendor directory — name, lead time, country, status |
+| `parts` | SKU catalog — unit, unit_cost, supplier FK |
+| `purchase_orders` | PO lifecycle (draft → issued → received) with auto-numbering `PO-NNNN` |
+| `purchase_order_lines` | Line items — qty, qty_received; auto-advances PO to partially_received / received |
+| `production_batches` | Assembly runs (planned → in_assembly → testing → ready → shipped); auto-numbers `BATCH-NNNN` |
+| `inventory_allocations` | On-hand / allocated / reserved-cert per part per location; computes quantity_available |
+
+### Key API Endpoints (all under `/api/procurement/`)
+- `GET/POST /suppliers`, `PATCH /suppliers/:id`
+- `GET/POST /parts`, `PATCH /parts/:id`
+- `GET/POST /purchase-orders`, `GET/PATCH /purchase-orders/:id`
+- `GET/POST /purchase-orders/:id/lines`, `PATCH/DELETE /purchase-orders/:id/lines/:lineId`
+- `GET/POST /production-batches`, `GET/PATCH /production-batches/:id`
+- `GET/POST /inventory`, `PATCH /inventory/:id`
+- `GET /blocked-installs` — install workflows missing ready/shipped batches or with delayed POs
+- `GET /dashboard` — KPI aggregates across all four layers
+
+### Auto-Task Creation (Phase 6)
+- PO → `delayed`: creates a "Follow up on delayed PO …" task (priority high, due 2 days)
+- Batch → `blocked`: creates a "Resolve blocker …" task (priority high, due 1 day)
+- Batch → `testing`: creates a "Complete testing …" task (priority medium, due 5 days)
+
+### Frontend
+- Route: `/procurement` (`client/src/pages/procurement.tsx`)
+- Sidebar section: **Procurement & Mfg** (Package icon, crm perm)
+- 7 tabs: Dashboard · Purchase Orders · Production · Inventory · Blocked Installs · Suppliers · Parts
+- KPI strip (8 cards) + inline status dropdowns + create modals for POs and Batches
+
+### Tests
+`tests/procurement.test.js` — 93 assertions covering full CRUD, status lifecycle, auto-advance, auto-task triggers, blocked-installs, and dashboard shape.
+
 ## External Dependencies
 
 - **PostgreSQL:** Primary database.

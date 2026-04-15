@@ -12408,6 +12408,629 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PROCUREMENT / MANUFACTURING WORKFLOW
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── Helper: generate next sequential number ────────────────────────────────
+  async function nextProcurementNumber(prefix: string, table: string, col: string): Promise<string> {
+    const r = await db.execute(sql.raw(`SELECT COALESCE(MAX(CAST(REPLACE(${col}, '${prefix}-', '') AS INTEGER)), 0) + 1 AS next FROM ${table} WHERE ${col} LIKE '${prefix}-%'`));
+    const n = parseInt((r as any).rows?.[0]?.next ?? "1");
+    return `${prefix}-${String(n).padStart(4, "0")}`;
+  }
+
+  // ── Helper: create a procurement task ─────────────────────────────────────
+  async function createProcurementTask(
+    title: string, linkedType: string, linkedId: number,
+    ownerUserId: number | null, dueDays = 3, priority = "high"
+  ) {
+    const due = new Date(Date.now() + dueDays * 86_400_000).toISOString();
+    await db.execute(sql.raw(`
+      INSERT INTO tasks (title, linked_object_type, linked_object_id, owner_user_id,
+                         due_date, status, priority, source, source_label, created_at, updated_at)
+      VALUES ('${title.replace(/'/g, "''")}', '${linkedType}', ${linkedId},
+              ${ownerUserId ?? "NULL"}, '${due}', 'pending', '${priority}',
+              'procurement', 'Procurement', NOW(), NOW())`));
+  }
+
+  // ── SUPPLIERS ──────────────────────────────────────────────────────────────
+
+  app.get("/api/procurement/suppliers", requireAuth, async (req, res) => {
+    try {
+      const r = await db.execute(sql.raw(`
+        SELECT s.*, COUNT(po.id)::int AS po_count
+        FROM suppliers s
+        LEFT JOIN purchase_orders po ON po.supplier_id = s.id
+        GROUP BY s.id ORDER BY s.name`));
+      res.json({ data: (r as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/procurement/suppliers", requireAuth, async (req, res) => {
+    try {
+      const { name, contactName, contactEmail, phone, country, region, leadTimeDays, notes } = req.body;
+      if (!name) return res.status(400).json({ message: "name is required" });
+      const r = await db.execute(sql.raw(`
+        INSERT INTO suppliers (name, contact_name, contact_email, phone, country, region, lead_time_days, notes, created_at, updated_at)
+        VALUES ('${name.replace(/'/g,"''")}', ${contactName ? `'${contactName.replace(/'/g,"''")}' ` : "NULL"},
+                ${contactEmail ? `'${contactEmail}'` : "NULL"}, ${phone ? `'${phone}'` : "NULL"},
+                ${country ? `'${country}'` : "NULL"}, ${region ? `'${region}'` : "NULL"},
+                ${leadTimeDays ?? "NULL"}, ${notes ? `'${notes.replace(/'/g,"''")}' ` : "NULL"},
+                NOW(), NOW())
+        RETURNING *`));
+      res.status(201).json((r as any).rows?.[0]);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.patch("/api/procurement/suppliers/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const fields = req.body as Record<string,any>;
+      const colMap: Record<string,string> = {
+        name: "name", contactName: "contact_name", contactEmail: "contact_email",
+        phone: "phone", country: "country", region: "region",
+        leadTimeDays: "lead_time_days", status: "status", notes: "notes",
+      };
+      const sets = Object.entries(fields).filter(([k]) => colMap[k])
+        .map(([k,v]) => `${colMap[k]} = ${v === null ? "NULL" : `'${String(v).replace(/'/g,"''")}'`}`).join(", ");
+      if (!sets) return res.status(400).json({ message: "No valid fields" });
+      const r = await db.execute(sql.raw(`UPDATE suppliers SET ${sets}, updated_at = NOW() WHERE id = ${id} RETURNING *`));
+      const row = (r as any).rows?.[0];
+      if (!row) return res.status(404).json({ message: "Not found" });
+      res.json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── PARTS / SKUs ──────────────────────────────────────────────────────────
+
+  app.get("/api/procurement/parts", requireAuth, async (req, res) => {
+    try {
+      const r = await db.execute(sql.raw(`
+        SELECT p.*, s.name AS supplier_name
+        FROM parts p
+        LEFT JOIN suppliers s ON s.id = p.supplier_id
+        ORDER BY p.name`));
+      res.json({ data: (r as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/procurement/parts", requireAuth, async (req, res) => {
+    try {
+      const { sku, name, description, category, unit, unitCost, supplierId, leadTimeDays, notes } = req.body;
+      if (!sku || !name) return res.status(400).json({ message: "sku and name are required" });
+      const r = await db.execute(sql.raw(`
+        INSERT INTO parts (sku, name, description, category, unit, unit_cost, supplier_id, lead_time_days, notes, created_at, updated_at)
+        VALUES ('${sku.replace(/'/g,"''")}', '${name.replace(/'/g,"''")}',
+                ${description ? `'${description.replace(/'/g,"''")}' ` : "NULL"},
+                ${category ? `'${category}'` : "NULL"}, '${(unit || "each")}',
+                ${unitCost ?? "NULL"}, ${supplierId ?? "NULL"}, ${leadTimeDays ?? "NULL"},
+                ${notes ? `'${notes.replace(/'/g,"''")}' ` : "NULL"},
+                NOW(), NOW())
+        RETURNING *`));
+      res.status(201).json((r as any).rows?.[0]);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.patch("/api/procurement/parts/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const colMap: Record<string,string> = {
+        sku: "sku", name: "name", description: "description", category: "category",
+        unit: "unit", unitCost: "unit_cost", supplierId: "supplier_id",
+        leadTimeDays: "lead_time_days", notes: "notes",
+      };
+      const sets = Object.entries(req.body as Record<string,any>).filter(([k]) => colMap[k])
+        .map(([k,v]) => `${colMap[k]} = ${v === null ? "NULL" : `'${String(v).replace(/'/g,"''")}'`}`).join(", ");
+      if (!sets) return res.status(400).json({ message: "No valid fields" });
+      const r = await db.execute(sql.raw(`UPDATE parts SET ${sets}, updated_at = NOW() WHERE id = ${id} RETURNING *`));
+      const row = (r as any).rows?.[0];
+      if (!row) return res.status(404).json({ message: "Not found" });
+      res.json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── PURCHASE ORDERS ───────────────────────────────────────────────────────
+
+  app.get("/api/procurement/purchase-orders", requireAuth, async (req, res) => {
+    try {
+      const q = req.query as Record<string,string>;
+      const where: string[] = [];
+      if (q.status) where.push(`po.status = '${q.status}'`);
+      if (q.supplierId) where.push(`po.supplier_id = ${parseInt(q.supplierId)}`);
+      if (q.installWorkflowId) where.push(`po.install_workflow_id = ${parseInt(q.installWorkflowId)}`);
+      const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+      const r = await db.execute(sql.raw(`
+        SELECT po.*,
+               s.name AS supplier_name,
+               u.name AS owner_name,
+               a.name AS account_name,
+               COUNT(pol.id)::int AS line_count,
+               COALESCE(SUM(pol.quantity * pol.unit_cost), 0) AS computed_total
+        FROM purchase_orders po
+        LEFT JOIN suppliers s ON s.id = po.supplier_id
+        LEFT JOIN users u ON u.id = po.owner_user_id
+        LEFT JOIN accounts a ON a.id = po.account_id
+        LEFT JOIN purchase_order_lines pol ON pol.purchase_order_id = po.id
+        ${whereClause}
+        GROUP BY po.id, s.name, u.name, a.name
+        ORDER BY po.created_at DESC
+        LIMIT 200`));
+      res.json({ data: (r as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.get("/api/procurement/purchase-orders/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [poRes, linesRes] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT po.*, s.name AS supplier_name, u.name AS owner_name, a.name AS account_name
+          FROM purchase_orders po
+          LEFT JOIN suppliers s ON s.id = po.supplier_id
+          LEFT JOIN users u ON u.id = po.owner_user_id
+          LEFT JOIN accounts a ON a.id = po.account_id
+          WHERE po.id = ${id}`)),
+        db.execute(sql.raw(`
+          SELECT pol.*, p.name AS part_name, p.sku
+          FROM purchase_order_lines pol
+          LEFT JOIN parts p ON p.id = pol.part_id
+          WHERE pol.purchase_order_id = ${id}
+          ORDER BY pol.id`)),
+      ]);
+      const po = (poRes as any).rows?.[0];
+      if (!po) return res.status(404).json({ message: "Not found" });
+      res.json({ ...po, lines: (linesRes as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/procurement/purchase-orders", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const poNumber = await nextProcurementNumber("PO", "purchase_orders", "po_number");
+      const {
+        supplierId, accountId, opportunityId, installWorkflowId,
+        expectedDeliveryDate, totalAmount, currency, notes, blockers,
+      } = req.body;
+      const ownerUserId = req.body.ownerUserId ?? user?.id ?? null;
+      const r = await db.execute(sql.raw(`
+        INSERT INTO purchase_orders
+          (po_number, supplier_id, status, account_id, opportunity_id, install_workflow_id,
+           owner_user_id, expected_delivery_date, total_amount, currency, notes, blockers, created_at, updated_at)
+        VALUES ('${poNumber}',
+                ${supplierId ?? "NULL"}, 'draft',
+                ${accountId ?? "NULL"}, ${opportunityId ?? "NULL"}, ${installWorkflowId ?? "NULL"},
+                ${ownerUserId ?? "NULL"},
+                ${expectedDeliveryDate ? `'${new Date(expectedDeliveryDate).toISOString()}'` : "NULL"},
+                ${totalAmount ?? "NULL"}, '${currency || "USD"}',
+                ${notes ? `'${notes.replace(/'/g,"''")}' ` : "NULL"},
+                ${blockers ? `'${blockers.replace(/'/g,"''")}' ` : "NULL"},
+                NOW(), NOW())
+        RETURNING *`));
+      res.status(201).json((r as any).rows?.[0]);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.patch("/api/procurement/purchase-orders/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status, expectedDeliveryDate, actualDeliveryDate, supplierId,
+              totalAmount, notes, blockers, installWorkflowId, accountId } = req.body;
+
+      // Fetch current record to detect status transition
+      const cur = await db.execute(sql.raw(`SELECT * FROM purchase_orders WHERE id = ${id}`));
+      const prev = (cur as any).rows?.[0];
+      if (!prev) return res.status(404).json({ message: "Not found" });
+
+      const colMap: Record<string,string> = {
+        status: "status", notes: "notes", blockers: "blockers",
+        totalAmount: "total_amount", currency: "currency",
+        supplierId: "supplier_id", installWorkflowId: "install_workflow_id",
+        accountId: "account_id",
+      };
+      const sets: string[] = [];
+      for (const [k, v] of Object.entries(req.body)) {
+        if (colMap[k]) sets.push(`${colMap[k]} = ${v === null ? "NULL" : `'${String(v).replace(/'/g,"''")}'`}`);
+      }
+      if (expectedDeliveryDate) sets.push(`expected_delivery_date = '${new Date(expectedDeliveryDate).toISOString()}'`);
+      if (actualDeliveryDate)   sets.push(`actual_delivery_date = '${new Date(actualDeliveryDate).toISOString()}'`);
+      if (status === "issued" && prev.status !== "issued") sets.push("issued_at = NOW()");
+      sets.push("updated_at = NOW()");
+
+      const r = await db.execute(sql.raw(`UPDATE purchase_orders SET ${sets.join(", ")} WHERE id = ${id} RETURNING *`));
+      const updated = (r as any).rows?.[0];
+
+      // Phase 6: auto-create task when PO goes delayed
+      if (status === "delayed" && prev.status !== "delayed") {
+        await createProcurementTask(
+          `Follow up on delayed PO ${prev.po_number}`,
+          "purchase_order", id, updated.owner_user_id, 2, "high"
+        );
+      }
+
+      res.json(updated);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── PO LINES ──────────────────────────────────────────────────────────────
+
+  app.get("/api/procurement/purchase-orders/:id/lines", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const r = await db.execute(sql.raw(`
+        SELECT pol.*, p.name AS part_name, p.sku, p.unit
+        FROM purchase_order_lines pol
+        LEFT JOIN parts p ON p.id = pol.part_id
+        WHERE pol.purchase_order_id = ${id}
+        ORDER BY pol.id`));
+      res.json({ data: (r as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/procurement/purchase-orders/:id/lines", requireAuth, async (req, res) => {
+    try {
+      const poId = parseInt(req.params.id);
+      const { partId, description, quantity, unitCost, notes } = req.body;
+      const r = await db.execute(sql.raw(`
+        INSERT INTO purchase_order_lines
+          (purchase_order_id, part_id, description, quantity, quantity_received, unit_cost, notes, created_at, updated_at)
+        VALUES (${poId},
+                ${partId ?? "NULL"},
+                ${description ? `'${description.replace(/'/g,"''")}' ` : "NULL"},
+                ${quantity ?? 1}, 0, ${unitCost ?? "NULL"},
+                ${notes ? `'${notes.replace(/'/g,"''")}' ` : "NULL"},
+                NOW(), NOW())
+        RETURNING *`));
+      // Recompute PO total
+      await db.execute(sql.raw(`
+        UPDATE purchase_orders
+        SET total_amount = (SELECT COALESCE(SUM(quantity * unit_cost), 0) FROM purchase_order_lines WHERE purchase_order_id = ${poId}),
+            updated_at = NOW()
+        WHERE id = ${poId}`));
+      res.status(201).json((r as any).rows?.[0]);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.patch("/api/procurement/purchase-orders/:id/lines/:lineId", requireAuth, async (req, res) => {
+    try {
+      const { lineId } = req.params;
+      const { quantity, quantityReceived, unitCost, notes } = req.body;
+      const sets: string[] = [];
+      if (quantity !== undefined)         sets.push(`quantity = ${parseFloat(quantity)}`);
+      if (quantityReceived !== undefined) sets.push(`quantity_received = ${parseFloat(quantityReceived)}`);
+      if (unitCost !== undefined)         sets.push(`unit_cost = ${unitCost}`);
+      if (notes !== undefined)            sets.push(`notes = ${notes ? `'${notes.replace(/'/g,"''")}' ` : "NULL"}`);
+      sets.push("updated_at = NOW()");
+      const r = await db.execute(sql.raw(`UPDATE purchase_order_lines SET ${sets.join(", ")} WHERE id = ${lineId} RETURNING *`));
+      const row = (r as any).rows?.[0];
+      if (!row) return res.status(404).json({ message: "Not found" });
+      // Auto-advance PO status when all lines fully received
+      const linesR = await db.execute(sql.raw(`
+        SELECT SUM(quantity) AS total_qty, SUM(quantity_received) AS total_rcvd
+        FROM purchase_order_lines WHERE purchase_order_id = ${row.purchase_order_id}`));
+      const lr = (linesR as any).rows?.[0] ?? {};
+      const totalQty  = parseFloat(lr.total_qty  ?? "0");
+      const totalRcvd = parseFloat(lr.total_rcvd ?? "0");
+      if (totalQty > 0 && totalRcvd >= totalQty) {
+        await db.execute(sql.raw(`
+          UPDATE purchase_orders SET status = 'received', actual_delivery_date = NOW(), updated_at = NOW()
+          WHERE id = ${row.purchase_order_id} AND status NOT IN ('received','cancelled')`));
+      } else if (totalRcvd > 0 && totalRcvd < totalQty) {
+        await db.execute(sql.raw(`
+          UPDATE purchase_orders SET status = 'partially_received', updated_at = NOW()
+          WHERE id = ${row.purchase_order_id} AND status IN ('issued')`));
+      }
+      // Recompute PO total
+      await db.execute(sql.raw(`
+        UPDATE purchase_orders
+        SET total_amount = (SELECT COALESCE(SUM(quantity * COALESCE(unit_cost,0)), 0) FROM purchase_order_lines WHERE purchase_order_id = ${row.purchase_order_id}),
+            updated_at = NOW()
+        WHERE id = ${row.purchase_order_id}`));
+      res.json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.delete("/api/procurement/purchase-orders/:id/lines/:lineId", requireAuth, async (req, res) => {
+    try {
+      await db.execute(sql.raw(`DELETE FROM purchase_order_lines WHERE id = ${parseInt(req.params.lineId)}`));
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── PRODUCTION BATCHES ────────────────────────────────────────────────────
+
+  app.get("/api/procurement/production-batches", requireAuth, async (req, res) => {
+    try {
+      const q = req.query as Record<string,string>;
+      const where: string[] = [];
+      if (q.status) where.push(`pb.status = '${q.status}'`);
+      if (q.installWorkflowId) where.push(`pb.install_workflow_id = ${parseInt(q.installWorkflowId)}`);
+      const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+      const r = await db.execute(sql.raw(`
+        SELECT pb.*, p.name AS part_name_lookup, p.sku,
+               u.name AS owner_name, a.name AS account_name,
+               iw.title AS install_workflow_title
+        FROM production_batches pb
+        LEFT JOIN parts p ON p.id = pb.part_id
+        LEFT JOIN users u ON u.id = pb.owner_user_id
+        LEFT JOIN accounts a ON a.id = pb.account_id
+        LEFT JOIN install_workflows iw ON iw.id = pb.install_workflow_id
+        ${whereClause}
+        ORDER BY pb.created_at DESC
+        LIMIT 200`));
+      res.json({ data: (r as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.get("/api/procurement/production-batches/:id", requireAuth, async (req, res) => {
+    try {
+      const r = await db.execute(sql.raw(`
+        SELECT pb.*, p.name AS part_name_lookup, p.sku,
+               u.name AS owner_name, a.name AS account_name,
+               iw.title AS install_workflow_title
+        FROM production_batches pb
+        LEFT JOIN parts p ON p.id = pb.part_id
+        LEFT JOIN users u ON u.id = pb.owner_user_id
+        LEFT JOIN accounts a ON a.id = pb.account_id
+        LEFT JOIN install_workflows iw ON iw.id = pb.install_workflow_id
+        WHERE pb.id = ${parseInt(req.params.id)}`));
+      const row = (r as any).rows?.[0];
+      if (!row) return res.status(404).json({ message: "Not found" });
+      res.json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/procurement/production-batches", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const batchNumber = await nextProcurementNumber("BATCH", "production_batches", "batch_number");
+      const {
+        partId, partName, quantity, installWorkflowId, accountId,
+        plannedStartDate, targetCompletionDate, notes,
+      } = req.body;
+      const ownerUserId = req.body.ownerUserId ?? user?.id ?? null;
+      const r = await db.execute(sql.raw(`
+        INSERT INTO production_batches
+          (batch_number, part_id, part_name, quantity, status,
+           install_workflow_id, account_id, owner_user_id,
+           planned_start_date, target_completion_date, notes, created_at, updated_at)
+        VALUES ('${batchNumber}',
+                ${partId ?? "NULL"},
+                ${partName ? `'${partName.replace(/'/g,"''")}' ` : "NULL"},
+                ${quantity ?? 1}, 'planned',
+                ${installWorkflowId ?? "NULL"}, ${accountId ?? "NULL"}, ${ownerUserId ?? "NULL"},
+                ${plannedStartDate ? `'${new Date(plannedStartDate).toISOString()}'` : "NULL"},
+                ${targetCompletionDate ? `'${new Date(targetCompletionDate).toISOString()}'` : "NULL"},
+                ${notes ? `'${notes.replace(/'/g,"''")}' ` : "NULL"},
+                NOW(), NOW())
+        RETURNING *`));
+      res.status(201).json((r as any).rows?.[0]);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.patch("/api/procurement/production-batches/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status, blockers } = req.body;
+
+      const curR = await db.execute(sql.raw(`SELECT * FROM production_batches WHERE id = ${id}`));
+      const prev = (curR as any).rows?.[0];
+      if (!prev) return res.status(404).json({ message: "Not found" });
+
+      const colMap: Record<string,string> = {
+        status: "status", blockers: "blockers", notes: "notes",
+        partId: "part_id", partName: "part_name", quantity: "quantity",
+        installWorkflowId: "install_workflow_id", accountId: "account_id",
+        ownerUserId: "owner_user_id",
+      };
+      const sets: string[] = [];
+      for (const [k, v] of Object.entries(req.body as Record<string,any>)) {
+        if (colMap[k]) sets.push(`${colMap[k]} = ${v === null ? "NULL" : `'${String(v).replace(/'/g,"''")}'`}`);
+      }
+      if (req.body.plannedStartDate)      sets.push(`planned_start_date = '${new Date(req.body.plannedStartDate).toISOString()}'`);
+      if (req.body.actualStartDate)       sets.push(`actual_start_date = '${new Date(req.body.actualStartDate).toISOString()}'`);
+      if (req.body.targetCompletionDate)  sets.push(`target_completion_date = '${new Date(req.body.targetCompletionDate).toISOString()}'`);
+      if (req.body.actualCompletionDate)  sets.push(`actual_completion_date = '${new Date(req.body.actualCompletionDate).toISOString()}'`);
+      // Status transitions
+      if (status === "in_assembly" && prev.status === "planned") sets.push("actual_start_date = NOW()");
+      if (status === "shipped" || status === "ready") sets.push("actual_completion_date = NOW()");
+      sets.push("updated_at = NOW()");
+
+      const r = await db.execute(sql.raw(`UPDATE production_batches SET ${sets.join(", ")} WHERE id = ${id} RETURNING *`));
+      const updated = (r as any).rows?.[0];
+
+      // Phase 6: auto-create task when batch goes blocked
+      if (status === "blocked" && prev.status !== "blocked") {
+        await createProcurementTask(
+          `Resolve blocker on batch ${prev.batch_number}: ${blockers || "unspecified"}`,
+          "production_batch", id, updated.owner_user_id, 1, "high"
+        );
+      }
+      // Phase 6: auto-create task when batch moves to testing
+      if (status === "testing" && prev.status !== "testing") {
+        await createProcurementTask(
+          `Complete testing for batch ${prev.batch_number}`,
+          "production_batch", id, updated.owner_user_id, 5, "medium"
+        );
+      }
+
+      res.json(updated);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── INVENTORY ALLOCATIONS ─────────────────────────────────────────────────
+
+  app.get("/api/procurement/inventory", requireAuth, async (req, res) => {
+    try {
+      const r = await db.execute(sql.raw(`
+        SELECT ia.*,
+               p.name AS part_name, p.sku, p.unit, p.unit_cost,
+               s.name AS supplier_name,
+               ia.quantity_on_hand - ia.quantity_allocated - ia.quantity_reserved_cert AS quantity_available
+        FROM inventory_allocations ia
+        LEFT JOIN parts p ON p.id = ia.part_id
+        LEFT JOIN suppliers s ON s.id = p.supplier_id
+        ORDER BY p.name, ia.location`));
+      res.json({ data: (r as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/procurement/inventory", requireAuth, async (req, res) => {
+    try {
+      const { partId, location, quantityOnHand, quantityAllocated, quantityReservedCert, installWorkflowId, notes } = req.body;
+      if (!partId) return res.status(400).json({ message: "partId is required" });
+      const r = await db.execute(sql.raw(`
+        INSERT INTO inventory_allocations
+          (part_id, location, quantity_on_hand, quantity_allocated, quantity_reserved_cert, install_workflow_id, notes, updated_at)
+        VALUES (${partId}, '${location || "warehouse"}',
+                ${quantityOnHand ?? 0}, ${quantityAllocated ?? 0}, ${quantityReservedCert ?? 0},
+                ${installWorkflowId ?? "NULL"},
+                ${notes ? `'${notes.replace(/'/g,"''")}' ` : "NULL"},
+                NOW())
+        RETURNING *`));
+      res.status(201).json((r as any).rows?.[0]);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.patch("/api/procurement/inventory/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { quantityOnHand, quantityAllocated, quantityReservedCert, location, notes } = req.body;
+      const sets: string[] = [];
+      if (quantityOnHand     !== undefined) sets.push(`quantity_on_hand = ${parseFloat(quantityOnHand)}`);
+      if (quantityAllocated  !== undefined) sets.push(`quantity_allocated = ${parseFloat(quantityAllocated)}`);
+      if (quantityReservedCert !== undefined) sets.push(`quantity_reserved_cert = ${parseFloat(quantityReservedCert)}`);
+      if (location  !== undefined) sets.push(`location = '${location}'`);
+      if (notes     !== undefined) sets.push(`notes = ${notes ? `'${notes.replace(/'/g,"''")}' ` : "NULL"}`);
+      sets.push("updated_at = NOW()");
+      const r = await db.execute(sql.raw(`UPDATE inventory_allocations SET ${sets.join(", ")} WHERE id = ${id} RETURNING *`));
+      const row = (r as any).rows?.[0];
+      if (!row) return res.status(404).json({ message: "Not found" });
+      res.json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── BLOCKED INSTALLS (Phase 5 + 6) ───────────────────────────────────────
+  // Detect install_workflows that don't have any production batch in ready/shipped state
+
+  app.get("/api/procurement/blocked-installs", requireAuth, async (req, res) => {
+    try {
+      const r = await db.execute(sql.raw(`
+        SELECT iw.id, iw.title, iw.status AS install_status,
+               iw.target_completion_date, iw.account_id,
+               a.name AS account_name,
+               u.name AS owner_name,
+               COALESCE(batch_counts.total_batches, 0) AS total_batches,
+               COALESCE(batch_counts.ready_batches, 0) AS ready_batches,
+               COALESCE(batch_counts.blocked_batches, 0) AS blocked_batches,
+               COALESCE(po_counts.open_pos, 0) AS open_pos,
+               COALESCE(po_counts.delayed_pos, 0) AS delayed_pos
+        FROM install_workflows iw
+        LEFT JOIN accounts a ON a.id = iw.account_id
+        LEFT JOIN users u ON u.id = iw.owner_user_id
+        LEFT JOIN (
+          SELECT install_workflow_id,
+                 COUNT(*) AS total_batches,
+                 COUNT(*) FILTER (WHERE status IN ('ready','shipped')) AS ready_batches,
+                 COUNT(*) FILTER (WHERE status = 'blocked') AS blocked_batches
+          FROM production_batches
+          GROUP BY install_workflow_id
+        ) batch_counts ON batch_counts.install_workflow_id = iw.id
+        LEFT JOIN (
+          SELECT install_workflow_id,
+                 COUNT(*) FILTER (WHERE status NOT IN ('received','cancelled')) AS open_pos,
+                 COUNT(*) FILTER (WHERE status = 'delayed') AS delayed_pos
+          FROM purchase_orders
+          GROUP BY install_workflow_id
+        ) po_counts ON po_counts.install_workflow_id = iw.id
+        WHERE iw.status NOT IN ('complete','cancelled')
+          AND (
+            COALESCE(batch_counts.total_batches, 0) > 0
+            AND COALESCE(batch_counts.ready_batches, 0) < COALESCE(batch_counts.total_batches, 0)
+          OR COALESCE(po_counts.delayed_pos, 0) > 0
+          )
+        ORDER BY iw.target_completion_date ASC NULLS LAST
+        LIMIT 50`));
+      res.json({ data: (r as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── OPERATIONAL DASHBOARD ─────────────────────────────────────────────────
+
+  app.get("/api/procurement/dashboard", requireAuth, async (req, res) => {
+    try {
+      const [posRes, batchesRes, inventoryRes, blockedRes] = await Promise.all([
+        // PO summary by status
+        db.execute(sql.raw(`
+          SELECT status, COUNT(*) AS count, COALESCE(SUM(total_amount), 0) AS total_value
+          FROM purchase_orders GROUP BY status ORDER BY status`)),
+
+        // Production batch summary by status
+        db.execute(sql.raw(`
+          SELECT status, COUNT(*) AS count, COALESCE(SUM(quantity), 0) AS total_qty
+          FROM production_batches GROUP BY status ORDER BY status`)),
+
+        // Inventory summary
+        db.execute(sql.raw(`
+          SELECT
+            COUNT(*) AS total_sku_locations,
+            COALESCE(SUM(quantity_on_hand), 0) AS total_on_hand,
+            COALESCE(SUM(quantity_allocated), 0) AS total_allocated,
+            COALESCE(SUM(quantity_on_hand - quantity_allocated - quantity_reserved_cert), 0) AS total_available,
+            COUNT(*) FILTER (WHERE quantity_on_hand - quantity_allocated - quantity_reserved_cert < 0) AS shortfall_count
+          FROM inventory_allocations`)),
+
+        // Blocked installs count
+        db.execute(sql.raw(`
+          SELECT COUNT(*) AS blocked_count
+          FROM install_workflows iw
+          WHERE iw.status NOT IN ('complete','cancelled')
+            AND EXISTS (
+              SELECT 1 FROM production_batches pb
+              WHERE pb.install_workflow_id = iw.id
+                AND pb.status NOT IN ('ready','shipped')
+            )`)),
+      ]);
+
+      const poRows     = (posRes     as any).rows ?? [];
+      const batchRows  = (batchesRes as any).rows ?? [];
+      const invRow     = (inventoryRes as any).rows?.[0] ?? {};
+      const blockedRow = (blockedRes  as any).rows?.[0] ?? {};
+
+      // Delayed suppliers
+      const delayedRes = await db.execute(sql.raw(`
+        SELECT s.name, COUNT(*) AS delayed_pos
+        FROM purchase_orders po
+        JOIN suppliers s ON s.id = po.supplier_id
+        WHERE po.status = 'delayed'
+        GROUP BY s.name ORDER BY delayed_pos DESC LIMIT 5`));
+
+      const poByStatus = Object.fromEntries(poRows.map((r: any) => [r.status, { count: parseInt(r.count), value: parseFloat(r.total_value) }]));
+      const batchByStatus = Object.fromEntries(batchRows.map((r: any) => [r.status, { count: parseInt(r.count), qty: parseFloat(r.total_qty) }]));
+
+      res.json({
+        pos: {
+          byStatus: poByStatus,
+          totalOpen: poRows.filter((r: any) => !["received","cancelled"].includes(r.status)).reduce((acc: number, r: any) => acc + parseInt(r.count), 0),
+          totalDelayed: parseInt(poByStatus.delayed?.count ?? "0"),
+          delayedSuppliers: (delayedRes as any).rows ?? [],
+        },
+        batches: {
+          byStatus: batchByStatus,
+          totalBlocked: parseInt(batchByStatus.blocked?.count ?? "0"),
+          totalReady: parseInt(batchByStatus.ready?.count ?? "0"),
+        },
+        inventory: {
+          totalSkuLocations: parseInt(invRow.total_sku_locations ?? "0"),
+          totalOnHand: parseFloat(invRow.total_on_hand ?? "0"),
+          totalAllocated: parseFloat(invRow.total_allocated ?? "0"),
+          totalAvailable: parseFloat(invRow.total_available ?? "0"),
+          shortfallCount: parseInt(invRow.shortfall_count ?? "0"),
+        },
+        blockedInstalls: parseInt(blockedRow.blocked_count ?? "0"),
+      });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
   // ── Engagement scheduler + default rules ────────────────────────────────────
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
   startEngagementScheduler();
