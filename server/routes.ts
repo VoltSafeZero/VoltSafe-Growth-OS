@@ -8534,6 +8534,7 @@ export function registerConfluenceRoutes(app: Express) {
       // placeholders across UNION branches which PostgreSQL rejects at parse time).
       const safe = q.replace(/\\/g, "\\\\").replace(/'/g, "''");
       const term = `%${safe}%`;
+      const safePrefix = `${safe}%`;
 
       // Each UNION branch MUST be wrapped in parentheses so that LIMIT applies
       // per-branch. Without parentheses PostgreSQL parses LIMIT as belonging to
@@ -8542,6 +8543,9 @@ export function registerConfluenceRoutes(app: Express) {
       // contacts and opportunities do NOT have an account_name column — they
       // store account_id as a foreign key. A LEFT JOIN is required to resolve the
       // human-readable account name for the search sub-label (sub2 field).
+      //
+      // Lead branch uses a ranked subquery so exact/prefix company matches surface
+      // above partial-company, contact-name, and city-only matches.
       const result = await db.execute(sql.raw(`
         (SELECT 'account' as type, a.id::text, a.name as label, a.lead_status as sub, a.city as sub2, NULL as linked_id
          FROM accounts a WHERE a.name ILIKE '${term}' LIMIT 5)
@@ -8555,9 +8559,22 @@ export function registerConfluenceRoutes(app: Express) {
          FROM opportunities o LEFT JOIN accounts ac ON o.account_id = ac.id
          WHERE o.title ILIKE '${term}' OR ac.name ILIKE '${term}' LIMIT 5)
         UNION ALL
-        (SELECT 'lead' as type, l.id::text, l.company as label, l.status as sub, l.city as sub2, NULL as linked_id
-         FROM leads l
-         WHERE l.company ILIKE '${term}' OR l.contact_name ILIKE '${term}' OR l.city ILIKE '${term}' LIMIT 5)
+        (SELECT type, id, label, sub, sub2, linked_id FROM (
+          SELECT 'lead' as type, l.id::text as id, l.company as label, l.status as sub,
+            TRIM(COALESCE(l.city,'') || CASE WHEN l.state IS NOT NULL AND l.state <> '' THEN ', ' || l.state ELSE '' END) as sub2,
+            NULL::text as linked_id,
+            CASE
+              WHEN LOWER(l.company) = LOWER('${safe}')  THEN 0
+              WHEN l.company       ILIKE '${safePrefix}' THEN 1
+              WHEN l.company       ILIKE '${term}'       THEN 2
+              WHEN l.contact_name  ILIKE '${term}'       THEN 3
+              ELSE 4
+            END as _rank
+          FROM leads l
+          WHERE l.company ILIKE '${term}' OR l.contact_name ILIKE '${term}' OR l.city ILIKE '${term}'
+          ORDER BY _rank, l.company
+          LIMIT 5
+        ) _ranked_leads)
         UNION ALL
         (SELECT 'note' as type, n.id::text, SUBSTRING(n.content, 1, 90) as label,
                 n.linked_object_type as sub, NULL as sub2, n.linked_object_id::text as linked_id
