@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,7 +16,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, List, Columns3, DollarSign, AlertTriangle, Clock, CalendarClock,
-  ArrowRight, CheckCircle2, XCircle, Target, ShieldAlert, Zap, MessageSquare
+  ArrowRight, CheckCircle2, XCircle, Target, ShieldAlert, Zap, MessageSquare,
+  ExternalLink,
 } from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
 import { NotesPanel } from "@/components/notes-panel";
@@ -390,7 +392,14 @@ function DealDetailDialog({ deal, accountName, onUpdate, onClose }: {
         <DialogHeader>
           <div className="flex items-start justify-between gap-4">
             <div>
-              <DialogTitle className="text-xl">{deal.title}</DialogTitle>
+              <div className="flex items-center gap-2 flex-wrap">
+                <DialogTitle className="text-xl">{deal.title}</DialogTitle>
+                <Link href={`/opportunities/${deal.id}`}>
+                  <button className="inline-flex items-center gap-1 text-xs rounded-md border border-primary/20 bg-primary/5 text-primary px-2 py-0.5 cursor-pointer transition-colors hover:bg-primary/10 hover:border-primary/40" data-testid="button-view-opp-profile">
+                    <ExternalLink className="h-3 w-3" /> Full Profile
+                  </button>
+                </Link>
+              </div>
               <p className="text-sm text-muted-foreground mt-0.5">{accountName}</p>
             </div>
             <div className="text-right shrink-0">

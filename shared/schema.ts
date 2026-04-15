@@ -151,11 +151,35 @@ export const accounts = pgTable("accounts", {
   tags: text("tags"),
   notes: text("notes"),
 
-  // Phase 1 CRM/Organizations refactor — additive columns (2026-04)
-  // org_type discriminates marina_prospect | marina_customer | pilot_customer | enterprise
+  // ── Phase 1 CMS/Organizations refactor — additive columns (2026-04) ────────
+  // org_type is the canonical discriminator for all organization records.
+  // Canonical values: marina_prospect | marina_customer | pilot_customer |
+  //   pilot_site | enterprise | partner | association | regulatory | research |
+  //   marina_group | port_harbor | government | utility | distributor |
+  //   installer | manufacturer | investor | media | other
+  // Note: pilot_site and government are legacy UI values; pilot_customer and
+  //   regulatory are the canonical replacements — both coexist during transition.
   orgType: text("org_type").default("marina_prospect"),
-  // tracks which lead this account was converted from (traceability via migrationMap)
+
+  // partner_class sub-segments when org_type = 'partner'.
+  // Values: technology | channel | manufacturer | strategic | funding
+  partnerClass: text("partner_class"),
+
+  // Relationship intelligence fields (mirrors partnerships table equivalents)
+  influenceScore: integer("influence_score"),
+  strategicImportance: text("strategic_importance"),
+  priorityLevel: text("priority_level"),
+
+  // Association-specific fields
+  membershipStatus: text("membership_status"),
+  marinasRepresented: integer("marinas_represented"),
+
+  // Long-tail partner attributes with no dedicated column
+  partnerMetadata: jsonb("partner_metadata"),
+
+  // Traceability: set when this account was converted from a partnerships row
   convertedFromLeadId: integer("converted_from_lead_id"),
+  convertedFromPartnershipId: integer("converted_from_partnership_id"),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -1117,3 +1141,27 @@ export const emailFolderAssignments = pgTable("email_folder_assignments", {
 export const insertEmailFolderAssignmentSchema = createInsertSchema(emailFolderAssignments).omit({ id: true, createdAt: true });
 export type EmailFolderAssignment = typeof emailFolderAssignments.$inferSelect;
 export type InsertEmailFolderAssignment = z.infer<typeof insertEmailFolderAssignmentSchema>;
+
+// ── Phase 1 CMS/Organizations migration tracking (2026-04) ────────────────
+// migration_status vocabulary (same across tables):
+//   legacy | pending | migrated | verified | children_migrated | complete | rolled_back
+export const migrationLog = pgTable("migration_log", {
+  id: serial("id").primaryKey(),
+  migrationName: text("migration_name").notNull(),
+  batchId: text("batch_id").notNull(),
+  sourceTable: text("source_table").notNull(),
+  sourceId: integer("source_id").notNull(),
+  targetTable: text("target_table").notNull(),
+  targetId: integer("target_id"),
+  migrationStatus: text("migration_status").notNull().default("pending"),
+  migratedAt: timestamp("migrated_at"),
+  verifiedAt: timestamp("verified_at"),
+  childrenMigratedAt: timestamp("children_migrated_at"),
+  errorMessage: text("error_message"),
+  ranByUserId: integer("ran_by_user_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertMigrationLogSchema = createInsertSchema(migrationLog).omit({ id: true, createdAt: true });
+export type MigrationLog = typeof migrationLog.$inferSelect;
+export type InsertMigrationLog = z.infer<typeof insertMigrationLogSchema>;
