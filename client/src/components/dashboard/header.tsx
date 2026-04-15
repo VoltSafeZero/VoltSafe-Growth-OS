@@ -100,14 +100,9 @@ function GlobalSearch() {
   const isShortQuery = trimmed.length === 1;
 
   const { data, isFetching } = useQuery<{ results: SearchResultItem[] }>({
-    queryKey: ["/api/search", trimmed],
+    queryKey: [`/api/search?q=${encodeURIComponent(trimmed)}`],
     enabled: trimmed.length >= 2,
     staleTime: 10_000,
-    queryFn: async () => {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}`, { credentials: "include" });
-      if (!res.ok) throw new Error(`${res.status}`);
-      return res.json();
-    },
   });
 
   const results = data?.results ?? [];
