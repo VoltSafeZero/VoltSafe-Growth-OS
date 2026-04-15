@@ -167,11 +167,10 @@ export async function registerRoutes(
 
   // ── Public Tracking Routes (NO auth — served to email clients) ─────────────
   // 1x1 transparent GIF pixel for open tracking
-  app.get("/track/open/:trackingId.gif", async (req, res) => {
-    const { trackingId } = req.params;
+  // Shared handler for open pixel (both .gif and bare token variants)
+  function serveTrackingPixel(trackingId: string, req: any, res: any) {
     const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress;
     const ua = req.headers["user-agent"];
-    // Respond immediately with the pixel — don't block on DB write
     const pixel = Buffer.from(
       "47494638396101000100800000ffffff00000021f90400000000002c00000000010001000002024401003b", "hex"
     );
@@ -179,9 +178,20 @@ export async function registerRoutes(
     res.setHeader("Content-Length", pixel.length);
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
     res.setHeader("Pragma", "no-cache");
+    res.setHeader("X-Content-Type-Options", "nosniff");
     res.end(pixel);
-    // Fire and forget — write event after response
+    // Fire and forget — write event after response is already sent
     recordOpen(trackingId, ip, ua).catch(() => {});
+  }
+
+  // Primary: with .gif extension (used in injected pixels)
+  app.get("/track/open/:trackingId.gif", (req, res) => {
+    serveTrackingPixel(req.params.trackingId, req, res);
+  });
+
+  // Alias: bare token (spec requirement — used in injectTracking() pixel src)
+  app.get("/track/open/:trackingId", (req, res) => {
+    serveTrackingPixel(req.params.trackingId, req, res);
   });
 
   // Tracked link redirect

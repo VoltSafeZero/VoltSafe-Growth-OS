@@ -32,12 +32,20 @@ type EmailWithAssociation = {
 type EngagementStats = {
   trackingId: string | null;
   opens: number;
+  /** Non-bot, non-duplicate opens — the meaningful signal */
   uniqueOpens: number;
   clicks: number;
   uniqueClicks: number;
   firstOpenAt: string | null;
   lastOpenAt: string | null;
-  events: Array<{ eventType: string; url: string | null; isBot: boolean; occurredAt: string }>;
+  events: Array<{
+    eventType: string;
+    url: string | null;
+    isBot: boolean;
+    isDuplicate: boolean;
+    occurredAt: string;
+    metadata: Record<string, unknown> | null;
+  }>;
 };
 
 function formatEmailDate(dateStr: string | null) {
@@ -109,43 +117,64 @@ function EngagementPanel({ gmailMessageId }: { gmailMessageId: string }) {
     );
   }
 
-  const realEvents = stats.events.filter(e => !e.isBot);
-  const openEvents = realEvents.filter(e => e.eventType === "open");
-  const clickEvents = realEvents.filter(e => e.eventType === "click");
+  // Meaningful = not a bot, not a rapid duplicate
+  const meaningfulEvents = stats.events.filter(e => !e.isBot && !e.isDuplicate);
+  // Show all non-bot events in timeline (duplicates labelled dimly)
+  const visibleEvents = stats.events.filter(e => !e.isBot);
 
   return (
     <div className="space-y-2.5" data-testid="engagement-panel">
-      {/* Summary row */}
+      {/* Summary */}
       <div className="flex items-center gap-3 flex-wrap">
-        <div className={`flex items-center gap-1.5 text-xs font-medium ${stats.uniqueOpens > 0 ? "text-emerald-400" : "text-muted-foreground/50"}`}
-          data-testid="engagement-opens-count">
+        <div
+          className={`flex items-center gap-1.5 text-xs font-medium ${stats.uniqueOpens > 0 ? "text-emerald-400" : "text-muted-foreground/50"}`}
+          data-testid="engagement-opens-count"
+        >
           <Eye className="h-3.5 w-3.5" />
-          {stats.uniqueOpens > 0 ? `${stats.uniqueOpens} open${stats.uniqueOpens !== 1 ? "s" : ""}` : "Not opened"}
+          {stats.uniqueOpens > 0
+            ? `Opened ${stats.uniqueOpens} time${stats.uniqueOpens !== 1 ? "s" : ""}`
+            : "Not opened"}
         </div>
         {stats.uniqueClicks > 0 && (
           <div className="flex items-center gap-1.5 text-xs font-medium text-blue-400" data-testid="engagement-clicks-count">
             <MousePointerClick className="h-3.5 w-3.5" />
-            {stats.uniqueClicks} click{stats.uniqueClicks !== 1 ? "s" : ""}
+            {stats.uniqueClicks} link click{stats.uniqueClicks !== 1 ? "s" : ""}
           </div>
         )}
-        {stats.firstOpenAt && (
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+        {stats.lastOpenAt && (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground" data-testid="engagement-last-open">
             <Clock className="h-3 w-3" />
-            First opened {formatRelativeTime(stats.firstOpenAt)}
+            Last opened {formatRelativeTime(stats.lastOpenAt)}
           </div>
         )}
       </div>
 
+      {/* Soft signal disclaimer */}
+      <p className="text-[10px] text-muted-foreground/40 leading-tight">
+        Opens reflect image loads — a soft signal, not a guaranteed read.
+        Rapid same-source loads are deduplicated automatically.
+      </p>
+
       {/* Event timeline */}
-      {realEvents.length > 0 && (
-        <div className="space-y-1 max-h-32 overflow-y-auto">
-          {realEvents.slice(0, 10).map((ev, i) => (
-            <div key={i} className="flex items-center gap-2 text-[11px] text-muted-foreground">
+      {visibleEvents.length > 0 && (
+        <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
+          {visibleEvents.slice(0, 12).map((ev, i) => (
+            <div
+              key={i}
+              className={`flex items-center gap-2 text-[11px] ${ev.isDuplicate ? "opacity-40" : "text-muted-foreground"}`}
+            >
               {ev.eventType === "open"
                 ? <Eye className="h-3 w-3 text-emerald-400 shrink-0" />
                 : <MousePointerClick className="h-3 w-3 text-blue-400 shrink-0" />}
               <span className="capitalize">{ev.eventType}</span>
-              {ev.url && <span className="truncate text-muted-foreground/60 max-w-[180px]">{ev.url.replace(/^https?:\/\//, "")}</span>}
+              {ev.isDuplicate && (
+                <span className="text-muted-foreground/50 text-[10px]">(rapid repeat)</span>
+              )}
+              {ev.url && !ev.isDuplicate && (
+                <span className="truncate text-muted-foreground/60 max-w-[160px]">
+                  {ev.url.replace(/^https?:\/\//, "")}
+                </span>
+              )}
               <span className="shrink-0 ml-auto">{formatRelativeTime(ev.occurredAt)}</span>
             </div>
           ))}

@@ -1,0 +1,83 @@
+Great. Outbound Email Engagement Tracking is complete and tested. Next, build Engagement-Driven Follow-Up Automations.
+
+Goal:
+Turn open/click/reply engagement into useful CRM actions, reminders, and prioritization without creating noise.
+
+Build this in phases.
+
+PHASE 1 — ENGAGEMENT SIGNAL SCORING
+Create a simple deterministic scoring model per outbound email/thread:
+- first open = low signal
+- repeated opens within a time window = stronger signal
+- click on tracked link = strong signal
+- reply = strongest signal
+- bot/proxy opens do not count as meaningful engagement
+Store a lightweight engagement summary per message/thread if helpful.
+
+PHASE 2 — AUTOMATION RULES ENGINE
+Extend email_engagement_rules so rules can trigger on things like:
+- first real open
+- N opens within X hours/days
+- first click
+- no open after X days
+- opened but no reply after X days
+- clicked quote/spec/pricing link
+Actions:
+- create task
+- create notification
+- mark thread hot
+- bump priority
+- assign owner
+- add timeline event
+Keep rules deterministic and explainable.
+
+PHASE 3 — QUOTE / SALES SIGNALS
+Add high-value defaults for B2B sales:
+- quote email opened multiple times → suggest follow-up
+- pricing/spec link clicked → create high-priority task
+- opened but not replied in 3 days → reminder
+- no open after 5 days → resend / alternate follow-up suggestion
+Keep defaults editable.
+
+PHASE 4 — THREAD / RECORD SURFACES
+Show engagement health in:
+- email workspace
+- linked account/lead/contact timeline
+- opportunity / quote context when relevant
+Useful badges:
+- Unopened
+- Opened
+- Opened repeatedly
+- Clicked
+- Replied
+- Hot
+
+PHASE 5 — TASKS / SUGGESTIONS INTEGRATION
+Feed engagement into the existing tasks + suggestions system:
+- “Follow up: quote opened 4 times”
+- “Reach back out: pricing link clicked”
+- “No engagement after 5 days”
+Reuse current task source/sourceLabel/sourceMeta patterns.
+
+PHASE 6 — DEDUPE / COOLDOWNS
+Prevent spammy automation:
+- cooldown windows
+- dedupe by message/thread/rule
+- suppress repeated notifications for the same weak signal
+- only escalate when signal strength truly changes
+
+PHASE 7 — TESTING
+Add tests for:
+- scoring behavior
+- automation triggers
+- task creation
+- notification creation
+- dedupe and cooldowns
+- bot open suppression
+- no regression to sending/tracking/timeline behavior
+
+Implementation rules:
+- do not treat opens as guaranteed reads
+- clicks and replies should carry more weight
+- keep it lightweight and useful for B2B sales, not marketing automation
+- summarize changed files and final pass/fail at the end
