@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { Link } from "wouter";
 import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -478,15 +479,22 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
                       </td>
                       <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell">{lead.source || "—"}</td>
                       <td className="p-3 sm:p-4 text-right">
-                        {canEdit && (lead.status === "converted" ? (
-                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); unconvertMutation.mutate(lead.id); }} data-testid={`button-unconvert-${lead.id}`} title="Revert lead status (Organization preserved)">
-                            <Undo2 className="h-4 w-4" />
-                          </Button>
-                        ) : lead.status !== "lost" ? (
-                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setConvertDialogLead(lead); }} data-testid={`button-convert-${lead.id}`} title="Promote to Organization">
-                            <ArrowRightLeft className="h-4 w-4" />
-                          </Button>
-                        ) : null)}
+                        <div className="flex items-center justify-end gap-1">
+                          <Link href={`/opportunities/${lead.id}`}>
+                            <Button variant="ghost" size="sm" onClick={e => e.stopPropagation()} data-testid={`link-opp-profile-${lead.id}`} title="View full profile" className="h-8 px-2 text-xs text-muted-foreground hover:text-primary gap-1">
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </Button>
+                          </Link>
+                          {canEdit && (lead.status === "converted" ? (
+                            <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); unconvertMutation.mutate(lead.id); }} data-testid={`button-unconvert-${lead.id}`} title="Revert lead status (Organization preserved)">
+                              <Undo2 className="h-4 w-4" />
+                            </Button>
+                          ) : lead.status !== "lost" ? (
+                            <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setConvertDialogLead(lead); }} data-testid={`button-convert-${lead.id}`} title="Promote to Organization">
+                              <ArrowRightLeft className="h-4 w-4" />
+                            </Button>
+                          ) : null)}
+                        </div>
                       </td>
                     </tr>
                   ))}

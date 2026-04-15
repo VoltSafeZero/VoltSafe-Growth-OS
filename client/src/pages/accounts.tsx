@@ -355,6 +355,13 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                         Next: {account.nextAction}
                       </p>
                     )}
+                    <div className="mt-3 pt-2 border-t border-border/30 flex justify-end">
+                      <Link href={`/accounts/${account.id}`}>
+                        <div onClick={e => e.stopPropagation()} className="flex items-center gap-1 text-xs text-primary hover:underline cursor-pointer" data-testid={`link-account-profile-${account.id}`}>
+                          View Profile <ChevronRight className="h-3 w-3" />
+                        </div>
+                      </Link>
+                    </div>
                   </CardContent>
                 </Card>
               ))}

@@ -258,19 +258,21 @@ export default function TodayPage() {
               data?.hotOpportunities.length === 0 ? <EmptyState text="No active opportunities assigned to you" /> :
                 <div className="space-y-2">
                   {data?.hotOpportunities.map(o => (
-                    <div key={o.id} className="p-2.5 rounded-lg border border-border/40 bg-card" data-testid={`opp-${o.id}`}>
-                      <div className="flex items-start justify-between gap-1">
-                        <p className="text-sm font-medium truncate flex-1">{o.title}</p>
-                        {o.amount && <span className="text-xs font-semibold text-emerald-400 shrink-0">${o.amount.toLocaleString()}</span>}
+                    <Link key={o.id} href={`/opportunities/${o.id}`}>
+                      <div className="p-2.5 rounded-lg border border-border/40 bg-card hover:border-primary/30 hover:bg-primary/5 transition-colors cursor-pointer" data-testid={`opp-${o.id}`}>
+                        <div className="flex items-start justify-between gap-1">
+                          <p className="text-sm font-medium truncate flex-1">{o.title}</p>
+                          {o.amount && <span className="text-xs font-semibold text-emerald-400 shrink-0">${o.amount.toLocaleString()}</span>}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Building2 className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground truncate">{o.accountName}</span>
+                          <Badge variant="outline" className={`text-[10px] px-1 ml-auto shrink-0 ${STAGE_COLOR[o.stage] ?? ""}`}>
+                            {STAGE_LABELS[o.stage] ?? o.stage}
+                          </Badge>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Building2 className="h-3 w-3 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground truncate">{o.accountName}</span>
-                        <Badge variant="outline" className={`text-[10px] px-1 ml-auto shrink-0 ${STAGE_COLOR[o.stage] ?? ""}`}>
-                          {STAGE_LABELS[o.stage] ?? o.stage}
-                        </Badge>
-                      </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
             }
