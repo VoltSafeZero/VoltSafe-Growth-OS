@@ -4,6 +4,13 @@
 
 **VoltSafe Growth OS** is VoltSafe's internal sales intelligence and CRM platform for marina-focused sales, support, and relationship management. It features a comprehensive sales pipeline (Leads to Quotes), support ticketing, a marina directory, communication tools, and an analytics dashboard. **Cortex** is the embedded AI assistant within the platform.
 
+### Certification Oversight Layer (complete)
+- **CertSummaryStrip**: Live dashboard banner on /projects showing total/blocked/at-risk/on-track/retest/certified/expiring-90d counts + due-soon items; clicking a stat activates the cert quick-filter.
+- **Cert quick-filter chips** (Phase 2): Second filter row on /projects for All Certification / Blocked / Retest Required / Due in 30 days / Cert Expiring / Passed+Certified — maps to `?certFilter=` backend param.
+- **Attachments** (Phase 3): Drag-and-drop + click-to-upload file attachments per certification project; stored in `uploads/cert-attachments/`; metadata in `project_attachments` table; download via signed GET route; delete with disk cleanup. Shown as "Attachments" section in `CertificationDetailPanel`.
+- **Timeline** (Phase 4): `project_timeline_events` table; auto-emitted events: `status_change`, `launch_blocker_on`, `launch_blocker_off`, `retest_required`, `cert_issued`, `milestone_done`, `attachment_added`. Rendered in a "Timeline" tab (cert projects only) with icon + color per event type.
+- **Tests**: `tests/oversight.test.js` — 70 assertions covering all four phases (100% pass rate).
+
 ### Dual-Brand Architecture
 - **Platform name:** VoltSafe Growth OS — shown in sidebar, login, browser tab, emails, all UI surfaces
 - **AI assistant name:** Cortex — the in-app chatbot/AI layer (formerly "Cortex AI")

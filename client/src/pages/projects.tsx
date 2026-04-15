@@ -21,7 +21,8 @@ import {
   ShieldCheck, AlertTriangle, CheckCircle2, Circle, Clock,
   ChevronDown, ChevronRight, ExternalLink, Zap, Loader2,
   TrendingUp, XCircle, TriangleAlert, RefreshCw, FileText,
-  FlaskRound, Users, BarChart3, Link2,
+  FlaskRound, Users, BarChart3, Link2, Upload, Download, X,
+  Activity, Paperclip,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -173,6 +174,213 @@ function CertWarningBanners({ cert, projectName }: { cert: CertRecord | null | u
           <div key={w.key} className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${w.cls}`} data-testid={`warning-${w.key}`}>
             <Icon className="h-3.5 w-3.5 mt-0.5 shrink-0" />
             <span>{w.msg}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Phase 1: Certification Summary Strip ──────────────────────────────────────
+type CertSummary = {
+  total: number; blocked: number; at_risk: number; on_track: number;
+  retest_required: number; certified: number; cert_expiring_90d: number;
+  failure_open: number; next_due_items: any[];
+};
+
+function CertSummaryStrip({ onCertFilter }: { onCertFilter: (f: string) => void }) {
+  const { data, isLoading } = useQuery<CertSummary>({
+    queryKey: ["/api/projects/cert-summary"],
+    queryFn: () => fetch("/api/projects/cert-summary", { credentials: "include" }).then(r => r.json()),
+    refetchInterval: 60000,
+  });
+
+  if (isLoading || !data || data.total === 0) return null;
+
+  const stats = [
+    { label: "Total", value: data.total, color: "text-foreground", filter: "" },
+    { label: "On Track", value: data.on_track, color: "text-emerald-400", filter: "" },
+    { label: "At Risk", value: data.at_risk, color: "text-orange-400", filter: "" },
+    { label: "Blocked", value: data.blocked, color: "text-red-400", filter: "blocked" },
+    { label: "Retest", value: data.retest_required, color: "text-amber-400", filter: "retest" },
+    { label: "Certified", value: data.certified, color: "text-emerald-400", filter: "passed" },
+    { label: "Expiring 90d", value: data.cert_expiring_90d, color: "text-yellow-400", filter: "cert_expiring" },
+  ];
+
+  return (
+    <div className="mx-6 mt-4 rounded-xl border border-red-500/20 bg-red-500/5 overflow-hidden" data-testid="cert-summary-strip">
+      <div className="px-4 py-2 flex items-center gap-2 border-b border-red-500/10">
+        <ShieldCheck className="h-3.5 w-3.5 text-red-400" />
+        <span className="text-xs font-semibold text-red-400 uppercase tracking-wide">Certification Oversight</span>
+      </div>
+      <div className="px-4 py-3 flex items-start gap-6 flex-wrap">
+        {stats.map(s => (
+          <button key={s.label} className="flex flex-col items-center gap-0.5 min-w-[48px] hover:opacity-80 transition-opacity" onClick={() => s.filter && onCertFilter(s.filter)} data-testid={`cert-stat-${s.label.toLowerCase().replace(/\s/g, "-")}`}>
+            <span className={`text-xl font-bold tabular-nums ${s.color}`}>{s.value}</span>
+            <span className="text-[10px] text-muted-foreground">{s.label}</span>
+          </button>
+        ))}
+        {data.next_due_items.length > 0 && (
+          <div className="flex-1 min-w-[180px]">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Due soon</div>
+            {data.next_due_items.slice(0, 3).map((item: any) => (
+              <div key={item.id} className="text-xs flex items-center gap-1.5 mb-0.5">
+                <Clock className="h-3 w-3 text-amber-400 shrink-0" />
+                <span className="truncate">{item.name}</span>
+                {item.next_action_due_date && (
+                  <span className="text-muted-foreground/70 shrink-0">{fmtDate(item.next_action_due_date)}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Phase 3: Attachments Section ──────────────────────────────────────────────
+function AttachmentsSection({ projectId }: { projectId: number }) {
+  const { toast } = useToast();
+  const [dragging, setDragging] = useState(false);
+  const inputRef = useState<HTMLInputElement | null>(null);
+
+  const { data: attachments = [], isLoading, refetch } = useQuery<any[]>({
+    queryKey: ["/api/projects", projectId, "attachments"],
+    queryFn: () => fetch(`/api/projects/${projectId}/attachments`, { credentials: "include" }).then(r => r.json()),
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch(`/api/projects/${projectId}/attachments`, { method: "POST", body: fd, credentials: "include" });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.message); }
+      return r.json();
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "attachments"] }); toast({ title: "File uploaded" }); },
+    onError: (e: any) => toast({ title: "Upload failed", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (aid: number) => apiRequest("DELETE", `/api/projects/${projectId}/attachments/${aid}`),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "attachments"] }); toast({ title: "Attachment deleted" }); },
+    onError: () => toast({ title: "Delete failed", variant: "destructive" }),
+  });
+
+  const handleFiles = (files: FileList | null) => {
+    if (!files) return;
+    for (const f of Array.from(files)) uploadMutation.mutate(f);
+  };
+
+  function fmtSize(bytes: number) {
+    if (!bytes) return "";
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(0)}KB`;
+    return `${(bytes / 1048576).toFixed(1)}MB`;
+  }
+
+  function fileIcon(mime: string) {
+    if (mime?.includes("pdf")) return "📄";
+    if (mime?.startsWith("image/")) return "🖼️";
+    if (mime?.includes("spreadsheet") || mime?.includes("excel") || mime?.includes("csv")) return "📊";
+    if (mime?.includes("word") || mime?.includes("document")) return "📝";
+    if (mime?.includes("zip")) return "🗜️";
+    return "📎";
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Drop zone */}
+      <div
+        className={`rounded-lg border-2 border-dashed transition-colors flex flex-col items-center gap-2 py-6 px-4 cursor-pointer ${dragging ? "border-primary bg-primary/10" : "border-border/50 hover:border-border"}`}
+        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={e => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}
+        onClick={() => document.getElementById(`cert-file-input-${projectId}`)?.click()}
+        data-testid="attachment-dropzone"
+      >
+        <Upload className="h-6 w-6 text-muted-foreground/50" />
+        <p className="text-xs text-muted-foreground text-center">Drop files here or click to upload</p>
+        <p className="text-[10px] text-muted-foreground/50">PDF, images, Word, Excel, CSV — up to 50MB</p>
+        {uploadMutation.isPending && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+      </div>
+      <input id={`cert-file-input-${projectId}`} type="file" multiple className="hidden" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.svg,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip" onChange={e => handleFiles(e.target.files)} data-testid="attachment-file-input" />
+
+      {/* Attachment list */}
+      {isLoading ? (
+        <div className="space-y-1">{[...Array(2)].map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
+      ) : attachments.length === 0 ? (
+        <div className="text-xs text-muted-foreground text-center py-2">No attachments yet</div>
+      ) : (
+        <div className="space-y-1.5">
+          {attachments.map((att: any) => (
+            <div key={att.id} className="flex items-center gap-2.5 px-3 py-2 rounded-md border border-border/40 hover:border-border transition-colors" data-testid={`attachment-${att.id}`}>
+              <span className="text-lg shrink-0">{fileIcon(att.mime_type)}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium truncate">{att.original_name}</p>
+                <p className="text-[10px] text-muted-foreground">{fmtSize(att.file_size)} · {fmtDate(att.created_at)}</p>
+              </div>
+              <a href={`/api/projects/${projectId}/attachments/${att.id}/download`} target="_blank" rel="noreferrer"
+                className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted transition-colors" data-testid={`btn-download-${att.id}`}>
+                <Download className="h-3.5 w-3.5 text-muted-foreground" />
+              </a>
+              <button onClick={() => deleteMutation.mutate(att.id)} className="h-6 w-6 flex items-center justify-center rounded hover:bg-destructive/10 hover:text-destructive transition-colors" data-testid={`btn-delete-attachment-${att.id}`}>
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Phase 4: Timeline Panel ────────────────────────────────────────────────────
+const TIMELINE_ICONS: Record<string, { icon: any; color: string }> = {
+  status_change:     { icon: Activity,      color: "text-blue-400"    },
+  launch_blocker_on: { icon: XCircle,       color: "text-red-400"     },
+  launch_blocker_off:{ icon: CheckCircle2,  color: "text-emerald-400" },
+  retest_required:   { icon: RefreshCw,     color: "text-amber-400"   },
+  cert_issued:       { icon: ShieldCheck,   color: "text-emerald-400" },
+  milestone_done:    { icon: CheckCircle2,  color: "text-emerald-400" },
+  attachment_added:  { icon: Paperclip,     color: "text-blue-400"    },
+  default:           { icon: Clock,         color: "text-muted-foreground" },
+};
+
+function TimelinePanel({ projectId }: { projectId: number }) {
+  const { data: events = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/projects", projectId, "timeline"],
+    queryFn: () => fetch(`/api/projects/${projectId}/timeline`, { credentials: "include" }).then(r => r.json()),
+    refetchInterval: 30000,
+  });
+
+  if (isLoading) return <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-12" />)}</div>;
+  if (!events.length) return (
+    <div className="flex flex-col items-center justify-center py-10 text-center gap-2">
+      <Activity className="h-8 w-8 text-muted-foreground/30" />
+      <p className="text-sm text-muted-foreground/60">No activity recorded yet</p>
+      <p className="text-xs text-muted-foreground/40">Timeline events appear when certification status changes, blockers are set, milestones complete, or files are attached.</p>
+    </div>
+  );
+
+  return (
+    <div className="relative space-y-0">
+      {/* Vertical line */}
+      <div className="absolute left-4 top-6 bottom-0 w-px bg-border/40" />
+      {events.map((ev, i) => {
+        const { icon: Icon, color } = TIMELINE_ICONS[ev.event_type] ?? TIMELINE_ICONS.default;
+        return (
+          <div key={ev.id} className="flex gap-3 relative py-2" data-testid={`timeline-event-${ev.id}`}>
+            <div className={`z-10 w-8 h-8 rounded-full bg-background border-2 border-border/60 flex items-center justify-center shrink-0 ${i === 0 ? "border-primary/40" : ""}`}>
+              <Icon className={`h-3.5 w-3.5 ${color}`} />
+            </div>
+            <div className="flex-1 min-w-0 pt-1">
+              <p className="text-xs leading-snug">{ev.description}</p>
+              <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                {ev.actor_name ? `${ev.actor_name} · ` : ""}{fmtDate(ev.created_at)}
+              </p>
+            </div>
           </div>
         );
       })}
@@ -499,6 +707,11 @@ function CertificationDetailPanel({ projectId, projectName }: { projectId: numbe
               ? <p className="text-sm text-muted-foreground whitespace-pre-wrap">{v("compliance_notes")}</p>
               : <span className="italic text-muted-foreground/30 text-sm">—</span>}
         </div>
+      </Section>
+
+      {/* Section 9 — Attachments (Phase 3) */}
+      <Section title="Attachments" icon={Paperclip} defaultOpen={false}>
+        <AttachmentsSection projectId={projectId} />
       </Section>
     </div>
   );
@@ -837,6 +1050,7 @@ function ProjectDetailDialog({ project, onClose, onDelete }: { project: Project;
                 {isCert && <TabsTrigger value="certification" data-testid="tab-certification">Certification</TabsTrigger>}
                 {isCert && <TabsTrigger value="milestones" data-testid="tab-milestones">Milestones</TabsTrigger>}
                 <TabsTrigger value="notes">Notes</TabsTrigger>
+                {isCert && <TabsTrigger value="timeline" data-testid="tab-timeline">Timeline</TabsTrigger>}
               </TabsList>
 
               <ScrollArea className="flex-1 min-h-0">
@@ -900,6 +1114,12 @@ function ProjectDetailDialog({ project, onClose, onDelete }: { project: Project;
                   <TabsContent value="notes" className="mt-0">
                     <NotesPanel linkedObjectType="project" linkedObjectId={project.id} />
                   </TabsContent>
+
+                  {isCert && (
+                    <TabsContent value="timeline" className="mt-0">
+                      <TimelinePanel projectId={project.id} />
+                    </TabsContent>
+                  )}
                 </div>
               </ScrollArea>
             </Tabs>
@@ -913,22 +1133,44 @@ function ProjectDetailDialog({ project, onClose, onDelete }: { project: Project;
 }
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
+// ── Phase 2 cert quick-filter definitions ─────────────────────────────────────
+const CERT_QUICK_FILTERS = [
+  { key: "all_cert",     label: "All Certification",   color: "text-red-400",    border: "border-red-500/30",    bg: "bg-red-500/10"    },
+  { key: "blocked",      label: "Blocked",             color: "text-red-400",    border: "border-red-500/30",    bg: "bg-red-500/10"    },
+  { key: "retest",       label: "Retest Required",     color: "text-amber-400",  border: "border-amber-500/30",  bg: "bg-amber-500/10"  },
+  { key: "due_30",       label: "Due in 30 days",      color: "text-orange-400", border: "border-orange-500/30", bg: "bg-orange-500/10" },
+  { key: "cert_expiring",label: "Cert Expiring",       color: "text-yellow-400", border: "border-yellow-500/30", bg: "bg-yellow-500/10" },
+  { key: "passed",       label: "Passed / Certified",  color: "text-emerald-400",border: "border-emerald-500/30",bg: "bg-emerald-500/10"},
+];
+
 export default function ProjectsPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [certFilter, setCertFilter] = useState("");  // Phase 2
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<Project | null>(null);
   const { toast } = useToast();
 
   const { data: projectsData, isLoading } = useQuery<Project[]>({
-    queryKey: ["/api/projects", { type: typeFilter, status: statusFilter }],
+    queryKey: ["/api/projects", { type: typeFilter, status: statusFilter, certFilter }],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (typeFilter !== "all") params.set("type", typeFilter);
+      if (certFilter && certFilter !== "all_cert") {
+        params.set("certFilter", certFilter);
+      } else {
+        if (typeFilter !== "all") params.set("type", typeFilter);
+        if (certFilter === "all_cert") params.set("type", "certification");
+      }
       if (statusFilter !== "all") params.set("status", statusFilter);
       return fetch(`/api/projects?${params}`, { credentials: "include" }).then(r => r.json());
     },
   });
+
+  const handleCertFilter = (f: string) => {
+    setCertFilter(f);
+    setTypeFilter("all");
+    setStatusFilter("all");
+  };
 
   const allProjects = projectsData || [];
 
@@ -960,19 +1202,39 @@ export default function ProjectsPage() {
         </div>
       </div>
 
+      {/* Phase 1 — Certification Oversight strip */}
+      <CertSummaryStrip onCertFilter={handleCertFilter} />
+
       <div className="px-6 py-4 border-b border-border/30">
         <div className="flex flex-wrap gap-1.5 mb-3">
-          <button onClick={() => setTypeFilter("all")} className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${typeFilter === "all" ? "bg-primary/20 text-primary border-primary/30" : "border-border/50 text-muted-foreground hover:border-border"}`} data-testid="filter-type-all">
+          <button onClick={() => { setTypeFilter("all"); setCertFilter(""); }} className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${typeFilter === "all" && !certFilter ? "bg-primary/20 text-primary border-primary/30" : "border-border/50 text-muted-foreground hover:border-border"}`} data-testid="filter-type-all">
             All Types ({allProjects.length})
           </button>
           {PROJECT_TYPES.map(t => (
-            <button key={t.key} onClick={() => setTypeFilter(t.key === typeFilter ? "all" : t.key)}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${typeFilter === t.key ? `${t.bg} ${t.color} ${t.border}` : "border-border/50 text-muted-foreground hover:border-border"}`}
+            <button key={t.key} onClick={() => { setCertFilter(""); setTypeFilter(t.key === typeFilter ? "all" : t.key); }}
+              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${typeFilter === t.key && !certFilter ? `${t.bg} ${t.color} ${t.border}` : "border-border/50 text-muted-foreground hover:border-border"}`}
               data-testid={`filter-type-${t.key}`}>
               {t.label} {typeCounts[t.key] > 0 && `(${typeCounts[t.key]})`}
             </button>
           ))}
         </div>
+
+        {/* Phase 2 — Cert quick-filter chips (always visible) */}
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wide self-center mr-1">Cert:</span>
+          {CERT_QUICK_FILTERS.map(f => {
+            const active = certFilter === f.key || (f.key === "all_cert" && certFilter === "all_cert");
+            return (
+              <button key={f.key}
+                onClick={() => handleCertFilter(certFilter === f.key ? "" : f.key)}
+                className={`px-2 py-0.5 rounded-full text-xs font-medium border transition-all ${active ? `${f.bg} ${f.color} ${f.border}` : "border-border/40 text-muted-foreground/70 hover:border-border"}`}
+                data-testid={`filter-cert-${f.key}`}>
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="h-8 w-40 text-xs" data-testid="select-status-filter"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent>

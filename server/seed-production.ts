@@ -746,6 +746,45 @@ export async function migrateProjectCertificationSchema(): Promise<void> {
   }
 }
 
+export async function migrateProjectOversightSchema(): Promise<void> {
+  try {
+    // Phase 3 — attachments
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS project_attachments (
+        id serial PRIMARY KEY,
+        project_id integer NOT NULL,
+        filename text NOT NULL,
+        original_name text NOT NULL,
+        file_path text NOT NULL,
+        file_size integer,
+        mime_type text,
+        uploaded_by_user_id integer,
+        created_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_pa_project ON project_attachments(project_id)`);
+
+    // Phase 4 — timeline events
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS project_timeline_events (
+        id serial PRIMARY KEY,
+        project_id integer NOT NULL,
+        event_type text NOT NULL,
+        description text,
+        event_data jsonb,
+        actor_user_id integer,
+        created_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_pte_project ON project_timeline_events(project_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_pte_created ON project_timeline_events(project_id, created_at DESC)`);
+
+    console.log("[migration] Project oversight schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Project oversight schema migration error (non-fatal):", err);
+  }
+}
+
 export async function migrateCustomerSuccessSchema(): Promise<void> {
   try {
     await db.execute(sql`

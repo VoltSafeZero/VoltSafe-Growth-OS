@@ -104,7 +104,7 @@ app.use((req, res, next) => {
 (async () => {
   // Run schema migrations FIRST before any route setup queries the DB
   try {
-    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema } = await import("./seed-production");
+    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema } = await import("./seed-production");
     await migrateUserSchema();
     await migrateEmailSchema();
     await migrateCalendarSchema();
@@ -115,6 +115,7 @@ app.use((req, res, next) => {
     await migrateMergeAuditSchema();
     await migrateCustomerSuccessSchema();
     await migrateProjectCertificationSchema();
+    await migrateProjectOversightSchema();
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }
@@ -154,7 +155,7 @@ app.use((req, res, next) => {
       log(`Listening on 0.0.0.0:${port}`);
 
       try {
-        const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, seedProductionData } = await import("./seed-production");
+        const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, seedProductionData } = await import("./seed-production");
         await migrateUserSchema();
         await migrateEmailSchema();
         await migrateCalendarSchema();
@@ -165,6 +166,7 @@ app.use((req, res, next) => {
         await migrateMergeAuditSchema();
         await migrateCustomerSuccessSchema();
         await migrateProjectCertificationSchema();
+        await migrateProjectOversightSchema();
         await seedProductionData();
       } catch (err) {
         console.error("Seed error (non-fatal):", err);

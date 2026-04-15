@@ -9728,23 +9728,103 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.get("/api/projects", requireAuth, async (req, res) => {
     try {
-      const { type, status, accountId } = req.query as Record<string, string>;
+      const { type, status, accountId, certFilter } = req.query as Record<string, string>;
       const wheres: string[] = [];
       if (type) wheres.push(`p.type = '${type.replace(/'/g, "''")}'`);
       if (status) wheres.push(`p.status = '${status.replace(/'/g, "''")}'`);
       if (accountId) wheres.push(`p.account_id = ${parseInt(accountId)}`);
+      // Cert-specific quick filters (Phase 2)
+      if (certFilter) {
+        wheres.push(`p.type = 'certification'`);
+        if (certFilter === "blocked") wheres.push(`pc.launch_blocker = true`);
+        else if (certFilter === "retest") wheres.push(`pc.retest_required = true AND pc.certification_status NOT IN ('Certified','Passed')`);
+        else if (certFilter === "due_30") wheres.push(`pc.target_completion_date <= NOW() + INTERVAL '30 days' AND pc.target_completion_date > NOW() AND pc.certification_status NOT IN ('Certified','Passed','Cancelled')`);
+        else if (certFilter === "cert_expiring") wheres.push(`pc.certificate_expiry_date <= NOW() + INTERVAL '90 days' AND pc.certificate_expiry_date > NOW()`);
+        else if (certFilter === "passed") wheres.push(`pc.certification_status IN ('Passed','Certified')`);
+      }
       const where = wheres.length ? `WHERE ${wheres.join(" AND ")}` : "";
       const rows = await db.execute(sql.raw(`
         SELECT p.*,
           pc.certification_status, pc.overall_risk, pc.launch_blocker,
           pc.target_completion_date AS cert_target_completion_date,
-          pc.certification_program, pc.product_name, pc.next_action_due_date
+          pc.certification_program, pc.product_name, pc.next_action_due_date,
+          pc.retest_required, pc.certificate_expiry_date
         FROM projects p
         LEFT JOIN project_certifications pc ON pc.project_id = p.id
         ${where}
         ORDER BY p.created_at DESC
       `));
       res.json((rows as any).rows ?? []);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── GET /api/projects/cert-summary (Phase 1 dashboard) — BEFORE /:id ─────────
+  app.get("/api/projects/cert-summary", requireAuth, async (req, res) => {
+    try {
+      const now = new Date();
+      const statsRows = await db.execute(sql.raw(`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE pc.launch_blocker = true)::int AS blocked,
+          COUNT(*) FILTER (WHERE pc.retest_required = true AND pc.certification_status NOT IN ('Certified','Passed'))::int AS retest_required,
+          COUNT(*) FILTER (WHERE pc.certification_status IN ('Certified','Passed'))::int AS certified,
+          COUNT(*) FILTER (WHERE pc.certificate_expiry_date BETWEEN NOW() AND NOW() + INTERVAL '90 days')::int AS cert_expiring_90d,
+          COUNT(*) FILTER (WHERE pc.failure_found = true AND pc.certification_status NOT IN ('Certified','Passed'))::int AS failure_open
+        FROM projects p
+        LEFT JOIN project_certifications pc ON pc.project_id = p.id
+        WHERE p.type = 'certification'
+      `));
+      const stats = ((statsRows as any).rows ?? [])[0] ?? {};
+
+      // Next action items due within 7 days
+      const nextDueRows = await db.execute(sql.raw(`
+        SELECT p.id, p.name, pc.next_action, pc.next_action_due_date, pc.certification_status, pc.overall_risk, pc.launch_blocker
+        FROM projects p
+        JOIN project_certifications pc ON pc.project_id = p.id
+        WHERE p.type = 'certification'
+          AND pc.next_action_due_date IS NOT NULL
+          AND pc.next_action_due_date <= NOW() + INTERVAL '7 days'
+          AND pc.certification_status NOT IN ('Certified','Passed','Cancelled')
+        ORDER BY pc.next_action_due_date ASC
+        LIMIT 5
+      `));
+
+      // Health breakdown (at_risk: failure/retest/overdue but not blocked)
+      const healthRows = await db.execute(sql.raw(`
+        SELECT
+          COUNT(*) FILTER (WHERE
+            pc.launch_blocker = false AND (
+              (pc.retest_required = true AND pc.certification_status NOT IN ('Certified','Passed')) OR
+              (pc.failure_found = true AND pc.certification_status NOT IN ('Certified','Passed')) OR
+              (pc.target_completion_date < NOW() AND pc.certification_status NOT IN ('Certified','Passed','Cancelled'))
+            )
+          )::int AS at_risk,
+          COUNT(*) FILTER (WHERE
+            pc.launch_blocker = false AND NOT (
+              (pc.retest_required = true AND pc.certification_status NOT IN ('Certified','Passed')) OR
+              (pc.failure_found = true AND pc.certification_status NOT IN ('Certified','Passed')) OR
+              (pc.target_completion_date < NOW() AND pc.certification_status NOT IN ('Certified','Passed','Cancelled'))
+            ) AND pc.certification_status NOT IN ('Certified','Passed','Cancelled')
+          )::int AS on_track
+        FROM projects p
+        LEFT JOIN project_certifications pc ON pc.project_id = p.id
+        WHERE p.type = 'certification'
+      `));
+      const health = ((healthRows as any).rows ?? [])[0] ?? {};
+
+      res.json({
+        total: parseInt(stats.total ?? "0"),
+        blocked: parseInt(stats.blocked ?? "0"),
+        at_risk: parseInt(health.at_risk ?? "0"),
+        on_track: parseInt(health.on_track ?? "0"),
+        retest_required: parseInt(stats.retest_required ?? "0"),
+        certified: parseInt(stats.certified ?? "0"),
+        cert_expiring_90d: parseInt(stats.cert_expiring_90d ?? "0"),
+        failure_open: parseInt(stats.failure_open ?? "0"),
+        next_due_items: (nextDueRows as any).rows ?? [],
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -9815,6 +9895,17 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // ── Timeline event helper ─────────────────────────────────────────────────────
+  async function addTimelineEvent(projectId: number, eventType: string, description: string, data: Record<string, any>, actorUserId?: number) {
+    try {
+      const dataJson = JSON.stringify(data).replace(/'/g, "''");
+      await db.execute(sql.raw(
+        `INSERT INTO project_timeline_events (project_id, event_type, description, event_data, actor_user_id, created_at)
+         VALUES (${projectId}, '${eventType}', '${description.replace(/'/g, "''")}', '${dataJson}'::jsonb, ${actorUserId ?? "NULL"}, NOW())`
+      ));
+    } catch { /* non-fatal */ }
+  }
+
   // ── GET /api/projects/:id/certification ───────────────────────────────────────
   app.get("/api/projects/:id/certification", requireAuth, async (req, res) => {
     try {
@@ -9826,18 +9917,23 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
-  // ── POST /api/projects/:id/certification (upsert) ────────────────────────────
+  // ── POST /api/projects/:id/certification (upsert) + timeline ─────────────────
   app.post("/api/projects/:id/certification", requirePermission("projects", "edit"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId = (req.session as any).userId;
       // Check project exists
-      const pRows = await db.execute(sql.raw(`SELECT id FROM projects WHERE id = ${id}`));
-      if (!((pRows as any).rows ?? [])[0]) return res.status(404).json({ message: "Project not found" });
+      const pRows = await db.execute(sql.raw(`SELECT id, name FROM projects WHERE id = ${id}`));
+      const projRow = ((pRows as any).rows ?? [])[0];
+      if (!projRow) return res.status(404).json({ message: "Project not found" });
+
+      // Read existing cert for timeline diffing
+      const prevRows = await db.execute(sql.raw(`SELECT * FROM project_certifications WHERE project_id = ${id}`));
+      const prev = ((prevRows as any).rows ?? [])[0];
 
       const sets = certSqlSets(req.body);
       if (sets.length === 0) {
-        // Just ensure record exists
         await db.execute(sql.raw(`INSERT INTO project_certifications (project_id, created_at, updated_at) VALUES (${id}, NOW(), NOW()) ON CONFLICT (project_id) DO NOTHING`));
       } else {
         const setCols = sets.join(", ");
@@ -9847,23 +9943,58 @@ export function registerConfluenceRoutes(app: Express) {
           ON CONFLICT (project_id) DO UPDATE SET ${setCols}, updated_at = NOW()
         `));
       }
-      const rows = await db.execute(sql.raw(`SELECT * FROM project_certifications WHERE project_id = ${id}`));
-      res.json(((rows as any).rows ?? [])[0]);
+      const afterRows = await db.execute(sql.raw(`SELECT * FROM project_certifications WHERE project_id = ${id}`));
+      const after = ((afterRows as any).rows ?? [])[0];
+
+      // Emit timeline events
+      if (prev && after) {
+        if (prev.certification_status !== after.certification_status && after.certification_status)
+          await addTimelineEvent(id, "status_change", `Status changed: "${prev.certification_status}" → "${after.certification_status}"`, { from: prev.certification_status, to: after.certification_status }, userId);
+        if (!prev.launch_blocker && after.launch_blocker)
+          await addTimelineEvent(id, "launch_blocker_on", `Launch blocker activated${after.blocker_summary ? ": " + after.blocker_summary : ""}`, { blocker_summary: after.blocker_summary }, userId);
+        if (prev.launch_blocker && !after.launch_blocker)
+          await addTimelineEvent(id, "launch_blocker_off", "Launch blocker cleared", {}, userId);
+        if (!prev.retest_required && after.retest_required)
+          await addTimelineEvent(id, "retest_required", "Retest flagged as required", {}, userId);
+        if (!prev.certificate_issue_date && after.certificate_issue_date)
+          await addTimelineEvent(id, "cert_issued", `Certificate issued on ${after.certificate_issue_date}`, { date: after.certificate_issue_date }, userId);
+      }
+
+      res.json(after);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
-  // ── PUT /api/projects/:id/certification ───────────────────────────────────────
+  // ── PUT /api/projects/:id/certification + timeline ────────────────────────────
   app.put("/api/projects/:id/certification", requirePermission("projects", "edit"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId = (req.session as any).userId;
+
+      // Snapshot before
+      const prevRows = await db.execute(sql.raw(`SELECT * FROM project_certifications WHERE project_id = ${id}`));
+      const prev = ((prevRows as any).rows ?? [])[0];
+      if (!prev) return res.status(404).json({ message: "Certification record not found" });
+
       const sets = certSqlSets(req.body);
       if (sets.length === 0) return res.status(400).json({ message: "No valid fields to update" });
       sets.push("updated_at = NOW()");
       const r = await db.execute(sql.raw(`UPDATE project_certifications SET ${sets.join(", ")} WHERE project_id = ${id} RETURNING *`));
-      const row = ((r as any).rows ?? [])[0];
-      if (!row) return res.status(404).json({ message: "Certification record not found" });
-      res.json(row);
+      const after = ((r as any).rows ?? [])[0];
+
+      // Emit timeline events
+      if (prev.certification_status !== after.certification_status && after.certification_status)
+        await addTimelineEvent(id, "status_change", `Status changed: "${prev.certification_status}" → "${after.certification_status}"`, { from: prev.certification_status, to: after.certification_status }, userId);
+      if (!prev.launch_blocker && after.launch_blocker)
+        await addTimelineEvent(id, "launch_blocker_on", `Launch blocker activated${after.blocker_summary ? ": " + after.blocker_summary : ""}`, { blocker_summary: after.blocker_summary }, userId);
+      if (prev.launch_blocker && !after.launch_blocker)
+        await addTimelineEvent(id, "launch_blocker_off", "Launch blocker cleared", {}, userId);
+      if (!prev.retest_required && after.retest_required)
+        await addTimelineEvent(id, "retest_required", "Retest flagged as required", {}, userId);
+      if (!prev.certificate_issue_date && after.certificate_issue_date)
+        await addTimelineEvent(id, "cert_issued", `Certificate issued on ${after.certificate_issue_date}`, { date: after.certificate_issue_date }, userId);
+
+      res.json(after);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
@@ -9895,12 +10026,13 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
-  // ── PATCH /api/projects/:id/milestones/:mid ───────────────────────────────────
+  // ── PATCH /api/projects/:id/milestones/:mid + timeline ────────────────────────
   app.patch("/api/projects/:id/milestones/:mid", requirePermission("projects", "edit"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const mid = parseInt(req.params.mid);
       if (isNaN(id) || isNaN(mid)) return res.status(400).json({ message: "Invalid id" });
+      const userId = (req.session as any).userId;
       const { status, notes, dueDate } = req.body;
       const sets: string[] = [];
       if (status !== undefined) {
@@ -9915,7 +10047,121 @@ export function registerConfluenceRoutes(app: Express) {
       const r = await db.execute(sql.raw(`UPDATE project_milestones SET ${sets.join(", ")} WHERE id = ${mid} AND project_id = ${id} RETURNING *`));
       const row = ((r as any).rows ?? [])[0];
       if (!row) return res.status(404).json({ message: "Milestone not found" });
+
+      // Emit timeline event when milestone completed
+      if (status === "done") {
+        await addTimelineEvent(id, "milestone_done", `Milestone completed: "${row.title}"`, { milestone_id: mid, title: row.title }, userId);
+      }
+
       res.json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── GET /api/projects/:id/timeline ────────────────────────────────────────────
+  app.get("/api/projects/:id/timeline", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const limit = Math.min(parseInt((req.query.limit as string) ?? "50"), 100);
+      const rows = await db.execute(sql.raw(`
+        SELECT te.*, u.name AS actor_name
+        FROM project_timeline_events te
+        LEFT JOIN users u ON u.id = te.actor_user_id
+        WHERE te.project_id = ${id}
+        ORDER BY te.created_at DESC
+        LIMIT ${limit}
+      `));
+      res.json((rows as any).rows ?? []);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── Attachment multer instance (PDFs, images, docs) ───────────────────────────
+  const CERT_ATTACHMENTS_DIR = path.resolve("uploads/cert-attachments");
+  if (!fs.existsSync(CERT_ATTACHMENTS_DIR)) fs.mkdirSync(CERT_ATTACHMENTS_DIR, { recursive: true });
+
+  const CERT_ALLOWED_TYPES = new Set([
+    "application/pdf",
+    "image/jpeg","image/png","image/gif","image/webp","image/svg+xml",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "text/plain","text/csv","application/zip",
+  ]);
+
+  const certAttachUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, CERT_ATTACHMENTS_DIR),
+      filename: (_req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        cb(null, crypto.randomUUID() + ext);
+      },
+    }),
+    limits: { fileSize: 50 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (CERT_ALLOWED_TYPES.has(file.mimetype)) cb(null, true);
+      else cb(new Error(`File type '${file.mimetype}' not allowed`));
+    },
+  });
+
+  // ── GET /api/projects/:id/attachments ────────────────────────────────────────
+  app.get("/api/projects/:id/attachments", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(`SELECT * FROM project_attachments WHERE project_id = ${id} ORDER BY created_at DESC`));
+      res.json((rows as any).rows ?? []);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── POST /api/projects/:id/attachments ───────────────────────────────────────
+  app.post("/api/projects/:id/attachments", requirePermission("projects", "edit"), certAttachUpload.single("file"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId = (req.session as any).userId;
+      const file = (req as any).file;
+      if (!file) return res.status(400).json({ message: "No file uploaded" });
+      const r = await db.execute(sql.raw(`
+        INSERT INTO project_attachments (project_id, filename, original_name, file_path, file_size, mime_type, uploaded_by_user_id, created_at)
+        VALUES (${id}, '${file.filename}', '${file.originalname.replace(/'/g, "''")}', '${file.path.replace(/'/g, "''")}', ${file.size}, '${file.mimetype}', ${userId}, NOW())
+        RETURNING *
+      `));
+      const row = ((r as any).rows ?? [])[0];
+      // Timeline event
+      await addTimelineEvent(id, "attachment_added", `File attached: "${file.originalname}"`, { filename: file.filename, original_name: file.originalname, mime_type: file.mimetype, file_size: file.size }, userId);
+      res.status(201).json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── GET /api/projects/:id/attachments/:aid/download ──────────────────────────
+  app.get("/api/projects/:id/attachments/:aid/download", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const aid = parseInt(req.params.aid);
+      if (isNaN(id) || isNaN(aid)) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(`SELECT * FROM project_attachments WHERE id = ${aid} AND project_id = ${id}`));
+      const att = ((rows as any).rows ?? [])[0];
+      if (!att) return res.status(404).json({ message: "Attachment not found" });
+      if (!fs.existsSync(att.file_path)) return res.status(404).json({ message: "File not found on disk" });
+      res.setHeader("Content-Disposition", `attachment; filename="${att.original_name}"`);
+      res.setHeader("Content-Type", att.mime_type ?? "application/octet-stream");
+      res.sendFile(path.resolve(att.file_path));
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── DELETE /api/projects/:id/attachments/:aid ────────────────────────────────
+  app.delete("/api/projects/:id/attachments/:aid", requirePermission("projects", "edit"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const aid = parseInt(req.params.aid);
+      if (isNaN(id) || isNaN(aid)) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(`DELETE FROM project_attachments WHERE id = ${aid} AND project_id = ${id} RETURNING *`));
+      const att = ((rows as any).rows ?? [])[0];
+      if (!att) return res.status(404).json({ message: "Attachment not found" });
+      // Delete file from disk (non-fatal)
+      try { if (fs.existsSync(att.file_path)) fs.unlinkSync(att.file_path); } catch {}
+      res.json({ ok: true });
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
