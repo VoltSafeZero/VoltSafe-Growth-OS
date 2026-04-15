@@ -1,0 +1,132 @@
+Great. The Suggestions Layer is complete and tested. Now build the next phase: Daily Execution + Reminder System.
+
+Goal:
+Turn tasks from a smart queue into a system that actively drives follow-through every day.
+
+Build this in phases.
+
+PHASE 1 — TASK REMINDERS DATA MODEL
+1. Extend tasks and/or notifications to support reminders:
+   - reminder_at nullable
+   - last_reminded_at nullable
+   - reminder_count integer default 0
+   - escalation_level integer default 0
+   - completed_at nullable if not already present
+2. Ensure compatibility with existing task + notifications logic.
+3. Add safe migration only.
+
+PHASE 2 — DAILY EXECUTION API
+Add backend endpoints:
+- GET /api/execution/today
+- GET /api/execution/summary
+- POST /api/tasks/:id/remind-now
+- POST /api/tasks/:id/escalate
+- POST /api/tasks/bulk/complete
+- POST /api/tasks/bulk/reassign
+- POST /api/tasks/bulk/snooze
+
+Today endpoint should return:
+- must_do_today
+- overdue
+- newly_assigned
+- awaiting_reply
+- suggestions_ready
+- recently_completed
+- per-user counts
+- grouped priorities
+
+Summary endpoint should return:
+- total open tasks
+- overdue count
+- due today count
+- completion rate last 7 days
+- avg age of open tasks
+- top blocked owners
+- top stale linked records
+
+PHASE 3 — REMINDER ENGINE
+Build deterministic reminder logic:
+1. Due today task not completed by morning → remind
+2. Overdue task older than threshold → remind again
+3. High priority overdue task → escalate faster
+4. Task untouched for X days → remind owner
+5. Reassigned task → send fresh notification to new owner
+6. Suggested task ignored for X days → resurface in execution feed
+
+Rules must be explainable and configurable.
+Track reminder history so the same task is not spammed repeatedly.
+
+PHASE 4 — EXECUTION DASHBOARD UI
+Create a new page:
+- /execution/daily
+
+Sections:
+- Must Do Today
+- Overdue and Escalating
+- Awaiting Reply
+- Team At Risk
+- Recently Completed
+- Suggestions Needing Review
+
+Features:
+- one-click complete
+- one-click remind
+- one-click snooze
+- one-click reassign
+- bulk actions
+- filters by owner / priority / linked record
+- fast search
+- badges for overdue age, escalation level, reminder count
+
+PHASE 5 — NOTIFICATION INTEGRATION
+Integrate with existing notifications system so reminders generate in-app notifications.
+Each notification should include:
+- task title
+- why user is seeing it
+- linked record
+- due date / overdue age
+- action buttons if supported
+
+Do not duplicate notifications unnecessarily.
+Use dedupe logic and cooldown windows.
+
+PHASE 6 — AUTOMATED DIGESTS
+Create digest logic for:
+- morning personal digest
+- evening unresolved digest
+- manager digest for team overdue items
+
+Start with in-app digests only.
+Structure it so email digests can be added later.
+
+PHASE 7 — SETTINGS
+Create execution settings page or extend /automation/tasks:
+- reminder hour
+- overdue escalation thresholds
+- max reminders per task per day
+- manager digest on/off
+- include suggestions in digest on/off
+- default bulk action confirmations
+
+PHASE 8 — PERMISSIONS
+Respect current permission model:
+- crm:view can view execution dashboard if already allowed
+- crm:edit required for bulk modifications, reassignment, and rule changes
+- users only see tasks they are allowed to see
+
+PHASE 9 — TESTING
+Add comprehensive tests for:
+- reminder generation
+- escalation rules
+- dedupe / cooldown
+- bulk actions
+- digest generation
+- permission enforcement
+- regression against task hub and suggestions tests
+
+Implementation rules:
+- Reuse existing notifications infrastructure
+- Do not break current Tasks Hub or Suggestions tab
+- Keep logic deterministic, not AI-based
+- Prefer small verified changes
+- Summarize changed files and final pass/fail at the end
