@@ -14,6 +14,9 @@
  * 10.  POST /api/inbox/create-task-from-thread — creates task (requires CRM edit perm)
  * 11.  POST /api/inbox/create-note-from-thread — requires linkedObjectType
  * 12.  Auth guard: unauthenticated 401 on triage routes
+ * 13.  GET /api/inbox/thread-signals — returns signals map keyed by gmail thread id
+ * 14.  GET /api/inbox/thread-tasks/:threadId — returns array of open tasks
+ * 15.  PATCH /api/inbox/bulk-mark-done — marks threads done and clears awaiting reply
  */
 import assert from "assert/strict";
 
@@ -240,6 +243,73 @@ test("Unauthenticated requests to triage routes return 401", async () => {
     const r = await fetch(`${BASE}${route}`);
     assert.equal(r.status, 401, `${route} should return 401 without auth`);
   }
+});
+
+// ── 13. GET /api/inbox/thread-signals — returns signals map keyed by threadId ─
+test("GET /api/inbox/thread-signals — returns map keyed by gmail thread id", async () => {
+  const threadIds = [TEST_THREAD_ID, `other-thread-${Date.now()}`];
+  const r = await fetch(
+    `${BASE}/api/inbox/thread-signals?threadIds=${threadIds.join(",")}`,
+    { headers: { Cookie: COOKIE } }
+  );
+  assert.ok(r.ok, `Expected 200, got ${r.status}`);
+  const body = await r.json();
+  assert.ok(typeof body === "object" && body !== null, "Response must be an object");
+  // The test thread should appear in the map (it was upserted in earlier tests)
+  assert.ok(TEST_THREAD_ID in body, "Test thread should be in signals map");
+  const sig = body[TEST_THREAD_ID];
+  // Shape checks
+  assert.ok("signalLevel" in sig, "signal must have signalLevel");
+  assert.ok("workflowState" in sig, "signal must have workflowState");
+  assert.ok("isReplied" in sig, "signal must have isReplied");
+  assert.ok("isHot" in sig, "signal must have isHot");
+});
+
+// ── 14. GET /api/inbox/thread-tasks/:threadId — returns array of open tasks ───
+test("GET /api/inbox/thread-tasks/:threadId — returns array", async () => {
+  const r = await fetch(
+    `${BASE}/api/inbox/thread-tasks/${encodeURIComponent(TEST_THREAD_ID)}`,
+    { headers: { Cookie: COOKIE } }
+  );
+  assert.ok(r.ok, `Expected 200, got ${r.status}`);
+  const body = await r.json();
+  assert.ok(Array.isArray(body), "Response must be an array");
+  // If tasks present, check shape
+  for (const task of body) {
+    assert.ok(typeof task.id === "number", "task.id must be a number");
+    assert.ok(typeof task.title === "string", "task.title must be a string");
+    assert.ok("dueDate" in task, "task must have dueDate key");
+    assert.ok("status" in task, "task must have status key");
+  }
+});
+
+// ── 15. PATCH /api/inbox/bulk-mark-done — upserts workflow_state=done ─────────
+test("PATCH /api/inbox/bulk-mark-done — marks threads done and clears awaiting", async () => {
+  // First set needs_reply so awaitingReplySince is set
+  await fetch(`${BASE}/api/gmail/thread-record/${TEST_THREAD_ID}`, {
+    method: "PATCH",
+    headers: { ...JSON_HDR, Cookie: COOKIE },
+    body: JSON.stringify({ replyStatus: "needs_reply" }),
+  });
+
+  const r = await fetch(`${BASE}/api/inbox/bulk-mark-done`, {
+    method: "PATCH",
+    headers: { ...JSON_HDR, Cookie: COOKIE },
+    body: JSON.stringify({ threadIds: [TEST_THREAD_ID] }),
+  });
+  assert.ok(r.ok, `Expected 200, got ${r.status}`);
+  const body = await r.json();
+  assert.ok(typeof body.updated === "number", "updated must be a number");
+  assert.ok(body.updated >= 1, `Expected updated >= 1, got ${body.updated}`);
+
+  // Verify the thread record was updated
+  const get = await fetch(`${BASE}/api/gmail/thread-record/${TEST_THREAD_ID}`, {
+    headers: { Cookie: COOKIE },
+  });
+  const rec = await get.json();
+  assert.ok(rec.found, "Thread record should still be found");
+  assert.equal(rec.thread.workflowState, "done", "workflowState should be done");
+  assert.equal(rec.thread.awaitingReplySince, null, "awaitingReplySince should be cleared");
 });
 
 // ── Runner ────────────────────────────────────────────────────────────────────

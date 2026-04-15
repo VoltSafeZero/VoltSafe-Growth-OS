@@ -7450,6 +7450,134 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // GET /api/inbox/thread-signals — batch signal + triage data for multiple thread IDs
+  app.get("/api/inbox/thread-signals", requireAuth, async (req, res) => {
+    const raw = String(req.query.threadIds || "");
+    if (!raw.trim()) return res.json({});
+    const threadIds = raw.split(",").map(s => s.trim()).filter(Boolean).slice(0, 100);
+    if (!threadIds.length) return res.json({});
+    try {
+      const escaped = threadIds.map(id => `'${id.replace(/'/g, "''")}'`).join(",");
+
+      // Signal data from tracking pixels (outbound messages in each thread)
+      const pixelRows = (await db.execute(sql.raw(`
+        SELECT
+          em.gmail_thread_id,
+          BOOL_OR(p.is_replied)  AS is_replied,
+          BOOL_OR(p.is_hot)      AS is_hot,
+          MAX(p.engagement_score) AS max_score,
+          (ARRAY_AGG(
+            COALESCE(p.signal_level, 'none')
+            ORDER BY
+              CASE COALESCE(p.signal_level, 'none')
+                WHEN 'replied' THEN 6
+                WHEN 'hot'     THEN 5
+                WHEN 'high'    THEN 4
+                WHEN 'medium'  THEN 3
+                WHEN 'low'     THEN 2
+                ELSE 1
+              END DESC
+          ))[1] AS signal_level
+        FROM email_tracking_pixels p
+        JOIN email_messages em ON em.gmail_message_id = p.gmail_message_id
+        WHERE em.gmail_thread_id IN (${escaped})
+          AND em.direction = 'outbound'
+        GROUP BY em.gmail_thread_id
+      `))).rows as any[];
+
+      // Triage / workflow state from email_threads
+      const threadRows = (await db.execute(sql.raw(`
+        SELECT
+          gmail_thread_id,
+          awaiting_reply_since,
+          workflow_state,
+          reply_status
+        FROM email_threads
+        WHERE gmail_thread_id IN (${escaped})
+      `))).rows as any[];
+
+      const result: Record<string, any> = {};
+      for (const t of threadRows) {
+        result[t.gmail_thread_id] = {
+          awaitingReplySince: t.awaiting_reply_since ?? null,
+          workflowState:      t.workflow_state ?? null,
+          replyStatus:        t.reply_status ?? null,
+          signalLevel:        null,
+          isHot:              false,
+          isReplied:          false,
+          engScore:           0,
+        };
+      }
+      for (const p of pixelRows) {
+        if (!result[p.gmail_thread_id]) result[p.gmail_thread_id] = {};
+        result[p.gmail_thread_id].signalLevel = p.signal_level ?? null;
+        result[p.gmail_thread_id].isHot       = p.is_hot   === true || p.is_hot === "true";
+        result[p.gmail_thread_id].isReplied   = p.is_replied === true || p.is_replied === "true";
+        result[p.gmail_thread_id].engScore    = Number(p.max_score || 0);
+      }
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/inbox/thread-tasks/:threadId — open tasks for a thread's linked CRM records
+  app.get("/api/inbox/thread-tasks/:threadId", requireAuth, async (req, res) => {
+    const threadId = String(req.params.threadId);
+    try {
+      const [thread] = (await db.execute(sql.raw(`
+        SELECT primary_contact_id, primary_account_id, primary_lead_id, primary_opportunity_id
+        FROM email_threads WHERE gmail_thread_id = '${threadId.replace(/'/g, "''")}'
+      `))).rows as any[];
+      if (!thread) return res.json([]);
+
+      const ids: string[] = [];
+      if (thread.primary_contact_id)     ids.push(`(linked_object_type = 'contact'     AND linked_object_id = ${thread.primary_contact_id})`);
+      if (thread.primary_account_id)     ids.push(`(linked_object_type = 'account'     AND linked_object_id = ${thread.primary_account_id})`);
+      if (thread.primary_lead_id)        ids.push(`(linked_object_type = 'opportunity' AND linked_object_id = ${thread.primary_lead_id})`);
+      if (thread.primary_opportunity_id) ids.push(`(linked_object_type = 'opportunity' AND linked_object_id = ${thread.primary_opportunity_id})`);
+      if (!ids.length) return res.json([]);
+
+      const tasks = (await db.execute(sql.raw(`
+        SELECT id, title, status, priority, due_date, linked_object_type, linked_object_id
+        FROM tasks
+        WHERE (${ids.join(" OR ")})
+          AND status NOT IN ('done', 'completed')
+          AND (snoozed_until IS NULL OR snoozed_until <= NOW())
+        ORDER BY due_date ASC NULLS LAST, created_at DESC
+        LIMIT 8
+      `))).rows;
+      res.json(tasks);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PATCH /api/inbox/bulk-mark-done — mark threads as workflow_state=done, clears awaiting reply
+  app.patch("/api/inbox/bulk-mark-done", requireAuth, async (req, res) => {
+    const { threadIds } = req.body;
+    if (!Array.isArray(threadIds) || !threadIds.length) {
+      return res.status(400).json({ message: "threadIds array required" });
+    }
+    try {
+      const safe = threadIds.map((id: string) => `'${String(id).replace(/'/g, "''")}'`).join(",");
+      // Upsert each thread record with done state
+      await db.execute(sql.raw(`
+        INSERT INTO email_threads (gmail_thread_id, workflow_state, reply_status, awaiting_reply_since, association_status, updated_at)
+        SELECT t, 'done', 'done', NULL, 'unassociated', NOW()
+        FROM UNNEST(ARRAY[${safe}]) AS t(t)
+        ON CONFLICT (gmail_thread_id) DO UPDATE SET
+          workflow_state = 'done',
+          reply_status = 'done',
+          awaiting_reply_since = NULL,
+          updated_at = NOW()
+      `));
+      res.json({ updated: threadIds.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/gmail/send", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;

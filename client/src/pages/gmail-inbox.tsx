@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -94,6 +94,64 @@ type FolderEmail = {
   fromEmail: string | null; fromName: string | null; sentAt: string | null; snippet: string | null;
   labelIds: string | null; direction: string | null;
 };
+
+type ThreadSignal = {
+  awaitingReplySince: string | null;
+  workflowState: string | null;
+  replyStatus: string | null;
+  signalLevel: string | null;
+  isHot: boolean;
+  isReplied: boolean;
+  engScore: number;
+};
+
+const INBOX_SIGNAL_CONFIG: Record<string, { label: string; color: string }> = {
+  replied: { label: "Replied",           color: "text-violet-400 bg-violet-500/10 border-violet-500/25" },
+  hot:     { label: "Hot",               color: "text-orange-400 bg-orange-500/10 border-orange-500/25" },
+  high:    { label: "Clicked",           color: "text-blue-400 bg-blue-500/8 border-blue-500/20" },
+  medium:  { label: "Opened ×2+",        color: "text-emerald-400 bg-emerald-500/8 border-emerald-500/20" },
+  low:     { label: "Opened",            color: "text-emerald-400/70 bg-emerald-500/5 border-emerald-500/15" },
+};
+
+const WORKFLOW_ROW_CONFIG: Record<string, { label: string; color: string }> = {
+  needs_reply:     { label: "Needs Reply",  color: "text-amber-400 bg-amber-500/10 border-amber-500/25" },
+  waiting_on_them: { label: "Waiting",      color: "text-blue-400 bg-blue-500/10 border-blue-500/25" },
+  follow_up:       { label: "Follow Up",    color: "text-orange-400 bg-orange-500/10 border-orange-500/25" },
+  done:            { label: "Done",         color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/25" },
+};
+
+function formatWaitTime(since: string | null): string {
+  if (!since) return "";
+  const ms = Date.now() - new Date(since).getTime();
+  const h = Math.floor(ms / 3600000);
+  if (h < 24) return h < 1 ? "just now" : `${h}h`;
+  const d = Math.floor(h / 24);
+  return `${d}d`;
+}
+
+function InboxSignalBadge({ sig }: { sig: ThreadSignal }) {
+  const effectiveKey = sig.isReplied ? "replied" : sig.isHot ? "hot" : (sig.signalLevel ?? "none");
+  const cfg = INBOX_SIGNAL_CONFIG[effectiveKey];
+  if (!cfg) return null;
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0 rounded border font-medium ${cfg.color}`}
+      data-testid={`signal-badge-${effectiveKey}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
+function WorkflowStateBadge({ state }: { state: string | null }) {
+  if (!state) return null;
+  const cfg = WORKFLOW_ROW_CONFIG[state];
+  if (!cfg) return null;
+  return (
+    <span className={`inline-flex items-center text-[10px] px-1.5 py-0 rounded border font-medium ${cfg.color}`}
+      data-testid={`workflow-badge-${state}`}>
+      {cfg.label}
+    </span>
+  );
+}
 
 function isUnread(labelIds: string[]) {
   return labelIds.includes("UNREAD");
@@ -1230,6 +1288,18 @@ function CrmContextPanel({
     onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
   });
 
+  const threadTasksQuery = useQuery<Array<{ id: number; title: string; dueDate: string | null; status: string; linkedObjectType: string | null; linkedObjectId: number | null }>>({
+    queryKey: ["/api/inbox/thread-tasks", threadId],
+    queryFn: async () => {
+      const res = await fetch(`/api/inbox/thread-tasks/${encodeURIComponent(threadId)}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!threadId,
+    staleTime: 30000,
+  });
+  const threadTasks = threadTasksQuery.data ?? [];
+
   return (
     <div className="flex-shrink-0 border-t border-border/30 bg-background/60" data-testid="crm-context-panel">
       {/* Return-path breadcrumb — only when navigated from Relationships dashboard */}
@@ -1274,6 +1344,31 @@ function CrmContextPanel({
           <div className="flex items-center gap-1.5 text-[11px] text-amber-400/80 bg-amber-500/8 border border-amber-500/20 rounded-md px-2.5 py-1.5" data-testid="awaiting-reply-badge">
             <Clock className="h-3 w-3 flex-shrink-0" />
             <span>Awaiting reply since {new Date(thread.awaitingReplySince).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Open tasks linked to this thread's CRM records */}
+      {threadTasks.length > 0 && (
+        <div className="px-4 pb-2" data-testid="thread-tasks-section">
+          <div className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-wider mb-1">Open Tasks</div>
+          <div className="space-y-1">
+            {threadTasks.slice(0, 5).map(task => (
+              <div key={task.id} className="flex items-start gap-1.5 px-2 py-1.5 rounded-md bg-muted/20 border border-border/20" data-testid={`thread-task-${task.id}`}>
+                <CheckCheck className="h-3 w-3 mt-0.5 flex-shrink-0 text-muted-foreground/40" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] text-foreground/80 leading-snug truncate">{task.title}</p>
+                  {task.dueDate && (
+                    <p className="text-[10px] text-muted-foreground/50">
+                      Due {new Date(task.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </p>
+                  )}
+                </div>
+                {task.linkedObjectType && (
+                  <span className="text-[9px] text-muted-foreground/35 capitalize flex-shrink-0">{task.linkedObjectType}</span>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -2633,6 +2728,43 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onError: (err: any) => toast({ title: "Archive failed", description: err.message, variant: "destructive" }),
   });
 
+  const bulkMarkDoneMutation = useMutation({
+    mutationFn: async () => {
+      const threadIds = Array.from(selectedInboxIds);
+      const res = await apiRequest("PATCH", "/api/inbox/bulk-mark-done", { threadIds });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return { threadIds, result: await res.json() };
+    },
+    onSuccess: ({ threadIds }) => {
+      setSelectedInboxIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/thread-signals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/triage-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/triage-thread-ids"] });
+      toast({ title: `Marked ${threadIds.length} thread${threadIds.length !== 1 ? "s" : ""} as done` });
+    },
+    onError: (err: any) => toast({ title: "Mark done failed", description: err.message, variant: "destructive" }),
+  });
+
+  const archiveThreadMutation = useMutation({
+    mutationFn: async (threadId: string) => {
+      const res = await apiRequest("POST", "/api/gmail/bulk-archive", {
+        threadIds: [threadId],
+        ...(activeAccountId ? { asAccountId: activeAccountId } : {}),
+      });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return { threadId, result: await res.json() };
+    },
+    onSuccess: ({ threadId }) => {
+      const removeArchived = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
+        old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old;
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery], removeArchived);
+      setInboxExtra(prev => prev.filter(m => m.threadId !== threadId));
+      if (selectedThreadId === threadId) { setSelectedThreadId(null); setSelectedMessageId(null); }
+      toast({ title: "Thread archived" });
+    },
+    onError: (err: any) => toast({ title: "Archive failed", description: err.message, variant: "destructive" }),
+  });
+
   const createTaskFromThreadMutation = useMutation({
     mutationFn: async ({ threadId, subject, fromEmail, fromName, linkedObjectType, linkedObjectId, title }: {
       threadId: string; subject?: string; fromEmail?: string; fromName?: string;
@@ -2722,6 +2854,24 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const hasMore = tab === "inbox" ? !!inboxNextToken : tab === "sent" ? !!sentNextToken : false;
   const isLoadingMore = tab === "inbox" ? loadingMoreInbox : tab === "sent" ? loadingMoreSent : false;
   const loadMore = tab === "inbox" ? loadMoreInbox : loadMoreSent;
+
+  // Batch fetch signal + triage data for visible thread IDs
+  const visibleThreadIds = useMemo(
+    () => [...new Set((crmFilteredMessages || []).map(m => m.threadId))].sort(),
+    [crmFilteredMessages]
+  );
+  const threadSignalsQuery = useQuery<Record<string, ThreadSignal>>({
+    queryKey: ["/api/inbox/thread-signals", visibleThreadIds.join(",")],
+    queryFn: async () => {
+      if (!visibleThreadIds.length) return {};
+      const res = await fetch(`/api/inbox/thread-signals?threadIds=${visibleThreadIds.join(",")}`, { credentials: "include" });
+      if (!res.ok) return {};
+      return res.json();
+    },
+    enabled: visibleThreadIds.length > 0 && (tab === "inbox" || tab === "sent"),
+    staleTime: 30000,
+  });
+  const threadSignals = threadSignalsQuery.data ?? {};
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -3666,6 +3816,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     <span className="hidden sm:inline">Archive</span>
                   </button>
                 )}
+                <button
+                  onClick={() => bulkMarkDoneMutation.mutate()}
+                  disabled={bulkMarkDoneMutation.isPending}
+                  data-testid="button-bulk-mark-done"
+                  title="Mark selected threads as done (clears awaiting reply)"
+                  className="flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-50 min-h-[32px]"
+                >
+                  {bulkMarkDoneMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />}
+                  <span className="hidden sm:inline">Done</span>
+                </button>
                 <div className="flex items-center gap-1 ml-auto">
                   <button
                     onClick={selectAllInboxThreads}
@@ -3748,6 +3908,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               const senderName = tab === "sent"
                 ? (msg.to ? `→ ${parseSenderName(msg.to)}` : "Unknown")
                 : parseSenderName(msg.from);
+              const threadSig = threadSignals[msg.threadId] ?? null;
+              const hasSignalRow = threadSig && (
+                threadSig.isReplied || threadSig.isHot ||
+                (threadSig.signalLevel && threadSig.signalLevel !== "none") ||
+                threadSig.awaitingReplySince ||
+                (threadSig.workflowState && threadSig.workflowState !== "none")
+              );
               return (
                 <div
                   key={msg.id}
@@ -3808,6 +3975,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         <span className="text-muted-foreground/40"> — {msg.snippet}</span>
                       )}
                     </div>
+                    {/* Row 3: signal badges + triage status (only when data present) */}
+                    {hasSignalRow && (
+                      <div className="flex items-center gap-1 mt-1 flex-wrap" data-testid={`thread-signals-${msg.threadId}`}>
+                        {threadSig && <InboxSignalBadge sig={threadSig} />}
+                        {threadSig?.workflowState && threadSig.workflowState !== "none" && (
+                          <WorkflowStateBadge state={threadSig.workflowState} />
+                        )}
+                        {threadSig?.awaitingReplySince && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-400/80 bg-amber-500/8 border border-amber-500/20 px-1.5 py-0 rounded font-medium"
+                            data-testid={`awaiting-badge-${msg.threadId}`}>
+                            <Clock className="h-2.5 w-2.5" />
+                            Awaiting {formatWaitTime(threadSig.awaitingReplySince)}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </button>
 
                   {/* Hover actions — absolutely positioned right side */}
@@ -3896,6 +4079,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   className={`p-1.5 rounded-md transition-colors ${isStarred(focusedMsg.labelIds) ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/30 hover:text-amber-400"}`}
                 >
                   <Star className={`h-4 w-4 ${isStarred(focusedMsg.labelIds) ? "fill-amber-400" : ""}`} />
+                </button>
+              )}
+              {canSend && selectedThreadId && tab === "inbox" && (
+                <button
+                  title="Archive this thread"
+                  data-testid="button-archive-thread"
+                  onClick={() => archiveThreadMutation.mutate(selectedThreadId)}
+                  disabled={archiveThreadMutation.isPending}
+                  className="p-1.5 rounded-md text-muted-foreground/30 hover:text-amber-400 transition-colors disabled:opacity-40"
+                >
+                  {archiveThreadMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArchiveX className="h-4 w-4" />}
                 </button>
               )}
             </div>
