@@ -340,6 +340,8 @@ async function run() {
 
   try {
     COOKIE = await login();
+    // Brief pause to let the session store stabilize after login
+    await new Promise(r => setTimeout(r, 300));
     console.log("✔ Logged in as trevor@voltsafe.com\n");
   } catch (e) {
     console.error("✘ Login failed:", e.message);

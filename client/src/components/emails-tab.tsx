@@ -25,8 +25,9 @@ type EmailWithAssociation = {
   snippet: string | null;
   ignoredReason: string | null;
   isReply: boolean | null;
-  signalLevel: "none" | "low" | "medium" | "high" | "hot" | null;
+  signalLevel: "none" | "low" | "medium" | "high" | "hot" | "replied" | null;
   isHot: boolean;
+  isReplied: boolean;
   engagementScore: number;
   association?: {
     id: number;
@@ -118,8 +119,8 @@ const SIGNAL_CONFIG = {
   none:    null,
 } as const;
 
-function SignalBadge({ level, isHot }: { level: string | null; isHot: boolean }) {
-  const key = (isHot ? "hot" : (level ?? "none")) as keyof typeof SIGNAL_CONFIG;
+function SignalBadge({ level, isHot, isReplied }: { level: string | null; isHot: boolean; isReplied?: boolean }) {
+  const key = (isReplied ? "replied" : isHot ? "hot" : (level ?? "none")) as keyof typeof SIGNAL_CONFIG;
   const cfg = SIGNAL_CONFIG[key] || null;
   if (!cfg) return null;
   const { label, color, Icon } = cfg;
@@ -375,7 +376,7 @@ export function EmailsTab({ objectType, objectId }: { objectType: string; object
           ? JSON.parse(email.association.associationReasonJson)
           : [];
         const isOutbound = email.direction === "outbound";
-        const hasSignal = isOutbound && email.signalLevel && email.signalLevel !== "none";
+        const hasSignal = isOutbound && (email.isReplied || (email.signalLevel && email.signalLevel !== "none"));
 
         return (
           <div
@@ -404,7 +405,7 @@ export function EmailsTab({ objectType, objectId }: { objectType: string; object
                   )}
                   {/* Signal badge replaces plain "Tracked" when we have signal data */}
                   {isOutbound && hasSignal && (
-                    <SignalBadge level={email.signalLevel} isHot={email.isHot} />
+                    <SignalBadge level={email.signalLevel} isHot={email.isHot} isReplied={email.isReplied} />
                   )}
                   {email.association && (
                     <ConfidenceBadge

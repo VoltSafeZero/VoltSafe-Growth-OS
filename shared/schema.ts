@@ -1248,6 +1248,8 @@ export const emailTrackingPixels = pgTable("email_tracking_pixels", {
   recipientEmail: text("recipient_email"),
   sentByUserId: integer("sent_by_user_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Added by tracking system after scoring
+  isReplied: boolean("is_replied").default(false).notNull(),
 });
 
 export const emailEngagementEvents = pgTable("email_engagement_events", {

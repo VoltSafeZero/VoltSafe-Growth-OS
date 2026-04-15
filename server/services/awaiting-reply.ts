@@ -20,6 +20,7 @@
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { esc } from "../tracking";
+import { processReplyForThread } from "../tracking";
 
 const INTERNAL_DOMAIN = "voltsafe.com";
 const AWAITING_THRESHOLD_HOURS = 0; // Mark immediately (no grace period)
@@ -97,6 +98,26 @@ export async function computeAwaitingReply(): Promise<{ updated: number; awaitin
 
     const awaitingCount = Number(countRow?.cnt || 0);
     const updated = Number((setResult as any).rowCount || 0) + Number((clearResult as any).rowCount || 0);
+
+    // Step 4: Update reply signal on tracking pixels for threads with inbound replies
+    // Run asynchronously — don't block the triage count response
+    (async () => {
+      try {
+        const threadRows = (await db.execute(sql.raw(`
+          SELECT gmail_thread_id FROM email_threads
+          WHERE last_inbound_at IS NOT NULL
+          ORDER BY last_inbound_at DESC LIMIT 200
+        `))).rows as any[];
+
+        for (const row of threadRows) {
+          if (row.gmail_thread_id) {
+            await processReplyForThread(String(row.gmail_thread_id));
+          }
+        }
+      } catch (e) {
+        console.error("[awaiting-reply] reply-signal scan error:", e);
+      }
+    })();
 
     console.log(`[awaiting-reply] Updated ${updated} threads; ${awaitingCount} currently awaiting reply`);
     return { updated, awaitingCount };

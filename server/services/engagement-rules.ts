@@ -28,6 +28,7 @@ type Pixel = {
 //  'pricing_link_clicked'        – click where URL matches trigger_config.urlPattern
 //  'no_open_after_days'          – time-based: no open N days after send
 //  'opened_no_reply_after_days'  – time-based: opened but no reply N days after first open
+//  'replied'                     – contact sent an inbound reply after our tracked outbound
 
 export async function processEngagementRules(
   trackingId: string,
@@ -55,7 +56,7 @@ export async function processEngagementRules(
       SELECT * FROM email_engagement_rules
       WHERE is_enabled = true
         AND trigger_type IN ('first_open','repeated_open','first_click','pricing_link_clicked',
-                             'no_open_after_days','opened_no_reply_after_days')
+                             'no_open_after_days','opened_no_reply_after_days','replied')
       ORDER BY id ASC LIMIT 50
     `))).rows as any[];
 
@@ -186,6 +187,10 @@ function evaluateTrigger(
     case "opened_no_reply_after_days":
       return false;
 
+    // Replied: evaluated via processRepliedEvent, not open/click events
+    case "replied":
+      return false;
+
     default:
       return false;
   }
@@ -244,6 +249,9 @@ async function fireAction(
         break;
       case "add_timeline":
         await actionAddTimeline(rule, pixel, eventType, url, uniqueOpens, uniqueClicks);
+        break;
+      case "create_suggestion":
+        await actionCreateSuggestion(rule, pixel, eventType, url, uniqueOpens, uniqueClicks);
         break;
     }
     await recordTrigger(rule.id, trackingId, rule.action_type);
@@ -397,6 +405,121 @@ async function actionAddTimeline(
       )
     `));
   }
+}
+
+async function actionCreateSuggestion(
+  rule: any, pixel: NonNullable<Pixel>,
+  eventType: string, url: string | undefined,
+  uniqueOpens: number, uniqueClicks: number
+): Promise<void> {
+  if (!pixel.email_message_id_fk) return;
+  const cfg = (rule.action_config as any) || {};
+  const subject = pixel.subject || "email";
+  const cooldownHours = Number(rule.cooldown_hours || 24);
+
+  const label = buildEventLabel(eventType, uniqueOpens, uniqueClicks, url);
+  const signalType = cfg.signalType || "email_engagement";
+  const severity   = cfg.severity   || (eventType === "click" || uniqueOpens >= 3 ? "high" : "medium");
+  const priority   = cfg.priority   || (eventType === "click" ? "high" : "medium");
+  const title = (cfg.title || "Follow up: {subject}")
+    .replace("{subject}", subject)
+    .replace("{label}", label);
+  const reason = (cfg.reason || "Engagement detected ({label}) on your email to {recipient}")
+    .replace("{label}", label.toLowerCase())
+    .replace("{recipient}", pixel.recipient_email || "contact")
+    .replace("{subject}", subject);
+  const actionLabel  = cfg.actionLabel  || "Follow up";
+  const actionType   = cfg.actionType   || "follow_up";
+  const dueDays      = Number(cfg.dueDays || 1);
+  const suggestedDue = new Date(Date.now() + dueDays * 86400000).toISOString();
+
+  // Fetch linked CRM records
+  const assocs = (await db.execute(sql.raw(`
+    SELECT DISTINCT object_type, object_id FROM email_associations
+    WHERE email_message_id=${pixel.email_message_id_fk}
+      AND object_type IN ('account','contact','lead','opportunity')
+    LIMIT 10
+  `))).rows as any[];
+
+  for (const a of assocs) {
+    // Dedup: check for existing suggestion for same rule+tracking combo in cooldown window
+    const dedupeKey = `eng_sug_rule${rule.id}_${pixel.tracking_id}_${a.object_type}_${a.object_id}`;
+    const [existing] = (await db.execute(sql.raw(`
+      SELECT id FROM task_suggestions
+      WHERE source_signals = '${esc(dedupeKey)}'
+        AND status = 'pending'
+        AND created_at > NOW() - INTERVAL '${cooldownHours} hours'
+      LIMIT 1
+    `))).rows as any[];
+    if (existing) continue;
+
+    await db.execute(sql.raw(`
+      INSERT INTO task_suggestions
+        (object_type, object_id, signal_type, severity, title, reason,
+         suggested_action_type, suggested_action_label, priority,
+         suggested_due_date, status, source_signals, source_label,
+         confidence, created_at, updated_at)
+      VALUES (
+        '${esc(a.object_type)}', ${a.object_id},
+        '${esc(signalType)}', '${esc(severity)}',
+        '${esc(title)}', '${esc(reason)}',
+        '${esc(actionType)}', '${esc(actionLabel)}',
+        '${esc(priority)}', '${suggestedDue}',
+        'pending', '${esc(dedupeKey)}',
+        '${esc(rule.name || "Email Engagement")}',
+        ${severity === "high" ? 80 : 60},
+        NOW(), NOW()
+      )
+    `));
+  }
+}
+
+// ── Replied trigger entry point ─────────────────────────────────────────────────
+
+/**
+ * Called from tracking.ts when a thread receives an inbound reply.
+ * Fires all enabled rules with trigger_type='replied' against this pixel.
+ */
+export async function processRepliedEvent(
+  trackingId: string,
+  pixel: NonNullable<Pixel>
+): Promise<void> {
+  try {
+    const rules = (await db.execute(sql.raw(`
+      SELECT * FROM email_engagement_rules
+      WHERE is_enabled = true AND trigger_type = 'replied'
+      ORDER BY id ASC LIMIT 20
+    `))).rows as any[];
+
+    for (const rule of rules) {
+      if (!(await passesCooldown(rule, trackingId))) continue;
+      await fireAction(rule, trackingId, pixel, "reply", undefined, 0, 0);
+    }
+  } catch (err) {
+    console.error("[engagement-rules] processRepliedEvent error:", err);
+  }
+}
+
+// ── Time-based: fix opened_no_reply_after_days to use last_outbound_at ─────────
+
+/**
+ * Override for time-based opened_no_reply_after_days check.
+ * Uses email_threads.last_outbound_at to determine whether we've replied.
+ */
+async function hasOutboundReplyOnThread(gmailMessageId: string | null): Promise<boolean> {
+  if (!gmailMessageId) return false;
+  const [thread] = (await db.execute(sql.raw(`
+    SELECT et.last_outbound_at, em.sent_at
+    FROM email_tracking_pixels p
+    JOIN email_messages em ON em.gmail_message_id = p.gmail_message_id
+    JOIN email_threads et ON et.gmail_thread_id = em.gmail_thread_id
+    WHERE p.gmail_message_id = '${esc(gmailMessageId)}'
+    LIMIT 1
+  `))).rows as any[];
+  if (!thread) return false;
+  if (!thread.last_outbound_at) return false;
+  // True if an outbound was sent AFTER the tracked pixel's message
+  return new Date(thread.last_outbound_at) > new Date(thread.sent_at);
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

@@ -7898,10 +7898,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         .filter(m => m.direction === "outbound" && m.gmailMessageId)
         .map(m => `'${String(m.gmailMessageId).replace(/'/g, "''")}'`);
 
-      const signalMap: Record<string, { signalLevel: string; isHot: boolean; engagementScore: number }> = {};
+      const signalMap: Record<string, { signalLevel: string; isHot: boolean; engagementScore: number; isReplied: boolean }> = {};
       if (outboundGmailIds.length > 0) {
         const pixelRows = (await db.execute(sql.raw(`
-          SELECT gmail_message_id, signal_level, is_hot, engagement_score
+          SELECT gmail_message_id, signal_level, is_hot, engagement_score, is_replied
           FROM email_tracking_pixels
           WHERE gmail_message_id IN (${outboundGmailIds.join(",")})
         `))).rows as any[];
@@ -7910,6 +7910,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             signalLevel: r.signal_level || "none",
             isHot: Boolean(r.is_hot),
             engagementScore: Number(r.engagement_score || 0),
+            isReplied: Boolean(r.is_replied),
           };
         }
       }
@@ -7923,6 +7924,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           signalLevel: signal?.signalLevel ?? null,
           isHot: signal?.isHot ?? false,
           engagementScore: signal?.engagementScore ?? 0,
+          isReplied: signal?.isReplied ?? false,
         };
       }).sort((a, b) => {
         const aTime = a.sentAt ? new Date(a.sentAt).getTime() : 0;

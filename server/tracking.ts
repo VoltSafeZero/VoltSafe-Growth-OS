@@ -227,10 +227,11 @@ export async function updateScore(trackingId: string): Promise<void> {
       Number(counts?.u_opens || 0), Number(counts?.u_clicks || 0)
     );
 
+    // Preserve 'replied' signal level if the thread already has a reply — it outranks all
     await db.execute(sql.raw(`
       UPDATE email_tracking_pixels
       SET engagement_score = ${score},
-          signal_level     = '${signalLevel}',
+          signal_level     = CASE WHEN is_replied = true THEN 'replied' ELSE '${signalLevel}' END,
           is_hot           = ${isHot},
           last_scored_at   = NOW()
       WHERE tracking_id = '${esc(trackingId)}'
@@ -252,6 +253,7 @@ export type EngagementStats = {
   score: number;
   signalLevel: string;
   isHot: boolean;
+  isReplied: boolean;
   events: Array<{
     eventType: string; url: string | null;
     isBot: boolean; isDuplicate: boolean;
@@ -279,7 +281,7 @@ export async function getEngagementStats(trackingId: string): Promise<Engagement
   `))).rows as any[];
 
   const [pixel] = (await db.execute(sql.raw(`
-    SELECT engagement_score, signal_level, is_hot
+    SELECT engagement_score, signal_level, is_hot, is_replied
     FROM email_tracking_pixels
     WHERE tracking_id='${esc(trackingId)}'
     LIMIT 1
@@ -302,6 +304,7 @@ export async function getEngagementStats(trackingId: string): Promise<Engagement
     score:        Number(pixel?.engagement_score || 0),
     signalLevel:  pixel?.signal_level || "none",
     isHot:        Boolean(pixel?.is_hot),
+    isReplied:    Boolean(pixel?.is_replied),
     events: evRows.map(e => ({
       eventType:   e.event_type,
       url:         e.url ?? null,
@@ -311,6 +314,60 @@ export async function getEngagementStats(trackingId: string): Promise<Engagement
       metadata:    e.metadata ?? null,
     })),
   };
+}
+
+// ── Reply detection ────────────────────────────────────────────────────────────
+/**
+ * Mark tracking pixels as replied when a thread receives a real inbound reply.
+ * Called by computeAwaitingReply for all threads that have a last_inbound_at.
+ * The "replied" signal level outranks all other signals.
+ */
+export async function processReplyForThread(gmailThreadId: string): Promise<void> {
+  try {
+    // Find outbound tracking pixels for messages in this thread
+    const pixels = (await db.execute(sql.raw(`
+      SELECT p.tracking_id, p.created_at AS pixel_created_at
+      FROM email_tracking_pixels p
+      JOIN email_messages m ON m.gmail_message_id = p.gmail_message_id
+      WHERE m.gmail_thread_id = '${esc(gmailThreadId)}'
+        AND m.direction = 'outbound'
+        AND p.is_replied = false
+    `))).rows as any[];
+
+    if (pixels.length === 0) return;
+
+    // Get the earliest inbound message sent AFTER the pixel's created_at
+    for (const pixel of pixels) {
+      const [inbound] = (await db.execute(sql.raw(`
+        SELECT sent_at FROM email_messages
+        WHERE gmail_thread_id = '${esc(gmailThreadId)}'
+          AND direction = 'inbound'
+          AND from_email NOT ILIKE '%voltsafe.com%'
+          AND from_email NOT ILIKE '%noreply%'
+          AND from_email NOT ILIKE '%no-reply%'
+          AND sent_at > '${esc(String(pixel.pixel_created_at))}'
+        ORDER BY sent_at ASC LIMIT 1
+      `))).rows as any[];
+
+      if (!inbound) continue;
+
+      // Mark as replied and elevate signal to 'replied'
+      await db.execute(sql.raw(`
+        UPDATE email_tracking_pixels
+        SET is_replied = true, signal_level = 'replied', last_scored_at = NOW()
+        WHERE tracking_id = '${esc(pixel.tracking_id)}'
+      `));
+
+      // Fire replied-trigger rules
+      const fullPixel = await getPixel(pixel.tracking_id);
+      if (fullPixel) {
+        const { processRepliedEvent } = await import("./services/engagement-rules");
+        await processRepliedEvent(pixel.tracking_id, fullPixel);
+      }
+    }
+  } catch (err) {
+    console.error("[tracking] processReplyForThread error:", err);
+  }
 }
 
 // ── Pixel lookup (shared across recording + rules) ─────────────────────────────
