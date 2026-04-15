@@ -354,3 +354,36 @@ export async function migrateCalendarSchema(): Promise<void> {
     console.error("[migration] Calendar schema migration error (non-fatal):", err);
   }
 }
+
+export async function migrateSuggestionsSchema(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS task_suggestions (
+        id serial PRIMARY KEY,
+        object_type text NOT NULL,
+        object_id integer NOT NULL,
+        signal_type text NOT NULL,
+        severity text NOT NULL DEFAULT 'medium',
+        title text NOT NULL,
+        reason text NOT NULL,
+        suggested_action_type text NOT NULL,
+        suggested_action_label text NOT NULL,
+        priority text NOT NULL DEFAULT 'medium',
+        suggested_due_date timestamp,
+        status text NOT NULL DEFAULT 'pending',
+        snoozed_until timestamp,
+        created_task_id integer,
+        dismissed_at timestamp,
+        accepted_at timestamp,
+        source_signals text,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_task_suggestions_object ON task_suggestions(object_type, object_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_task_suggestions_status ON task_suggestions(status, updated_at)`);
+    console.log("[migration] Suggestions schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Suggestions schema migration error (non-fatal):", err);
+  }
+}

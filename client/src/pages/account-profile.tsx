@@ -16,6 +16,7 @@ import {
 import { formatDistanceToNow, format, isPast } from "date-fns";
 import { Link } from "wouter";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
+import { SuggestedActionsCard } from "@/components/suggested-actions-card";
 
 const STAGE_LABEL: Record<string, string> = {
   inbound_new: "New", qualified: "Qualified", discovery: "Discovery",
@@ -241,6 +242,18 @@ export default function AccountProfilePage() {
           <RecordSummaryBar objectType="account" objectId={id} />
         </CardContent>
       </Card>
+
+      {/* Suggested Next Actions */}
+      <SuggestedActionsCard
+        objectType="account"
+        objectId={id}
+        onOpenNoteComposer={() => {
+          document.getElementById("account-notes-section")?.scrollIntoView({ behavior: "smooth" });
+        }}
+        onScrollToSection={(section) => {
+          document.getElementById(`account-${section}-section`)?.scrollIntoView({ behavior: "smooth" });
+        }}
+      />
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

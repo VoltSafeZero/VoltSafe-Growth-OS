@@ -36,6 +36,7 @@ import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, mar
 import { getAuthUrl, exchangeCodeForTokens, isGmailConnected, getGmailClient } from "./gmail-oauth";
 import { parseGmailMessage } from "./services/email-parser";
 import { runAssociationEngine } from "./services/association-engine";
+import { computeSignals } from "./services/signal-engine";
 import { runGmailSync, syncEmailAccount } from "./services/gmail-sync";
 import { buildSweepReport } from "./services/auto-confirm";
 import {
@@ -1310,6 +1311,316 @@ export async function registerRoutes(
       res.status(500).json({ message: err.message });
     }
   });
+
+  // ── Signal-Driven Task Suggestions ────────────────────────────────────────
+  // Helper: fetch the same signal-input data as record-summary, for any record.
+  async function buildSignalInput(objectType: string, objectId: number): Promise<{
+    found: boolean;
+    lastInboundEmail: string | null;
+    lastOutboundEmail: string | null;
+    lastNote: string | null;
+    lastActivity: string | null;
+    lastTouch: string | null;
+    openTasksCount: number;
+    overdueTasksCount: number;
+    openOppsCount: number;
+    openOppsValue: number;
+    staleOppsCount: number;
+    healthScore: number;
+    healthLabel: string;
+  }> {
+    let emailAccountId: number | null = null;
+    let contactEmail: string | null = null;
+    let opportunityAccountId: number | null = null;
+    let opportunityUpdatedAt: string | null = null;
+
+    if (objectType === "account") {
+      const { rows } = await db.execute(sql.raw(`SELECT id FROM accounts WHERE id = ${objectId} LIMIT 1`));
+      if (!rows.length) return { found: false, lastInboundEmail: null, lastOutboundEmail: null, lastNote: null, lastActivity: null, lastTouch: null, openTasksCount: 0, overdueTasksCount: 0, openOppsCount: 0, openOppsValue: 0, staleOppsCount: 0, healthScore: 0, healthLabel: "Stale" };
+      emailAccountId = objectId;
+    } else if (objectType === "contact") {
+      const { rows } = await db.execute(sql.raw(`SELECT id, email FROM contacts WHERE id = ${objectId} LIMIT 1`));
+      if (!rows.length) return { found: false, lastInboundEmail: null, lastOutboundEmail: null, lastNote: null, lastActivity: null, lastTouch: null, openTasksCount: 0, overdueTasksCount: 0, openOppsCount: 0, openOppsValue: 0, staleOppsCount: 0, healthScore: 0, healthLabel: "Stale" };
+      contactEmail = (rows[0] as any).email ?? null;
+    } else if (objectType === "opportunity") {
+      const { rows } = await db.execute(sql.raw(`SELECT id, account_id, updated_at FROM opportunities WHERE id = ${objectId} LIMIT 1`));
+      if (!rows.length) return { found: false, lastInboundEmail: null, lastOutboundEmail: null, lastNote: null, lastActivity: null, lastTouch: null, openTasksCount: 0, overdueTasksCount: 0, openOppsCount: 0, openOppsValue: 0, staleOppsCount: 0, healthScore: 0, healthLabel: "Stale" };
+      opportunityAccountId = (rows[0] as any).account_id ?? null;
+      opportunityUpdatedAt = (rows[0] as any).updated_at ?? null;
+    } else if (objectType === "lead") {
+      const { rows } = await db.execute(sql.raw(`SELECT id FROM leads WHERE id = ${objectId} LIMIT 1`));
+      if (!rows.length) return { found: false, lastInboundEmail: null, lastOutboundEmail: null, lastNote: null, lastActivity: null, lastTouch: null, openTasksCount: 0, overdueTasksCount: 0, openOppsCount: 0, openOppsValue: 0, staleOppsCount: 0, healthScore: 0, healthLabel: "Stale" };
+    } else if (objectType === "partner") {
+      const { rows } = await db.execute(sql.raw(`SELECT id FROM partnerships WHERE id = ${objectId} LIMIT 1`));
+      if (!rows.length) return { found: false, lastInboundEmail: null, lastOutboundEmail: null, lastNote: null, lastActivity: null, lastTouch: null, openTasksCount: 0, overdueTasksCount: 0, openOppsCount: 0, openOppsValue: 0, staleOppsCount: 0, healthScore: 0, healthLabel: "Stale" };
+    }
+
+    let emailQuery: string | null = null;
+    if (objectType === "account" && emailAccountId) {
+      emailQuery = `SELECT direction, MAX(sent_at) as last_date FROM email_messages WHERE source_account_id = ${emailAccountId} GROUP BY direction`;
+    } else if (objectType === "contact" && contactEmail) {
+      const safeEmail = contactEmail.replace(/'/g, "''");
+      emailQuery = `SELECT direction, MAX(sent_at) as last_date FROM email_messages WHERE from_email = '${safeEmail}' OR all_participants ILIKE '%${safeEmail}%' GROUP BY direction`;
+    } else if (objectType === "opportunity" && opportunityAccountId) {
+      emailQuery = `SELECT direction, MAX(sent_at) as last_date FROM email_messages WHERE source_account_id = ${opportunityAccountId} GROUP BY direction`;
+    } else if (objectType === "partner") {
+      emailQuery = `SELECT direction, MAX(sent_at) as last_date FROM email_associations ea JOIN email_messages em ON ea.email_message_id = em.id WHERE ea.object_type = 'partner' AND ea.object_id = ${objectId} GROUP BY em.direction`;
+    }
+
+    const linkedType = objectType === "partner" ? "partner" : objectType;
+    const daysSinceLocal = (date: string | null | undefined): number | null => {
+      if (!date) return null;
+      return Math.floor((Date.now() - new Date(date).getTime()) / (1000 * 60 * 60 * 24));
+    };
+
+    const [emailRows, noteRow, activityRow, taskRow, oppRow, staleOppRow] = await Promise.all([
+      emailQuery ? db.execute(sql.raw(emailQuery)) : Promise.resolve({ rows: [] }),
+      db.execute(sql.raw(`SELECT MAX(created_at) as last_date FROM notes WHERE linked_object_type = '${linkedType}' AND linked_object_id = ${objectId}`)),
+      db.execute(sql.raw(`SELECT MAX(created_at) as last_date FROM activities WHERE linked_object_type = '${linkedType}' AND linked_object_id = ${objectId}${objectType === "contact" ? ` OR contact_id = ${objectId}` : ""}`)),
+      objectType === "account"
+        ? db.execute(sql.raw(`SELECT COUNT(*) FILTER (WHERE status != 'done') as open_count, COUNT(*) FILTER (WHERE status != 'done' AND due_date < NOW()) as overdue_count FROM (SELECT DISTINCT id, status, due_date FROM tasks WHERE account_id = ${objectId} OR (linked_object_type = 'account' AND linked_object_id = ${objectId})) t`))
+        : db.execute(sql.raw(`SELECT COUNT(*) FILTER (WHERE status != 'done') as open_count, COUNT(*) FILTER (WHERE status != 'done' AND due_date < NOW()) as overdue_count FROM tasks WHERE linked_object_type = '${linkedType}' AND linked_object_id = ${objectId}`)),
+      objectType === "account"
+        ? db.execute(sql.raw(`SELECT COUNT(*) FILTER (WHERE stage NOT IN ('closed_won','closed_lost')) as open_count, COALESCE(SUM(amount) FILTER (WHERE stage NOT IN ('closed_won','closed_lost')), 0) as open_value FROM opportunities WHERE account_id = ${objectId}`))
+        : objectType === "contact"
+          ? db.execute(sql.raw(`SELECT COUNT(*) FILTER (WHERE o.stage NOT IN ('closed_won','closed_lost')) as open_count, COALESCE(SUM(o.amount) FILTER (WHERE o.stage NOT IN ('closed_won','closed_lost')), 0) as open_value FROM opportunities o LEFT JOIN opportunity_contacts oc ON o.id = oc.opportunity_id WHERE oc.contact_id = ${objectId} OR o.contact_id = ${objectId}`))
+          : Promise.resolve({ rows: [{ open_count: 0, open_value: 0 }] }),
+      objectType === "account"
+        ? db.execute(sql.raw(`SELECT COUNT(*) as cnt FROM opportunities WHERE account_id = ${objectId} AND stage NOT IN ('closed_won','closed_lost') AND updated_at < NOW() - INTERVAL '30 days'`))
+        : objectType === "opportunity"
+          ? Promise.resolve({ rows: [{ cnt: opportunityUpdatedAt && daysSinceLocal(opportunityUpdatedAt) !== null && daysSinceLocal(opportunityUpdatedAt)! >= 30 ? 1 : 0 }] })
+          : Promise.resolve({ rows: [{ cnt: 0 }] }),
+    ]);
+
+    const emailData = emailRows.rows as any[];
+    const lastInboundEmail = emailData.find((r: any) => r.direction === "inbound")?.last_date ?? null;
+    const lastOutboundEmail = emailData.find((r: any) => r.direction === "outbound")?.last_date ?? null;
+    const lastNote = (noteRow.rows[0] as any)?.last_date ?? null;
+    const lastActivity = (activityRow.rows[0] as any)?.last_date ?? null;
+    const openTasksCount = Number((taskRow.rows[0] as any)?.open_count ?? 0);
+    const overdueTasksCount = Number((taskRow.rows[0] as any)?.overdue_count ?? 0);
+    const openOppsCount = Number((oppRow.rows[0] as any)?.open_count ?? 0);
+    const openOppsValue = Number((oppRow.rows[0] as any)?.open_value ?? 0);
+    const staleOppsCount = Number((staleOppRow.rows[0] as any)?.cnt ?? 0);
+
+    const allDates = [lastInboundEmail, lastOutboundEmail, lastNote, lastActivity].filter(Boolean) as string[];
+    const lastTouch = allDates.length ? allDates.reduce((a, b) => (new Date(a) > new Date(b) ? a : b)) : null;
+
+    const { score, label } = computeHealth(lastTouch, lastInboundEmail, overdueTasksCount, staleOppsCount);
+
+    return {
+      found: true,
+      lastInboundEmail,
+      lastOutboundEmail,
+      lastNote,
+      lastActivity,
+      lastTouch,
+      openTasksCount,
+      overdueTasksCount,
+      openOppsCount,
+      openOppsValue,
+      staleOppsCount,
+      healthScore: score,
+      healthLabel: label,
+    };
+  }
+
+  app.get("/api/suggestions/:objectType/:objectId", requirePermission("crm", "view"), async (req, res) => {
+    const { objectType, objectId: objectIdStr } = req.params;
+    if (!SUMMARY_TYPES.includes(objectType as any)) {
+      return res.status(400).json({ message: `Invalid objectType. Must be one of: ${SUMMARY_TYPES.join(", ")}` });
+    }
+    const objectId = Number(objectIdStr);
+    if (!Number.isInteger(objectId) || objectId <= 0) {
+      return res.status(400).json({ message: "objectId must be a positive integer" });
+    }
+
+    try {
+      const data = await buildSignalInput(objectType, objectId);
+      if (!data.found) return res.status(404).json({ message: "Record not found" });
+
+      const signals = computeSignals({
+        objectType: objectType as any,
+        objectId,
+        lastInboundEmail: data.lastInboundEmail ? String(data.lastInboundEmail) : null,
+        lastOutboundEmail: data.lastOutboundEmail ? String(data.lastOutboundEmail) : null,
+        lastNote: data.lastNote ? String(data.lastNote) : null,
+        lastActivity: data.lastActivity ? String(data.lastActivity) : null,
+        lastTouch: data.lastTouch ? String(data.lastTouch) : null,
+        openTasksCount: data.openTasksCount,
+        overdueTasksCount: data.overdueTasksCount,
+        openOppsCount: data.openOppsCount,
+        openOppsValue: data.openOppsValue,
+        staleOppsCount: data.staleOppsCount,
+        healthScore: data.healthScore,
+        healthLabel: data.healthLabel,
+      });
+
+      // Fetch existing suggestion records for this object
+      const { rows: existingRows } = await db.execute(sql.raw(
+        `SELECT * FROM task_suggestions WHERE object_type = '${objectType}' AND object_id = ${objectId}`
+      ));
+      const existing = existingRows as any[];
+      const now = new Date();
+
+      // Build final list: for each signal, find/create a DB record and check suppression
+      const DISMISSED_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+      const ACCEPTED_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
+      const results: any[] = [];
+
+      for (const signal of signals) {
+        const ext = existing.find((r: any) => r.signal_type === signal.signalType);
+
+        if (ext) {
+          // Check suppression
+          if (ext.status === "dismissed" && ext.dismissed_at) {
+            const cooldownEnd = new Date(ext.dismissed_at).getTime() + DISMISSED_COOLDOWN_MS;
+            if (now.getTime() < cooldownEnd) continue;
+          }
+          if (ext.status === "accepted" && ext.accepted_at) {
+            const cooldownEnd = new Date(ext.accepted_at).getTime() + ACCEPTED_COOLDOWN_MS;
+            if (now.getTime() < cooldownEnd) continue;
+          }
+          if (ext.status === "snoozed" && ext.snoozed_until) {
+            if (now.getTime() < new Date(ext.snoozed_until).getTime()) continue;
+          }
+
+          // Cooldown expired — reset to pending and refresh content
+          if (ext.status !== "pending") {
+            const safeTitle = signal.title.replace(/'/g, "''");
+            const safeReason = signal.reason.replace(/'/g, "''");
+            const safeLabel = signal.suggestedActionLabel.replace(/'/g, "''");
+            const dueDateMs = now.getTime() + signal.suggestedDueDays * 24 * 60 * 60 * 1000;
+            const dueDateStr = new Date(dueDateMs).toISOString();
+            await db.execute(sql.raw(
+              `UPDATE task_suggestions SET status = 'pending', dismissed_at = NULL, accepted_at = NULL, snoozed_until = NULL,
+               title = '${safeTitle}', reason = '${safeReason}', severity = '${signal.severity}',
+               suggested_action_type = '${signal.suggestedActionType}', suggested_action_label = '${safeLabel}',
+               priority = '${signal.priority}', suggested_due_date = '${dueDateStr}', updated_at = NOW()
+               WHERE id = ${ext.id}`
+            ));
+            results.push({ ...ext, status: "pending", ...signal, id: ext.id, suggested_due_date: dueDateStr });
+          } else {
+            results.push(ext);
+          }
+        } else {
+          // Insert new suggestion
+          const safeTitle = signal.title.replace(/'/g, "''");
+          const safeReason = signal.reason.replace(/'/g, "''");
+          const safeLabel = signal.suggestedActionLabel.replace(/'/g, "''");
+          const dueDateMs = now.getTime() + signal.suggestedDueDays * 24 * 60 * 60 * 1000;
+          const dueDateStr = new Date(dueDateMs).toISOString();
+          const { rows: inserted } = await db.execute(sql.raw(
+            `INSERT INTO task_suggestions (object_type, object_id, signal_type, severity, title, reason,
+             suggested_action_type, suggested_action_label, priority, suggested_due_date, status)
+             VALUES ('${objectType}', ${objectId}, '${signal.signalType}', '${signal.severity}',
+             '${safeTitle}', '${safeReason}', '${signal.suggestedActionType}', '${safeLabel}',
+             '${signal.priority}', '${dueDateStr}', 'pending') RETURNING *`
+          ));
+          results.push(inserted[0]);
+        }
+      }
+
+      // Sort by severity (high > medium > low) and return top 3
+      const severityOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+      results.sort((a, b) => (severityOrder[a.severity] ?? 3) - (severityOrder[b.severity] ?? 3));
+
+      res.json(results.slice(0, 3).map((r) => ({
+        id: r.id,
+        objectType: r.object_type ?? objectType,
+        objectId: r.object_id ?? objectId,
+        signalType: r.signal_type ?? r.signalType,
+        severity: r.severity,
+        title: r.title,
+        reason: r.reason,
+        suggestedActionType: r.suggested_action_type ?? r.suggestedActionType,
+        suggestedActionLabel: r.suggested_action_label ?? r.suggestedActionLabel,
+        priority: r.priority,
+        suggestedDueDate: r.suggested_due_date ?? r.suggestedDueDate ?? null,
+        status: "pending",
+      })));
+    } catch (err: any) {
+      console.error("suggestions error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/suggestions/:id/accept", requirePermission("crm", "edit"), async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ message: "Invalid suggestion id" });
+    const userId = getSessionUserId(req);
+    const createTask = req.body?.createTask !== false;
+
+    try {
+      const { rows } = await db.execute(sql.raw(`SELECT * FROM task_suggestions WHERE id = ${id} LIMIT 1`));
+      if (!rows.length) return res.status(404).json({ message: "Suggestion not found" });
+      const suggestion = rows[0] as any;
+
+      let taskId: number | null = null;
+      if (createTask) {
+        const safeTitle = suggestion.title.replace(/'/g, "''");
+        const safeDesc = `Auto-created from signal: ${suggestion.signal_type}`.replace(/'/g, "''");
+        const dueDate = suggestion.suggested_due_date ?? new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+        const { rows: taskRows } = await db.execute(sql.raw(
+          `INSERT INTO tasks (linked_object_type, linked_object_id, owner_user_id, created_by_user_id, title, description, due_date, status, priority, ai_suggested)
+           VALUES ('${suggestion.object_type}', ${suggestion.object_id}, ${userId ?? "NULL"}, ${userId ?? "NULL"}, '${safeTitle}', '${safeDesc}', '${dueDate}', 'pending', '${suggestion.priority}', true)
+           RETURNING id`
+        ));
+        taskId = (taskRows[0] as any)?.id ?? null;
+      }
+
+      const taskIdClause = taskId ? `, created_task_id = ${taskId}` : "";
+      await db.execute(sql.raw(
+        `UPDATE task_suggestions SET status = 'accepted', accepted_at = NOW()${taskIdClause}, updated_at = NOW() WHERE id = ${id}`
+      ));
+
+      res.json({ success: true, taskCreated: createTask && taskId !== null, taskId });
+    } catch (err: any) {
+      console.error("suggestions accept error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/suggestions/:id/dismiss", requirePermission("crm", "view"), async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ message: "Invalid suggestion id" });
+
+    try {
+      const { rows } = await db.execute(sql.raw(`SELECT id FROM task_suggestions WHERE id = ${id} LIMIT 1`));
+      if (!rows.length) return res.status(404).json({ message: "Suggestion not found" });
+
+      await db.execute(sql.raw(
+        `UPDATE task_suggestions SET status = 'dismissed', dismissed_at = NOW(), updated_at = NOW() WHERE id = ${id}`
+      ));
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("suggestions dismiss error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/suggestions/:id/snooze", requirePermission("crm", "view"), async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ message: "Invalid suggestion id" });
+    const days = Number(req.body?.days ?? 3);
+    if (!Number.isInteger(days) || days < 1 || days > 90) return res.status(400).json({ message: "days must be 1–90" });
+
+    try {
+      const { rows } = await db.execute(sql.raw(`SELECT id FROM task_suggestions WHERE id = ${id} LIMIT 1`));
+      if (!rows.length) return res.status(404).json({ message: "Suggestion not found" });
+
+      const snoozedUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+      await db.execute(sql.raw(
+        `UPDATE task_suggestions SET status = 'snoozed', snoozed_until = '${snoozedUntil}', updated_at = NOW() WHERE id = ${id}`
+      ));
+      res.json({ success: true, snoozedUntil });
+    } catch (err: any) {
+      console.error("suggestions snooze error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── End Task Suggestions ───────────────────────────────────────────────────
 
   app.get("/api/accounts/:id/profile", requirePermission("crm", "view"), async (req, res) => {
     try {

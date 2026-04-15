@@ -17,6 +17,7 @@ import { formatDistanceToNow, format, isPast } from "date-fns";
 import { Link } from "wouter";
 import { TimelineTab } from "@/components/timeline-tab";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
+import { SuggestedActionsCard } from "@/components/suggested-actions-card";
 
 const STAGE_LABEL: Record<string, string> = {
   inbound_new: "New Lead", qualified: "Qualified", discovery: "Discovery",
@@ -270,6 +271,15 @@ export default function OpportunityProfilePage() {
           <RecordSummaryBar objectType="opportunity" objectId={id} />
         </CardContent>
       </Card>
+
+      {/* Suggested Next Actions */}
+      <SuggestedActionsCard
+        objectType="opportunity"
+        objectId={id}
+        onScrollToSection={(section) => {
+          document.getElementById(`opportunity-${section}-section`)?.scrollIntoView({ behavior: "smooth" });
+        }}
+      />
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

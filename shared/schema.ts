@@ -385,6 +385,32 @@ export const tasks = pgTable("tasks", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const taskSuggestions = pgTable("task_suggestions", {
+  id: serial("id").primaryKey(),
+  objectType: text("object_type").notNull(),
+  objectId: integer("object_id").notNull(),
+  signalType: text("signal_type").notNull(),
+  severity: text("severity").notNull().default("medium"),
+  title: text("title").notNull(),
+  reason: text("reason").notNull(),
+  suggestedActionType: text("suggested_action_type").notNull(),
+  suggestedActionLabel: text("suggested_action_label").notNull(),
+  priority: text("priority").notNull().default("medium"),
+  suggestedDueDate: timestamp("suggested_due_date"),
+  status: text("status").notNull().default("pending"),
+  snoozedUntil: timestamp("snoozed_until"),
+  createdTaskId: integer("created_task_id"),
+  dismissedAt: timestamp("dismissed_at"),
+  acceptedAt: timestamp("accepted_at"),
+  sourceSignals: text("source_signals"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertTaskSuggestionSchema = createInsertSchema(taskSuggestions).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertTaskSuggestion = z.infer<typeof insertTaskSuggestionSchema>;
+export type TaskSuggestion = typeof taskSuggestions.$inferSelect;
+
 export const communicationLists = pgTable("communication_lists", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),

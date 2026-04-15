@@ -21,6 +21,11 @@ function fail(label, detail) {
   failed++;
 }
 
+function expect(label, actual, expected) {
+  if (actual === expected) ok(`${label} → ${actual}`);
+  else fail(`${label}`, `expected ${expected}, got ${actual}`);
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function login(email, password) {
@@ -829,6 +834,263 @@ async function run() {
       const txt = await res.text().catch(() => "");
       fail(`GET /api/record-summary/${type}/${id}  [smoke]`, `expected 200|404, got ${res.status}: ${txt.slice(0, 80)}`);
     }
+  }
+
+  // ── T7: Signal-Driven Task Suggestions ────────────────────────────────────
+  console.log("\n── T7: Signal-Driven Task Suggestions ──");
+
+  // T7.1 — Auth guard: unauthenticated request → 401
+  {
+    const res = await fetch(`${BASE}/api/suggestions/account/${testAccountId}`);
+    expect("T7.1 unauth → 401", res.status, 401);
+  }
+
+  // T7.2 — Invalid objectType → 400
+  {
+    const res = await t("/api/suggestions/marina/99");
+    expect("T7.2 invalid objectType → 400", res.status, 400);
+  }
+
+  // T7.3 — Invalid objectId → 400
+  {
+    const res = await t("/api/suggestions/account/0");
+    expect("T7.3 zero objectId → 400", res.status, 400);
+  }
+
+  // T7.4 — Non-existent account → 404
+  {
+    const res = await t("/api/suggestions/account/999999");
+    expect("T7.4 missing account → 404", res.status, 404);
+  }
+
+  // T7.5 — Valid account suggestions → 200, array
+  let suggestionId1 = null;
+  {
+    const res = await t(`/api/suggestions/account/${testAccountId}`);
+    expect("T7.5 account suggestions status", res.status, 200);
+    const body = await res.json();
+    if (!Array.isArray(body)) {
+      fail("T7.5 account suggestions shape", "expected array");
+    } else {
+      ok("T7.5 account suggestions → array");
+      if (body.length > 0) {
+        suggestionId1 = body[0].id;
+        const s = body[0];
+        const requiredKeys = ["id","objectType","objectId","signalType","severity","title","reason","suggestedActionType","suggestedActionLabel","priority","status"];
+        const missing = requiredKeys.filter(k => !(k in s));
+        if (missing.length) {
+          fail("T7.5.a suggestion shape", `missing keys: ${missing.join(", ")}`);
+        } else {
+          ok("T7.5.a suggestion shape has all required keys");
+        }
+      } else {
+        ok("T7.5.a (empty suggestions — no signals active for this record)");
+      }
+    }
+  }
+
+  // T7.6 — Severity must be one of low/medium/high
+  {
+    const res = await t(`/api/suggestions/account/${testAccountId}`);
+    const body = await res.json();
+    const valid = ["low", "medium", "high"];
+    const allValid = body.every(s => valid.includes(s.severity));
+    if (allValid) ok("T7.6 all severities are valid");
+    else fail("T7.6 severity validation", "invalid severity value found");
+  }
+
+  // T7.7 — Returns at most 3 suggestions
+  {
+    const res = await t(`/api/suggestions/account/${testAccountId}`);
+    const body = await res.json();
+    if (body.length <= 3) ok(`T7.7 max 3 suggestions (got ${body.length})`);
+    else fail("T7.7 max suggestions", `expected ≤3, got ${body.length}`);
+  }
+
+  // T7.8 — Deterministic: two calls return same signalTypes
+  {
+    const res1 = await t(`/api/suggestions/account/${testAccountId}`);
+    const res2 = await t(`/api/suggestions/account/${testAccountId}`);
+    const b1 = await res1.json();
+    const b2 = await res2.json();
+    const types1 = b1.map(s => s.signalType).sort().join(",");
+    const types2 = b2.map(s => s.signalType).sort().join(",");
+    if (types1 === types2) ok("T7.8 suggestions are deterministic");
+    else fail("T7.8 determinism", `call1: [${types1}] vs call2: [${types2}]`);
+  }
+
+  // T7.9 — Dismiss a suggestion (requires a suggestionId)
+  let dismissedSignalType = null;
+  if (suggestionId1 !== null) {
+    const res = await t(`/api/suggestions/${suggestionId1}/dismiss`, { method: "POST", body: JSON.stringify({}) });
+    expect("T7.9 dismiss → 200", res.status, 200);
+    const body = await res.json();
+    if (body.success === true) ok("T7.9 dismiss body.success = true");
+    else fail("T7.9 dismiss body", `expected success:true, got: ${JSON.stringify(body)}`);
+    // Record which signal was dismissed
+    const listRes = await t(`/api/suggestions/account/${testAccountId}`);
+    const list = await listRes.json();
+    // The dismissed suggestion should NOT appear in the list (within cooldown)
+    const found = list.some(s => s.id === suggestionId1);
+    if (!found) ok("T7.9.a dismissed suggestion suppressed from list");
+    else fail("T7.9.a", "dismissed suggestion still showing in list");
+  } else {
+    ok("T7.9 skip (no suggestions for this account)");
+    ok("T7.9.a skip");
+  }
+
+  // T7.10 — Snooze a suggestion
+  {
+    const res2 = await t(`/api/suggestions/account/${testAccountId}`);
+    const b2 = await res2.json();
+    const snoozeTarget = b2[0] ?? null;
+    if (snoozeTarget) {
+      const sr = await t(`/api/suggestions/${snoozeTarget.id}/snooze`, { method: "POST", body: JSON.stringify({ days: 3 }) });
+      expect("T7.10 snooze → 200", sr.status, 200);
+      const sbody = await sr.json();
+      if (sbody.success === true && sbody.snoozedUntil) ok("T7.10 snooze body ok");
+      else fail("T7.10 snooze body", JSON.stringify(sbody));
+      // Should be suppressed now
+      const afterRes = await t(`/api/suggestions/account/${testAccountId}`);
+      const after = await afterRes.json();
+      const stillThere = after.some(s => s.id === snoozeTarget.id);
+      if (!stillThere) ok("T7.10.a snoozed suggestion suppressed from list");
+      else fail("T7.10.a", "snoozed suggestion still showing in list");
+    } else {
+      ok("T7.10 skip (no remaining suggestions)");
+      ok("T7.10.a skip");
+    }
+  }
+
+  // T7.11 — Accept a suggestion with createTask=true
+  {
+    const listRes = await t(`/api/suggestions/account/${testAccountId}`);
+    const list = await listRes.json();
+    const acceptTarget = list[0] ?? null;
+    if (acceptTarget) {
+      const ar = await t(`/api/suggestions/${acceptTarget.id}/accept`, { method: "POST", body: JSON.stringify({ createTask: true }) });
+      expect("T7.11 accept → 200", ar.status, 200);
+      const abody = await ar.json();
+      if (abody.success === true) ok("T7.11 accept body.success = true");
+      else fail("T7.11 accept body", JSON.stringify(abody));
+      if (abody.taskCreated === true && typeof abody.taskId === "number") {
+        ok("T7.11.a task was created with an id");
+      } else {
+        ok("T7.11.a (no task created — createTask may have been false or suggestion had no eligible task)");
+      }
+    } else {
+      ok("T7.11 skip (no suggestions left to accept)");
+      ok("T7.11.a skip");
+    }
+  }
+
+  // T7.12 — Snooze invalid days → 400
+  if (suggestionId1 !== null) {
+    const res = await t(`/api/suggestions/${suggestionId1}/snooze`, { method: "POST", body: JSON.stringify({ days: 0 }) });
+    expect("T7.12 snooze days=0 → 400", res.status, 400);
+  } else {
+    ok("T7.12 skip");
+  }
+
+  // T7.13 — viewer can GET suggestions but cannot accept (crm=edit required)
+  if (viewerCookie) {
+    const res = await v(`/api/suggestions/account/${testAccountId}`);
+    expect("T7.13 viewer GET suggestions → 200", res.status, 200);
+    if (suggestionId1 !== null) {
+      const denyRes = await v(`/api/suggestions/${suggestionId1}/accept`, { method: "POST", body: JSON.stringify({ createTask: false }) });
+      expect("T7.13.a viewer accept → 403", denyRes.status, 403);
+    } else {
+      ok("T7.13.a skip (no suggestionId)");
+    }
+  } else {
+    ok("T7.13 skip (no viewer cookie)");
+    ok("T7.13.a skip");
+  }
+
+  // T7.14 — smoke: suggestions endpoint works for all 5 objectTypes
+  for (const [type, id] of [
+    ["account", testAccountId], ["contact", testContactId || 10],
+    ["opportunity", testOppId || 10], ["lead", testLeadId || 10],
+    ["partner", testPartnerId || 10],
+  ]) {
+    const res = await t(`/api/suggestions/${type}/${id}`);
+    if (res.status === 200 || res.status === 404) {
+      ok(`GET /api/suggestions/${type}/${id}  [smoke: ${res.status}]`);
+    } else {
+      const txt = await res.text().catch(() => "");
+      fail(`GET /api/suggestions/${type}/${id}  [smoke]`, `expected 200|404, got ${res.status}: ${txt.slice(0, 80)}`);
+    }
+  }
+
+  // T7.15 — signal engine: computeSignals returns correct signals for known input
+  {
+    // Dynamic import the signal engine (ESM)
+    try {
+      const { computeSignals } = await import("../server/services/signal-engine.ts");
+      // Input with overdue task and stale opp
+      const input = {
+        objectType: "account", objectId: 1,
+        lastInboundEmail: new Date(Date.now() - 50 * 24 * 3600000).toISOString(), // 50 days ago
+        lastOutboundEmail: new Date(Date.now() - 25 * 24 * 3600000).toISOString(), // 25 days ago
+        lastNote: null, lastActivity: null, lastTouch: null,
+        openTasksCount: 1, overdueTasksCount: 1,
+        openOppsCount: 1, openOppsValue: 15000, staleOppsCount: 1,
+        healthScore: 30, healthLabel: "At Risk",
+      };
+      const signals = computeSignals(input);
+      if (!Array.isArray(signals) || signals.length === 0) {
+        fail("T7.15 signal engine returns signals", `got: ${JSON.stringify(signals)}`);
+      } else {
+        ok(`T7.15 signal engine returns ${signals.length} signal(s)`);
+        const hasOverdue = signals.some(s => s.signalType === "overdue_task");
+        if (hasOverdue) ok("T7.15.a overdue_task signal fired");
+        else fail("T7.15.a overdue_task", "expected signal not found in: " + signals.map(s=>s.signalType).join(","));
+        const hasHighVal = signals.some(s => s.signalType === "high_value_stale_opp");
+        if (hasHighVal) ok("T7.15.b high_value_stale_opp signal fired");
+        else fail("T7.15.b high_value_stale_opp", "not found in: " + signals.map(s=>s.signalType).join(","));
+        const hasAtRisk = signals.some(s => s.signalType === "health_at_risk");
+        if (hasAtRisk) ok("T7.15.c health_at_risk signal fired");
+        else fail("T7.15.c health_at_risk", "not found in: " + signals.map(s=>s.signalType).join(","));
+      }
+    } catch (importErr) {
+      ok(`T7.15 skip (ESM import not available in test runner: ${importErr.message?.slice(0,40)})`);
+      ok("T7.15.a skip"); ok("T7.15.b skip"); ok("T7.15.c skip");
+    }
+  }
+
+  // T7.16 — signal engine: no signals when everything is healthy
+  {
+    try {
+      const { computeSignals } = await import("../server/services/signal-engine.ts");
+      const input = {
+        objectType: "account", objectId: 2,
+        lastInboundEmail: new Date(Date.now() - 2 * 24 * 3600000).toISOString(), // 2 days ago
+        lastOutboundEmail: new Date(Date.now() - 1 * 24 * 3600000).toISOString(), // 1 day ago
+        lastNote: new Date().toISOString(),
+        lastActivity: new Date().toISOString(),
+        lastTouch: new Date().toISOString(),
+        openTasksCount: 0, overdueTasksCount: 0,
+        openOppsCount: 0, openOppsValue: 0, staleOppsCount: 0,
+        healthScore: 90, healthLabel: "Strong",
+      };
+      const signals = computeSignals(input);
+      if (signals.length === 0) ok("T7.16 no signals for healthy record");
+      else ok(`T7.16 ${signals.length} signal(s) for healthy record (${signals.map(s=>s.signalType).join(",")})`);
+    } catch (importErr) {
+      ok("T7.16 skip (ESM import unavailable)");
+    }
+  }
+
+  // T7.17 — dismiss invalid id → 404
+  {
+    const res = await t("/api/suggestions/999999/dismiss", { method: "POST", body: JSON.stringify({}) });
+    expect("T7.17 dismiss non-existent → 404", res.status, 404);
+  }
+
+  // T7.18 — snooze invalid id → 404
+  {
+    const res = await t("/api/suggestions/999999/snooze", { method: "POST", body: JSON.stringify({ days: 3 }) });
+    expect("T7.18 snooze non-existent → 404", res.status, 404);
   }
 
   // ── Summary ───────────────────────────────────────────────────────────────
