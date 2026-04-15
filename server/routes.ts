@@ -8535,6 +8535,12 @@ export function registerConfluenceRoutes(app: Express) {
       const safe = q.replace(/\\/g, "\\\\").replace(/'/g, "''");
       const term = `%${safe}%`;
       const safePrefix = `${safe}%`;
+      // Phase 5 — decompacted matching: "portcredit" finds "Port Credit Marina"
+      // Strip spaces from BOTH the query and the indexed field, then ILIKE-match.
+      // This handles run-together queries (portcredit, barriemarina) and also
+      // camelCase / run-together field values with no extra infrastructure.
+      const safeNorm = safe.replace(/ /g, '');
+      const termNorm = `%${safeNorm}%`;
 
       // Each UNION branch MUST be wrapped in parentheses so that LIMIT applies
       // per-branch. Without parentheses PostgreSQL parses LIMIT as belonging to
@@ -8546,16 +8552,28 @@ export function registerConfluenceRoutes(app: Express) {
       //
       // Lead branch uses a ranked subquery so exact/prefix company matches surface
       // above partial-company, contact-name, and city-only matches.
+      //
+      // Phase 6 — sub-label enrichment:
+      //   accounts → status + "city, state_province"
+      //   opportunities → stage + account name
       const result = await db.execute(sql.raw(`
-        (SELECT 'account' as type, a.id::text, a.name as label, a.lead_status as sub, a.city as sub2, NULL as linked_id
-         FROM accounts a WHERE a.name ILIKE '${term}' LIMIT 5)
+        (SELECT 'account' as type, a.id::text, a.name as label, a.lead_status as sub,
+          TRIM(COALESCE(a.city,'') || CASE WHEN a.state_province IS NOT NULL AND a.state_province <> '' THEN ', ' || a.state_province ELSE '' END) as sub2,
+          NULL as linked_id
+         FROM accounts a
+         WHERE a.name ILIKE '${term}'
+            OR LOWER(REPLACE(a.name, ' ', '')) ILIKE LOWER('${termNorm}')
+         LIMIT 5)
         UNION ALL
         (SELECT 'contact' as type, c.id::text, (COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')) as label,
                 c.email as sub, ac.name as sub2, NULL as linked_id
          FROM contacts c LEFT JOIN accounts ac ON c.account_id = ac.id
          WHERE (c.first_name || ' ' || c.last_name) ILIKE '${term}' OR c.email ILIKE '${term}' LIMIT 5)
         UNION ALL
-        (SELECT 'opportunity' as type, o.id::text, o.title as label, o.stage as sub, ac.name as sub2, NULL as linked_id
+        (SELECT 'opportunity' as type, o.id::text, o.title as label,
+                o.stage as sub,
+                COALESCE(ac.name,'') || CASE WHEN o.amount IS NOT NULL THEN '  ·  $' || TRIM(TO_CHAR(o.amount, 'FM999,999,999')) ELSE '' END as sub2,
+                NULL as linked_id
          FROM opportunities o LEFT JOIN accounts ac ON o.account_id = ac.id
          WHERE o.title ILIKE '${term}' OR ac.name ILIKE '${term}' LIMIT 5)
         UNION ALL
@@ -8564,14 +8582,18 @@ export function registerConfluenceRoutes(app: Express) {
             TRIM(COALESCE(l.city,'') || CASE WHEN l.state IS NOT NULL AND l.state <> '' THEN ', ' || l.state ELSE '' END) as sub2,
             NULL::text as linked_id,
             CASE
-              WHEN LOWER(l.company) = LOWER('${safe}')  THEN 0
-              WHEN l.company       ILIKE '${safePrefix}' THEN 1
-              WHEN l.company       ILIKE '${term}'       THEN 2
-              WHEN l.contact_name  ILIKE '${term}'       THEN 3
-              ELSE 4
+              WHEN LOWER(l.company) = LOWER('${safe}')                                 THEN 0
+              WHEN l.company        ILIKE '${safePrefix}'                               THEN 1
+              WHEN l.company        ILIKE '${term}'                                     THEN 2
+              WHEN LOWER(REPLACE(l.company, ' ', '')) ILIKE LOWER('${termNorm}')        THEN 3
+              WHEN l.contact_name   ILIKE '${term}'                                     THEN 4
+              ELSE 5
             END as _rank
           FROM leads l
-          WHERE l.company ILIKE '${term}' OR l.contact_name ILIKE '${term}' OR l.city ILIKE '${term}'
+          WHERE l.company      ILIKE '${term}'
+             OR l.contact_name ILIKE '${term}'
+             OR l.city         ILIKE '${term}'
+             OR LOWER(REPLACE(l.company, ' ', '')) ILIKE LOWER('${termNorm}')
           ORDER BY _rank, l.company
           LIMIT 5
         ) _ranked_leads)

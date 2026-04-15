@@ -4,7 +4,7 @@ import { apiRequest } from "@/lib/queryClient";
 import {
   Search, Bell, LogOut, X, Plus, CalendarDays, CheckSquare, UserPlus as UserPlusIcon,
   Mail, Flame, AlertTriangle, Building2, Contact, FileText, Ticket, FolderOpen, Layers,
-  Users, Target, StickyNote, ArrowRight,
+  Users, Target, StickyNote, ArrowRight, Sun, LayoutDashboard, Zap, Clock, GitBranch,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,17 +88,98 @@ function HighlightMatch({ text, query }: { text: string; query: string }) {
   );
 }
 
+// ── Command-bar: action items ─────────────────────────────────────────────────
+type CmdAction = {
+  id: string;
+  label: string;
+  icon: ElementType;
+  color: string;
+  href: string;
+  event?: string;
+  keywords: string[];
+};
+
+type RecentRecord = { type: string; id: string; label: string; sub?: string };
+
+const REC_SEARCH_KEY = "cb_recent_searches";
+const REC_RECORD_KEY  = "cb_recent_records";
+
+function loadRecentSearches(): string[] {
+  try { return (JSON.parse(localStorage.getItem(REC_SEARCH_KEY) || "[]") as string[]).slice(0, 5); }
+  catch { return []; }
+}
+function saveRecentSearch(q: string) {
+  const prev = loadRecentSearches().filter(s => s !== q);
+  localStorage.setItem(REC_SEARCH_KEY, JSON.stringify([q, ...prev].slice(0, 5)));
+}
+function loadRecentRecords(): RecentRecord[] {
+  try { return (JSON.parse(localStorage.getItem(REC_RECORD_KEY) || "[]") as RecentRecord[]).slice(0, 8); }
+  catch { return []; }
+}
+function saveRecentRecord(r: RecentRecord) {
+  const prev = loadRecentRecords().filter(x => !(x.type === r.type && x.id === r.id));
+  localStorage.setItem(REC_RECORD_KEY, JSON.stringify([r, ...prev].slice(0, 8)));
+}
+
+const ALL_ACTIONS: CmdAction[] = [
+  { id: "go-today",       label: "Today's Overview",  icon: Sun,            color: "text-amber-400",   href: "/today",           keywords: ["today","overview","daily","morning","briefing","go"] },
+  { id: "go-home",        label: "Command Center",    icon: LayoutDashboard, color: "text-primary",    href: "/",                keywords: ["home","dashboard","command","center","main","go"] },
+  { id: "go-contacts",    label: "Go to Contacts",    icon: Contact,        color: "text-violet-400",  href: "/contacts",        keywords: ["contact","contacts","people","person","go"] },
+  { id: "go-accounts",    label: "Go to Accounts",    icon: Building2,      color: "text-blue-400",    href: "/accounts",        keywords: ["account","accounts","org","organization","company","business","go"] },
+  { id: "go-leads",       label: "Go to Leads",       icon: UserPlusIcon,   color: "text-cyan-400",    href: "/opportunities",   keywords: ["lead","leads","marina","prospect","go"] },
+  { id: "go-tasks",       label: "Tasks Hub",         icon: CheckSquare,    color: "text-emerald-400", href: "/execution/tasks", keywords: ["task","tasks","todo","action","hub","work","go"] },
+  { id: "go-pipeline",    label: "Pipeline",          icon: GitBranch,      color: "text-emerald-400", href: "/pipeline",        keywords: ["pipeline","deal","deals","revenue","forecast","go"] },
+  { id: "go-inbox",       label: "Inbox",             icon: Mail,           color: "text-blue-400",    href: "/gmail",           keywords: ["email","inbox","mail","gmail","message","go"] },
+  { id: "create-account", label: "Create Account",    icon: Building2,      color: "text-blue-400",    href: "/accounts",        event: "open-create-account",  keywords: ["create","new","add","account","organization","company"] },
+  { id: "create-lead",    label: "Create Lead",       icon: UserPlusIcon,   color: "text-cyan-400",    href: "/opportunities",   event: "open-create-lead",     keywords: ["create","new","add","lead","prospect","marina"] },
+  { id: "create-contact", label: "Create Contact",    icon: Contact,        color: "text-violet-400",  href: "/contacts",        event: "open-create-contact",  keywords: ["create","new","add","contact","person"] },
+  { id: "create-task",    label: "Create Task",       icon: CheckSquare,    color: "text-emerald-400", href: "/execution/tasks", event: "open-create-task",     keywords: ["create","new","add","task","todo","remind"] },
+];
+
+function getMatchingActions(query: string): CmdAction[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const scored = ALL_ACTIONS.map(a => {
+    let score = 0;
+    for (const w of words)
+      for (const k of a.keywords)
+        if (k === w) score += 3; else if (k.startsWith(w)) score += 2; else if (k.includes(w)) score += 1;
+    return { a, score };
+  });
+  return scored.filter(x => x.score > 0).sort((x, y) => y.score - x.score).slice(0, 3).map(x => x.a);
+}
+
+const PINNED_SHORTCUTS = [
+  { label: "Today",          href: "/today",           icon: Sun,            color: "text-amber-400" },
+  { label: "Command Center", href: "/",                icon: LayoutDashboard, color: "text-primary" },
+  { label: "Tasks Hub",      href: "/execution/tasks", icon: CheckSquare,    color: "text-emerald-400" },
+  { label: "Inbox",          href: "/gmail",           icon: Mail,           color: "text-blue-400" },
+];
+
+// ── GlobalSearch command bar ──────────────────────────────────────────────────
+type NavItem = { kind: "action"; data: CmdAction } | { kind: "result"; data: SearchResultItem };
+
 function GlobalSearch() {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [recentRecords, setRecentRecords]   = useState<RecentRecord[]>([]);
+  const inputRef    = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const itemRefs    = useRef<(HTMLButtonElement | null)[]>([]);
   const [, navigate] = useLocation();
 
   const trimmed = query.trim();
   const isShortQuery = trimmed.length === 1;
+
+  // Load recents whenever the dropdown opens
+  useEffect(() => {
+    if (open) {
+      setRecentSearches(loadRecentSearches());
+      setRecentRecords(loadRecentRecords());
+    }
+  }, [open]);
 
   const { data, isFetching } = useQuery<{ results: SearchResultItem[] }>({
     queryKey: [`/api/search?q=${encodeURIComponent(trimmed)}`],
@@ -106,7 +187,8 @@ function GlobalSearch() {
     staleTime: 10_000,
   });
 
-  const results = data?.results ?? [];
+  const results  = data?.results ?? [];
+  const actions  = trimmed.length >= 2 ? getMatchingActions(trimmed) : [];
 
   const grouped = TYPE_ORDER.reduce((acc, type) => {
     const group = results.filter(r => r.type === type);
@@ -114,18 +196,34 @@ function GlobalSearch() {
     return acc;
   }, {} as Record<string, SearchResultItem[]>);
 
-  const flatItems: SearchResultItem[] = TYPE_ORDER.flatMap(type => grouped[type] ?? []);
-  const hasResults = flatItems.length > 0;
-  const showDropdown = open && trimmed.length >= 1;
+  const flatResults: SearchResultItem[] = TYPE_ORDER.flatMap(type => grouped[type] ?? []);
 
+  // Unified nav list: actions first, then search results
+  const navItems: NavItem[] = [
+    ...actions.map(a => ({ kind: "action" as const, data: a })),
+    ...flatResults.map(r => ({ kind: "result" as const, data: r })),
+  ];
+
+  const hasResults  = flatResults.length > 0;
+  const hasRecents  = recentSearches.length > 0 || recentRecords.length > 0;
+  const showDropdown = open && (trimmed.length >= 1 || hasRecents);
+
+  // Reset active index whenever query changes
   useEffect(() => { setActiveIndex(-1); }, [query]);
 
+  // Auto-highlight first item once results/actions land
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (activeIndex >= 0 && itemRefs.current[activeIndex]) {
+    if (!isFetching && trimmed.length >= 2) setActiveIndex(prev => prev === -1 ? 0 : prev);
+  }, [data, isFetching]);
+
+  // Scroll active item into view
+  useEffect(() => {
+    if (activeIndex >= 0 && itemRefs.current[activeIndex])
       itemRefs.current[activeIndex]?.scrollIntoView({ block: "nearest" });
-    }
   }, [activeIndex]);
 
+  // ⌘K / Ctrl+K global shortcut
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -138,53 +236,64 @@ function GlobalSearch() {
     return () => document.removeEventListener("keydown", handler);
   }, []);
 
+  // Click outside to close
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node))
         setOpen(false);
-      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const handleSelect = useCallback((r: SearchResultItem) => {
-    setOpen(false);
-    setQuery("");
-    setActiveIndex(-1);
+  // Navigate to a search result + save to recents
+  const navigateToResult = useCallback((r: SearchResultItem) => {
+    saveRecentRecord({ type: r.type, id: r.id, label: r.label, sub: r.sub2 || r.sub || undefined });
     if (r.type === "account") { navigate(`/accounts/${r.id}`); return; }
     if (r.type === "contact") { navigate(`/contacts/${r.id}`); return; }
     if (r.type === "opportunity") { navigate(`/opportunities/${r.id}`); return; }
     if (r.type === "lead") { navigate(`/opportunities?selected=${r.id}`); return; }
     if (r.type === "note") {
-      if (r.sub === "account" && r.linked_id) { navigate(`/accounts/${r.linked_id}`); return; }
-      if (r.sub === "contact" && r.linked_id) { navigate(`/contacts/${r.linked_id}`); return; }
+      if (r.sub === "account"     && r.linked_id) { navigate(`/accounts/${r.linked_id}`); return; }
+      if (r.sub === "contact"     && r.linked_id) { navigate(`/contacts/${r.linked_id}`); return; }
       if (r.sub === "opportunity" && r.linked_id) { navigate(`/opportunities/${r.linked_id}`); return; }
       navigate("/notes");
     }
   }, [navigate]);
 
+  // Navigate to a command action
+  const navigateToAction = useCallback((a: CmdAction) => {
+    navigate(a.href);
+    if (a.event) setTimeout(() => window.dispatchEvent(new CustomEvent(a.event)), 80);
+  }, [navigate]);
+
+  // Unified select handler
+  const handleSelect = useCallback((item: NavItem) => {
+    setOpen(false);
+    if (trimmed.length >= 2) saveRecentSearch(trimmed);
+    setQuery("");
+    setActiveIndex(-1);
+    if (item.kind === "action") navigateToAction(item.data);
+    else navigateToResult(item.data);
+  }, [trimmed, navigateToAction, navigateToResult]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!showDropdown) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActiveIndex(i => Math.min(i + 1, flatItems.length - 1));
+      if (!showDropdown) { setOpen(true); return; }
+      setActiveIndex(i => Math.min(i + 1, navItems.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActiveIndex(i => Math.max(i - 1, -1));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (activeIndex >= 0 && flatItems[activeIndex]) {
-        handleSelect(flatItems[activeIndex]);
-      }
+      if (activeIndex >= 0 && navItems[activeIndex]) handleSelect(navItems[activeIndex]);
     } else if (e.key === "Escape") {
       setOpen(false);
       setActiveIndex(-1);
       inputRef.current?.blur();
     }
   };
-
-  let flatIdx = 0;
 
   return (
     <div ref={containerRef} className="relative w-full max-w-md hidden md:block">
@@ -195,7 +304,7 @@ function GlobalSearch() {
         onChange={e => { setQuery(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
         onKeyDown={handleKeyDown}
-        placeholder="Search accounts, contacts, leads… ⌘K"
+        placeholder="Search or ⌘K to command…"
         className="pl-9 pr-4 bg-secondary/30 border-transparent focus-visible:border-primary/50 focus-visible:ring-primary/20 rounded-full h-10 transition-all"
         data-testid="input-global-search"
         autoComplete="off"
@@ -221,7 +330,92 @@ function GlobalSearch() {
           role="listbox"
           aria-label="Search results"
         >
-          {/* Keep typing hint — only 1 char typed */}
+          {/* ── EMPTY STATE: pinned shortcuts + recents ── */}
+          {trimmed.length === 0 && (
+            <div className="max-h-[400px] overflow-y-auto">
+              {/* Pinned shortcuts */}
+              <div className="px-3 pt-2.5 pb-2 flex flex-wrap gap-1.5 border-b border-border/20">
+                {PINNED_SHORTCUTS.map(p => {
+                  const Icon = p.icon;
+                  return (
+                    <button
+                      key={p.href}
+                      onClick={() => { setOpen(false); navigate(p.href); }}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-secondary/40 hover:bg-secondary/70 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      data-testid={`search-pinned-${p.label.replace(/\s+/g, "-").toLowerCase()}`}
+                    >
+                      <Icon className={`h-3 w-3 ${p.color}`} />
+                      {p.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {recentSearches.length > 0 && (
+                <div>
+                  <div className="px-3 py-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground bg-secondary/10">
+                    <Clock className="h-3 w-3" /> Recent searches
+                  </div>
+                  {recentSearches.map(s => (
+                    <button
+                      key={s}
+                      onClick={() => { setQuery(s); inputRef.current?.focus(); }}
+                      className="flex items-center gap-3 w-full px-3 py-2 hover:bg-secondary/40 transition-colors text-left border-b border-border/10 last:border-0"
+                      data-testid={`search-recent-query`}
+                    >
+                      <Search className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                      <span className="text-sm text-muted-foreground flex-1">{s}</span>
+                      <ArrowRight className="h-3 w-3 text-muted-foreground/30 shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {recentRecords.length > 0 && (
+                <div>
+                  <div className="px-3 py-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground bg-secondary/10">
+                    <Clock className="h-3 w-3" /> Recently opened
+                  </div>
+                  {recentRecords.map(r => {
+                    const meta = SEARCH_TYPE_META[r.type];
+                    const Icon = meta?.Icon;
+                    return (
+                      <button
+                        key={`${r.type}-${r.id}`}
+                        onClick={() => {
+                          setOpen(false);
+                          const fake: SearchResultItem = { type: r.type as SearchResultItem["type"], id: r.id, label: r.label, sub: r.sub || null, sub2: null, linked_id: null };
+                          navigateToResult(fake);
+                        }}
+                        className="flex items-center gap-3 w-full px-3 py-2 hover:bg-secondary/40 transition-colors text-left border-b border-border/10 last:border-0"
+                        data-testid={`search-recent-record`}
+                      >
+                        {Icon && <Icon className={`h-3.5 w-3.5 shrink-0 ${meta.color}`} />}
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm">{r.label}</span>
+                          {r.sub && <span className="text-xs text-muted-foreground ml-2">{r.sub}</span>}
+                        </div>
+                        <span className="text-[9px] text-muted-foreground/50 shrink-0 border border-border/30 rounded px-1 py-0.5 capitalize">{r.type}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {!hasRecents && (
+                <div className="px-4 py-5 text-center text-sm text-muted-foreground/60">
+                  <Search className="w-6 h-6 mx-auto mb-2 opacity-30" />
+                  Type to search or use ⌘K
+                </div>
+              )}
+
+              <div className="px-3 py-1.5 text-[10px] text-muted-foreground/40 bg-secondary/10 border-t border-border/20 text-center">
+                ↑↓ navigate · ↵ select · Esc close
+              </div>
+            </div>
+          )}
+
+          {/* ── SHORT QUERY HINT ── */}
           {isShortQuery && (
             <div className="flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground">
               <Search className="w-3.5 h-3.5 shrink-0" />
@@ -229,8 +423,8 @@ function GlobalSearch() {
             </div>
           )}
 
-          {/* Loading */}
-          {!isShortQuery && isFetching && !hasResults && (
+          {/* ── LOADING ── */}
+          {!isShortQuery && trimmed.length >= 2 && isFetching && !hasResults && actions.length === 0 && (
             <div className="space-y-0 max-h-[400px] overflow-y-auto">
               {[...Array(4)].map((_, i) => (
                 <div key={i} className="flex items-center gap-3 px-3 py-2.5 border-b border-border/20 last:border-0">
@@ -244,8 +438,8 @@ function GlobalSearch() {
             </div>
           )}
 
-          {/* No results */}
-          {!isShortQuery && !isFetching && !hasResults && (
+          {/* ── NO RESULTS ── */}
+          {!isShortQuery && trimmed.length >= 2 && !isFetching && !hasResults && actions.length === 0 && (
             <div className="px-5 py-6 text-center space-y-1">
               <Search className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
               <p className="text-sm font-medium text-foreground">No results for "{trimmed}"</p>
@@ -253,67 +447,41 @@ function GlobalSearch() {
             </div>
           )}
 
-          {/* Results grouped by type */}
-          {!isShortQuery && hasResults && (
-            <div className="max-h-[420px] overflow-y-auto" ref={el => { if (el) itemRefs.current = []; }}>
-              {TYPE_ORDER.map(type => {
-                const group = grouped[type];
-                if (!group?.length) return null;
-                const { label, Icon, color, href } = SEARCH_TYPE_META[type];
-                const sectionStartIdx = flatIdx;
-                flatIdx += group.length;
+          {/* ── ACTIONS + RESULTS ── */}
+          {!isShortQuery && trimmed.length >= 2 && (actions.length > 0 || hasResults) && (() => {
+            let navIdx = 0;
+            return (
+              <div className="max-h-[420px] overflow-y-auto" ref={el => { if (el) itemRefs.current = []; }}>
 
-                return (
-                  <div key={type}>
-                    {/* Section header — clickable to "view all" */}
-                    <div className="px-3 py-1.5 flex items-center justify-between text-[10px] font-semibold uppercase tracking-widest text-muted-foreground bg-secondary/20 sticky top-0 z-10">
-                      <div className="flex items-center gap-1.5">
-                        <Icon className={`h-3 w-3 ${color}`} />
-                        {label}
-                        <span className="font-normal normal-case tracking-normal text-muted-foreground/60">
-                          ({group.length}{group.length === 5 ? "+" : ""})
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => { setOpen(false); setQuery(""); navigate(href); }}
-                        className="flex items-center gap-0.5 text-muted-foreground hover:text-primary transition-colors normal-case tracking-normal font-normal"
-                        tabIndex={-1}
-                        data-testid={`search-viewall-${type}`}
-                      >
-                        View all <ArrowRight className="h-2.5 w-2.5" />
-                      </button>
+                {/* Actions section */}
+                {actions.length > 0 && (
+                  <div>
+                    <div className="px-3 py-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground bg-secondary/20 sticky top-0 z-10">
+                      <Zap className="h-3 w-3 text-amber-400" />
+                      Actions
                     </div>
-
-                    {group.map((r, i) => {
-                      const itemIdx = sectionStartIdx + i;
-                      const isActive = activeIndex === itemIdx;
+                    {actions.map(action => {
+                      const itemNavIdx = navIdx++;
+                      const isActive = activeIndex === itemNavIdx;
+                      const Icon = action.icon;
                       return (
                         <button
-                          key={r.id}
-                          ref={el => { itemRefs.current[itemIdx] = el; }}
-                          onClick={() => handleSelect(r)}
-                          onMouseEnter={() => setActiveIndex(itemIdx)}
+                          key={action.id}
+                          ref={el => { itemRefs.current[itemNavIdx] = el; }}
+                          onClick={() => handleSelect({ kind: "action", data: action })}
+                          onMouseEnter={() => setActiveIndex(itemNavIdx)}
                           className={`flex items-center gap-3 w-full px-3 py-2.5 transition-colors text-left border-b border-border/20 last:border-0 ${isActive ? "bg-secondary/60" : "hover:bg-secondary/40"}`}
-                          data-testid={`search-result-${r.type}-${r.id}`}
+                          data-testid={`search-action-${action.id}`}
                           role="option"
                           aria-selected={isActive}
                         >
-                          <Icon className={`h-4 w-4 shrink-0 ${color}`} />
+                          <Icon className={`h-4 w-4 shrink-0 ${action.color}`} />
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">
-                              <HighlightMatch text={r.label} query={trimmed} />
-                            </p>
-                            {(r.sub || r.sub2) && (
-                              <p className="text-xs text-muted-foreground truncate">
-                                {r.type === "lead"
-                                  ? [r.sub2, r.sub].filter(Boolean).join("  ·  ")
-                                  : [r.sub2, r.sub].filter(Boolean).join(" · ")}
-                              </p>
-                            )}
+                            <p className="text-sm font-medium">{action.label}</p>
                           </div>
                           <div className="shrink-0 flex items-center gap-1">
-                            {r.type === "lead" && (
-                              <span className="text-[9px] font-semibold uppercase tracking-wide text-cyan-400 border border-cyan-400/30 bg-cyan-400/5 rounded px-1 py-0.5">Lead</span>
+                            {action.event && (
+                              <span className="text-[9px] text-muted-foreground/60 border border-border/30 rounded px-1 py-0.5">create</span>
                             )}
                             {isActive && (
                               <span className="text-[9px] text-muted-foreground border border-border/50 rounded px-1 py-0.5">↵</span>
@@ -323,16 +491,84 @@ function GlobalSearch() {
                       );
                     })}
                   </div>
-                );
-              })}
+                )}
 
-              {/* Footer hint */}
-              <div className="px-3 py-1.5 flex items-center justify-between text-[10px] text-muted-foreground/60 bg-secondary/10 border-t border-border/20">
-                <span>↑↓ navigate</span>
-                <span>↵ select · Esc close</span>
+                {/* Search results grouped by type */}
+                {TYPE_ORDER.map(type => {
+                  const group = grouped[type];
+                  if (!group?.length) return null;
+                  const { label, Icon, color, href } = SEARCH_TYPE_META[type];
+                  const sectionStart = navIdx;
+                  navIdx += group.length;
+
+                  return (
+                    <div key={type}>
+                      <div className="px-3 py-1.5 flex items-center justify-between text-[10px] font-semibold uppercase tracking-widest text-muted-foreground bg-secondary/20 sticky top-0 z-10">
+                        <div className="flex items-center gap-1.5">
+                          <Icon className={`h-3 w-3 ${color}`} />
+                          {label}
+                          <span className="font-normal normal-case tracking-normal text-muted-foreground/60">
+                            ({group.length}{group.length === 5 ? "+" : ""})
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => { setOpen(false); setQuery(""); navigate(href); }}
+                          className="flex items-center gap-0.5 text-muted-foreground hover:text-primary transition-colors normal-case tracking-normal font-normal"
+                          tabIndex={-1}
+                          data-testid={`search-viewall-${type}`}
+                        >
+                          View all <ArrowRight className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+
+                      {group.map((r, i) => {
+                        const itemNavIdx = sectionStart + i;
+                        const isActive = activeIndex === itemNavIdx;
+                        return (
+                          <button
+                            key={r.id}
+                            ref={el => { itemRefs.current[itemNavIdx] = el; }}
+                            onClick={() => handleSelect({ kind: "result", data: r })}
+                            onMouseEnter={() => setActiveIndex(itemNavIdx)}
+                            className={`flex items-center gap-3 w-full px-3 py-2.5 transition-colors text-left border-b border-border/20 last:border-0 ${isActive ? "bg-secondary/60" : "hover:bg-secondary/40"}`}
+                            data-testid={`search-result-${r.type}-${r.id}`}
+                            role="option"
+                            aria-selected={isActive}
+                          >
+                            <Icon className={`h-4 w-4 shrink-0 ${color}`} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">
+                                <HighlightMatch text={r.label} query={trimmed} />
+                              </p>
+                              {(r.sub || r.sub2) && (
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {[r.sub2, r.sub].filter(Boolean).join(" · ")}
+                                </p>
+                              )}
+                            </div>
+                            <div className="shrink-0 flex items-center gap-1">
+                              {r.type === "lead" && (
+                                <span className="text-[9px] font-semibold uppercase tracking-wide text-cyan-400 border border-cyan-400/30 bg-cyan-400/5 rounded px-1 py-0.5">Lead</span>
+                              )}
+                              {isActive && (
+                                <span className="text-[9px] text-muted-foreground border border-border/50 rounded px-1 py-0.5">↵</span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+
+                {/* Footer */}
+                <div className="px-3 py-1.5 flex items-center justify-between text-[10px] text-muted-foreground/60 bg-secondary/10 border-t border-border/20">
+                  <span>↑↓ navigate · ⌘K open</span>
+                  <span>↵ select · Esc close</span>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       )}
     </div>
