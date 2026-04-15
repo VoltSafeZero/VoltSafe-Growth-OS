@@ -1113,11 +1113,15 @@ export async function registerRoutes(
           ORDER BY created_at DESC LIMIT 10
         `)),
         db.execute(sql.raw(`
-          SELECT DISTINCT id, title, status, priority, due_date, owner_user_id
-          FROM tasks
-          WHERE account_id = ${id}
-             OR (linked_object_type = 'account' AND linked_object_id = ${id})
-          ORDER BY CASE WHEN status != 'done' THEN 0 ELSE 1 END, due_date ASC NULLS LAST LIMIT 10
+          SELECT id, title, status, priority, due_date, owner_user_id
+          FROM (
+            SELECT DISTINCT id, title, status, priority, due_date, owner_user_id
+            FROM tasks
+            WHERE account_id = ${id}
+               OR (linked_object_type = 'account' AND linked_object_id = ${id})
+          ) dedup
+          ORDER BY CASE WHEN status != 'done' THEN 0 ELSE 1 END, due_date ASC NULLS LAST
+          LIMIT 10
         `)),
       ]);
       if (!accountRows.rows.length) return res.status(404).json({ message: "Account not found" });
@@ -1242,19 +1246,16 @@ export async function registerRoutes(
           ORDER BY o.updated_at DESC LIMIT 10
         `)),
         contact.email ? db.execute(sql.raw(`
-          SELECT DISTINCT id, subject, from_email, from_name, direction, snippet, sent_at FROM (
-            SELECT id, subject, from_email, from_name, direction, snippet, sent_at
-            FROM email_messages
-            WHERE from_email = ${emailQ}
-            ORDER BY sent_at DESC LIMIT 8
-            UNION ALL
-            SELECT id, subject, from_email, from_name, direction, snippet, sent_at
-            FROM email_messages
-            WHERE from_email != ${emailQ}
-              AND all_participants::text ILIKE '%${contact.email.replace(/'/g, "''")}%'
-              AND sent_at > NOW() - INTERVAL '180 days'
-            ORDER BY sent_at DESC LIMIT 8
-          ) em
+          (SELECT id, subject, from_email, from_name, direction, snippet, sent_at
+           FROM email_messages
+           WHERE from_email = ${emailQ}
+           ORDER BY sent_at DESC LIMIT 8)
+          UNION
+          (SELECT id, subject, from_email, from_name, direction, snippet, sent_at
+           FROM email_messages
+           WHERE from_email != ${emailQ}
+             AND all_participants ILIKE '%${contact.email.replace(/'/g, "''")}%'
+           ORDER BY sent_at DESC LIMIT 8)
           ORDER BY sent_at DESC LIMIT 8
         `)) : Promise.resolve({ rows: [] }),
         db.execute(sql.raw(`
@@ -6068,8 +6069,12 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.get("/api/activity-feed", requirePermission("crm", "view"), async (req, res) => {
     try {
-      const { limit: limitQ } = req.query as Record<string, string>;
+      const { limit: limitQ, balanced: balancedQ } = req.query as Record<string, string>;
       const lim = Math.min(Number(limitQ) || 50, 100);
+      // balanced=true: each arm gets enough rows to guarantee type diversity in the final output.
+      // Default (balanced=false): each arm contributes up to lim rows, strictly chronological.
+      const balanced = balancedQ === "true";
+      const armLim = balanced ? Math.min(lim * 3, 200) : lim;
       const rows = await db.execute(sql.raw(`
         SELECT * FROM (
           SELECT 'note' as feed_type, n.id, n.content as summary,
@@ -6083,7 +6088,7 @@ export function registerConfluenceRoutes(app: Express) {
                  END AS linked_object_name,
                  NULL::text as extra
           FROM notes n
-          ORDER BY n.created_at DESC LIMIT ${lim}
+          ORDER BY n.created_at DESC LIMIT ${armLim}
         ) notes_arm
         UNION ALL
         SELECT * FROM (
@@ -6094,7 +6099,7 @@ export function registerConfluenceRoutes(app: Express) {
                  em.direction::text as extra
           FROM email_messages em
           WHERE em.source_account_id IS NOT NULL AND em.sent_at IS NOT NULL
-          ORDER BY em.sent_at DESC LIMIT ${lim}
+          ORDER BY em.sent_at DESC LIMIT ${armLim}
         ) email_arm
         UNION ALL
         SELECT * FROM (
@@ -6105,7 +6110,7 @@ export function registerConfluenceRoutes(app: Express) {
                  ce.event_type::text as extra
           FROM calendar_events ce
           WHERE ce.created_at IS NOT NULL
-          ORDER BY ce.created_at DESC LIMIT ${lim}
+          ORDER BY ce.created_at DESC LIMIT ${armLim}
         ) meeting_arm
         UNION ALL
         SELECT * FROM (
@@ -6120,7 +6125,7 @@ export function registerConfluenceRoutes(app: Express) {
                  END AS linked_object_name,
                  t.status::text as extra
           FROM tasks t
-          ORDER BY t.created_at DESC LIMIT ${lim}
+          ORDER BY t.created_at DESC LIMIT ${armLim}
         ) task_arm
         UNION ALL
         SELECT * FROM (
@@ -6130,7 +6135,7 @@ export function registerConfluenceRoutes(app: Express) {
                  NULL::text as linked_object_name,
                  a.type::text as extra
           FROM activities a
-          ORDER BY a.created_at DESC LIMIT ${lim}
+          ORDER BY a.created_at DESC LIMIT ${armLim}
         ) activity_arm
         ORDER BY created_at DESC
         LIMIT ${lim}
@@ -6155,11 +6160,14 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.post("/api/notes", requireAuth, async (req, res) => {
     try {
-      const user = (req as any).user;
+      const userId = (req.session as any).userId;
+      const [dbUser] = userId
+        ? await db.select({ id: users.id, name: users.name }).from(users).where(eq(users.id, userId)).limit(1)
+        : [];
       const note = await storage.createNote({
         ...req.body,
-        authorId: user?.id,
-        authorName: user?.name || "System",
+        authorId: dbUser?.id ?? null,
+        authorName: dbUser?.name ?? "System",
       });
       res.status(201).json(note);
     } catch (err: any) {

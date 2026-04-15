@@ -21,6 +21,7 @@ import { formatDistanceToNow } from "date-fns";
 type NoteItem = {
   id: number;
   content: string;
+  author_id: number | null;
   author_name: string;
   linked_object_type: string;
   linked_object_id: number;
@@ -28,6 +29,11 @@ type NoteItem = {
   created_at: string;
   updated_at: string;
 };
+
+function displayAuthor(note: NoteItem): string {
+  if (note.author_id === null && note.author_name === "System") return "System (legacy)";
+  return note.author_name;
+}
 
 const TYPE_LABEL: Record<string, string> = {
   contact: "Contact", account: "Account", opportunity: "Opportunity",
@@ -322,7 +328,7 @@ export default function NotesPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm whitespace-pre-wrap text-foreground/90 leading-relaxed">{note.content}</p>
                       <div className="flex items-center gap-3 mt-2 flex-wrap">
-                        <span className="text-xs text-muted-foreground">{note.author_name}</span>
+                        <span className="text-xs text-muted-foreground">{displayAuthor(note)}</span>
                         <span className="text-xs text-muted-foreground">
                           {formatDistanceToNow(new Date(note.created_at), { addSuffix: true })}
                         </span>

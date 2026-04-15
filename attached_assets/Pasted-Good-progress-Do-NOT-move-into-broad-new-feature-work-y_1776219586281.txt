@@ -1,0 +1,104 @@
+Good progress. Do NOT move into broad new feature work yet.
+
+Next sprint goal:
+Harden the changes you just made so the new behavior is correct, attributable, and scalable without breaking existing functionality.
+
+Execute the following in order, non-destructively, and verify each item:
+
+1. Fix note authorship everywhere
+- Update POST /api/notes so server-side note creation always attaches:
+  - author_id = req.user.id
+  - author_name = req.user.name (or equivalent display field)
+- Do not rely on frontend to pass authorship
+- Ensure notes created from:
+  - notes page
+  - contact profile
+  - account profile
+  - opportunity profile
+  all show the correct human author instead of “System”
+- Preserve compatibility with old notes that already have null author_id
+- In UI, render legacy null-author notes as “System (legacy)” if needed, but all new notes must have proper attribution
+
+2. Add the right database indexes safely
+Use CREATE INDEX CONCURRENTLY where supported and do not block production traffic.
+
+At minimum evaluate and, if appropriate, add:
+- email_messages(from_email)
+- email_messages(sent_at)
+- contacts(email_primary)
+- contacts(email_secondary)
+- opportunities(name or searchable fields used by picker)
+- any compound indexes that clearly benefit the new activity feed or note/entity picker paths
+
+Before adding indexes:
+- inspect actual query patterns now used in routes
+- explain why each index is needed
+- avoid speculative index spam
+
+After adding indexes:
+- verify query plans improved
+- confirm no migration/destructive risk
+- provide before/after EXPLAIN summaries
+
+3. Harden the contact profile email query without losing older relevant mail
+Current behavior limits ILIKE fallback to the last 180 days.
+Improve this safely.
+
+Requirements:
+- preserve performance improvements
+- avoid full-table scans where possible
+- do not silently hide older legitimate emails if they are only discoverable via all_participants
+- propose the safest long-term approach, which may include:
+  - better normalization
+  - participant mapping table
+  - trigram/GIN indexing if appropriate
+  - staged backfill rather than risky rewrite
+
+Deliver:
+- recommendation
+- implementation for the safest near-term version
+- explicit tradeoff notes
+
+4. Improve activity feed balance without breaking sort correctness
+Review whether per-arm LIMITs are causing type starvation.
+Implement a safer strategy only if justified.
+
+Requirements:
+- preserve overall descending chronology in final output
+- keep performance gains
+- avoid a feed that becomes dominated by one type when others exist
+- if you add a per-type floor, make it configurable and simple
+
+Deliver:
+- before/after behavior explanation
+- exact SQL/query logic used
+- confirmation that output shape remains unchanged
+
+5. Add real regression coverage for the changed areas
+Do not rely only on manual curl checks.
+
+Add focused tests for:
+- unauthorized access to contact/opportunity detail endpoints
+- notes created from each page show correct author
+- notes page updates after creating note from profile pages
+- opportunities search route accepts and returns filtered results
+- activity feed endpoint returns valid shape and remains sorted desc
+- contact email query returns exact-match emails and fallback results correctly
+
+If Playwright is blocked by stale Gmail auth state:
+- isolate those tests from Gmail-dependent flows
+- do not let unrelated auth test pollution block core regression coverage
+
+6. Give me a short hardening report
+After implementing, provide:
+- files changed
+- migrations/indexes added
+- tests added
+- anything still risky
+- exact recommended next sprint after this one
+
+Constraints:
+- do not break existing data
+- do not remove existing routes
+- do not rewrite broad architecture
+- keep changes focused on hardening what was just shipped
