@@ -1,0 +1,99 @@
+Great. Unified Record Timeline is now live and tested. Next, build Lead Conversion + Dedupe.
+
+Goal:
+Make it fast and safe to convert a lead into an Account + Contact + Opportunity without creating duplicate records or losing linked history.
+
+Build this in phases.
+
+PHASE 1 — CONVERSION ENTRY POINT
+Add a lead conversion flow available from:
+- lead detail panel/page
+- command bar lead actions
+- optional bulk action later
+
+Primary conversion action:
+Convert Lead
+
+PHASE 2 — DUPLICATE DETECTION
+Before conversion, check for likely existing matches:
+Accounts:
+- exact/normalized company name
+- company + city/state
+Contacts:
+- exact email if available
+- contact name + linked company
+Opportunities:
+- optional existing open opportunity for same org
+
+Show likely matches clearly:
+- confidence level
+- why it matched
+- link to existing record
+
+PHASE 3 — CONVERSION MODES
+Support these conversion options:
+1. Create new Account + new Contact + optional new Opportunity
+2. Link to existing Account + create new Contact
+3. Link to existing Account + link to existing Contact if appropriate
+4. Create Account only
+5. Create Opportunity during conversion or skip it
+
+PHASE 4 — DATA MAPPING
+Map lead fields into converted records cleanly:
+- company → account name
+- city/state/country/address fields
+- contact_name → contact
+- email/phone if available
+- lead source
+- owner
+- notes / metadata as appropriate
+- status progression
+
+Allow user to review/edit key fields before final conversion.
+
+PHASE 5 — HISTORY / LINK PRESERVATION
+On conversion:
+- preserve lead timeline/history
+- create a lead_converted timeline event
+- link notes, tasks, emails, attachments, and activities forward where appropriate
+- store converted_account_id, converted_contact_id, converted_opportunity_id on lead
+- mark lead as converted without deleting it
+
+PHASE 6 — DEDUPE / MERGE SAFETY
+Do not blindly create duplicates.
+If likely duplicates exist:
+- prompt user to choose existing vs create new
+- require explicit confirmation before creating near-duplicate records
+- explain consequences simply
+
+PHASE 7 — FRONTEND UX
+Build a clean conversion modal with:
+- duplicate suggestions
+- create vs link choices
+- optional opportunity creation
+- field mapping preview
+- final review step
+Keep it quick, not bureaucratic.
+
+PHASE 8 — PERMISSIONS
+Respect current permissions:
+- crm:view can inspect
+- crm:edit required to convert and create linked records
+- do not expose restricted records through duplicate suggestions if user cannot access them
+
+PHASE 9 — TESTING
+Add tests for:
+- new account/contact/opportunity conversion
+- existing account linking
+- duplicate detection ranking
+- preserving linked notes/tasks/emails/history
+- lead marked converted
+- timeline conversion event appears
+- permission enforcement
+- no regression to existing lead/account/timeline flows
+
+Implementation rules:
+- do not delete leads after conversion
+- do not break current lead pages or timelines
+- prefer deterministic duplicate logic over AI
+- summarize changed files and final pass/fail at the end

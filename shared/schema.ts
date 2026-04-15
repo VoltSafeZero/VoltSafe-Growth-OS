@@ -99,6 +99,10 @@ export const leads = pgTable("leads", {
   closedWonNotes: text("closed_won_notes"),
   leadLat: real("lead_lat"),
   leadLng: real("lead_lng"),
+  convertedAccountId: integer("converted_account_id"),
+  convertedContactId: integer("converted_contact_id"),
+  convertedOpportunityId: integer("converted_opportunity_id"),
+  convertedAt: timestamp("converted_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
