@@ -1,0 +1,80 @@
+Quote-to-Close Workflow is complete and tested. Next, build Pipeline Forecasting + Rep Performance.
+
+Goal:
+Turn Cortex into a usable sales management system with pipeline visibility, forecast rollups, stale-deal detection, and rep performance views.
+
+Build this in phases.
+
+PHASE 1 — OPPORTUNITY FORECAST FIELDS
+Standardize opportunity forecasting fields:
+- stage
+- amount
+- expected_close_date
+- probability
+- weighted_amount
+- owner_user_id
+- last_activity_at
+- stale_since
+- forecast_category (pipeline / best_case / commit / closed)
+Keep weighted_amount derived where possible.
+
+PHASE 2 — PIPELINE SUMMARY API
+Add backend endpoints for:
+- pipeline totals by stage
+- weighted pipeline totals
+- forecast by month / quarter
+- stale opportunities
+- opportunities with quotes awaiting response
+- opportunities with no next step / no task
+
+PHASE 3 — REP PERFORMANCE METRICS
+Add per-owner metrics such as:
+- open opportunities
+- weighted pipeline
+- overdue follow-up count
+- stale opportunity count
+- quotes sent
+- quotes accepted
+- win rate
+- average sales cycle length
+- activity count (tasks/emails/notes) over last 7/30 days
+
+PHASE 4 — FORECASTING UI
+Create or upgrade a dashboard page with:
+- pipeline by stage
+- weighted forecast
+- commit / best-case breakdown
+- stale deals table
+- rep leaderboard / accountability section
+- filters by owner, date range, region, org type if available
+
+PHASE 5 — STALE DEAL LOGIC
+Add deterministic stale logic:
+- no activity in X days
+- quote sent but no response in X days
+- expected close date passed
+- no open follow-up task
+Surface warnings and suggestions.
+
+PHASE 6 — SAVED VIEWS / BULK SUPPORT
+Support saved views and useful filters like:
+- closing this month
+- no activity in 14+ days
+- quotes awaiting response
+- commit deals only
+- overdue close date
+
+PHASE 7 — TESTING
+Add tests for:
+- weighted forecast calculations
+- rep metrics
+- stale deal classification
+- date grouping
+- filter correctness
+- no regression to opportunity, quote, task, and timeline flows
+
+Implementation rules:
+- keep forecasting deterministic and explainable
+- do not build bloated enterprise BI
+- reuse existing opportunity, quote, task, email, and timeline data
+- summarize changed files and final pass/fail at the end
