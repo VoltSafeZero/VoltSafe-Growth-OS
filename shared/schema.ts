@@ -1058,6 +1058,51 @@ export type InsertEmailAssociation = z.infer<typeof insertEmailAssociationSchema
 export type AssociationFeedback = typeof associationFeedback.$inferSelect;
 export type InsertAssociationFeedback = z.infer<typeof insertAssociationFeedbackSchema>;
 
+// ─── Install / Onboarding Workflows ────────────────────────────────────────
+
+export const installWorkflows = pgTable("install_workflows", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  status: text("status").notNull().default("pending_kickoff"),
+  quoteId: integer("quote_id"),
+  opportunityId: integer("opportunity_id"),
+  accountId: integer("account_id"),
+  ownerUserId: integer("owner_user_id"),
+  kickoffDate: timestamp("kickoff_date"),
+  targetCompletionDate: timestamp("target_completion_date"),
+  actualCompletionDate: timestamp("actual_completion_date"),
+  notes: text("notes"),
+  blockers: text("blockers"),
+  totalAmount: real("total_amount"),
+  quoteNumber: text("quote_number"),
+  customerName: text("customer_name"),
+  siteAddress: text("site_address"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const installMilestones = pgTable("install_milestones", {
+  id: serial("id").primaryKey(),
+  workflowId: integer("workflow_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  status: text("status").notNull().default("pending"),
+  ownerUserId: integer("owner_user_id"),
+  dueDate: timestamp("due_date"),
+  completedAt: timestamp("completed_at"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertInstallWorkflowSchema = createInsertSchema(installWorkflows).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertInstallMilestoneSchema = createInsertSchema(installMilestones).omit({ id: true, createdAt: true, updatedAt: true });
+export type InstallWorkflow = typeof installWorkflows.$inferSelect;
+export type InsertInstallWorkflow = z.infer<typeof insertInstallWorkflowSchema>;
+export type InstallMilestone = typeof installMilestones.$inferSelect;
+export type InsertInstallMilestone = z.infer<typeof insertInstallMilestoneSchema>;
+
 // ─── Stage 3 Additive Schema ───────────────────────────────────────────────
 
 export const projects = pgTable("projects", {

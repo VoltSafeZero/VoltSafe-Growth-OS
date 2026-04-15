@@ -2683,12 +2683,14 @@ export async function registerRoutes(
     try {
       const quoteId = Number(req.params.id);
       const userId = getSessionUserId(req)!;
-      const { toStatus, note, createFollowUpTask, followUpDays, createHandoffTask } = req.body as {
+      const { toStatus, note, createFollowUpTask, followUpDays, createHandoffTask, createInstallWorkflow, workflowOwnerUserId } = req.body as {
         toStatus: string;
         note?: string;
         createFollowUpTask?: boolean;
         followUpDays?: number;
         createHandoffTask?: boolean;
+        createInstallWorkflow?: boolean;
+        workflowOwnerUserId?: number;
       };
 
       const [existing] = (await db.execute(sql.raw(`SELECT * FROM quotes WHERE id = ${quoteId} LIMIT 1`))).rows as any[];
@@ -2770,6 +2772,27 @@ export async function registerRoutes(
         // Move linked opportunity to closed_won if applicable
         if (existing.opportunity_id) {
           await db.execute(sql.raw(`UPDATE opportunities SET stage = 'closed_won', updated_at = NOW() WHERE id = ${existing.opportunity_id}`));
+        }
+      }
+
+      // Auto: quote accepted → optionally create install workflow
+      if (toStatus === "accepted" && createInstallWorkflow) {
+        const existingWf = await db.execute(sql.raw(`SELECT id FROM install_workflows WHERE quote_id = ${quoteId} LIMIT 1`));
+        if ((existingWf as any).rows?.length === 0) {
+          const title = `Install – ${existing.customer_name ?? existing.quote_number}`;
+          const ownerId = workflowOwnerUserId || userId || "NULL";
+          const wfRes = await db.execute(sql.raw(
+            `INSERT INTO install_workflows (title, status, quote_id, opportunity_id, account_id, owner_user_id,
+               total_amount, quote_number, customer_name, created_at, updated_at)
+             VALUES (
+               '${title.replace(/'/g,"''")}', 'pending_kickoff', ${quoteId},
+               ${existing.opportunity_id || "NULL"}, ${existing.account_id || "NULL"}, ${ownerId},
+               ${existing.total || 0}, '${(existing.quote_number||"").replace(/'/g,"''")}',
+               '${(existing.customer_name||"").replace(/'/g,"''")}', NOW(), NOW()
+             ) RETURNING id`
+          ));
+          const workflowId = (wfRes as any).rows?.[0]?.id;
+          if (workflowId) await createDefaultMilestones(workflowId, null);
         }
       }
 
@@ -10752,6 +10775,379 @@ export function registerConfluenceRoutes(app: Express) {
           count: parseInt(r.count),
         })),
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // INSTALL / ONBOARDING WORKFLOWS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const DEFAULT_MILESTONES = [
+    { name: "Commercial Handoff",   description: "Internal sales-to-delivery handoff meeting, share quote and site context.",      sort_order: 0 },
+    { name: "Site Verification",    description: "Verify site survey, power availability, and pedestal count on-site.",             sort_order: 1 },
+    { name: "Electrical Review",    description: "Electrical engineer reviews panel specs and compliance requirements.",             sort_order: 2 },
+    { name: "Install Scheduling",   description: "Confirm install date with marina, assign install crew.",                          sort_order: 3 },
+    { name: "Hardware Allocation",  description: "Allocate and ship pedestals, cabling, and enclosures to site.",                   sort_order: 4 },
+    { name: "Software Onboarding",  description: "Provision marina in VoltSafe platform, configure billing and metering.",          sort_order: 5 },
+    { name: "Commissioning",        description: "On-site commissioning, power-on testing, and customer walkthrough.",              sort_order: 6 },
+    { name: "Closeout",             description: "Final sign-off, documentation handover, and customer success check-in.",          sort_order: 7 },
+  ];
+
+  async function createDefaultMilestones(workflowId: number, kickoffDate?: Date | null) {
+    const base = kickoffDate ? kickoffDate.getTime() : Date.now();
+    for (const m of DEFAULT_MILESTONES) {
+      const dueDate = new Date(base + (m.sort_order + 1) * 7 * 86400000).toISOString();
+      await db.execute(sql.raw(
+        `INSERT INTO install_milestones (workflow_id, name, description, status, sort_order, due_date, created_at, updated_at)
+         VALUES (${workflowId}, '${m.name.replace(/'/g,"''")}', '${m.description.replace(/'/g,"''")}', 'pending', ${m.sort_order}, '${dueDate}', NOW(), NOW())`
+      ));
+    }
+  }
+
+  // ── POST /api/install-workflows/from-quote/:quoteId ────────────────────────
+  app.post("/api/install-workflows/from-quote/:quoteId", requirePermission("quoting", "edit"), async (req, res) => {
+    try {
+      const quoteId = parseInt(req.params.quoteId);
+      const userId  = (req as any).session?.userId;
+
+      const qRes = await db.execute(sql.raw(
+        `SELECT q.*, a.name AS account_name, a.street_address, a.city, a.state_province
+         FROM quotes q LEFT JOIN accounts a ON a.id = q.account_id WHERE q.id = ${quoteId} LIMIT 1`
+      ));
+      const q = (qRes as any).rows?.[0];
+      if (!q) return res.status(404).json({ message: "Quote not found" });
+      if (q.status !== "accepted") return res.status(400).json({ message: "Quote must be accepted first" });
+
+      // Check if workflow already exists for this quote
+      const existingRes = await db.execute(sql.raw(`SELECT id FROM install_workflows WHERE quote_id = ${quoteId} LIMIT 1`));
+      if ((existingRes as any).rows?.length > 0) {
+        return res.status(409).json({ message: "A workflow already exists for this quote", workflowId: (existingRes as any).rows[0].id });
+      }
+
+      const { ownerUserId, kickoffDate, targetCompletionDate, notes } = req.body;
+      const title = `Install – ${q.customer_name ?? q.account_name ?? q.quote_number}`;
+      const ownerId = ownerUserId || userId || "NULL";
+      const kDate = kickoffDate ? `'${new Date(kickoffDate).toISOString()}'` : "NULL";
+      const tDate = targetCompletionDate ? `'${new Date(targetCompletionDate).toISOString()}'` : "NULL";
+      const siteAddr = [q.street_address, q.city, q.state_province].filter(Boolean).join(", ");
+
+      const wfRes = await db.execute(sql.raw(
+        `INSERT INTO install_workflows (title, status, quote_id, opportunity_id, account_id, owner_user_id,
+           kickoff_date, target_completion_date, total_amount, quote_number, customer_name, site_address, notes, created_at, updated_at)
+         VALUES (
+           '${title.replace(/'/g,"''")}', 'pending_kickoff', ${quoteId},
+           ${q.opportunity_id || "NULL"}, ${q.account_id || "NULL"}, ${ownerId},
+           ${kDate}, ${tDate},
+           ${q.total || 0}, '${(q.quote_number||"").replace(/'/g,"''")}',
+           '${(q.customer_name||q.account_name||"").replace(/'/g,"''")}',
+           '${(siteAddr||"").replace(/'/g,"''")}',
+           ${notes ? `'${String(notes).replace(/'/g,"''")}'` : "NULL"},
+           NOW(), NOW()
+         ) RETURNING id`
+      ));
+      const workflowId = (wfRes as any).rows?.[0]?.id;
+      await createDefaultMilestones(workflowId, kickoffDate ? new Date(kickoffDate) : null);
+
+      // Create default handoff tasks
+      const tasks = [
+        { title: `Commercial handoff — ${title}`, priority: "high", days: 2 },
+        { title: `Site verification scheduled — ${title}`, priority: "medium", days: 7 },
+        { title: `Hardware allocation — ${title}`, priority: "medium", days: 14 },
+      ];
+      for (const t of tasks) {
+        const due = new Date(Date.now() + t.days * 86400000).toISOString();
+        await db.execute(sql.raw(
+          `INSERT INTO tasks (title, status, priority, owner_user_id, linked_object_type, linked_object_id, due_date, source, source_label, created_at, updated_at)
+           VALUES ('${t.title.replace(/'/g,"''")}', 'pending', '${t.priority}', ${ownerId}, 'install_workflow', ${workflowId}, '${due}', 'install_workflow', 'Install Workflow', NOW(), NOW())`
+        ));
+      }
+
+      // Log timeline events on account and opportunity
+      if (q.account_id) {
+        await db.execute(sql.raw(
+          `INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at)
+           VALUES ('account', ${q.account_id}, 'milestone', 'Install workflow created',
+                   'Install/onboarding workflow created from accepted quote ${q.quote_number}. Workflow ID: ${workflowId}.', ${userId || "NULL"}, NOW())`
+        ));
+      }
+      if (q.opportunity_id) {
+        await db.execute(sql.raw(
+          `INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at)
+           VALUES ('opportunity', ${q.opportunity_id}, 'milestone', 'Install workflow created',
+                   'Install/onboarding workflow created. Workflow ID: ${workflowId}.', ${userId || "NULL"}, NOW())`
+        ));
+        await db.execute(sql.raw(
+          `UPDATE opportunities SET stage = 'closed_won', updated_at = NOW() WHERE id = ${q.opportunity_id} AND stage NOT IN ('closed_won','closed_lost')`
+        ));
+      }
+
+      res.status(201).json({ ok: true, workflowId });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── POST /api/install-workflows ────────────────────────────────────────────
+  app.post("/api/install-workflows", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).session?.userId;
+      const { title, accountId, opportunityId, quoteId, ownerUserId, kickoffDate, targetCompletionDate, notes, siteAddress, totalAmount } = req.body;
+      if (!title) return res.status(400).json({ message: "title is required" });
+
+      const ownerId = ownerUserId || userId || "NULL";
+      const wfRes = await db.execute(sql.raw(
+        `INSERT INTO install_workflows (title, status, quote_id, opportunity_id, account_id, owner_user_id,
+           kickoff_date, target_completion_date, total_amount, site_address, notes, created_at, updated_at)
+         VALUES (
+           '${title.replace(/'/g,"''")}', 'pending_kickoff',
+           ${quoteId ? Number(quoteId) : "NULL"},
+           ${opportunityId ? Number(opportunityId) : "NULL"},
+           ${accountId ? Number(accountId) : "NULL"},
+           ${ownerId},
+           ${kickoffDate ? `'${new Date(kickoffDate).toISOString()}'` : "NULL"},
+           ${targetCompletionDate ? `'${new Date(targetCompletionDate).toISOString()}'` : "NULL"},
+           ${totalAmount ? Number(totalAmount) : "NULL"},
+           ${siteAddress ? `'${String(siteAddress).replace(/'/g,"'")}'` : "NULL"},
+           ${notes ? `'${String(notes).replace(/'/g,"''")}'` : "NULL"},
+           NOW(), NOW()
+         ) RETURNING id`
+      ));
+      const workflowId = (wfRes as any).rows?.[0]?.id;
+      await createDefaultMilestones(workflowId, kickoffDate ? new Date(kickoffDate) : null);
+      res.status(201).json({ ok: true, workflowId });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── GET /api/install-workflows ─────────────────────────────────────────────
+  app.get("/api/install-workflows", requireAuth, async (req, res) => {
+    try {
+      const { status, ownerId, accountId, page = "1", limit = "50" } = req.query as Record<string,string>;
+      let where = "1=1";
+      if (status)    where += ` AND iw.status = '${status.replace(/'/g,"''")}'`;
+      if (ownerId)   where += ` AND iw.owner_user_id = ${parseInt(ownerId)}`;
+      if (accountId) where += ` AND iw.account_id = ${parseInt(accountId)}`;
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      const [wfRes, countRes] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT iw.*, u.name AS owner_name, a.name AS account_name,
+                 (SELECT count(*) FROM install_milestones m WHERE m.workflow_id = iw.id) AS milestone_total,
+                 (SELECT count(*) FROM install_milestones m WHERE m.workflow_id = iw.id AND m.status = 'complete') AS milestone_done,
+                 (SELECT count(*) FROM install_milestones m WHERE m.workflow_id = iw.id AND m.status = 'blocked') AS milestone_blocked
+          FROM install_workflows iw
+          LEFT JOIN users u ON u.id = iw.owner_user_id
+          LEFT JOIN accounts a ON a.id = iw.account_id
+          WHERE ${where}
+          ORDER BY iw.created_at DESC
+          LIMIT ${parseInt(limit)} OFFSET ${offset}`)),
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM install_workflows iw WHERE ${where}`)),
+      ]);
+
+      const workflows = ((wfRes as any).rows ?? []).map((r: any) => ({
+        ...r,
+        milestoneTotal:   parseInt(r.milestone_total ?? "0"),
+        milestoneDone:    parseInt(r.milestone_done ?? "0"),
+        milestoneBlocked: parseInt(r.milestone_blocked ?? "0"),
+        progressPct: r.milestone_total > 0 ? Math.round(r.milestone_done / r.milestone_total * 100) : 0,
+      }));
+
+      res.json({ data: workflows, total: parseInt((countRes as any).rows?.[0]?.cnt ?? "0") });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── GET /api/install-workflows/summary ────────────────────────────────────
+  app.get("/api/install-workflows/summary", requireAuth, async (req, res) => {
+    try {
+      const [statusRes, overdueRes, blockersRes] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT status, count(*) AS cnt FROM install_workflows GROUP BY status`)),
+        db.execute(sql.raw(`
+          SELECT count(*) AS cnt FROM install_workflows
+          WHERE status NOT IN ('complete','cancelled') AND target_completion_date < NOW()`)),
+        db.execute(sql.raw(`
+          SELECT count(*) AS cnt FROM install_workflows WHERE blockers IS NOT NULL AND blockers != '' AND status NOT IN ('complete','cancelled')`)),
+      ]);
+
+      const byStat: Record<string, number> = {};
+      for (const r of ((statusRes as any).rows ?? [])) byStat[r.status] = parseInt(r.cnt);
+      const total = Object.values(byStat).reduce((a: number, b: number) => a + b, 0);
+
+      res.json({
+        total,
+        byStatus: byStat,
+        overdue:   parseInt((overdueRes  as any).rows?.[0]?.cnt ?? "0"),
+        withBlockers: parseInt((blockersRes as any).rows?.[0]?.cnt ?? "0"),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── GET /api/install-workflows/:id ────────────────────────────────────────
+  app.get("/api/install-workflows/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [wfRes, milestonesRes, tasksRes] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT iw.*, u.name AS owner_name, a.name AS account_name,
+                 o.title AS opportunity_title, o.stage AS opportunity_stage,
+                 q.quote_number, q.status AS quote_status, q.total AS quote_total
+          FROM install_workflows iw
+          LEFT JOIN users u ON u.id = iw.owner_user_id
+          LEFT JOIN accounts a ON a.id = iw.account_id
+          LEFT JOIN opportunities o ON o.id = iw.opportunity_id
+          LEFT JOIN quotes q ON q.id = iw.quote_id
+          WHERE iw.id = ${id} LIMIT 1`)),
+        db.execute(sql.raw(`
+          SELECT m.*, u.name AS owner_name
+          FROM install_milestones m
+          LEFT JOIN users u ON u.id = m.owner_user_id
+          WHERE m.workflow_id = ${id}
+          ORDER BY m.sort_order, m.created_at`)),
+        db.execute(sql.raw(`
+          SELECT t.*, u.name AS owner_name
+          FROM tasks t
+          LEFT JOIN users u ON u.id = t.owner_user_id
+          WHERE t.linked_object_type = 'install_workflow' AND t.linked_object_id = ${id}
+            AND t.status NOT IN ('done','cancelled')
+          ORDER BY t.due_date NULLS LAST, t.priority DESC LIMIT 50`)),
+      ]);
+
+      const wf = (wfRes as any).rows?.[0];
+      if (!wf) return res.status(404).json({ message: "Workflow not found" });
+
+      const milestones = (milestonesRes as any).rows ?? [];
+      const tasks      = (tasksRes      as any).rows ?? [];
+      const total      = milestones.length;
+      const done       = milestones.filter((m: any) => m.status === "complete").length;
+
+      res.json({ ...wf, milestones, tasks, milestoneTotal: total, milestoneDone: done, progressPct: total > 0 ? Math.round(done / total * 100) : 0 });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── PATCH /api/install-workflows/:id ──────────────────────────────────────
+  app.patch("/api/install-workflows/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = (req as any).session?.userId;
+      const allowed = ["status","owner_user_id","kickoff_date","target_completion_date","notes","blockers","site_address","title"];
+      const sets: string[] = [];
+      for (const [k, v] of Object.entries(req.body)) {
+        if (!allowed.includes(k)) continue;
+        if (v === null || v === undefined || v === "") { sets.push(`${k} = NULL`); continue; }
+        if (k.endsWith("_date") || k === "kickoff_date" || k === "target_completion_date") {
+          sets.push(`${k} = '${new Date(v as string).toISOString()}'`);
+        } else {
+          sets.push(`${k} = '${String(v).replace(/'/g,"''")}'`);
+        }
+      }
+      if (!sets.length) return res.status(400).json({ message: "No valid fields to update" });
+
+      // If marking complete, set actual_completion_date
+      if (req.body.status === "complete") {
+        sets.push(`actual_completion_date = COALESCE(actual_completion_date, NOW())`);
+        // Log timeline event
+        const wf = (await db.execute(sql.raw(`SELECT account_id, opportunity_id, title FROM install_workflows WHERE id = ${id}`))).rows?.[0] as any;
+        if (wf?.account_id) {
+          await db.execute(sql.raw(
+            `INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at)
+             VALUES ('account', ${wf.account_id}, 'milestone', 'Install workflow completed',
+                     'Install/onboarding workflow marked complete: ${String(wf?.title||"").replace(/'/g,"''")}', ${userId || "NULL"}, NOW())`
+          ));
+        }
+      }
+
+      sets.push("updated_at = NOW()");
+      await db.execute(sql.raw(`UPDATE install_workflows SET ${sets.join(", ")} WHERE id = ${id}`));
+      const updated = (await db.execute(sql.raw(`SELECT * FROM install_workflows WHERE id = ${id} LIMIT 1`))).rows?.[0];
+      res.json({ ok: true, workflow: updated });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── PATCH /api/install-workflows/:id/milestones/:mid ──────────────────────
+  app.patch("/api/install-workflows/:id/milestones/:mid", requireAuth, async (req, res) => {
+    try {
+      const wfId = parseInt(req.params.id);
+      const mid  = parseInt(req.params.mid);
+      const { status, notes, ownerUserId, dueDate } = req.body;
+      const sets: string[] = [];
+      if (status)      { sets.push(`status = '${status.replace(/'/g,"''")}'`); }
+      if (status === "complete") { sets.push(`completed_at = COALESCE(completed_at, NOW())`); }
+      if (status && status !== "complete") { sets.push(`completed_at = NULL`); }
+      if (notes !== undefined) sets.push(notes ? `notes = '${String(notes).replace(/'/g,"''")}'` : `notes = NULL`);
+      if (ownerUserId !== undefined) sets.push(ownerUserId ? `owner_user_id = ${parseInt(ownerUserId)}` : `owner_user_id = NULL`);
+      if (dueDate !== undefined) sets.push(dueDate ? `due_date = '${new Date(dueDate).toISOString()}'` : `due_date = NULL`);
+      if (!sets.length) return res.status(400).json({ message: "Nothing to update" });
+      sets.push("updated_at = NOW()");
+      await db.execute(sql.raw(`UPDATE install_milestones SET ${sets.join(", ")} WHERE id = ${mid} AND workflow_id = ${wfId}`));
+
+      // If all milestones complete, auto-mark workflow complete
+      const pendingRes = await db.execute(sql.raw(
+        `SELECT count(*) AS cnt FROM install_milestones WHERE workflow_id = ${wfId} AND status NOT IN ('complete','skipped')`
+      ));
+      const pending = parseInt((pendingRes as any).rows?.[0]?.cnt ?? "1");
+      if (pending === 0) {
+        await db.execute(sql.raw(
+          `UPDATE install_workflows SET status = 'complete', actual_completion_date = COALESCE(actual_completion_date, NOW()), updated_at = NOW() WHERE id = ${wfId}`
+        ));
+      }
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── POST /api/install-workflows/:id/milestones ─────────────────────────────
+  app.post("/api/install-workflows/:id/milestones", requireAuth, async (req, res) => {
+    try {
+      const wfId = parseInt(req.params.id);
+      const { name, description, dueDate, ownerUserId, sortOrder } = req.body;
+      if (!name) return res.status(400).json({ message: "name is required" });
+      const maxSortRes = await db.execute(sql.raw(`SELECT COALESCE(MAX(sort_order),0) AS max FROM install_milestones WHERE workflow_id = ${wfId}`));
+      const nextSort = parseInt((maxSortRes as any).rows?.[0]?.max ?? "0") + 1;
+      const mRes = await db.execute(sql.raw(
+        `INSERT INTO install_milestones (workflow_id, name, description, status, sort_order, due_date, owner_user_id, created_at, updated_at)
+         VALUES (${wfId}, '${name.replace(/'/g,"''")}',
+           ${description ? `'${String(description).replace(/'/g,"''")}'` : "NULL"},
+           'pending', ${sortOrder ?? nextSort},
+           ${dueDate ? `'${new Date(dueDate).toISOString()}'` : "NULL"},
+           ${ownerUserId ? parseInt(ownerUserId) : "NULL"},
+           NOW(), NOW()) RETURNING id`
+      ));
+      res.status(201).json({ ok: true, id: (mRes as any).rows?.[0]?.id });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── DELETE /api/install-workflows/:id/milestones/:mid ─────────────────────
+  app.delete("/api/install-workflows/:id/milestones/:mid", requireAuth, async (req, res) => {
+    try {
+      await db.execute(sql.raw(`DELETE FROM install_milestones WHERE id = ${parseInt(req.params.mid)} AND workflow_id = ${parseInt(req.params.id)}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── DELETE /api/install-workflows/:id ──────────────────────────────────────
+  app.delete("/api/install-workflows/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await db.execute(sql.raw(`DELETE FROM install_milestones WHERE workflow_id = ${id}`));
+      await db.execute(sql.raw(`DELETE FROM install_workflows WHERE id = ${id}`));
+      res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

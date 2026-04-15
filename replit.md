@@ -43,7 +43,7 @@ The project is organized as a monorepo containing `client/` (React SPA), `server
 The sidebar is organized under a **Growth OS** umbrella — the central module for all revenue, partnership, and pipeline activities. Structure:
 1. **Command Center** — Dashboard, Activity Feed, Reports, Forecasting
 2. **Relationships** — Contacts, Organizations, Notes, Tasks
-3. **Revenue Engine** — Opportunities, Pipeline, Deals, Renewals, Quotes
+3. **Revenue Engine** — Opportunities, Pipeline, Deals, Data Quality, Install Workflows, Renewals, Quotes
 4. **Growth Channels** — Industry Partnerships, Dealers/Resellers, Strategic Alliances, Investors, Govt & Grants, Referrals, Media & Tradeshows
 5. **Intelligence** — Inbox, Calendar, Meeting Briefs, Signals & Alerts, Rel. Intelligence
 6. **Operations** — Segments, Tags, Automations, Imports/Exports, Projects, Communications, Assets, Price Lists

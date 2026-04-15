@@ -1,0 +1,84 @@
+Data Quality + Dedupe Center is complete and tested. Next, build the Accepted Quote → Install / Onboarding Workflow.
+
+Goal:
+When a quote is accepted, Cortex should smoothly transition the record from sales into delivery/onboarding with clear ownership, milestones, and task sequencing.
+
+Build this in phases.
+
+PHASE 1 — POST-ACCEPTANCE WORKFLOW MODEL
+Add a lightweight onboarding/install workflow model tied to accepted quotes and/or opportunities.
+
+Support:
+- workflow status
+- workflow owner
+- kickoff date
+- target completion date
+- milestone statuses
+- notes / blockers
+- linked account
+- linked opportunity
+- linked accepted quote
+
+Keep it lightweight and operational, not a bloated project management suite.
+
+PHASE 2 — ACCEPTED QUOTE HANDOFF
+When a quote is marked accepted:
+- optionally create an onboarding/install workflow record
+- create default handoff tasks
+- assign owner if configured
+- log timeline events on quote/account/opportunity
+- update opportunity/account state if applicable
+
+PHASE 3 — DEFAULT MILESTONES
+Seed milestone templates such as:
+- commercial handoff
+- site verification
+- electrical review
+- install scheduling
+- hardware allocation
+- software onboarding
+- commissioning
+- closeout
+
+Templates should be configurable later.
+
+PHASE 4 — WORKFLOW UI
+Create a dedicated onboarding/install view with:
+- workflow summary
+- milestone checklist / timeline
+- task list
+- blockers
+- linked CRM context
+- owner + due dates
+- quick actions
+
+PHASE 5 — AUTOMATIONS
+Support deterministic automations:
+- accepted quote → create install workflow
+- overdue milestone → reminder/task
+- workflow stalled X days → alert
+- commissioning complete → mark workflow complete
+
+PHASE 6 — SAVED VIEWS / BULK
+Support useful views like:
+- awaiting kickoff
+- install scheduling overdue
+- commissioning this month
+- workflows with blockers
+- no assigned workflow owner
+
+PHASE 7 — TESTING
+Add tests for:
+- accepted quote handoff
+- default workflow creation
+- milestone/task creation
+- owner assignment
+- timeline events
+- workflow status transitions
+- no regression to quote/pipeline/task/timeline flows
+
+Implementation rules:
+- keep this focused on practical delivery operations for won business
+- do not build a generic enterprise PM platform
+- reuse existing task, timeline, notification, and saved-view systems
+- summarize changed files and final pass/fail at the end
