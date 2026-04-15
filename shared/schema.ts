@@ -381,6 +381,7 @@ export const tasks = pgTable("tasks", {
   status: text("status").notNull().default("pending"),
   priority: text("priority").notNull().default("medium"),
   aiSuggested: boolean("ai_suggested").default(false),
+  reminderAt: timestamp("reminder_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1172,6 +1173,33 @@ export const emailFolderAssignments = pgTable("email_folder_assignments", {
 export const insertEmailFolderAssignmentSchema = createInsertSchema(emailFolderAssignments).omit({ id: true, createdAt: true });
 export type EmailFolderAssignment = typeof emailFolderAssignments.$inferSelect;
 export type InsertEmailFolderAssignment = z.infer<typeof insertEmailFolderAssignmentSchema>;
+
+// ── Notifications + Reminders ─────────────────────────────────────────────
+// Persistent, per-user notification store.
+// Types: overdue_task | inbox_followup_needed | stale_opportunity |
+//        account_at_risk | reminder | meeting | lead | email
+// Severity: high | medium | low
+// dedupeKey prevents re-creating the same alert within a cooldown window.
+// expiresAt allows auto-cleaning stale entries.
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  severity: text("severity").notNull().default("medium"),
+  linkedObjectType: text("linked_object_type"),
+  linkedObjectId: integer("linked_object_id"),
+  actionUrl: text("action_url").notNull().default("/"),
+  isRead: boolean("is_read").notNull().default(false),
+  dedupeKey: text("dedupe_key"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertNotificationSchema = createInsertSchema(notifications).omit({ id: true, createdAt: true });
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type Notification = typeof notifications.$inferSelect;
 
 // ── Phase 1 CMS/Organizations migration tracking (2026-04) ────────────────
 // migration_status vocabulary (same across tables):

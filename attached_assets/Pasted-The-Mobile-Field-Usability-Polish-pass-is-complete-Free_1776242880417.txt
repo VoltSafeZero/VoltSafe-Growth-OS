@@ -1,0 +1,81 @@
+The Mobile + Field Usability Polish pass is complete. Freeze it unless a real bug appears.
+
+Now build the next highest-value CRM layer: Notifications + Reminders.
+
+Goal:
+Make Cortex proactively notify users about urgent follow-ups, overdue tasks, stale deals, and relationship risks instead of requiring them to manually check the app.
+
+Execute in this order:
+
+1. Build notification model
+   - Create a notifications table/model if needed
+   - Support notification types such as:
+     - overdue_task
+     - inbox_followup_needed
+     - stale_opportunity
+     - account_at_risk
+     - suggestion_due
+     - reminder
+   - Each notification should include:
+     - id
+     - userId
+     - type
+     - title
+     - body
+     - severity
+     - linkedObjectType
+     - linkedObjectId
+     - actionUrl
+     - isRead
+     - createdAt
+
+2. Add notification generation logic
+   - Generate deterministic notifications from existing signals:
+     - overdue tasks
+     - recent inbound email with no reply
+     - stale high-value opportunities
+     - at-risk accounts with active revenue
+     - accepted/snoozed suggestion reminders
+   - Add dedupe/cooldown logic to avoid spam
+
+3. Add reminder support
+   - Allow reminders on tasks and optionally records
+   - Support preset times like:
+     - later today
+     - tomorrow morning
+     - next week
+   - Tie reminders into notifications
+
+4. Build UI
+   - Add a notification bell / inbox in the app shell
+   - Show unread count
+   - Dropdown or panel with recent notifications
+   - Allow:
+     - mark read
+     - mark all read
+     - open linked record/action
+
+5. Optional daily digest
+   - Add a lightweight digest endpoint for “today’s important items”
+   - Could later power email/push digests
+
+6. Tests
+   - Add backend tests for:
+     - notification creation
+     - dedupe/cooldown
+     - mark read behavior
+     - permission enforcement
+   - Add frontend tests if supported for:
+     - bell count
+     - notification rendering
+     - mark read actions
+
+7. Final verification
+   - Run TypeScript
+   - Run full test suite
+   - Provide:
+     - exact files changed
+     - notification rules implemented
+     - dedupe logic
+     - UI added
+     - final PASS/FAIL
