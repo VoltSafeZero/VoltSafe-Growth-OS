@@ -581,6 +581,18 @@ export type InsertCampaignDraft = z.infer<typeof insertCampaignDraftSchema>;
 export type InfrastructureProfile = typeof infrastructureProfiles.$inferSelect;
 export type InsertInfrastructureProfile = z.infer<typeof insertInfrastructureProfileSchema>;
 
+export const dataQualityIgnores = pgTable("data_quality_ignores", {
+  id: serial("id").primaryKey(),
+  objectType: text("object_type").notNull(),
+  objectId: integer("object_id"),
+  clusterKey: text("cluster_key"),
+  issueType: text("issue_type").notNull(),
+  ignoredBy: integer("ignored_by"),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type DataQualityIgnore = typeof dataQualityIgnores.$inferSelect;
+
 export const comments = pgTable("comments", {
   id: serial("id").primaryKey(),
   objectType: text("object_type").notNull(),

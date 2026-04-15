@@ -10757,6 +10757,541 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DATA QUALITY / DEDUPE CENTER
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Helper: load ignored set for a given issue type
+  async function loadIgnoredSet(objectType: string, issueType: string): Promise<Set<string>> {
+    const res = await db.execute(sql.raw(
+      `SELECT COALESCE(cluster_key, object_id::TEXT) AS key
+       FROM data_quality_ignores
+       WHERE object_type = '${objectType}' AND issue_type = '${issueType}'`
+    ));
+    return new Set<string>(((res as any).rows ?? []).map((r: any) => String(r.key)));
+  }
+
+  // ── GET /api/data-quality/summary ─────────────────────────────────────────
+  app.get("/api/data-quality/summary", requireAuth, async (req, res) => {
+    try {
+      // Duplicate clusters
+      const [dupAccRes, dupConRes, dupLeadRes] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT count(*) AS cnt FROM (
+            SELECT lower(trim(name)) FROM accounts GROUP BY lower(trim(name)) HAVING count(*) > 1
+          ) x`)),
+        db.execute(sql.raw(`
+          SELECT count(*) AS cnt FROM (
+            SELECT lower(trim(email)) FROM contacts WHERE email IS NOT NULL AND email != ''
+            GROUP BY lower(trim(email)) HAVING count(*) > 1
+          ) x`)),
+        db.execute(sql.raw(`
+          SELECT count(*) AS cnt FROM (
+            SELECT lower(trim(contact_email)) FROM leads WHERE contact_email IS NOT NULL AND contact_email != ''
+            GROUP BY lower(trim(contact_email)) HAVING count(*) > 1
+          ) x`)),
+      ]);
+
+      const dupAccClusters   = parseInt(((dupAccRes  as any).rows?.[0]?.cnt) ?? "0");
+      const dupConClusters   = parseInt(((dupConRes  as any).rows?.[0]?.cnt) ?? "0");
+      const dupLeadClusters  = parseInt(((dupLeadRes as any).rows?.[0]?.cnt) ?? "0");
+
+      // Missing owners
+      const [moOppsRes, moTasksRes, moLeadsRes] = await Promise.all([
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM opportunities WHERE owner_user_id IS NULL AND stage NOT IN ('closed_won','closed_lost')`)),
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM tasks WHERE owner_user_id IS NULL AND status NOT IN ('done','cancelled')`)),
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM leads WHERE owner_user_id IS NULL AND status NOT IN ('converted','closed_won','closed_lost')`)),
+      ]);
+      const missingOwnerOpps  = parseInt(((moOppsRes  as any).rows?.[0]?.cnt) ?? "0");
+      const missingOwnerTasks = parseInt(((moTasksRes as any).rows?.[0]?.cnt) ?? "0");
+      const missingOwnerLeads = parseInt(((moLeadsRes as any).rows?.[0]?.cnt) ?? "0");
+
+      // Missing key fields on opportunities
+      const [mcDateRes, mcAmtRes] = await Promise.all([
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM opportunities WHERE est_close_date IS NULL AND stage NOT IN ('closed_won','closed_lost')`)),
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM opportunities WHERE (amount IS NULL OR amount = 0) AND stage NOT IN ('closed_won','closed_lost')`)),
+      ]);
+      const missingCloseDate = parseInt(((mcDateRes as any).rows?.[0]?.cnt) ?? "0");
+      const missingAmount    = parseInt(((mcAmtRes  as any).rows?.[0]?.cnt) ?? "0");
+
+      // Orphans
+      const [orphanQRes, orphanOppRes, brokenLeadRes] = await Promise.all([
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM quotes q LEFT JOIN opportunities o ON o.id = q.opportunity_id WHERE q.status NOT IN ('archived') AND q.opportunity_id IS NOT NULL AND o.id IS NULL`)),
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM opportunities o LEFT JOIN accounts a ON a.id = o.account_id WHERE a.id IS NULL`)),
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM leads l WHERE l.converted_at IS NOT NULL AND l.converted_opportunity_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM opportunities o WHERE o.id = l.converted_opportunity_id)`)),
+      ]);
+      const orphanQuotes     = parseInt(((orphanQRes    as any).rows?.[0]?.cnt) ?? "0");
+      const orphanOpps       = parseInt(((orphanOppRes  as any).rows?.[0]?.cnt) ?? "0");
+      const brokenLeadLinks  = parseInt(((brokenLeadRes as any).rows?.[0]?.cnt) ?? "0");
+
+      // Stale records
+      const [staleLeadsRes, noAccContRes] = await Promise.all([
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM leads WHERE status NOT IN ('converted','closed_won','closed_lost') AND (owner_user_id IS NULL OR due_date < NOW() - INTERVAL '30 days' OR (due_date IS NULL AND updated_at < NOW() - INTERVAL '30 days'))`)),
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM contacts WHERE account_id NOT IN (SELECT id FROM accounts)`)),
+      ]);
+      const staleLeads       = parseInt(((staleLeadsRes as any).rows?.[0]?.cnt) ?? "0");
+      const contactsNoAcct   = parseInt(((noAccContRes  as any).rows?.[0]?.cnt) ?? "0");
+
+      // Forecast risk
+      const [fMissingDateRes, fStaleWtRes, fNoOwnerWtRes, fDupAccWithOppsRes] = await Promise.all([
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM opportunities WHERE est_close_date IS NULL AND stage NOT IN ('closed_won','closed_lost') AND forecast_category != 'pipeline'`)),
+        db.execute(sql.raw(`SELECT COALESCE(SUM(amount),0) AS total FROM opportunities WHERE stage NOT IN ('closed_won','closed_lost') AND (last_activity_date IS NULL OR last_activity_date < NOW() - INTERVAL '14 days')`)),
+        db.execute(sql.raw(`SELECT COALESCE(SUM(amount),0) AS total FROM opportunities WHERE owner_user_id IS NULL AND stage NOT IN ('closed_won','closed_lost')`)),
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM (
+          SELECT lower(trim(a.name)) as norm FROM accounts a
+          JOIN opportunities o ON o.account_id = a.id AND o.stage NOT IN ('closed_won','closed_lost')
+          GROUP BY lower(trim(a.name)) HAVING count(DISTINCT a.id) > 1
+        ) x`)),
+      ]);
+      const forecastMissingDate     = parseInt(((fMissingDateRes   as any).rows?.[0]?.cnt)   ?? "0");
+      const weightedStalePipeline   = parseFloat(((fStaleWtRes     as any).rows?.[0]?.total) ?? "0");
+      const weightedNoOwnerPipeline = parseFloat(((fNoOwnerWtRes   as any).rows?.[0]?.total) ?? "0");
+      const dupAccWithOpps          = parseInt(((fDupAccWithOppsRes as any).rows?.[0]?.cnt)   ?? "0");
+
+      // Total active accounts/contacts/leads/opps/quotes for health scoring
+      const [totAccRes, totConRes, totLeadRes, totOppRes, totQRes] = await Promise.all([
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM accounts`)),
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM contacts`)),
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM leads WHERE status NOT IN ('converted','closed_won','closed_lost')`)),
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM opportunities WHERE stage NOT IN ('closed_won','closed_lost')`)),
+        db.execute(sql.raw(`SELECT count(*) AS cnt FROM quotes WHERE status NOT IN ('archived')`)),
+      ]);
+      const totAcc  = Math.max(1, parseInt(((totAccRes  as any).rows?.[0]?.cnt) ?? "1"));
+      const totCon  = Math.max(1, parseInt(((totConRes  as any).rows?.[0]?.cnt) ?? "1"));
+      const totLead = Math.max(1, parseInt(((totLeadRes as any).rows?.[0]?.cnt) ?? "1"));
+      const totOpp  = Math.max(1, parseInt(((totOppRes  as any).rows?.[0]?.cnt) ?? "1"));
+      const totQ    = Math.max(1, parseInt(((totQRes    as any).rows?.[0]?.cnt) ?? "1"));
+
+      // Health score = 100 - (issues / total * 100) capped 0–100
+      const score = (issues: number, total: number) => Math.max(0, Math.round(100 - (issues / total) * 100));
+
+      const accIssues  = dupAccClusters * 2;
+      const conIssues  = dupConClusters * 2 + contactsNoAcct;
+      const leadIssues = dupLeadClusters * 2 + missingOwnerLeads + staleLeads;
+      const oppIssues  = missingOwnerOpps + missingCloseDate + missingAmount + orphanOpps;
+      const qIssues    = orphanQuotes;
+
+      const counts = {
+        duplicate_account_clusters: dupAccClusters,
+        duplicate_contact_clusters: dupConClusters,
+        duplicate_lead_clusters: dupLeadClusters,
+        missing_owner_opps: missingOwnerOpps,
+        missing_owner_tasks: missingOwnerTasks,
+        missing_owner_leads: missingOwnerLeads,
+        missing_close_date: missingCloseDate,
+        missing_amount: missingAmount,
+        orphan_quotes: orphanQuotes,
+        orphan_opps: orphanOpps,
+        broken_lead_links: brokenLeadLinks,
+        stale_leads: staleLeads,
+        contacts_no_account: contactsNoAcct,
+        total: dupAccClusters + dupConClusters + dupLeadClusters + missingOwnerOpps +
+               missingOwnerTasks + missingOwnerLeads + missingCloseDate + missingAmount +
+               orphanQuotes + orphanOpps + brokenLeadLinks + staleLeads + contactsNoAcct,
+      };
+
+      res.json({
+        health: {
+          accounts:      { score: score(accIssues,  totAcc),  issues: accIssues },
+          contacts:      { score: score(conIssues,  totCon),  issues: conIssues },
+          leads:         { score: score(leadIssues, totLead), issues: leadIssues },
+          opportunities: { score: score(oppIssues,  totOpp),  issues: oppIssues },
+          quotes:        { score: score(qIssues,    totQ),    issues: qIssues },
+        },
+        counts,
+        forecast: {
+          opps_missing_close_date: forecastMissingDate,
+          weighted_stale_pipeline: Math.round(weightedStalePipeline),
+          weighted_no_owner_pipeline: Math.round(weightedNoOwnerPipeline),
+          duplicate_accounts_with_opps: dupAccWithOpps,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── GET /api/data-quality/issues ──────────────────────────────────────────
+  // ?category=duplicates|missing_owner|missing_fields|orphans|stale
+  // ?subtype=accounts|contacts|leads|opps|tasks|quotes (optional)
+  app.get("/api/data-quality/issues", requireAuth, async (req, res) => {
+    try {
+      const category = (req.query.category as string) || "duplicates";
+      const subtype  = (req.query.subtype  as string) || "";
+
+      if (category === "duplicates") {
+        const [accRes, conRes, leadRes] = await Promise.all([
+          db.execute(sql.raw(`
+            SELECT array_agg(a.id ORDER BY a.created_at) AS ids,
+                   array_agg(a.name ORDER BY a.created_at) AS names,
+                   array_agg(a.city ORDER BY a.created_at) AS cities,
+                   array_agg(a.state_province ORDER BY a.created_at) AS states,
+                   array_agg(a.assigned_to_user_id ORDER BY a.created_at) AS owner_ids,
+                   array_agg(a.created_at::TEXT ORDER BY a.created_at) AS created_ats,
+                   lower(trim(a.name)) AS cluster_key,
+                   count(*) AS count
+            FROM accounts a
+            GROUP BY lower(trim(a.name))
+            HAVING count(*) > 1
+            ORDER BY count DESC, cluster_key
+            LIMIT 100`)),
+          db.execute(sql.raw(`
+            SELECT array_agg(c.id ORDER BY c.created_at) AS ids,
+                   array_agg(c.name ORDER BY c.created_at) AS names,
+                   array_agg(c.email ORDER BY c.created_at) AS emails,
+                   array_agg(c.account_id ORDER BY c.created_at) AS account_ids,
+                   array_agg(c.created_at::TEXT ORDER BY c.created_at) AS created_ats,
+                   lower(trim(c.email)) AS cluster_key,
+                   count(*) AS count
+            FROM contacts c
+            WHERE c.email IS NOT NULL AND c.email != ''
+            GROUP BY lower(trim(c.email))
+            HAVING count(*) > 1
+            ORDER BY count DESC
+            LIMIT 100`)),
+          db.execute(sql.raw(`
+            SELECT array_agg(l.id ORDER BY l.created_at) AS ids,
+                   array_agg(l.company ORDER BY l.created_at) AS companies,
+                   array_agg(l.contact_name ORDER BY l.created_at) AS contact_names,
+                   array_agg(l.contact_email ORDER BY l.created_at) AS emails,
+                   array_agg(l.owner_user_id ORDER BY l.created_at) AS owner_ids,
+                   array_agg(l.status ORDER BY l.created_at) AS statuses,
+                   array_agg(l.created_at::TEXT ORDER BY l.created_at) AS created_ats,
+                   lower(trim(l.contact_email)) AS cluster_key,
+                   count(*) AS count
+            FROM leads l
+            WHERE l.contact_email IS NOT NULL AND l.contact_email != ''
+            GROUP BY lower(trim(l.contact_email))
+            HAVING count(*) > 1
+            ORDER BY count DESC
+            LIMIT 100`)),
+        ]);
+
+        const [ignoredAcc, ignoredCon, ignoredLead] = await Promise.all([
+          loadIgnoredSet("account_dup", "duplicate"),
+          loadIgnoredSet("contact_dup", "duplicate"),
+          loadIgnoredSet("lead_dup",    "duplicate"),
+        ]);
+
+        const accClusters = ((accRes as any).rows ?? [])
+          .filter((r: any) => !ignoredAcc.has(r.cluster_key))
+          .map((r: any) => ({
+            type: "account_dup", clusterKey: r.cluster_key, count: parseInt(r.count),
+            records: (r.ids as number[]).map((id: number, i: number) => ({
+              id, name: r.names[i], city: r.cities?.[i], state: r.states?.[i],
+              ownerId: r.owner_ids?.[i], createdAt: r.created_ats?.[i],
+            })),
+          }));
+
+        const conClusters = ((conRes as any).rows ?? [])
+          .filter((r: any) => !ignoredCon.has(r.cluster_key))
+          .map((r: any) => ({
+            type: "contact_dup", clusterKey: r.cluster_key, count: parseInt(r.count),
+            records: (r.ids as number[]).map((id: number, i: number) => ({
+              id, name: r.names[i], email: r.emails[i], accountId: r.account_ids?.[i], createdAt: r.created_ats?.[i],
+            })),
+          }));
+
+        const leadClusters = ((leadRes as any).rows ?? [])
+          .filter((r: any) => !ignoredLead.has(r.cluster_key))
+          .map((r: any) => ({
+            type: "lead_dup", clusterKey: r.cluster_key, count: parseInt(r.count),
+            records: (r.ids as number[]).map((id: number, i: number) => ({
+              id, company: r.companies[i], contactName: r.contact_names[i],
+              email: r.emails[i], ownerId: r.owner_ids?.[i], status: r.statuses?.[i],
+              createdAt: r.created_ats?.[i],
+            })),
+          }));
+
+        return res.json({
+          accounts: subtype === "contacts" || subtype === "leads" ? [] : accClusters,
+          contacts: subtype === "accounts" || subtype === "leads" ? [] : conClusters,
+          leads:    subtype === "accounts" || subtype === "contacts" ? [] : leadClusters,
+          total: accClusters.length + conClusters.length + leadClusters.length,
+        });
+      }
+
+      if (category === "missing_owner") {
+        const [oppsRes, tasksRes, leadsRes] = await Promise.all([
+          db.execute(sql.raw(`
+            SELECT o.id, o.title, o.stage, o.amount, o.est_close_date AS "estCloseDate",
+                   a.name AS "accountName", o.created_at AS "createdAt"
+            FROM opportunities o LEFT JOIN accounts a ON a.id = o.account_id
+            WHERE o.owner_user_id IS NULL AND o.stage NOT IN ('closed_won','closed_lost')
+            ORDER BY o.created_at DESC LIMIT 200`)),
+          db.execute(sql.raw(`
+            SELECT t.id, t.title, t.status, t.priority, t.due_date AS "dueDate",
+                   t.linked_object_type AS "linkedObjectType", t.linked_object_id AS "linkedObjectId",
+                   t.created_at AS "createdAt"
+            FROM tasks t
+            WHERE t.owner_user_id IS NULL AND t.status NOT IN ('done','cancelled')
+            ORDER BY t.created_at DESC LIMIT 200`)),
+          db.execute(sql.raw(`
+            SELECT l.id, l.company, l.contact_name AS "contactName", l.contact_email AS "contactEmail",
+                   l.status, l.source, l.created_at AS "createdAt"
+            FROM leads l
+            WHERE l.owner_user_id IS NULL AND l.status NOT IN ('converted','closed_won','closed_lost')
+            ORDER BY l.created_at DESC LIMIT 200`)),
+        ]);
+
+        const [ignoredOpps, ignoredTasks, ignoredLeads] = await Promise.all([
+          loadIgnoredSet("opportunity", "missing_owner"),
+          loadIgnoredSet("task",        "missing_owner"),
+          loadIgnoredSet("lead",        "missing_owner"),
+        ]);
+
+        return res.json({
+          opportunities: ((oppsRes  as any).rows ?? []).filter((r: any) => !ignoredOpps.has(String(r.id))),
+          tasks:         ((tasksRes as any).rows ?? []).filter((r: any) => !ignoredTasks.has(String(r.id))),
+          leads:         ((leadsRes as any).rows ?? []).filter((r: any) => !ignoredLeads.has(String(r.id))),
+        });
+      }
+
+      if (category === "missing_fields") {
+        const [mcDateRes, mcAmtRes] = await Promise.all([
+          db.execute(sql.raw(`
+            SELECT o.id, o.title, o.stage, o.amount, o.forecast_category AS "forecastCategory",
+                   a.name AS "accountName", u.name AS "ownerName", o.created_at AS "createdAt"
+            FROM opportunities o
+            LEFT JOIN accounts a ON a.id = o.account_id
+            LEFT JOIN users u ON u.id = o.owner_user_id
+            WHERE o.est_close_date IS NULL AND o.stage NOT IN ('closed_won','closed_lost')
+            ORDER BY o.created_at DESC LIMIT 200`)),
+          db.execute(sql.raw(`
+            SELECT o.id, o.title, o.stage, o.est_close_date AS "estCloseDate",
+                   o.forecast_category AS "forecastCategory",
+                   a.name AS "accountName", u.name AS "ownerName", o.created_at AS "createdAt"
+            FROM opportunities o
+            LEFT JOIN accounts a ON a.id = o.account_id
+            LEFT JOIN users u ON u.id = o.owner_user_id
+            WHERE (o.amount IS NULL OR o.amount = 0) AND o.stage NOT IN ('closed_won','closed_lost')
+            ORDER BY o.created_at DESC LIMIT 200`)),
+        ]);
+
+        const [ignoredDate, ignoredAmt] = await Promise.all([
+          loadIgnoredSet("opportunity", "missing_close_date"),
+          loadIgnoredSet("opportunity", "missing_amount"),
+        ]);
+
+        return res.json({
+          missingCloseDate: ((mcDateRes as any).rows ?? []).filter((r: any) => !ignoredDate.has(String(r.id))),
+          missingAmount:    ((mcAmtRes  as any).rows ?? []).filter((r: any) => !ignoredAmt.has(String(r.id))),
+        });
+      }
+
+      if (category === "orphans") {
+        const [orphanQRes, orphanOppRes, brokenLeadRes] = await Promise.all([
+          db.execute(sql.raw(`
+            SELECT q.id, q.quote_number AS "quoteNumber", q.status, q.total,
+                   q.opportunity_id AS "opportunityId", q.created_at AS "createdAt"
+            FROM quotes q
+            LEFT JOIN opportunities o ON o.id = q.opportunity_id
+            WHERE q.status NOT IN ('archived') AND q.opportunity_id IS NOT NULL AND o.id IS NULL
+            ORDER BY q.created_at DESC LIMIT 200`)),
+          db.execute(sql.raw(`
+            SELECT o.id, o.title, o.stage, o.account_id AS "accountId", o.created_at AS "createdAt"
+            FROM opportunities o
+            LEFT JOIN accounts a ON a.id = o.account_id
+            WHERE a.id IS NULL
+            ORDER BY o.created_at DESC LIMIT 200`)),
+          db.execute(sql.raw(`
+            SELECT l.id, l.company, l.contact_name AS "contactName",
+                   l.converted_opportunity_id AS "convertedOpportunityId",
+                   l.converted_account_id AS "convertedAccountId",
+                   l.converted_at AS "convertedAt"
+            FROM leads l
+            WHERE l.converted_at IS NOT NULL AND l.converted_opportunity_id IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM opportunities o WHERE o.id = l.converted_opportunity_id)
+            ORDER BY l.converted_at DESC LIMIT 200`)),
+        ]);
+
+        const [ignoredQ, ignoredO, ignoredL] = await Promise.all([
+          loadIgnoredSet("quote",       "orphan"),
+          loadIgnoredSet("opportunity", "orphan"),
+          loadIgnoredSet("lead",        "broken_link"),
+        ]);
+
+        return res.json({
+          orphanQuotes:     ((orphanQRes    as any).rows ?? []).filter((r: any) => !ignoredQ.has(String(r.id))),
+          orphanOpps:       ((orphanOppRes  as any).rows ?? []).filter((r: any) => !ignoredO.has(String(r.id))),
+          brokenLeadLinks:  ((brokenLeadRes as any).rows ?? []).filter((r: any) => !ignoredL.has(String(r.id))),
+        });
+      }
+
+      if (category === "stale") {
+        const [staleLeadsRes, noAccContRes] = await Promise.all([
+          db.execute(sql.raw(`
+            SELECT l.id, l.company, l.contact_name AS "contactName", l.contact_email AS "contactEmail",
+                   l.status, l.owner_user_id AS "ownerUserId", l.due_date AS "dueDate",
+                   l.updated_at AS "updatedAt", l.created_at AS "createdAt",
+                   u.name AS "ownerName",
+                   EXTRACT(DAY FROM NOW() - COALESCE(l.due_date, l.updated_at))::INT AS "daysSince"
+            FROM leads l
+            LEFT JOIN users u ON u.id = l.owner_user_id
+            WHERE l.status NOT IN ('converted','closed_won','closed_lost')
+              AND (l.owner_user_id IS NULL OR l.due_date < NOW() - INTERVAL '30 days'
+                   OR (l.due_date IS NULL AND l.updated_at < NOW() - INTERVAL '30 days'))
+            ORDER BY "daysSince" DESC NULLS LAST LIMIT 200`)),
+          db.execute(sql.raw(`
+            SELECT c.id, c.name, c.email, c.account_id AS "accountId",
+                   c.created_at AS "createdAt"
+            FROM contacts c
+            WHERE c.account_id NOT IN (SELECT id FROM accounts)
+            ORDER BY c.created_at DESC LIMIT 200`)),
+        ]);
+
+        const [ignoredLeads, ignoredCon] = await Promise.all([
+          loadIgnoredSet("lead",    "stale"),
+          loadIgnoredSet("contact", "no_account"),
+        ]);
+
+        return res.json({
+          staleLeads:       ((staleLeadsRes as any).rows ?? []).filter((r: any) => !ignoredLeads.has(String(r.id))),
+          contactsNoAccount: ((noAccContRes  as any).rows ?? []).filter((r: any) => !ignoredCon.has(String(r.id))),
+        });
+      }
+
+      res.status(400).json({ message: "Unknown category. Use: duplicates|missing_owner|missing_fields|orphans|stale" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── POST /api/data-quality/ignore ─────────────────────────────────────────
+  app.post("/api/data-quality/ignore", requireAuth, async (req, res) => {
+    try {
+      const { objectType, objectId, clusterKey, issueType, note } = req.body;
+      if (!objectType || !issueType) return res.status(400).json({ message: "objectType and issueType required" });
+      const userId = (req as any).session?.userId;
+      await db.execute(sql.raw(
+        `INSERT INTO data_quality_ignores (object_type, object_id, cluster_key, issue_type, ignored_by, note)
+         VALUES (
+           '${objectType.replace(/'/g, "''")}',
+           ${objectId ? Number(objectId) : 'NULL'},
+           ${clusterKey ? `'${String(clusterKey).replace(/'/g, "''")}'` : 'NULL'},
+           '${issueType.replace(/'/g, "''")}',
+           ${userId || 'NULL'},
+           ${note ? `'${String(note).replace(/'/g, "''")}'` : 'NULL'}
+         )
+         ON CONFLICT DO NOTHING`
+      ));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── DELETE /api/data-quality/ignore/:id ───────────────────────────────────
+  app.delete("/api/data-quality/ignore/:id", requireAuth, async (req, res) => {
+    try {
+      await db.execute(sql.raw(`DELETE FROM data_quality_ignores WHERE id = ${parseInt(req.params.id)}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── PATCH /api/data-quality/fix ───────────────────────────────────────────
+  // Supported actions: assign_owner, set_close_date, set_amount, archive_record, relink_opportunity
+  app.patch("/api/data-quality/fix", requireAuth, async (req, res) => {
+    try {
+      const { action, objectType, objectId, value } = req.body;
+      if (!action || !objectType || !objectId) return res.status(400).json({ message: "action, objectType, objectId required" });
+      const id = parseInt(objectId);
+
+      if (action === "assign_owner") {
+        const userId = parseInt(value);
+        if (isNaN(userId)) return res.status(400).json({ message: "value must be a valid user ID" });
+        if (objectType === "opportunity") {
+          await db.execute(sql.raw(`UPDATE opportunities SET owner_user_id = ${userId}, updated_at = NOW() WHERE id = ${id}`));
+        } else if (objectType === "task") {
+          await db.execute(sql.raw(`UPDATE tasks SET owner_user_id = ${userId}, updated_at = NOW() WHERE id = ${id}`));
+        } else if (objectType === "lead") {
+          await db.execute(sql.raw(`UPDATE leads SET owner_user_id = ${userId}, updated_at = NOW() WHERE id = ${id}`));
+        } else if (objectType === "account") {
+          await db.execute(sql.raw(`UPDATE accounts SET assigned_to_user_id = ${userId}, updated_at = NOW() WHERE id = ${id}`));
+        } else {
+          return res.status(400).json({ message: "assign_owner not supported for this objectType" });
+        }
+        return res.json({ ok: true });
+      }
+
+      if (action === "set_close_date") {
+        const d = new Date(value);
+        if (isNaN(d.getTime())) return res.status(400).json({ message: "value must be a valid date" });
+        await db.execute(sql.raw(`UPDATE opportunities SET est_close_date = '${d.toISOString()}', updated_at = NOW() WHERE id = ${id}`));
+        return res.json({ ok: true });
+      }
+
+      if (action === "set_amount") {
+        const amt = parseFloat(value);
+        if (isNaN(amt)) return res.status(400).json({ message: "value must be a valid number" });
+        await db.execute(sql.raw(`UPDATE opportunities SET amount = ${amt}, updated_at = NOW() WHERE id = ${id}`));
+        return res.json({ ok: true });
+      }
+
+      if (action === "archive_record") {
+        if (objectType === "opportunity") {
+          await db.execute(sql.raw(`UPDATE opportunities SET stage = 'closed_lost', updated_at = NOW() WHERE id = ${id}`));
+        } else if (objectType === "lead") {
+          await db.execute(sql.raw(`UPDATE leads SET status = 'closed_lost', updated_at = NOW() WHERE id = ${id}`));
+        } else if (objectType === "quote") {
+          await db.execute(sql.raw(`UPDATE quotes SET status = 'archived', archived_at = NOW(), updated_at = NOW() WHERE id = ${id}`));
+        } else {
+          return res.status(400).json({ message: "archive_record not supported for this objectType" });
+        }
+        return res.json({ ok: true });
+      }
+
+      if (action === "relink_opportunity") {
+        const oppId = parseInt(value);
+        if (isNaN(oppId)) return res.status(400).json({ message: "value must be a valid opportunity ID" });
+        if (objectType === "quote") {
+          await db.execute(sql.raw(`UPDATE quotes SET opportunity_id = ${oppId}, updated_at = NOW() WHERE id = ${id}`));
+        } else if (objectType === "lead") {
+          await db.execute(sql.raw(`UPDATE leads SET converted_opportunity_id = ${oppId} WHERE id = ${id}`));
+        } else {
+          return res.status(400).json({ message: "relink_opportunity not supported for this objectType" });
+        }
+        return res.json({ ok: true });
+      }
+
+      if (action === "bulk_assign_owner") {
+        // value = { ids: number[], objectType: string, userId: number }
+        const ids = Array.isArray(req.body.ids) ? req.body.ids.map(Number).filter(n => !isNaN(n)) : [];
+        const userId = parseInt(value);
+        if (!ids.length || isNaN(userId)) return res.status(400).json({ message: "ids[] and value (userId) required" });
+        if (objectType === "opportunity") {
+          await db.execute(sql.raw(`UPDATE opportunities SET owner_user_id = ${userId}, updated_at = NOW() WHERE id = ANY(ARRAY[${ids.join(",")}]::int[])`));
+        } else if (objectType === "task") {
+          await db.execute(sql.raw(`UPDATE tasks SET owner_user_id = ${userId}, updated_at = NOW() WHERE id = ANY(ARRAY[${ids.join(",")}]::int[])`));
+        } else if (objectType === "lead") {
+          await db.execute(sql.raw(`UPDATE leads SET owner_user_id = ${userId}, updated_at = NOW() WHERE id = ANY(ARRAY[${ids.join(",")}]::int[])`));
+        }
+        return res.json({ ok: true, updated: ids.length });
+      }
+
+      if (action === "bulk_create_tasks") {
+        const ids = Array.isArray(req.body.ids) ? req.body.ids.map(Number).filter(n => !isNaN(n)) : [];
+        const userId = (req as any).session?.userId;
+        if (!ids.length) return res.status(400).json({ message: "ids[] required" });
+        const dueDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+        for (const oid of ids) {
+          await db.execute(sql.raw(
+            `INSERT INTO tasks (linked_object_type, linked_object_id, owner_user_id, created_by_user_id, title, status, priority, due_date, source, created_at, updated_at)
+             VALUES ('${objectType}', ${oid}, ${userId || 'NULL'}, ${userId || 'NULL'},
+                     'Follow up on ${objectType} #${oid}', 'pending', 'high', '${dueDate}', 'data_quality', NOW(), NOW())`
+          ));
+        }
+        return res.json({ ok: true, created: ids.length });
+      }
+
+      res.status(400).json({ message: "Unknown action. Supported: assign_owner, set_close_date, set_amount, archive_record, relink_opportunity, bulk_assign_owner, bulk_create_tasks" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Engagement scheduler + default rules ────────────────────────────────────
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
   startEngagementScheduler();

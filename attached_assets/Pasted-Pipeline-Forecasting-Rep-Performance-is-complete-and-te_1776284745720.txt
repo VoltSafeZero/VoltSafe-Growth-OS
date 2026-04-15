@@ -1,0 +1,98 @@
+Pipeline Forecasting + Rep Performance is complete and tested. Next, build the Data Quality + Dedupe Center.
+
+Goal:
+Create a dedicated operational surface that finds and helps resolve dirty CRM data before it damages workflow, reporting, and forecasting.
+
+Build this in phases.
+
+PHASE 1 — DATA QUALITY DETECTION API
+Add backend endpoints that identify common CRM data issues across leads, accounts, contacts, opportunities, quotes, and tasks.
+
+Detect at minimum:
+- duplicate accounts (exact/normalized company name, company + city/state)
+- duplicate contacts (exact email, name + company similarity)
+- duplicate leads (same company/contact/email/location patterns)
+- orphan opportunities (missing valid linked account if that should exist)
+- orphan quotes
+- tasks with no owner
+- opportunities with no owner
+- opportunities with missing est_close_date
+- opportunities with missing/invalid amount
+- converted leads with broken links
+- stale leads with no owner or no follow-up
+- contacts with no linked account where linkage should likely exist
+
+Return issue counts, sample records, and severity.
+
+PHASE 2 — DEDUPE REVIEW UI
+Create a Data Quality / Dedupe Center page with sections like:
+- Duplicates
+- Missing Owners
+- Missing Key Fields
+- Orphans / Broken Links
+- Forecast Risks
+- Stale Records
+
+For duplicate clusters, show side-by-side record cards with:
+- key fields
+- linked activity counts
+- owner
+- last activity
+- created date
+- recommended primary record
+
+PHASE 3 — SAFE MERGE / RESOLUTION ACTIONS
+Support safe actions:
+- mark as reviewed / ignore
+- assign owner
+- add missing close date
+- add missing amount
+- relink orphan record
+- archive duplicate
+- merge duplicate records later if safe
+- bulk create follow-up tasks for stale/no-owner records
+
+Do NOT rush full merge logic unless the data model is clearly safe for it.
+Start with review + resolve + archive + relink.
+
+PHASE 4 — QUALITY SCORING
+Add a simple data health score or issue totals by object:
+- accounts health
+- contacts health
+- leads health
+- opportunities health
+- quotes health
+
+Show counts like:
+- 14 duplicate account clusters
+- 22 opportunities missing close date
+- 9 tasks without owner
+- 31 stale leads without follow-up
+
+PHASE 5 — REPORTING / FORECAST INTEGRATION
+Surface data quality warnings in pipeline/forecast contexts when relevant:
+- forecast includes X opps missing close date
+- Y weighted pipeline tied to stale/no-owner opportunities
+- duplicate accounts may distort totals
+
+PHASE 6 — SAVED VIEWS / BULK ACTIONS
+Support saved views and bulk resolution actions for:
+- assign owner
+- archive
+- create task
+- mark reviewed
+- relink where safe
+
+PHASE 7 — TESTING
+Add tests for:
+- duplicate detection logic
+- issue classification
+- resolution endpoints
+- permission enforcement
+- no regression to pipeline, quote, lead conversion, and timeline flows
+
+Implementation rules:
+- prioritize safe review/resolution over risky auto-merge
+- keep duplicate logic deterministic and explainable
+- do not silently mutate records
+- summarize changed files and final pass/fail at the end

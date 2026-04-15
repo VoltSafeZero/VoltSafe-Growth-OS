@@ -1,0 +1,896 @@
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertTriangle, CheckCircle2, Users, Building2, TrendingUp, FileText,
+  UserX, Calendar, DollarSign, Link2Off, Archive, RefreshCw, Shield,
+  Eye, EyeOff, Zap, ChevronRight, X, UserPlus, Hash,
+} from "lucide-react";
+
+interface HealthScore { score: number; issues: number; }
+interface Summary {
+  health: {
+    accounts: HealthScore; contacts: HealthScore; leads: HealthScore;
+    opportunities: HealthScore; quotes: HealthScore;
+  };
+  counts: Record<string, number>;
+  forecast: {
+    opps_missing_close_date: number;
+    weighted_stale_pipeline: number;
+    weighted_no_owner_pipeline: number;
+    duplicate_accounts_with_opps: number;
+  };
+}
+
+function fmt(n: number) { return n >= 1000 ? `$${(n/1000).toFixed(1)}k` : `$${n}`; }
+
+function ScoreRing({ score }: { score: number }) {
+  const color = score >= 80 ? "text-emerald-400" : score >= 60 ? "text-amber-400" : "text-red-400";
+  return (
+    <div className={`text-2xl font-bold tabular-nums ${color}`} data-testid="score-ring">
+      {score}
+    </div>
+  );
+}
+
+function HealthCard({
+  label, icon: Icon, score, issues, objectKey,
+}: { label: string; icon: any; score: number; issues: number; objectKey: string }) {
+  const bg = score >= 80 ? "border-emerald-500/30" : score >= 60 ? "border-amber-500/30" : "border-red-500/30";
+  return (
+    <Card className={`border ${bg}`} data-testid={`health-card-${objectKey}`}>
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Icon className="h-4 w-4" />
+            <span>{label}</span>
+          </div>
+          <ScoreRing score={score} />
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {issues === 0 ? "No issues" : `${issues} issue${issues !== 1 ? "s" : ""} found`}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function IssueBadge({ severity }: { severity: "critical" | "warning" | "info" }) {
+  const map = {
+    critical: "bg-red-500/20 text-red-400 border-red-500/30",
+    warning:  "bg-amber-500/20 text-amber-400 border-amber-500/30",
+    info:     "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  };
+  return <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${map[severity]}`}>{severity}</span>;
+}
+
+// ── Assign Owner Dialog ────────────────────────────────────────────────────────
+function AssignOwnerDialog({
+  open, onClose, objectType, objectId, onSuccess,
+}: { open: boolean; onClose: () => void; objectType: string; objectId: number; onSuccess: () => void }) {
+  const { data: users } = useQuery<any[]>({ queryKey: ["/api/users"] });
+  const [selected, setSelected] = useState("");
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const fix = useMutation({
+    mutationFn: () => apiRequest("PATCH", "/api/data-quality/fix", { action: "assign_owner", objectType, objectId, value: selected }),
+    onSuccess: () => {
+      toast({ title: "Owner assigned" });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/summary"] });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/issues"] });
+      onSuccess();
+      onClose();
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader><DialogTitle>Assign Owner</DialogTitle></DialogHeader>
+        <Select value={selected} onValueChange={setSelected}>
+          <SelectTrigger data-testid="select-owner"><SelectValue placeholder="Select user…" /></SelectTrigger>
+          <SelectContent>
+            {(users ?? []).map((u: any) => (
+              <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button disabled={!selected || fix.isPending} onClick={() => fix.mutate()} data-testid="btn-assign-confirm">
+            Assign
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Set Close Date Dialog ──────────────────────────────────────────────────────
+function SetDateDialog({
+  open, onClose, objectId, onSuccess,
+}: { open: boolean; onClose: () => void; objectId: number; onSuccess: () => void }) {
+  const [date, setDate] = useState("");
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const fix = useMutation({
+    mutationFn: () => apiRequest("PATCH", "/api/data-quality/fix", { action: "set_close_date", objectType: "opportunity", objectId, value: date }),
+    onSuccess: () => {
+      toast({ title: "Close date set" });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/summary"] });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/issues"] });
+      onSuccess();
+      onClose();
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader><DialogTitle>Set Close Date</DialogTitle></DialogHeader>
+        <Input type="date" value={date} onChange={e => setDate(e.target.value)} data-testid="input-close-date" />
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button disabled={!date || fix.isPending} onClick={() => fix.mutate()} data-testid="btn-set-date-confirm">Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Set Amount Dialog ──────────────────────────────────────────────────────────
+function SetAmountDialog({
+  open, onClose, objectId, onSuccess,
+}: { open: boolean; onClose: () => void; objectId: number; onSuccess: () => void }) {
+  const [amount, setAmount] = useState("");
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const fix = useMutation({
+    mutationFn: () => apiRequest("PATCH", "/api/data-quality/fix", { action: "set_amount", objectType: "opportunity", objectId, value: amount }),
+    onSuccess: () => {
+      toast({ title: "Amount set" });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/summary"] });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/issues"] });
+      onSuccess();
+      onClose();
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader><DialogTitle>Set Deal Amount</DialogTitle></DialogHeader>
+        <Input type="number" placeholder="e.g. 25000" value={amount} onChange={e => setAmount(e.target.value)} data-testid="input-amount" />
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button disabled={!amount || fix.isPending} onClick={() => fix.mutate()} data-testid="btn-set-amount-confirm">Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Ignore + action row ────────────────────────────────────────────────────────
+function ActionRow({
+  objectType, objectId, clusterKey, issueType, children, onIgnored,
+}: {
+  objectType: string; objectId?: number; clusterKey?: string;
+  issueType: string; children?: React.ReactNode; onIgnored?: () => void;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const ignore = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/data-quality/ignore", { objectType, objectId, clusterKey, issueType }),
+    onSuccess: () => {
+      toast({ title: "Issue dismissed" });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/summary"] });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/issues"] });
+      onIgnored?.();
+    },
+  });
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {children}
+      <Button size="sm" variant="ghost" className="text-xs text-muted-foreground h-7 px-2"
+        onClick={() => ignore.mutate()} disabled={ignore.isPending}
+        data-testid={`btn-ignore-${objectType}-${objectId ?? clusterKey}`}>
+        <EyeOff className="h-3 w-3 mr-1" /> Ignore
+      </Button>
+    </div>
+  );
+}
+
+// ── Duplicates Tab ─────────────────────────────────────────────────────────────
+function DuplicatesTab() {
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ["/api/data-quality/issues", "duplicates"],
+    queryFn: () => fetch("/api/data-quality/issues?category=duplicates", { credentials: "include" }).then(r => r.json()),
+  });
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const archive = useMutation({
+    mutationFn: ({ objectType, objectId }: { objectType: string; objectId: number }) =>
+      apiRequest("PATCH", "/api/data-quality/fix", { action: "archive_record", objectType, objectId }),
+    onSuccess: () => {
+      toast({ title: "Record archived" });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/issues", "duplicates"] });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/summary"] });
+    },
+  });
+
+  if (isLoading) return <div className="space-y-3">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-28" />)}</div>;
+  if (!data) return null;
+
+  const total = (data.accounts?.length ?? 0) + (data.contacts?.length ?? 0) + (data.leads?.length ?? 0);
+  if (total === 0) return (
+    <div className="text-center py-12 text-muted-foreground">
+      <CheckCircle2 className="h-10 w-10 mx-auto mb-2 text-emerald-500" />
+      <p>No duplicate clusters detected.</p>
+    </div>
+  );
+
+  const renderCluster = (cluster: any, objectType: string, index: number) => (
+    <Card key={`${objectType}-${cluster.clusterKey}-${index}`} className="border border-border/50" data-testid={`cluster-${objectType}-${index}`}>
+      <CardHeader className="py-3 px-4 border-b border-border/30">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs">{objectType}</Badge>
+            <span className="text-sm font-medium truncate max-w-[300px]">{cluster.clusterKey}</span>
+            <IssueBadge severity={cluster.count >= 3 ? "critical" : "warning"} />
+          </div>
+          <span className="text-xs text-muted-foreground">{cluster.count} records</span>
+        </div>
+      </CardHeader>
+      <CardContent className="p-4">
+        <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: `repeat(${Math.min(cluster.count, 3)}, 1fr)` }}>
+          {cluster.records.map((rec: any, i: number) => (
+            <div key={rec.id} className={`rounded-md border p-2.5 text-xs space-y-1 ${i === 0 ? "border-blue-500/40 bg-blue-500/5" : "border-border/50"}`}>
+              {i === 0 && <div className="text-blue-400 font-semibold text-[10px] uppercase tracking-wide">Suggested Primary</div>}
+              <div className="font-medium">{rec.name ?? rec.company ?? rec.contactName}</div>
+              {rec.city && <div className="text-muted-foreground">{rec.city}{rec.state ? `, ${rec.state}` : ""}</div>}
+              {rec.email && <div className="text-muted-foreground truncate">{rec.email}</div>}
+              <div className="text-muted-foreground">ID #{rec.id}</div>
+              {rec.createdAt && <div className="text-muted-foreground">{new Date(rec.createdAt).toLocaleDateString()}</div>}
+            </div>
+          ))}
+        </div>
+        <ActionRow objectType={`${objectType}_dup`} clusterKey={cluster.clusterKey} issueType="duplicate">
+          {cluster.records.slice(1).map((rec: any) => (
+            <Button key={rec.id} size="sm" variant="outline" className="h-7 text-xs"
+              onClick={() => archive.mutate({ objectType: objectType.replace("_dup","").replace("account","account").replace("contact","contact").replace("lead","lead"), objectId: rec.id })}
+              data-testid={`btn-archive-${objectType}-${rec.id}`}>
+              <Archive className="h-3 w-3 mr-1" /> Archive #{rec.id}
+            </Button>
+          ))}
+        </ActionRow>
+      </CardContent>
+    </Card>
+  );
+
+  return (
+    <div className="space-y-3">
+      {data.accounts.map((c: any, i: number) => renderCluster(c, "account", i))}
+      {data.contacts.map((c: any, i: number) => renderCluster(c, "contact", i))}
+      {data.leads.map((c: any,    i: number) => renderCluster(c, "lead", i))}
+    </div>
+  );
+}
+
+// ── Missing Owner Tab ──────────────────────────────────────────────────────────
+function MissingOwnerTab() {
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ["/api/data-quality/issues", "missing_owner"],
+    queryFn: () => fetch("/api/data-quality/issues?category=missing_owner", { credentials: "include" }).then(r => r.json()),
+  });
+  const [assignDialog, setAssignDialog] = useState<{ objectType: string; objectId: number } | null>(null);
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const bulkAssign = useMutation({
+    mutationFn: ({ ids, objectType, userId }: any) =>
+      apiRequest("PATCH", "/api/data-quality/fix", { action: "bulk_assign_owner", objectType, ids, value: userId }),
+    onSuccess: (_, v) => {
+      toast({ title: `Owner assigned to ${v.ids.length} records` });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/issues", "missing_owner"] });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/summary"] });
+    },
+  });
+
+  const { data: users } = useQuery<any[]>({ queryKey: ["/api/users"] });
+  const [bulkUserId, setBulkUserId] = useState("");
+
+  if (isLoading) return <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-16" />)}</div>;
+  if (!data) return null;
+
+  const total = (data.opportunities?.length ?? 0) + (data.tasks?.length ?? 0) + (data.leads?.length ?? 0);
+  if (total === 0) return (
+    <div className="text-center py-12 text-muted-foreground">
+      <CheckCircle2 className="h-10 w-10 mx-auto mb-2 text-emerald-500" />
+      <p>All active records have an assigned owner.</p>
+    </div>
+  );
+
+  const renderRow = (rec: any, objectType: string) => (
+    <div key={rec.id} className="flex items-center justify-between py-2.5 px-4 border-b border-border/30 last:border-0 hover:bg-muted/30"
+      data-testid={`row-missing-owner-${objectType}-${rec.id}`}>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium truncate">
+          {rec.title ?? rec.company ?? rec.name ?? `${rec.contactName ?? ""}`}
+        </div>
+        <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
+          <Badge variant="outline" className="text-[10px] px-1">{objectType}</Badge>
+          {rec.stage && <span>{rec.stage}</span>}
+          {rec.status && <span>{rec.status}</span>}
+          {rec.amount > 0 && <span className="text-emerald-400">${rec.amount?.toLocaleString()}</span>}
+          {rec.accountName && <span>{rec.accountName}</span>}
+        </div>
+      </div>
+      <ActionRow objectType={objectType} objectId={rec.id} issueType="missing_owner">
+        <Button size="sm" variant="outline" className="h-7 text-xs"
+          onClick={() => setAssignDialog({ objectType, objectId: rec.id })}
+          data-testid={`btn-assign-${objectType}-${rec.id}`}>
+          <UserPlus className="h-3 w-3 mr-1" /> Assign
+        </Button>
+      </ActionRow>
+    </div>
+  );
+
+  const sections = [
+    { label: "Opportunities", key: "opportunities", icon: TrendingUp, items: data.opportunities ?? [] },
+    { label: "Tasks",         key: "tasks",         icon: Zap,         items: data.tasks         ?? [] },
+    { label: "Leads",         key: "leads",         icon: Users,       items: data.leads         ?? [] },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* Bulk assign bar */}
+      {total > 0 && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/40 border border-border/40">
+          <span className="text-sm text-muted-foreground flex-1">{total} records without owner</span>
+          <Select value={bulkUserId} onValueChange={setBulkUserId}>
+            <SelectTrigger className="w-44 h-8 text-xs" data-testid="select-bulk-owner"><SelectValue placeholder="Select user…" /></SelectTrigger>
+            <SelectContent>
+              {(users ?? []).map((u: any) => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Button size="sm" className="h-8 text-xs" disabled={!bulkUserId || bulkAssign.isPending}
+            onClick={() => {
+              const ids = [...(data.opportunities ?? []), ...(data.tasks ?? []), ...(data.leads ?? [])].map((r: any) => r.id);
+              bulkAssign.mutate({ ids, objectType: "opportunity", userId: bulkUserId });
+            }}
+            data-testid="btn-bulk-assign">
+            Assign All
+          </Button>
+        </div>
+      )}
+      {sections.map(sec => sec.items.length > 0 && (
+        <Card key={sec.key} className="border border-border/50">
+          <CardHeader className="py-2.5 px-4 border-b border-border/30">
+            <div className="flex items-center gap-2 text-sm">
+              <sec.icon className="h-4 w-4 text-muted-foreground" />
+              <span className="font-medium">{sec.label}</span>
+              <Badge variant="outline" className="text-[10px]">{sec.items.length}</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {sec.items.map((r: any) => renderRow(r, sec.key.replace("ies","y").replace("ities","ity").replace("opportunities","opportunity").replace("tasks","task").replace("leads","lead")))}
+          </CardContent>
+        </Card>
+      ))}
+      {assignDialog && (
+        <AssignOwnerDialog
+          open objectType={assignDialog.objectType} objectId={assignDialog.objectId}
+          onClose={() => setAssignDialog(null)} onSuccess={() => setAssignDialog(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Missing Fields Tab ─────────────────────────────────────────────────────────
+function MissingFieldsTab() {
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ["/api/data-quality/issues", "missing_fields"],
+    queryFn: () => fetch("/api/data-quality/issues?category=missing_fields", { credentials: "include" }).then(r => r.json()),
+  });
+  const [dateDialog, setDateDialog] = useState<number | null>(null);
+  const [amtDialog,  setAmtDialog]  = useState<number | null>(null);
+  const qc = useQueryClient();
+
+  if (isLoading) return <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16" />)}</div>;
+  if (!data) return null;
+
+  const total = (data.missingCloseDate?.length ?? 0) + (data.missingAmount?.length ?? 0);
+  if (total === 0) return (
+    <div className="text-center py-12 text-muted-foreground">
+      <CheckCircle2 className="h-10 w-10 mx-auto mb-2 text-emerald-500" />
+      <p>All active opportunities have required fields.</p>
+    </div>
+  );
+
+  const renderOpp = (opp: any, issueType: string, actionBtn: React.ReactNode) => (
+    <div key={opp.id} className="flex items-center justify-between py-2.5 px-4 border-b border-border/30 last:border-0 hover:bg-muted/30"
+      data-testid={`row-missing-${issueType}-${opp.id}`}>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium truncate">{opp.title}</div>
+        <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
+          <Badge variant="outline" className="text-[10px] px-1">{opp.stage}</Badge>
+          {opp.accountName && <span>{opp.accountName}</span>}
+          {opp.ownerName && <span>Owner: {opp.ownerName}</span>}
+          {opp.forecastCategory && opp.forecastCategory !== "pipeline" && (
+            <span className="text-amber-400">{opp.forecastCategory}</span>
+          )}
+        </div>
+      </div>
+      <ActionRow objectType="opportunity" objectId={opp.id} issueType={issueType}
+        onIgnored={() => qc.invalidateQueries({ queryKey: ["/api/data-quality/issues", "missing_fields"] })}>
+        {actionBtn}
+      </ActionRow>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {data.missingCloseDate?.length > 0 && (
+        <Card className="border border-border/50">
+          <CardHeader className="py-2.5 px-4 border-b border-border/30">
+            <div className="flex items-center gap-2 text-sm">
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <span className="font-medium">Missing Close Date</span>
+              <Badge variant="outline" className="text-[10px]">{data.missingCloseDate.length}</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {data.missingCloseDate.map((opp: any) => renderOpp(opp, "missing_close_date",
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setDateDialog(opp.id)}
+                data-testid={`btn-set-date-${opp.id}`}>
+                <Calendar className="h-3 w-3 mr-1" /> Set Date
+              </Button>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+      {data.missingAmount?.length > 0 && (
+        <Card className="border border-border/50">
+          <CardHeader className="py-2.5 px-4 border-b border-border/30">
+            <div className="flex items-center gap-2 text-sm">
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+              <span className="font-medium">Missing / Zero Amount</span>
+              <Badge variant="outline" className="text-[10px]">{data.missingAmount.length}</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {data.missingAmount.map((opp: any) => renderOpp(opp, "missing_amount",
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setAmtDialog(opp.id)}
+                data-testid={`btn-set-amount-${opp.id}`}>
+                <DollarSign className="h-3 w-3 mr-1" /> Set Amount
+              </Button>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+      {dateDialog !== null && (
+        <SetDateDialog open objectId={dateDialog} onClose={() => setDateDialog(null)} onSuccess={() => setDateDialog(null)} />
+      )}
+      {amtDialog !== null && (
+        <SetAmountDialog open objectId={amtDialog} onClose={() => setAmtDialog(null)} onSuccess={() => setAmtDialog(null)} />
+      )}
+    </div>
+  );
+}
+
+// ── Orphans Tab ────────────────────────────────────────────────────────────────
+function OrphansTab() {
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ["/api/data-quality/issues", "orphans"],
+    queryFn: () => fetch("/api/data-quality/issues?category=orphans", { credentials: "include" }).then(r => r.json()),
+  });
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const archive = useMutation({
+    mutationFn: ({ objectType, objectId }: { objectType: string; objectId: number }) =>
+      apiRequest("PATCH", "/api/data-quality/fix", { action: "archive_record", objectType, objectId }),
+    onSuccess: () => {
+      toast({ title: "Record archived" });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/issues", "orphans"] });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/summary"] });
+    },
+  });
+
+  if (isLoading) return <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16" />)}</div>;
+  if (!data) return null;
+
+  const total = (data.orphanQuotes?.length ?? 0) + (data.orphanOpps?.length ?? 0) + (data.brokenLeadLinks?.length ?? 0);
+  if (total === 0) return (
+    <div className="text-center py-12 text-muted-foreground">
+      <CheckCircle2 className="h-10 w-10 mx-auto mb-2 text-emerald-500" />
+      <p>No orphan or broken-link records found.</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {data.orphanQuotes?.length > 0 && (
+        <Card className="border border-amber-500/20">
+          <CardHeader className="py-2.5 px-4 border-b border-border/30">
+            <div className="flex items-center gap-2 text-sm">
+              <FileText className="h-4 w-4 text-amber-400" />
+              <span className="font-medium">Orphan Quotes</span>
+              <Badge variant="outline" className="text-[10px]">{data.orphanQuotes.length}</Badge>
+              <span className="text-xs text-muted-foreground">— linked opportunity no longer exists</span>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {data.orphanQuotes.map((q: any) => (
+              <div key={q.id} className="flex items-center justify-between py-2.5 px-4 border-b border-border/30 last:border-0"
+                data-testid={`row-orphan-quote-${q.id}`}>
+                <div className="text-sm">
+                  <span className="font-medium">{q.quoteNumber}</span>
+                  <span className="text-muted-foreground ml-2 text-xs">Opp #{q.opportunityId} missing • ${(q.total ?? 0).toLocaleString()}</span>
+                </div>
+                <ActionRow objectType="quote" objectId={q.id} issueType="orphan">
+                  <Button size="sm" variant="outline" className="h-7 text-xs"
+                    onClick={() => archive.mutate({ objectType: "quote", objectId: q.id })}
+                    data-testid={`btn-archive-quote-${q.id}`}>
+                    <Archive className="h-3 w-3 mr-1" /> Archive
+                  </Button>
+                </ActionRow>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+      {data.orphanOpps?.length > 0 && (
+        <Card className="border border-red-500/20">
+          <CardHeader className="py-2.5 px-4 border-b border-border/30">
+            <div className="flex items-center gap-2 text-sm">
+              <Link2Off className="h-4 w-4 text-red-400" />
+              <span className="font-medium">Orphan Opportunities</span>
+              <Badge variant="outline" className="text-[10px]">{data.orphanOpps.length}</Badge>
+              <span className="text-xs text-muted-foreground">— no valid linked account</span>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {data.orphanOpps.map((o: any) => (
+              <div key={o.id} className="flex items-center justify-between py-2.5 px-4 border-b border-border/30 last:border-0"
+                data-testid={`row-orphan-opp-${o.id}`}>
+                <div className="text-sm">
+                  <span className="font-medium">{o.title}</span>
+                  <span className="text-muted-foreground ml-2 text-xs">Account #{o.accountId} missing</span>
+                </div>
+                <ActionRow objectType="opportunity" objectId={o.id} issueType="orphan">
+                  <Button size="sm" variant="outline" className="h-7 text-xs"
+                    onClick={() => archive.mutate({ objectType: "opportunity", objectId: o.id })}
+                    data-testid={`btn-archive-opp-${o.id}`}>
+                    <Archive className="h-3 w-3 mr-1" /> Archive
+                  </Button>
+                </ActionRow>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+      {data.brokenLeadLinks?.length > 0 && (
+        <Card className="border border-border/50">
+          <CardHeader className="py-2.5 px-4 border-b border-border/30">
+            <div className="flex items-center gap-2 text-sm">
+              <Link2Off className="h-4 w-4 text-muted-foreground" />
+              <span className="font-medium">Converted Leads with Broken Links</span>
+              <Badge variant="outline" className="text-[10px]">{data.brokenLeadLinks.length}</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {data.brokenLeadLinks.map((l: any) => (
+              <div key={l.id} className="flex items-center justify-between py-2.5 px-4 border-b border-border/30 last:border-0"
+                data-testid={`row-broken-lead-${l.id}`}>
+                <div className="text-sm">
+                  <span className="font-medium">{l.company}</span>
+                  <span className="text-muted-foreground ml-2 text-xs">Opp #{l.convertedOpportunityId} missing</span>
+                </div>
+                <ActionRow objectType="lead" objectId={l.id} issueType="broken_link" />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ── Stale Records Tab ──────────────────────────────────────────────────────────
+function StaleTab() {
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ["/api/data-quality/issues", "stale"],
+    queryFn: () => fetch("/api/data-quality/issues?category=stale", { credentials: "include" }).then(r => r.json()),
+  });
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { data: users } = useQuery<any[]>({ queryKey: ["/api/users"] });
+  const [bulkUserId, setBulkUserId] = useState("");
+
+  const bulkTasks = useMutation({
+    mutationFn: (ids: number[]) =>
+      apiRequest("PATCH", "/api/data-quality/fix", { action: "bulk_create_tasks", objectType: "lead", ids }),
+    onSuccess: () => {
+      toast({ title: "Follow-up tasks created" });
+      qc.invalidateQueries({ queryKey: ["/api/data-quality/issues", "stale"] });
+    },
+  });
+
+  if (isLoading) return <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-16" />)}</div>;
+  if (!data) return null;
+
+  const total = (data.staleLeads?.length ?? 0) + (data.contactsNoAccount?.length ?? 0);
+  if (total === 0) return (
+    <div className="text-center py-12 text-muted-foreground">
+      <CheckCircle2 className="h-10 w-10 mx-auto mb-2 text-emerald-500" />
+      <p>No stale records found.</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {data.staleLeads?.length > 0 && (
+        <Card className="border border-border/50">
+          <CardHeader className="py-2.5 px-4 border-b border-border/30">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm">
+                <RefreshCw className="h-4 w-4 text-muted-foreground" />
+                <span className="font-medium">Stale Leads</span>
+                <Badge variant="outline" className="text-[10px]">{data.staleLeads.length}</Badge>
+                <span className="text-xs text-muted-foreground">— no owner or 30+ days no activity</span>
+              </div>
+              <Button size="sm" variant="outline" className="h-7 text-xs"
+                disabled={bulkTasks.isPending}
+                onClick={() => bulkTasks.mutate(data.staleLeads.map((l: any) => l.id))}
+                data-testid="btn-bulk-create-tasks">
+                <Zap className="h-3 w-3 mr-1" /> Create Follow-ups
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {data.staleLeads.map((l: any) => (
+              <div key={l.id} className="flex items-center justify-between py-2.5 px-4 border-b border-border/30 last:border-0"
+                data-testid={`row-stale-lead-${l.id}`}>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium truncate">{l.company}</div>
+                  <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
+                    <span>{l.contactName}</span>
+                    {l.ownerName ? <span>Owner: {l.ownerName}</span> : <span className="text-red-400">No owner</span>}
+                    {l.daysSince > 0 && <span className="text-amber-400">{l.daysSince}d stale</span>}
+                  </div>
+                </div>
+                <ActionRow objectType="lead" objectId={l.id} issueType="stale" />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+      {data.contactsNoAccount?.length > 0 && (
+        <Card className="border border-border/50">
+          <CardHeader className="py-2.5 px-4 border-b border-border/30">
+            <div className="flex items-center gap-2 text-sm">
+              <Users className="h-4 w-4 text-muted-foreground" />
+              <span className="font-medium">Contacts with No Valid Account</span>
+              <Badge variant="outline" className="text-[10px]">{data.contactsNoAccount.length}</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {data.contactsNoAccount.map((c: any) => (
+              <div key={c.id} className="flex items-center justify-between py-2.5 px-4 border-b border-border/30 last:border-0"
+                data-testid={`row-contact-no-account-${c.id}`}>
+                <div className="text-sm">
+                  <span className="font-medium">{c.name}</span>
+                  {c.email && <span className="text-muted-foreground ml-2 text-xs">{c.email}</span>}
+                  <span className="text-muted-foreground ml-2 text-xs">Account #{c.accountId} missing</span>
+                </div>
+                <ActionRow objectType="contact" objectId={c.id} issueType="no_account" />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ── Overview Tab ───────────────────────────────────────────────────────────────
+function OverviewTab({ summary }: { summary: Summary }) {
+  const { counts, forecast } = summary;
+  const issues = [
+    { label: "Duplicate account clusters",     count: counts.duplicate_account_clusters,  tab: "duplicates",     severity: "warning"  as const, icon: Building2 },
+    { label: "Duplicate contact clusters",     count: counts.duplicate_contact_clusters,  tab: "duplicates",     severity: "warning"  as const, icon: Users },
+    { label: "Duplicate lead clusters",        count: counts.duplicate_lead_clusters,     tab: "duplicates",     severity: "warning"  as const, icon: Hash },
+    { label: "Opportunities without owner",    count: counts.missing_owner_opps,          tab: "missing_owner",  severity: "critical" as const, icon: UserX },
+    { label: "Tasks without owner",            count: counts.missing_owner_tasks,         tab: "missing_owner",  severity: "warning"  as const, icon: UserX },
+    { label: "Leads without owner",            count: counts.missing_owner_leads,         tab: "missing_owner",  severity: "warning"  as const, icon: UserX },
+    { label: "Opportunities missing close date", count: counts.missing_close_date,        tab: "missing_fields", severity: "critical" as const, icon: Calendar },
+    { label: "Opportunities missing amount",   count: counts.missing_amount,              tab: "missing_fields", severity: "critical" as const, icon: DollarSign },
+    { label: "Orphan quotes",                  count: counts.orphan_quotes,               tab: "orphans",        severity: "warning"  as const, icon: FileText },
+    { label: "Orphan opportunities",           count: counts.orphan_opps,                 tab: "orphans",        severity: "critical" as const, icon: Link2Off },
+    { label: "Broken converted lead links",    count: counts.broken_lead_links,           tab: "orphans",        severity: "warning"  as const, icon: Link2Off },
+    { label: "Stale leads (30+ days)",         count: counts.stale_leads,                 tab: "stale",          severity: "info"     as const, icon: RefreshCw },
+    { label: "Contacts without valid account", count: counts.contacts_no_account,         tab: "stale",          severity: "info"     as const, icon: Users },
+  ].filter(i => i.count > 0);
+
+  return (
+    <div className="space-y-5">
+      {/* Forecast risk alerts */}
+      {(forecast.opps_missing_close_date > 0 || forecast.weighted_stale_pipeline > 0 || forecast.weighted_no_owner_pipeline > 0) && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-400" /> Forecast Risks
+          </h3>
+          {forecast.opps_missing_close_date > 0 && (
+            <Alert className="border-amber-500/30 bg-amber-500/5">
+              <AlertDescription className="text-sm text-amber-300">
+                <strong>{forecast.opps_missing_close_date}</strong> commit/best-case opportunities are missing close dates — forecasting is unreliable.
+              </AlertDescription>
+            </Alert>
+          )}
+          {forecast.weighted_stale_pipeline > 0 && (
+            <Alert className="border-amber-500/30 bg-amber-500/5">
+              <AlertDescription className="text-sm text-amber-300">
+                <strong>{fmt(forecast.weighted_stale_pipeline)}</strong> pipeline tied to stale opportunities with no recent activity.
+              </AlertDescription>
+            </Alert>
+          )}
+          {forecast.weighted_no_owner_pipeline > 0 && (
+            <Alert className="border-red-500/30 bg-red-500/5">
+              <AlertDescription className="text-sm text-red-300">
+                <strong>{fmt(forecast.weighted_no_owner_pipeline)}</strong> pipeline tied to opportunities without an owner.
+              </AlertDescription>
+            </Alert>
+          )}
+          {forecast.duplicate_accounts_with_opps > 0 && (
+            <Alert className="border-amber-500/30 bg-amber-500/5">
+              <AlertDescription className="text-sm text-amber-300">
+                <strong>{forecast.duplicate_accounts_with_opps}</strong> duplicate account clusters have active opportunities — totals may be inflated.
+              </AlertDescription>
+            </Alert>
+          )}
+        </div>
+      )}
+
+      {/* Issue list */}
+      {issues.length === 0 ? (
+        <div className="text-center py-10 text-muted-foreground">
+          <CheckCircle2 className="h-10 w-10 mx-auto mb-2 text-emerald-500" />
+          <p className="font-medium">CRM data looks clean!</p>
+          <p className="text-sm">No issues detected.</p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">All Issues ({counts.total})</h3>
+          {issues.map((issue, i) => (
+            <div key={i} className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/20 hover:bg-muted/40"
+              data-testid={`overview-issue-${i}`}>
+              <div className="flex items-center gap-2 text-sm">
+                <issue.icon className="h-4 w-4 text-muted-foreground" />
+                <span>{issue.label}</span>
+                <IssueBadge severity={issue.severity} />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold tabular-nums">{issue.count}</span>
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Page ──────────────────────────────────────────────────────────────────
+export default function DataQualityPage() {
+  const [activeTab, setActiveTab] = useState("overview");
+
+  const { data: summary, isLoading } = useQuery<Summary>({
+    queryKey: ["/api/data-quality/summary"],
+    queryFn: () => fetch("/api/data-quality/summary", { credentials: "include" }).then(r => r.json()),
+    refetchInterval: 60_000,
+  });
+
+  const healthCards = summary ? [
+    { key: "accounts",      label: "Accounts",      icon: Building2,   ...summary.health.accounts },
+    { key: "contacts",      label: "Contacts",      icon: Users,       ...summary.health.contacts },
+    { key: "leads",         label: "Leads",         icon: TrendingUp,  ...summary.health.leads },
+    { key: "opportunities", label: "Opportunities", icon: Zap,         ...summary.health.opportunities },
+    { key: "quotes",        label: "Quotes",        icon: FileText,    ...summary.health.quotes },
+  ] : [];
+
+  const totalIssues = summary?.counts.total ?? 0;
+
+  return (
+    <div className="flex-1 overflow-auto bg-background p-6 space-y-5">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-xl font-bold flex items-center gap-2" data-testid="page-title">
+            <Shield className="h-5 w-5 text-primary" />
+            Data Quality Center
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Identify and resolve dirty CRM data before it damages workflow, reporting, and forecasting.
+          </p>
+        </div>
+        {summary && (
+          <div className="text-right">
+            <div className="text-2xl font-bold tabular-nums" data-testid="total-issue-count">
+              {totalIssues}
+            </div>
+            <div className="text-xs text-muted-foreground">total issues</div>
+          </div>
+        )}
+      </div>
+
+      {/* Health Score Cards */}
+      {isLoading ? (
+        <div className="grid grid-cols-5 gap-3">
+          {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-20" />)}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {healthCards.map(h => <HealthCard key={h.key} {...h} />)}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="w-full justify-start gap-1 h-9 bg-muted/40 p-1">
+          <TabsTrigger value="overview"       className="text-xs" data-testid="tab-overview">Overview</TabsTrigger>
+          <TabsTrigger value="duplicates"     className="text-xs" data-testid="tab-duplicates">
+            Duplicates {summary && summary.counts.duplicate_account_clusters + summary.counts.duplicate_contact_clusters + summary.counts.duplicate_lead_clusters > 0 &&
+              <Badge variant="outline" className="ml-1 text-[10px] px-1">
+                {summary.counts.duplicate_account_clusters + summary.counts.duplicate_contact_clusters + summary.counts.duplicate_lead_clusters}
+              </Badge>}
+          </TabsTrigger>
+          <TabsTrigger value="missing_owner"  className="text-xs" data-testid="tab-missing-owner">
+            Missing Owners {summary && summary.counts.missing_owner_opps + summary.counts.missing_owner_tasks + summary.counts.missing_owner_leads > 0 &&
+              <Badge variant="outline" className="ml-1 text-[10px] px-1">
+                {summary.counts.missing_owner_opps + summary.counts.missing_owner_tasks + summary.counts.missing_owner_leads}
+              </Badge>}
+          </TabsTrigger>
+          <TabsTrigger value="missing_fields" className="text-xs" data-testid="tab-missing-fields">
+            Missing Fields {summary && summary.counts.missing_close_date + summary.counts.missing_amount > 0 &&
+              <Badge variant="outline" className="ml-1 text-[10px] px-1">
+                {summary.counts.missing_close_date + summary.counts.missing_amount}
+              </Badge>}
+          </TabsTrigger>
+          <TabsTrigger value="orphans"        className="text-xs" data-testid="tab-orphans">
+            Orphans {summary && summary.counts.orphan_quotes + summary.counts.orphan_opps + summary.counts.broken_lead_links > 0 &&
+              <Badge variant="outline" className="ml-1 text-[10px] px-1">
+                {summary.counts.orphan_quotes + summary.counts.orphan_opps + summary.counts.broken_lead_links}
+              </Badge>}
+          </TabsTrigger>
+          <TabsTrigger value="stale"          className="text-xs" data-testid="tab-stale">
+            Stale Records {summary && summary.counts.stale_leads + summary.counts.contacts_no_account > 0 &&
+              <Badge variant="outline" className="ml-1 text-[10px] px-1">
+                {summary.counts.stale_leads + summary.counts.contacts_no_account}
+              </Badge>}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview"       className="mt-4">{summary ? <OverviewTab summary={summary} /> : <Skeleton className="h-40" />}</TabsContent>
+        <TabsContent value="duplicates"     className="mt-4"><DuplicatesTab /></TabsContent>
+        <TabsContent value="missing_owner"  className="mt-4"><MissingOwnerTab /></TabsContent>
+        <TabsContent value="missing_fields" className="mt-4"><MissingFieldsTab /></TabsContent>
+        <TabsContent value="orphans"        className="mt-4"><OrphansTab /></TabsContent>
+        <TabsContent value="stale"          className="mt-4"><StaleTab /></TabsContent>
+      </Tabs>
+    </div>
+  );
+}
