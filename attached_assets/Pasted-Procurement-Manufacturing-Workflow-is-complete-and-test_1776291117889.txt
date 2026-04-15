@@ -1,0 +1,101 @@
+Procurement / Manufacturing Workflow is complete and tested. Next, build the Deployment / Site Rollout Manager.
+
+Goal:
+Track real-world marina/site deployments from planning through install, commissioning, and go-live so Cortex manages field execution, not just office workflow.
+
+Build this in phases.
+
+PHASE 1 — CORE DATA MODEL
+Add lightweight deployment objects for:
+- sites / deployment records
+- deployment phases
+- dock/zone/area records if useful
+- deployment hardware allocations
+- commissioning checkpoints
+- blockers / field issues
+
+Track at minimum:
+- site name
+- linked account
+- linked install workflow
+- linked accepted quote / opportunity if relevant
+- owner
+- planned start
+- actual start
+- target go-live
+- actual go-live
+- status
+- notes / blockers
+
+PHASE 2 — DEPLOYMENT STATUS FLOW
+Support statuses like:
+- planned
+- scheduled
+- mobilizing
+- in_install
+- commissioning
+- partially_live
+- live
+- blocked
+- complete
+
+Keep transitions explicit and auditable.
+
+PHASE 3 — HARDWARE ALLOCATION LINKAGE
+Connect deployments to procurement/inventory data:
+- reserved hardware
+- shipped hardware
+- delivered hardware
+- missing hardware
+- install blocked by unavailable components
+
+PHASE 4 — FIELD EXECUTION UI
+Create a deployment page with:
+- deployment summary cards
+- status tabs
+- milestone/checklist view
+- blocker list
+- linked hardware allocation
+- linked install tasks
+- linked CRM/account context
+
+PHASE 5 — COMMISSIONING / CLOSEOUT
+Add deterministic commissioning checkpoints such as:
+- hardware installed
+- power verified
+- connectivity verified
+- software onboarding complete
+- acceptance complete
+- go-live confirmed
+
+PHASE 6 — ALERTS / AUTOMATIONS
+Support rules like:
+- deployment blocked → create task/notification
+- target go-live missed → escalate
+- missing hardware blocks deployment → alert ops
+- commissioning complete → mark deployment live
+- all deployments complete → update install workflow
+
+PHASE 7 — DASHBOARD / FILTERS
+Add useful views:
+- deployments this month
+- blocked deployments
+- commissioning in progress
+- go-live overdue
+- partially live sites
+- deployments by owner / region
+
+PHASE 8 — TESTING
+Add tests for:
+- deployment lifecycle
+- hardware linkage
+- blocker logic
+- commissioning completion
+- automation triggers
+- no regression to install workflow, procurement, timeline, and executive dashboard
+
+Implementation rules:
+- keep it practical for real marina/site rollout operations
+- do not build a giant construction PM suite
+- reuse existing tasks, timelines, install workflows, and procurement systems
+- summarize changed files and final pass/fail at the end

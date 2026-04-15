@@ -573,3 +573,92 @@ export async function migrateProcurementSchema(): Promise<void> {
     console.error("[migration] Procurement schema migration error (non-fatal):", err);
   }
 }
+
+export async function migrateDeploymentSchema(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS deployments (
+        id serial PRIMARY KEY,
+        deploy_number text NOT NULL,
+        site_name text NOT NULL,
+        address text,
+        region text,
+        account_id integer,
+        install_workflow_id integer,
+        opportunity_id integer,
+        owner_user_id integer,
+        status text NOT NULL DEFAULT 'planned',
+        planned_start timestamp,
+        actual_start timestamp,
+        target_go_live timestamp,
+        actual_go_live timestamp,
+        docks_count integer,
+        units_count integer,
+        notes text,
+        blockers text,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS deployment_hardware_allocations (
+        id serial PRIMARY KEY,
+        deployment_id integer NOT NULL,
+        part_id integer,
+        inventory_allocation_id integer,
+        description text,
+        quantity_required real NOT NULL DEFAULT 1,
+        quantity_reserved real NOT NULL DEFAULT 0,
+        quantity_shipped real NOT NULL DEFAULT 0,
+        quantity_delivered real NOT NULL DEFAULT 0,
+        status text NOT NULL DEFAULT 'pending',
+        notes text,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS commissioning_checkpoints (
+        id serial PRIMARY KEY,
+        deployment_id integer NOT NULL,
+        name text NOT NULL,
+        description text,
+        sequence_order integer NOT NULL DEFAULT 0,
+        status text NOT NULL DEFAULT 'pending',
+        checked_by_user_id integer,
+        checked_at timestamp,
+        notes text,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS deployment_blockers (
+        id serial PRIMARY KEY,
+        deployment_id integer NOT NULL,
+        title text NOT NULL,
+        description text,
+        severity text NOT NULL DEFAULT 'medium',
+        status text NOT NULL DEFAULT 'open',
+        resolved_at timestamp,
+        resolved_by_user_id integer,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_deployments_status ON deployments(status)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_deployments_account ON deployments(account_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_deployments_install ON deployments(install_workflow_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_deploy_hw_deployment ON deployment_hardware_allocations(deployment_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_commissioning_deployment ON commissioning_checkpoints(deployment_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_deploy_blockers_deployment ON deployment_blockers(deployment_id, status)`);
+
+    console.log("[migration] Deployment schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Deployment schema migration error (non-fatal):", err);
+  }
+}

@@ -261,6 +261,50 @@ End-to-end hardware delivery layer sitting beneath the Install Workflows. All ta
 ### Tests
 `tests/procurement.test.js` — 93 assertions covering full CRUD, status lifecycle, auto-advance, auto-task triggers, blocked-installs, and dashboard shape.
 
+## Deployment / Site Rollout Manager
+
+End-to-end field execution layer for marina/site deployments. Sits above Install Workflows and Procurement.
+
+### DB Tables (4 new)
+| Table | Purpose |
+|---|---|
+| `deployments` | Master site record — status flow, dates, docks/units count, auto-numbered DEPLOY-NNNN |
+| `deployment_hardware_allocations` | Links parts/inventory to a deployment — tracks required/reserved/shipped/delivered/missing |
+| `commissioning_checkpoints` | 6 deterministic milestones auto-seeded on create; pass/fail with timestamp + user |
+| `deployment_blockers` | Field issues — title, severity, status (open/resolved), triggers auto-task on create |
+
+### Status Flow
+`planned → scheduled → mobilizing → in_install → commissioning → partially_live → live → blocked → complete`
+
+### Key API Endpoints (all under `/api/deployments/`)
+- Static routes **before** dynamic routes to avoid `:id` collision:
+  - `GET /dashboard` — 7 KPI overview stats + overdue/blocked/commissioning-progress lists
+  - `GET /blocked` — deployments with open blockers or missing hardware
+- `GET / POST /api/deployments`
+- `GET / PATCH /api/deployments/:id`
+- `GET / POST / PATCH / DELETE /api/deployments/:id/hardware`
+- `GET / POST / PATCH /api/deployments/:id/checkpoints`
+- `GET / POST / PATCH /api/deployments/:id/blockers`
+
+### Auto-behaviors (Phase 6)
+- On **create deployment**: 6 commissioning checkpoints seeded automatically
+- On **status → blocked**: task created (priority high, due 1 day)
+- On **hardware → missing**: task created (priority high, due 2 days; de-duped)
+- On **go-live overdue** (target date < now, status != live/complete): task created (de-duped)
+- On **all checkpoints passed**: deployment auto-advances to `live` + sets `actual_go_live`
+- On **new blocker logged**: task always created matching blocker severity
+
+### Frontend
+- Route: `/deployments` (`client/src/pages/deployments.tsx`)
+- Sidebar: under "Procurement & Mfg" section with Layers icon
+- Tabs: Deployments (card list) · Blocked · Dashboard
+- Inline status dropdown per card; click card → detail panel
+- Detail panel: Commissioning Checklist · Blockers · Hardware · Info tabs
+- Progress bar per deployment (passed checkpoints / total)
+
+### Tests
+`tests/deployment.test.js` — **102 assertions** covering full lifecycle, auto-live, blocker create/resolve, hardware allocations, blocked list, dashboard shape, and procurement + executive regression checks.
+
 ## External Dependencies
 
 - **PostgreSQL:** Primary database.

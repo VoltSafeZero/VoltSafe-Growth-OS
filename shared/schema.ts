@@ -1531,6 +1531,76 @@ export const inventoryAllocations = pgTable("inventory_allocations", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// DEPLOYMENT / SITE ROLLOUT MANAGER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const deployments = pgTable("deployments", {
+  id: serial("id").primaryKey(),
+  deployNumber: text("deploy_number").notNull(),
+  siteName: text("site_name").notNull(),
+  address: text("address"),
+  region: text("region"),
+  accountId: integer("account_id"),
+  installWorkflowId: integer("install_workflow_id"),
+  opportunityId: integer("opportunity_id"),
+  ownerUserId: integer("owner_user_id"),
+  status: text("status").notNull().default("planned"),
+  plannedStart: timestamp("planned_start"),
+  actualStart: timestamp("actual_start"),
+  targetGoLive: timestamp("target_go_live"),
+  actualGoLive: timestamp("actual_go_live"),
+  docksCount: integer("docks_count"),
+  unitsCount: integer("units_count"),
+  notes: text("notes"),
+  blockers: text("blockers"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const deploymentHardwareAllocations = pgTable("deployment_hardware_allocations", {
+  id: serial("id").primaryKey(),
+  deploymentId: integer("deployment_id").notNull(),
+  partId: integer("part_id"),
+  inventoryAllocationId: integer("inventory_allocation_id"),
+  description: text("description"),
+  quantityRequired: real("quantity_required").notNull().default(1),
+  quantityReserved: real("quantity_reserved").notNull().default(0),
+  quantityShipped: real("quantity_shipped").notNull().default(0),
+  quantityDelivered: real("quantity_delivered").notNull().default(0),
+  status: text("status").notNull().default("pending"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const commissioningCheckpoints = pgTable("commissioning_checkpoints", {
+  id: serial("id").primaryKey(),
+  deploymentId: integer("deployment_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  sequenceOrder: integer("sequence_order").notNull().default(0),
+  status: text("status").notNull().default("pending"),
+  checkedByUserId: integer("checked_by_user_id"),
+  checkedAt: timestamp("checked_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const deploymentBlockers = pgTable("deployment_blockers", {
+  id: serial("id").primaryKey(),
+  deploymentId: integer("deployment_id").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  severity: text("severity").notNull().default("medium"),
+  status: text("status").notNull().default("open"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedByUserId: integer("resolved_by_user_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // ── Insert schemas ─────────────────────────────────────────────────────────────
 export const insertSupplierSchema = createInsertSchema(suppliers).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertPartSchema = createInsertSchema(parts).omit({ id: true, createdAt: true, updatedAt: true });
@@ -1552,3 +1622,18 @@ export type ProductionBatch = typeof productionBatches.$inferSelect;
 export type InsertProductionBatch = z.infer<typeof insertProductionBatchSchema>;
 export type InventoryAllocation = typeof inventoryAllocations.$inferSelect;
 export type InsertInventoryAllocation = z.infer<typeof insertInventoryAllocationSchema>;
+
+// Deployment types
+export const insertDeploymentSchema = createInsertSchema(deployments).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertDeploymentHardwareAllocationSchema = createInsertSchema(deploymentHardwareAllocations).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCommissioningCheckpointSchema = createInsertSchema(commissioningCheckpoints).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertDeploymentBlockerSchema = createInsertSchema(deploymentBlockers).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type Deployment = typeof deployments.$inferSelect;
+export type InsertDeployment = z.infer<typeof insertDeploymentSchema>;
+export type DeploymentHardwareAllocation = typeof deploymentHardwareAllocations.$inferSelect;
+export type InsertDeploymentHardwareAllocation = z.infer<typeof insertDeploymentHardwareAllocationSchema>;
+export type CommissioningCheckpoint = typeof commissioningCheckpoints.$inferSelect;
+export type InsertCommissioningCheckpoint = z.infer<typeof insertCommissioningCheckpointSchema>;
+export type DeploymentBlocker = typeof deploymentBlockers.$inferSelect;
+export type InsertDeploymentBlocker = z.infer<typeof insertDeploymentBlockerSchema>;

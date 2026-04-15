@@ -98,6 +98,7 @@ const sections: NavSection[] = [
     permKey: "crm",
     items: [
       { title: "Procurement", url: "/procurement", icon: Package, permKey: "crm" },
+      { title: "Deployments", url: "/deployments", icon: Layers, permKey: "crm" },
     ],
   },
 

@@ -13031,6 +13031,577 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DEPLOYMENT / SITE ROLLOUT MANAGER
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── Helper: generate next deploy number ───────────────────────────────────
+  async function nextDeployNumber(): Promise<string> {
+    const r = await db.execute(sql.raw(`SELECT COALESCE(MAX(CAST(REPLACE(deploy_number, 'DEPLOY-', '') AS INTEGER)), 0) + 1 AS next FROM deployments WHERE deploy_number LIKE 'DEPLOY-%'`));
+    const n = parseInt((r as any).rows?.[0]?.next ?? "1");
+    return `DEPLOY-${String(n).padStart(4, "0")}`;
+  }
+
+  // ── Helper: create a deployment task ─────────────────────────────────────
+  async function createDeploymentTask(
+    title: string, deploymentId: number, ownerUserId: number | null,
+    dueDays = 3, priority = "high"
+  ) {
+    const due = new Date(Date.now() + dueDays * 86_400_000).toISOString();
+    await db.execute(sql.raw(`
+      INSERT INTO tasks (title, linked_object_type, linked_object_id, owner_user_id,
+                         due_date, status, priority, source, source_label, created_at, updated_at)
+      VALUES ('${title.replace(/'/g, "''")}', 'deployment', ${deploymentId},
+              ${ownerUserId ?? "NULL"}, '${due}', 'pending', '${priority}',
+              'deployment', 'Deployment', NOW(), NOW())`));
+  }
+
+  // ── Helper: seed default commissioning checkpoints ────────────────────────
+  const DEFAULT_CHECKPOINTS = [
+    { name: "Hardware installed",         order: 1 },
+    { name: "Power verified",             order: 2 },
+    { name: "Connectivity verified",      order: 3 },
+    { name: "Software onboarding complete", order: 4 },
+    { name: "Acceptance complete",        order: 5 },
+    { name: "Go-live confirmed",          order: 6 },
+  ];
+
+  async function seedCommissioningCheckpoints(deploymentId: number) {
+    for (const cp of DEFAULT_CHECKPOINTS) {
+      await db.execute(sql.raw(`
+        INSERT INTO commissioning_checkpoints (deployment_id, name, sequence_order, status, created_at, updated_at)
+        VALUES (${deploymentId}, '${cp.name}', ${cp.order}, 'pending', NOW(), NOW())`));
+    }
+  }
+
+  // ── DEPLOYMENT DASHBOARD (MUST be before /:id routes) ────────────────────
+
+  app.get("/api/deployments/dashboard", requireAuth, async (req, res) => {
+    try {
+      const [byStatusRes, overviewRes, overdueRes, blockedRes, commissioningRes] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT status, COUNT(*) AS count FROM deployments GROUP BY status ORDER BY status`)),
+        db.execute(sql.raw(`
+          SELECT
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE status NOT IN ('complete','cancelled')) AS active,
+            COUNT(*) FILTER (WHERE status = 'live') AS live,
+            COUNT(*) FILTER (WHERE status = 'blocked') AS blocked,
+            COUNT(*) FILTER (WHERE status = 'commissioning') AS commissioning,
+            COUNT(*) FILTER (WHERE date_trunc('month', actual_go_live) = date_trunc('month', NOW())) AS live_this_month,
+            COUNT(*) FILTER (WHERE target_go_live < NOW() AND status NOT IN ('live','complete','cancelled')) AS overdue
+          FROM deployments`)),
+        db.execute(sql.raw(`
+          SELECT d.id, d.deploy_number, d.site_name, d.status, d.target_go_live,
+                 a.name AS account_name, u.name AS owner_name
+          FROM deployments d
+          LEFT JOIN accounts a ON a.id = d.account_id
+          LEFT JOIN users u ON u.id = d.owner_user_id
+          WHERE d.target_go_live < NOW()
+            AND d.status NOT IN ('live','complete','cancelled')
+          ORDER BY d.target_go_live ASC
+          LIMIT 5`)),
+        db.execute(sql.raw(`
+          SELECT d.id, d.deploy_number, d.site_name, d.status,
+                 a.name AS account_name, COUNT(db2.id) AS open_blocker_count
+          FROM deployments d
+          LEFT JOIN accounts a ON a.id = d.account_id
+          LEFT JOIN deployment_blockers db2 ON db2.deployment_id = d.id AND db2.status = 'open'
+          WHERE d.status NOT IN ('complete','cancelled')
+          GROUP BY d.id, a.name
+          HAVING COUNT(db2.id) > 0
+          ORDER BY COUNT(db2.id) DESC
+          LIMIT 5`)),
+        db.execute(sql.raw(`
+          SELECT d.id, d.deploy_number, d.site_name,
+                 COUNT(cp.id) AS total_cps,
+                 COUNT(cp.id) FILTER (WHERE cp.status = 'passed') AS passed_cps,
+                 ROUND(COUNT(cp.id) FILTER (WHERE cp.status = 'passed')::decimal / NULLIF(COUNT(cp.id),0) * 100) AS pct_complete
+          FROM deployments d
+          LEFT JOIN commissioning_checkpoints cp ON cp.deployment_id = d.id
+          WHERE d.status = 'commissioning'
+          GROUP BY d.id ORDER BY pct_complete DESC
+          LIMIT 5`)),
+      ]);
+
+      const byStatus = Object.fromEntries(
+        ((byStatusRes as any).rows ?? []).map((r: any) => [r.status, parseInt(r.count)])
+      );
+      const ov = (overviewRes as any).rows?.[0] ?? {};
+
+      res.json({
+        overview: {
+          total:          parseInt(ov.total          ?? "0"),
+          active:         parseInt(ov.active         ?? "0"),
+          live:           parseInt(ov.live           ?? "0"),
+          blocked:        parseInt(ov.blocked        ?? "0"),
+          commissioning:  parseInt(ov.commissioning  ?? "0"),
+          liveThisMonth:  parseInt(ov.live_this_month ?? "0"),
+          overdue:        parseInt(ov.overdue        ?? "0"),
+        },
+        byStatus,
+        overdueDeployments:    (overdueRes       as any).rows ?? [],
+        blockedDeployments:    (blockedRes       as any).rows ?? [],
+        commissioningProgress: (commissioningRes as any).rows ?? [],
+      });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // Deployments with open blockers or missing hardware
+  app.get("/api/deployments/blocked", requireAuth, async (req, res) => {
+    try {
+      const r = await db.execute(sql.raw(`
+        SELECT d.id, d.deploy_number, d.site_name, d.status, d.target_go_live,
+               a.name AS account_name, u.name AS owner_name,
+               COALESCE(bl.open_blocker_count, 0) AS open_blocker_count,
+               COALESCE(hw.missing_hw_count, 0) AS missing_hw_count
+        FROM deployments d
+        LEFT JOIN accounts a ON a.id = d.account_id
+        LEFT JOIN users u ON u.id = d.owner_user_id
+        LEFT JOIN (
+          SELECT deployment_id, COUNT(*) AS open_blocker_count
+          FROM deployment_blockers WHERE status = 'open' GROUP BY deployment_id
+        ) bl ON bl.deployment_id = d.id
+        LEFT JOIN (
+          SELECT deployment_id, COUNT(*) AS missing_hw_count
+          FROM deployment_hardware_allocations WHERE status = 'missing' GROUP BY deployment_id
+        ) hw ON hw.deployment_id = d.id
+        WHERE d.status NOT IN ('live','complete','cancelled')
+          AND (COALESCE(bl.open_blocker_count, 0) > 0 OR COALESCE(hw.missing_hw_count, 0) > 0)
+        ORDER BY d.target_go_live ASC NULLS LAST
+        LIMIT 50`));
+      res.json({ data: (r as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── DEPLOYMENTS CRUD ──────────────────────────────────────────────────────
+
+  app.get("/api/deployments", requireAuth, async (req, res) => {
+    try {
+      const q = req.query as Record<string, string>;
+      const where: string[] = [];
+      if (q.status)  where.push(`d.status = '${q.status}'`);
+      if (q.region)  where.push(`d.region = '${q.region}'`);
+      if (q.accountId) where.push(`d.account_id = ${parseInt(q.accountId)}`);
+      if (q.ownerId) where.push(`d.owner_user_id = ${parseInt(q.ownerId)}`);
+      const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+      const r = await db.execute(sql.raw(`
+        SELECT d.*,
+               a.name AS account_name,
+               u.name AS owner_name,
+               iw.title AS install_workflow_title,
+               COALESCE(hw.hw_count, 0) AS hw_count,
+               COALESCE(hw.hw_missing, 0) AS hw_missing,
+               COALESCE(cp.total_checkpoints, 0) AS total_checkpoints,
+               COALESCE(cp.passed_checkpoints, 0) AS passed_checkpoints,
+               COALESCE(bl.open_blockers, 0) AS open_blockers
+        FROM deployments d
+        LEFT JOIN accounts a ON a.id = d.account_id
+        LEFT JOIN users u ON u.id = d.owner_user_id
+        LEFT JOIN install_workflows iw ON iw.id = d.install_workflow_id
+        LEFT JOIN (
+          SELECT deployment_id,
+                 COUNT(*) AS hw_count,
+                 COUNT(*) FILTER (WHERE status = 'missing') AS hw_missing
+          FROM deployment_hardware_allocations GROUP BY deployment_id
+        ) hw ON hw.deployment_id = d.id
+        LEFT JOIN (
+          SELECT deployment_id,
+                 COUNT(*) AS total_checkpoints,
+                 COUNT(*) FILTER (WHERE status = 'passed') AS passed_checkpoints
+          FROM commissioning_checkpoints GROUP BY deployment_id
+        ) cp ON cp.deployment_id = d.id
+        LEFT JOIN (
+          SELECT deployment_id, COUNT(*) AS open_blockers
+          FROM deployment_blockers WHERE status = 'open' GROUP BY deployment_id
+        ) bl ON bl.deployment_id = d.id
+        ${whereClause}
+        ORDER BY d.target_go_live ASC NULLS LAST, d.created_at DESC
+        LIMIT 200`));
+      res.json({ data: (r as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.get("/api/deployments/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [dRes, hwRes, cpRes, blRes] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT d.*, a.name AS account_name, u.name AS owner_name,
+                 iw.title AS install_workflow_title
+          FROM deployments d
+          LEFT JOIN accounts a ON a.id = d.account_id
+          LEFT JOIN users u ON u.id = d.owner_user_id
+          LEFT JOIN install_workflows iw ON iw.id = d.install_workflow_id
+          WHERE d.id = ${id}`)),
+        db.execute(sql.raw(`
+          SELECT dha.*, p.name AS part_name, p.sku
+          FROM deployment_hardware_allocations dha
+          LEFT JOIN parts p ON p.id = dha.part_id
+          WHERE dha.deployment_id = ${id}
+          ORDER BY dha.id`)),
+        db.execute(sql.raw(`
+          SELECT * FROM commissioning_checkpoints
+          WHERE deployment_id = ${id}
+          ORDER BY sequence_order, id`)),
+        db.execute(sql.raw(`
+          SELECT * FROM deployment_blockers
+          WHERE deployment_id = ${id}
+          ORDER BY created_at DESC`)),
+      ]);
+      const dep = (dRes as any).rows?.[0];
+      if (!dep) return res.status(404).json({ message: "Not found" });
+      res.json({
+        ...dep,
+        hardware: (hwRes as any).rows ?? [],
+        checkpoints: (cpRes as any).rows ?? [],
+        blockers: (blRes as any).rows ?? [],
+      });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/deployments", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (!req.body.siteName) return res.status(400).json({ message: "siteName is required" });
+      const deployNumber = await nextDeployNumber();
+      const {
+        siteName, address, region, accountId, installWorkflowId, opportunityId,
+        plannedStart, targetGoLive, docksCount, unitsCount, notes,
+      } = req.body;
+      const ownerUserId = req.body.ownerUserId ?? user?.id ?? null;
+      const r = await db.execute(sql.raw(`
+        INSERT INTO deployments
+          (deploy_number, site_name, address, region, account_id, install_workflow_id,
+           opportunity_id, owner_user_id, status, planned_start, target_go_live,
+           docks_count, units_count, notes, created_at, updated_at)
+        VALUES ('${deployNumber}',
+                '${siteName.replace(/'/g, "''")}',
+                ${address ? `'${address.replace(/'/g, "''")}'` : "NULL"},
+                ${region ? `'${region}'` : "NULL"},
+                ${accountId ?? "NULL"}, ${installWorkflowId ?? "NULL"}, ${opportunityId ?? "NULL"},
+                ${ownerUserId ?? "NULL"}, 'planned',
+                ${plannedStart ? `'${new Date(plannedStart).toISOString()}'` : "NULL"},
+                ${targetGoLive ? `'${new Date(targetGoLive).toISOString()}'` : "NULL"},
+                ${docksCount ?? "NULL"}, ${unitsCount ?? "NULL"},
+                ${notes ? `'${notes.replace(/'/g, "''")}'` : "NULL"},
+                NOW(), NOW())
+        RETURNING *`));
+      const dep = (r as any).rows?.[0];
+      // Seed commissioning checkpoints automatically
+      await seedCommissioningCheckpoints(dep.id);
+      res.status(201).json(dep);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.patch("/api/deployments/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const user = (req as any).user;
+
+      const curR = await db.execute(sql.raw(`SELECT * FROM deployments WHERE id = ${id}`));
+      const prev = (curR as any).rows?.[0];
+      if (!prev) return res.status(404).json({ message: "Not found" });
+
+      const colMap: Record<string, string> = {
+        status: "status", siteName: "site_name", address: "address", region: "region",
+        notes: "notes", blockers: "blockers",
+        accountId: "account_id", installWorkflowId: "install_workflow_id",
+        opportunityId: "opportunity_id", ownerUserId: "owner_user_id",
+        docksCount: "docks_count", unitsCount: "units_count",
+      };
+      const sets: string[] = [];
+      for (const [k, v] of Object.entries(req.body as Record<string, any>)) {
+        if (colMap[k]) sets.push(`${colMap[k]} = ${v === null ? "NULL" : `'${String(v).replace(/'/g, "''")}'`}`);
+      }
+      const { status, plannedStart, actualStart, targetGoLive, actualGoLive } = req.body;
+      if (plannedStart) sets.push(`planned_start = '${new Date(plannedStart).toISOString()}'`);
+      if (actualStart)  sets.push(`actual_start = '${new Date(actualStart).toISOString()}'`);
+      if (targetGoLive) sets.push(`target_go_live = '${new Date(targetGoLive).toISOString()}'`);
+      if (actualGoLive) sets.push(`actual_go_live = '${new Date(actualGoLive).toISOString()}'`);
+
+      // Status transition timestamps
+      if (status === "in_install" && prev.status !== "in_install" && !prev.actual_start)
+        sets.push("actual_start = NOW()");
+      if (status === "live" || status === "complete") {
+        if (!prev.actual_go_live) sets.push("actual_go_live = NOW()");
+      }
+      sets.push("updated_at = NOW()");
+
+      const r = await db.execute(sql.raw(`UPDATE deployments SET ${sets.join(", ")} WHERE id = ${id} RETURNING *`));
+      const updated = (r as any).rows?.[0];
+
+      // Phase 6 automations
+      const ownerUid = updated.owner_user_id ?? null;
+
+      // blocked → create high-priority task
+      if (status === "blocked" && prev.status !== "blocked") {
+        await createDeploymentTask(
+          `Resolve blocker on deployment ${prev.deploy_number} — ${updated.site_name}`,
+          id, ownerUid, 1, "high"
+        );
+      }
+
+      // target go-live missed (status not yet live and date passed)
+      if (status && status !== "live" && status !== "complete" && updated.target_go_live) {
+        const overdue = new Date(updated.target_go_live) < new Date();
+        const prevStatusOk = !["live", "complete"].includes(prev.status);
+        if (overdue && prevStatusOk && !["live","complete"].includes(status)) {
+          // Only create once — check if task exists
+          const existingTask = await db.execute(sql.raw(`
+            SELECT id FROM tasks WHERE linked_object_type = 'deployment'
+              AND linked_object_id = ${id}
+              AND title LIKE '%overdue%' AND status != 'completed' LIMIT 1`));
+          if (!((existingTask as any).rows?.length)) {
+            await createDeploymentTask(
+              `Go-live overdue: ${updated.site_name} (${prev.deploy_number})`,
+              id, ownerUid, 0, "high"
+            );
+          }
+        }
+      }
+
+      // commissioning complete → auto-mark live
+      if (status === "commissioning") {
+        const cps = await db.execute(sql.raw(`
+          SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE status = 'passed') AS passed
+          FROM commissioning_checkpoints WHERE deployment_id = ${id}`));
+        const cpRow = (cps as any).rows?.[0] ?? {};
+        const total  = parseInt(cpRow.total  ?? "0");
+        const passed = parseInt(cpRow.passed ?? "0");
+        if (total > 0 && passed >= total) {
+          await db.execute(sql.raw(`UPDATE deployments SET status = 'live', actual_go_live = NOW(), updated_at = NOW() WHERE id = ${id}`));
+          updated.status = "live";
+        }
+      }
+
+      res.json(updated);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── DEPLOYMENT HARDWARE ALLOCATIONS ───────────────────────────────────────
+
+  app.get("/api/deployments/:id/hardware", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const r = await db.execute(sql.raw(`
+        SELECT dha.*, p.name AS part_name, p.sku, p.unit
+        FROM deployment_hardware_allocations dha
+        LEFT JOIN parts p ON p.id = dha.part_id
+        WHERE dha.deployment_id = ${id}
+        ORDER BY dha.id`));
+      res.json({ data: (r as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/deployments/:id/hardware", requireAuth, async (req, res) => {
+    try {
+      const deployId = parseInt(req.params.id);
+      const { partId, inventoryAllocationId, description, quantityRequired, notes } = req.body;
+      const r = await db.execute(sql.raw(`
+        INSERT INTO deployment_hardware_allocations
+          (deployment_id, part_id, inventory_allocation_id, description,
+           quantity_required, quantity_reserved, quantity_shipped, quantity_delivered,
+           status, notes, created_at, updated_at)
+        VALUES (${deployId},
+                ${partId ?? "NULL"}, ${inventoryAllocationId ?? "NULL"},
+                ${description ? `'${description.replace(/'/g, "''")}'` : "NULL"},
+                ${quantityRequired ?? 1}, 0, 0, 0, 'pending',
+                ${notes ? `'${notes.replace(/'/g, "''")}'` : "NULL"},
+                NOW(), NOW())
+        RETURNING *`));
+      res.status(201).json((r as any).rows?.[0]);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.patch("/api/deployments/:id/hardware/:hwId", requireAuth, async (req, res) => {
+    try {
+      const hwId = parseInt(req.params.hwId);
+      const deployId = parseInt(req.params.id);
+      const colMap: Record<string, string> = {
+        status: "status", description: "description", notes: "notes",
+        quantityRequired: "quantity_required", quantityReserved: "quantity_reserved",
+        quantityShipped: "quantity_shipped", quantityDelivered: "quantity_delivered",
+      };
+      const sets: string[] = [];
+      for (const [k, v] of Object.entries(req.body as Record<string, any>)) {
+        if (colMap[k]) sets.push(`${colMap[k]} = ${v === null ? "NULL" : `'${String(v).replace(/'/g, "''")}'`}`);
+      }
+      sets.push("updated_at = NOW()");
+      const r = await db.execute(sql.raw(`UPDATE deployment_hardware_allocations SET ${sets.join(", ")} WHERE id = ${hwId} AND deployment_id = ${deployId} RETURNING *`));
+      const row = (r as any).rows?.[0];
+      if (!row) return res.status(404).json({ message: "Not found" });
+
+      // Phase 6: check if missing hardware blocks deployment
+      const { status } = req.body;
+      if (status === "missing") {
+        const depR = await db.execute(sql.raw(`SELECT * FROM deployments WHERE id = ${deployId}`));
+        const dep = (depR as any).rows?.[0];
+        if (dep && !["live","complete","cancelled"].includes(dep.status)) {
+          const existingTask = await db.execute(sql.raw(`
+            SELECT id FROM tasks WHERE linked_object_type = 'deployment'
+              AND linked_object_id = ${deployId}
+              AND title LIKE '%missing hardware%' AND status != 'completed' LIMIT 1`));
+          if (!((existingTask as any).rows?.length)) {
+            await createDeploymentTask(
+              `Missing hardware blocking deployment: ${dep.site_name}`,
+              deployId, dep.owner_user_id, 2, "high"
+            );
+          }
+        }
+      }
+      res.json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.delete("/api/deployments/:id/hardware/:hwId", requireAuth, async (req, res) => {
+    try {
+      await db.execute(sql.raw(`DELETE FROM deployment_hardware_allocations WHERE id = ${parseInt(req.params.hwId)} AND deployment_id = ${parseInt(req.params.id)}`));
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── COMMISSIONING CHECKPOINTS ─────────────────────────────────────────────
+
+  app.get("/api/deployments/:id/checkpoints", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const r = await db.execute(sql.raw(`
+        SELECT cc.*, u.name AS checked_by_name
+        FROM commissioning_checkpoints cc
+        LEFT JOIN users u ON u.id = cc.checked_by_user_id
+        WHERE cc.deployment_id = ${id}
+        ORDER BY cc.sequence_order, cc.id`));
+      res.json({ data: (r as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.patch("/api/deployments/:id/checkpoints/:cpId", requireAuth, async (req, res) => {
+    try {
+      const cpId  = parseInt(req.params.cpId);
+      const depId = parseInt(req.params.id);
+      const user  = (req as any).user;
+      const { status, notes } = req.body;
+      const sets: string[] = [];
+      if (status !== undefined) sets.push(`status = '${status}'`);
+      if (notes  !== undefined) sets.push(`notes = ${notes ? `'${notes.replace(/'/g, "''")}'` : "NULL"}`);
+      if (status === "passed" || status === "failed") {
+        sets.push(`checked_at = NOW()`);
+        sets.push(`checked_by_user_id = ${user?.id ?? "NULL"}`);
+      }
+      sets.push("updated_at = NOW()");
+      const r = await db.execute(sql.raw(`UPDATE commissioning_checkpoints SET ${sets.join(", ")} WHERE id = ${cpId} AND deployment_id = ${depId} RETURNING *`));
+      const row = (r as any).rows?.[0];
+      if (!row) return res.status(404).json({ message: "Not found" });
+
+      // Phase 6: if all checkpoints passed → auto-advance deployment to live
+      if (status === "passed") {
+        const cps = await db.execute(sql.raw(`
+          SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE status = 'passed') AS passed
+          FROM commissioning_checkpoints WHERE deployment_id = ${depId}`));
+        const cpRow = (cps as any).rows?.[0] ?? {};
+        const total  = parseInt(cpRow.total  ?? "0");
+        const passed = parseInt(cpRow.passed ?? "0");
+        if (total > 0 && passed >= total) {
+          await db.execute(sql.raw(`
+            UPDATE deployments
+            SET status = 'live', actual_go_live = NOW(), updated_at = NOW()
+            WHERE id = ${depId} AND status NOT IN ('live','complete','cancelled')`));
+        }
+      }
+      res.json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/deployments/:id/checkpoints", requireAuth, async (req, res) => {
+    try {
+      const depId = parseInt(req.params.id);
+      const { name, description, sequenceOrder, notes } = req.body;
+      if (!name) return res.status(400).json({ message: "name is required" });
+      const maxOrderR = await db.execute(sql.raw(`SELECT COALESCE(MAX(sequence_order), 0) + 1 AS next FROM commissioning_checkpoints WHERE deployment_id = ${depId}`));
+      const nextOrder = parseInt((maxOrderR as any).rows?.[0]?.next ?? "1");
+      const r = await db.execute(sql.raw(`
+        INSERT INTO commissioning_checkpoints
+          (deployment_id, name, description, sequence_order, status, notes, created_at, updated_at)
+        VALUES (${depId},
+                '${name.replace(/'/g, "''")}',
+                ${description ? `'${description.replace(/'/g, "''")}'` : "NULL"},
+                ${sequenceOrder ?? nextOrder}, 'pending',
+                ${notes ? `'${notes.replace(/'/g, "''")}'` : "NULL"},
+                NOW(), NOW())
+        RETURNING *`));
+      res.status(201).json((r as any).rows?.[0]);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── DEPLOYMENT BLOCKERS ───────────────────────────────────────────────────
+
+  app.get("/api/deployments/:id/blockers", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const r = await db.execute(sql.raw(`
+        SELECT db2.*, u.name AS resolved_by_name
+        FROM deployment_blockers db2
+        LEFT JOIN users u ON u.id = db2.resolved_by_user_id
+        WHERE db2.deployment_id = ${id}
+        ORDER BY db2.created_at DESC`));
+      res.json({ data: (r as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/deployments/:id/blockers", requireAuth, async (req, res) => {
+    try {
+      const depId = parseInt(req.params.id);
+      const { title, description, severity } = req.body;
+      if (!title) return res.status(400).json({ message: "title is required" });
+      const r = await db.execute(sql.raw(`
+        INSERT INTO deployment_blockers
+          (deployment_id, title, description, severity, status, created_at, updated_at)
+        VALUES (${depId},
+                '${title.replace(/'/g, "''")}',
+                ${description ? `'${description.replace(/'/g, "''")}'` : "NULL"},
+                '${severity || "medium"}', 'open', NOW(), NOW())
+        RETURNING *`));
+      const blocker = (r as any).rows?.[0];
+
+      // Phase 6: creating a blocker → also create a task
+      const depR = await db.execute(sql.raw(`SELECT * FROM deployments WHERE id = ${depId}`));
+      const dep = (depR as any).rows?.[0];
+      if (dep) {
+        await createDeploymentTask(
+          `Resolve blocker: ${title} — ${dep.site_name}`,
+          depId, dep.owner_user_id,
+          severity === "critical" ? 1 : severity === "high" ? 2 : 3,
+          severity === "critical" || severity === "high" ? "high" : "medium"
+        );
+      }
+      res.status(201).json(blocker);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.patch("/api/deployments/:id/blockers/:blId", requireAuth, async (req, res) => {
+    try {
+      const blId  = parseInt(req.params.blId);
+      const depId = parseInt(req.params.id);
+      const user  = (req as any).user;
+      const { status, title, description, severity } = req.body;
+      const sets: string[] = [];
+      if (title       !== undefined) sets.push(`title = '${title.replace(/'/g, "''")}'`);
+      if (description !== undefined) sets.push(`description = ${description ? `'${description.replace(/'/g, "''")}'` : "NULL"}`);
+      if (severity    !== undefined) sets.push(`severity = '${severity}'`);
+      if (status      !== undefined) sets.push(`status = '${status}'`);
+      if (status === "resolved") {
+        sets.push("resolved_at = NOW()");
+        sets.push(`resolved_by_user_id = ${user?.id ?? "NULL"}`);
+      }
+      sets.push("updated_at = NOW()");
+      const r = await db.execute(sql.raw(`UPDATE deployment_blockers SET ${sets.join(", ")} WHERE id = ${blId} AND deployment_id = ${depId} RETURNING *`));
+      const row = (r as any).rows?.[0];
+      if (!row) return res.status(404).json({ message: "Not found" });
+      res.json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
   // ── Engagement scheduler + default rules ────────────────────────────────────
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
   startEngagementScheduler();
