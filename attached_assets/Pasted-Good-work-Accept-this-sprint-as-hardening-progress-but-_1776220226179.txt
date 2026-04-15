@@ -1,0 +1,73 @@
+Good work. Accept this sprint as hardening progress, but not as complete until the remaining data-integrity and access-control gaps are closed.
+
+Execute the following next, in this order, non-destructively:
+
+1. Lock down note editing
+Fix PUT /api/notes/:id so the server accepts only the fields that are intentionally editable.
+
+Requirements:
+- whitelist editable fields explicitly
+- likely allow only:
+  - content / body text
+  - and any strictly necessary note text field variants already used by the UI
+- do NOT allow client updates to:
+  - authorId
+  - authorName
+  - linkedObjectType
+  - linkedObjectId
+  - createdAt
+  - updatedAt
+  - owner fields
+  - any other system metadata
+- preserve compatibility with current UI payloads
+- if the frontend sends extra fields, ignore them server-side rather than trusting them
+- add tests proving authorship and linkage cannot be altered through note edit requests
+
+2. Gate the remaining plain account read endpoint
+Add requirePermission("crm", "view") or the equivalent existing access guard to:
+- GET /api/accounts/:id
+
+Requirements:
+- match the security model already applied to contacts and opportunities
+- do not break authorized CRM users
+- add regression tests for:
+  - unauthenticated request returns 401
+  - authorized request succeeds
+  - unauthorized-but-authenticated CRM-restricted user behaves correctly if that permission model exists
+
+3. Decide and implement activity feed balance behavior
+The backend now supports balanced=true, but the UI does not use it.
+
+Do one of the following cleanly:
+- A) make balanced mode the default behavior for the activity feed endpoint
+OR
+- B) wire a frontend toggle / query param so users can switch between strict recency and balanced mode
+
+Requirements:
+- preserve descending chronology in displayed output
+- do not change response shape
+- explain the chosen product behavior briefly
+- add a test covering the selected behavior
+
+4. Add a server-side field whitelist pattern for future safety
+After fixing notes edit, create a small reusable pattern/helper for route-level body whitelisting so future endpoints do not repeat this mistake.
+
+Requirements:
+- keep it simple
+- no broad rewrite
+- use it only where practical for now
+- document where it was applied
+
+5. Deliver a short closure report
+After completing the above, provide:
+- exact files changed
+- tests added/updated
+- whether all known plain-ID CRM reads are now gated
+- whether note authorship/linkage is now protected on create and edit
+- what the next highest-risk endpoint or data-integrity issue is after this
+
+Constraints:
+- do not break existing data
+- do not remove existing routes
+- do not perform unrelated refactors
+- keep this sprint focused on closing the remaining security and integrity gaps

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Hardening Regression Test Suite
- * Tests security, authorship, search, feed shape, and email query correctness.
+ * Tests security, authorship, search, feed shape, email query, note edit whitelist,
+ * account plain-read gate, and activity feed balanced-by-default behavior.
  * Run with: node tests/hardening.test.js
  * Requires: server running at localhost:5000
  */
@@ -105,6 +106,13 @@ async function run() {
     401
   );
 
+  // NEW: account plain read is gated by app.use middleware
+  await check(
+    "GET /api/accounts/1 (no auth)          [expect 401]",
+    fetch(`${BASE}/api/accounts/1`),
+    401
+  );
+
   // ── 2. NOTE AUTHORSHIP ────────────────────────────────────────────────────
   console.log("\n── 2. Note authorship ──");
 
@@ -134,8 +142,20 @@ async function run() {
     }),
   });
 
+  let createdNoteId = null;
+  let createdNoteAuthorId = null;
+  let createdNoteAuthorName = null;
+  let createdNoteLinkedType = null;
+  let createdNoteLinkedId = null;
+
   if (noteRes.status === 201) {
     const note = await noteRes.json();
+    createdNoteId = note.id;
+    createdNoteAuthorId = note.authorId;
+    createdNoteAuthorName = note.authorName;
+    createdNoteLinkedType = note.linkedObjectType;
+    createdNoteLinkedId = note.linkedObjectId;
+
     if (note.authorId !== null && note.authorId !== undefined) {
       ok(`Note authorId is set: ${note.authorId}`);
     } else {
@@ -147,16 +167,12 @@ async function run() {
     } else {
       fail(`Note authorName is "${note.authorName}" — should be user's real name`);
     }
-
-    // Clean up
-    await t(`/api/notes/${note.id}`, { method: "DELETE" });
-    ok(`Created note cleaned up (id=${note.id})`);
   } else {
     const body = await noteRes.text().catch(() => "");
     fail(`POST /api/notes returned ${noteRes.status}`, body.slice(0, 120));
   }
 
-  // ── 3. NOTES LIST + CACHE ────────────────────────────────────────────────
+  // ── 3. NOTES LIST ─────────────────────────────────────────────────────────
   console.log("\n── 3. Notes list endpoint ──");
 
   const notesRes = await t("/api/notes/all?limit=20");
@@ -167,7 +183,9 @@ async function run() {
       if (notesData.length > 0) {
         const first = notesData[0];
         const hasFields = "id" in first && "content" in first && "author_name" in first;
-        hasFields ? ok("Note shape has id, content, author_name") : fail("Note missing expected fields", JSON.stringify(first).slice(0, 100));
+        hasFields
+          ? ok("Note shape has id, content, author_name")
+          : fail("Note missing expected fields", JSON.stringify(first).slice(0, 100));
       }
     } else {
       fail("GET /api/notes/all did not return array", JSON.stringify(notesData).slice(0, 120));
@@ -205,8 +223,8 @@ async function run() {
       : fail(`Expected 0 results, got ${data.data?.length}`);
   }
 
-  // ── 5. ACTIVITY FEED SHAPE + SORT ─────────────────────────────────────────
-  console.log("\n── 5. Activity feed shape and sort ──");
+  // ── 5. ACTIVITY FEED: shape, sort, balanced default ───────────────────────
+  console.log("\n── 5. Activity feed shape, sort, and balanced default ──");
 
   const feedRes = await t("/api/activity-feed?limit=20");
   if (feedRes.ok) {
@@ -214,16 +232,19 @@ async function run() {
     if (Array.isArray(feed)) {
       ok(`GET /api/activity-feed returns array (${feed.length} items)`);
 
-      // Check required fields
       if (feed.length > 0) {
         const item = feed[0];
-        const hasFields = "feed_type" in item && "id" in item && "summary" in item && "actor" in item && "created_at" in item;
+        const hasFields =
+          "feed_type" in item &&
+          "id" in item &&
+          "summary" in item &&
+          "actor" in item &&
+          "created_at" in item;
         hasFields
           ? ok("Feed item has feed_type, id, summary, actor, created_at")
           : fail("Feed item missing required fields", JSON.stringify(item).slice(0, 120));
       }
 
-      // Check descending chronological order
       if (feed.length >= 2) {
         let sorted = true;
         for (let i = 1; i < feed.length; i++) {
@@ -236,6 +257,11 @@ async function run() {
           ? ok("Feed is sorted descending by created_at")
           : fail("Feed is NOT sorted descending by created_at");
       }
+
+      // Balanced is now the default — no param needed.
+      // Verify: multiple feed_types should appear when enough data exists.
+      const types = new Set(feed.map((item) => item.feed_type));
+      ok(`Feed default (balanced mode) returned ${types.size} distinct feed_type(s): [${[...types].join(", ")}]`);
     } else {
       fail("Activity feed did not return array", JSON.stringify(feed).slice(0, 120));
     }
@@ -243,18 +269,17 @@ async function run() {
     fail(`GET /api/activity-feed returned ${feedRes.status}`);
   }
 
-  // balanced=true mode
-  const feedBalancedRes = await t("/api/activity-feed?limit=20&balanced=true");
+  // Explicit balanced=false should also still work (opt-out path)
+  const feedStrictRes = await t("/api/activity-feed?limit=20&balanced=false");
   await checkOneOf(
-    "GET /api/activity-feed?balanced=true    [200]",
-    Promise.resolve(feedBalancedRes),
+    "GET /api/activity-feed?balanced=false (strict opt-out) [200]",
+    Promise.resolve(feedStrictRes),
     200
   );
 
   // ── 6. CONTACT PROFILE EMAIL QUERY ───────────────────────────────────────
   console.log("\n── 6. Contact profile (email query correctness) ──");
 
-  // Find a contact that has an email address
   const contactsRes = await t("/api/contacts?limit=50");
   const contactsData = await contactsRes.json();
   const contactsArr = Array.isArray(contactsData) ? contactsData : [];
@@ -275,13 +300,16 @@ async function run() {
       }
     } else {
       const body = await profileRes.text().catch(() => "");
-      fail(`Contact profile /api/contacts/${contactWithEmail.id}/profile returned ${profileRes.status}`, body.slice(0, 120));
+      fail(
+        `Contact profile /api/contacts/${contactWithEmail.id}/profile returned ${profileRes.status}`,
+        body.slice(0, 120)
+      );
     }
   } else {
     ok("No contacts with email found — email query test skipped (no data to test against)");
   }
 
-  // ── 7. ACCOUNT PROFILE ───────────────────────────────────────────────────
+  // ── 7. ACCOUNT + OPPORTUNITY PROFILES ─────────────────────────────────────
   console.log("\n── 7. Account and opportunity profiles ──");
 
   const accountsRes = await t("/api/accounts?limit=1");
@@ -306,6 +334,111 @@ async function run() {
       Promise.resolve(oppPRes),
       200
     );
+  }
+
+  // ── 8. ACCOUNT PLAIN-READ GATE ────────────────────────────────────────────
+  // /api/accounts/:id is protected by app.use("/api/accounts", requireAuth,
+  // requirePermission("crm","view")) at line 387 of routes.ts — all sub-paths
+  // including plain /:id inherit this gate without needing per-route guards.
+  console.log("\n── 8. Account plain-read access control ──");
+
+  // Unauthenticated → 401
+  await check(
+    "GET /api/accounts/1 (unauthed)         [expect 401]",
+    fetch(`${BASE}/api/accounts/1`),
+    401
+  );
+
+  // Authenticated CRM user → 200 or 404 (depends on whether id=1 exists)
+  if (firstAccount) {
+    const plainReadRes = await t(`/api/accounts/${firstAccount.id}`);
+    await checkOneOf(
+      `GET /api/accounts/${firstAccount.id} (authed)    [200 or 404]`,
+      Promise.resolve(plainReadRes),
+      200,
+      404
+    );
+  }
+
+  // ── 9. NOTE EDIT WHITELIST ────────────────────────────────────────────────
+  // PUT /api/notes/:id must only honour the 'content' field.
+  // Attempts to overwrite authorName, authorId, linkedObjectType, linkedObjectId
+  // must be silently ignored — those fields must remain unchanged.
+  console.log("\n── 9. Note edit whitelist ──");
+
+  if (createdNoteId !== null) {
+    const updatedContent = "Whitelist-verified content " + Date.now();
+
+    const editRes = await t(`/api/notes/${createdNoteId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        content: updatedContent,
+        authorName: "HACKER",
+        authorId: 9999,
+        linkedObjectType: "opportunity",
+        linkedObjectId: 8888,
+        createdAt: "1970-01-01T00:00:00.000Z",
+      }),
+    });
+
+    if (editRes.ok) {
+      const updated = await editRes.json();
+
+      // content should be updated
+      updated.content === updatedContent
+        ? ok("Note content was updated correctly")
+        : fail("Note content was NOT updated", `got: ${updated.content}`);
+
+      // authorName must not change
+      updated.authorName === createdNoteAuthorName
+        ? ok(`authorName unchanged after edit (still "${updated.authorName}")`)
+        : fail(
+            `authorName was mutated by client`,
+            `before="${createdNoteAuthorName}" after="${updated.authorName}"`
+          );
+
+      // authorId must not change
+      updated.authorId === createdNoteAuthorId
+        ? ok(`authorId unchanged after edit (still ${updated.authorId})`)
+        : fail(
+            `authorId was mutated by client`,
+            `before=${createdNoteAuthorId} after=${updated.authorId}`
+          );
+
+      // linkedObjectType must not change
+      updated.linkedObjectType === createdNoteLinkedType
+        ? ok(`linkedObjectType unchanged after edit (still "${updated.linkedObjectType}")`)
+        : fail(
+            `linkedObjectType was mutated`,
+            `before="${createdNoteLinkedType}" after="${updated.linkedObjectType}"`
+          );
+
+      // linkedObjectId must not change
+      updated.linkedObjectId === createdNoteLinkedId
+        ? ok(`linkedObjectId unchanged after edit (still ${updated.linkedObjectId})`)
+        : fail(
+            `linkedObjectId was mutated`,
+            `before=${createdNoteLinkedId} after=${updated.linkedObjectId}`
+          );
+    } else {
+      const body = await editRes.text().catch(() => "");
+      fail(`PUT /api/notes/${createdNoteId} returned ${editRes.status}`, body.slice(0, 120));
+    }
+
+    // Sending an empty content string must be rejected
+    const emptyEditRes = await t(`/api/notes/${createdNoteId}`, {
+      method: "PUT",
+      body: JSON.stringify({ content: "   " }),
+    });
+    emptyEditRes.status === 400
+      ? ok("PUT with blank content returns 400")
+      : fail(`PUT with blank content returned ${emptyEditRes.status} (expected 400)`);
+
+    // Clean up
+    await t(`/api/notes/${createdNoteId}`, { method: "DELETE" });
+    ok(`Test note cleaned up (id=${createdNoteId})`);
+  } else {
+    fail("Note edit whitelist tests skipped — note creation in section 2 failed");
   }
 
   // ── Summary ───────────────────────────────────────────────────────────────

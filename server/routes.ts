@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import type { Server } from "http";
+import { pick } from "./utils";
 import { storage } from "./storage";
 import { db } from "./db";
 import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments } from "@shared/schema";
@@ -6071,9 +6072,10 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const { limit: limitQ, balanced: balancedQ } = req.query as Record<string, string>;
       const lim = Math.min(Number(limitQ) || 50, 100);
-      // balanced=true: each arm gets enough rows to guarantee type diversity in the final output.
-      // Default (balanced=false): each arm contributes up to lim rows, strictly chronological.
-      const balanced = balancedQ === "true";
+      // Default: balanced mode — each arm contributes up to lim*3 rows so every data source
+      // can appear in the final chronological cut even when one type dominates recently.
+      // Pass ?balanced=false to get strict chronological mode (each arm limited to lim rows).
+      const balanced = balancedQ !== "false";
       const armLim = balanced ? Math.min(lim * 3, 200) : lim;
       const rows = await db.execute(sql.raw(`
         SELECT * FROM (
@@ -6177,7 +6179,13 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.put("/api/notes/:id", requireAuth, async (req, res) => {
     try {
-      const note = await storage.updateNote(Number(req.params.id), req.body);
+      // Whitelist: only 'content' is editable. Authorship, linkage, and timestamps
+      // are system-managed and must not be alterable by the client.
+      const safe = pick(req.body as Record<string, unknown>, ["content"] as const);
+      if (!safe.content || typeof safe.content !== "string" || !(safe.content as string).trim()) {
+        return res.status(400).json({ message: "content is required" });
+      }
+      const note = await storage.updateNote(Number(req.params.id), safe as any);
       if (!note) return res.status(404).json({ message: "Not found" });
       res.json(note);
     } catch (err: any) {
