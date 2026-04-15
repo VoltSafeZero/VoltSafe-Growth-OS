@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow, format, isPast } from "date-fns";
 import { Link } from "wouter";
+import { TimelineTab } from "@/components/timeline-tab";
 
 const STAGE_LABEL: Record<string, string> = {
   inbound_new: "New", qualified: "Qualified", discovery: "Discovery",
@@ -389,6 +390,22 @@ export default function ContactProfilePage() {
           </Card>
         </div>
       </div>
+
+      {/* Unified Timeline — full width */}
+      <TimelineSection contactId={id} />
+    </div>
+  );
+}
+
+function TimelineSection({ contactId }: { contactId: number }) {
+  return (
+    <div className="mt-2">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="flex-1 border-t border-border/30" />
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Unified Timeline</span>
+        <div className="flex-1 border-t border-border/30" />
+      </div>
+      <TimelineTab objectType="contact" objectId={contactId} />
     </div>
   );
 }

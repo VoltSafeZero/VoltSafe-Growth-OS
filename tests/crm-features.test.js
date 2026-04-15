@@ -418,6 +418,187 @@ async function run() {
     await v(`/api/saved-views/${viewerViewId}`, { method: "DELETE" });
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  console.log("\n── T4: Unified Timeline ──");
+
+  // Auth guard
+  await check(
+    "GET /api/timeline (no auth)           [expect 401]",
+    fetch(`${BASE}/api/timeline?objectType=account&objectId=1`),
+    401
+  );
+  await check(
+    "POST /api/timeline/link-email (no auth) [expect 401]",
+    fetch(`${BASE}/api/timeline/link-email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }),
+    401
+  );
+
+  // Input validation
+  await check(
+    "GET /api/timeline invalid objectType  [expect 400]",
+    t("/api/timeline?objectType=hacker&objectId=1"),
+    400
+  );
+  await check(
+    "GET /api/timeline missing objectId    [expect 400]",
+    t("/api/timeline?objectType=account"),
+    400
+  );
+  await check(
+    "GET /api/timeline non-numeric objectId [expect 400]",
+    t("/api/timeline?objectType=account&objectId=abc"),
+    400
+  );
+  await check(
+    "GET /api/timeline invalid type filter  [expect 400]",
+    t("/api/timeline?objectType=account&objectId=1&type=hacker"),
+    400
+  );
+  await check(
+    "POST /api/timeline/link-email missing fields [expect 400]",
+    t("/api/timeline/link-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ objectType: "account" }) }),
+    400
+  );
+  await check(
+    "POST /api/timeline/link-email invalid objectType [expect 400]",
+    t("/api/timeline/link-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ emailMessageId: 1, objectType: "hacker", objectId: 1 }) }),
+    400
+  );
+
+  // Get a real account ID to test against
+  let testAccountId = null;
+  {
+    const res = await t("/api/accounts?limit=1&page=1");
+    const data = await res.json();
+    testAccountId = data?.data?.[0]?.id ?? null;
+  }
+
+  if (testAccountId) {
+    // Valid timeline request — shape check
+    await checkBody(
+      `GET /api/timeline account=${testAccountId} [expect items array + total]`,
+      t(`/api/timeline?objectType=account&objectId=${testAccountId}`),
+      (status, body) => {
+        if (status !== 200) return `expected 200, got ${status}`;
+        if (!Array.isArray(body.items)) return "body.items is not an array";
+        if (typeof body.total !== "number") return "body.total is not a number";
+        return null;
+      }
+    );
+
+    // Type filter — notes
+    await checkBody(
+      `GET /api/timeline type=note          [all items must be type=note]`,
+      t(`/api/timeline?objectType=account&objectId=${testAccountId}&type=note`),
+      (status, body) => {
+        if (status !== 200) return `expected 200, got ${status}`;
+        const wrongType = body.items.find((i) => i.type !== "note");
+        if (wrongType) return `found item with type=${wrongType.type}`;
+        return null;
+      }
+    );
+
+    // Type filter — email
+    await checkBody(
+      `GET /api/timeline type=email         [all items must be type=email]`,
+      t(`/api/timeline?objectType=account&objectId=${testAccountId}&type=email`),
+      (status, body) => {
+        if (status !== 200) return `expected 200, got ${status}`;
+        const wrongType = body.items.find((i) => i.type !== "email");
+        if (wrongType) return `found item with type=${wrongType.type}`;
+        return null;
+      }
+    );
+
+    // Timeline merges and sorts descending
+    await checkBody(
+      `GET /api/timeline account=${testAccountId} [descending sort]`,
+      t(`/api/timeline?objectType=account&objectId=${testAccountId}`),
+      (status, body) => {
+        if (status !== 200) return `expected 200, got ${status}`;
+        const items = body.items;
+        for (let i = 1; i < items.length; i++) {
+          const prev = new Date(items[i - 1].created_at).getTime();
+          const curr = new Date(items[i].created_at).getTime();
+          if (prev < curr) return `item ${i - 1} (${items[i - 1].created_at}) is before item ${i} (${items[i].created_at}) — not descending`;
+        }
+        return null;
+      }
+    );
+  }
+
+  // Timeline for an opportunity
+  let testOpportunityId = null;
+  {
+    const res = await t("/api/opportunities?limit=1&page=1");
+    const data = await res.json();
+    testOpportunityId = data?.data?.[0]?.id ?? null;
+  }
+
+  if (testOpportunityId) {
+    await checkBody(
+      `GET /api/timeline opportunity=${testOpportunityId} [expect 200]`,
+      t(`/api/timeline?objectType=opportunity&objectId=${testOpportunityId}`),
+      (status, body) => {
+        if (status !== 200) return `expected 200, got ${status}`;
+        if (!Array.isArray(body.items)) return "body.items not an array";
+        return null;
+      }
+    );
+  }
+
+  // Email link/unlink flow
+  let emailMsgId = null;
+  {
+    // Use any email from the DB by checking a known account's email list
+    const res = await t(`/api/crm-emails?objectType=account&objectId=${testAccountId || 1}`);
+    if (res.ok) {
+      const emails = await res.json();
+      emailMsgId = emails?.[0]?.id ?? null;
+    }
+  }
+
+  if (emailMsgId && testAccountId) {
+    let newAssocId = null;
+
+    // Try to link (may already be linked → 409 is also acceptable)
+    await checkBody(
+      `POST /api/timeline/link-email        [emailId=${emailMsgId} → account=${testAccountId}]`,
+      t("/api/timeline/link-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emailMessageId: emailMsgId, objectType: "account", objectId: testAccountId }),
+      }),
+      (status, body) => {
+        if (status === 201) { newAssocId = body.id; return null; }
+        if (status === 409) return null; // already linked — acceptable
+        return `expected 201 or 409, got ${status}`;
+      }
+    );
+
+    // Unlink if we created one
+    if (newAssocId) {
+      await checkBody(
+        `DELETE /api/timeline/unlink-email/${newAssocId}  [expect ok=true]`,
+        t(`/api/timeline/unlink-email/${newAssocId}`, { method: "DELETE" }),
+        (status, body) => {
+          if (status !== 200) return `expected 200, got ${status}`;
+          if (!body.ok) return "ok not true";
+          return null;
+        }
+      );
+
+      // Verify 404 on second delete
+      await check(
+        `DELETE /api/timeline/unlink-email/${newAssocId} (again) [expect 404]`,
+        t(`/api/timeline/unlink-email/${newAssocId}`, { method: "DELETE" }),
+        404
+      );
+    }
+  } else {
+    ok("Email link/unlink tests skipped (no email_associations data in DB)");
+  }
+
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log(`\n${"─".repeat(50)}`);
   const total = passed + failed;

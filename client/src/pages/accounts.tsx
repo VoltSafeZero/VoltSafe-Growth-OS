@@ -30,6 +30,7 @@ import { AssignUserSelect } from "@/components/assign-user-select";
 import { CreateActionItem } from "@/components/create-action-item";
 import type { Account, Contact, Opportunity, Ticket, InfrastructureProfile, Lead } from "@shared/schema";
 import { EmailsTab } from "@/components/emails-tab";
+import { TimelineTab } from "@/components/timeline-tab";
 
 const segmentColors: Record<string, string> = {
   marina: "bg-blue-500/10 text-blue-500 border-blue-500/20",
@@ -991,6 +992,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
             <TabsTrigger value="infrastructure" data-testid="tab-infrastructure">Infrastructure</TabsTrigger>
             <TabsTrigger value="emails" data-testid="tab-emails">Emails</TabsTrigger>
             <TabsTrigger value="notes" data-testid="tab-notes">Notes</TabsTrigger>
+            <TabsTrigger value="timeline" data-testid="tab-timeline">Timeline</TabsTrigger>
           </TabsList>
 
           <TabsContent value="details" className="space-y-4 mt-4">
@@ -1337,6 +1339,10 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
 
           <TabsContent value="notes" className="mt-4">
             <NotesPanel linkedObjectType="account" linkedObjectId={account.id} />
+          </TabsContent>
+
+          <TabsContent value="timeline" className="mt-4">
+            <TimelineTab objectType="account" objectId={account.id} />
           </TabsContent>
         </Tabs>
       </DialogContent>

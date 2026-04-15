@@ -5353,6 +5353,175 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // ─── UNIFIED TIMELINE ────────────────────────────────────────────────────────
+
+  const TIMELINE_OBJECT_TYPES = new Set(["account", "contact", "opportunity", "lead", "partner", "ticket", "quote"]);
+  const TIMELINE_ITEM_TYPES = new Set(["note", "activity", "attachment", "email"]);
+
+  app.get("/api/timeline", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const { objectType, objectId, type: typeFilter, limit: limitQ } = req.query as Record<string, string>;
+      if (!objectType || !objectId) return res.status(400).json({ message: "objectType and objectId required" });
+      if (!TIMELINE_OBJECT_TYPES.has(objectType)) return res.status(400).json({ message: "Invalid objectType" });
+      const oid = parseInt(objectId);
+      if (isNaN(oid) || oid < 1) return res.status(400).json({ message: "objectId must be a positive integer" });
+      if (typeFilter && !TIMELINE_ITEM_TYPES.has(typeFilter)) return res.status(400).json({ message: "Invalid type filter" });
+      const lim = Math.min(parseInt(limitQ || "150"), 300);
+      const ot = objectType;
+      const typeWhere = typeFilter ? `WHERE tl.type = '${typeFilter}'` : "";
+
+      const rows = await db.execute(sql.raw(`
+        SELECT * FROM (
+          SELECT
+            CONCAT('note_', n.id::text)   AS timeline_id,
+            'note'                         AS type,
+            LEFT(n.content, 120)           AS title,
+            n.content                      AS body,
+            n.created_at,
+            n.author_name                  AS created_by,
+            json_build_object(
+              'noteId',   n.id,
+              'isPinned', n.is_pinned,
+              'authorId', n.author_id
+            )::text                        AS metadata
+          FROM notes n
+          WHERE n.linked_object_type = '${ot}' AND n.linked_object_id = ${oid}
+
+          UNION ALL
+
+          SELECT
+            CONCAT('activity_', a.id::text)                                           AS timeline_id,
+            'activity'                                                                 AS type,
+            COALESCE(a.subject, a.type)                                               AS title,
+            COALESCE(a.summary, '')                                                    AS body,
+            a.created_at,
+            COALESCE((SELECT name FROM users WHERE id = a.created_by), 'System')      AS created_by,
+            json_build_object(
+              'activityId',   a.id,
+              'activityType', a.type,
+              'outcome',      a.outcome,
+              'attendees',    a.attendees,
+              'contactId',    a.contact_id
+            )::text                                                                    AS metadata
+          FROM activities a
+          WHERE a.linked_object_type = '${ot}' AND a.linked_object_id = ${oid}
+
+          UNION ALL
+
+          SELECT
+            CONCAT('attachment_', att.id::text)                                                          AS timeline_id,
+            'attachment'                                                                                  AS type,
+            att.original_name                                                                            AS title,
+            CONCAT(att.mime_type, ' · ', ROUND(att.file_size::numeric / 1024.0, 1), ' KB')             AS body,
+            att.created_at,
+            att.uploaded_by_name                                                                         AS created_by,
+            json_build_object(
+              'attachmentId', att.id,
+              'fileName',     att.file_name,
+              'mimeType',     att.mime_type,
+              'fileSize',     att.file_size
+            )::text                                                                                       AS metadata
+          FROM attachments att
+          WHERE att.object_type = '${ot}' AND att.object_id = ${oid}
+
+          UNION ALL
+
+          SELECT
+            CONCAT('email_', em.id::text)                                            AS timeline_id,
+            'email'                                                                   AS type,
+            COALESCE(em.subject, '(no subject)')                                     AS title,
+            COALESCE(em.snippet, LEFT(em.body_text, 200))                            AS body,
+            COALESCE(em.sent_at, em.created_at)                                      AS created_at,
+            COALESCE(em.from_name, em.from_email, 'Unknown')                         AS created_by,
+            json_build_object(
+              'emailId',          em.id,
+              'fromEmail',        em.from_email,
+              'fromName',         em.from_name,
+              'toEmails',         em.to_emails,
+              'direction',        em.direction,
+              'confidenceScore',  ea.confidence_score,
+              'isAuto',           ea.is_auto,
+              'isUserConfirmed',  ea.is_user_confirmed,
+              'associationId',    ea.id,
+              'associationReasons', ea.association_reason_json,
+              'gmailThreadId',    em.gmail_thread_id,
+              'gmailMessageId',   em.gmail_message_id
+            )::text                                                                   AS metadata
+          FROM email_messages em
+          JOIN email_associations ea ON ea.email_message_id = em.id
+          WHERE ea.object_type = '${ot}' AND ea.object_id = ${oid}
+        ) tl
+        ${typeWhere}
+        ORDER BY tl.created_at DESC NULLS LAST
+        LIMIT ${lim}
+      `));
+
+      const items = rows.rows.map((r: any) => ({
+        ...r,
+        metadata: r.metadata ? JSON.parse(r.metadata) : {},
+      }));
+
+      res.json({ items, total: items.length });
+    } catch (err: any) {
+      console.error("Timeline error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/timeline/link-email", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const { emailMessageId, objectType, objectId, objectName } = req.body;
+      if (!emailMessageId || !objectType || !objectId) {
+        return res.status(400).json({ message: "emailMessageId, objectType, objectId required" });
+      }
+      if (!TIMELINE_OBJECT_TYPES.has(objectType)) return res.status(400).json({ message: "Invalid objectType" });
+      const oid = parseInt(objectId);
+      const emid = parseInt(emailMessageId);
+      if (isNaN(oid) || isNaN(emid)) return res.status(400).json({ message: "objectId and emailMessageId must be integers" });
+
+      // Prevent duplicate association
+      const existing = await db.select().from(emailAssociations)
+        .where(and(
+          eq(emailAssociations.emailMessageId, emid),
+          eq(emailAssociations.objectType, objectType),
+          eq(emailAssociations.objectId, oid)
+        ))
+        .limit(1);
+      if (existing.length > 0) return res.status(409).json({ message: "Email already linked to this record", association: existing[0] });
+
+      const [created] = await db.insert(emailAssociations).values({
+        emailMessageId: emid,
+        objectType,
+        objectId: oid,
+        objectName: objectName ?? null,
+        confidenceScore: 100,
+        associationReasonJson: JSON.stringify(["manual"]),
+        isAuto: false,
+        isUserConfirmed: true,
+      }).returning();
+
+      res.status(201).json(created);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/timeline/unlink-email/:id", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const assocId = parseInt(req.params.id);
+      if (isNaN(assocId)) return res.status(400).json({ message: "Invalid association id" });
+      const [deleted] = await db.delete(emailAssociations)
+        .where(eq(emailAssociations.id, assocId))
+        .returning();
+      if (!deleted) return res.status(404).json({ message: "Association not found" });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+
   app.get("/api/gmail/associations-by-thread", requireAuth, async (req, res) => {
     try {
       const { threadIds } = req.query;

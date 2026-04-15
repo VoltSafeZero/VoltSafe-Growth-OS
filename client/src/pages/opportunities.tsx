@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { ExportButton } from "@/components/ui/export-button";
 import { NotesPanel } from "@/components/notes-panel";
+import { TimelineTab } from "@/components/timeline-tab";
 import type { Opportunity, Account } from "@shared/schema";
 
 const DEAL_STAGES = [
@@ -474,11 +475,12 @@ function DealDetailDialog({ deal, accountName, onUpdate, onClose }: {
         )}
 
         <Tabs defaultValue="details" className="mt-2">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="details">Details</TabsTrigger>
             <TabsTrigger value="qualification">Qualification</TabsTrigger>
             <TabsTrigger value="outcome">Outcome</TabsTrigger>
             <TabsTrigger value="notes">Notes</TabsTrigger>
+            <TabsTrigger value="timeline" data-testid="tab-deal-timeline">Timeline</TabsTrigger>
           </TabsList>
 
           <TabsContent value="details" className="space-y-4 mt-4">
@@ -652,6 +654,10 @@ function DealDetailDialog({ deal, accountName, onUpdate, onClose }: {
 
           <TabsContent value="notes" className="mt-4">
             <NotesPanel linkedObjectType="opportunity" linkedObjectId={deal.id} />
+          </TabsContent>
+
+          <TabsContent value="timeline" className="mt-4">
+            <TimelineTab objectType="opportunity" objectId={deal.id} />
           </TabsContent>
         </Tabs>
       </DialogContent>

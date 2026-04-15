@@ -1,0 +1,84 @@
+The T1/T2/T3 feature set is now complete, hardened, polished, and passing all tests. Freeze these features unless a real bug is found.
+
+Now build the next highest-value CRM improvement: smart record timelines and email linking.
+
+Goal:
+Make each Account, Opportunity, Contact, Lead, and Partner profile feel like a true operating hub by automatically showing the right emails, notes, activities, and attachments in one clean chronological timeline.
+
+Execute in this order:
+
+1. Unified timeline backend
+   - Build or improve a single timeline endpoint per record/profile that merges:
+     - notes
+     - activities
+     - attachments
+     - emails (if available in current data model)
+   - Normalize all timeline items into one response shape:
+     - id
+     - type
+     - title
+     - body/snippet
+     - createdAt
+     - createdBy
+     - linked record info
+     - metadata object for type-specific data
+   - Sort descending by createdAt
+   - Add pagination or limit support
+   - Ensure auth and crm=view permission checks are applied
+
+2. Smart email linking logic
+   - Add/improve backend logic so emails can be associated automatically to:
+     - accounts by domain match
+     - contacts by exact email match
+     - opportunities/leads when linked contact/account exists
+     - partners when sender domain or mapped org domain matches
+   - Keep this deterministic and explainable
+   - Add a confidence/source field like:
+     - exact_contact
+     - account_domain
+     - linked_opportunity
+     - manual
+   - Never attach the same email twice to the same record
+
+3. Profile UI timeline
+   - Add a clean “Timeline” tab or section on major profile pages:
+     - Accounts
+     - Opportunities
+     - Contacts
+     - Leads
+     - Partners
+   - Render unified timeline cards with distinct icons/colors by type
+   - Make emails easy to scan:
+     - from/to
+     - subject
+     - snippet
+     - timestamp
+   - Support filtering timeline by item type
+   - Empty state should explain what will appear there
+
+4. Manual override controls
+   - Allow a user to manually link/unlink an email to a record
+   - Show why an email was linked automatically
+   - Preserve manual overrides over auto-link rules
+
+5. Testing
+   - Add backend tests for:
+     - timeline merge/sort behavior
+     - permission enforcement
+     - email linking rules
+     - duplicate prevention
+     - manual override precedence
+   - Add frontend tests if supported for:
+     - timeline filtering
+     - mixed item rendering
+     - empty states
+
+6. Final verification
+   - Run TypeScript
+   - Run full test suite
+   - Provide:
+     - exact files changed
+     - endpoints added/changed
+     - linking rules implemented
+     - screenshots or verification summary
+     - final PASS/FAIL
