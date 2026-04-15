@@ -1949,6 +1949,16 @@ export async function registerRoutes(
   app.delete("/api/attachments/:id", requireAuth, async (req, res) => {
     const attachment = await storage.getAttachment(Number(req.params.id));
     if (!attachment) return res.status(404).json({ message: "Attachment not found" });
+    // Owner-or-admin gate.
+    // uploadedBy === null means the record pre-dates ownership tracking → allow as legacy fallback.
+    if (attachment.uploadedBy !== null) {
+      const role = String((req.session as any).globalRole || "");
+      const isAdmin = ["master_admin", "admin"].includes(role);
+      const isOwner = req.session.userId === attachment.uploadedBy;
+      if (!isAdmin && !isOwner) {
+        return res.status(403).json({ message: "Not authorized to delete this attachment" });
+      }
+    }
     const filePath = path.join(UPLOADS_DIR, path.basename(attachment.fileName));
     try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch {}
     await storage.deleteAttachment(attachment.id);
