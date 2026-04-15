@@ -162,6 +162,14 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/today">{() => wrap(<TodayPage />)}</Route>
       <Route path="/pipeline">{() => guard("crm", <PipelinePage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
 
+      {/* ── Sidebar alias routes — each nav item gets a unique URL so active   */}
+      {/* ── state never leaks across sections (no shared paths between items). */}
+      <Route path="/execution/forecast">{() => guard("crm", <PipelinePage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
+      <Route path="/revenue/deals">{() => guard("crm", <LeadsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
+      <Route path="/intelligence/briefs">{() => wrap(<TodayPage />)}</Route>
+      <Route path="/intelligence/signals">{() => wrap(<ActivityFeedPage />)}</Route>
+      <Route path="/intelligence/rel-intelligence">{() => wrap(<RelationshipIntelligencePage />)}</Route>
+
       {/* ── Growth OS: Relationships ───────────────────────────────── */}
       <Route path="/accounts/:id">{(params) => guard("crm", <AccountProfilePage />)}</Route>
       <Route path="/accounts">{() => guard("crm", <AccountsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>

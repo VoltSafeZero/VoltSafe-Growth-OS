@@ -18,8 +18,9 @@ const primaryNav = [
 
 const GROWTH_OS_URLS = [
   "/accounts", "/contacts", "/opportunities", "/quotes", "/pipeline",
-  "/strategy", "/relationships", "/activity", "/reports", "/forecasting",
-  "/notes", "/renewals", "/segments", "/tags", "/automations", "/imports",
+  "/strategy", "/relationships", "/activity", "/notes", "/renewals",
+  "/segments", "/tags", "/automations", "/imports",
+  "/execution/forecast", "/revenue/deals", "/intelligence",
 ];
 
 const allNavGroups = [
@@ -27,7 +28,7 @@ const allNavGroups = [
     label: "Command Center",
     items: [
       { title: "Dashboard", url: "/", icon: Home },
-      { title: "Forecasting", url: "/pipeline", icon: Target },
+      { title: "Forecasting", url: "/execution/forecast", icon: Target },
       { title: "Reports", url: "/relationships", icon: SlidersHorizontal },
     ],
   },
@@ -62,7 +63,7 @@ const allNavGroups = [
     items: [
       { title: "Inbox", url: "/gmail", icon: Mail },
       { title: "Calendar", url: "/execution/calendar", icon: CalendarClock },
-      { title: "Rel. Intelligence", url: "/relationships", icon: SlidersHorizontal },
+      { title: "Rel. Intelligence", url: "/intelligence/rel-intelligence", icon: SlidersHorizontal },
     ],
   },
   {

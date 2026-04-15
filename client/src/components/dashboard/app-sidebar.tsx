@@ -55,7 +55,7 @@ const sections: NavSection[] = [
       { title: "Dashboard", url: "/", icon: Home, exactMatch: true },
       { title: "Activity Feed", url: "/activity", icon: BarChart3 },
       { title: "Reports", url: "/relationships", icon: TrendingUp },
-      { title: "Forecasting", url: "/pipeline", icon: GitBranch },
+      { title: "Forecasting", url: "/execution/forecast", icon: GitBranch },
     ],
   },
 
@@ -81,7 +81,7 @@ const sections: NavSection[] = [
     items: [
       { title: "Opportunities", url: "/opportunities", icon: Sparkles, permKey: "crm" },
       { title: "Pipeline", url: "/pipeline", icon: GitBranch, permKey: "crm" },
-      { title: "Deals", url: "/opportunities", icon: Target, permKey: "crm" },
+      { title: "Deals", url: "/revenue/deals", icon: Target, permKey: "crm" },
       { title: "Renewals", url: "/renewals", icon: RefreshCcw },
       { title: "Quotes", url: "/quotes", icon: FileText, permKey: "quoting" },
     ],
@@ -110,9 +110,9 @@ const sections: NavSection[] = [
     items: [
       { title: "Inbox", url: "/gmail", icon: Mail },
       { title: "Calendar", url: "/execution/calendar", icon: CalendarClock, permKey: "calendar" },
-      { title: "Meeting Briefs", url: "/today", icon: Sparkles },
-      { title: "Signals & Alerts", url: "/today", icon: Bell },
-      { title: "Rel. Intelligence", url: "/relationships", icon: BarChart3 },
+      { title: "Meeting Briefs", url: "/intelligence/briefs", icon: Sparkles },
+      { title: "Signals & Alerts", url: "/intelligence/signals", icon: Bell },
+      { title: "Rel. Intelligence", url: "/intelligence/rel-intelligence", icon: BarChart3 },
     ],
   },
 
