@@ -118,6 +118,8 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
   const [sortOption, setSortOption] = useState("default");
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [saveViewName, setSaveViewName] = useState("");
+  const [saveViewIsShared, setSaveViewIsShared] = useState(false);
+  const [activeViewId, setActiveViewId] = useState<number | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -161,25 +163,63 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     },
   });
 
+  const currentFiltersJson = JSON.stringify({
+    segment: segmentFilter, status: statusFilter, priority: priorityFilter,
+    orgType: orgTypeFilter, sort: sortOption,
+  });
+
+  const isFiltered = segmentFilter !== "all" || statusFilter !== "all" || priorityFilter !== "all"
+    || orgTypeFilter !== "all" || sortOption !== "default" || search !== "";
+
+  const resetFilters = () => {
+    setSearch("");
+    setSegmentFilter("all");
+    setStatusFilter("all");
+    setPriorityFilter("all");
+    setOrgTypeFilter("all");
+    setSortOption("default");
+    setActiveViewId(null);
+  };
+
+  const activeViewFiltersJson = savedViews?.find(sv => sv.id === activeViewId)?.filtersJson ?? null;
+  const activeViewDirty = activeViewId !== null && activeViewFiltersJson !== currentFiltersJson;
+
   const saveViewMutation = useMutation({
-    mutationFn: async (name: string) => {
-      await apiRequest("POST", "/api/saved-views", {
+    mutationFn: async ({ name, isShared }: { name: string; isShared: boolean }) => {
+      const res = await apiRequest("POST", "/api/saved-views", {
         name,
         pageKey: "accounts",
-        filtersJson: JSON.stringify({ segment: segmentFilter, status: statusFilter, priority: priorityFilter, orgType: orgTypeFilter, sort: sortOption }),
+        filtersJson: currentFiltersJson,
+        isShared,
       });
+      return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["/api/saved-views", "accounts"] });
       setSaveViewName("");
       setSaveViewOpen(false);
-      toast({ title: "View saved" });
+      setSaveViewIsShared(false);
+      setActiveViewId(created?.id ?? null);
+      toast({ title: "View saved", description: `"${created?.name}" is now available` });
+    },
+  });
+
+  const updateViewMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("PUT", `/api/saved-views/${id}`, { filtersJson: currentFiltersJson });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/saved-views", "accounts"] });
+      toast({ title: "View updated" });
     },
   });
 
   const deleteViewMutation = useMutation({
     mutationFn: async (id: number) => { await apiRequest("DELETE", `/api/saved-views/${id}`); },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/saved-views", "accounts"] }),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/saved-views", "accounts"] });
+      if (activeViewId === id) setActiveViewId(null);
+    },
   });
 
   const loadSavedView = (sv: SavedView) => {
@@ -189,6 +229,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     setPriorityFilter(f.priority ?? "all");
     setOrgTypeFilter(f.orgType ?? "all");
     setSortOption(f.sort ?? "default");
+    setActiveViewId(sv.id);
   };
 
   useEffect(() => {
@@ -332,50 +373,111 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
 
       {/* Saved Views Row */}
       <div className="flex items-center gap-2 flex-wrap min-h-[28px]">
-        {savedViews?.map(sv => (
-          <div key={sv.id} className="flex items-center gap-1 bg-secondary/50 border border-border/50 rounded-full pl-3 pr-2 py-1 text-xs group hover:border-primary/40 transition-colors">
-            <button onClick={() => loadSavedView(sv)} className="font-medium hover:text-primary transition-colors" data-testid={`saved-view-${sv.id}`}>
-              {sv.name}
-            </button>
-            <button
-              onClick={() => deleteViewMutation.mutate(sv.id)}
-              className="ml-0.5 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
-              data-testid={`delete-view-${sv.id}`}
+        {savedViews?.map(sv => {
+          const isActive = sv.id === activeViewId;
+          return (
+            <div
+              key={sv.id}
+              className={`flex items-center gap-1 border rounded-full pl-3 pr-2 py-1 text-xs group transition-all ${
+                isActive
+                  ? "bg-primary/10 border-primary/50 text-primary"
+                  : "bg-secondary/50 border-border/50 hover:border-primary/40"
+              }`}
             >
-              <XIcon className="h-3 w-3" />
-            </button>
-          </div>
-        ))}
+              <button
+                onClick={() => loadSavedView(sv)}
+                className={`font-medium transition-colors ${isActive ? "text-primary" : "hover:text-primary"}`}
+                data-testid={`saved-view-${sv.id}`}
+              >
+                {sv.name}
+                {sv.isShared && <span className="ml-1 text-[9px] opacity-60">shared</span>}
+              </button>
+              {isActive && activeViewDirty && (
+                <button
+                  onClick={() => updateViewMutation.mutate(sv.id)}
+                  className="ml-0.5 text-primary/70 hover:text-primary text-[9px] font-semibold uppercase tracking-wide transition-colors border border-primary/30 rounded-full px-1.5 py-0.5"
+                  title="Update this view with current filters"
+                  data-testid={`update-view-${sv.id}`}
+                >
+                  update
+                </button>
+              )}
+              <button
+                onClick={() => deleteViewMutation.mutate(sv.id)}
+                className={`ml-0.5 hover:text-destructive opacity-0 group-hover:opacity-100 transition-all ${isActive ? "text-primary/60" : "text-muted-foreground"}`}
+                data-testid={`delete-view-${sv.id}`}
+              >
+                <XIcon className="h-3 w-3" />
+              </button>
+            </div>
+          );
+        })}
+
+        {/* Save view inline form */}
         {saveViewOpen ? (
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <Input
               value={saveViewName}
               onChange={e => setSaveViewName(e.target.value)}
               placeholder="View name..."
               className="h-7 text-xs w-36 rounded-full"
               onKeyDown={e => {
-                if (e.key === "Enter" && saveViewName.trim()) saveViewMutation.mutate(saveViewName.trim());
-                if (e.key === "Escape") { setSaveViewOpen(false); setSaveViewName(""); }
+                if (e.key === "Enter" && saveViewName.trim()) saveViewMutation.mutate({ name: saveViewName.trim(), isShared: saveViewIsShared });
+                if (e.key === "Escape") { setSaveViewOpen(false); setSaveViewName(""); setSaveViewIsShared(false); }
               }}
               autoFocus
               data-testid="input-save-view-name"
             />
-            <Button size="sm" className="h-7 text-xs px-3 rounded-full" disabled={!saveViewName.trim() || saveViewMutation.isPending} onClick={() => saveViewMutation.mutate(saveViewName.trim())} data-testid="button-confirm-save-view">
+            <label className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={saveViewIsShared}
+                onChange={e => setSaveViewIsShared(e.target.checked)}
+                className="h-3 w-3 accent-primary"
+                data-testid="checkbox-save-view-shared"
+              />
+              Shared
+            </label>
+            <Button
+              size="sm"
+              className="h-7 text-xs px-3 rounded-full"
+              disabled={!saveViewName.trim() || saveViewMutation.isPending}
+              onClick={() => saveViewMutation.mutate({ name: saveViewName.trim(), isShared: saveViewIsShared })}
+              data-testid="button-confirm-save-view"
+            >
               Save
             </Button>
-            <Button variant="ghost" size="sm" className="h-7 text-xs px-2 rounded-full" onClick={() => { setSaveViewOpen(false); setSaveViewName(""); }}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs px-2 rounded-full"
+              onClick={() => { setSaveViewOpen(false); setSaveViewName(""); setSaveViewIsShared(false); }}
+            >
               <XIcon className="h-3 w-3" />
             </Button>
           </div>
         ) : (
-          <button
-            onClick={() => setSaveViewOpen(true)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-dashed border-border/50 rounded-full px-3 py-1 hover:border-primary/50 transition-colors"
-            data-testid="button-save-view"
-          >
-            <Bookmark className="h-3 w-3" />
-            Save view
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setSaveViewOpen(true)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-dashed border-border/50 rounded-full px-3 py-1 hover:border-primary/50 transition-colors"
+              data-testid="button-save-view"
+            >
+              <Bookmark className="h-3 w-3" />
+              Save view
+            </button>
+            {isFiltered && (
+              <button
+                onClick={resetFilters}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                title="Clear all filters"
+                data-testid="button-reset-filters"
+              >
+                <XIcon className="h-3 w-3" />
+                Reset
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -455,8 +557,17 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                   </CardContent>
                 </Card>
               ))}
-              {allAccounts.length === 0 && (
-                <div className="col-span-full p-8 text-center text-muted-foreground">No organizations found</div>
+              {allAccounts.length === 0 && !isLoading && (
+                <div className="col-span-full flex flex-col items-center justify-center py-16 text-center">
+                  <Building2 className="w-12 h-12 text-muted-foreground/30 mb-3" />
+                  <p className="text-muted-foreground font-medium">No organizations found</p>
+                  <p className="text-muted-foreground/60 text-sm mt-1">
+                    {isFiltered ? "Try adjusting your filters or " : "Add your first organization or "}
+                    {isFiltered && (
+                      <button onClick={resetFilters} className="underline hover:text-foreground transition-colors">clear filters</button>
+                    )}
+                  </p>
+                </div>
               )}
             </div>
           )}

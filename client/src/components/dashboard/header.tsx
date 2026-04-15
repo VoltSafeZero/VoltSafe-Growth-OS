@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect, type ElementType } from "react";
+import { useState, useRef, useEffect, useCallback, type ElementType } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Search, Bell, LogOut, X, Plus, CalendarDays, CheckSquare, UserPlus as UserPlusIcon,
   Mail, Flame, AlertTriangle, Building2, Contact, FileText, Ticket, FolderOpen, Layers,
-  Users, Target, StickyNote,
+  Users, Target, StickyNote, ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,27 +43,71 @@ const NOTIF_ICON: Record<string, ElementType> = {
   lead: UserPlusIcon, email: Mail,
 };
 
-const SEARCH_TYPE_META: Record<string, { label: string; Icon: ElementType; color: string }> = {
-  account:     { label: "Accounts",      Icon: Building2, color: "text-blue-400" },
-  contact:     { label: "Contacts",      Icon: Users,     color: "text-violet-400" },
-  opportunity: { label: "Opportunities", Icon: Target,    color: "text-emerald-400" },
-  note:        { label: "Notes",         Icon: StickyNote, color: "text-amber-400" },
+const SEARCH_TYPE_META: Record<string, { label: string; Icon: ElementType; color: string; href: string }> = {
+  account:     { label: "Accounts",      Icon: Building2,  color: "text-blue-400",    href: "/accounts" },
+  contact:     { label: "Contacts",      Icon: Users,      color: "text-violet-400",  href: "/contacts" },
+  opportunity: { label: "Opportunities", Icon: Target,     color: "text-emerald-400", href: "/opportunities" },
+  note:        { label: "Notes",         Icon: StickyNote, color: "text-amber-400",   href: "/notes" },
 };
+
+const TYPE_ORDER = ["account", "contact", "opportunity", "note"] as const;
+
+function escapeRegex(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function HighlightMatch({ text, query }: { text: string; query: string }) {
+  if (!query || query.length < 2) return <>{text}</>;
+  const re = new RegExp(`(${escapeRegex(query)})`, "gi");
+  const parts = text.split(re);
+  return (
+    <>
+      {parts.map((part, i) =>
+        re.test(part)
+          ? <mark key={i} className="bg-primary/25 text-foreground rounded-sm not-italic font-medium">{part}</mark>
+          : <span key={i}>{part}</span>
+      )}
+    </>
+  );
+}
 
 function GlobalSearch() {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [, navigate] = useLocation();
 
+  const trimmed = query.trim();
+  const isShortQuery = trimmed.length === 1;
+
   const { data, isFetching } = useQuery<{ results: SearchResultItem[] }>({
-    queryKey: ["/api/search", { q: query }],
-    enabled: query.trim().length >= 2,
+    queryKey: ["/api/search", { q: trimmed }],
+    enabled: trimmed.length >= 2,
     staleTime: 10_000,
   });
 
   const results = data?.results ?? [];
+
+  const grouped = TYPE_ORDER.reduce((acc, type) => {
+    const group = results.filter(r => r.type === type);
+    if (group.length) acc[type] = group;
+    return acc;
+  }, {} as Record<string, SearchResultItem[]>);
+
+  const flatItems: SearchResultItem[] = TYPE_ORDER.flatMap(type => grouped[type] ?? []);
+  const hasResults = flatItems.length > 0;
+  const showDropdown = open && trimmed.length >= 1;
+
+  useEffect(() => { setActiveIndex(-1); }, [query]);
+
+  useEffect(() => {
+    if (activeIndex >= 0 && itemRefs.current[activeIndex]) {
+      itemRefs.current[activeIndex]?.scrollIntoView({ block: "nearest" });
+    }
+  }, [activeIndex]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -72,7 +116,6 @@ function GlobalSearch() {
         inputRef.current?.focus();
         setOpen(true);
       }
-      if (e.key === "Escape") setOpen(false);
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
@@ -88,9 +131,10 @@ function GlobalSearch() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const handleSelect = (r: SearchResultItem) => {
+  const handleSelect = useCallback((r: SearchResultItem) => {
     setOpen(false);
     setQuery("");
+    setActiveIndex(-1);
     if (r.type === "account") { navigate(`/accounts/${r.id}`); return; }
     if (r.type === "contact") { navigate(`/contacts/${r.id}`); return; }
     if (r.type === "opportunity") { navigate(`/opportunities/${r.id}`); return; }
@@ -100,16 +144,29 @@ function GlobalSearch() {
       if (r.sub === "opportunity" && r.linked_id) { navigate(`/opportunities/${r.linked_id}`); return; }
       navigate("/notes");
     }
+  }, [navigate]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showDropdown) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIndex(i => Math.min(i + 1, flatItems.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex(i => Math.max(i - 1, -1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (activeIndex >= 0 && flatItems[activeIndex]) {
+        handleSelect(flatItems[activeIndex]);
+      }
+    } else if (e.key === "Escape") {
+      setOpen(false);
+      setActiveIndex(-1);
+      inputRef.current?.blur();
+    }
   };
 
-  const grouped = results.reduce((acc, r) => {
-    if (!acc[r.type]) acc[r.type] = [];
-    acc[r.type].push(r);
-    return acc;
-  }, {} as Record<string, SearchResultItem[]>);
-
-  const hasResults = results.length > 0;
-  const showDropdown = open && query.trim().length >= 2;
+  let flatIdx = 0;
 
   return (
     <div ref={containerRef} className="relative w-full max-w-md hidden md:block">
@@ -119,61 +176,138 @@ function GlobalSearch() {
         value={query}
         onChange={e => { setQuery(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
+        onKeyDown={handleKeyDown}
         placeholder="Search accounts, contacts, opportunities… ⌘K"
         className="pl-9 pr-4 bg-secondary/30 border-transparent focus-visible:border-primary/50 focus-visible:ring-primary/20 rounded-full h-10 transition-all"
         data-testid="input-global-search"
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={showDropdown}
+        aria-haspopup="listbox"
+        aria-autocomplete="list"
       />
       {query && (
         <button
-          onClick={() => { setQuery(""); setOpen(false); inputRef.current?.focus(); }}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          onClick={() => { setQuery(""); setOpen(false); setActiveIndex(-1); inputRef.current?.focus(); }}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
           data-testid="button-search-clear"
+          tabIndex={-1}
         >
           <X className="w-3.5 h-3.5" />
         </button>
       )}
 
       {showDropdown && (
-        <div className="absolute top-full left-0 right-0 mt-1.5 bg-popover border border-border/60 rounded-xl shadow-2xl z-50 overflow-hidden max-h-[440px] overflow-y-auto">
-          {isFetching && !hasResults && (
-            <div className="p-4 text-sm text-muted-foreground text-center">Searching…</div>
-          )}
-          {!isFetching && !hasResults && (
-            <div className="p-5 text-sm text-muted-foreground text-center">
-              No results for <span className="font-medium text-foreground">"{query}"</span>
+        <div
+          className="absolute top-full left-0 right-0 mt-1.5 bg-popover border border-border/60 rounded-xl shadow-2xl z-50 overflow-hidden"
+          role="listbox"
+          aria-label="Search results"
+        >
+          {/* Keep typing hint — only 1 char typed */}
+          {isShortQuery && (
+            <div className="flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground">
+              <Search className="w-3.5 h-3.5 shrink-0" />
+              Keep typing to search…
             </div>
           )}
-          {(["account", "contact", "opportunity", "note"] as const).map(type => {
-            const group = grouped[type];
-            if (!group?.length) return null;
-            const { label, Icon, color } = SEARCH_TYPE_META[type];
-            return (
-              <div key={type}>
-                <div className="px-3 py-1.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground bg-secondary/20 sticky top-0">
-                  <Icon className={`h-3 w-3 ${color}`} />
-                  {label}
+
+          {/* Loading */}
+          {!isShortQuery && isFetching && !hasResults && (
+            <div className="space-y-0 max-h-[400px] overflow-y-auto">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-3 py-2.5 border-b border-border/20 last:border-0">
+                  <div className="w-4 h-4 rounded bg-muted/50 animate-pulse shrink-0" />
+                  <div className="flex-1 space-y-1.5">
+                    <div className="h-3 bg-muted/50 rounded animate-pulse w-3/4" />
+                    <div className="h-2.5 bg-muted/30 rounded animate-pulse w-1/2" />
+                  </div>
                 </div>
-                {group.map(r => (
-                  <button
-                    key={r.id}
-                    onClick={() => handleSelect(r)}
-                    className="flex items-center gap-3 w-full px-3 py-2.5 hover:bg-secondary/40 transition-colors text-left border-b border-border/20 last:border-0"
-                    data-testid={`search-result-${r.type}-${r.id}`}
-                  >
-                    <Icon className={`h-4 w-4 shrink-0 ${color}`} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{r.label}</p>
-                      {(r.sub || r.sub2) && (
-                        <p className="text-xs text-muted-foreground truncate">
-                          {[r.sub2, r.sub].filter(Boolean).join(" · ")}
-                        </p>
-                      )}
+              ))}
+            </div>
+          )}
+
+          {/* No results */}
+          {!isShortQuery && !isFetching && !hasResults && (
+            <div className="px-5 py-6 text-center space-y-1">
+              <Search className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+              <p className="text-sm font-medium text-foreground">No results for "{trimmed}"</p>
+              <p className="text-xs text-muted-foreground">Try a different term or check spelling</p>
+            </div>
+          )}
+
+          {/* Results grouped by type */}
+          {!isShortQuery && hasResults && (
+            <div className="max-h-[420px] overflow-y-auto" ref={el => { if (el) itemRefs.current = []; }}>
+              {TYPE_ORDER.map(type => {
+                const group = grouped[type];
+                if (!group?.length) return null;
+                const { label, Icon, color, href } = SEARCH_TYPE_META[type];
+                const sectionStartIdx = flatIdx;
+                flatIdx += group.length;
+
+                return (
+                  <div key={type}>
+                    {/* Section header — clickable to "view all" */}
+                    <div className="px-3 py-1.5 flex items-center justify-between text-[10px] font-semibold uppercase tracking-widest text-muted-foreground bg-secondary/20 sticky top-0 z-10">
+                      <div className="flex items-center gap-1.5">
+                        <Icon className={`h-3 w-3 ${color}`} />
+                        {label}
+                        <span className="font-normal normal-case tracking-normal text-muted-foreground/60">
+                          ({group.length}{group.length === 5 ? "+" : ""})
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => { setOpen(false); setQuery(""); navigate(href); }}
+                        className="flex items-center gap-0.5 text-muted-foreground hover:text-primary transition-colors normal-case tracking-normal font-normal"
+                        tabIndex={-1}
+                        data-testid={`search-viewall-${type}`}
+                      >
+                        View all <ArrowRight className="h-2.5 w-2.5" />
+                      </button>
                     </div>
-                  </button>
-                ))}
+
+                    {group.map((r, i) => {
+                      const itemIdx = sectionStartIdx + i;
+                      const isActive = activeIndex === itemIdx;
+                      return (
+                        <button
+                          key={r.id}
+                          ref={el => { itemRefs.current[itemIdx] = el; }}
+                          onClick={() => handleSelect(r)}
+                          onMouseEnter={() => setActiveIndex(itemIdx)}
+                          className={`flex items-center gap-3 w-full px-3 py-2.5 transition-colors text-left border-b border-border/20 last:border-0 ${isActive ? "bg-secondary/60" : "hover:bg-secondary/40"}`}
+                          data-testid={`search-result-${r.type}-${r.id}`}
+                          role="option"
+                          aria-selected={isActive}
+                        >
+                          <Icon className={`h-4 w-4 shrink-0 ${color}`} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">
+                              <HighlightMatch text={r.label} query={trimmed} />
+                            </p>
+                            {(r.sub || r.sub2) && (
+                              <p className="text-xs text-muted-foreground truncate">
+                                {[r.sub2, r.sub].filter(Boolean).join(" · ")}
+                              </p>
+                            )}
+                          </div>
+                          {isActive && (
+                            <span className="text-[9px] text-muted-foreground shrink-0 border border-border/50 rounded px-1 py-0.5">↵</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+
+              {/* Footer hint */}
+              <div className="px-3 py-1.5 flex items-center justify-between text-[10px] text-muted-foreground/60 bg-secondary/10 border-t border-border/20">
+                <span>↑↓ navigate</span>
+                <span>↵ select · Esc close</span>
               </div>
-            );
-          })}
+            </div>
+          )}
         </div>
       )}
     </div>

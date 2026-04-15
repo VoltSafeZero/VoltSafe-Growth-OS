@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquarePlus, Trash2, Pencil, Check, X, Pin, PinOff } from "lucide-react";
+import { MessageSquarePlus, Trash2, Pencil, Check, X, Pin, PinOff, StickyNote } from "lucide-react";
 import type { Note } from "@shared/schema";
 
 interface NotesPanelProps {
@@ -75,10 +75,27 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
   const pinMutation = useMutation({
     mutationFn: async (id: number) => {
       const res = await apiRequest("PATCH", `/api/notes/${id}/pin`, {});
-      return res.json();
+      return res.json() as Promise<{ ok: boolean; isPinned: boolean }>;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
-    onError: () => toast({ title: "Failed to pin note", variant: "destructive" }),
+    onMutate: async (id: number) => {
+      await queryClient.cancelQueries({ queryKey });
+      const prev = queryClient.getQueryData<Note[]>(queryKey);
+      queryClient.setQueryData<Note[]>(queryKey, old =>
+        old?.map(n => n.id === id ? { ...n, isPinned: !n.isPinned } : n) ?? []
+      );
+      return { prev };
+    },
+    onSuccess: (result) => {
+      toast({
+        title: result.isPinned ? "Note pinned" : "Note unpinned",
+        description: result.isPinned ? "Note will appear in Key Facts" : "Note removed from Key Facts",
+      });
+    },
+    onError: (_, __, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
+      toast({ title: "Failed to pin note", variant: "destructive" });
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey }),
   });
 
   const startEdit = (note: Note) => {
@@ -89,7 +106,11 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
   const renderNote = (note: Note) => (
     <div
       key={note.id}
-      className={`rounded-lg border p-3 group transition-colors ${note.isPinned ? "border-primary/30 bg-primary/5" : "border-border/50 bg-muted/10"}`}
+      className={`rounded-lg border p-3 group transition-all ${
+        note.isPinned
+          ? "border-primary/40 bg-primary/8 ring-1 ring-primary/10"
+          : "border-border/50 bg-muted/10 hover:border-border/80"
+      }`}
       data-testid={`note-${note.id}`}
     >
       {editingId === note.id ? (
@@ -125,14 +146,8 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
         </div>
       ) : (
         <>
-          {note.isPinned && (
-            <div className="flex items-center gap-1 mb-1.5">
-              <Pin className="h-2.5 w-2.5 text-primary" />
-              <span className="text-[10px] font-semibold text-primary uppercase tracking-wide">Pinned</span>
-            </div>
-          )}
-          <p className="text-sm whitespace-pre-wrap">{note.content}</p>
-          <div className="flex items-center justify-between mt-2">
+          <p className="text-sm whitespace-pre-wrap leading-relaxed">{note.content}</p>
+          <div className="flex items-center justify-between mt-2.5">
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{note.authorName}</Badge>
               <span className="text-[10px] text-muted-foreground">
@@ -144,8 +159,13 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
               <Button
                 variant="ghost"
                 size="sm"
-                className={`h-5 w-5 p-0 transition-colors ${note.isPinned ? "text-primary opacity-100" : "text-muted-foreground hover:text-primary"}`}
+                className={`h-5 w-5 p-0 transition-colors ${
+                  note.isPinned
+                    ? "text-primary opacity-100"
+                    : "text-muted-foreground hover:text-primary"
+                }`}
                 onClick={() => pinMutation.mutate(note.id)}
+                disabled={pinMutation.isPending && pinMutation.variables === note.id}
                 title={note.isPinned ? "Unpin note" : "Pin note"}
                 data-testid={`button-pin-note-${note.id}`}
               >
@@ -215,13 +235,36 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
           <Skeleton className="h-12 w-full" />
         </div>
       ) : notes.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-4">No notes yet</p>
+        <div className="flex flex-col items-center justify-center py-8 text-center">
+          <StickyNote className="w-8 h-8 text-muted-foreground/30 mb-2" />
+          <p className="text-sm text-muted-foreground">No notes yet</p>
+          <p className="text-xs text-muted-foreground/60 mt-0.5">Notes you add will appear here</p>
+        </div>
       ) : (
         <div className="space-y-2">
-          {pinnedNotes.length > 0 && pinnedNotes.map(renderNote)}
-          {pinnedNotes.length > 0 && unpinnedNotes.length > 0 && (
-            <div className="border-t border-border/30 pt-1" />
+          {/* Pinned section */}
+          {pinnedNotes.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 px-0.5">
+                <Pin className="h-3 w-3 text-primary" />
+                <span className="text-[10px] font-semibold text-primary uppercase tracking-widest">
+                  Pinned · {pinnedNotes.length}
+                </span>
+              </div>
+              {pinnedNotes.map(renderNote)}
+            </div>
           )}
+
+          {/* Divider between sections */}
+          {pinnedNotes.length > 0 && unpinnedNotes.length > 0 && (
+            <div className="flex items-center gap-2 py-0.5">
+              <div className="flex-1 border-t border-border/30" />
+              <span className="text-[9px] text-muted-foreground/40 uppercase tracking-widest">other notes</span>
+              <div className="flex-1 border-t border-border/30" />
+            </div>
+          )}
+
+          {/* Unpinned notes */}
           {unpinnedNotes.map(renderNote)}
         </div>
       )}
