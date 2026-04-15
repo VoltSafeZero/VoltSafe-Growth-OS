@@ -1,0 +1,86 @@
+The Record Summary Bar + Relationship Health layer is complete and passing. Freeze it unless a real bug appears.
+
+Now build the next highest-value CRM layer: Signal-Driven Task Suggestions.
+
+Goal:
+When Cortex detects stale, risky, or high-priority relationship signals, it should automatically suggest the next best follow-up action so users do not have to think from scratch.
+
+Execute in this order:
+
+1. Build a deterministic signal engine
+   - Evaluate signals for Accounts, Opportunities, Contacts, Leads, and Partners
+   - Initial signals should include:
+     - no outbound touch in 21 days
+     - no inbound reply in 14 / 30 / 45 days
+     - overdue open task exists
+     - stale open opportunity
+     - high-value open opportunity with no recent activity
+     - recent inbound email with no follow-up logged
+     - negative relationship health tier (Cooling / At Risk / Stale)
+   - Each signal should output:
+     - signalType
+     - severity (low / medium / high)
+     - title
+     - reason
+     - suggestedActionType
+     - suggestedActionLabel
+
+2. Create task suggestion model
+   - Suggestions should be explainable and deterministic
+   - Examples:
+     - Create follow-up task
+     - Reply to latest email
+     - Log a call
+     - Add note
+     - Schedule meeting
+     - Review stalled opportunity
+   - Include:
+     - suggested due date
+     - priority
+     - linked object type/id
+     - source signals[]
+   - Prevent duplicate suggestions for the same record/reason within a cooldown window
+
+3. Backend endpoints
+   - Add endpoint(s) to fetch task suggestions per record
+   - Add endpoint to accept / dismiss / snooze a suggestion
+   - If accepted:
+     - optionally create a real task record
+   - Apply crm=view and crm=edit permission checks as appropriate
+
+4. UI integration
+   - Add a “Suggested Next Actions” card to major profile pages
+   - Show top 1–3 suggestions clearly
+   - Each suggestion should support:
+     - Accept
+     - Dismiss
+     - Snooze
+   - Show why it was suggested
+   - Keep the UI compact and useful, not noisy
+
+5. Optional smart action helpers
+   - If latest inbound email exists, “Reply to latest email” should deep-link toward that message/thread if possible
+   - If stale opportunity exists, “Review stalled opportunity” should jump to the deal section
+   - If no note exists recently, “Add note” should open the note composer
+
+6. Tests
+   - Add backend tests for:
+     - signal generation
+     - severity logic
+     - duplicate suppression
+     - accept/dismiss/snooze behavior
+     - permission enforcement
+   - Add frontend tests if supported for:
+     - suggestion rendering
+     - accept/dismiss actions
+     - empty state
+
+7. Final verification
+   - Run TypeScript
+   - Run full test suite
+   - Provide:
+     - exact files changed
+     - signal rules implemented
+     - suggestion types implemented
+     - cooldown logic
+     - final PASS/FAIL
