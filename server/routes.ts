@@ -10791,6 +10791,297 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // EXECUTIVE DASHBOARD / BOARD REPORTING
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function buildExecWhere(q: Record<string,string>, prefix: string = "l") {
+    const parts: string[] = [];
+    if (q.dateFrom) parts.push(`${prefix}.created_at >= '${new Date(q.dateFrom).toISOString()}'`);
+    if (q.dateTo)   parts.push(`${prefix}.created_at <= '${new Date(q.dateTo).toISOString()}'`);
+    if (q.ownerId && !isNaN(parseInt(q.ownerId))) parts.push(`${prefix}.owner_user_id = ${parseInt(q.ownerId)}`);
+    return parts.length ? "AND " + parts.join(" AND ") : "";
+  }
+
+  // ── GET /api/executive/kpis ────────────────────────────────────────────────
+  app.get("/api/executive/kpis", requireAuth, async (req, res) => {
+    try {
+      const q = req.query as Record<string,string>;
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const qtrStart   = new Date(now.getFullYear(), Math.floor(now.getMonth()/3)*3, 1).toISOString();
+
+      const ownerClause = q.ownerId && !isNaN(parseInt(q.ownerId)) ? `AND owner_user_id = ${parseInt(q.ownerId)}` : "";
+      const dateOppsWhere = q.dateFrom ? `AND o.created_at >= '${new Date(q.dateFrom).toISOString()}'` : "";
+      const dateLeadsWhere = q.dateFrom ? `AND created_at >= '${new Date(q.dateFrom).toISOString()}'` : "";
+      const dateLeadsTo   = q.dateTo   ? `AND created_at <= '${new Date(q.dateTo).toISOString()}'`   : "";
+
+      const [
+        pipelineRes, quotesRes, quotesMonthRes, quotesQtrRes,
+        installsRes, installsMonthRes,
+        leadsRes, leadsMonthRes,
+        tasksRes, stalledRes, noOwnerLeadsRes,
+      ] = await Promise.all([
+        // Pipeline snapshot
+        db.execute(sql.raw(`
+          SELECT
+            SUM(amount) AS total_pipeline,
+            SUM(CASE
+              WHEN forecast_category = 'commit'    THEN amount
+              WHEN forecast_category = 'best_case' THEN amount * 0.6
+              WHEN forecast_category = 'pipeline'  THEN amount * 0.2
+              ELSE amount * 0.1
+            END) AS weighted_pipeline,
+            SUM(amount) FILTER (WHERE forecast_category = 'commit') AS commit_amount,
+            SUM(amount) FILTER (WHERE forecast_category = 'best_case') AS best_case_amount,
+            count(*) AS total_opps,
+            count(*) FILTER (WHERE stage = 'closed_won') AS closed_won_count,
+            SUM(amount) FILTER (WHERE stage = 'closed_won') AS closed_won_amount,
+            count(*) FILTER (WHERE is_stalled = true OR (last_activity_date < NOW() - INTERVAL '30 days' AND stage NOT IN ('closed_won','closed_lost'))) AS stalled_count
+          FROM opportunities o WHERE stage NOT IN ('closed_lost') ${ownerClause} ${dateOppsWhere}`)),
+
+        // All-time quote KPIs
+        db.execute(sql.raw(`
+          SELECT
+            count(*) AS total_quotes,
+            count(*) FILTER (WHERE status = 'sent') AS sent,
+            count(*) FILTER (WHERE status = 'accepted') AS accepted,
+            count(*) FILTER (WHERE status = 'declined') AS declined,
+            count(*) FILTER (WHERE status = 'expired') AS expired,
+            count(*) FILTER (WHERE status = 'sent' AND sent_at < NOW() - INTERVAL '14 days') AS awaiting_response,
+            SUM(total) FILTER (WHERE status = 'accepted') AS accepted_revenue,
+            ROUND(AVG(total) FILTER (WHERE status = 'accepted'))::float AS avg_accepted_value
+          FROM quotes WHERE 1=1 ${ownerClause}`)),
+
+        // This month accepted revenue
+        db.execute(sql.raw(`
+          SELECT
+            count(*) FILTER (WHERE status = 'accepted' AND accepted_at >= '${monthStart}') AS accepted_month,
+            SUM(total) FILTER (WHERE status = 'accepted' AND accepted_at >= '${monthStart}') AS accepted_revenue_month
+          FROM quotes`)),
+
+        // This quarter accepted revenue
+        db.execute(sql.raw(`
+          SELECT
+            count(*) FILTER (WHERE status = 'accepted' AND accepted_at >= '${qtrStart}') AS accepted_qtr,
+            SUM(total) FILTER (WHERE status = 'accepted' AND accepted_at >= '${qtrStart}') AS accepted_revenue_qtr
+          FROM quotes`)),
+
+        // Install workflow snapshot
+        db.execute(sql.raw(`
+          SELECT
+            count(*) AS total_installs,
+            count(*) FILTER (WHERE status = 'in_progress') AS in_progress,
+            count(*) FILTER (WHERE status = 'pending_kickoff') AS pending_kickoff,
+            count(*) FILTER (WHERE status = 'complete') AS complete,
+            count(*) FILTER (WHERE status = 'on_hold') AS on_hold,
+            count(*) FILTER (WHERE blockers IS NOT NULL AND blockers != '' AND status NOT IN ('complete','cancelled')) AS with_blockers,
+            count(*) FILTER (WHERE status NOT IN ('complete','cancelled') AND target_completion_date < NOW()) AS overdue_installs
+          FROM install_workflows`)),
+
+        // Installs completed this month + quarter
+        db.execute(sql.raw(`
+          SELECT
+            count(*) FILTER (WHERE status = 'complete' AND actual_completion_date >= '${monthStart}') AS completed_month,
+            count(*) FILTER (WHERE status = 'complete' AND actual_completion_date >= '${qtrStart}') AS completed_qtr
+          FROM install_workflows`)),
+
+        // Lead volume
+        db.execute(sql.raw(`
+          SELECT
+            count(*) AS total_leads,
+            count(*) FILTER (WHERE status = 'converted') AS converted,
+            count(*) FILTER (WHERE status = 'qualified') AS qualified,
+            count(*) FILTER (WHERE status IN ('new','contacted','working')) AS active
+          FROM leads WHERE 1=1 ${dateLeadsWhere} ${dateLeadsTo} ${ownerClause}`)),
+
+        // Leads this month
+        db.execute(sql.raw(`
+          SELECT
+            count(*) AS new_leads_month,
+            count(*) FILTER (WHERE status = 'converted') AS converted_month
+          FROM leads WHERE created_at >= '${monthStart}' ${ownerClause}`)),
+
+        // Tasks overdue
+        db.execute(sql.raw(`
+          SELECT count(*) AS overdue_tasks
+          FROM tasks WHERE status NOT IN ('done','cancelled') AND due_date < NOW() ${ownerClause}`)),
+
+        // Stalled opps (no activity > 21 days, not closed)
+        db.execute(sql.raw(`
+          SELECT count(*) AS stalled, SUM(amount) AS stalled_amount
+          FROM opportunities
+          WHERE stage NOT IN ('closed_won','closed_lost')
+            AND (last_activity_date IS NULL OR last_activity_date < NOW() - INTERVAL '21 days')
+            ${ownerClause}`)),
+
+        // Leads with no owner
+        db.execute(sql.raw(`
+          SELECT count(*) AS no_owner FROM leads WHERE owner_user_id IS NULL AND status NOT IN ('converted','disqualified','closed_won','closed_lost')`)),
+      ]);
+
+      const pl  = (pipelineRes  as any).rows?.[0] ?? {};
+      const qt  = (quotesRes    as any).rows?.[0] ?? {};
+      const qm  = (quotesMonthRes  as any).rows?.[0] ?? {};
+      const qq  = (quotesQtrRes    as any).rows?.[0] ?? {};
+      const iw  = (installsRes  as any).rows?.[0] ?? {};
+      const im  = (installsMonthRes as any).rows?.[0] ?? {};
+      const ld  = (leadsRes     as any).rows?.[0] ?? {};
+      const lm  = (leadsMonthRes as any).rows?.[0] ?? {};
+      const tk  = (tasksRes     as any).rows?.[0] ?? {};
+      const st  = (stalledRes   as any).rows?.[0] ?? {};
+      const nl  = (noOwnerLeadsRes as any).rows?.[0] ?? {};
+
+      const totalQuotes = parseInt(qt.total_quotes ?? "0");
+      const accepted    = parseInt(qt.accepted ?? "0");
+
+      res.json({
+        asOf: now.toISOString(),
+        pipeline: {
+          totalPipeline:    parseFloat(pl.total_pipeline   ?? "0") || 0,
+          weightedPipeline: parseFloat(pl.weighted_pipeline?? "0") || 0,
+          commitAmount:     parseFloat(pl.commit_amount    ?? "0") || 0,
+          bestCaseAmount:   parseFloat(pl.best_case_amount ?? "0") || 0,
+          totalOpps:        parseInt(pl.total_opps         ?? "0"),
+          closedWonCount:   parseInt(pl.closed_won_count   ?? "0"),
+          closedWonAmount:  parseFloat(pl.closed_won_amount?? "0") || 0,
+          stalledCount:     parseInt(pl.stalled_count      ?? "0"),
+        },
+        quotes: {
+          total:            totalQuotes,
+          sent:             parseInt(qt.sent      ?? "0"),
+          accepted,
+          declined:         parseInt(qt.declined  ?? "0"),
+          expired:          parseInt(qt.expired   ?? "0"),
+          awaitingResponse: parseInt(qt.awaiting_response ?? "0"),
+          acceptedRevenue:  parseFloat(qt.accepted_revenue ?? "0") || 0,
+          avgAcceptedValue: parseFloat(qt.avg_accepted_value ?? "0") || 0,
+          winRate: totalQuotes > 0 ? Math.round(accepted / totalQuotes * 100) : 0,
+          // Monthly / quarterly
+          acceptedMonth:         parseInt(qm.accepted_month ?? "0"),
+          acceptedRevenueMonth:  parseFloat(qm.accepted_revenue_month ?? "0") || 0,
+          acceptedQtr:           parseInt(qq.accepted_qtr ?? "0"),
+          acceptedRevenueQtr:    parseFloat(qq.accepted_revenue_qtr ?? "0") || 0,
+        },
+        installs: {
+          total:          parseInt(iw.total_installs ?? "0"),
+          inProgress:     parseInt(iw.in_progress   ?? "0"),
+          pendingKickoff: parseInt(iw.pending_kickoff?? "0"),
+          complete:       parseInt(iw.complete       ?? "0"),
+          onHold:         parseInt(iw.on_hold        ?? "0"),
+          withBlockers:   parseInt(iw.with_blockers  ?? "0"),
+          overdueInstalls:parseInt(iw.overdue_installs?? "0"),
+          completedMonth: parseInt(im.completed_month ?? "0"),
+          completedQtr:   parseInt(im.completed_qtr  ?? "0"),
+        },
+        leads: {
+          total:          parseInt(ld.total_leads ?? "0"),
+          converted:      parseInt(ld.converted  ?? "0"),
+          qualified:      parseInt(ld.qualified  ?? "0"),
+          active:         parseInt(ld.active     ?? "0"),
+          newThisMonth:   parseInt(lm.new_leads_month ?? "0"),
+          convertedMonth: parseInt(lm.converted_month ?? "0"),
+          noOwner:        parseInt(nl.no_owner ?? "0"),
+        },
+        risks: {
+          overdueTaskCount:    parseInt(tk.overdue_tasks ?? "0"),
+          stalledOpps:         parseInt(st.stalled ?? "0"),
+          stalledAmount:       parseFloat(st.stalled_amount ?? "0") || 0,
+          installsWithBlockers:parseInt(iw.with_blockers ?? "0"),
+          quotesAwaitingReply: parseInt(qt.awaiting_response ?? "0"),
+          leadsNoOwner:        parseInt(nl.no_owner ?? "0"),
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── GET /api/executive/risk-alerts ─────────────────────────────────────────
+  app.get("/api/executive/risk-alerts", requireAuth, async (req, res) => {
+    try {
+      const q = req.query as Record<string,string>;
+      const ownerClause = q.ownerId && !isNaN(parseInt(q.ownerId)) ? `AND o.owner_user_id = ${parseInt(q.ownerId)}` : "";
+
+      const [stalledRes, quotesRes, installsRes, tasksRes, dqRes, noOwnerRes] = await Promise.all([
+        // Top stalled high-value opps
+        db.execute(sql.raw(`
+          SELECT o.id, o.title, o.amount, o.stage, u.name AS owner_name,
+                 FLOOR(EXTRACT(EPOCH FROM NOW() - COALESCE(o.last_activity_date, o.created_at)) / 86400)::int AS days_stale,
+                 a.name AS account_name
+          FROM opportunities o
+          LEFT JOIN users u ON u.id = o.owner_user_id
+          LEFT JOIN accounts a ON a.id = o.account_id
+          WHERE o.stage NOT IN ('closed_won','closed_lost')
+            AND COALESCE(o.last_activity_date, o.created_at) < NOW() - INTERVAL '21 days'
+            ${ownerClause}
+          ORDER BY o.amount DESC NULLS LAST
+          LIMIT 10`)),
+
+        // Quotes awaiting response > 14 days
+        db.execute(sql.raw(`
+          SELECT q.id, q.quote_number, q.total, q.sent_at, q.customer_name, u.name AS owner_name,
+                 EXTRACT(DAY FROM NOW() - q.sent_at)::int AS days_waiting,
+                 a.name AS account_name
+          FROM quotes q
+          LEFT JOIN users u ON u.id = q.owner_user_id
+          LEFT JOIN accounts a ON a.id = q.account_id
+          WHERE q.status = 'sent' AND q.sent_at < NOW() - INTERVAL '14 days'
+          ORDER BY q.total DESC NULLS LAST
+          LIMIT 10`)),
+
+        // Install workflows with active blockers
+        db.execute(sql.raw(`
+          SELECT iw.id, iw.title, iw.blockers, iw.status, u.name AS owner_name,
+                 iw.target_completion_date, iw.total_amount
+          FROM install_workflows iw
+          LEFT JOIN users u ON u.id = iw.owner_user_id
+          WHERE iw.blockers IS NOT NULL AND iw.blockers != ''
+            AND iw.status NOT IN ('complete','cancelled')
+          ORDER BY iw.total_amount DESC NULLS LAST
+          LIMIT 10`)),
+
+        // Overdue high-priority tasks
+        db.execute(sql.raw(`
+          SELECT t.id, t.title, t.priority, t.due_date, u.name AS owner_name,
+                 EXTRACT(DAY FROM NOW() - t.due_date)::int AS days_overdue
+          FROM tasks t
+          LEFT JOIN users u ON u.id = t.owner_user_id
+          WHERE t.status NOT IN ('done','cancelled') AND t.due_date < NOW()
+            AND t.priority IN ('high','urgent')
+          ORDER BY t.due_date ASC
+          LIMIT 10`)),
+
+        // Data quality risk summary
+        db.execute(sql.raw(`
+          SELECT
+            (SELECT count(*) FROM leads WHERE owner_user_id IS NULL AND status NOT IN ('converted','disqualified')) AS leads_no_owner,
+            (SELECT count(*) FROM opportunities WHERE owner_user_id IS NULL AND stage NOT IN ('closed_won','closed_lost')) AS opps_no_owner,
+            (SELECT count(*) FROM opportunities WHERE stage NOT IN ('closed_won','closed_lost') AND (last_activity_date IS NULL OR last_activity_date < NOW() - INTERVAL '30 days')) AS opps_stale_30d,
+            (SELECT count(*) FROM quotes WHERE status = 'sent' AND sent_at < NOW() - INTERVAL '30 days') AS quotes_stale_30d`)),
+
+        // Leads with no owner (detail)
+        db.execute(sql.raw(`
+          SELECT id, company, source, status, created_at
+          FROM leads WHERE owner_user_id IS NULL AND status NOT IN ('converted','disqualified')
+          ORDER BY created_at DESC LIMIT 8`)),
+      ]);
+
+      const mapRow = (r: any) => ({ ...r });
+
+      res.json({
+        stalledOpps:       ((stalledRes   as any).rows ?? []).map(mapRow),
+        awaitingQuotes:    ((quotesRes    as any).rows ?? []).map(mapRow),
+        installBlockers:   ((installsRes  as any).rows ?? []).map(mapRow),
+        overdueTasks:      ((tasksRes     as any).rows ?? []).map(mapRow),
+        dqRisks:           (dqRes         as any).rows?.[0] ?? {},
+        unownedLeads:      ((noOwnerRes   as any).rows ?? []).map(mapRow),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // LEAD SOURCE ATTRIBUTION + CONVERSION ANALYTICS
   // ═══════════════════════════════════════════════════════════════════════════
 

@@ -57,6 +57,7 @@ import DailyExecutionPage from "@/pages/daily-execution";
 import DataQualityPage from "@/pages/data-quality";
 import InstallWorkflowsPage from "@/pages/install-workflows";
 import SourceAttributionPage from "@/pages/source-attribution";
+import ExecutiveDashboardPage from "@/pages/executive-dashboard";
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -167,6 +168,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/data-quality">{() => guard("crm", <DataQualityPage />)}</Route>
       <Route path="/install-workflows">{() => guard("crm", <InstallWorkflowsPage />)}</Route>
       <Route path="/analytics/source-attribution">{() => guard("crm", <SourceAttributionPage />)}</Route>
+      <Route path="/executive-dashboard">{() => guard("crm", <ExecutiveDashboardPage />)}</Route>
 
       {/* ── Sidebar alias routes — each nav item gets a unique URL so active   */}
       {/* ── state never leaks across sections (no shared paths between items). */}

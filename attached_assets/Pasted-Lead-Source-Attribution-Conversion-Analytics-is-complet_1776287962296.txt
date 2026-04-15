@@ -1,0 +1,72 @@
+Lead Source Attribution + Conversion Analytics is complete and tested. Next, build the Executive Dashboard / Board Reporting layer.
+
+Goal:
+Create a leadership cockpit that rolls up the most important sales, delivery, attribution, and risk metrics into one clear dashboard for weekly management and board/investor reporting.
+
+Build this in phases.
+
+PHASE 1 — EXECUTIVE KPI API
+Create backend endpoints that aggregate:
+- total pipeline
+- weighted pipeline
+- commit / best-case forecast
+- quotes sent / accepted / declined / expired
+- accepted revenue this month / quarter
+- installs in progress
+- installs completed this month / quarter
+- lead volume by source
+- win rate by source
+- rep performance summary
+- data quality risk counts
+- stale opportunity count
+- overdue task count
+- awaiting-reply email count
+
+PHASE 2 — EXECUTIVE DASHBOARD UI
+Create a dedicated dashboard page with sections:
+- KPI cards
+- pipeline forecast snapshot
+- source attribution snapshot
+- quote-to-close snapshot
+- install/onboarding snapshot
+- rep leaderboard / accountability
+- risk alerts / blockers
+
+PHASE 3 — DATE / OWNER / REGION FILTERS
+Add filters for:
+- month / quarter / custom range
+- owner
+- source bucket
+- region
+- status where relevant
+
+PHASE 4 — BOARD REPORTING MODE
+Add a clean “board view” or export-friendly mode:
+- fewer controls
+- polished layout
+- key charts + summary table
+- suitable for screenshot/PDF sharing later
+
+PHASE 5 — RISK / ALERT LAYER
+Surface high-value warnings:
+- forecast at risk due to stale opps
+- quotes awaiting response
+- install workflows with blockers
+- data quality issues distorting forecast
+- leads with no owner / no follow-up
+- overdue tasks concentrated by owner
+
+PHASE 6 — TESTING
+Add tests for:
+- KPI aggregation correctness
+- date filtering
+- owner filtering
+- source attribution rollup inclusion
+- risk counts
+- no regression to pipeline, quote, source attribution, install, and data-quality flows
+
+Implementation rules:
+- keep it useful for leadership, not bloated BI
+- reuse existing forecast, quote, install, source, and data-quality endpoints where possible
+- keep the UI clean and decision-focused
+- summarize changed files and final pass/fail at the end
