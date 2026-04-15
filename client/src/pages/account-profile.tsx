@@ -236,6 +236,50 @@ export default function AccountProfilePage() {
         </CardContent>
       </Card>
 
+      {/* Field Quick Actions — one-tap actions for field use */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" data-testid="field-quick-actions">
+        {account.website ? (
+          <a
+            href={account.website.startsWith("http") ? account.website : `https://${account.website}`}
+            target="_blank" rel="noopener noreferrer"
+            data-testid="button-quick-website"
+            className="flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-xl bg-secondary/40 border border-border/40 hover:bg-primary/10 hover:border-primary/30 active:scale-95 transition-all"
+          >
+            <Globe className="h-5 w-5 text-primary" />
+            <span className="text-xs font-medium">Website</span>
+          </a>
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-xl bg-secondary/20 border border-border/20 opacity-30 cursor-not-allowed">
+            <Globe className="h-5 w-5 text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground">Website</span>
+          </div>
+        )}
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("open-quick-capture", { detail: { tab: "note" } }))}
+          data-testid="button-quick-note"
+          className="flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-xl bg-secondary/40 border border-border/40 hover:bg-primary/10 hover:border-primary/30 active:scale-95 transition-all"
+        >
+          <MessageSquare className="h-5 w-5 text-primary" />
+          <span className="text-xs font-medium">Note</span>
+        </button>
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("open-quick-capture", { detail: { tab: "task" } }))}
+          data-testid="button-quick-task"
+          className="flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-xl bg-secondary/40 border border-border/40 hover:bg-primary/10 hover:border-primary/30 active:scale-95 transition-all"
+        >
+          <CheckSquare className="h-5 w-5 text-primary" />
+          <span className="text-xs font-medium">Task</span>
+        </button>
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("open-quick-capture", { detail: { tab: "opportunity" } }))}
+          data-testid="button-quick-deal"
+          className="flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-xl bg-secondary/40 border border-border/40 hover:bg-primary/10 hover:border-primary/30 active:scale-95 transition-all"
+        >
+          <TrendingUp className="h-5 w-5 text-primary" />
+          <span className="text-xs font-medium">New Deal</span>
+        </button>
+      </div>
+
       {/* Record Summary Bar */}
       <Card>
         <CardContent className="pt-4 pb-3 px-4">

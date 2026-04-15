@@ -3101,11 +3101,39 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
         {/* ── CENTER PANEL: thread list ───────────────────────────────────── */}
         <div className={`flex flex-col min-h-0 border-r border-border/50 bg-background ${selectedThreadId ? "hidden md:flex md:w-72 flex-shrink-0" : "flex-1 md:w-72 md:flex-initial"}`}>
+
+          {/* Mobile-only tab switcher (replaces hidden sidebar on phones) */}
+          <div className="md:hidden flex-shrink-0 overflow-x-auto border-b border-border/50 bg-background/80">
+            <div className="flex whitespace-nowrap px-2 py-1.5 gap-0.5 min-w-max">
+              {[
+                { key: "inbox",    label: "Inbox",   badge: inboxUnreadCount > 0 ? inboxUnreadCount : null },
+                { key: "sent",     label: "Sent",    badge: null },
+                ...(canSend ? [{ key: "drafts", label: "Drafts", badge: (draftsQuery.data?.length ?? 0) > 0 ? draftsQuery.data?.length : null }] : []),
+                { key: "review",   label: "Review",  badge: (reviewStatsQuery.data?.needsReview ?? 0) > 0 ? reviewStatsQuery.data?.needsReview : null },
+                { key: "other",    label: "Other",   badge: inboxOther.length > 0 ? inboxOther.length : null },
+              ].map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => { setTab(t.key as any); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                  data-testid={`mobile-tab-${t.key}`}
+                  className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium transition-colors min-h-[36px] ${tab === t.key ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+                >
+                  {t.label}
+                  {t.badge != null && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${tab === t.key ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{t.badge}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Category pills + Search */}
           <div className="flex-shrink-0 p-3 space-y-2 border-b border-border/50">
             {tab === "inbox" && (
               <>
-                <div className="flex gap-1 flex-wrap">
+                {/* Category pills — horizontally scrollable on mobile */}
+                <div className="overflow-x-auto -mx-3 px-3">
+                  <div className="flex gap-1 min-w-max">
                   {([
                     { key: "all",         label: "All",         icon: <Inbox className="h-3 w-3" />,     count: inboxMain.length },
                     { key: "priority",    label: "Priority",    icon: <Star className="h-3 w-3" />,      count: priorityCount },
@@ -3117,7 +3145,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       key={key}
                       onClick={() => setInboxCategory(key)}
                       data-testid={`inbox-category-${key}`}
-                      className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
                         inboxCategory === key
                           ? key === "priority"
                             ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
@@ -3130,9 +3158,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       {count > 0 && <span className="ml-0.5 opacity-70">{count}</span>}
                     </button>
                   ))}
+                  </div>
                 </div>
-                {/* CRM fast filters */}
-                <div className="flex gap-1 flex-wrap pt-0.5">
+                {/* CRM fast filters — horizontally scrollable on mobile */}
+                <div className="overflow-x-auto -mx-3 px-3">
+                  <div className="flex gap-1 min-w-max pt-0.5">
                   {([
                     { key: "all",         label: "All",           icon: <Filter className="h-3 w-3" /> },
                     { key: "unread",      label: `Unread (${inboxUnreadCount})`,   icon: <MailOpen className="h-3 w-3" /> },
@@ -3144,7 +3174,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       key={key}
                       onClick={() => setCrmFilter(key)}
                       data-testid={`crm-filter-${key}`}
-                      className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors whitespace-nowrap ${
                         crmFilter === key
                           ? "bg-violet-500/20 text-violet-400 border border-violet-500/30"
                           : "bg-muted/30 text-muted-foreground/60 hover:bg-muted/60 hover:text-muted-foreground"
@@ -3154,6 +3184,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       {label}
                     </button>
                   ))}
+                  </div>
                 </div>
               </>
             )}
@@ -3343,7 +3374,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
                         {/* Row content — click opens thread */}
                         <button
-                          className="flex-1 text-left py-[9px] pr-3 min-w-0"
+                          className="flex-1 text-left py-3 pr-3 min-w-0"
                           onClick={() => { setSelectedThreadId(item.gmailThreadId); setSelectedMessageId(null); }}
                         >
                           <div className="flex items-center justify-between gap-2 mb-[3px]">
@@ -3415,7 +3446,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       <button
                         onClick={() => { setSelectedThreadId(email.gmailThreadId); setSelectedMessageId(null); }}
                         data-testid={`folder-email-row-${email.id}`}
-                        className="flex-1 text-left px-3 py-[9px] pr-10 min-w-0"
+                        className="flex-1 text-left px-3 py-3 pr-10 min-w-0"
                       >
                         <div className="flex items-center justify-between gap-2 mb-[3px]">
                           <span className="text-[13px] leading-none font-medium text-foreground/80 truncate">{senderName}</span>
@@ -3494,29 +3525,29 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             )}
             {/* Bulk action toolbar — shown when inbox threads are selected */}
             {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && selectedInboxIds.size > 0 && (
-              <div className="sticky top-0 z-10 flex items-center gap-1.5 px-2 py-1.5 bg-background/98 backdrop-blur border-b border-primary/20 border-l-[3px] border-l-primary/40">
-                <span className="text-[11px] font-semibold text-foreground/70 mr-0.5 tabular-nums" data-testid="text-bulk-selected-count">
-                  {selectedInboxIds.size} selected
+              <div className="sticky top-0 z-10 flex items-center gap-1.5 px-2 py-2 bg-background/98 backdrop-blur border-b border-primary/20 border-l-[3px] border-l-primary/40">
+                <span className="text-[11px] font-semibold text-foreground/70 mr-0.5 tabular-nums shrink-0" data-testid="text-bulk-selected-count">
+                  {selectedInboxIds.size} sel.
                 </span>
                 <button
                   onClick={() => bulkMarkReadMutation.mutate({ markAs: "read" })}
                   disabled={bulkMarkReadMutation.isPending || bulkArchiveMutation.isPending}
                   data-testid="button-bulk-mark-read"
                   title="Mark selected as read"
-                  className="flex items-center gap-1 text-[11px] px-2 py-1 rounded bg-primary/10 text-primary/80 hover:bg-primary/20 transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg bg-primary/10 text-primary/80 hover:bg-primary/20 transition-colors disabled:opacity-50 min-h-[32px]"
                 >
-                  {bulkMarkReadMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <MailOpen className="h-3 w-3" />}
-                  Read
+                  {bulkMarkReadMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MailOpen className="h-3.5 w-3.5" />}
+                  <span className="hidden sm:inline">Read</span>
                 </button>
                 <button
                   onClick={() => bulkMarkReadMutation.mutate({ markAs: "unread" })}
                   disabled={bulkMarkReadMutation.isPending || bulkArchiveMutation.isPending}
                   data-testid="button-bulk-mark-unread"
                   title="Mark selected as unread"
-                  className="flex items-center gap-1 text-[11px] px-2 py-1 rounded bg-muted/50 text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg bg-muted/50 text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50 min-h-[32px]"
                 >
-                  <Mail className="h-3 w-3" />
-                  Unread
+                  <Mail className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Unread</span>
                 </button>
                 {canSend && (
                   <button
@@ -3524,10 +3555,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     disabled={bulkMarkReadMutation.isPending || bulkArchiveMutation.isPending}
                     data-testid="button-bulk-archive"
                     title="Archive selected threads"
-                    className="flex items-center gap-1 text-[11px] px-2 py-1 rounded bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+                    className="flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors disabled:opacity-50 min-h-[32px]"
                   >
-                    {bulkArchiveMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArchiveX className="h-3 w-3" />}
-                    Archive
+                    {bulkArchiveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArchiveX className="h-3.5 w-3.5" />}
+                    <span className="hidden sm:inline">Archive</span>
                   </button>
                 )}
                 <div className="flex items-center gap-1 ml-auto">
@@ -3535,7 +3566,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     onClick={selectAllInboxThreads}
                     data-testid="button-select-all-inbox"
                     title="Select all visible threads"
-                    className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5"
+                    className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-2 py-1.5 min-h-[32px]"
                   >
                     All
                   </button>
@@ -3543,9 +3574,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     onClick={() => setSelectedInboxIds(new Set())}
                     data-testid="button-clear-inbox-selection"
                     title="Clear selection"
-                    className="text-muted-foreground/40 hover:text-foreground transition-colors"
+                    className="text-muted-foreground/40 hover:text-foreground transition-colors p-1.5 min-h-[32px]"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <X className="h-4 w-4" />
                   </button>
                 </div>
               </div>
@@ -3625,7 +3656,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   <button
                     onClick={() => handleSelectMessage(msg)}
                     data-testid={`email-row-${msg.id}`}
-                    className="flex-1 text-left py-[9px] pr-14 min-w-0"
+                    className="flex-1 text-left py-3 pr-14 min-w-0"
                   >
                     {/* Row 1: sender + timestamp */}
                     <div className="flex items-center justify-between gap-2 mb-[3px]">

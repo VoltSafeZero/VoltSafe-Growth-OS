@@ -222,6 +222,50 @@ export default function ContactProfilePage() {
         </CardContent>
       </Card>
 
+      {/* Field Quick Actions — one-tap actions for field use */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" data-testid="field-quick-actions">
+        {contact.phone ? (
+          <a href={`tel:${contact.phone}`} data-testid="button-quick-call"
+            className="flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-xl bg-secondary/40 border border-border/40 hover:bg-primary/10 hover:border-primary/30 active:scale-95 transition-all">
+            <Phone className="h-5 w-5 text-primary" />
+            <span className="text-xs font-medium">Call</span>
+          </a>
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-xl bg-secondary/20 border border-border/20 opacity-30 cursor-not-allowed">
+            <Phone className="h-5 w-5 text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground">Call</span>
+          </div>
+        )}
+        {contact.email ? (
+          <a href={`mailto:${contact.email}`} data-testid="button-quick-email"
+            className="flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-xl bg-secondary/40 border border-border/40 hover:bg-primary/10 hover:border-primary/30 active:scale-95 transition-all">
+            <Mail className="h-5 w-5 text-primary" />
+            <span className="text-xs font-medium">Email</span>
+          </a>
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-xl bg-secondary/20 border border-border/20 opacity-30 cursor-not-allowed">
+            <Mail className="h-5 w-5 text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground">Email</span>
+          </div>
+        )}
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("open-quick-capture", { detail: { tab: "note" } }))}
+          data-testid="button-quick-note"
+          className="flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-xl bg-secondary/40 border border-border/40 hover:bg-primary/10 hover:border-primary/30 active:scale-95 transition-all"
+        >
+          <MessageSquare className="h-5 w-5 text-primary" />
+          <span className="text-xs font-medium">Note</span>
+        </button>
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("open-quick-capture", { detail: { tab: "task" } }))}
+          data-testid="button-quick-task"
+          className="flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-xl bg-secondary/40 border border-border/40 hover:bg-primary/10 hover:border-primary/30 active:scale-95 transition-all"
+        >
+          <CheckSquare className="h-5 w-5 text-primary" />
+          <span className="text-xs font-medium">Task</span>
+        </button>
+      </div>
+
       {/* Record Summary Bar */}
       <Card>
         <CardContent className="pt-4 pb-3 px-4">
@@ -383,27 +427,27 @@ export default function ContactProfilePage() {
 
           {/* Quick links */}
           <Card className="border-border/50">
-            <CardContent className="p-4 space-y-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Quick Actions</p>
+            <CardContent className="p-3 space-y-0.5">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1 pb-1">Quick Actions</p>
               {contact.email && (
-                <a href={`mailto:${contact.email}`} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors py-1">
-                  <Mail className="h-3.5 w-3.5 text-primary" /> Send email
+                <a href={`mailto:${contact.email}`} className="flex items-center gap-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors py-2.5 px-2 rounded-lg min-h-[44px]">
+                  <Mail className="h-4 w-4 text-primary flex-shrink-0" /> Send email
                 </a>
               )}
               {contact.phone && (
-                <a href={`tel:${contact.phone}`} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors py-1">
-                  <Phone className="h-3.5 w-3.5 text-primary" /> Call
+                <a href={`tel:${contact.phone}`} className="flex items-center gap-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors py-2.5 px-2 rounded-lg min-h-[44px]">
+                  <Phone className="h-4 w-4 text-primary flex-shrink-0" /> Call {contact.phone}
                 </a>
               )}
               {contact.linkedin_url && (
-                <a href={contact.linkedin_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors py-1">
-                  <ExternalLink className="h-3.5 w-3.5 text-primary" /> LinkedIn
+                <a href={contact.linkedin_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors py-2.5 px-2 rounded-lg min-h-[44px]">
+                  <ExternalLink className="h-4 w-4 text-primary flex-shrink-0" /> LinkedIn
                 </a>
               )}
               {contact.account_id && (
                 <Link href={`/accounts/${contact.account_id}`}>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors py-1 cursor-pointer">
-                    <Building2 className="h-3.5 w-3.5 text-primary" /> View Account
+                  <div className="flex items-center gap-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors py-2.5 px-2 rounded-lg min-h-[44px] cursor-pointer">
+                    <Building2 className="h-4 w-4 text-primary flex-shrink-0" /> View Account
                   </div>
                 </Link>
               )}

@@ -452,10 +452,10 @@ export default function DailyCommandCenter() {
     (sections?.inboxFollowUps.count ?? 0);
 
   return (
-    <div className="flex flex-col gap-6 p-6" data-testid="daily-command-center">
+    <div className="flex flex-col gap-5 p-4 sm:p-6" data-testid="daily-command-center">
 
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-3">
         <div>
           {isLoading
             ? <Skeleton className="h-7 w-48 mb-1" />
@@ -466,20 +466,20 @@ export default function DailyCommandCenter() {
           </p>
         </div>
         {urgentCount > 0 && (
-          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 border border-red-500/20 rounded-lg shrink-0" data-testid="cc-urgency-banner">
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-red-500/10 border border-red-500/20 rounded-lg shrink-0" data-testid="cc-urgency-banner">
             <BellRing className="h-3.5 w-3.5 text-red-400" />
-            <span className="text-xs font-semibold text-red-400">{urgentCount} urgent item{urgentCount > 1 ? "s" : ""}</span>
+            <span className="text-xs font-semibold text-red-400 whitespace-nowrap">{urgentCount} urgent</span>
           </div>
         )}
       </div>
 
       {/* ── Stat Strip ─────────────────────────────────────────────────── */}
       {isLoading ? (
-        <div className="flex gap-2 flex-wrap">
-          {[1,2,3,4,5].map(i => <Skeleton key={i} className="h-14 w-20 rounded-lg" />)}
+        <div className="grid grid-cols-3 sm:flex sm:flex-wrap gap-2">
+          {[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-14 rounded-lg" />)}
         </div>
       ) : (
-        <div className="flex gap-2 flex-wrap" data-testid="cc-stat-strip">
+        <div className="grid grid-cols-3 sm:flex sm:flex-wrap gap-2" data-testid="cc-stat-strip">
           <StatPill label="Overdue" value={sections?.overdueTasks.count ?? 0} accent={sections?.overdueTasks.count ? "text-red-400" : undefined} />
           <StatPill label="Follow-ups" value={sections?.inboxFollowUps.count ?? 0} accent={sections?.inboxFollowUps.count ? "text-amber-400" : undefined} />
           <StatPill label="At Risk" value={sections?.accountsAtRisk.count ?? 0} accent={sections?.accountsAtRisk.count ? "text-orange-400" : undefined} />
@@ -490,10 +490,10 @@ export default function DailyCommandCenter() {
       )}
 
       {/* ── Main Grid ──────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
         {/* Left: primary attention sections (2/3 width) */}
-        <div className="xl:col-span-2 flex flex-col gap-4">
+        <div className="lg:col-span-2 flex flex-col gap-4">
 
           {/* Overdue Tasks */}
           <Section icon={AlertTriangle} title="Overdue Tasks" count={sections?.overdueTasks.count ?? 0} viewAllLink="/tasks" accent={sections?.overdueTasks.count ? "border-red-500/30" : undefined}>

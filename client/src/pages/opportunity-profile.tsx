@@ -265,6 +265,34 @@ export default function OpportunityProfilePage() {
         </CardContent>
       </Card>
 
+      {/* Field Quick Actions — one-tap actions for field use */}
+      <div className="grid grid-cols-3 gap-2" data-testid="field-quick-actions">
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("open-quick-capture", { detail: { tab: "note" } }))}
+          data-testid="button-quick-note"
+          className="flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-xl bg-secondary/40 border border-border/40 hover:bg-primary/10 hover:border-primary/30 active:scale-95 transition-all"
+        >
+          <MessageSquare className="h-5 w-5 text-primary" />
+          <span className="text-xs font-medium">Note</span>
+        </button>
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("open-quick-capture", { detail: { tab: "task" } }))}
+          data-testid="button-quick-task"
+          className="flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-xl bg-secondary/40 border border-border/40 hover:bg-primary/10 hover:border-primary/30 active:scale-95 transition-all"
+        >
+          <CheckSquare className="h-5 w-5 text-primary" />
+          <span className="text-xs font-medium">Task</span>
+        </button>
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("open-quick-capture", { detail: { tab: "meeting-note" } }))}
+          data-testid="button-quick-log-call"
+          className="flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-xl bg-secondary/40 border border-border/40 hover:bg-primary/10 hover:border-primary/30 active:scale-95 transition-all"
+        >
+          <Phone className="h-5 w-5 text-primary" />
+          <span className="text-xs font-medium">Log Call</span>
+        </button>
+      </div>
+
       {/* Record Summary Bar */}
       <Card>
         <CardContent className="pt-4 pb-3 px-4">

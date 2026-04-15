@@ -121,6 +121,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
   const [saveViewName, setSaveViewName] = useState("");
   const [saveViewIsShared, setSaveViewIsShared] = useState(false);
   const [activeViewId, setActiveViewId] = useState<number | null>(null);
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -305,11 +306,28 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
         </div>
       </div>
 
-      <div className="flex gap-2 sm:gap-3 flex-wrap">
-        <div className="relative w-full sm:flex-1 sm:max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search organizations..." value={search} onChange={(e) => { setSearch(e.target.value); }} className="pl-10" data-testid="input-search-accounts" />
+      {/* Search + Filters */}
+      <div className="space-y-2">
+        {/* Search row + mobile filter toggle */}
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input placeholder="Search organizations..." value={search} onChange={(e) => { setSearch(e.target.value); }} className="pl-10" data-testid="input-search-accounts" />
+          </div>
+          <button
+            onClick={() => setShowMobileFilters(v => !v)}
+            data-testid="button-toggle-filters"
+            className={`sm:hidden flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors min-h-[44px] ${showMobileFilters ? "bg-primary/10 border-primary/30 text-primary" : isFiltered ? "bg-secondary border-primary/40 text-foreground" : "bg-secondary/50 border-border/50 text-muted-foreground"}`}
+          >
+            <Settings2 className="h-4 w-4" />
+            {isFiltered ? (
+              <span className="text-xs font-bold text-primary">{[segmentFilter, statusFilter, priorityFilter, orgTypeFilter].filter(v => v !== "all").length + (sortOption !== "default" ? 1 : 0)}</span>
+            ) : null}
+          </button>
         </div>
+
+        {/* Filter selects — always visible on sm+, toggled on mobile */}
+        <div className={`${showMobileFilters ? "flex" : "hidden"} sm:flex gap-2 sm:gap-3 flex-wrap`}>
         <Select value={segmentFilter} onValueChange={(v) => { setSegmentFilter(v); }}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-36" data-testid="select-segment-filter">
             <SelectValue placeholder="Segment" />
@@ -370,6 +388,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
             <SelectItem value="slipCount:asc">Fewest Slips</SelectItem>
           </SelectContent>
         </Select>
+        </div>
       </div>
 
       {/* Saved Views Row */}
