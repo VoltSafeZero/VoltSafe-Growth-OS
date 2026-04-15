@@ -11,7 +11,6 @@ import { useIsMobile } from "@/hooks/use-mobile";
 
 const primaryNav = [
   { title: "Today", url: "/today", icon: Sun },
-  { title: "Growth OS", url: "/accounts", icon: LayoutDashboard },
   { title: "Intelligence", url: "/gmail", icon: Brain },
   { title: "Support", url: "/support/tickets", icon: LifeBuoy },
 ];
@@ -160,13 +159,9 @@ export function MobileNav() {
 
       <nav className="fixed bottom-0 left-0 right-0 z-40 bg-background/95 border-t border-border/50 safe-area-bottom">
         <div className="flex items-stretch h-16">
-          {primaryNav.map((item) => {
-            const isActive =
-              item.url === "/"
-                ? location === "/"
-                : item.title === "Growth OS"
-                  ? GROWTH_OS_URLS.some(u => location.startsWith(u))
-                  : location.startsWith(item.url);
+          {/* Today */}
+          {primaryNav.slice(0, 1).map((item) => {
+            const isActive = location.startsWith(item.url);
             return (
               <Link
                 key={item.url}
@@ -181,6 +176,43 @@ export function MobileNav() {
               </Link>
             );
           })}
+
+          {/* Growth OS — opens the full section menu */}
+          {(() => {
+            const isGrowthActive = GROWTH_OS_URLS.some(u => location.startsWith(u));
+            return (
+              <button
+                onClick={() => setShowMore(!showMore)}
+                className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-all active:scale-95 ${
+                  isGrowthActive || showMore ? "text-primary" : "text-muted-foreground"
+                }`}
+                data-testid="mobile-nav-growth-os"
+              >
+                <LayoutDashboard className={`w-5 h-5 ${isGrowthActive || showMore ? "text-primary" : ""}`} />
+                <span className="text-[10px] font-medium">Growth OS</span>
+              </button>
+            );
+          })()}
+
+          {/* Intelligence + Support */}
+          {primaryNav.slice(1).map((item) => {
+            const isActive = location.startsWith(item.url);
+            return (
+              <Link
+                key={item.url}
+                href={item.url}
+                className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-all active:scale-95 ${
+                  isActive ? "text-primary" : "text-muted-foreground"
+                }`}
+                data-testid={`mobile-nav-${item.title.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
+              >
+                <item.icon className={`w-5 h-5 ${isActive ? "text-primary" : ""}`} />
+                <span className="text-[10px] font-medium">{item.title}</span>
+              </Link>
+            );
+          })}
+
+          {/* More */}
           <button
             onClick={() => setShowMore(!showMore)}
             className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-all active:scale-95 ${
