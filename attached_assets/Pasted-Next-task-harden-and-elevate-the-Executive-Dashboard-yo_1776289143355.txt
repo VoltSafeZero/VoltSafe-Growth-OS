@@ -1,0 +1,104 @@
+Next task: harden and elevate the Executive Dashboard you just built. Do not rebuild from scratch. Modify the existing implementation only.
+
+Goals:
+1) Freeze KPI definitions
+2) Add period-over-period deltas
+3) Add executive summary bullets
+4) Add freshness metadata
+5) Keep all existing tests passing, then add new tests
+
+Detailed requirements:
+
+A. KPI DEFINITION SOURCE OF TRUTH
+- Create one shared server-side module for executive KPI definitions / calculation helpers.
+- Centralize:
+  - weighted pipeline forecast-category mapping
+  - stalled opportunity definition
+  - quote status buckets
+  - install status buckets
+  - lead conversion definition
+- Export named helpers/constants so the dashboard endpoint and risk endpoint use the same logic.
+- Add clear code comments documenting each KPI rule and edge case.
+
+B. PERIOD-OVER-PERIOD DELTAS
+- For major KPIs, add comparison versus previous equivalent period based on the active filter window:
+  - pipeline total
+  - weighted pipeline
+  - open opp count
+  - quote win rate
+  - accepted quote revenue
+  - installs completed
+  - new leads
+  - converted leads
+- If no date range is provided:
+  - compare current month vs prior month
+  - also compute current quarter vs prior quarter where reasonable
+- Return for each KPI:
+  - current value
+  - previous value
+  - absolute delta
+  - percent delta (null-safe)
+  - trend direction: up/down/flat
+
+C. EXECUTIVE SUMMARY STRIP
+- Add a top summary section on /executive-dashboard that renders 3–5 concise bullets generated from the KPI response.
+- These bullets should be deterministic server-generated text, not AI-generated.
+- Prioritize:
+  - biggest positive movement
+  - biggest negative movement
+  - quote/revenue movement
+  - install blocker signal
+  - data quality risk signal
+- Keep language crisp and board-ready.
+
+D. FRESHNESS + FILTER CONTEXT
+- Add metadata to the executive KPI response:
+  - generatedAt timestamp
+  - dateFrom/dateTo applied
+  - ownerId applied
+  - comparisonMode used
+- Show this clearly in the UI near the top.
+- In board mode, keep it visible but compact.
+
+E. STALLED OPPORTUNITY HARDENING
+- Replace the current simplistic stalled logic with a clear shared rule:
+  - open opportunity only
+  - not closed won/lost
+  - stale if last_activity_date exists and is older than threshold
+  - if last_activity_date is null, fallback to created_at
+  - threshold should be centralized as a constant (default 21 days)
+- Include threshold in returned metadata.
+
+F. RISK BANNER IMPROVEMENT
+- Deduplicate risk counts where appropriate.
+- Return both:
+  - category counts
+  - total distinct at-risk records
+- Add severity tagging for each risk bucket: high / medium / low.
+
+G. TESTS
+- Do not break existing tests.
+- Add tests for:
+  - centralized weighting map behavior
+  - stalled logic with/without last_activity_date
+  - delta math
+  - percent delta null/zero handling
+  - executive summary bullet generation
+  - freshness metadata presence
+  - distinct risk total behavior
+
+H. OUTPUT FORMAT
+When done, provide:
+1) files changed
+2) exact KPI definitions added
+3) delta rules
+4) summary bullet rules
+5) test results
+6) any assumptions
+
+Constraints:
+- Reuse existing endpoints/tables wherever possible
+- No data duplication
+- No new warehouse tables
+- Keep code thin, readable, production-minded
+- Make the smallest high-leverage changes possible

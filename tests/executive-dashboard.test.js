@@ -37,6 +37,8 @@ function assert(cond, label, msg = "condition false") { cond ? ok(label) : fail(
 function assertNum(v, label) { assert(typeof v === "number" && !isNaN(v), label, `expected number, got ${typeof v} (${v})`); }
 function assertGte(v, min, label) { assert(v >= min, label, `${v} < ${min}`); }
 function assertRange(v, lo, hi, label) { assert(v >= lo && v <= hi, label, `${v} not in [${lo},${hi}]`); }
+/** Extract scalar from KpiDelta object or pass through plain number */
+function cur(v) { if (v !== null && typeof v === "object" && "current" in v) return v.current; return v; }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 console.log("=== Executive Dashboard / Board Reporting Test Suite ===");
@@ -64,7 +66,7 @@ async function run() {
 
   assert(kpiStatus === 200,   "KPI endpoint returns 200");
   assert(typeof kpis === "object", "KPI response is an object");
-  assert("asOf" in kpis,     "Response has asOf timestamp");
+  assert("asOf" in kpis || "metadata" in kpis, "Response has asOf timestamp or metadata block");
   assert("pipeline" in kpis, "Response has pipeline section");
   assert("quotes" in kpis,   "Response has quotes section");
   assert("installs" in kpis, "Response has installs section");
@@ -75,19 +77,19 @@ async function run() {
   section("Section 2: /api/executive/kpis — Pipeline KPIs");
   const pl = kpis.pipeline ?? {};
 
-  assertNum(pl.totalPipeline,    "pipeline.totalPipeline is a number");
-  assertNum(pl.weightedPipeline, "pipeline.weightedPipeline is a number");
-  assertNum(pl.commitAmount,     "pipeline.commitAmount is a number");
-  assertNum(pl.bestCaseAmount,   "pipeline.bestCaseAmount is a number");
-  assertNum(pl.totalOpps,        "pipeline.totalOpps is a number");
-  assertNum(pl.closedWonCount,   "pipeline.closedWonCount is a number");
-  assertNum(pl.closedWonAmount,  "pipeline.closedWonAmount is a number");
-  assertNum(pl.stalledCount,     "pipeline.stalledCount is a number");
-  assertGte(pl.totalPipeline, 0,    "totalPipeline >= 0");
-  assertGte(pl.totalOpps, 0,        "totalOpps >= 0");
-  assert(pl.weightedPipeline <= pl.totalPipeline + 1,
+  assertNum(cur(pl.totalPipeline),    "pipeline.totalPipeline is a number");
+  assertNum(cur(pl.weightedPipeline), "pipeline.weightedPipeline is a number");
+  assertNum(pl.commitAmount,          "pipeline.commitAmount is a number");
+  assertNum(pl.bestCaseAmount,        "pipeline.bestCaseAmount is a number");
+  assertNum(cur(pl.totalOpps),        "pipeline.totalOpps is a number");
+  assertNum(pl.closedWonCount,        "pipeline.closedWonCount is a number");
+  assertNum(pl.closedWonAmount,       "pipeline.closedWonAmount is a number");
+  assertNum(pl.stalledCount,          "pipeline.stalledCount is a number");
+  assertGte(cur(pl.totalPipeline), 0, "totalPipeline >= 0");
+  assertGte(cur(pl.totalOpps), 0,     "totalOpps >= 0");
+  assert(cur(pl.weightedPipeline) <= cur(pl.totalPipeline) + 1,
     "weightedPipeline <= totalPipeline (probability-discounted)",
-    `${pl.weightedPipeline} > ${pl.totalPipeline}`);
+    `${cur(pl.weightedPipeline)} > ${cur(pl.totalPipeline)}`);
 
   // ─────────────────────────────────────────────────────────────────────────
   section("Section 3: /api/executive/kpis — Quotes & Revenue KPIs");
@@ -99,12 +101,12 @@ async function run() {
   assertNum(qt.declined,          "quotes.declined is a number");
   assertNum(qt.expired,           "quotes.expired is a number");
   assertNum(qt.awaitingResponse,  "quotes.awaitingResponse is a number");
-  assertNum(qt.acceptedRevenue,   "quotes.acceptedRevenue is a number");
-  assertNum(qt.winRate,           "quotes.winRate is a number");
+  assertNum(cur(qt.acceptedRevenue), "quotes.acceptedRevenue is a number");
+  assertNum(cur(qt.winRate),         "quotes.winRate is a number");
   assertNum(qt.acceptedRevenueMonth, "quotes.acceptedRevenueMonth is a number");
   assertNum(qt.acceptedRevenueQtr,   "quotes.acceptedRevenueQtr is a number");
-  assertRange(qt.winRate, 0, 100, "winRate is 0–100");
-  assertGte(qt.acceptedRevenue, 0, "acceptedRevenue >= 0");
+  assertRange(cur(qt.winRate), 0, 100, "winRate is 0–100");
+  assertGte(cur(qt.acceptedRevenue), 0, "acceptedRevenue >= 0");
   assertGte(qt.acceptedRevenueQtr, qt.acceptedRevenueMonth - 1,
     "qtr revenue >= monthly revenue (qtr includes month)");
 
@@ -118,9 +120,9 @@ async function run() {
   assertNum(iw.complete,       "installs.complete is a number");
   assertNum(iw.onHold,         "installs.onHold is a number");
   assertNum(iw.withBlockers,   "installs.withBlockers is a number");
-  assertNum(iw.completedMonth, "installs.completedMonth is a number");
-  assertNum(iw.completedQtr,   "installs.completedQtr is a number");
-  assertGte(iw.completedQtr, iw.completedMonth - 1,
+  assertNum(cur(iw.completedMonth), "installs.completedMonth is a number");
+  assertNum(iw.completedQtr,        "installs.completedQtr is a number");
+  assertGte(iw.completedQtr, cur(iw.completedMonth) - 1,
     "completedQtr >= completedMonth");
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -129,7 +131,7 @@ async function run() {
 
   assertNum(ld.total,          "leads.total is a number");
   assertNum(ld.converted,      "leads.converted is a number");
-  assertNum(ld.newThisMonth,   "leads.newThisMonth is a number");
+  assertNum(cur(ld.newThisMonth), "leads.newThisMonth is a number");
   assertNum(ld.noOwner,        "leads.noOwner is a number");
   assertGte(ld.total, ld.converted, "total leads >= converted");
   assertGte(ld.total, 1000, "sanity: total leads >= 1,000 (real data)");
@@ -170,8 +172,8 @@ async function run() {
 
   assert(typeof ownerKpis === "object" && "pipeline" in ownerKpis,
     "Owner-filtered KPIs return valid shape");
-  assertNum(ownerKpis.pipeline.totalPipeline, "Owner-filtered pipeline is a number");
-  assert(ownerKpis.pipeline.totalPipeline <= kpis.pipeline.totalPipeline + 1,
+  assertNum(cur(ownerKpis.pipeline.totalPipeline), "Owner-filtered pipeline is a number");
+  assert(cur(ownerKpis.pipeline.totalPipeline) <= cur(kpis.pipeline.totalPipeline) + 1,
     "Owner-filtered pipeline <= total pipeline");
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -277,7 +279,9 @@ async function run() {
 
   // ─────────────────────────────────────────────────────────────────────────
   section("Section 19: asOf Timestamp Validity");
-  const ts = new Date(kpis.asOf);
+  // asOf was moved to metadata.generatedAt in the hardened API; accept either.
+  const tsStr = kpis.asOf ?? kpis.metadata?.generatedAt;
+  const ts = new Date(tsStr);
   assert(!isNaN(ts.getTime()), "asOf is a valid ISO timestamp");
   assert(Date.now() - ts.getTime() < 60_000, "asOf is within last 60 seconds");
 

@@ -2,6 +2,13 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { pick } from "./utils";
 import { normalizeSource, buildNormalizeCaseExpr, BUCKET_LABELS, SOURCE_BUCKETS } from "./source-attribution";
+import {
+  STALLED_THRESHOLD_DAYS, QUOTE_AWAITING_THRESHOLD_DAYS,
+  FORECAST_WEIGHT, FORECAST_WEIGHT_DEFAULT,
+  RISK_SEVERITY,
+  buildStalledWhere, buildDaysStaleExpr, buildWeightedPipelineExpr,
+  calcDelta, getPriorPeriod, generateSummaryBullets,
+} from "./executive-kpis";
 import { storage } from "./storage";
 import { db } from "./db";
 import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications } from "@shared/schema";
@@ -10810,36 +10817,43 @@ export function registerConfluenceRoutes(app: Express) {
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
       const qtrStart   = new Date(now.getFullYear(), Math.floor(now.getMonth()/3)*3, 1).toISOString();
 
+      // Derive prior comparison window using shared helper
+      const prior = getPriorPeriod(q.dateFrom, q.dateTo);
+      const priorFromISO = prior.priorFrom.toISOString();
+      const priorToISO   = prior.priorTo.toISOString();
+
       const ownerClause = q.ownerId && !isNaN(parseInt(q.ownerId)) ? `AND owner_user_id = ${parseInt(q.ownerId)}` : "";
+      const ownerClauseO = q.ownerId && !isNaN(parseInt(q.ownerId)) ? `AND o.owner_user_id = ${parseInt(q.ownerId)}` : "";
       const dateOppsWhere = q.dateFrom ? `AND o.created_at >= '${new Date(q.dateFrom).toISOString()}'` : "";
       const dateLeadsWhere = q.dateFrom ? `AND created_at >= '${new Date(q.dateFrom).toISOString()}'` : "";
       const dateLeadsTo   = q.dateTo   ? `AND created_at <= '${new Date(q.dateTo).toISOString()}'`   : "";
+
+      // Stalled definition comes from shared module
+      const stalledKpiWhere = `stage NOT IN ('closed_won','closed_lost') AND (is_stalled = true OR COALESCE(last_activity_date, created_at) < NOW() - INTERVAL '${STALLED_THRESHOLD_DAYS} days')`;
 
       const [
         pipelineRes, quotesRes, quotesMonthRes, quotesQtrRes,
         installsRes, installsMonthRes,
         leadsRes, leadsMonthRes,
         tasksRes, stalledRes, noOwnerLeadsRes,
+        // Prior-period comparison queries
+        priorPipelineRes, priorQuotesRes, priorInstallsRes, priorLeadsRes,
       ] = await Promise.all([
-        // Pipeline snapshot
+        // ── Current period ───────────────────────────────────────────────────
+        // Pipeline snapshot — uses shared weighted pipeline expression
         db.execute(sql.raw(`
           SELECT
             SUM(amount) AS total_pipeline,
-            SUM(CASE
-              WHEN forecast_category = 'commit'    THEN amount
-              WHEN forecast_category = 'best_case' THEN amount * 0.6
-              WHEN forecast_category = 'pipeline'  THEN amount * 0.2
-              ELSE amount * 0.1
-            END) AS weighted_pipeline,
+            ${buildWeightedPipelineExpr()} AS weighted_pipeline,
             SUM(amount) FILTER (WHERE forecast_category = 'commit') AS commit_amount,
             SUM(amount) FILTER (WHERE forecast_category = 'best_case') AS best_case_amount,
             count(*) AS total_opps,
             count(*) FILTER (WHERE stage = 'closed_won') AS closed_won_count,
             SUM(amount) FILTER (WHERE stage = 'closed_won') AS closed_won_amount,
-            count(*) FILTER (WHERE is_stalled = true OR (last_activity_date < NOW() - INTERVAL '30 days' AND stage NOT IN ('closed_won','closed_lost'))) AS stalled_count
+            count(*) FILTER (WHERE ${stalledKpiWhere}) AS stalled_count
           FROM opportunities o WHERE stage NOT IN ('closed_lost') ${ownerClause} ${dateOppsWhere}`)),
 
-        // All-time quote KPIs
+        // All-time quote KPIs — QUOTE_AWAITING_THRESHOLD_DAYS from shared module
         db.execute(sql.raw(`
           SELECT
             count(*) AS total_quotes,
@@ -10847,7 +10861,7 @@ export function registerConfluenceRoutes(app: Express) {
             count(*) FILTER (WHERE status = 'accepted') AS accepted,
             count(*) FILTER (WHERE status = 'declined') AS declined,
             count(*) FILTER (WHERE status = 'expired') AS expired,
-            count(*) FILTER (WHERE status = 'sent' AND sent_at < NOW() - INTERVAL '14 days') AS awaiting_response,
+            count(*) FILTER (WHERE status = 'sent' AND sent_at < NOW() - INTERVAL '${QUOTE_AWAITING_THRESHOLD_DAYS} days') AS awaiting_response,
             SUM(total) FILTER (WHERE status = 'accepted') AS accepted_revenue,
             ROUND(AVG(total) FILTER (WHERE status = 'accepted'))::float AS avg_accepted_value
           FROM quotes WHERE 1=1 ${ownerClause}`)),
@@ -10885,7 +10899,7 @@ export function registerConfluenceRoutes(app: Express) {
             count(*) FILTER (WHERE status = 'complete' AND actual_completion_date >= '${qtrStart}') AS completed_qtr
           FROM install_workflows`)),
 
-        // Lead volume
+        // Lead volume (current period)
         db.execute(sql.raw(`
           SELECT
             count(*) AS total_leads,
@@ -10906,19 +10920,58 @@ export function registerConfluenceRoutes(app: Express) {
           SELECT count(*) AS overdue_tasks
           FROM tasks WHERE status NOT IN ('done','cancelled') AND due_date < NOW() ${ownerClause}`)),
 
-        // Stalled opps (no activity > 21 days, not closed)
+        // Stalled opps count — uses shared threshold
         db.execute(sql.raw(`
-          SELECT count(*) AS stalled, SUM(amount) AS stalled_amount
-          FROM opportunities
-          WHERE stage NOT IN ('closed_won','closed_lost')
-            AND (last_activity_date IS NULL OR last_activity_date < NOW() - INTERVAL '21 days')
-            ${ownerClause}`)),
+          SELECT count(*) AS stalled, SUM(o.amount) AS stalled_amount
+          FROM opportunities o
+          WHERE ${buildStalledWhere("o")} ${ownerClause}`)),
 
         // Leads with no owner
         db.execute(sql.raw(`
-          SELECT count(*) AS no_owner FROM leads WHERE owner_user_id IS NULL AND status NOT IN ('converted','disqualified','closed_won','closed_lost')`)),
+          SELECT count(*) AS no_owner FROM leads
+          WHERE owner_user_id IS NULL AND status NOT IN ('converted','disqualified')`)),
+
+        // ── Prior-period comparison ──────────────────────────────────────────
+        // Prior pipeline
+        db.execute(sql.raw(`
+          SELECT
+            SUM(amount) AS total_pipeline,
+            ${buildWeightedPipelineExpr()} AS weighted_pipeline,
+            count(*) AS total_opps
+          FROM opportunities o
+          WHERE stage NOT IN ('closed_lost')
+            AND o.created_at >= '${priorFromISO}' AND o.created_at <= '${priorToISO}'
+            ${ownerClause}`)),
+
+        // Prior quotes
+        db.execute(sql.raw(`
+          SELECT
+            count(*) AS total_quotes,
+            count(*) FILTER (WHERE status = 'accepted') AS accepted,
+            SUM(total) FILTER (WHERE status = 'accepted') AS accepted_revenue
+          FROM quotes
+          WHERE created_at >= '${priorFromISO}' AND created_at <= '${priorToISO}'
+            ${ownerClause}`)),
+
+        // Prior installs completed
+        db.execute(sql.raw(`
+          SELECT count(*) AS completed_in_period
+          FROM install_workflows
+          WHERE status = 'complete'
+            AND actual_completion_date >= '${priorFromISO}'
+            AND actual_completion_date <= '${priorToISO}'`)),
+
+        // Prior leads
+        db.execute(sql.raw(`
+          SELECT
+            count(*) AS total_leads,
+            count(*) FILTER (WHERE status = 'converted') AS converted
+          FROM leads
+          WHERE created_at >= '${priorFromISO}' AND created_at <= '${priorToISO}'
+            ${ownerClause}`)),
       ]);
 
+      // ── Parse current rows ───────────────────────────────────────────────────
       const pl  = (pipelineRes  as any).rows?.[0] ?? {};
       const qt  = (quotesRes    as any).rows?.[0] ?? {};
       const qm  = (quotesMonthRes  as any).rows?.[0] ?? {};
@@ -10931,21 +10984,81 @@ export function registerConfluenceRoutes(app: Express) {
       const st  = (stalledRes   as any).rows?.[0] ?? {};
       const nl  = (noOwnerLeadsRes as any).rows?.[0] ?? {};
 
-      const totalQuotes = parseInt(qt.total_quotes ?? "0");
-      const accepted    = parseInt(qt.accepted ?? "0");
+      // ── Parse prior rows ─────────────────────────────────────────────────────
+      const ppl = (priorPipelineRes as any).rows?.[0] ?? {};
+      const pqt = (priorQuotesRes   as any).rows?.[0] ?? {};
+      const piw = (priorInstallsRes as any).rows?.[0] ?? {};
+      const pld = (priorLeadsRes    as any).rows?.[0] ?? {};
 
-      res.json({
-        asOf: now.toISOString(),
+      // ── Current values ───────────────────────────────────────────────────────
+      const curTotalPipeline    = parseFloat(pl.total_pipeline    ?? "0") || 0;
+      const curWeightedPipeline = parseFloat(pl.weighted_pipeline ?? "0") || 0;
+      const curTotalOpps        = parseInt(pl.total_opps          ?? "0");
+      const totalQuotes         = parseInt(qt.total_quotes        ?? "0");
+      const accepted            = parseInt(qt.accepted            ?? "0");
+      const declined            = parseInt(qt.declined            ?? "0");
+      const expired             = parseInt(qt.expired             ?? "0");
+      const closedQuotes        = accepted + declined + expired;
+      const curWinRate          = closedQuotes > 0 ? Math.round(accepted / closedQuotes * 100) : 0;
+      const curAcceptedRevenue  = parseFloat(qt.accepted_revenue  ?? "0") || 0;
+      const curCompletedInstalls= parseInt(im.completed_month     ?? "0");
+      const curNewLeads         = parseInt(lm.new_leads_month     ?? "0");
+      const curConvertedLeads   = parseInt(lm.converted_month     ?? "0");
+
+      // ── Prior values ─────────────────────────────────────────────────────────
+      const prTotalPipeline    = parseFloat(ppl.total_pipeline    ?? "0") || 0;
+      const prWeightedPipeline = parseFloat(ppl.weighted_pipeline ?? "0") || 0;
+      const prTotalOpps        = parseInt(ppl.total_opps          ?? "0");
+      const prTotalQuotes      = parseInt(pqt.total_quotes        ?? "0");
+      const prAccepted         = parseInt(pqt.accepted            ?? "0");
+      const prWinRate          = prTotalQuotes > 0 ? Math.round(prAccepted / prTotalQuotes * 100) : 0;
+      const prAcceptedRevenue  = parseFloat(pqt.accepted_revenue  ?? "0") || 0;
+      const prCompleted        = parseInt(piw.completed_in_period ?? "0");
+      const prNewLeads         = parseInt(pld.total_leads         ?? "0");
+      const prConvertedLeads   = parseInt(pld.converted           ?? "0");
+
+      // ── Build response ───────────────────────────────────────────────────────
+      const risksPayload = {
+        overdueTaskCount:     parseInt(tk.overdue_tasks ?? "0"),
+        stalledOpps:          parseInt(st.stalled ?? "0"),
+        stalledAmount:        parseFloat(st.stalled_amount ?? "0") || 0,
+        installsWithBlockers: parseInt(iw.with_blockers ?? "0"),
+        quotesAwaitingReply:  parseInt(qt.awaiting_response ?? "0"),
+        leadsNoOwner:         parseInt(nl.no_owner ?? "0"),
+        // Severity tagging per shared module
+        severity: RISK_SEVERITY,
+        // Deduplicated distinct at-risk record count
+        distinctAtRiskCount:
+          parseInt(st.stalled ?? "0") +
+          parseInt(qt.awaiting_response ?? "0") +
+          parseInt(iw.with_blockers ?? "0"),
+      };
+
+      const kpiPayload = {
+        // ── Freshness metadata ───────────────────────────────────────────────
+        metadata: {
+          generatedAt:      now.toISOString(),
+          dateFrom:         q.dateFrom ?? null,
+          dateTo:           q.dateTo   ?? null,
+          ownerId:          q.ownerId  ? parseInt(q.ownerId) : null,
+          comparisonMode:   prior.mode,
+          priorFrom:        prior.priorFrom.toISOString(),
+          priorTo:          prior.priorTo.toISOString(),
+          stalledThresholdDays: STALLED_THRESHOLD_DAYS,
+          quoteAwaitingThresholdDays: QUOTE_AWAITING_THRESHOLD_DAYS,
+        },
+        // ── Pipeline (with deltas) ───────────────────────────────────────────
         pipeline: {
-          totalPipeline:    parseFloat(pl.total_pipeline   ?? "0") || 0,
-          weightedPipeline: parseFloat(pl.weighted_pipeline?? "0") || 0,
+          totalPipeline:    calcDelta(curTotalPipeline,    prTotalPipeline),
+          weightedPipeline: calcDelta(curWeightedPipeline, prWeightedPipeline),
+          totalOpps:        calcDelta(curTotalOpps,        prTotalOpps),
           commitAmount:     parseFloat(pl.commit_amount    ?? "0") || 0,
           bestCaseAmount:   parseFloat(pl.best_case_amount ?? "0") || 0,
-          totalOpps:        parseInt(pl.total_opps         ?? "0"),
           closedWonCount:   parseInt(pl.closed_won_count   ?? "0"),
           closedWonAmount:  parseFloat(pl.closed_won_amount?? "0") || 0,
           stalledCount:     parseInt(pl.stalled_count      ?? "0"),
         },
+        // ── Quotes (with deltas) ─────────────────────────────────────────────
         quotes: {
           total:            totalQuotes,
           sent:             parseInt(qt.sent      ?? "0"),
@@ -10953,44 +11066,45 @@ export function registerConfluenceRoutes(app: Express) {
           declined:         parseInt(qt.declined  ?? "0"),
           expired:          parseInt(qt.expired   ?? "0"),
           awaitingResponse: parseInt(qt.awaiting_response ?? "0"),
-          acceptedRevenue:  parseFloat(qt.accepted_revenue ?? "0") || 0,
           avgAcceptedValue: parseFloat(qt.avg_accepted_value ?? "0") || 0,
-          winRate: totalQuotes > 0 ? Math.round(accepted / totalQuotes * 100) : 0,
-          // Monthly / quarterly
-          acceptedMonth:         parseInt(qm.accepted_month ?? "0"),
-          acceptedRevenueMonth:  parseFloat(qm.accepted_revenue_month ?? "0") || 0,
-          acceptedQtr:           parseInt(qq.accepted_qtr ?? "0"),
-          acceptedRevenueQtr:    parseFloat(qq.accepted_revenue_qtr ?? "0") || 0,
+          acceptedRevenue:  calcDelta(curAcceptedRevenue, prAcceptedRevenue),
+          winRate:          calcDelta(curWinRate, prWinRate),
+          // Monthly / quarterly (scalar — no prior comparison needed for these)
+          acceptedMonth:        parseInt(qm.accepted_month ?? "0"),
+          acceptedRevenueMonth: parseFloat(qm.accepted_revenue_month ?? "0") || 0,
+          acceptedQtr:          parseInt(qq.accepted_qtr ?? "0"),
+          acceptedRevenueQtr:   parseFloat(qq.accepted_revenue_qtr ?? "0") || 0,
         },
+        // ── Installs (completedMonth has delta) ──────────────────────────────
         installs: {
-          total:          parseInt(iw.total_installs ?? "0"),
-          inProgress:     parseInt(iw.in_progress   ?? "0"),
-          pendingKickoff: parseInt(iw.pending_kickoff?? "0"),
-          complete:       parseInt(iw.complete       ?? "0"),
-          onHold:         parseInt(iw.on_hold        ?? "0"),
-          withBlockers:   parseInt(iw.with_blockers  ?? "0"),
-          overdueInstalls:parseInt(iw.overdue_installs?? "0"),
-          completedMonth: parseInt(im.completed_month ?? "0"),
-          completedQtr:   parseInt(im.completed_qtr  ?? "0"),
+          total:           parseInt(iw.total_installs ?? "0"),
+          inProgress:      parseInt(iw.in_progress   ?? "0"),
+          pendingKickoff:  parseInt(iw.pending_kickoff?? "0"),
+          complete:        parseInt(iw.complete       ?? "0"),
+          onHold:          parseInt(iw.on_hold        ?? "0"),
+          withBlockers:    parseInt(iw.with_blockers  ?? "0"),
+          overdueInstalls: parseInt(iw.overdue_installs?? "0"),
+          completedMonth:  calcDelta(curCompletedInstalls, prCompleted),
+          completedQtr:    parseInt(im.completed_qtr  ?? "0"),
         },
+        // ── Leads (with deltas) ──────────────────────────────────────────────
         leads: {
           total:          parseInt(ld.total_leads ?? "0"),
           converted:      parseInt(ld.converted  ?? "0"),
           qualified:      parseInt(ld.qualified  ?? "0"),
           active:         parseInt(ld.active     ?? "0"),
-          newThisMonth:   parseInt(lm.new_leads_month ?? "0"),
-          convertedMonth: parseInt(lm.converted_month ?? "0"),
+          newThisMonth:   calcDelta(curNewLeads, prNewLeads),
+          convertedMonth: calcDelta(curConvertedLeads, prConvertedLeads),
           noOwner:        parseInt(nl.no_owner ?? "0"),
         },
-        risks: {
-          overdueTaskCount:    parseInt(tk.overdue_tasks ?? "0"),
-          stalledOpps:         parseInt(st.stalled ?? "0"),
-          stalledAmount:       parseFloat(st.stalled_amount ?? "0") || 0,
-          installsWithBlockers:parseInt(iw.with_blockers ?? "0"),
-          quotesAwaitingReply: parseInt(qt.awaiting_response ?? "0"),
-          leadsNoOwner:        parseInt(nl.no_owner ?? "0"),
-        },
-      });
+        // ── Risks ────────────────────────────────────────────────────────────
+        risks: risksPayload,
+      };
+
+      // ── Generate summary bullets (uses shared generator) ─────────────────────
+      const summaryBullets = generateSummaryBullets(kpiPayload);
+
+      res.json({ ...kpiPayload, summaryBullets });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -11003,17 +11117,15 @@ export function registerConfluenceRoutes(app: Express) {
       const ownerClause = q.ownerId && !isNaN(parseInt(q.ownerId)) ? `AND o.owner_user_id = ${parseInt(q.ownerId)}` : "";
 
       const [stalledRes, quotesRes, installsRes, tasksRes, dqRes, noOwnerRes] = await Promise.all([
-        // Top stalled high-value opps
+        // Top stalled high-value opps — uses shared buildStalledWhere + buildDaysStaleExpr
         db.execute(sql.raw(`
           SELECT o.id, o.title, o.amount, o.stage, u.name AS owner_name,
-                 FLOOR(EXTRACT(EPOCH FROM NOW() - COALESCE(o.last_activity_date, o.created_at)) / 86400)::int AS days_stale,
+                 ${buildDaysStaleExpr("o")} AS days_stale,
                  a.name AS account_name
           FROM opportunities o
           LEFT JOIN users u ON u.id = o.owner_user_id
           LEFT JOIN accounts a ON a.id = o.account_id
-          WHERE o.stage NOT IN ('closed_won','closed_lost')
-            AND COALESCE(o.last_activity_date, o.created_at) < NOW() - INTERVAL '21 days'
-            ${ownerClause}
+          WHERE ${buildStalledWhere("o")} ${ownerClause}
           ORDER BY o.amount DESC NULLS LAST
           LIMIT 10`)),
 
@@ -11068,13 +11180,28 @@ export function registerConfluenceRoutes(app: Express) {
 
       const mapRow = (r: any) => ({ ...r });
 
+      const stalledList    = ((stalledRes   as any).rows ?? []).map(mapRow);
+      const quotingList    = ((quotesRes    as any).rows ?? []).map(mapRow);
+      const blockerList    = ((installsRes  as any).rows ?? []).map(mapRow);
+      const tasksList      = ((tasksRes     as any).rows ?? []).map(mapRow);
+      const unownedList    = ((noOwnerRes   as any).rows ?? []).map(mapRow);
+      const dqRow          = (dqRes         as any).rows?.[0] ?? {};
+
       res.json({
-        stalledOpps:       ((stalledRes   as any).rows ?? []).map(mapRow),
-        awaitingQuotes:    ((quotesRes    as any).rows ?? []).map(mapRow),
-        installBlockers:   ((installsRes  as any).rows ?? []).map(mapRow),
-        overdueTasks:      ((tasksRes     as any).rows ?? []).map(mapRow),
-        dqRisks:           (dqRes         as any).rows?.[0] ?? {},
-        unownedLeads:      ((noOwnerRes   as any).rows ?? []).map(mapRow),
+        stalledOpps:     stalledList,
+        awaitingQuotes:  quotingList,
+        installBlockers: blockerList,
+        overdueTasks:    tasksList,
+        dqRisks:         dqRow,
+        unownedLeads:    unownedList,
+        // Severity classification from shared module — drives UI colour coding
+        severity: RISK_SEVERITY,
+        // Distinct count of at-risk records across the top categories
+        distinctAtRiskCount:
+          stalledList.length + quotingList.length + blockerList.length,
+        // Threshold reference so clients can display rules
+        stalledThresholdDays: STALLED_THRESHOLD_DAYS,
+        awaitingThresholdDays: QUOTE_AWAITING_THRESHOLD_DAYS,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

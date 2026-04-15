@@ -12,40 +12,65 @@ import {
   PieChart, Pie, Cell, Legend,
 } from "recharts";
 import {
-  TrendingUp, DollarSign, Target, Users, Hammer, FileText,
-  AlertTriangle, CheckCircle2, Clock, XCircle, Zap,
+  TrendingUp, TrendingDown, DollarSign, Target, Users, Hammer, FileText,
+  AlertTriangle, CheckCircle2, Clock, XCircle, Zap, Minus,
   RefreshCw, Filter, Maximize2, Minimize2, Trophy,
-  ChevronRight, Building2, User, Calendar,
+  Building2, User, Calendar, Info,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface KpiDelta {
+  current: number;
+  previous: number;
+  delta: number;
+  pctDelta: number | null;
+  trend: "up" | "down" | "flat";
+}
+
+type DeltaOrNum = KpiDelta | number;
+
+interface ExecMetadata {
+  generatedAt: string;
+  dateFrom: string | null;
+  dateTo: string | null;
+  ownerId: number | null;
+  comparisonMode: "explicit_range" | "month_over_month" | "quarter_over_quarter";
+  priorFrom: string;
+  priorTo: string;
+  stalledThresholdDays: number;
+  quoteAwaitingThresholdDays: number;
+}
+
 interface ExecKPIs {
-  asOf: string;
+  metadata: ExecMetadata;
+  summaryBullets: string[];
   pipeline: {
-    totalPipeline: number; weightedPipeline: number; commitAmount: number;
-    bestCaseAmount: number; totalOpps: number; closedWonCount: number;
-    closedWonAmount: number; stalledCount: number;
+    totalPipeline: KpiDelta; weightedPipeline: KpiDelta; totalOpps: KpiDelta;
+    commitAmount: number; bestCaseAmount: number;
+    closedWonCount: number; closedWonAmount: number; stalledCount: number;
   };
   quotes: {
     total: number; sent: number; accepted: number; declined: number;
-    expired: number; awaitingResponse: number; acceptedRevenue: number;
-    avgAcceptedValue: number; winRate: number;
+    expired: number; awaitingResponse: number; avgAcceptedValue: number;
+    acceptedRevenue: KpiDelta; winRate: KpiDelta;
     acceptedMonth: number; acceptedRevenueMonth: number;
     acceptedQtr: number; acceptedRevenueQtr: number;
   };
   installs: {
     total: number; inProgress: number; pendingKickoff: number; complete: number;
     onHold: number; withBlockers: number; overdueInstalls: number;
-    completedMonth: number; completedQtr: number;
+    completedMonth: KpiDelta; completedQtr: number;
   };
   leads: {
     total: number; converted: number; qualified: number; active: number;
-    newThisMonth: number; convertedMonth: number; noOwner: number;
+    newThisMonth: KpiDelta; convertedMonth: KpiDelta; noOwner: number;
   };
   risks: {
     overdueTaskCount: number; stalledOpps: number; stalledAmount: number;
     installsWithBlockers: number; quotesAwaitingReply: number; leadsNoOwner: number;
+    severity: Record<string,string>;
+    distinctAtRiskCount: number;
   };
 }
 
@@ -56,6 +81,9 @@ interface RiskAlerts {
   overdueTasks: any[];
   dqRisks: any;
   unownedLeads: any[];
+  severity: Record<string,string>;
+  distinctAtRiskCount: number;
+  stalledThresholdDays: number;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -71,23 +99,63 @@ function fmtDate(s: string | null) {
 }
 function pct(n: number) { return `${Math.round(n)}%`; }
 
-const RISK_COLORS = { low: "text-emerald-400", medium: "text-amber-400", high: "text-red-400" };
+/** Extract current scalar from a KpiDelta or plain number */
+function cur(v: DeltaOrNum | undefined): number {
+  if (v === undefined || v === null) return 0;
+  if (typeof v === "number") return v;
+  return (v as KpiDelta).current ?? 0;
+}
+
+/** Extract the delta object if present */
+function delta(v: DeltaOrNum | undefined): KpiDelta | null {
+  if (v === undefined || v === null || typeof v === "number") return null;
+  return v as KpiDelta;
+}
+
 const PIE_COLORS = ["#06b6d4","#10b981","#8b5cf6","#f59e0b","#3b82f6","#6b7280"];
+
+// ── Delta Chip ────────────────────────────────────────────────────────────────
+function DeltaChip({ d }: { d: KpiDelta | null }) {
+  if (!d || (d.delta === 0 && d.pctDelta === null)) return null;
+  const up   = d.trend === "up";
+  const down = d.trend === "down";
+  const pctStr = d.pctDelta !== null ? `${Math.abs(d.pctDelta)}%` : "—";
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 text-[10px] font-medium tabular-nums px-1 py-0.5 rounded ${
+        up   ? "text-emerald-400 bg-emerald-400/10" :
+        down ? "text-red-400 bg-red-400/10"         :
+               "text-muted-foreground bg-muted/30"
+      }`}
+      title={`vs prior: ${d.previous >= 1000 ? fmtAmt(d.previous) : d.previous}`}
+    >
+      {up   ? <TrendingUp  className="h-2.5 w-2.5" /> :
+       down ? <TrendingDown className="h-2.5 w-2.5" /> :
+              <Minus        className="h-2.5 w-2.5" />}
+      {pctStr}
+    </span>
+  );
+}
 
 // ── KPI Card ──────────────────────────────────────────────────────────────────
 function KpiCard({
-  label, value, sub, color, icon: Icon, trend, board,
-}: { label: string; value: string | number; sub?: string; color?: string; icon: any; trend?: string; board?: boolean }) {
+  label, value, sub, color, icon: Icon, board, deltaVal,
+}: {
+  label: string; value: string | number; sub?: string; color?: string;
+  icon: any; board?: boolean; deltaVal?: KpiDelta | null;
+}) {
   return (
-    <Card className="border border-border/50" data-testid={`kpi-${label.toLowerCase().replace(/\s/g,"-")}`}>
+    <Card className="border border-border/50" data-testid={`kpi-${label.toLowerCase().replace(/[\s/]/g,"-")}`}>
       <CardContent className={board ? "p-4" : "p-3"}>
         <div className="flex items-center justify-between mb-1">
           <span className="text-xs text-muted-foreground font-medium">{label}</span>
           <Icon className={`h-3.5 w-3.5 ${color ?? "text-muted-foreground"}`} />
         </div>
         <div className={`font-bold tabular-nums ${board ? "text-3xl" : "text-2xl"} ${color ?? ""}`}>{value}</div>
-        {sub   && <div className="text-xs text-muted-foreground mt-0.5">{sub}</div>}
-        {trend && <div className="text-xs text-emerald-400 mt-0.5">{trend}</div>}
+        <div className="flex items-center gap-1.5 mt-0.5">
+          {sub && <span className="text-xs text-muted-foreground">{sub}</span>}
+          {deltaVal && <DeltaChip d={deltaVal} />}
+        </div>
       </CardContent>
     </Card>
   );
@@ -96,13 +164,74 @@ function KpiCard({
 // ── Risk Chip ─────────────────────────────────────────────────────────────────
 function RiskChip({ count, label, level = "medium" }: { count: number; label: string; level?: "low"|"medium"|"high" }) {
   if (count === 0) return null;
-  const color = level === "high" ? "border-red-500/40 bg-red-500/10 text-red-400"
+  const color = level === "high"   ? "border-red-500/40 bg-red-500/10 text-red-400"
               : level === "medium" ? "border-amber-500/40 bg-amber-500/10 text-amber-400"
-              : "border-emerald-500/40 bg-emerald-500/10 text-emerald-400";
+              :                      "border-emerald-500/40 bg-emerald-500/10 text-emerald-400";
   return (
     <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium ${color}`}>
       <AlertTriangle className="h-3 w-3" /> {count} {label}
     </span>
+  );
+}
+
+// ── Summary Strip ─────────────────────────────────────────────────────────────
+function SummaryStrip({ bullets, board }: { bullets: string[]; board: boolean }) {
+  if (!bullets?.length) return null;
+  if (board) {
+    return (
+      <div className="flex flex-wrap gap-2 mb-1" data-testid="summary-strip">
+        {bullets.map((b, i) => (
+          <span key={i} className="text-xs text-muted-foreground border border-border/30 rounded px-2 py-1 bg-muted/20">
+            {b}
+          </span>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <Card className="border border-border/40 bg-muted/20" data-testid="summary-strip">
+      <CardContent className="p-3">
+        <div className="flex items-center gap-1.5 mb-2">
+          <Info className="h-3.5 w-3.5 text-primary" />
+          <span className="text-xs font-semibold text-primary">Leadership Summary</span>
+        </div>
+        <ul className="space-y-1">
+          {bullets.map((b, i) => (
+            <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5" data-testid={`summary-bullet-${i}`}>
+              <span className="text-primary mt-0.5">·</span>
+              {b}
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Metadata Bar ──────────────────────────────────────────────────────────────
+function MetadataBar({ meta, board }: { meta: ExecMetadata; board: boolean }) {
+  if (!meta) return null;
+  const modeLabel = meta.comparisonMode === "month_over_month" ? "Month-over-month"
+                  : meta.comparisonMode === "quarter_over_quarter" ? "Quarter-over-quarter"
+                  : "Custom range";
+  const priorStr = `${fmtDate(meta.priorFrom)} – ${fmtDate(meta.priorTo)}`;
+  return (
+    <div
+      className={`flex items-center gap-3 flex-wrap text-[10px] text-muted-foreground/70 ${board ? "" : "px-0.5"}`}
+      data-testid="metadata-bar"
+    >
+      <span className="flex items-center gap-1">
+        <RefreshCw className="h-2.5 w-2.5" />
+        Generated {new Date(meta.generatedAt).toLocaleTimeString()}
+      </span>
+      <span className="text-border/50">|</span>
+      <span>Δ vs {modeLabel.toLowerCase()} · prior: {priorStr}</span>
+      {meta.ownerId && <><span className="text-border/50">|</span><span>Rep #{meta.ownerId} filtered</span></>}
+      {(meta.dateFrom || meta.dateTo) && (
+        <><span className="text-border/50">|</span>
+        <span>{meta.dateFrom ?? "—"} → {meta.dateTo ?? "now"}</span></>
+      )}
+    </div>
   );
 }
 
@@ -138,7 +267,7 @@ export default function ExecutiveDashboardPage() {
   });
 
   const { data: forecast } = useQuery<any>({
-    queryKey: ["/api/pipeline/forecast", params],
+    queryKey: ["/api/pipeline/forecast", ownerId],
     queryFn: () => fetch(`/api/pipeline/forecast?months=6${ownerId !== "all" ? `&ownerId=${ownerId}` : ""}`, { credentials: "include" }).then(r => r.json()),
     staleTime: 60_000,
   });
@@ -160,7 +289,7 @@ export default function ExecutiveDashboardPage() {
 
   const forecastPeriods = useMemo(() => (forecast?.periods ?? []).slice(0, 6).reverse(), [forecast]);
   const sourceRows = useMemo(() => (sourceData?.data ?? []).slice(0, 6), [sourceData]);
-  const repRows    = useMemo(() => [...(repPerf?.data ?? [])].sort((a: any, b: any) => b.closedWonAmount - a.closedWonAmount).slice(0, 8), [repPerf]);
+  const repRows    = useMemo(() => [...(repPerf?.reps ?? [])].sort((a: any, b: any) => (b.closedWonAmount ?? 0) - (a.closedWonAmount ?? 0)).slice(0, 8), [repPerf]);
 
   const totalRisks = kpis ? (
     kpis.risks.overdueTaskCount + kpis.risks.stalledOpps +
@@ -174,8 +303,12 @@ export default function ExecutiveDashboardPage() {
     { name: "On Hold",      value: kpis.installs.onHold,          fill: "#f59e0b" },
   ].filter(d => d.value > 0) : [];
 
+  // Severity map from API or fallback
+  const sev = risks?.severity ?? {};
+  const riskSev = (bucket: string) => (sev[bucket] ?? "medium") as "high" | "medium" | "low";
+
   return (
-    <div className={`flex-1 overflow-auto bg-background p-6 space-y-5 ${boardMode ? "print:p-4" : ""}`}>
+    <div className={`flex-1 overflow-auto bg-background p-6 space-y-4 ${boardMode ? "print:p-4" : ""}`}>
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
@@ -185,8 +318,8 @@ export default function ExecutiveDashboardPage() {
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Leadership cockpit — pipeline, revenue, delivery, and risk at a glance.
-            {kpis && <span className="text-xs text-muted-foreground/60 ml-2">As of {new Date(kpis.asOf).toLocaleTimeString()}</span>}
           </p>
+          {kpis?.metadata && <MetadataBar meta={kpis.metadata} board={boardMode} />}
         </div>
         <div className="flex items-center gap-2">
           {totalRisks > 0 && (
@@ -200,6 +333,9 @@ export default function ExecutiveDashboardPage() {
           </Button>
         </div>
       </div>
+
+      {/* Summary bullets */}
+      {kpis?.summaryBullets?.length ? <SummaryStrip bullets={kpis.summaryBullets} board={boardMode} /> : null}
 
       {/* Filters — hidden in board mode */}
       {!boardMode && (
@@ -238,27 +374,45 @@ export default function ExecutiveDashboardPage() {
               <TrendingUp className="h-3.5 w-3.5" /> Pipeline
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <KpiCard label="Total Pipeline"    value={fmtAmt(kpis.pipeline.totalPipeline)}    icon={DollarSign} color="text-primary" board={boardMode} />
-              <KpiCard label="Weighted Forecast" value={fmtAmt(kpis.pipeline.weightedPipeline)} icon={Target} board={boardMode}
+              <KpiCard label="Total Pipeline"
+                value={fmtAmt(cur(kpis.pipeline.totalPipeline))}
+                deltaVal={delta(kpis.pipeline.totalPipeline)}
+                icon={DollarSign} color="text-primary" board={boardMode} />
+              <KpiCard label="Weighted Forecast"
+                value={fmtAmt(cur(kpis.pipeline.weightedPipeline))}
+                deltaVal={delta(kpis.pipeline.weightedPipeline)}
+                icon={Target} board={boardMode}
                 sub={`Commit: ${fmtAmt(kpis.pipeline.commitAmount)}`} />
-              <KpiCard label="Open Opportunities" value={kpis.pipeline.totalOpps} icon={Target} board={boardMode}
-                sub={`${kpis.pipeline.stalledCount} stalled`} color={kpis.pipeline.stalledCount > 5 ? "text-amber-400" : undefined} />
-              <KpiCard label="Closed Won" value={fmtAmt(kpis.pipeline.closedWonAmount)} icon={Trophy} color="text-emerald-400" board={boardMode}
+              <KpiCard label="Open Opportunities"
+                value={cur(kpis.pipeline.totalOpps)}
+                deltaVal={delta(kpis.pipeline.totalOpps)}
+                icon={Target} board={boardMode}
+                sub={`${kpis.pipeline.stalledCount} stalled`}
+                color={kpis.pipeline.stalledCount > 5 ? "text-amber-400" : undefined} />
+              <KpiCard label="Closed Won"
+                value={fmtAmt(kpis.pipeline.closedWonAmount)}
+                icon={Trophy} color="text-emerald-400" board={boardMode}
                 sub={`${kpis.pipeline.closedWonCount} deals`} />
             </div>
           </div>
 
-          {/* Row 2: Revenue */}
+          {/* Row 2: Quotes & Revenue */}
           <div>
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <FileText className="h-3.5 w-3.5" /> Quotes & Revenue
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-              <KpiCard label="Accepted Revenue"    value={fmtAmt(kpis.quotes.acceptedRevenue)} color="text-emerald-400" icon={DollarSign} board={boardMode} />
+              <KpiCard label="Accepted Revenue"
+                value={fmtAmt(cur(kpis.quotes.acceptedRevenue))}
+                deltaVal={delta(kpis.quotes.acceptedRevenue)}
+                color="text-emerald-400" icon={DollarSign} board={boardMode} />
               <KpiCard label="Revenue This Month"  value={fmtAmt(kpis.quotes.acceptedRevenueMonth)} icon={Calendar} board={boardMode} />
               <KpiCard label="Revenue This Quarter" value={fmtAmt(kpis.quotes.acceptedRevenueQtr)} icon={Calendar} board={boardMode} />
-              <KpiCard label="Win Rate"            value={pct(kpis.quotes.winRate)} icon={Trophy}
-                color={kpis.quotes.winRate >= 40 ? "text-emerald-400" : kpis.quotes.winRate >= 20 ? "text-amber-400" : "text-red-400"} board={boardMode} />
+              <KpiCard label="Win Rate"
+                value={pct(cur(kpis.quotes.winRate))}
+                deltaVal={delta(kpis.quotes.winRate)}
+                icon={Trophy}
+                color={cur(kpis.quotes.winRate) >= 40 ? "text-emerald-400" : cur(kpis.quotes.winRate) >= 20 ? "text-amber-400" : "text-red-400"} board={boardMode} />
               <KpiCard label="Avg Deal Value"      value={fmtAmt(kpis.quotes.avgAcceptedValue)} icon={DollarSign} board={boardMode} />
               <KpiCard label="Awaiting Response"   value={kpis.quotes.awaitingResponse} icon={Clock}
                 color={kpis.quotes.awaitingResponse > 5 ? "text-amber-400" : undefined} board={boardMode}
@@ -275,7 +429,8 @@ export default function ExecutiveDashboardPage() {
               <div className="grid grid-cols-2 gap-3">
                 <KpiCard label="In Progress" value={kpis.installs.inProgress} icon={RefreshCw} color="text-blue-400" board={boardMode} />
                 <KpiCard label="Completed (Qtr)" value={kpis.installs.completedQtr} icon={CheckCircle2} color="text-emerald-400" board={boardMode}
-                  sub={`${kpis.installs.completedMonth} this month`} />
+                  sub={`${cur(kpis.installs.completedMonth)} this month`}
+                  deltaVal={delta(kpis.installs.completedMonth)} />
                 <KpiCard label="With Blockers" value={kpis.installs.withBlockers} icon={AlertTriangle}
                   color={kpis.installs.withBlockers > 0 ? "text-amber-400" : undefined} board={boardMode} />
                 <KpiCard label="Overdue" value={kpis.installs.overdueInstalls} icon={XCircle}
@@ -288,8 +443,13 @@ export default function ExecutiveDashboardPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <KpiCard label="Total Leads"    value={kpis.leads.total.toLocaleString()} icon={Users} board={boardMode} />
-                <KpiCard label="New This Month" value={kpis.leads.newThisMonth} icon={Zap} board={boardMode} />
-                <KpiCard label="Converted"      value={kpis.leads.converted.toLocaleString()} icon={CheckCircle2} color="text-emerald-400" board={boardMode} />
+                <KpiCard label="New This Month"
+                  value={cur(kpis.leads.newThisMonth)}
+                  deltaVal={delta(kpis.leads.newThisMonth)}
+                  icon={Zap} board={boardMode} />
+                <KpiCard label="Converted"
+                  value={kpis.leads.converted.toLocaleString()}
+                  icon={CheckCircle2} color="text-emerald-400" board={boardMode} />
                 <KpiCard label="No Owner"       value={kpis.leads.noOwner} icon={User}
                   color={kpis.leads.noOwner > 10 ? "text-amber-400" : undefined} board={boardMode} />
               </div>
@@ -303,15 +463,20 @@ export default function ExecutiveDashboardPage() {
         <div className="flex items-center gap-2 flex-wrap p-3 rounded-lg bg-red-500/5 border border-red-500/20" data-testid="risk-alert-banner">
           <AlertTriangle className="h-4 w-4 text-red-400 flex-shrink-0" />
           <span className="text-xs font-semibold text-red-400">Attention Required:</span>
-          <RiskChip count={kpis.risks.stalledOpps}         label="stalled opps" level="high" />
-          <RiskChip count={kpis.risks.quotesAwaitingReply} label="quotes aging"  level="high" />
-          <RiskChip count={kpis.risks.installsWithBlockers}label="install blockers" level="medium" />
-          <RiskChip count={kpis.risks.overdueTaskCount}    label="overdue tasks" level="medium" />
-          <RiskChip count={kpis.risks.leadsNoOwner}        label="unowned leads" level="medium" />
+          <RiskChip count={kpis.risks.stalledOpps}          label="stalled opps"      level={riskSev("stalledOpps")} />
+          <RiskChip count={kpis.risks.quotesAwaitingReply}  label="quotes aging"      level={riskSev("awaitingQuotes")} />
+          <RiskChip count={kpis.risks.installsWithBlockers} label="install blockers"  level={riskSev("installBlockers")} />
+          <RiskChip count={kpis.risks.overdueTaskCount}     label="overdue tasks"     level={riskSev("overdueTasks")} />
+          <RiskChip count={kpis.risks.leadsNoOwner}         label="unowned leads"     level={riskSev("unownedLeads")} />
+          {kpis.risks.distinctAtRiskCount > 0 && (
+            <span className="text-[10px] text-muted-foreground ml-auto">
+              {kpis.risks.distinctAtRiskCount} distinct at-risk records
+            </span>
+          )}
         </div>
       )}
 
-      {/* Tabs: Charts + Detail Views */}
+      {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="h-8 bg-muted/40 p-1 gap-1 flex-wrap">
           <TabsTrigger value="overview"  className="text-xs h-6" data-testid="tab-overview">Overview</TabsTrigger>
@@ -324,9 +489,8 @@ export default function ExecutiveDashboardPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* ── Overview tab ─────────────────────────────────────────────────── */}
+        {/* ── Overview ─────────────────────────────────────────────────────── */}
         <TabsContent value="overview" className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Pipeline Forecast mini-chart */}
           <Card className="border border-border/50">
             <CardHeader className="pb-2 pt-4 px-4">
               <CardTitle className="text-sm flex items-center gap-2"><TrendingUp className="h-4 w-4" />6-Month Forecast</CardTitle>
@@ -339,9 +503,9 @@ export default function ExecutiveDashboardPage() {
                     <XAxis dataKey="month" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} />
                     <YAxis tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} tickFormatter={v => fmtAmt(v)} />
                     <Tooltip formatter={(v: any) => fmtAmt(v)} contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: 10 }} />
-                    <Bar dataKey="commit"     name="Commit"     fill="#10b981" stackId="a" radius={[0,0,0,0]} />
-                    <Bar dataKey="best_case"  name="Best Case"  fill="#06b6d4" stackId="a" />
-                    <Bar dataKey="pipeline"   name="Pipeline"   fill="#3b82f6" stackId="a" radius={[3,3,0,0]} />
+                    <Bar dataKey="commit.totalAmount"    name="Commit"    fill="#10b981" stackId="a" radius={[0,0,0,0]} />
+                    <Bar dataKey="best_case.totalAmount" name="Best Case" fill="#06b6d4" stackId="a" />
+                    <Bar dataKey="pipeline.totalAmount"  name="Pipeline"  fill="#3b82f6" stackId="a" radius={[3,3,0,0]} />
                     <Legend wrapperStyle={{ fontSize: 10 }} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -349,7 +513,6 @@ export default function ExecutiveDashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Source attribution mini */}
           <Card className="border border-border/50">
             <CardHeader className="pb-2 pt-4 px-4">
               <CardTitle className="text-sm flex items-center gap-2"><Users className="h-4 w-4" />Lead Sources</CardTitle>
@@ -367,30 +530,17 @@ export default function ExecutiveDashboardPage() {
                       <span className={`text-xs tabular-nums w-10 text-right ${r.winRate >= 40 ? "text-emerald-400" : r.winRate >= 20 ? "text-amber-400" : "text-muted-foreground"}`}>{r.winRate}%</span>
                     </div>
                   ))}
-                  <div className="flex text-[10px] text-muted-foreground mt-1 gap-2">
-                    <span className="w-28" />
-                    <span className="flex-1 text-center">Volume</span>
-                    <span className="w-10 text-right">Leads</span>
-                    <span className="w-10 text-right">Win%</span>
-                  </div>
                 </div>
               )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* ── Forecast tab ─────────────────────────────────────────────────── */}
+        {/* ── Forecast ─────────────────────────────────────────────────────── */}
         <TabsContent value="forecast" className="mt-3">
           <Card className="border border-border/50">
             <CardHeader className="pb-2 pt-4 px-4">
               <CardTitle className="text-sm">6-Month Revenue Forecast</CardTitle>
-              {forecast?.summary && (
-                <div className="flex gap-4 text-xs text-muted-foreground mt-1 flex-wrap">
-                  <span>Commit: <span className="text-emerald-400 font-medium">{fmtAmt(forecast.summary.totalCommit ?? 0)}</span></span>
-                  <span>Best Case: <span className="text-cyan-400 font-medium">{fmtAmt(forecast.summary.totalBestCase ?? 0)}</span></span>
-                  <span>Pipeline: <span className="text-blue-400 font-medium">{fmtAmt(forecast.summary.totalAmount ?? 0)}</span></span>
-                </div>
-              )}
             </CardHeader>
             <CardContent className="pb-4 px-4">
               {!forecastPeriods.length ? <Skeleton className="h-60" /> : (
@@ -400,10 +550,9 @@ export default function ExecutiveDashboardPage() {
                     <XAxis dataKey="month" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
                     <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={v => fmtAmt(v)} />
                     <Tooltip formatter={(v: any) => fmtAmt(v)} contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: 11 }} />
-                    <Bar dataKey="commit"     name="Commit"     fill="#10b981" stackId="a" />
-                    <Bar dataKey="best_case"  name="Best Case"  fill="#06b6d4" stackId="a" />
-                    <Bar dataKey="pipeline"   name="Pipeline"   fill="#3b82f6" stackId="a" radius={[3,3,0,0]} />
-                    <Bar dataKey="closed_won" name="Closed Won" fill="#8b5cf6" />
+                    <Bar dataKey="commit.totalAmount"    name="Commit"     fill="#10b981" stackId="a" />
+                    <Bar dataKey="best_case.totalAmount" name="Best Case"  fill="#06b6d4" stackId="a" />
+                    <Bar dataKey="pipeline.totalAmount"  name="Pipeline"   fill="#3b82f6" stackId="a" radius={[3,3,0,0]} />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -412,7 +561,7 @@ export default function ExecutiveDashboardPage() {
           </Card>
         </TabsContent>
 
-        {/* ── Source tab ───────────────────────────────────────────────────── */}
+        {/* ── Source Attribution ────────────────────────────────────────────── */}
         <TabsContent value="source" className="mt-3 space-y-3">
           {sourceSummary && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -433,12 +582,9 @@ export default function ExecutiveDashboardPage() {
                 <table className="w-full text-xs" data-testid="source-table">
                   <thead>
                     <tr className="border-b border-border/40">
-                      <th className="text-left py-1.5 pr-3 text-muted-foreground font-medium">Source</th>
-                      <th className="text-right py-1.5 px-2 text-muted-foreground font-medium">Leads</th>
-                      <th className="text-right py-1.5 px-2 text-muted-foreground font-medium">Qualified</th>
-                      <th className="text-right py-1.5 px-2 text-muted-foreground font-medium">Won</th>
-                      <th className="text-right py-1.5 px-2 text-muted-foreground font-medium">Win %</th>
-                      <th className="text-right py-1.5 px-2 text-muted-foreground font-medium">Revenue</th>
+                      {["Source","Leads","Qualified","Won","Win %","Revenue"].map(h => (
+                        <th key={h} className={`py-1.5 px-2 text-muted-foreground font-medium ${h === "Source" ? "text-left" : "text-right"}`}>{h}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
@@ -459,7 +605,7 @@ export default function ExecutiveDashboardPage() {
           </Card>
         </TabsContent>
 
-        {/* ── Installs tab ─────────────────────────────────────────────────── */}
+        {/* ── Installs ─────────────────────────────────────────────────────── */}
         <TabsContent value="installs" className="mt-3 space-y-3">
           {kpis && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -483,13 +629,13 @@ export default function ExecutiveDashboardPage() {
                 <CardHeader className="pb-2 pt-4 px-4"><CardTitle className="text-sm">Delivery KPIs</CardTitle></CardHeader>
                 <CardContent className="pb-4 px-4">
                   {[
-                    { label: "Total Workflows",     value: kpis.installs.total },
-                    { label: "In Progress",         value: kpis.installs.inProgress },
-                    { label: "Pending Kickoff",     value: kpis.installs.pendingKickoff },
-                    { label: "Completed (Qtr)",     value: kpis.installs.completedQtr },
-                    { label: "Completed (Month)",   value: kpis.installs.completedMonth },
-                    { label: "With Blockers",       value: kpis.installs.withBlockers,   alert: kpis.installs.withBlockers > 0 },
-                    { label: "Overdue",             value: kpis.installs.overdueInstalls, alert: kpis.installs.overdueInstalls > 0 },
+                    { label: "Total Workflows",   value: kpis.installs.total },
+                    { label: "In Progress",       value: kpis.installs.inProgress },
+                    { label: "Pending Kickoff",   value: kpis.installs.pendingKickoff },
+                    { label: "Completed (Qtr)",   value: kpis.installs.completedQtr },
+                    { label: "Completed (Month)", value: cur(kpis.installs.completedMonth), alert: false },
+                    { label: "With Blockers",     value: kpis.installs.withBlockers,   alert: kpis.installs.withBlockers > 0 },
+                    { label: "Overdue",           value: kpis.installs.overdueInstalls, alert: kpis.installs.overdueInstalls > 0 },
                   ].map(r => (
                     <div key={r.label} className="flex justify-between py-1.5 border-b border-border/20 text-sm" data-testid={`install-kpi-${r.label}`}>
                       <span className="text-muted-foreground">{r.label}</span>
@@ -502,7 +648,7 @@ export default function ExecutiveDashboardPage() {
           )}
         </TabsContent>
 
-        {/* ── Rep Leaderboard tab ───────────────────────────────────────────── */}
+        {/* ── Rep Leaderboard ───────────────────────────────────────────────── */}
         <TabsContent value="reps" className="mt-3">
           <Card className="border border-border/50">
             <CardHeader className="pb-2 pt-4 px-4">
@@ -513,26 +659,20 @@ export default function ExecutiveDashboardPage() {
                 <table className="w-full text-xs" data-testid="rep-table">
                   <thead>
                     <tr className="border-b border-border/40">
-                      {["Rep","Open Opps","Win Rate","Avg Cycle","Stale","Closed Won $","Activity 7d"].map(h => (
+                      {["Rep","Open Opps","Stale","Closed Won $","Activity 7d"].map(h => (
                         <th key={h} className={`py-1.5 px-2 text-muted-foreground font-medium ${h === "Rep" ? "text-left" : "text-right"}`}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {repRows.map((r: any, i: number) => (
-                      <tr key={r.repName ?? i} className="border-b border-border/20 hover:bg-muted/10" data-testid={`rep-row-${i}`}>
+                      <tr key={r.name ?? i} className="border-b border-border/20 hover:bg-muted/10" data-testid={`rep-row-${i}`}>
                         <td className="py-1.5 px-2 font-medium flex items-center gap-1.5">
                           {i === 0 && <Trophy className="h-3 w-3 text-amber-400" />}
-                          {r.repName ?? "Unassigned"}
+                          {r.name ?? r.repName ?? "Unassigned"}
                         </td>
                         <td className="py-1.5 px-2 text-right tabular-nums">{r.openOpps ?? "—"}</td>
-                        <td className={`py-1.5 px-2 text-right tabular-nums ${(r.winRate ?? 0) >= 40 ? "text-emerald-400" : (r.winRate ?? 0) >= 20 ? "text-amber-400" : "text-muted-foreground"}`}>
-                          {r.winRate != null ? pct(r.winRate) : "—"}
-                        </td>
-                        <td className="py-1.5 px-2 text-right tabular-nums text-muted-foreground">
-                          {r.avgCycleDays ? `${Math.round(r.avgCycleDays)}d` : "—"}
-                        </td>
-                        <td className={`py-1.5 px-2 text-right tabular-nums ${(r.staleCount ?? 0) > 3 ? "text-amber-400" : ""}`}>{r.staleCount ?? 0}</td>
+                        <td className={`py-1.5 px-2 text-right tabular-nums ${(r.staleOpps ?? 0) > 3 ? "text-amber-400" : ""}`}>{r.staleOpps ?? r.staleCount ?? 0}</td>
                         <td className="py-1.5 px-2 text-right tabular-nums text-emerald-400">
                           {r.closedWonAmount ? fmtAmt(r.closedWonAmount) : "—"}
                         </td>
@@ -546,16 +686,27 @@ export default function ExecutiveDashboardPage() {
           </Card>
         </TabsContent>
 
-        {/* ── Risks tab ────────────────────────────────────────────────────── */}
+        {/* ── Risks ────────────────────────────────────────────────────────── */}
         <TabsContent value="risks" className="mt-3 space-y-3">
           {riskLoading ? <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24" />)}</div> : risks && (
             <>
+              {/* Distinct count summary */}
+              {risks.distinctAtRiskCount > 0 && (
+                <div className="text-xs text-muted-foreground p-2 rounded bg-muted/20 border border-border/30" data-testid="distinct-risk-count">
+                  <span className="font-medium text-red-400">{risks.distinctAtRiskCount}</span> distinct at-risk records across stalled opps, aging quotes, and install blockers.
+                  {risks.stalledThresholdDays && <span className="ml-2 text-muted-foreground/60">Stalled threshold: {risks.stalledThresholdDays}d.</span>}
+                </div>
+              )}
+
               {/* Stalled Opps */}
               {risks.stalledOpps.length > 0 && (
                 <Card className="border border-amber-500/30 bg-amber-500/5">
                   <CardHeader className="pb-2 pt-4 px-4">
                     <CardTitle className="text-sm flex items-center gap-2 text-amber-400">
                       <AlertTriangle className="h-4 w-4" />Stalled Opportunities ({risks.stalledOpps.length})
+                      <Badge variant="outline" className="text-[9px] text-amber-400 border-amber-500/30 ml-auto">
+                        {risks.severity?.stalledOpps ?? "high"}
+                      </Badge>
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="pb-4 px-4">
@@ -585,6 +736,9 @@ export default function ExecutiveDashboardPage() {
                   <CardHeader className="pb-2 pt-4 px-4">
                     <CardTitle className="text-sm flex items-center gap-2 text-red-400">
                       <Clock className="h-4 w-4" />Quotes Awaiting Response ({risks.awaitingQuotes.length})
+                      <Badge variant="outline" className="text-[9px] text-red-400 border-red-500/30 ml-auto">
+                        {risks.severity?.awaitingQuotes ?? "high"}
+                      </Badge>
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="pb-4 px-4">
@@ -599,7 +753,7 @@ export default function ExecutiveDashboardPage() {
                           <div className="flex items-center gap-3 flex-shrink-0 ml-2">
                             <span className="text-muted-foreground">{r.owner_name ?? "—"}</span>
                             {r.total && <span className="text-emerald-400">{fmtAmt(r.total)}</span>}
-                            <span className="text-red-400">Sent {fmtDate(r.sent_at)} · {r.days_waiting}d ago</span>
+                            <span className="text-red-400">Sent {fmtDate(r.sent_at)} · {r.days_waiting}d</span>
                           </div>
                         </div>
                       ))}
@@ -614,6 +768,9 @@ export default function ExecutiveDashboardPage() {
                   <CardHeader className="pb-2 pt-4 px-4">
                     <CardTitle className="text-sm flex items-center gap-2 text-amber-400">
                       <Hammer className="h-4 w-4" />Install Blockers ({risks.installBlockers.length})
+                      <Badge variant="outline" className="text-[9px] text-amber-400 border-amber-500/30 ml-auto">
+                        {risks.severity?.installBlockers ?? "medium"}
+                      </Badge>
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="pb-4 px-4">
@@ -692,10 +849,10 @@ export default function ExecutiveDashboardPage() {
                   <CardContent className="pb-4 px-4">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       {[
-                        { label: "Leads (no owner)", value: risks.dqRisks.leads_no_owner ?? 0 },
-                        { label: "Opps (no owner)", value: risks.dqRisks.opps_no_owner ?? 0 },
-                        { label: "Opps stale 30d",  value: risks.dqRisks.opps_stale_30d ?? 0 },
-                        { label: "Quotes stale 30d", value: risks.dqRisks.quotes_stale_30d ?? 0 },
+                        { label: "Leads (no owner)",  value: risks.dqRisks.leads_no_owner  ?? 0 },
+                        { label: "Opps (no owner)",   value: risks.dqRisks.opps_no_owner   ?? 0 },
+                        { label: "Opps stale 30d",    value: risks.dqRisks.opps_stale_30d  ?? 0 },
+                        { label: "Quotes stale 30d",  value: risks.dqRisks.quotes_stale_30d ?? 0 },
                       ].map(k => (
                         <div key={k.label} className="rounded-lg p-2.5 bg-muted/30 border border-border/40" data-testid={`dq-risk-${k.label}`}>
                           <div className="text-xs text-muted-foreground">{k.label}</div>
