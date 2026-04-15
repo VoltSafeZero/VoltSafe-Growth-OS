@@ -1,0 +1,232 @@
+Enhance the Projects form UX for the new “Safety Certification” project type.
+
+Goal:
+Make the Safety Certification project form easy to use, grouped logically, and not visually overwhelming.
+
+FORM RULES
+- Only show the certification-specific sections when project type = Safety Certification
+- Keep the default project form for all other project types
+- Use clear section headers
+- Use 2-column layout where helpful
+- Keep the most important fields near the top
+- Collapse advanced sections by default if needed
+- Show status/risk/blocker information prominently
+
+RECOMMENDED FORM LAYOUT
+
+SECTION 1 — BASIC PROJECT INFO
+Top of form, always visible
+Fields:
+- Project Name
+- Type
+- Status
+- Internal Owner
+- Start Date
+- End Date
+- Description
+
+If Type = Safety Certification, also show a small highlighted badge:
+- Safety Certification Project
+
+SECTION 2 — CERTIFICATION SNAPSHOT
+This should appear directly under basic info and be highly visible.
+Purpose: quick at-a-glance control area.
+
+Fields:
+- Certification Status
+- Certification Program
+- Product Name
+- Product Version / Revision
+- Certification Priority
+- Overall Risk
+- Launch Blocker (toggle)
+- Blocker Summary (show only if Launch Blocker = true)
+- Next Action
+- Next Action Due Date
+
+Design:
+- make status, risk, and blocker visually prominent with badges/colors
+- if launch_blocker = true, show a red warning box
+
+SECTION 3 — PRODUCT + SCOPE
+Fields:
+- Certification Scope
+- Product Name
+- Product Version
+- Product Revision
+- SKU / Internal Code
+- Target Market
+- Certification Standard Codes
+
+Purpose:
+What exactly is being certified and for where.
+
+SECTION 4 — LAB / REGULATORY
+Fields:
+- Testing Lab Name
+- Lab Contact Name
+- Lab Contact Email
+- Lab Contact Phone
+- Application Submission Date
+- Planned Test Start Date
+- Actual Test Start Date
+- Target Completion Date
+- Actual Completion Date
+
+Purpose:
+Who is doing the test, and when.
+
+SECTION 5 — SAMPLE / UNIT TRACKING
+Fields:
+- Sample Units Required
+- Sample Units Built
+- Sample Units Shipped
+- Sample Units Received by Lab
+- Sample Serial Numbers
+- Sample Notes
+
+Purpose:
+Track physical units for certification.
+
+SECTION 6 — FAILURES / CORRECTIVE ACTION
+Fields:
+- Failure Found (toggle)
+- Failure Summary
+- Corrective Action Required (toggle)
+- Corrective Action Summary
+- Retest Required (toggle)
+- Retest Date
+- Pass Date
+- Certificate Issue Date
+- Certificate Expiry Date
+
+Behavior:
+- only show failure detail fields if failure_found = true
+- only show corrective action fields if corrective_action_required = true
+- only show retest fields if retest_required = true
+
+SECTION 7 — INTERNAL / COMMERCIAL TRACKING
+Fields:
+- Internal Owner
+- Engineering Owner
+- Operations Owner
+- Linked Supplier
+- Linked Production Batch
+- Estimated Certification Cost
+- Actual Certification Cost
+- Budget Status
+
+Purpose:
+Connect certification work to internal accountability and spend.
+
+SECTION 8 — DOCUMENTS + LINKS
+Fields:
+- Certification Doc Link
+- Test Report Link
+- Shared Drive Folder Link
+- Certificate File / Attachment
+- Compliance Notes
+
+Purpose:
+Single place for all files and URLs.
+
+Also allow:
+- attachment upload area
+- linked documents list
+- drag-and-drop if already supported elsewhere
+
+SECTION 9 — CHECKLIST / MILESTONES
+Show below the form or in a side panel.
+
+Auto-create default checklist for Safety Certification projects:
+- Define certification scope
+- Confirm standards / requirements
+- Prepare documentation package
+- Build certification samples
+- Ship samples to lab
+- Lab intake confirmed
+- Testing started
+- Failure review
+- Corrective action complete
+- Retest complete
+- Certification passed
+- Certificate received
+
+Behavior:
+- allow checking items complete
+- show completed count / total count
+- show overdue milestone if due dates exist
+
+SECTION 10 — ACTIVITY / TIMELINE
+At the bottom or in a tab.
+Show:
+- project created
+- status changes
+- blocker updates
+- due date changes
+- document uploads
+- milestone completion
+- notes
+
+PAGE / DETAIL VIEW LAYOUT AFTER SAVE
+
+HEADER STRIP
+At top of the project detail page show:
+- Project Name
+- Safety Certification badge
+- Certification Status badge
+- Overall Risk badge
+- Launch Blocker badge if true
+- Next Action + due date
+- Internal Owner
+
+MAIN BODY
+Left side:
+- Snapshot
+- Product + Scope
+- Lab / Regulatory
+- Failures / Corrective Action
+- Notes
+
+Right side:
+- Dates
+- Cost summary
+- Owners
+- Documents
+- Checklist progress
+
+BOTTOM
+- Timeline / Activity
+- Attachments
+- Related tasks
+
+UX / VISUAL RULES
+- most important fields first
+- hide irrelevant sections until needed
+- use conditional reveal for failure/retest/blocker fields
+- show warning banners for:
+  - launch blocker
+  - overdue next action
+  - overdue target completion
+  - retest required
+  - certificate expiry approaching
+- do not make the form one giant wall of inputs
+
+LIST VIEW / CARD VIEW FOR PROJECTS
+For Safety Certification projects show these columns or chips:
+- Project Name
+- Certification Status
+- Product Name
+- Target Completion Date
+- Overall Risk
+- Launch Blocker
+- Internal Owner
+
+OPTIONAL NICE TOUCH
+Add a compact “Certification Health” summary card:
+- On Track / At Risk / Blocked
+Based on:
+- launch blocker
+- overdue next action
+- overdue target completion
+- failure/retest flags
