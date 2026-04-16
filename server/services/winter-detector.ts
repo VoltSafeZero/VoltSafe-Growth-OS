@@ -84,7 +84,7 @@ interface EmailRow {
   body_text: string;
   from_email: string;
   from_name: string;
-  received_at: string;
+  sent_at: string;
 }
 
 /**
@@ -101,12 +101,12 @@ export async function scanEmailsForWinter(limitHours = 720): Promise<{
 
   const emailResult = await db.execute(sql.raw(`
     SELECT id, gmail_message_id, gmail_thread_id, subject, body_text,
-           from_email, from_name, received_at
+           from_email, from_name, sent_at
     FROM email_messages
     WHERE direction = 'inbound'
-      AND received_at > '${cutoff}'
-      AND from_email NOT ILIKE '%@voltsafe.com%'
-    ORDER BY received_at DESC
+      AND (sent_at > '${cutoff}' OR sent_at IS NULL)
+      AND (from_email NOT ILIKE '%@voltsafe.com%' OR from_email IS NULL)
+    ORDER BY sent_at DESC NULLS LAST
     LIMIT 500
   `));
 

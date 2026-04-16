@@ -1054,3 +1054,35 @@ Recurring auto-delivery system for board packs and executive reports. Admins con
 - Session additions: +903 (territory routing sprint) → tracked separately
 - Board Pack Scheduler: +48 new tests
 - **Total new scheduler tests: 48, 0 failures**
+
+## Winter Support + Legacy Product Operations Module
+
+### Database Tables
+- `winter_products` — product registry (name, SKU, version, launch year, certifications, units sold, channels, status)
+- `winter_support_cases` — support case intake (case number, customer info, gmail thread, issue type, severity, sentiment, auto-detected flag)
+- `winter_kb_articles` — knowledge base with approved customer responses and internal notes
+
+### Backend Routes (`/api/winter/*`)
+- `GET/POST /api/winter/products` — product list + create
+- `PUT /api/winter/products/:id` — update product
+- `GET/POST /api/winter/cases` — case list (filterable by status/issueType/severity/search) + create
+- `GET /api/winter/cases/:id` — single case detail
+- `PUT /api/winter/cases/:id` — update case status/severity/resolution
+- `GET/POST /api/winter/kb` — KB article list + create
+- `PUT /api/winter/kb/:id` — update article
+- `GET /api/winter/dashboard` — command center stats (open cases, critical, demand score, revenue opp, top issues, weekly trend, product breakdown)
+- `GET /api/winter/demand-signals` — signals by country, retailers, feature requests, monthly trend, sentiment
+- `POST /api/winter/scan-emails` — scans `email_messages` for Winter keywords, auto-creates cases
+
+### Email Detector (`server/services/winter-detector.ts`)
+Keyword detection, issue type classification, severity scoring, sentiment scoring. Scans `email_messages.sent_at` column; skips threads already in `winter_support_cases`.
+
+### Frontend (`client/src/pages/winter-hub.tsx`)
+5-tab interface: Command Center, Cases, Knowledge Base, Demand Signals, Products. Supports full CRUD via dialogs. Route: `/winter`. Sidebar: Support → Winter Support (Snowflake icon).
+
+### Tests
+`tests/winter-support.test.js` — **73/73 assertions, 0 failures**
+Covers: auth guards (6), products CRUD (12), cases CRUD (15), KB CRUD (15), dashboard (11), demand signals (6), email scan (5).
+
+### Seed Data
+Auto-seeded on boot (if empty): 3 products (Gen 1, Gen 2, Pro) + 7 KB articles covering overheating, charging issues, magnet/cable/compatibility/warranty/retailer.

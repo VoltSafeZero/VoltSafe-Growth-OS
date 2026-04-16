@@ -69,6 +69,7 @@ import BoardPackPage from "@/pages/board-pack";
 import RevenuePage from "@/pages/revenue";
 import RevenueSimPage from "@/pages/revenue-sim";
 import RevenueOpsPage from "@/pages/revenue-ops";
+import WinterHubPage from "@/pages/winter-hub";
 import ExecutiveCopilotPage from "@/pages/executive-copilot";
 import FieldPage from "@/pages/field";
 import FieldNearbyPage from "@/pages/field-nearby";
@@ -264,6 +265,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/revenue">{() => wrap(<RevenuePage />)}</Route>
       <Route path="/revenue-sim">{() => wrap(<RevenueSimPage />)}</Route>
       <Route path="/revenue-ops">{() => wrap(<RevenueOpsPage />)}</Route>
+      <Route path="/winter">{() => wrap(<WinterHubPage />)}</Route>
       <Route path="/executive-copilot">{() => wrap(<ExecutiveCopilotPage />)}</Route>
 
       {/* ── AUTOMATION ────────────────────────────────────────────── */}
