@@ -78,6 +78,7 @@ import AlertsDigestPage from "@/pages/alerts-digest";
 import ScoreFeedbackPage from "@/pages/score-feedback";
 import TerritoryRoutingPage from "@/pages/territory-routing";
 import MailboxSettingsPage from "@/pages/mailbox-settings";
+import HelpCenterPage from "@/pages/help-center";
 import { GlobalSearch } from "@/components/global-search";
 
 type AccessLevel = "none" | "view" | "edit";
@@ -298,6 +299,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/admin/integrations">{() => wrap(<AdminIntegrationsPage />)}</Route>
       <Route path="/jira">{() => wrap(<JiraPage />)}</Route>
       <Route path="/confluence">{() => wrap(<ConfluencePage />)}</Route>
+      <Route path="/help">{() => wrap(<HelpCenterPage />)}</Route>
       <Route path="/settings">{() => wrap(<SettingsPage />)}</Route>
       <Route path="/settings/mailbox">{() => wrap(<MailboxSettingsPage />)}</Route>
       <Route path="/search">{() => wrap(

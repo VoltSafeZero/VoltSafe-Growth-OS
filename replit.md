@@ -1,5 +1,32 @@
 # Replit Agent Configuration
 
+## Help Center & AI Training System (Complete — Feature 11)
+
+### What was built
+A complete documentation, training, and AI knowledge system integrated directly into VoltSafe Cortex.
+
+**Files created:**
+- `docs/quick-start-guide.md` — New employee quick start (5 min read, login to first 15 min)
+- `docs/operations-manual.md` — Full 34-section operations manual covering every module, daily workflows, troubleshooting, glossary, top 20 rules
+- `docs/training-handbook.md` — Role-based training (CEO/Admin, Sales, Operations, Read-only) with 30-min plan, 7-day mastery plan, onboarding checklists
+- `docs/ai-knowledge-base.json` — Structured knowledge base: 100 FAQs, 16 feature cards, 10 troubleshooting guides, 32 glossary terms
+- `client/src/docs/` — Mirror of docs/ within Vite root for frontend imports
+- `client/src/pages/help-center.tsx` — In-app Help Center with 4 tabs + PDF download + searchable FAQ
+
+**App changes:**
+- `/help` route added to `App.tsx`
+- "Help Center" section added to sidebar under TOOLS with Quick Start / Operations Manual / Training Handbook / FAQ & Glossary sub-items
+- `GraduationCap`, `HelpCircle` icons added to sidebar imports
+
+**AI integration:**
+- `searchKnowledgeBase(query)` function added to `server/voice-assistant.ts`
+- Detects help-type queries ("how do I", "what is", "explain", etc.)
+- Returns top-5 relevant FAQ answers as context in every AI response
+- `SYSTEM_PROMPT` updated with capability #3: Help & Training Knowledge Base
+- Cortex now answers system usage questions from the 100-item FAQ database
+
+---
+
 ## Production Hardening Pass 2 (Complete — Comprehensive audit)
 
 ### Issues found and fixed

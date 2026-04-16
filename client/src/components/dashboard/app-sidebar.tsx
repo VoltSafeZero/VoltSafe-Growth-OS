@@ -5,7 +5,7 @@ import {
   ClipboardList, Layers, ShieldCheck, Sun, Moon, GitBranch, MapPin,
   LayoutDashboard, Target, Share2, Brain, SlidersHorizontal, BarChart3,
   Megaphone, TrendingUp, Landmark, Truck, Factory, FlaskConical, Newspaper,
-  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, BellRing, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen, FlaskRound, Snowflake, Search,
+  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, BellRing, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen, FlaskRound, Snowflake, Search, GraduationCap, HelpCircle,
 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Link, useLocation } from "wouter";
@@ -156,6 +156,19 @@ const sections: NavSection[] = [
 
   // ── Tools ─────────────────────────────────────────────────────────────────
   { id: "divider-tools", label: "TOOLS", isDivider: true },
+
+  {
+    id: "help",
+    label: "Help Center",
+    icon: BookOpen,
+    url: "/help",
+    items: [
+      { title: "Quick Start Guide", url: "/help", icon: Zap },
+      { title: "Operations Manual", url: "/help", icon: BookOpen },
+      { title: "Training Handbook", url: "/help", icon: GraduationCap },
+      { title: "FAQ & Glossary", url: "/help", icon: HelpCircle },
+    ],
+  },
 
   {
     id: "support",

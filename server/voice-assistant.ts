@@ -5,8 +5,43 @@ import { chatStorage } from "./replit_integrations/chat/storage";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { requireAuth } from "./auth";
+import knowledgeBase from "../docs/ai-knowledge-base.json";
 
 const audioBodyParser = express.json({ limit: "50mb" });
+
+type KBFaq = { id: string; question: string; answer: string; tags: string[] };
+
+function searchKnowledgeBase(query: string): string {
+  const lower = query.toLowerCase();
+  const helpPatterns = [
+    "how do i", "how to", "what is", "what does", "what are", "where do", "where is",
+    "explain", "help me", "guide", "tutorial", "step", "create a", "set up",
+    "difference between", "mean", "why is", "when do", "can i", "how can",
+  ];
+  const isHelpQuery = helpPatterns.some(p => lower.includes(p));
+  if (!isHelpQuery) return "";
+
+  const terms = lower.split(/\s+/).filter(t => t.length > 2);
+  const scored: Array<{ faq: KBFaq; score: number }> = [];
+
+  for (const faq of (knowledgeBase.faqs as KBFaq[])) {
+    let score = 0;
+    const qLower = faq.question.toLowerCase();
+    const aLower = faq.answer.toLowerCase();
+    for (const term of terms) {
+      if (qLower.includes(term)) score += 3;
+      if (aLower.includes(term)) score += 1;
+      if (faq.tags.some(t => t.includes(term))) score += 2;
+    }
+    if (score > 0) scored.push({ faq, score });
+  }
+
+  const top = scored.sort((a, b) => b.score - a.score).slice(0, 5);
+  if (top.length === 0) return "";
+
+  const lines = top.map(({ faq }) => `Q: ${faq.question}\nA: ${faq.answer}`).join("\n\n");
+  return `HELP KNOWLEDGE BASE — Relevant answers to this query:\n${lines}`;
+}
 
 function buildSearchConditions(terms: string[], columns: string[]) {
   if (terms.length === 0) return null;
@@ -734,7 +769,9 @@ async function gatherContext(query: string): Promise<string> {
   }
 
   const results = await Promise.all(promises);
-  return results.filter(r => r.length > 0).join("\n\n");
+  const kbResult = searchKnowledgeBase(query);
+  const allResults = [...results, kbResult].filter(r => r.length > 0);
+  return allResults.join("\n\n");
 }
 
 const SYSTEM_PROMPT = `You are Cortex, the intelligent AI assistant for VoltSafe Growth OS — VoltSafe's internal CRM and sales intelligence platform. You have full access to all CRM data and the internet.
@@ -753,6 +790,14 @@ Your capabilities:
    - Industry news and trends (marina, boating, shore power, electric)
    - Company information and competitor research
    - General knowledge, definitions, and explanations
+
+3. HELP & TRAINING KNOWLEDGE BASE — You have full access to the VoltSafe Cortex Help Center, which includes:
+   - Quick Start Guide for new users
+   - Full Operations Manual covering every page and feature
+   - Staff Training Handbook with role-based guides
+   - 100+ FAQ answers about how to use the system
+   - Glossary of all CRM and business terms
+   When a user asks "how do I...", "what is...", "where do I find...", or any question about using the system, search the knowledge base and provide a clear, step-by-step answer. The Help Center is also accessible at /help in the app.
 
 WRITE OPERATIONS — When the user asks you to update, change, edit, move, or modify CRM records:
 - Use the provided tools (find_lead, update_lead, find_account, update_account, update_ticket, add_comment)
