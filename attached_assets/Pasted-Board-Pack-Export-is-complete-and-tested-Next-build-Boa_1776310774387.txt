@@ -1,0 +1,105 @@
+Board Pack Export is complete and tested. Next, build Board Pack Auto-Scheduling.
+
+Goal:
+Automatically generate and deliver recurring board/leadership report packs on a schedule, using the existing board-pack export, executive KPIs, digest infrastructure, Gmail delivery, and report preset systems.
+
+Build this in phases.
+
+PHASE 1 — SCHEDULE DATA MODEL
+Add a board pack schedule model with fields like:
+- name
+- enabled
+- schedule_type (weekly / monthly / quarterly / custom)
+- weekday / day_of_month / month_in_quarter as needed
+- send_time
+- timezone
+- report_type
+- preset_id optional
+- filters JSON
+- included_sections JSON
+- recipients JSON
+- delivery_channels (email, in-app, saved file)
+- last_run_at
+- next_run_at
+- last_status
+- last_error
+- created_by
+- updated_by
+
+Also add board pack run history:
+- schedule_id
+- generated_at
+- delivered_at
+- status
+- output_types
+- recipient_count
+- payload summary / metadata
+- file references if saved
+- errors
+
+PHASE 2 — SCHEDULER ENGINE
+Build a scheduler that:
+- evaluates due schedules
+- generates board packs using the existing report composer/export layer
+- supports weekly / monthly / quarterly cadence
+- updates next_run_at correctly
+- logs run history
+- handles failures cleanly
+- avoids duplicate runs within the same window
+
+PHASE 3 — DELIVERY
+Support these delivery modes:
+- email via existing Gmail integration
+- in-app notification with download link
+- save generated artifact to the document system if practical
+
+Output formats:
+- PDF / printable HTML
+- Markdown if already supported
+- optional HTML attachment or link if PDF generation is constrained
+
+PHASE 4 — UI
+Create a Board Pack Scheduling page or extend /board-pack with:
+- schedules list
+- create/edit schedule modal
+- cadence selector
+- report type selector
+- preset selector
+- recipients editor
+- included sections selector
+- send-now button
+- pause/resume
+- run history panel
+- last run / next run status
+
+PHASE 5 — ROLE / ACCESS CONTROL
+Only allow appropriate users (admin/executive) to:
+- create schedules
+- edit schedules
+- send board packs
+- manage recipients
+Respect current permission patterns.
+
+PHASE 6 — DEFAULT TEMPLATES
+Seed practical defaults such as:
+- Weekly Executive Review
+- Monthly Leadership Pack
+- Quarterly Board Pack
+- Fundraising Snapshot
+
+PHASE 7 — TESTING
+Add tests for:
+- schedule CRUD
+- next_run_at calculations
+- duplicate-run prevention
+- send-now flow
+- run history logging
+- delivery status handling
+- permission enforcement
+- no regression to board-pack export, digest, and Gmail systems
+
+Implementation rules:
+- reuse existing board-pack/report composer and digest/Gmail systems where possible
+- keep it practical, reliable, and quiet
+- do not build a giant enterprise reporting suite
+- summarize changed files and final pass/fail at the end

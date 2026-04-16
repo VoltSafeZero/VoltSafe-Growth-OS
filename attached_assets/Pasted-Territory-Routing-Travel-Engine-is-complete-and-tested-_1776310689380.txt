@@ -1,0 +1,74 @@
+Territory Routing + Travel Engine is complete and tested. Next, build the Smart Revenue Simulator.
+
+Goal:
+Create a scenario-planning layer that lets VoltSafe model phased hardware rollout, mixed SaaS pricing tiers, and timing changes so we can understand revenue impact before deals are signed or rollout plans change.
+
+Build this in phases.
+
+PHASE 1 — SCENARIO MODEL
+Add a revenue simulation model that can represent:
+- account / opportunity / quote context
+- hardware units contracted
+- deployment phases over time
+- smart-slip SaaS lines
+- software-lite SaaS lines
+- marina platform fees
+- pricing lock assumptions
+- go-live timing assumptions
+
+Support saved scenarios and temporary what-if scenarios.
+
+PHASE 2 — CALCULATION ENGINE
+Calculate for each scenario:
+- current MRR
+- future MRR
+- fully deployed MRR
+- ARR
+- booked hardware revenue
+- delivered hardware revenue by period
+- remaining hardware revenue
+- rollout completion by period
+- expansion MRR opportunity
+
+Support monthly / quarterly views.
+
+PHASE 3 — SCENARIO UI
+Create a Revenue Simulator page with:
+- baseline vs scenario comparison
+- sliders/inputs for slip counts, rates, dates, phases
+- phase timeline editor
+- billing line editor
+- summary cards
+- chart/table output
+
+PHASE 4 — ACCOUNT / QUOTE INTEGRATION
+Allow launching a simulator from:
+- account commercial section
+- quote detail
+- revenue hub
+
+Support:
+- duplicate current model into scenario
+- edit assumptions
+- save named scenario
+
+PHASE 5 — EXECUTIVE / BOARD INTEGRATION
+Allow scenario outputs to appear in:
+- executive dashboard
+- board pack exports
+- revenue reporting where appropriate
+
+PHASE 6 — TESTING
+Add tests for:
+- MRR/ARR math
+- phase timing effects
+- pricing change effects
+- baseline vs scenario comparison
+- integration with account/quote/revenue pages
+- no regression to revenue architecture and board-pack flows
+
+Implementation rules:
+- keep it practical and finance-friendly
+- do not build a giant FP&A suite
+- prioritize phased rollout + flexible SaaS logic
+- summarize changed files and final pass/fail at the end
