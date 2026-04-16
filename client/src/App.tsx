@@ -67,6 +67,7 @@ import DocumentsPage from "@/pages/documents";
 import AutomationsPage from "@/pages/automations";
 import BoardPackPage from "@/pages/board-pack";
 import RevenuePage from "@/pages/revenue";
+import RevenueSimPage from "@/pages/revenue-sim";
 import FieldPage from "@/pages/field";
 import FieldNearbyPage from "@/pages/field-nearby";
 import AlertsDigestPage from "@/pages/alerts-digest";
@@ -259,6 +260,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       {/* ── REPORTS ───────────────────────────────────────────────── */}
       <Route path="/board-pack">{() => wrap(<BoardPackPage />)}</Route>
       <Route path="/revenue">{() => wrap(<RevenuePage />)}</Route>
+      <Route path="/revenue-sim">{() => wrap(<RevenueSimPage />)}</Route>
 
       {/* ── AUTOMATION ────────────────────────────────────────────── */}
       <Route path="/automations">{() => wrap(<AutomationsPage />)}</Route>

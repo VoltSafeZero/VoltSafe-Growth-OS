@@ -15,6 +15,7 @@ import { scoreLeadQuality, scoreOpportunityClose, scoreQuoteFollowUpUrgency, sco
 import { composeReport, ALL_SECTION_KEYS } from "./services/report-composer";
 import { computeRankedNearby, getRouteSuggestions, generateDirectionsUrl } from "./services/routing-engine";
 import { generateAndDeliver, computeNextRunAt, seedDefaultSchedules, startBoardPackScheduler } from "./services/board-pack-scheduler";
+import { getBaseline, runSimulation } from "./services/revenue-simulator";
 import { db } from "./db";
 import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications } from "@shared/schema";
 import {
@@ -17583,6 +17584,122 @@ export function registerConfluenceRoutes(app: Express) {
         LIMIT ${limit}
       `);
       res.json(rows.rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Smart Revenue Simulator ──────────────────────────────────────────────────
+
+  // GET /api/revenue-sim/baseline — current live baseline (no params applied)
+  app.get("/api/revenue-sim/baseline", requireAuth, async (req, res) => {
+    try {
+      const months = Math.min(parseInt(String(req.query.months ?? "12")), 24);
+      const result = await getBaseline(months);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/revenue-sim/simulate — run a simulation (no save)
+  app.post("/api/revenue-sim/simulate", requireAuth, async (req, res) => {
+    try {
+      const {
+        winRateMultiplier, dealSizeMultiplier, velocityWeeks, newPipelineDeals,
+        newPipelineAvgSize, forecastCategory, churnRateMonthly, expansionRateMonthly, months,
+      } = req.body;
+      const result = await runSimulation({
+        winRateMultiplier: winRateMultiplier != null ? parseFloat(winRateMultiplier) : undefined,
+        dealSizeMultiplier: dealSizeMultiplier != null ? parseFloat(dealSizeMultiplier) : undefined,
+        velocityWeeks: velocityWeeks != null ? parseFloat(velocityWeeks) : undefined,
+        newPipelineDeals: newPipelineDeals != null ? parseInt(newPipelineDeals) : undefined,
+        newPipelineAvgSize: newPipelineAvgSize != null ? parseFloat(newPipelineAvgSize) : undefined,
+        forecastCategory: forecastCategory ?? "all",
+        churnRateMonthly: churnRateMonthly != null ? parseFloat(churnRateMonthly) : undefined,
+        expansionRateMonthly: expansionRateMonthly != null ? parseFloat(expansionRateMonthly) : undefined,
+        months: months != null ? parseInt(months) : 12,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/revenue-sim/scenarios — list saved scenarios
+  app.get("/api/revenue-sim/scenarios", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const rows = await db.execute(sql`
+        SELECT id, name, description, parameters, projection, baseline_snapshot, created_at, updated_at
+        FROM revenue_scenarios
+        WHERE created_by = ${userId}
+        ORDER BY created_at DESC
+        LIMIT 50
+      `);
+      res.json(rows.rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/revenue-sim/scenarios — save a scenario
+  app.post("/api/revenue-sim/scenarios", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const { name, description, parameters, projection, baselineSnapshot } = req.body;
+      if (!name?.trim()) return res.status(400).json({ message: "name is required" });
+      const row = await db.execute(sql`
+        INSERT INTO revenue_scenarios (name, description, created_by, parameters, projection, baseline_snapshot)
+        VALUES (
+          ${name.trim()},
+          ${description ?? null},
+          ${userId},
+          ${JSON.stringify(parameters ?? {})}::jsonb,
+          ${JSON.stringify(projection ?? {})}::jsonb,
+          ${JSON.stringify(baselineSnapshot ?? {})}::jsonb
+        )
+        RETURNING *
+      `);
+      res.status(201).json(row.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/revenue-sim/scenarios/:id — get single scenario
+  app.get("/api/revenue-sim/scenarios/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = req.session.userId as number;
+      const row = await db.execute(sql`
+        SELECT * FROM revenue_scenarios WHERE id = ${id} AND created_by = ${userId}
+      `);
+      if (!row.rows.length) return res.status(404).json({ message: "Scenario not found" });
+      res.json(row.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // PATCH /api/revenue-sim/scenarios/:id — update name/description/params
+  app.patch("/api/revenue-sim/scenarios/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = req.session.userId as number;
+      const check = await db.execute(sql`SELECT id FROM revenue_scenarios WHERE id = ${id} AND created_by = ${userId}`);
+      if (!check.rows.length) return res.status(404).json({ message: "Scenario not found" });
+      const { name, description, parameters, projection, baselineSnapshot } = req.body;
+      const updates: string[] = ["updated_at = NOW()"];
+      if (name != null) updates.push(`name = '${String(name).replace(/'/g, "''")}'`);
+      if (description != null) updates.push(`description = '${String(description).replace(/'/g, "''")}'`);
+      if (parameters != null) updates.push(`parameters = '${JSON.stringify(parameters)}'::jsonb`);
+      if (projection != null) updates.push(`projection = '${JSON.stringify(projection)}'::jsonb`);
+      if (baselineSnapshot != null) updates.push(`baseline_snapshot = '${JSON.stringify(baselineSnapshot)}'::jsonb`);
+      const row = await db.execute(sql.raw(`
+        UPDATE revenue_scenarios SET ${updates.join(", ")} WHERE id = ${id} RETURNING *
+      `));
+      res.json(row.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // DELETE /api/revenue-sim/scenarios/:id — delete
+  app.delete("/api/revenue-sim/scenarios/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = req.session.userId as number;
+      const check = await db.execute(sql`SELECT id FROM revenue_scenarios WHERE id = ${id} AND created_by = ${userId}`);
+      if (!check.rows.length) return res.status(404).json({ message: "Scenario not found" });
+      await db.execute(sql`DELETE FROM revenue_scenarios WHERE id = ${id}`);
+      res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

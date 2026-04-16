@@ -1,5 +1,32 @@
 # Replit Agent Configuration
 
+## Smart Revenue Simulator (Complete — Feature 7)
+
+### What was built
+Interactive scenario modelling tool that applies multipliers to the live opportunity pipeline and projects month-by-month revenue over up to 24 months.
+
+**Schema**: `revenue_scenarios` table (id, name, description, created_by, parameters jsonb, projection jsonb, baseline_snapshot jsonb, created_at, updated_at).
+
+**`server/services/revenue-simulator.ts`** (new service):
+- `getBaseline(months)` — queries open opps, computes per-month weighted revenue using same stage probability map as `composePipelineForecast()` in report-composer.ts
+- `runSimulation(params)` — applies 8 scenario parameters: winRateMultiplier, dealSizeMultiplier, velocityWeeks, newPipelineDeals, newPipelineAvgSize, forecastCategory, churnRateMonthly, expansionRateMonthly
+- Returns `{ months: MonthProjection[], summary: SimSummary }` with baseline + simulated per month, delta, deltaPct
+
+**7 API routes** in `server/routes.ts`:
+- `GET /api/revenue-sim/baseline` — live baseline projection
+- `POST /api/revenue-sim/simulate` — run simulation (no save)
+- `GET/POST /api/revenue-sim/scenarios` — list / create saved scenarios
+- `GET/PATCH/DELETE /api/revenue-sim/scenarios/:id` — single scenario CRUD
+
+**Frontend** `client/src/pages/revenue-sim.tsx`:
+- Route: `/revenue-sim`, sidebar link in Intelligence section
+- Left control panel: sliders for all 8 parameters + forecast category/horizon selects
+- Right area: recharts ComposedChart (baseline dashed area + simulated filled area + up to 3 compare overlays), summary cards, month-by-month breakdown table
+- Compare mode: up to 3 saved scenarios overlaid on chart with distinct colors
+- Save dialog: name + description with result preview
+
+**Tests**: `tests/revenue-simulator.test.js` — 55 tests, 0 failures (groups: baseline, identity, win-rate, deal-size, velocity, new-pipeline, forecast-category, churn/expansion, horizon, CRUD, auth-guards, regression).
+
 ## Predictive Score Feedback Loop (Complete)
 
 ### What was built

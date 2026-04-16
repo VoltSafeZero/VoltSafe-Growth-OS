@@ -2049,3 +2049,24 @@ export const boardPackRuns = pgTable("board_pack_runs", {
 export const insertBoardPackRunSchema = createInsertSchema(boardPackRuns).omit({ id: true, createdAt: true });
 export type InsertBoardPackRun = z.infer<typeof insertBoardPackRunSchema>;
 export type BoardPackRun = typeof boardPackRuns.$inferSelect;
+
+// ── Smart Revenue Simulator ────────────────────────────────────────────────────
+
+export const revenueScenarios = pgTable("revenue_scenarios", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  createdBy: integer("created_by").notNull(),
+  // Scenario parameters (all optional — defaults = identity/baseline)
+  parameters: jsonb("parameters").notNull().default({}),
+  // Cached projection result (12-month array + summary)
+  projection: jsonb("projection").notNull().default({}),
+  // Snapshot of baseline at save time for comparison
+  baselineSnapshot: jsonb("baseline_snapshot").notNull().default({}),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertRevenueScenarioSchema = createInsertSchema(revenueScenarios).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertRevenueScenario = z.infer<typeof insertRevenueScenarioSchema>;
+export type RevenueScenario = typeof revenueScenarios.$inferSelect;

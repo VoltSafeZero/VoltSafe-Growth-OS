@@ -5,7 +5,7 @@ import {
   ClipboardList, Layers, ShieldCheck, Sun, Moon, GitBranch, MapPin,
   LayoutDashboard, Target, Share2, Brain, SlidersHorizontal, BarChart3,
   Megaphone, TrendingUp, Landmark, Truck, Factory, FlaskConical, Newspaper,
-  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, BellRing, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen,
+  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, BellRing, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen, FlaskRound,
 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Link, useLocation } from "wouter";
@@ -133,6 +133,7 @@ const sections: NavSection[] = [
       { title: "Rel. Intelligence", url: "/intelligence/rel-intelligence", icon: BarChart3 },
       { title: "Territory & Geo", url: "/geography", icon: Globe, permKey: "crm" },
       { title: "Territory Routing", url: "/routing", icon: MapPin },
+      { title: "Revenue Simulator", url: "/revenue-sim", icon: FlaskRound },
     ],
   },
 
