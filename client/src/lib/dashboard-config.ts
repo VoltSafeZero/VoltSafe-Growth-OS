@@ -533,6 +533,16 @@ function isValidCenterType(s: string): s is CenterType {
   return ["ceo", "cfo", "cto", "cmo", "sales", "cs", "default"].includes(s);
 }
 
+export const ALL_CENTER_TYPES: { value: CenterType; label: string }[] = [
+  { value: "ceo",     label: CENTER_LABELS.ceo },
+  { value: "cfo",     label: CENTER_LABELS.cfo },
+  { value: "cto",     label: CENTER_LABELS.cto },
+  { value: "cmo",     label: CENTER_LABELS.cmo },
+  { value: "sales",   label: CENTER_LABELS.sales },
+  { value: "cs",      label: CENTER_LABELS.cs },
+  { value: "default", label: CENTER_LABELS.default },
+];
+
 // ── Build full dashboard config ──────────────────────────────────────────────
 
 export function buildDashboardConfig(profile: UserProfile, overrideCenterType?: CenterType): DashboardConfig {
