@@ -764,3 +764,60 @@ Health status thresholds: ≥75 = healthy, ≥50 = at_risk, <50 = critical
 - **CARTO Voyager:** Basemap tiles for Leaflet maps.- **Universal Global Search:** Fully wired search bar in the header (`GET /api/search?q=`). UNION query across accounts, contacts, opportunities, and notes. Results grouped by entity type with color-coded icons. Cmd+K focuses the input; click-away closes the dropdown; click result navigates to the entity's profile page. Note results navigate to the linked record's profile.
 - **Pinned Notes / Key Facts:** Notes can be pinned via a pin toggle on each note card in NotesPanel (`PATCH /api/notes/:id/pin` flips `is_pinned`). Pinned notes appear at the top of NotesPanel with a teal highlight. Account and Opportunity profile pages show a **Key Facts** section that renders all pinned notes for that record. Schema: `is_pinned boolean DEFAULT false` column added to `notes` table. Both profile SQL queries now include `is_pinned` and sort by `is_pinned DESC, created_at DESC`.
 - **Saved Filters / Custom Views (Accounts):** Accounts page has a "Save view" button (Bookmark icon) below the filter bar. Clicking it expands an inline name input; pressing Enter or clicking Save persists the current filter state (segment, status, priority, orgType, sort) to the existing `saved_views` table via `POST /api/saved-views`. Saved views appear as chips; clicking a chip restores all filters; hovering a chip shows an X to delete it. Backend routes (`/api/saved-views` CRUD) and schema already existed.
+
+## Phase 3: Executive Alerting / Digest Automation (Complete)
+
+### Overview
+Role-aware executive digest system that proactively surfaces risks, opportunities, and actions. Runs in-app and via Gmail.
+
+### New Files
+- `server/services/digest-composer.ts` — deterministic digest assembly; 14 section types, role-aware section selection, HTML + text formatters
+- `server/services/alert-engine.ts` — 8 configurable alert trigger types with per-user thresholds and dedup logic
+- `client/src/pages/alerts-digest.tsx` — full settings UI with 5 tabs: Digest Preview, Active Alerts, Settings, Alert Rules, History
+
+### New Schema Tables
+- `digest_configs` — per-user digest config (cadence, channels, sections, severity threshold, quiet hours, alert rules)
+- `digest_runs` — digest delivery history (type, status, channel, sections sent, payload summary, errors)
+
+### New API Routes
+- `GET /api/digest/config` — get or auto-create role-default config
+- `PUT /api/digest/config` — update any config field
+- `GET /api/digest/preview` — live digest composition (`?format=html|text|json`)
+- `POST /api/digest/send-now` — trigger immediate delivery (in-app or email)
+- `GET /api/digest/runs` — delivery history
+- `GET /api/digest/role-defaults` — default sections for current user role
+- `POST /api/digest/reset-to-defaults` — reset to role defaults
+- `GET /api/alerts/active` — unread alert notifications
+- `POST /api/alerts/run-engine` — run alert engine for current user
+- `GET /api/alerts/rules` — per-user alert thresholds
+- `PUT /api/alerts/rules` — update thresholds
+
+### Role-Based Default Sections
+- CEO: revenue at risk, blocked installs, cert blockers, pipeline movement, renewal/churn risks
+- CFO: MRR summary, revenue at risk, renewal risks, procurement blockers, quotes follow-up
+- CTO: cert blockers, blocked installs, procurement blockers, overdue tasks
+- CMO: hot leads, territory whitespace, pipeline movement, quotes follow-up
+- Sales: top priorities, hot leads/opps, overdue tasks, quotes follow-up, pipeline movement
+- CS: renewal risks, churn risks, overdue tasks, top priorities
+- Ops: blocked installs, procurement blockers, cert blockers, overdue tasks
+
+### Alert Triggers (8 types)
+1. Stalled deal (configurable days threshold)
+2. Unanswered quote (configurable days)
+3. Churn score threshold breach
+4. Deployment blocked beyond threshold
+5. Certification blocker active
+6. Renewal due or overdue
+7. Pricing lock expiry approaching
+8. Major score band change (≥20 pts)
+
+### Navigation
+Added "Digest & Alerts" link under Intelligence nav group in sidebar, routed to `/alerts-digest`.
+
+### Tests
+`tests/digest.test.js` — **54 assertions** covering all 7 phases: data model, composer, role defaults, alert engine, UI/config, delivery, section filtering, no-regression, auth guards.
+
+### Cumulative Test Count
+- Previous total: 724 tests
+- New: +54 tests
+- **Total: 778 tests, 0 failures**

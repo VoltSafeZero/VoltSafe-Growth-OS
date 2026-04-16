@@ -58,6 +58,8 @@ import {
 } from "./tracking";
 import { startEngagementScheduler } from "./services/engagement-scheduler";
 import { seedDefaultRules } from "./services/engagement-defaults";
+import { composeDigest, getSectionsForRole, formatDigestAsHtml, formatDigestAsText, DEFAULT_ALERT_RULES as DC_DEFAULT_SECTIONS, type DigestSection } from "./services/digest-composer";
+import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
 import { computeAwaitingReply, clearAwaitingReply, getTriageSummary, getAwaitingReplyThreads } from "./services/awaiting-reply";
 import {
   emailMessages, emailThreads, emailAssociations, associationFeedback, emailFilters, scheduledEmails,
@@ -66,6 +68,7 @@ import {
   contacts, accounts, leads, opportunities, partnerships,
   migrationMap, notes,
   calendarConnections, calendarEvents, tasks,
+  digestConfigs, digestRuns,
 } from "@shared/schema";
 import {
   getCalendarAuthUrl,
@@ -16801,6 +16804,261 @@ export function registerConfluenceRoutes(app: Express) {
       hotList.sort((a, b) => bandRank(b.score.band) - bandRank(a.score.band) || b.score.score - a.score.score);
       res.json(hotList.slice(0, limit));
     } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Executive Digest & Alert Routes ─────────────────────────────────────────
+
+  // Helper: get or create a user's digest config with role-based defaults
+  async function getOrCreateDigestConfig(userId: number, role: string) {
+    const existing = await db.execute(sql.raw(
+      `SELECT id, user_id AS "userId", enabled, cadence, send_hour AS "sendHour", send_day_of_week AS "sendDayOfWeek",
+              channels, sections, severity_threshold AS "severityThreshold", is_role_default AS "isRoleDefault",
+              quiet_hours_start AS "quietHoursStart", quiet_hours_end AS "quietHoursEnd", alert_rules AS "alertRules", updated_at AS "updatedAt"
+       FROM digest_configs WHERE user_id = ${userId} LIMIT 1`
+    ));
+    if ((existing as any).rows?.length) return (existing as any).rows[0];
+
+    // Seed role-based defaults
+    const roleKey = (role || "sales").toLowerCase();
+    const sectionDefaults: Record<string, boolean> = {};
+    for (const s of getSectionsForRole(roleKey)) sectionDefaults[s] = true;
+    const channelJson = JSON.stringify(["in_app"]).replace(/'/g, "''");
+    const sectionsJson = JSON.stringify(sectionDefaults).replace(/'/g, "''");
+    const alertsJson = JSON.stringify(DEFAULT_ALERT_RULES).replace(/'/g, "''");
+    const sendHour = roleKey === "ceo" || roleKey === "cfo" ? 7 : 8;
+
+    await db.execute(sql.raw(
+      `INSERT INTO digest_configs (user_id, enabled, cadence, send_hour, send_day_of_week, channels, sections, severity_threshold, is_role_default, quiet_hours_start, quiet_hours_end, alert_rules, updated_at)
+       VALUES (${userId}, true, 'daily', ${sendHour}, 1, '${channelJson}'::jsonb, '${sectionsJson}'::jsonb, 'medium', true, 21, 7, '${alertsJson}'::jsonb, NOW())
+       ON CONFLICT (user_id) DO NOTHING`
+    ));
+    const created = await db.execute(sql.raw(
+      `SELECT id, user_id AS "userId", enabled, cadence, send_hour AS "sendHour", send_day_of_week AS "sendDayOfWeek",
+              channels, sections, severity_threshold AS "severityThreshold", is_role_default AS "isRoleDefault",
+              quiet_hours_start AS "quietHoursStart", quiet_hours_end AS "quietHoursEnd", alert_rules AS "alertRules", updated_at AS "updatedAt"
+       FROM digest_configs WHERE user_id = ${userId} LIMIT 1`
+    ));
+    return (created as any).rows[0];
+  }
+
+  // GET /api/digest/config — get current user's digest config
+  app.get("/api/digest/config", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const role = String((req.session as any).globalRole || "sales");
+      const config = await getOrCreateDigestConfig(userId, role);
+      res.json({ config, availableSections: getSectionsForRole(role) });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // PUT /api/digest/config — update digest config
+  app.put("/api/digest/config", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const role = String((req.session as any).globalRole || "sales");
+      await getOrCreateDigestConfig(userId, role);
+      const { enabled, cadence, sendHour, sendDayOfWeek, channels, sections, severityThreshold, quietHoursStart, quietHoursEnd, alertRules } = req.body;
+      const updates: string[] = ["updated_at = NOW()", "is_role_default = false"];
+      if (enabled !== undefined) updates.push(`enabled = ${Boolean(enabled)}`);
+      if (cadence) updates.push(`cadence = '${cadence === "weekly" ? "weekly" : "daily"}'`);
+      if (sendHour !== undefined) updates.push(`send_hour = ${Math.min(23, Math.max(0, Number(sendHour)))}`);
+      if (sendDayOfWeek !== undefined) updates.push(`send_day_of_week = ${Math.min(7, Math.max(1, Number(sendDayOfWeek)))}`);
+      if (channels) updates.push(`channels = '${JSON.stringify(channels).replace(/'/g, "''")}'::jsonb`);
+      if (sections) updates.push(`sections = '${JSON.stringify(sections).replace(/'/g, "''")}'::jsonb`);
+      if (severityThreshold) updates.push(`severity_threshold = '${severityThreshold.replace(/'/g, "''")}'`);
+      if (quietHoursStart !== undefined) updates.push(`quiet_hours_start = ${Number(quietHoursStart)}`);
+      if (quietHoursEnd !== undefined) updates.push(`quiet_hours_end = ${Number(quietHoursEnd)}`);
+      if (alertRules) updates.push(`alert_rules = '${JSON.stringify(alertRules).replace(/'/g, "''")}'::jsonb`);
+      await db.execute(sql.raw(`UPDATE digest_configs SET ${updates.join(", ")} WHERE user_id = ${userId}`));
+      const updated = await db.execute(sql.raw(
+        `SELECT id, user_id AS "userId", enabled, cadence, send_hour AS "sendHour", send_day_of_week AS "sendDayOfWeek",
+                channels, sections, severity_threshold AS "severityThreshold", is_role_default AS "isRoleDefault",
+                quiet_hours_start AS "quietHoursStart", quiet_hours_end AS "quietHoursEnd", alert_rules AS "alertRules", updated_at AS "updatedAt"
+         FROM digest_configs WHERE user_id = ${userId} LIMIT 1`
+      ));
+      res.json({ config: (updated as any).rows[0] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // GET /api/digest/preview — compose and return a digest preview
+  app.get("/api/digest/preview", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const role = String((req.session as any).globalRole || "sales");
+      const config = await getOrCreateDigestConfig(userId, role);
+      const sections = config.sections as Record<string, boolean>;
+      const enabledSections = Object.entries(sections).filter(([, v]) => v).map(([k]) => k) as DigestSection[];
+      const finalSections = enabledSections.length ? enabledSections : getSectionsForRole(role);
+      const digest = await composeDigest(userId, role, finalSections, config.severityThreshold as any);
+      const html = formatDigestAsHtml(digest);
+      const format = String(req.query.format || "json");
+      if (format === "html") return res.send(html);
+      if (format === "text") return res.send(formatDigestAsText(digest));
+      res.json({ digest, html });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // POST /api/digest/send-now — manually trigger digest delivery
+  app.post("/api/digest/send-now", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const role = String((req.session as any).globalRole || "sales");
+      const config = await getOrCreateDigestConfig(userId, role);
+      const sections = config.sections as Record<string, boolean>;
+      const enabledSections = Object.entries(sections).filter(([, v]) => v).map(([k]) => k) as DigestSection[];
+      const finalSections = enabledSections.length ? enabledSections : getSectionsForRole(role);
+      const digest = await composeDigest(userId, role, finalSections, config.severityThreshold as any);
+      const channels: string[] = Array.isArray(config.channels) ? config.channels : ["in_app"];
+      const runChannel = (req.body?.channel && channels.includes(req.body.channel)) ? req.body.channel : channels[0];
+
+      let deliveredAt: Date | null = null;
+      let status = "delivered";
+      let errorMsg: string | null = null;
+
+      // In-app delivery — create a notification
+      if (runChannel === "in_app" || channels.includes("in_app")) {
+        try {
+          const bodyText = digest.summary + (digest.sections.length ? ` · ${digest.sections.length} sections.` : "");
+          const dedupeKey = `digest-manual-${userId}-${new Date().toISOString().slice(0, 16)}`;
+          await db.execute(sql.raw(
+            `INSERT INTO notifications (user_id, type, title, body, severity, action_url, is_read, dedupe_key, expires_at, created_at)
+             VALUES (${userId}, 'digest', '${digest.title.replace(/'/g, "''")}', '${bodyText.replace(/'/g, "''")}', 'medium', '/alerts-digest', false, '${dedupeKey}', NOW() + INTERVAL '7 days', NOW())`
+          ));
+          deliveredAt = new Date();
+        } catch (e: any) { errorMsg = e.message; status = "failed"; }
+      }
+
+      // Email delivery — use Gmail integration if connected
+      if (runChannel === "email" || channels.includes("email")) {
+        try {
+          const userRes = await db.execute(sql.raw(`SELECT email FROM users WHERE id = ${userId} LIMIT 1`));
+          const userEmail = (userRes as any).rows?.[0]?.email;
+          if (userEmail) {
+            const html = formatDigestAsHtml(digest);
+            await sendEmail(userId, userEmail, digest.title, html);
+            deliveredAt = new Date();
+          }
+        } catch (e: any) {
+          errorMsg = (errorMsg ? errorMsg + "; " : "") + `Email: ${e.message}`;
+          if (status !== "delivered") status = "failed";
+        }
+      }
+
+      // Log run
+      const summaryJson = JSON.stringify({
+        totalSignals: digest.totalSignals, highSeverity: digest.highSeverityCount,
+        sections: digest.sections.map(s => s.key),
+      }).replace(/'/g, "''");
+      const sectionsJson = JSON.stringify(finalSections).replace(/'/g, "''");
+      await db.execute(sql.raw(
+        `INSERT INTO digest_runs (user_id, digest_type, status, channel, sections_sent, payload_summary, error_message, generated_at, delivered_at)
+         VALUES (${userId}, 'manual', '${status}', '${runChannel}', '${sectionsJson}'::jsonb, '${summaryJson}'::jsonb, ${errorMsg ? `'${errorMsg.replace(/'/g, "''")}'` : "NULL"}, NOW(), ${deliveredAt ? `'${deliveredAt.toISOString()}'` : "NULL"})`
+      ));
+
+      res.json({ ok: status === "delivered", status, digest: { title: digest.title, summary: digest.summary, sections: digest.sections.length } });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // GET /api/digest/runs — digest run history
+  app.get("/api/digest/runs", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const limit = Math.min(50, Number(req.query.limit) || 20);
+      const rows = await db.execute(sql.raw(
+        `SELECT id, user_id AS "userId", digest_type AS "digestType", status, channel,
+                sections_sent AS "sectionsSent", payload_summary AS "payloadSummary",
+                error_message AS "errorMessage", generated_at AS "generatedAt", delivered_at AS "deliveredAt"
+         FROM digest_runs WHERE user_id = ${userId} ORDER BY generated_at DESC LIMIT ${limit}`
+      ));
+      res.json({ runs: (rows as any).rows ?? [] });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // GET /api/digest/role-defaults — available role default sections
+  app.get("/api/digest/role-defaults", requireAuth, async (req, res) => {
+    try {
+      const role = String((req.session as any).globalRole || "sales");
+      const sections = getSectionsForRole(role);
+      res.json({ role, defaultSections: sections });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // POST /api/digest/reset-to-defaults — reset config to role defaults
+  app.post("/api/digest/reset-to-defaults", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const role = String((req.session as any).globalRole || "sales");
+      const sectionDefaults: Record<string, boolean> = {};
+      for (const s of getSectionsForRole(role)) sectionDefaults[s] = true;
+      const sectionsJson = JSON.stringify(sectionDefaults).replace(/'/g, "''");
+      const alertsJson = JSON.stringify(DEFAULT_ALERT_RULES).replace(/'/g, "''");
+      await db.execute(sql.raw(
+        `UPDATE digest_configs SET sections = '${sectionsJson}'::jsonb, alert_rules = '${alertsJson}'::jsonb, is_role_default = true, updated_at = NOW() WHERE user_id = ${userId}`
+      ));
+      res.json({ ok: true, defaultSections: Object.keys(sectionDefaults) });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // GET /api/alerts/active — active (unread) alerts for user
+  app.get("/api/alerts/active", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const rows = await db.execute(sql.raw(
+        `SELECT id, type, title, body, severity, linked_object_type AS "linkedObjectType",
+                linked_object_id AS "linkedObjectId", action_url AS "actionUrl", is_read AS "isRead", created_at AS "createdAt"
+         FROM notifications WHERE user_id = ${userId} AND is_read = false
+         ORDER BY severity = 'high' DESC, created_at DESC LIMIT 50`
+      ));
+      const alerts: any[] = (rows as any).rows ?? [];
+      res.json({ alerts, count: alerts.length });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // POST /api/alerts/run-engine — manually trigger alert engine for user
+  app.post("/api/alerts/run-engine", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const role = String((req.session as any).globalRole || "sales");
+      const config = await getOrCreateDigestConfig(userId, role);
+      const rules: AlertRule = { ...DEFAULT_ALERT_RULES, ...(config.alertRules as object) };
+      const created = await runAlertEngine(userId, rules);
+      res.json({ ok: true, alertsCreated: created });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // GET /api/alerts/rules — get alert rule thresholds for current user
+  app.get("/api/alerts/rules", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const role = String((req.session as any).globalRole || "sales");
+      const config = await getOrCreateDigestConfig(userId, role);
+      const rules: AlertRule = { ...DEFAULT_ALERT_RULES, ...(config.alertRules as object) };
+      res.json({ rules });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // PUT /api/alerts/rules — update alert rule thresholds
+  app.put("/api/alerts/rules", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const role = String((req.session as any).globalRole || "sales");
+      await getOrCreateDigestConfig(userId, role);
+      const { stalledDealDays, quoteUnansweredDays, churnScoreThreshold, deploymentBlockedDays, renewalDueDays, pricingLockExpiryDays, scoreBandChangeSensitive } = req.body;
+      const current = await db.execute(sql.raw(`SELECT alert_rules AS "alertRules" FROM digest_configs WHERE user_id = ${userId} LIMIT 1`));
+      const existing: AlertRule = { ...DEFAULT_ALERT_RULES, ...((current as any).rows?.[0]?.alertRules ?? {}) };
+      const updated: AlertRule = {
+        stalledDealDays: stalledDealDays ?? existing.stalledDealDays,
+        quoteUnansweredDays: quoteUnansweredDays ?? existing.quoteUnansweredDays,
+        churnScoreThreshold: churnScoreThreshold ?? existing.churnScoreThreshold,
+        deploymentBlockedDays: deploymentBlockedDays ?? existing.deploymentBlockedDays,
+        renewalDueDays: renewalDueDays ?? existing.renewalDueDays,
+        pricingLockExpiryDays: pricingLockExpiryDays ?? existing.pricingLockExpiryDays,
+        scoreBandChangeSensitive: scoreBandChangeSensitive ?? existing.scoreBandChangeSensitive,
+      };
+      const rulesJson = JSON.stringify(updated).replace(/'/g, "''");
+      await db.execute(sql.raw(`UPDATE digest_configs SET alert_rules = '${rulesJson}'::jsonb, updated_at = NOW() WHERE user_id = ${userId}`));
+      res.json({ rules: updated });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
   // ── Engagement scheduler + default rules ────────────────────────────────────

@@ -5,7 +5,7 @@ import {
   ClipboardList, Layers, ShieldCheck, Sun, Moon, GitBranch, Search, X,
   LayoutDashboard, Target, Share2, Brain, SlidersHorizontal, BarChart3,
   Megaphone, TrendingUp, Landmark, Truck, Factory, FlaskConical, Newspaper,
-  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen,
+  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, BellRing, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen,
 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Link, useLocation } from "wouter";
@@ -129,6 +129,7 @@ const sections: NavSection[] = [
       { title: "Calendar", url: "/execution/calendar", icon: CalendarClock, permKey: "calendar" },
       { title: "Meeting Briefs", url: "/intelligence/briefs", icon: Sparkles },
       { title: "Signals & Alerts", url: "/intelligence/signals", icon: Bell },
+      { title: "Digest & Alerts", url: "/alerts-digest", icon: BellRing },
       { title: "Rel. Intelligence", url: "/intelligence/rel-intelligence", icon: BarChart3 },
       { title: "Territory & Geo", url: "/geography", icon: Globe, permKey: "crm" },
     ],
