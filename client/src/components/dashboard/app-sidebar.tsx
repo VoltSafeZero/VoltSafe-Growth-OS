@@ -124,6 +124,7 @@ const sections: NavSection[] = [
     label: "Intelligence",
     icon: Brain,
     items: [
+      { title: "Executive Copilot", url: "/executive-copilot", icon: Brain },
       { title: "Inbox", url: "/gmail", icon: Mail },
       { title: "Calendar", url: "/execution/calendar", icon: CalendarClock, permKey: "calendar" },
       { title: "Meeting Briefs", url: "/intelligence/briefs", icon: Sparkles },

@@ -18,6 +18,7 @@ import { generateAndDeliver, computeNextRunAt, seedDefaultSchedules, startBoardP
 import { getBaseline, runSimulation } from "./services/revenue-simulator";
 import { deriveScenarioFromCRM, generateScenarioActions, computeForecastVsActuals, chooseBoardPackScenario } from "./services/revenue-simulator-insights";
 import { createPlanCommitFromScenario, computeGapToPlan, generateGapClosureActions, autoCreateTasksFromActions, snapshotGapStatus } from "./services/revenue-operating-system";
+import { generateDailyBrief, getTodaysBrief, getAlerts, updateAlertStatus } from "./services/executive-copilot";
 import { db } from "./db";
 import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications } from "@shared/schema";
 import {
@@ -18038,6 +18039,56 @@ export function registerConfluenceRoutes(app: Express) {
         RETURNING id
       `);
       res.status(201).json({ taskId: Number((taskRes.rows[0] as any).id), created: true, duplicate: false });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Executive AI Copilot ──────────────────────────────────────────────────────
+
+  // GET /api/executive/brief/today — get today's brief (or null if not yet generated)
+  app.get("/api/executive/brief/today", requireAuth, async (req, res) => {
+    try {
+      const brief = await getTodaysBrief();
+      if (!brief) return res.json(null);
+      res.json(brief);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/executive/brief/refresh — regenerate today's brief from live data
+  app.post("/api/executive/brief/refresh", requireAuth, async (req, res) => {
+    try {
+      const brief = await generateDailyBrief();
+      res.json(brief);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/executive/alerts — list open alerts
+  app.get("/api/executive/alerts", requireAuth, async (req, res) => {
+    try {
+      const status = typeof req.query.status === "string" ? req.query.status : "open";
+      const alerts = await getAlerts(status);
+      res.json(alerts);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // PATCH /api/executive/alerts/:id — update alert status (dismiss / resolve)
+  app.patch("/api/executive/alerts/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const { status } = req.body ?? {};
+      if (!status) return res.status(400).json({ message: "status required" });
+      const updated = await updateAlertStatus(id, status);
+      if (!updated) return res.status(404).json({ message: "Alert not found" });
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/executive/priorities — ranked priorities (re-uses today's brief signals)
+  app.get("/api/executive/priorities", requireAuth, async (req, res) => {
+    try {
+      const brief = await getTodaysBrief();
+      if (!brief) return res.json([]);
+      res.json(brief.topSignals ?? []);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

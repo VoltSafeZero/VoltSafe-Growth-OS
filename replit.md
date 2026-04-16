@@ -1,5 +1,43 @@
 # Replit Agent Configuration
 
+## Executive AI Copilot — Daily Decisions Engine (Complete — Feature 9)
+
+### What was added
+A top-level intelligence layer that scans CRM, revenue ops, tasks, email signals, and board pack data to surface the 5 actions that matter most today — deterministic, data-grounded, no fake AI text.
+
+**Schema additions** (via direct SQL + shared/schema.ts):
+- `executive_briefs` — id, brief_date (unique YYYY-MM-DD), headline, summary, payload_json (topSignals + radar), created_at
+- `executive_alerts` — id, type, severity, title, description, linked_object_type/id, status (open/dismissed/resolved), score, brief_date, suggested_move, created_at
+
+**`server/services/executive-copilot.ts`** (new service):
+- `detectExecutiveAlerts()` — scans 7 alert types: stalled_deal (14+ days no activity), commit_off_track (>15% gap), critical_task_overdue, no_new_leads (7 days), awaiting_reply (>48h), board_pack_stale (enabled but no run ≥7d), open_ticket_high (high/critical severity)
+- `rankPriorities()` — scores by severity (critical=40, high=25, medium=12, low=4) + domain-specific revenue impact; returns sorted descending
+- `generateSuggestedMoves()` — deterministic per-type next-action string (not AI-generated)
+- `generateDailyBrief()` — runs all scanners in parallel, picks top 5 signals, builds headline + summary from live radar, upserts to `executive_briefs` + `executive_alerts` by brief_date
+- `getTodaysBrief()` — read today's cached brief
+- `getAlerts()` / `updateAlertStatus()` — list and dismiss/resolve alerts
+
+**5 new API routes** in `server/routes.ts`:
+- `GET /api/executive/brief/today` — get today's brief (null if not yet generated)
+- `POST /api/executive/brief/refresh` — regenerate from live data (idempotent upsert)
+- `GET /api/executive/alerts` — list open/dismissed/resolved alerts, sorted by score
+- `PATCH /api/executive/alerts/:id` — dismiss or resolve an alert
+- `GET /api/executive/priorities` — returns topSignals from today's brief
+
+**Frontend** `client/src/pages/executive-copilot.tsx` (new page):
+- Today's Brief card — headline + summary + generated timestamp
+- Live Radar strip — 6 KPI tiles: commit status, stalled deals, overdue tasks, new leads MTD, awaiting reply, board pack age
+- Top Priorities — signal cards with severity badge, detail, suggested move, and "open record" link
+- All Open Alerts — dismissable list, sorted by score; "show all / show less" toggle
+- Quick Actions — 4 shortcuts: Revenue Ops, Board Pack, Task Hub, Inbox
+- Route `/executive-copilot` in App.tsx; added at top of Intelligence sidebar section
+
+**Test suite** `tests/executive-copilot.test.js`: 39 tests across 5 groups (brief, alerts, priorities, detection logic, regression)
+
+**Bug fixed during build**: `board_pack_schedules` uses `enabled` column (not `is_active`); SQL string literals used `sqlStr()`/`sqlJson()` helpers to avoid PostgreSQL treating double-quoted strings as column identifiers.
+
+---
+
 ## Revenue Operating System v3 — Plan Commits, Gap-to-Plan, Auto-Tasks (Complete — Feature 8)
 
 ### What was added in v3

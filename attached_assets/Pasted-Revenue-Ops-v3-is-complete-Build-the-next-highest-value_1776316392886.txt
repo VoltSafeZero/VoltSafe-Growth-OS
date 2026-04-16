@@ -1,0 +1,148 @@
+Revenue Ops v3 is complete. Build the next highest-value phase: “Executive AI Copilot — Daily Decisions Engine”.
+
+OBJECTIVE
+Create a top-level intelligence layer that scans CRM, revenue ops, tasks, email signals, board pack metrics, and pipeline movement, then surfaces the few actions that matter most today.
+
+This should feel like having a sharp chief of staff inside Cortex.
+
+Do not rewrite working systems. Reuse existing APIs, tables, pages, and logic.
+
+PHASE T001 — DATA MODEL
+Create minimal new tables:
+
+1) executive_briefs
+- id serial primary key
+- brief_date text not null unique // YYYY-MM-DD
+- headline text not null
+- summary text not null
+- payload_json jsonb not null
+- created_at timestamp default now()
+
+2) executive_alerts
+- id serial primary key
+- type text not null
+- severity text not null // low, medium, high, critical
+- title text not null
+- description text not null
+- linked_object_type text nullable
+- linked_object_id integer nullable
+- status text default 'open' // open, dismissed, resolved
+- score integer default 0
+- created_at timestamp default now()
+
+PHASE T002 — INTELLIGENCE ENGINE
+Create:
+server/services/executive-copilot.ts
+
+Export functions:
+
+1. generateDailyBrief()
+- Build one daily brief using live system data
+- Include:
+  - revenue status
+  - gap-to-plan
+  - overdue critical tasks
+  - stalled opportunities
+  - unread important emails
+  - new leads worth attention
+  - anomalies (drop in pipeline, missed target trend, etc.)
+- Return only the top 5 things that matter
+
+2. detectExecutiveAlerts()
+Examples:
+- Large deal stalled 14+ days
+- Commit off-track >15%
+- Critical task overdue
+- No new qualified leads in 7 days
+- Churn risk account inactive
+- Board pack scheduled but missing fresh data
+
+3. rankPriorities()
+Score alerts based on revenue impact, urgency, age, and proximity to deadline.
+
+4. generateSuggestedMoves()
+For each top alert, propose the next best action:
+- call X
+- send follow-up
+- create discount approval
+- escalate install timeline
+- schedule investor update
+- push board pack refresh
+
+PHASE T003 — API ROUTES
+Add authenticated routes:
+
+GET /api/executive/brief/today
+POST /api/executive/brief/refresh
+GET /api/executive/alerts
+PATCH /api/executive/alerts/:id
+GET /api/executive/priorities
+
+PHASE T004 — FRONTEND
+Create:
+client/src/pages/executive-copilot.tsx
+
+UI:
+
+1. Today’s Brief (top card)
+- headline
+- one paragraph summary
+- generated timestamp
+
+2. Top Priorities
+List top 5 with:
+- severity badge
+- why it matters
+- suggested move
+- open related record button
+
+3. Live Radar
+Mini KPI strip:
+- commit status
+- pipeline created this month
+- overdue tasks
+- unread important emails
+- board pack status
+
+4. Quick Actions
+Buttons:
+- Refresh Brief
+- Create Task
+- Open Revenue Ops
+- Open Board Pack
+- Open Inbox
+
+5. Clean executive-grade design
+
+PHASE T005 — SIDEBAR + DEFAULT LANDING
+Add “Executive Copilot” at top of Intelligence section.
+Optionally make it default landing page after login if cleaner.
+
+PHASE T006 — TESTS
+Add tests for:
+- brief generation
+- alert detection
+- ranking logic
+- route auth
+- refresh flow
+- no duplicate daily brief rows
+- regression tests for existing systems
+
+SUCCESS CRITERIA
+Complete only if:
+- app compiles
+- all existing tests still pass
+- new tests pass
+- page loads fast
+- brief is useful, not generic fluff
+- outputs grounded in real data
+
+WORK STYLE
+- inspect existing data sources first
+- reuse patterns
+- keep logic deterministic and testable
+- no fake AI text
+- end with:
+  1. files changed
+  2. tests passed
+  3. assumptions made

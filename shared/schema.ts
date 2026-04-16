@@ -2150,3 +2150,37 @@ export const revenueGapSnapshots = pgTable("revenue_gap_snapshots", {
 export const insertRevenueGapSnapshotSchema = createInsertSchema(revenueGapSnapshots).omit({ id: true, createdAt: true });
 export type InsertRevenueGapSnapshot = z.infer<typeof insertRevenueGapSnapshotSchema>;
 export type RevenueGapSnapshot = typeof revenueGapSnapshots.$inferSelect;
+
+// ── Executive AI Copilot ────────────────────────────────────────────────────────
+
+export const executiveBriefs = pgTable("executive_briefs", {
+  id: serial("id").primaryKey(),
+  briefDate: text("brief_date").notNull().unique(), // YYYY-MM-DD
+  headline: text("headline").notNull(),
+  summary: text("summary").notNull(),
+  payloadJson: jsonb("payload_json").notNull().default({}),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertExecutiveBriefSchema = createInsertSchema(executiveBriefs).omit({ id: true, createdAt: true });
+export type InsertExecutiveBrief = z.infer<typeof insertExecutiveBriefSchema>;
+export type ExecutiveBrief = typeof executiveBriefs.$inferSelect;
+
+export const executiveAlerts = pgTable("executive_alerts", {
+  id: serial("id").primaryKey(),
+  type: text("type").notNull(),
+  severity: text("severity").notNull().default("medium"), // low | medium | high | critical
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  linkedObjectType: text("linked_object_type"),
+  linkedObjectId: integer("linked_object_id"),
+  status: text("status").notNull().default("open"), // open | dismissed | resolved
+  score: integer("score").default(0),
+  briefDate: text("brief_date"),
+  suggestedMove: text("suggested_move"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertExecutiveAlertSchema = createInsertSchema(executiveAlerts).omit({ id: true, createdAt: true });
+export type InsertExecutiveAlert = z.infer<typeof insertExecutiveAlertSchema>;
+export type ExecutiveAlert = typeof executiveAlerts.$inferSelect;
