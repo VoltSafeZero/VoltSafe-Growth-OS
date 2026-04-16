@@ -1,0 +1,477 @@
+We need a major Task System overhaul in VoltSafe Cortex.
+
+IMPORTANT CONTEXT
+I have attached multiple screenshots showing how Trello works visually and interactively.
+Use those screenshots as product/UX inspiration for:
+- board layout
+- card detail panel
+- add/labels/dates/checklist/members actions
+- comments/activity panel
+- card movement
+- due dates
+- assignees/members
+- checklists
+- attachments
+- clean dark-theme task surfaces
+
+DO NOT make a generic Trello clone.
+Build a VoltSafe-specific task operating system that takes the best ideas from Trello/Atlassian boards and adapts them for VoltSafe’s CRM + operations workflows.
+
+The result should feel:
+- visual
+- modern
+- fast
+- highly assignable
+- collaborative
+- deeply interlinked
+- very clear on ownership
+- very clear on status/progress/blockers
+- embedded throughout our CMS
+
+==================================================
+PRIMARY GOAL
+==================================================
+
+Completely upgrade task creation, assignment, management, detail editing, and visualization so our Tasks system becomes a first-class work surface inside VoltSafe Cortex.
+
+The new task experience should support:
+- board view
+- list view
+- rich task detail drawer/panel
+- assignees
+- creator attribution
+- completion flow
+- dependencies
+- checklists
+- comments/activity
+- due dates
+- labels/tags
+- linked-record context
+- notifications
+- embedded task creation from anywhere in the CMS
+
+==================================================
+PHASE 1 — TASK DATA MODEL UPGRADE
+==================================================
+
+Extend the existing task system using additive schema changes only.
+
+Every task should support:
+
+Core
+- title
+- description
+- status
+- board_column / workflow_stage
+- priority
+- due_date
+- start_date optional
+- completed_at
+- completion_notes optional
+- archived optional if useful
+
+Ownership
+- created_by_user_id
+- assigned_to_user_id
+- completed_by_user_id
+- last_updated_by_user_id
+
+Relationships
+- linked_object_type
+- linked_object_id
+- parent_task_id optional
+- dependency_task_ids OR a proper task_dependencies join table
+- watcher_user_ids optional if useful later
+
+Visual / collaboration
+- labels / tags
+- sort_order
+- checklist_count
+- checklist_completed_count
+- comments_count
+- attachments_count
+
+Requirements:
+- every task must store who created it
+- every task must clearly show who it is assigned to
+- every task must clearly show who completed it
+- every task must support dependencies
+- newly created tasks should have a completion box / completion state
+- once completed by the assignee, it should drop from active “to do” views and move to done/completed history
+
+==================================================
+PHASE 2 — TASK CREATION / QUICK CREATE
+==================================================
+
+Upgrade every task creation flow.
+
+When a user creates a task, the form must include:
+- title
+- description
+- assign to (dropdown of users)
+- due date
+- priority
+- labels optional
+- linked record
+- dependency optional
+- checklist template optional if useful
+
+Requirements:
+- assign-to dropdown must always be available at creation
+- creator should automatically be the current user
+- newly created task should immediately show:
+  - creator
+  - assignee
+  - due date
+  - completion box
+- task can be created from:
+  - tasks page
+  - leads
+  - accounts
+  - contacts
+  - opportunities
+  - quotes
+  - projects
+  - certifications
+  - deployments
+  - procurement
+  - customer success
+  - email threads
+  - score widgets
+  - command center
+
+==================================================
+PHASE 3 — TASK DETAIL PANEL / CARD VIEW
+==================================================
+
+Build a Trello-inspired task detail experience using the screenshots as inspiration.
+
+When a task card is opened, show a rich detail panel/drawer/modal with:
+
+Left/main area:
+- title
+- completion checkbox
+- description
+- labels
+- due date/start date
+- checklist(s)
+- attachments
+- dependencies
+- linked record summary
+- creator / assignee / completed by
+- edit controls
+
+Right side:
+- comments and activity feed
+- assignment info
+- notifications/watchers if useful
+- movement/history log
+- quick actions
+
+Top quick action row should include Trello-like actions adapted for VoltSafe:
+- Add
+- Labels
+- Dates
+- Checklist
+- Members
+- Attachment
+- Move
+- Link record
+- Dependencies
+
+Important:
+- creator must be visible
+- assignee must be visible
+- completion flow must be obvious
+- comments/activity should show changes over time
+- if dependency is incomplete, blocked state should be obvious
+
+==================================================
+PHASE 4 — BOARD-FIRST TASK EXPERIENCE
+==================================================
+
+Create a visual board system inspired by Trello, but VoltSafe-specific.
+
+Default columns:
+- Backlog
+- To Do
+- In Progress
+- Waiting / Blocked
+- Done
+
+Requirements:
+- drag and drop between columns
+- reorder within columns
+- optimistic UI if safe
+- visual drop targets
+- fast updates
+- board cards should show:
+  - title
+  - due date
+  - labels
+  - assignee(s)
+  - linked record badge
+  - dependency/blocker indicator
+  - checklist progress if present
+  - comments/activity counts if useful
+
+Also support:
+- Board View
+- List View
+- My Tasks
+- Team Tasks
+- Created by Me
+- Assigned by Me
+- Completed history
+
+==================================================
+PHASE 5 — COMPLETION FLOW
+==================================================
+
+Tasks need a simple but strong completion workflow.
+
+Requirements:
+- completion checkbox exists on each card/task
+- when assignee completes task:
+  - completed_at is set
+  - completed_by_user_id is set
+  - task leaves active to-do view
+  - task moves to Done/completed history
+- task creator/assigner should be notified when task is completed
+- creator can reopen the task if needed
+- optional completion note
+- completed tasks remain visible in history/activity/audit trail
+
+==================================================
+PHASE 6 — DEPENDENCIES / BLOCKERS
+==================================================
+
+Add dependency support.
+
+Requirements:
+- a task can depend on one or more other tasks
+- blocked tasks must visibly show they are blocked
+- blocked tasks should naturally sit in “Waiting / Blocked”
+- dependency state should appear:
+  - on task card
+  - in detail panel
+  - in list view
+- if a dependency is completed, blocked task should visibly become unblocked
+- if useful, notify assignee when a dependency is cleared
+
+Examples:
+- “Ship cert samples” depends on “Build cert samples”
+- “Schedule deployment” depends on “Hardware delivered”
+- “Send board pack” depends on “Finalize KPI review”
+
+==================================================
+PHASE 7 — CHECKLISTS / SUBTASKS
+==================================================
+
+Use the screenshots as inspiration for checklist behavior.
+
+Requirements:
+- each task can have one or more checklists
+- checklist items can be completed
+- task card can show checklist progress like 3/7
+- checklist progress visible in detail panel and card
+- checklist items should optionally be able to become dependency signals if useful later
+
+==================================================
+PHASE 8 — MEMBERS / ASSIGNEES / COLLABORATION
+==================================================
+
+Use Trello-style “Members” inspiration, but adapt for VoltSafe.
+
+Requirements:
+- task can have a primary assignee
+- optionally allow additional collaborators/watchers later
+- creator remains distinct from assignee
+- task detail should show:
+  - Created by
+  - Assigned to
+  - Completed by
+- comments/activity should log:
+  - created
+  - assigned
+  - reassigned
+  - due date changed
+  - label changed
+  - dependency added/removed
+  - checklist completed
+  - completed
+  - reopened
+
+==================================================
+PHASE 9 — LABELS / DATES / ATTACHMENTS
+==================================================
+
+Use the screenshots as inspiration for these controls.
+
+Requirements:
+- labels system with color support
+- due date picker
+- start date support if helpful
+- overdue badge
+- due soon badge
+- attachments support
+- linked documents if useful
+- linked record attachment awareness
+
+==================================================
+PHASE 10 — SMART CMS INTEGRATION
+==================================================
+
+Tasks must be deeply embedded across VoltSafe Cortex.
+
+Requirements:
+- every linked record page shows related tasks
+- tasks can be created from any record
+- command centers surface relevant tasks
+- predictive score widgets can create tasks
+- certifications/projects can create blocker tasks
+- deployments can show blocked tasks
+- procurement can show missing-dependency tasks
+- customer success can show renewal/health tasks
+- email threads can create follow-up tasks
+- board pack/digest/alerts can link to tasks where appropriate
+
+Anything new we create should be smart, interlinked, connected, and embedded deep into the CMS.
+
+==================================================
+PHASE 11 — VISUAL / UX DESIGN DIRECTION
+==================================================
+
+Use the attached Trello screenshots as inspiration for:
+- board columns
+- board cards
+- top card action row
+- date picker
+- labels modal
+- members modal
+- checklist modal
+- description editor
+- comments/activity side panel
+- move-card dialog
+
+But customize it for VoltSafe:
+- use VoltSafe Cortex visual language
+- dark theme
+- premium, clean, modern
+- task cards should feel like action surfaces, not database rows
+- do not overload cards with tiny unreadable metadata
+- use a rich detail panel instead of crude forms
+- make it feel like a huge upgrade over current tasks
+
+Desired card hierarchy:
+1. task title
+2. due date / urgency
+3. assignee
+4. linked record
+5. blocker/dependency/checklist signals
+
+==================================================
+PHASE 12 — MOBILE / FIELD USABILITY
+==================================================
+
+Tasks must work well in mobile and field mode.
+
+Requirements:
+- thumb-friendly task cards
+- easy complete action
+- easy note/log action
+- clear assignee display
+- dependency visibility
+- no dense desktop-only tables on phone
+- board may simplify on mobile, but must remain useful
+- list mode may become default on small screens if better
+
+==================================================
+PHASE 13 — NOTIFICATIONS
+==================================================
+
+Use the existing notification systems where possible.
+
+Requirements:
+- notify assignee when assigned
+- notify creator/assigner when completed
+- notify when reassigned
+- optionally notify when dependency is cleared
+- optionally notify when due date becomes overdue
+
+==================================================
+PHASE 14 — FILTERS / VIEWS / POWER FEATURES
+==================================================
+
+Add useful filters/views:
+- My Tasks
+- Team Tasks
+- Created by Me
+- Assigned by Me
+- Overdue
+- Due Today
+- Blocked
+- By Assignee
+- By Linked Record Type
+- By Priority
+- By Label
+
+Saved views are welcome if clean and consistent with existing patterns.
+
+Optional nice additions if implementation is clean:
+- quick add task
+- bulk reassign
+- bulk complete
+- task templates for recurring VoltSafe workflows
+- swimlanes by assignee or linked object
+
+==================================================
+PHASE 15 — TESTING / HARDENING
+==================================================
+
+Add comprehensive tests for:
+- task creation with creator + assignee
+- task editing
+- task completion
+- completed task leaving active list
+- creator notification on completion
+- dependency creation and blocked state
+- drag/drop board updates
+- checklist progress
+- label updates
+- detail panel actions
+- linked record embedding
+- no regressions to current task hub and related systems
+
+==================================================
+IMPLEMENTATION RULES
+==================================================
+
+- Reuse as much of the current task infrastructure as practical
+- But do not be afraid to substantially upgrade the UX and data model
+- Do not build a generic clone
+- Build a VoltSafe-specific task operating system
+- Use additive schema changes and safe migrations
+- Preserve existing tasks and related data
+- Prefer polished interaction over half-finished complexity
+- If some advanced features need to be phased, build the strongest core first:
+  1. creator/assignee
+  2. completion
+  3. board view
+  4. detail panel
+  5. dependencies
+  6. comments/activity
+  7. labels/dates/checklists
+
+FINAL DELIVERABLE
+I want this to feel like a massive upgrade to our current task system, both visually and functionally, with Trello-like clarity but deeply customized for VoltSafe’s real workflows.
+
+At the end, summarize:
+- data model changes
+- key UX changes
+- board behavior
+- creator/assignee/completion behavior
+- dependency behavior
+- what was inspired by Trello
+- what was customized specifically for VoltSafe
+- tests passed / failed
