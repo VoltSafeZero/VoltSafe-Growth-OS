@@ -14,6 +14,7 @@ import { runAutomationRule, evaluateConditions, type TriggerContext, type Condit
 import { scoreLeadQuality, scoreOpportunityClose, scoreQuoteFollowUpUrgency, scoreDeploymentDelayRisk, scoreChurnRisk, scoreExpansionLikelihood, bandRank, actionHintFor, type HotListItem } from "./services/scoring-engine";
 import { composeReport, ALL_SECTION_KEYS } from "./services/report-composer";
 import { computeRankedNearby, getRouteSuggestions, generateDirectionsUrl } from "./services/routing-engine";
+import { generateAndDeliver, computeNextRunAt, seedDefaultSchedules, startBoardPackScheduler } from "./services/board-pack-scheduler";
 import { db } from "./db";
 import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications } from "@shared/schema";
 import {
@@ -17401,6 +17402,193 @@ export function registerConfluenceRoutes(app: Express) {
       res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
+
+  // ── Board Pack Auto-Scheduling ───────────────────────────────────────────────
+
+  // GET /api/board-pack/schedules — list all schedules (admin or executive)
+  app.get("/api/board-pack/schedules", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const rows = await db.execute(sql`
+        SELECT s.*,
+          (SELECT COUNT(*) FROM board_pack_runs r WHERE r.schedule_id = s.id) AS run_count,
+          (SELECT COUNT(*) FROM board_pack_runs r WHERE r.schedule_id = s.id AND r.status = 'delivered') AS delivered_count
+        FROM board_pack_schedules s
+        ORDER BY s.created_at DESC
+      `);
+      res.json(rows.rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/board-pack/schedules — create schedule
+  app.post("/api/board-pack/schedules", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const {
+        name, scheduleType = "monthly", weekday, dayOfMonth, monthInQuarter,
+        sendHour = 8, timezone = "America/Vancouver", reportType = "board_pack",
+        presetId, filters = {}, includedSections = [], recipients = [],
+        deliveryChannels = ["in_app"],
+      } = req.body;
+      if (!name?.trim()) return res.status(400).json({ message: "name required" });
+      const userId = req.session.userId as number;
+      const nextRun = computeNextRunAt({ scheduleType, weekday, dayOfMonth, monthInQuarter, sendHour, timezone });
+      const rows = await db.execute(sql`
+        INSERT INTO board_pack_schedules
+          (name, enabled, schedule_type, weekday, day_of_month, month_in_quarter,
+           send_hour, timezone, report_type, preset_id, filters, included_sections,
+           recipients, delivery_channels, next_run_at, created_by)
+        VALUES
+          (${name.trim()}, true,
+           ${scheduleType}, ${weekday ?? null}, ${dayOfMonth ?? null}, ${monthInQuarter ?? null},
+           ${sendHour}, ${timezone}, ${reportType},
+           ${presetId ?? null},
+           ${JSON.stringify(filters)}::jsonb,
+           ${JSON.stringify(includedSections)}::jsonb,
+           ${JSON.stringify(recipients)}::jsonb,
+           ${JSON.stringify(deliveryChannels)}::jsonb,
+           ${nextRun.toISOString()}, ${userId})
+        RETURNING *
+      `);
+      res.status(201).json(rows.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/board-pack/schedules/:id — get single schedule
+  app.get("/api/board-pack/schedules/:id", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const rows = await db.execute(sql`SELECT * FROM board_pack_schedules WHERE id = ${id}`);
+      if (!rows.rows.length) return res.status(404).json({ message: "Not found" });
+      res.json(rows.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // PATCH /api/board-pack/schedules/:id — update schedule
+  app.patch("/api/board-pack/schedules/:id", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = req.session.userId as number;
+      const {
+        name, scheduleType, weekday, dayOfMonth, monthInQuarter, sendHour, timezone,
+        reportType, presetId, filters, includedSections, recipients, deliveryChannels, enabled,
+      } = req.body;
+
+      const existing = await db.execute(sql`SELECT * FROM board_pack_schedules WHERE id = ${id}`);
+      if (!existing.rows.length) return res.status(404).json({ message: "Not found" });
+      const cur: any = existing.rows[0];
+
+      const newSched = {
+        scheduleType: scheduleType ?? cur.schedule_type,
+        weekday: weekday !== undefined ? weekday : cur.weekday,
+        dayOfMonth: dayOfMonth !== undefined ? dayOfMonth : cur.day_of_month,
+        monthInQuarter: monthInQuarter !== undefined ? monthInQuarter : cur.month_in_quarter,
+        sendHour: sendHour ?? cur.send_hour,
+        timezone: timezone ?? cur.timezone,
+      };
+      const nextRun = computeNextRunAt(newSched);
+
+      const setParts: string[] = [
+        `next_run_at = '${nextRun.toISOString()}'`,
+        `updated_by = ${userId}`,
+        `updated_at = NOW()`,
+      ];
+      if (name !== undefined) setParts.push(`name = '${String(name).replace(/'/g, "''")}'`);
+      if (enabled !== undefined) setParts.push(`enabled = ${Boolean(enabled)}`);
+      if (scheduleType !== undefined) setParts.push(`schedule_type = '${String(scheduleType).replace(/'/g, "''")}'`);
+      if (weekday !== undefined) setParts.push(`weekday = ${weekday === null ? "NULL" : Number(weekday)}`);
+      if (dayOfMonth !== undefined) setParts.push(`day_of_month = ${dayOfMonth === null ? "NULL" : Number(dayOfMonth)}`);
+      if (monthInQuarter !== undefined) setParts.push(`month_in_quarter = ${monthInQuarter === null ? "NULL" : Number(monthInQuarter)}`);
+      if (sendHour !== undefined) setParts.push(`send_hour = ${Number(sendHour)}`);
+      if (timezone !== undefined) setParts.push(`timezone = '${String(timezone).replace(/'/g, "''")}'`);
+      if (reportType !== undefined) setParts.push(`report_type = '${String(reportType).replace(/'/g, "''")}'`);
+      if (presetId !== undefined) setParts.push(`preset_id = ${presetId === null ? "NULL" : Number(presetId)}`);
+      if (filters !== undefined) setParts.push(`filters = '${JSON.stringify(filters).replace(/'/g, "''")}'::jsonb`);
+      if (includedSections !== undefined) setParts.push(`included_sections = '${JSON.stringify(includedSections).replace(/'/g, "''")}'::jsonb`);
+      if (recipients !== undefined) setParts.push(`recipients = '${JSON.stringify(recipients).replace(/'/g, "''")}'::jsonb`);
+      if (deliveryChannels !== undefined) setParts.push(`delivery_channels = '${JSON.stringify(deliveryChannels).replace(/'/g, "''")}'::jsonb`);
+
+      const rows = await db.execute(sql.raw(
+        `UPDATE board_pack_schedules SET ${setParts.join(", ")} WHERE id = ${id} RETURNING *`
+      ));
+      if (!rows.rows.length) return res.status(404).json({ message: "Not found" });
+      res.json(rows.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // DELETE /api/board-pack/schedules/:id — delete schedule and its runs
+  app.delete("/api/board-pack/schedules/:id", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await db.execute(sql`DELETE FROM board_pack_runs WHERE schedule_id = ${id}`);
+      const rows = await db.execute(sql`DELETE FROM board_pack_schedules WHERE id = ${id} RETURNING id`);
+      if (!rows.rows.length) return res.status(404).json({ message: "Not found" });
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/board-pack/schedules/:id/toggle — pause / resume
+  app.post("/api/board-pack/schedules/:id/toggle", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const rows = await db.execute(sql`
+        UPDATE board_pack_schedules SET enabled = NOT enabled, updated_at = NOW()
+        WHERE id = ${id}
+        RETURNING id, enabled, name
+      `);
+      if (!rows.rows.length) return res.status(404).json({ message: "Not found" });
+      res.json(rows.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/board-pack/schedules/:id/run-now — trigger immediate delivery
+  app.post("/api/board-pack/schedules/:id/run-now", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = req.session.userId as number;
+      const check = await db.execute(sql`SELECT id, name FROM board_pack_schedules WHERE id = ${id}`);
+      if (!check.rows.length) return res.status(404).json({ message: "Schedule not found" });
+      // Fire async — respond immediately
+      generateAndDeliver(id, userId).catch(err =>
+        console.error(`[board-pack/run-now] schedule ${id}:`, err.message)
+      );
+      res.status(202).json({ ok: true, message: "Board pack generation started" });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/board-pack/schedules/:id/history — run history for a schedule
+  app.get("/api/board-pack/schedules/:id/history", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const check = await db.execute(sql`SELECT id FROM board_pack_schedules WHERE id = ${id}`);
+      if (!check.rows.length) return res.status(404).json({ message: "Schedule not found" });
+      const limit = Math.min(parseInt(String(req.query.limit ?? "20")), 100);
+      const rows = await db.execute(sql`
+        SELECT * FROM board_pack_runs
+        WHERE schedule_id = ${id}
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `);
+      res.json(rows.rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/board-pack/runs — all recent runs (admin)
+  app.get("/api/board-pack/runs", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(String(req.query.limit ?? "50")), 200);
+      const rows = await db.execute(sql`
+        SELECT r.*, s.name AS schedule_name
+        FROM board_pack_runs r
+        LEFT JOIN board_pack_schedules s ON s.id = r.schedule_id
+        ORDER BY r.created_at DESC
+        LIMIT ${limit}
+      `);
+      res.json(rows.rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Board Pack scheduler boot ────────────────────────────────────────────────
+  seedDefaultSchedules().catch(err => console.error("[board-pack-scheduler] seed error:", err));
+  startBoardPackScheduler();
 
   // ── Engagement scheduler + default rules ────────────────────────────────────
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));

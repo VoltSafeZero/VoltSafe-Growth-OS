@@ -1998,3 +1998,54 @@ export const digestRuns = pgTable("digest_runs", {
 export const insertDigestRunSchema = createInsertSchema(digestRuns).omit({ id: true, createdAt: true });
 export type InsertDigestRun = z.infer<typeof insertDigestRunSchema>;
 export type DigestRun = typeof digestRuns.$inferSelect;
+
+// ── Board Pack Schedules ──────────────────────────────────────────────────────
+
+export const boardPackSchedules = pgTable("board_pack_schedules", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  scheduleType: text("schedule_type").notNull().default("monthly"), // weekly | monthly | quarterly | custom
+  weekday: integer("weekday"),           // 0=Sun … 6=Sat (weekly)
+  dayOfMonth: integer("day_of_month"),   // 1-28 (monthly)
+  monthInQuarter: integer("month_in_quarter"), // 1,2,3 (quarterly)
+  sendHour: integer("send_hour").notNull().default(8),
+  timezone: text("timezone").notNull().default("America/Vancouver"),
+  reportType: text("report_type").notNull().default("board_pack"),
+  presetId: integer("preset_id"),
+  filters: jsonb("filters").notNull().default({}),
+  includedSections: jsonb("included_sections").notNull().default([]),
+  recipients: jsonb("recipients").notNull().default([]),
+  deliveryChannels: jsonb("delivery_channels").notNull().default(["email", "in_app"]),
+  lastRunAt: timestamp("last_run_at"),
+  nextRunAt: timestamp("next_run_at"),
+  lastStatus: text("last_status"),
+  lastError: text("last_error"),
+  createdBy: integer("created_by").notNull(),
+  updatedBy: integer("updated_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertBoardPackScheduleSchema = createInsertSchema(boardPackSchedules).omit({ id: true, createdAt: true, updatedAt: true, lastRunAt: true, nextRunAt: true, lastStatus: true, lastError: true });
+export type InsertBoardPackSchedule = z.infer<typeof insertBoardPackScheduleSchema>;
+export type BoardPackSchedule = typeof boardPackSchedules.$inferSelect;
+
+export const boardPackRuns = pgTable("board_pack_runs", {
+  id: serial("id").primaryKey(),
+  scheduleId: integer("schedule_id"),
+  generatedAt: timestamp("generated_at").defaultNow().notNull(),
+  deliveredAt: timestamp("delivered_at"),
+  status: text("status").notNull().default("pending"), // pending | generating | delivered | failed
+  reportType: text("report_type"),
+  outputTypes: jsonb("output_types").notNull().default(["html"]),
+  recipientCount: integer("recipient_count").notNull().default(0),
+  payloadMeta: jsonb("payload_meta").notNull().default({}),
+  errors: text("errors"),
+  triggeredBy: integer("triggered_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertBoardPackRunSchema = createInsertSchema(boardPackRuns).omit({ id: true, createdAt: true });
+export type InsertBoardPackRun = z.infer<typeof insertBoardPackRunSchema>;
+export type BoardPackRun = typeof boardPackRuns.$inferSelect;

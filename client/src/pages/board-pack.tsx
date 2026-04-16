@@ -12,10 +12,14 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   FileText, Download, Printer, ChevronRight, AlertTriangle,
   TrendingUp, DollarSign, Package, Shield, Users, Globe,
   BarChart3, Zap, BookOpen, Save, Trash2, Play, RefreshCw,
+  Calendar, Clock, Send, Pause, History, Plus, Mail, Bell,
+  CheckCircle, XCircle, Timer, Settings,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -23,6 +27,43 @@ type ReportType = { value: string; label: string; description: string };
 type SectionMeta = { key: string; label: string; description: string; defaultFor: string[] };
 type ReportData = Record<string, any>;
 type Preset = { id: number; name: string; reportType: string; dateRangePreset: string; includedSections: string[]; description?: string; createdAt: string };
+
+type Schedule = {
+  id: number;
+  name: string;
+  enabled: boolean;
+  schedule_type: string;
+  weekday?: number | null;
+  day_of_month?: number | null;
+  month_in_quarter?: number | null;
+  send_hour: number;
+  timezone: string;
+  report_type: string;
+  preset_id?: number | null;
+  included_sections: string[];
+  recipients: string[];
+  delivery_channels: string[];
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  last_status?: string | null;
+  last_error?: string | null;
+  run_count?: number;
+  delivered_count?: number;
+  created_at: string;
+};
+
+type ScheduleRun = {
+  id: number;
+  schedule_id: number;
+  status: string;
+  report_type?: string;
+  recipient_count: number;
+  errors?: string | null;
+  triggered_by?: number | null;
+  generated_at: string;
+  delivered_at?: string | null;
+  schedule_name?: string;
+};
 
 const DATE_PRESETS = [
   { value: "this_week", label: "This Week" },
@@ -516,6 +557,437 @@ function ReportPreview({ data, reportTypeLabel }: { data: ReportData; reportType
   );
 }
 
+// ── Schedule Helpers ──────────────────────────────────────────────────────────
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const SCHEDULE_TYPES = [
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+  { value: "quarterly", label: "Quarterly" },
+];
+const DELIVERY_CHANNELS = [
+  { value: "email", label: "Email", icon: Mail },
+  { value: "in_app", label: "In-App Notification", icon: Bell },
+];
+
+function scheduleLabel(s: Schedule): string {
+  if (s.schedule_type === "weekly") return `Every ${WEEKDAYS[s.weekday ?? 1]} at ${s.send_hour}:00`;
+  if (s.schedule_type === "monthly") return `Monthly on day ${s.day_of_month ?? 1} at ${s.send_hour}:00`;
+  if (s.schedule_type === "quarterly") return `Quarterly (month ${s.month_in_quarter ?? 1}) at ${s.send_hour}:00`;
+  return "Custom schedule";
+}
+
+function statusBadge(status?: string | null) {
+  if (!status) return <Badge variant="outline" className="text-xs">Inactive</Badge>;
+  if (status === "completed") return <Badge className="bg-emerald-500/20 text-emerald-700 border-emerald-300 text-xs"><CheckCircle className="w-3 h-3 mr-1" />Delivered</Badge>;
+  if (status === "running") return <Badge className="bg-blue-500/20 text-blue-700 border-blue-300 text-xs"><Timer className="w-3 h-3 mr-1" />Running</Badge>;
+  if (status === "failed") return <Badge className="bg-red-500/20 text-red-700 border-red-300 text-xs"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>;
+  return <Badge variant="outline" className="text-xs">{status}</Badge>;
+}
+
+// ── Schedule Create / Edit Modal ──────────────────────────────────────────────
+
+function ScheduleModal({
+  open, onClose, schedule, reportTypes, sectionMeta,
+}: {
+  open: boolean;
+  onClose: () => void;
+  schedule?: Schedule | null;
+  reportTypes: ReportType[];
+  sectionMeta: SectionMeta[];
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const isEdit = !!schedule;
+
+  const [name, setName] = useState(schedule?.name ?? "");
+  const [scheduleType, setScheduleType] = useState(schedule?.schedule_type ?? "monthly");
+  const [weekday, setWeekday] = useState(String(schedule?.weekday ?? 1));
+  const [dayOfMonth, setDayOfMonth] = useState(String(schedule?.day_of_month ?? 1));
+  const [monthInQuarter, setMonthInQuarter] = useState(String(schedule?.month_in_quarter ?? 1));
+  const [sendHour, setSendHour] = useState(String(schedule?.send_hour ?? 8));
+  const [reportType, setReportType] = useState(schedule?.report_type ?? "board_pack");
+  const [includedSections, setIncludedSections] = useState<string[]>(schedule?.included_sections ?? []);
+  const [recipientsText, setRecipientsText] = useState((schedule?.recipients ?? []).join("\n"));
+  const [channels, setChannels] = useState<string[]>(schedule?.delivery_channels ?? ["in_app"]);
+
+  const toggleChannel = (ch: string) =>
+    setChannels(prev => prev.includes(ch) ? prev.filter(c => c !== ch) : [...prev, ch]);
+
+  const toggleSection = (key: string) =>
+    setIncludedSections(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+
+  const saveMutation = useMutation({
+    mutationFn: (body: any) => isEdit
+      ? apiRequest("PATCH", `/api/board-pack/schedules/${schedule!.id}`, body).then(r => r.json())
+      : apiRequest("POST", "/api/board-pack/schedules", body).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/board-pack/schedules"] });
+      toast({ title: isEdit ? "Schedule updated" : "Schedule created" });
+      onClose();
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const handleSave = () => {
+    if (!name.trim()) return toast({ title: "Name required", variant: "destructive" });
+    const recipients = recipientsText.split(/[\n,]/).map(e => e.trim()).filter(Boolean);
+    saveMutation.mutate({
+      name: name.trim(),
+      scheduleType,
+      weekday: scheduleType === "weekly" ? parseInt(weekday) : null,
+      dayOfMonth: scheduleType === "monthly" ? parseInt(dayOfMonth) : null,
+      monthInQuarter: scheduleType === "quarterly" ? parseInt(monthInQuarter) : null,
+      sendHour: parseInt(sendHour),
+      reportType,
+      includedSections,
+      recipients,
+      deliveryChannels: channels,
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{isEdit ? "Edit Schedule" : "New Schedule"}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div>
+            <Label>Schedule Name</Label>
+            <Input data-testid="input-schedule-name" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Monthly Board Pack" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Cadence</Label>
+              <Select value={scheduleType} onValueChange={setScheduleType}>
+                <SelectTrigger data-testid="select-schedule-type"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {SCHEDULE_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Send Hour (24h)</Label>
+              <Select value={sendHour} onValueChange={setSendHour}>
+                <SelectTrigger data-testid="select-send-hour"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {[6,7,8,9,10,11,12,14,16,18].map(h => <SelectItem key={h} value={String(h)}>{h}:00</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {scheduleType === "weekly" && (
+            <div>
+              <Label>Day of Week</Label>
+              <Select value={weekday} onValueChange={setWeekday}>
+                <SelectTrigger data-testid="select-weekday"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {WEEKDAYS.map((d, i) => <SelectItem key={i} value={String(i)}>{d}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {scheduleType === "monthly" && (
+            <div>
+              <Label>Day of Month</Label>
+              <Select value={dayOfMonth} onValueChange={setDayOfMonth}>
+                <SelectTrigger data-testid="select-day-of-month"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {[1,2,3,5,7,10,14,15,20,25,28].map(d => <SelectItem key={d} value={String(d)}>Day {d}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {scheduleType === "quarterly" && (
+            <div>
+              <Label>Month in Quarter</Label>
+              <Select value={monthInQuarter} onValueChange={setMonthInQuarter}>
+                <SelectTrigger data-testid="select-month-in-quarter"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">First month of quarter</SelectItem>
+                  <SelectItem value="2">Second month of quarter</SelectItem>
+                  <SelectItem value="3">Third month of quarter</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <div>
+            <Label>Report Type</Label>
+            <Select value={reportType} onValueChange={setReportType}>
+              <SelectTrigger data-testid="select-schedule-report-type"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {reportTypes.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <Label className="block mb-2">Delivery Channels</Label>
+            <div className="flex gap-3">
+              {DELIVERY_CHANNELS.map(ch => (
+                <label key={ch.value} className="flex items-center gap-2 cursor-pointer text-sm">
+                  <Checkbox
+                    checked={channels.includes(ch.value)}
+                    onCheckedChange={() => toggleChannel(ch.value)}
+                    data-testid={`checkbox-channel-${ch.value}`}
+                  />
+                  <ch.icon className="w-3.5 h-3.5 text-muted-foreground" />
+                  {ch.label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <Label>Recipients (one email per line)</Label>
+            <Textarea
+              data-testid="input-recipients"
+              value={recipientsText}
+              onChange={e => setRecipientsText(e.target.value)}
+              placeholder="admin@voltsafe.com&#10;board@voltsafe.com"
+              rows={3}
+              className="text-sm font-mono"
+            />
+            <p className="text-xs text-muted-foreground mt-1">Only used for Email channel. Leave empty for in-app only.</p>
+          </div>
+
+          <div>
+            <Label className="block mb-2">Included Sections (leave empty for all)</Label>
+            <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto">
+              {sectionMeta.map(s => (
+                <label key={s.key} className="flex items-center gap-2 cursor-pointer text-xs py-0.5">
+                  <Checkbox
+                    checked={includedSections.includes(s.key)}
+                    onCheckedChange={() => toggleSection(s.key)}
+                    data-testid={`checkbox-schedule-section-${s.key}`}
+                  />
+                  {s.label}
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            data-testid="button-save-schedule"
+            onClick={handleSave}
+            disabled={saveMutation.isPending}
+          >
+            {saveMutation.isPending ? "Saving..." : isEdit ? "Save Changes" : "Create Schedule"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Run History Panel ─────────────────────────────────────────────────────────
+
+function RunHistoryPanel({ scheduleId }: { scheduleId: number }) {
+  const { data: runs = [], isLoading } = useQuery<ScheduleRun[]>({
+    queryKey: ["/api/board-pack/schedules", scheduleId, "history"],
+    queryFn: () => fetch(`/api/board-pack/schedules/${scheduleId}/history?limit=10`, { credentials: "include" }).then(r => r.json()),
+  });
+
+  if (isLoading) return <div className="py-3 text-xs text-muted-foreground">Loading history…</div>;
+  if (!runs.length) return <div className="py-3 text-xs text-muted-foreground">No runs yet.</div>;
+
+  return (
+    <div className="space-y-1.5 mt-2">
+      {runs.map(run => (
+        <div key={run.id} className="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-muted/40">
+          <div className="flex items-center gap-2">
+            {run.status === "delivered" ? <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> :
+             run.status === "failed" ? <XCircle className="w-3.5 h-3.5 text-red-500" /> :
+             <Timer className="w-3.5 h-3.5 text-blue-500" />}
+            <span className="text-muted-foreground">{new Date(run.generated_at).toLocaleString("en-CA", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+            {run.recipient_count > 0 && <span className="text-muted-foreground">· {run.recipient_count} recipient{run.recipient_count > 1 ? "s" : ""}</span>}
+          </div>
+          {run.errors && <span className="text-red-500 truncate max-w-32" title={run.errors}>⚠ {run.errors.slice(0, 40)}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Schedules Panel ───────────────────────────────────────────────────────────
+
+function SchedulesPanel({ reportTypes, sectionMeta }: { reportTypes: ReportType[]; sectionMeta: SectionMeta[] }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editSchedule, setEditSchedule] = useState<Schedule | null>(null);
+  const [expandedHistory, setExpandedHistory] = useState<number | null>(null);
+
+  const { data: schedules = [], isLoading } = useQuery<Schedule[]>({
+    queryKey: ["/api/board-pack/schedules"],
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/board-pack/schedules/${id}/toggle`).then(r => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/board-pack/schedules"] }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const runNowMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/board-pack/schedules/${id}/run-now`).then(r => r.json()),
+    onSuccess: () => {
+      toast({ title: "Board pack generation started", description: "Check run history shortly." });
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["/api/board-pack/schedules"] }), 3000);
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/board-pack/schedules/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/board-pack/schedules"] });
+      toast({ title: "Schedule deleted" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6 space-y-4" data-testid="schedules-panel">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold">Auto-Scheduling</h2>
+          <p className="text-sm text-muted-foreground">Automatically generate and deliver recurring board packs</p>
+        </div>
+        <Button
+          data-testid="button-new-schedule"
+          size="sm"
+          onClick={() => { setEditSchedule(null); setModalOpen(true); }}
+        >
+          <Plus className="w-4 h-4 mr-1.5" />New Schedule
+        </Button>
+      </div>
+
+      {isLoading && <div className="text-sm text-muted-foreground">Loading schedules…</div>}
+
+      {!isLoading && schedules.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+          <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Calendar className="w-6 h-6 text-primary" />
+          </div>
+          <div>
+            <p className="font-medium">No schedules yet</p>
+            <p className="text-sm text-muted-foreground mt-1">Create your first auto-schedule to start delivering board packs automatically.</p>
+          </div>
+          <Button size="sm" onClick={() => { setEditSchedule(null); setModalOpen(true); }}>
+            <Plus className="w-4 h-4 mr-1.5" />Create First Schedule
+          </Button>
+        </div>
+      )}
+
+      <div className="space-y-3" data-testid="schedules-list">
+        {schedules.map(s => (
+          <Card key={s.id} data-testid={`schedule-card-${s.id}`} className={s.enabled ? "" : "opacity-60"}>
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-medium text-sm truncate">{s.name}</h3>
+                    {statusBadge(s.last_status)}
+                    {!s.enabled && <Badge variant="outline" className="text-xs text-muted-foreground">Paused</Badge>}
+                  </div>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
+                    <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{scheduleLabel(s)}</span>
+                    <span className="flex items-center gap-1">
+                      {s.delivery_channels.includes("email") && <Mail className="w-3 h-3" />}
+                      {s.delivery_channels.includes("in_app") && <Bell className="w-3 h-3" />}
+                      {s.delivery_channels.join(", ")}
+                    </span>
+                    {s.recipients.length > 0 && (
+                      <span>{s.recipients.length} recipient{s.recipients.length > 1 ? "s" : ""}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground flex-wrap">
+                    {s.last_run_at && <span>Last run: {new Date(s.last_run_at).toLocaleDateString("en-CA")}</span>}
+                    {s.next_run_at && s.enabled && <span>Next: {new Date(s.next_run_at).toLocaleDateString("en-CA")}</span>}
+                    {(s.run_count ?? 0) > 0 && <span>{s.delivered_count ?? 0}/{s.run_count} delivered</span>}
+                  </div>
+                  {s.last_error && (
+                    <p className="text-xs text-red-500 mt-1 truncate" title={s.last_error}>{s.last_error}</p>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Switch
+                    data-testid={`toggle-schedule-${s.id}`}
+                    checked={s.enabled}
+                    onCheckedChange={() => toggleMutation.mutate(s.id)}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    data-testid={`button-run-now-${s.id}`}
+                    onClick={() => runNowMutation.mutate(s.id)}
+                    disabled={runNowMutation.isPending}
+                    title="Send now"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    data-testid={`button-history-${s.id}`}
+                    onClick={() => setExpandedHistory(expandedHistory === s.id ? null : s.id)}
+                    title="Run history"
+                  >
+                    <History className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    data-testid={`button-edit-schedule-${s.id}`}
+                    onClick={() => { setEditSchedule(s); setModalOpen(true); }}
+                    title="Edit"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    data-testid={`button-delete-schedule-${s.id}`}
+                    onClick={() => deleteMutation.mutate(s.id)}
+                    className="text-muted-foreground hover:text-destructive"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+
+              {expandedHistory === s.id && (
+                <div className="mt-3 border-t border-border pt-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
+                    <History className="w-3 h-3" />Run History
+                  </p>
+                  <RunHistoryPanel scheduleId={s.id} />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <ScheduleModal
+        open={modalOpen}
+        onClose={() => { setModalOpen(false); setEditSchedule(null); }}
+        schedule={editSchedule}
+        reportTypes={reportTypes}
+        sectionMeta={sectionMeta}
+      />
+    </div>
+  );
+}
+
 // ── Save Preset Dialog ────────────────────────────────────────────────────────
 
 function SavePresetDialog({
@@ -587,6 +1059,7 @@ export default function BoardPackPage() {
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [activeTab, setActiveTab] = useState<"builder" | "preview">("builder");
+  const [pageView, setPageView] = useState<"builder" | "schedules">("builder");
 
   // Metadata
   const { data: types = [] } = useQuery<ReportType[]>({ queryKey: ["/api/reports/types"] });
@@ -776,15 +1249,33 @@ ${previewRef.current.innerHTML}
 
       {/* Page header */}
       <div className="no-print flex items-center justify-between px-6 py-4 border-b border-border bg-background/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="flex items-center gap-3">
-          <FileText className="w-5 h-5 text-primary" />
-          <div>
-            <h1 className="text-lg font-semibold">Board Pack & Reports</h1>
-            <p className="text-xs text-muted-foreground">Generate printable leadership and board-ready reports</p>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <FileText className="w-5 h-5 text-primary" />
+            <div>
+              <h1 className="text-lg font-semibold">Board Pack & Reports</h1>
+              <p className="text-xs text-muted-foreground">Generate printable leadership and board-ready reports</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
+            <button
+              data-testid="tab-builder"
+              onClick={() => setPageView("builder")}
+              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${pageView === "builder" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <FileText className="w-3.5 h-3.5 inline mr-1.5" />Report Builder
+            </button>
+            <button
+              data-testid="tab-schedules"
+              onClick={() => setPageView("schedules")}
+              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${pageView === "schedules" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <Calendar className="w-3.5 h-3.5 inline mr-1.5" />Auto-Scheduling
+            </button>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {reportData && (
+          {pageView === "builder" && reportData && (
             <>
               <Button data-testid="button-download-html" variant="outline" size="sm" onClick={handleDownloadHTML}>
                 <Download className="w-4 h-4 mr-1.5" />HTML
@@ -800,20 +1291,25 @@ ${previewRef.current.innerHTML}
               </Button>
             </>
           )}
-          <Button
-            data-testid="button-generate-report"
-            onClick={handleGenerate}
-            disabled={composeMutation.isPending}
-          >
-            {composeMutation.isPending ? (
-              <><RefreshCw className="w-4 h-4 mr-1.5 animate-spin" />Generating...</>
-            ) : (
-              <><Play className="w-4 h-4 mr-1.5" />Generate Report</>
-            )}
-          </Button>
+          {pageView === "builder" && (
+            <Button
+              data-testid="button-generate-report"
+              onClick={handleGenerate}
+              disabled={composeMutation.isPending}
+            >
+              {composeMutation.isPending ? (
+                <><RefreshCw className="w-4 h-4 mr-1.5 animate-spin" />Generating...</>
+              ) : (
+                <><Play className="w-4 h-4 mr-1.5" />Generate Report</>
+              )}
+            </Button>
+          )}
         </div>
       </div>
 
+      {pageView === "schedules" ? (
+        <SchedulesPanel reportTypes={types as ReportType[]} sectionMeta={sections as SectionMeta[]} />
+      ) : (
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left panel: Builder config */}
         <div className="no-print w-72 shrink-0 border-r border-border overflow-y-auto p-4 space-y-5">
@@ -960,6 +1456,7 @@ ${previewRef.current.innerHTML}
           )}
         </div>
       </div>
+      )}
 
       <SavePresetDialog
         open={saveDialogOpen}

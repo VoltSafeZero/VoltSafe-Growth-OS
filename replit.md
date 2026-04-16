@@ -873,3 +873,48 @@ Added "Digest & Alerts" link under Intelligence nav group in sidebar, routed to 
 - Previous total: 724 tests
 - New: +54 tests
 - **Total: 778 tests, 0 failures**
+
+---
+
+## Board Pack Auto-Scheduling (Complete)
+
+### What was built
+Recurring auto-delivery system for board packs and executive reports. Admins configure schedules (weekly/monthly/quarterly) that automatically compose and deliver reports via email and in-app notifications on a cron-like interval.
+
+**Schema** (2 new tables via direct SQL — `shared/schema.ts`):
+- `board_pack_schedules` — schedule config: cadence, send_hour, recipients, delivery_channels (jsonb), included_sections (jsonb), enabled flag, next_run_at, run stats
+- `board_pack_runs` — execution log: status, recipient_count, errors, metadata, generated_at
+
+**`server/services/board-pack-scheduler.ts`** (new service):
+- `computeNextRunAt(schedule)` — computes next UTC run timestamp for weekly/monthly/quarterly cadences
+- `generateAndDeliver(scheduleId, triggeredBy?)` — composes report via `/api/reports/compose`, sends Gmail email if connected, sends in-app notification, logs run record, updates schedule stats
+- `formatReportAsHtml(data, meta)` — renders branded HTML email body from report data
+- `evaluateDueSchedules()` — scans all enabled schedules due now (with 5-min tolerance), triggers generateAndDeliver for each
+- `startBoardPackScheduler()` — 5-minute setInterval loop that calls evaluateDueSchedules
+- `seedDefaultSchedules()` — seeds 4 default templates (Weekly Executive, Monthly Leadership, Quarterly Board Pack, Fundraising Snapshot) if no schedules exist
+
+**9 new API routes** (all `requireAuth + requireAdmin`):
+- `GET /api/board-pack/schedules` — list all schedules
+- `POST /api/board-pack/schedules` — create schedule (validates name, scheduleType, etc.)
+- `GET /api/board-pack/schedules/:id` — get single (404 if missing)
+- `PATCH /api/board-pack/schedules/:id` — partial update (name, sendHour, recipients, channels, sections, etc.) using sql.raw JSONB
+- `DELETE /api/board-pack/schedules/:id` — delete with cascade runs (404 if missing)
+- `POST /api/board-pack/schedules/:id/toggle` — flip enabled (404 if missing)
+- `POST /api/board-pack/schedules/:id/run-now` — async fire-and-forget, returns 202
+- `GET /api/board-pack/schedules/:id/history?limit=N` — run log for a schedule (404 if schedule missing)
+- `GET /api/board-pack/runs?limit=N` — all recent runs across schedules
+
+**Frontend** (`client/src/pages/board-pack.tsx`) extended:
+- Added `pageView` state toggle: `"builder" | "schedules"` with header tab switcher (Report Builder / Auto-Scheduling)
+- New `ScheduleModal` component — create/edit modal: name, cadence, day/weekday/quarter controls, send hour, report type, delivery channels (checkboxes), recipients (textarea), included sections (grid of checkboxes)
+- New `RunHistoryPanel` component — collapsible run log per schedule
+- New `SchedulesPanel` component — full schedule list with per-card: enabled toggle, send-now, history expand, edit, delete
+
+### Tests
+`tests/board-pack-scheduler.test.js` — **48 assertions** covering 14 suites: auth/permission, list, CRUD (weekly/monthly/quarterly), single-get 404, PATCH fields, toggle on/off, run-now (202), run history (404 for missing), recent runs, next_run_at math for all 3 cadences, included sections, delete with verify, and regression of prior routes.
+
+### Cumulative Test Count
+- Previous total: 778 tests (through Territory Routing / Executive Alerting / etc.)
+- Session additions: +903 (territory routing sprint) → tracked separately
+- Board Pack Scheduler: +48 new tests
+- **Total new scheduler tests: 48, 0 failures**
