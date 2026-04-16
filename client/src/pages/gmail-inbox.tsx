@@ -2116,6 +2116,35 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [sentExtra, setSentExtra] = useState<MessageSummary[]>([]);
   const [sentNextToken, setSentNextToken] = useState<string | null>(null);
   const [loadingMoreSent, setLoadingMoreSent] = useState(false);
+
+  // Resizable email-list panel
+  const [listPanelWidth, setListPanelWidth] = useState<number>(() => {
+    try { const s = localStorage.getItem("inbox-list-width"); return s ? Math.max(300, Math.min(680, Number(s))) : 400; } catch { return 400; }
+  });
+  const listPanelWidthRef = useRef(listPanelWidth);
+  useEffect(() => { listPanelWidthRef.current = listPanelWidth; }, [listPanelWidth]);
+
+  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = listPanelWidthRef.current;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    const onMove = (ev: MouseEvent) => {
+      const newW = Math.max(300, Math.min(680, startWidth + (ev.clientX - startX)));
+      listPanelWidthRef.current = newW;
+      setListPanelWidth(newW);
+    };
+    const onUp = () => {
+      try { localStorage.setItem("inbox-list-width", String(listPanelWidthRef.current)); } catch {}
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, []);
   const [selectedInboxIds, setSelectedInboxIds] = useState<Set<string>>(new Set());
   const [crmFilter, setCrmFilter] = useState<CrmInboxFilter>("all");
   const [quickTaskThreadId, setQuickTaskThreadId] = useState<string | null>(null);
@@ -3335,7 +3364,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         </aside>
 
         {/* ── CENTER PANEL: thread list ───────────────────────────────────── */}
-        <div className={`flex flex-col min-h-0 border-r border-border/50 bg-background ${selectedThreadId ? "hidden md:flex md:w-72 flex-shrink-0" : "flex-1 md:w-72 md:flex-initial"}`}>
+        <div
+          className={`flex flex-col min-h-0 bg-background ${selectedThreadId ? "hidden md:flex flex-shrink-0" : "flex-1 md:flex-initial md:flex-shrink-0"}`}
+          style={{ width: listPanelWidth }}
+        >
 
           {/* Mobile-only tab switcher (replaces hidden sidebar on phones) */}
           <div className="md:hidden flex-shrink-0 overflow-x-auto border-b border-border/50 bg-background/80">
@@ -4071,6 +4103,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             )}
           </div>
 
+        </div>
+
+        {/* ── DRAGGABLE DIVIDER ───────────────────────────────────────────── */}
+        <div
+          className="hidden md:flex items-stretch w-[5px] flex-shrink-0 cursor-col-resize group relative select-none"
+          onMouseDown={handleDividerMouseDown}
+          data-testid="email-panel-divider"
+          title="Drag to resize"
+        >
+          <div className="w-px bg-border/50 group-hover:bg-primary/50 group-active:bg-primary transition-colors mx-auto" />
         </div>
 
         {/* ── RIGHT PANEL: thread view + CRM context ─────────────────────── */}
