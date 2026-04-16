@@ -67,6 +67,8 @@ import DocumentsPage from "@/pages/documents";
 import AutomationsPage from "@/pages/automations";
 import BoardPackPage from "@/pages/board-pack";
 import RevenuePage from "@/pages/revenue";
+import FieldPage from "@/pages/field";
+import FieldNearbyPage from "@/pages/field-nearby";
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -179,6 +181,8 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/command-center">{() => wrap(<CommandCenter />)}</Route>
       <Route path="/dashboard">{() => wrap(<Dashboard />)}</Route>
       <Route path="/today">{() => wrap(<TodayPage />)}</Route>
+      <Route path="/field/nearby">{() => wrap(<FieldNearbyPage />)}</Route>
+      <Route path="/field">{() => wrap(<FieldPage />)}</Route>
       <Route path="/pipeline">{() => guard("crm", <PipelinePage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
       <Route path="/data-quality">{() => guard("crm", <DataQualityPage />)}</Route>
       <Route path="/install-workflows">{() => guard("crm", <InstallWorkflowsPage />)}</Route>

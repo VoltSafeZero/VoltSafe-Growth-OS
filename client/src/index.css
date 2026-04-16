@@ -138,6 +138,30 @@
   }
 }
 
+/* ── Field Execution Mobile Shell ────────────────────────────── */
+
+/* iOS safe area for home indicator */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Larger touch targets on mobile — all interactive elements */
+@media (max-width: 767px) {
+  button, a, [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Field mode fast transitions */
+  .field-card-enter {
+    animation: slideUpIn 0.18s ease-out;
+  }
+}
+
+@keyframes slideUpIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* Leaflet Map Customization for Dark Mode */
 @keyframes pulse-ring {
   0% { box-shadow: 0 0 0 3px rgba(45,212,191,0.3), 0 2px 8px rgba(0,0,0,0.4); }

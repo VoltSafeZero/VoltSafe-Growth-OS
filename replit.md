@@ -1,5 +1,69 @@
 # Replit Agent Configuration
 
+## Field Execution Mobile Mode (Complete)
+
+### What was built
+A full mobile-first operating mode for on-site reps, installers, and traveling operators. No separate app — the existing web app is made fully usable on a phone.
+
+**Phase 1 — Mobile Shell** (`client/src/index.css`)
+- `.safe-area-bottom` CSS class using `env(safe-area-inset-bottom)` for iOS home indicator
+- `-webkit-tap-highlight-color: transparent` for all interactive elements on mobile
+- `slideUpIn` animation for field card transitions
+- `pb-16 md:pb-0` already in App.tsx ensures content clears the bottom nav
+
+**Phase 2 — Field Command Page** (`client/src/pages/field.tsx`)
+- Route: `/field`
+- Sticky header with date, item count, Nearby button, and refresh
+- Sections: Overdue tasks, Due today, Priority Hot List (from scoring engine), Blocked installs, Hot opportunities, Hot leads
+- All cards are swipe-enabled and tappable to act
+- Uses `/api/dashboard/today`, `/api/scores/hot-list`, `/api/procurement/blocked-installs`
+
+**Phase 3 — Swipe Action Cards** (`client/src/components/mobile/swipe-action-card.tsx`)
+- Touch event-driven swipe-left to reveal colored action buttons
+- Configurable action sets per entity type
+- Tasks: Done (green), Snooze (amber), Note (blue)
+- Leads/Opportunities: Note, Call, Email
+- Installs: Note
+
+**Phase 4 — Quick Log Modal** (`client/src/components/mobile/quick-log-modal.tsx`)
+- Universal fast logging modal — Note | Call | Visit | Next Step tabs
+- Attaches to any record type (lead, opportunity, install_workflow, general)
+- ⌘+Enter to save; posts to `/api/notes`
+- Defaults `linkedObjectType="general"`, `linkedObjectId=0` when no record selected
+- Available in bottom nav (+ Log FAB), Field page, and Nearby page
+
+**Phase 5 — Geo Context** (`client/src/pages/field-nearby.tsx`)
+- Route: `/field/nearby`
+- Browser geolocation API (`navigator.geolocation`)
+- Calls `/api/leads/nearby?lat=&lng=&radius=`
+- Radius filter: 10 / 25 / 50 / 100 km chips
+- Cards show: name, status badge, distance, contact name/location, slips
+- Quick actions: Call (tel:), Directions (Google Maps / Apple Maps), Note (QuickLog)
+- Back button → `/field`
+
+**Phase 6 — Mobile Navigation** (`client/src/components/dashboard/mobile-nav.tsx`)
+- Bottom bar: **Home | Field | [+ Log FAB] | Accounts | Pipeline | More**
+- Centre FAB is a raised circle button that opens QuickLogModal directly
+- "More" opens full-screen panel with all nav groups (Command Center, Revenue, Operations, Intelligence, etc.)
+- Field and Nearby added to More panel
+- All buttons have `min-h-[44px]` for accessible touch targets
+
+**Phase 7 — Tests** (`tests/mobile.test.js`)
+- 69/69 passing — auth guards, field page APIs, nearby API (shape + sorting + error), quick log creation (note/call/visit/next step), task snooze, hot list shape, mobile nav destinations, desktop + scoring regression
+
+### Key files
+- `client/src/pages/field.tsx` — Mobile Field Command page
+- `client/src/pages/field-nearby.tsx` — Geo context page
+- `client/src/components/mobile/quick-log-modal.tsx` — Fast log modal
+- `client/src/components/mobile/swipe-action-card.tsx` — Swipe action cards
+- `client/src/components/dashboard/mobile-nav.tsx` — Redesigned bottom nav
+- `tests/mobile.test.js` — 69 tests
+
+### Cumulative test count
+mobile.test.js 69 + scoring.test.js 135 + prior suites 520 = **724 tests, 0 failures**
+
+---
+
 ## Predictive Scoring Layer (Complete)
 
 ### What was built
