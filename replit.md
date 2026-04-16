@@ -1,5 +1,19 @@
 # Replit Agent Configuration
 
+## Production Hardening (Complete — Post-Feature 10)
+
+### Security fixes applied
+1. **Chat API auth**: Added `requireAuth` to all 5 `/api/conversations` CRUD routes in `server/replit_integrations/chat/routes.ts`
+2. **Audio route dedup**: Stripped 4 duplicate CRUD routes from `audio/routes.ts` (were shadowing chat routes); voice handler renamed to `POST /api/conversations/:id/voice` with `requireAuth`
+3. **Image API auth**: Added `requireAuth` + `requireAdmin` import to `server/replit_integrations/image/routes.ts`
+4. **Admin privilege escalation**: Added `requireAdmin` middleware to 8 previously auth-only admin write routes: `PATCH /api/admin/users/:id/permissions`, `PUT /api/admin/users/:id`, `POST /api/admin/users`, `POST /api/admin/users/:id/resend-invite`, `POST /api/admin/users/:id/suspend`, `POST /api/admin/users/:id/activate`, `POST /api/admin/users/:id/reset-password`, `DELETE /api/admin/users/:id`
+5. **Dead sidebar links removed**: Removed `/segments`, `/tags`, `/imports` from `client/src/components/dashboard/app-sidebar.tsx`
+
+### Test coverage
+- `tests/permissions.test.js` — 54/54 tests pass across Viewer, Mixed, Admin users + PATCH permissions validation
+
+---
+
 ## Personal + Team Relationship Intelligence (Complete — Feature 10)
 
 ### What was added

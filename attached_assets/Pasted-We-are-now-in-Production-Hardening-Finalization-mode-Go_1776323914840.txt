@@ -1,0 +1,90 @@
+We are now in Production Hardening / Finalization mode.
+
+Goal:
+Audit and harden the entire VoltSafe Cortex production build end-to-end so the system is stable, secure, consistent, and ready for real daily use. Do not add net-new major features unless required to fix a production gap. Focus on verification, bug fixing, consistency, and reliability.
+
+Operate in phases and be brutally thorough.
+
+PHASE 1 — FULL SYSTEM AUDIT
+Audit the entire codebase and all live modules:
+- auth / sessions
+- permissions / access control
+- command centers
+- accounts / leads / contacts / opportunities
+- quotes
+- tasks / suggestions
+- inbox / email workspace
+- email engagement / digests / alerts
+- projects / certification
+- install workflows
+- procurement / manufacturing
+- deployments
+- customer success / renewals
+- geography / routing
+- revenue architecture
+- board pack
+- document hub
+- Winter support
+- data quality / merge engine
+- automations
+- predictive scoring
+- field mode
+
+For each module, identify:
+- broken routes
+- runtime errors
+- stale UI references
+- bad assumptions
+- inconsistent field naming (camelCase vs snake_case, etc.)
+- missing empty states
+- missing loading states
+- bad permissions
+- invalid links/navigation
+- duplicate logic
+- dead code
+- fragile query patterns
+- TODOs / stubs / fake buttons
+- places where data shape mismatches can break the UI
+
+Output:
+A categorized hardening report with severity:
+- Critical
+- High
+- Medium
+- Low
+
+PHASE 2 — ROUTES / BACKEND HARDENING
+Verify every API route used by the frontend:
+- returns the expected shape
+- handles auth correctly
+- handles permission checks correctly
+- returns clean 400/401/403/404/500 responses
+- validates input
+- handles empty results safely
+- avoids obvious race conditions / duplicate writes
+- avoids route ordering bugs (:id shadowing static paths)
+- avoids SQL edge-case issues (GROUP BY / HAVING / COALESCE mismatch / null handling)
+
+Fix all issues found.
+
+PHASE 3 — FRONTEND HARDENING
+Verify every major page and component:
+- no broken navigation
+- no fake click targets
+- no dead actions
+- no stale imports/references
+- no layout breakage on desktop/mobile
+- loading states exist
+- empty states exist
+- errors are handled gracefully
+- optimistic UI is safe
+- command center widgets all resolve real data
+- quick actions actually work
+
+Fix all gaps found.
+
+PHASE 4 — PERMISSIONS / SECURITY HARDENING
+Audit all major surfaces for permission correctness:
+- read-only users cannot mutate
+- admin-only tools are protected
+-

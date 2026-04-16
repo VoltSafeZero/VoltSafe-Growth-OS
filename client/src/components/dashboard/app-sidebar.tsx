@@ -144,11 +144,8 @@ const sections: NavSection[] = [
     label: "Operations",
     icon: SlidersHorizontal,
     items: [
-      { title: "Segments", url: "/segments", icon: Users2 },
-      { title: "Tags", url: "/tags", icon: Tags },
       { title: "Automations", url: "/automations", icon: Zap },
       { title: "Task Rules", url: "/automation/tasks", icon: Zap },
-      { title: "Imports / Exports", url: "/imports", icon: FolderOpen },
       { title: "Projects", url: "/execution/projects", icon: Layers, permKey: "projects" },
       { title: "Communications", url: "/execution/communications", icon: Megaphone, permKey: "communications" },
       { title: "Document Hub", url: "/documents", icon: BookOpen },

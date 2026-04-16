@@ -4387,7 +4387,7 @@ export async function registerRoutes(
     mail_team: z.record(z.string(), z.object({ view: z.boolean(), edit: z.boolean() })).optional(),
     calendar_team: z.array(z.number()).optional(),
   });
-  app.patch("/api/admin/users/:id/permissions", requireAuth, async (req, res) => {
+  app.patch("/api/admin/users/:id/permissions", requireAuth, requireAdmin, async (req, res) => {
     try {
       const actorId = (req.session as any).userId;
       const [actor] = await db.select({ role: users.globalRole }).from(users).where(eq(users.id, actorId)).limit(1);
@@ -4530,7 +4530,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/admin/users/:id", requireAuth, async (req, res) => {
+  app.put("/api/admin/users/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
       if (isNaN(userId)) return res.status(400).json({ message: "Invalid user ID" });
@@ -4587,7 +4587,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/users", requireAuth, async (req, res) => {
+  app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
     const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
     if (!sessionUser[0]) return res.status(401).json({ message: "Not authenticated" });
     const actorRole = sessionUser[0].globalRole;
@@ -4644,7 +4644,7 @@ export async function registerRoutes(
     res.json({ ...created, tempPassword });
   });
 
-  app.post("/api/admin/users/:id/resend-invite", requireAuth, async (req, res) => {
+  app.post("/api/admin/users/:id/resend-invite", requireAuth, requireAdmin, async (req, res) => {
     const userId = parseInt(req.params.id);
     const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
     if (!sessionUser[0] || !["master_admin", "admin"].includes(sessionUser[0].globalRole)) {
@@ -4682,7 +4682,7 @@ export async function registerRoutes(
     res.json({ message: "Invite resent" });
   });
 
-  app.post("/api/admin/users/:id/suspend", requireAuth, async (req, res) => {
+  app.post("/api/admin/users/:id/suspend", requireAuth, requireAdmin, async (req, res) => {
     const userId = parseInt(req.params.id);
     const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
     if (!sessionUser[0] || !["master_admin", "admin"].includes(sessionUser[0].globalRole)) {
@@ -4698,7 +4698,7 @@ export async function registerRoutes(
     res.json(updated);
   });
 
-  app.post("/api/admin/users/:id/activate", requireAuth, async (req, res) => {
+  app.post("/api/admin/users/:id/activate", requireAuth, requireAdmin, async (req, res) => {
     const userId = parseInt(req.params.id);
     const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
     if (!sessionUser[0] || !["master_admin", "admin"].includes(sessionUser[0].globalRole)) {
@@ -4708,7 +4708,7 @@ export async function registerRoutes(
     res.json(updated);
   });
 
-  app.post("/api/admin/users/:id/reset-password", requireAuth, async (req, res) => {
+  app.post("/api/admin/users/:id/reset-password", requireAuth, requireAdmin, async (req, res) => {
     const userId = parseInt(req.params.id);
     const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
     if (!sessionUser[0] || !["master_admin", "admin"].includes(sessionUser[0].globalRole)) {
@@ -4721,7 +4721,7 @@ export async function registerRoutes(
     res.json({ message: "Password reset" });
   });
 
-  app.delete("/api/admin/users/:id", requireAuth, async (req, res) => {
+  app.delete("/api/admin/users/:id", requireAuth, requireAdmin, async (req, res) => {
     const userId = parseInt(req.params.id);
     const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
     if (!sessionUser[0] || !["master_admin", "admin"].includes(sessionUser[0].globalRole)) {
