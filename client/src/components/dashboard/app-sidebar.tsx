@@ -269,7 +269,7 @@ export function AppSidebar({
             alt="VoltSafe V"
             className="h-[72px] w-[72px] object-cover object-center rounded-xl shrink-0"
           />
-          <div className="flex flex-col leading-tight">
+          <div className="flex flex-col items-center leading-tight">
             <span className="text-3xl font-bold tracking-tight text-foreground">VoltSafe</span>
             <span className="text-xl font-semibold text-primary tracking-tight">Growth OS</span>
           </div>
