@@ -16,6 +16,7 @@ import { composeReport, ALL_SECTION_KEYS } from "./services/report-composer";
 import { computeRankedNearby, getRouteSuggestions, generateDirectionsUrl } from "./services/routing-engine";
 import { generateAndDeliver, computeNextRunAt, seedDefaultSchedules, startBoardPackScheduler } from "./services/board-pack-scheduler";
 import { getBaseline, runSimulation } from "./services/revenue-simulator";
+import { deriveScenarioFromCRM, generateScenarioActions, computeForecastVsActuals, chooseBoardPackScenario } from "./services/revenue-simulator-insights";
 import { db } from "./db";
 import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications } from "@shared/schema";
 import {
@@ -17625,7 +17626,7 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const userId = req.session.userId as number;
       const rows = await db.execute(sql`
-        SELECT id, name, description, parameters, projection, baseline_snapshot, created_at, updated_at
+        SELECT *
         FROM revenue_scenarios
         WHERE created_by = ${userId}
         ORDER BY created_at DESC
@@ -17639,17 +17640,18 @@ export function registerConfluenceRoutes(app: Express) {
   app.post("/api/revenue-sim/scenarios", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId as number;
-      const { name, description, parameters, projection, baselineSnapshot } = req.body;
+      const { name, description, parameters, projection, baselineSnapshot, sourceType } = req.body;
       if (!name?.trim()) return res.status(400).json({ message: "name is required" });
       const row = await db.execute(sql`
-        INSERT INTO revenue_scenarios (name, description, created_by, parameters, projection, baseline_snapshot)
+        INSERT INTO revenue_scenarios (name, description, created_by, parameters, projection, baseline_snapshot, source_type)
         VALUES (
           ${name.trim()},
           ${description ?? null},
           ${userId},
           ${JSON.stringify(parameters ?? {})}::jsonb,
           ${JSON.stringify(projection ?? {})}::jsonb,
-          ${JSON.stringify(baselineSnapshot ?? {})}::jsonb
+          ${JSON.stringify(baselineSnapshot ?? {})}::jsonb,
+          ${sourceType ?? "manual"}
         )
         RETURNING *
       `);
@@ -17700,6 +17702,174 @@ export function registerConfluenceRoutes(app: Express) {
       if (!check.rows.length) return res.status(404).json({ message: "Scenario not found" });
       await db.execute(sql`DELETE FROM revenue_scenarios WHERE id = ${id}`);
       res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Revenue Simulator v2 routes ───────────────────────────────────────────────
+
+  // GET /api/revenue-sim/crm-baseline — derive assumptions from live CRM data
+  app.get("/api/revenue-sim/crm-baseline", requireAuth, async (req, res) => {
+    try {
+      const result = await deriveScenarioFromCRM();
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/revenue-sim/forecast-vs-actuals — compare saved forecasts vs actuals
+  app.get("/api/revenue-sim/forecast-vs-actuals", requireAuth, async (req, res) => {
+    try {
+      const result = await computeForecastVsActuals();
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/revenue-sim/actuals/upsert — upsert an actual revenue entry by month_key
+  app.post("/api/revenue-sim/actuals/upsert", requireAuth, async (req, res) => {
+    try {
+      const { month_key, actual_amount, forecast_amount, forecasted_from_scenario_id } = req.body;
+      if (!month_key || typeof month_key !== "string") return res.status(400).json({ message: "month_key is required (YYYY-MM)" });
+      if (!/^\d{4}-\d{2}$/.test(month_key)) return res.status(400).json({ message: "month_key must be YYYY-MM" });
+      const actualAmt = parseFloat(actual_amount ?? 0) || 0;
+      const forecastAmt = parseFloat(forecast_amount ?? 0) || 0;
+      const scenarioId = forecasted_from_scenario_id ? parseInt(forecasted_from_scenario_id) : null;
+      const row = await db.execute(sql.raw(`
+        INSERT INTO revenue_forecast_actuals (month_key, actual_amount, forecast_amount, forecasted_from_scenario_id, updated_at)
+        VALUES ('${month_key}', ${actualAmt}, ${forecastAmt}, ${scenarioId ?? "NULL"}, NOW())
+        ON CONFLICT (month_key) DO UPDATE
+          SET actual_amount = EXCLUDED.actual_amount,
+              forecast_amount = COALESCE(NULLIF(EXCLUDED.forecast_amount, 0), revenue_forecast_actuals.forecast_amount),
+              forecasted_from_scenario_id = COALESCE(EXCLUDED.forecasted_from_scenario_id, revenue_forecast_actuals.forecasted_from_scenario_id),
+              updated_at = NOW()
+        RETURNING *
+      `));
+      res.status(200).json(row.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/revenue-sim/:id/pin — pin/unpin a scenario (one pinned at a time)
+  app.post("/api/revenue-sim/:id/pin", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = req.session.userId as number;
+      const check = await db.execute(sql`SELECT id, is_pinned FROM revenue_scenarios WHERE id = ${id} AND created_by = ${userId}`);
+      if (!check.rows.length) return res.status(404).json({ message: "Scenario not found" });
+      const currentlyPinned = (check.rows[0] as any).is_pinned;
+      // If pinning: unpin all others first, then pin this one
+      // If unpinning: just toggle off
+      if (!currentlyPinned) {
+        await db.execute(sql`UPDATE revenue_scenarios SET is_pinned = false WHERE created_by = ${userId} AND is_pinned = true`);
+      }
+      const newPinState = !currentlyPinned;
+      const row = await db.execute(sql.raw(`
+        UPDATE revenue_scenarios SET is_pinned = ${newPinState}, updated_at = NOW() WHERE id = ${id} RETURNING id, is_pinned, board_pack_include, source_type, name
+      `));
+      res.json(row.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/revenue-sim/:id/board-pack-toggle — include/exclude from board pack
+  app.post("/api/revenue-sim/:id/board-pack-toggle", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = req.session.userId as number;
+      const check = await db.execute(sql`SELECT id, board_pack_include FROM revenue_scenarios WHERE id = ${id} AND created_by = ${userId}`);
+      if (!check.rows.length) return res.status(404).json({ message: "Scenario not found" });
+      const current = (check.rows[0] as any).board_pack_include;
+      const next = !current;
+      const row = await db.execute(sql.raw(`
+        UPDATE revenue_scenarios SET board_pack_include = ${next}, updated_at = NOW() WHERE id = ${id} RETURNING id, is_pinned, board_pack_include, source_type, name
+      `));
+      res.json(row.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/revenue-sim/:id/actions — list actions for a scenario
+  app.get("/api/revenue-sim/:id/actions", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = req.session.userId as number;
+      // Verify scenario belongs to user
+      const check = await db.execute(sql`SELECT id FROM revenue_scenarios WHERE id = ${id} AND created_by = ${userId}`);
+      if (!check.rows.length) return res.status(404).json({ message: "Scenario not found" });
+      const rows = await db.execute(sql`
+        SELECT a.*, u.name AS owner_name
+        FROM revenue_simulator_actions a
+        LEFT JOIN users u ON u.id = a.owner_user_id
+        WHERE a.scenario_id = ${id}
+        ORDER BY a.created_at ASC
+      `);
+      res.json(rows.rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/revenue-sim/:id/actions — create action(s) for a scenario
+  app.post("/api/revenue-sim/:id/actions", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = req.session.userId as number;
+      const check = await db.execute(sql`SELECT id FROM revenue_scenarios WHERE id = ${id} AND created_by = ${userId}`);
+      if (!check.rows.length) return res.status(404).json({ message: "Scenario not found" });
+
+      const body = req.body;
+      // Support single action or array of actions
+      const actions = Array.isArray(body) ? body : [body];
+      const created = [];
+
+      for (const action of actions) {
+        if (!action.title?.trim()) continue;
+        const ownerUserId = action.owner_user_id ? parseInt(action.owner_user_id) : null;
+        const linkedObjectId = action.linked_object_id ? parseInt(action.linked_object_id) : null;
+        const dueDate = action.due_date ? `'${action.due_date}'` : "NULL";
+        const row = await db.execute(sql.raw(`
+          INSERT INTO revenue_simulator_actions
+            (scenario_id, title, owner_user_id, linked_object_type, linked_object_id, due_date, status, notes, created_by)
+          VALUES
+            (${id}, '${String(action.title).replace(/'/g, "''")}',
+             ${ownerUserId ?? "NULL"}, ${action.linked_object_type ? `'${action.linked_object_type}'` : "NULL"},
+             ${linkedObjectId ?? "NULL"}, ${dueDate},
+             '${action.status ?? "open"}',
+             ${action.notes ? `'${String(action.notes).replace(/'/g, "''")}'` : "NULL"},
+             ${userId})
+          RETURNING *
+        `));
+        created.push(row.rows[0]);
+      }
+
+      res.status(201).json(created.length === 1 ? created[0] : created);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // PATCH /api/revenue-sim/actions/:actionId — update action status/notes/owner
+  app.patch("/api/revenue-sim/actions/:actionId", requireAuth, async (req, res) => {
+    try {
+      const actionId = parseInt(req.params.actionId);
+      const userId = req.session.userId as number;
+      // Verify action belongs to a scenario owned by the user
+      const check = await db.execute(sql.raw(`
+        SELECT a.id FROM revenue_simulator_actions a
+        JOIN revenue_scenarios s ON s.id = a.scenario_id
+        WHERE a.id = ${actionId} AND s.created_by = ${userId}
+      `));
+      if (!check.rows.length) return res.status(404).json({ message: "Action not found" });
+
+      const { status, notes, title, owner_user_id, due_date } = req.body;
+      const updates: string[] = [];
+      const VALID_STATUSES = ["open", "in_progress", "done", "dropped"];
+      if (status != null) {
+        if (!VALID_STATUSES.includes(status)) return res.status(400).json({ message: `Invalid status: ${status}` });
+        updates.push(`status = '${status}'`);
+      }
+      if (notes !== undefined) updates.push(`notes = ${notes ? `'${String(notes).replace(/'/g, "''")}'` : "NULL"}`);
+      if (title != null && title.trim()) updates.push(`title = '${String(title).replace(/'/g, "''")}'`);
+      if (owner_user_id !== undefined) updates.push(`owner_user_id = ${owner_user_id ? parseInt(owner_user_id) : "NULL"}`);
+      if (due_date !== undefined) updates.push(`due_date = ${due_date ? `'${due_date}'` : "NULL"}`);
+
+      if (!updates.length) return res.status(400).json({ message: "No fields to update" });
+
+      const row = await db.execute(sql.raw(`
+        UPDATE revenue_simulator_actions SET ${updates.join(", ")} WHERE id = ${actionId} RETURNING *
+      `));
+      res.json(row.rows[0]);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

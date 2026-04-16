@@ -1,31 +1,55 @@
 # Replit Agent Configuration
 
-## Smart Revenue Simulator (Complete — Feature 7)
+## Smart Revenue Simulator v2 — CRM Integration + Board Pack (Complete — Feature 7+)
 
-### What was built
+### What was added in v2
+Full CRM-connected scenario intelligence: derive parameters from live pipeline data, track actions per scenario, pin the canonical scenario, toggle board-pack inclusion, and compare forecast vs actuals month by month.
+
+**Schema additions** (via ALTER TABLE / CREATE TABLE migration):
+- `revenue_scenarios` — 4 new cols: `is_pinned bool`, `board_pack_include bool`, `source_type text`, `snapshot_date timestamptz`
+- `revenue_simulator_actions` (new table) — id, scenario_id FK, title, status (open/in_progress/done/dropped), notes, owner_name, linked_object_type, due_date
+- `revenue_forecast_actuals` (new table) — id, month_key (YYYY-MM unique), forecast_amount, actual_amount, variance_amount, variance_pct, scenario_id FK
+
+**`server/services/revenue-simulator-insights.ts`** (new service):
+- `deriveScenarioFromCRM()` — queries live opps (180-day window) to compute avgDealSize, winRate, avgSalesCycleDays, implied SimParams, data coverage, and notes
+- `generateScenarioActions(result)` — pure function: maps SimResult deltas → up to 7 recommended actions with title/rationale/priority/linkedObjectType
+- `computeForecastVsActuals()` — joins revenue_forecast_actuals with pinned scenario projection to compute variance
+- `chooseBoardPackScenario()` — picks board_pack_include=true scenario, falling back to is_pinned, for board pack reports
+
+**8 new API routes** in `server/routes.ts`:
+- `GET /api/revenue-sim/crm-baseline` — CRM-derived parameters + data coverage
+- `GET /api/revenue-sim/forecast-vs-actuals` — forecast vs actuals with variance
+- `POST /api/revenue-sim/actuals/upsert` — upsert monthly actual (YYYY-MM)
+- `POST /api/revenue-sim/:id/pin` — toggle pin (one at a time — unpins others)
+- `POST /api/revenue-sim/:id/board-pack-toggle` — toggle board pack inclusion
+- `GET /api/revenue-sim/:id/actions` — list actions for scenario
+- `POST /api/revenue-sim/:id/actions` — create action(s) (single or array)
+- `PATCH /api/revenue-sim/actions/:id` — update action status/notes
+
+**Board Pack integration** (`server/services/board-pack-scheduler.ts`):
+- `generateAndDeliver` now calls `chooseBoardPackScenario()` in parallel with `composeReport()`
+- Appends `revenue_simulator` block to `payloadMeta` when a scenario is selected
+- `formatReportAsHtml` renders a Revenue Scenario section in board pack HTML emails
+
+**Frontend** `client/src/pages/revenue-sim.tsx` (full rewrite):
+- CRM Baseline dialog — data coverage badge, key stats, implies param changes, Apply button
+- Forecast vs Actuals panel (collapsible) — bar chart with green/red variance bars, Add Actual dialog
+- Pin button (📌) and Board Pack button (grid) on every saved scenario row
+- Provenance badge — Manual / CRM Snapshot / Board Pack on every scenario
+- Actions dialog — shows saved actions with status cycling (open→in_progress→done→dropped), batch save from generated recommendations
+- Recommended Actions quick view in left panel (top 3 from current simulation)
+
+**Tests**:
+- `tests/revenue-simulator.test.js` — 55 tests, 0 failures (v1 regression suite)
+- `tests/revenue-simulator-v2.test.js` — 48 tests, 0 failures (groups: CRM baseline, actuals/fva, v2 fields, pin/unpin, board-pack toggle, actions CRUD, board-pack integration, v1 regression)
+
+### What was built in v1
 Interactive scenario modelling tool that applies multipliers to the live opportunity pipeline and projects month-by-month revenue over up to 24 months.
 
-**Schema**: `revenue_scenarios` table (id, name, description, created_by, parameters jsonb, projection jsonb, baseline_snapshot jsonb, created_at, updated_at).
-
-**`server/services/revenue-simulator.ts`** (new service):
-- `getBaseline(months)` — queries open opps, computes per-month weighted revenue using same stage probability map as `composePipelineForecast()` in report-composer.ts
+**`server/services/revenue-simulator.ts`** (core service):
+- `getBaseline(months)` — queries open opps, computes per-month weighted revenue
 - `runSimulation(params)` — applies 8 scenario parameters: winRateMultiplier, dealSizeMultiplier, velocityWeeks, newPipelineDeals, newPipelineAvgSize, forecastCategory, churnRateMonthly, expansionRateMonthly
 - Returns `{ months: MonthProjection[], summary: SimSummary }` with baseline + simulated per month, delta, deltaPct
-
-**7 API routes** in `server/routes.ts`:
-- `GET /api/revenue-sim/baseline` — live baseline projection
-- `POST /api/revenue-sim/simulate` — run simulation (no save)
-- `GET/POST /api/revenue-sim/scenarios` — list / create saved scenarios
-- `GET/PATCH/DELETE /api/revenue-sim/scenarios/:id` — single scenario CRUD
-
-**Frontend** `client/src/pages/revenue-sim.tsx`:
-- Route: `/revenue-sim`, sidebar link in Intelligence section
-- Left control panel: sliders for all 8 parameters + forecast category/horizon selects
-- Right area: recharts ComposedChart (baseline dashed area + simulated filled area + up to 3 compare overlays), summary cards, month-by-month breakdown table
-- Compare mode: up to 3 saved scenarios overlaid on chart with distinct colors
-- Save dialog: name + description with result preview
-
-**Tests**: `tests/revenue-simulator.test.js` — 55 tests, 0 failures (groups: baseline, identity, win-rate, deal-size, velocity, new-pipeline, forecast-category, churn/expansion, horizon, CRUD, auth-guards, regression).
 
 ## Predictive Score Feedback Loop (Complete)
 

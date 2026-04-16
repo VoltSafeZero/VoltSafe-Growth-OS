@@ -2057,12 +2057,14 @@ export const revenueScenarios = pgTable("revenue_scenarios", {
   name: text("name").notNull(),
   description: text("description"),
   createdBy: integer("created_by").notNull(),
-  // Scenario parameters (all optional — defaults = identity/baseline)
   parameters: jsonb("parameters").notNull().default({}),
-  // Cached projection result (12-month array + summary)
   projection: jsonb("projection").notNull().default({}),
-  // Snapshot of baseline at save time for comparison
   baselineSnapshot: jsonb("baseline_snapshot").notNull().default({}),
+  // v2 fields
+  isPinned: boolean("is_pinned").notNull().default(false),
+  boardPackInclude: boolean("board_pack_include").notNull().default(false),
+  sourceType: text("source_type").notNull().default("manual"), // manual | crm_snapshot | board_pack
+  snapshotDate: timestamp("snapshot_date"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -2070,3 +2072,35 @@ export const revenueScenarios = pgTable("revenue_scenarios", {
 export const insertRevenueScenarioSchema = createInsertSchema(revenueScenarios).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertRevenueScenario = z.infer<typeof insertRevenueScenarioSchema>;
 export type RevenueScenario = typeof revenueScenarios.$inferSelect;
+
+export const revenueSimulatorActions = pgTable("revenue_simulator_actions", {
+  id: serial("id").primaryKey(),
+  scenarioId: integer("scenario_id").notNull(),
+  title: text("title").notNull(),
+  ownerUserId: integer("owner_user_id"),
+  linkedObjectType: text("linked_object_type"), // lead | account | opportunity | task
+  linkedObjectId: integer("linked_object_id"),
+  dueDate: timestamp("due_date"),
+  status: text("status").notNull().default("open"), // open | in_progress | done | dropped
+  notes: text("notes"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertRevenueSimulatorActionSchema = createInsertSchema(revenueSimulatorActions).omit({ id: true, createdAt: true });
+export type InsertRevenueSimulatorAction = z.infer<typeof insertRevenueSimulatorActionSchema>;
+export type RevenueSimulatorAction = typeof revenueSimulatorActions.$inferSelect;
+
+export const revenueForecastActuals = pgTable("revenue_forecast_actuals", {
+  id: serial("id").primaryKey(),
+  monthKey: text("month_key").notNull().unique(), // YYYY-MM
+  forecastAmount: numeric("forecast_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+  actualAmount: numeric("actual_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+  forecastedFromScenarioId: integer("forecasted_from_scenario_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertRevenueForecastActualSchema = createInsertSchema(revenueForecastActuals).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertRevenueForecastActual = z.infer<typeof insertRevenueForecastActualSchema>;
+export type RevenueForecastActual = typeof revenueForecastActuals.$inferSelect;

@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { composeReport, type ReportFilters, type SectionKey, ALL_SECTION_KEYS } from "./report-composer";
 import { sendEmail } from "../gmail";
 import { isGmailConnected } from "../gmail-oauth";
+import { chooseBoardPackScenario, type BoardPackScenario } from "./revenue-simulator-insights";
 
 const SYSTEM_SENDER_ID = 4;
 
@@ -70,6 +71,7 @@ export function formatReportAsHtml(data: any, meta: {
   scheduleName: string;
   reportType: string;
   generatedAt: string;
+  revenueSimulator?: BoardPackScenario;
 }): string {
   const kpi = data.kpiSummary;
   const pip = data.pipelineForecast;
@@ -153,6 +155,24 @@ export function formatReportAsHtml(data: any, meta: {
 
   ${narrativeHtml}
 
+  ${(() => {
+    const sim = meta.revenueSimulator;
+    if (!sim) return "";
+    const deltaLabel = sim.deltaPct >= 0 ? `+${sim.deltaPct.toFixed(1)}%` : `${sim.deltaPct.toFixed(1)}%`;
+    const deltaColor = sim.deltaPct >= 0 ? "#16a34a" : "#dc2626";
+    const assumptionItems = sim.topAssumptions.map(a => `<li>${a}</li>`).join("");
+    const sourceTag = sim.isPinned ? "Pinned Scenario" : "Board Pack Scenario";
+    return `
+    <h3>Revenue Scenario: ${sim.name}</h3>
+    <table><tbody>
+      <tr><td>Source</td><td><b style="color:#6366f1">${sourceTag}</b> · ${sim.sourceType}</td></tr>
+      <tr><td>Projected Revenue</td><td><b>${fmt(sim.totalSimulated)}</b></td></tr>
+      <tr><td>vs Baseline</td><td><b style="color:${deltaColor}">${deltaLabel}</b></td></tr>
+    </tbody></table>
+    ${assumptionItems ? `<p style="font-size:13px;color:#374151;margin-top:8px;font-weight:600;">Key Assumptions</p><ul style="font-size:13px;color:#4b5563;margin-top:0;">${assumptionItems}</ul>` : ""}
+    `;
+  })()}
+
   <div class="footer">VoltSafe Growth OS · Board Pack Auto-Scheduling · <a href="https://voltsafe.com">voltsafe.com</a></div>
 </body>
 </html>`;
@@ -190,15 +210,30 @@ export async function generateAndDeliver(
         : ALL_SECTION_KEYS,
     };
 
-    // Compose report
-    const data = await composeReport(sched.report_type, filters);
+    // Compose report + fetch board-pack simulator scenario in parallel
+    const [data, simScenario] = await Promise.all([
+      composeReport(sched.report_type, filters),
+      chooseBoardPackScenario().catch(() => null),
+    ]);
     const recipients: string[] = sched.recipients ?? [];
     const channels: string[] = sched.delivery_channels ?? ["in_app"];
-    const payloadMeta = {
+    const payloadMeta: Record<string, any> = {
       reportType: sched.report_type,
       sections: data.meta?.sectionsIncluded ?? [],
       generatedAt: data.meta?.generatedAt,
     };
+    // Append revenue simulator block if one is pinned/board-pack-included
+    if (simScenario) {
+      payloadMeta.revenue_simulator = {
+        scenarioId: simScenario.id,
+        scenarioName: simScenario.name,
+        totalSimulated: simScenario.totalSimulated,
+        deltaPct: simScenario.deltaPct,
+        topAssumptions: simScenario.topAssumptions,
+        isPinned: simScenario.isPinned,
+        sourceType: simScenario.sourceType,
+      };
+    }
 
     let recipientCount = 0;
     const errors: string[] = [];
@@ -209,6 +244,7 @@ export async function generateAndDeliver(
         scheduleName: sched.name,
         reportType: sched.report_type,
         generatedAt: data.meta?.generatedAt ?? new Date().toISOString(),
+        revenueSimulator: simScenario ?? undefined,
       });
       const subject = `${sched.name} — ${new Date().toLocaleDateString("en-CA", { month: "long", year: "numeric" })}`;
 

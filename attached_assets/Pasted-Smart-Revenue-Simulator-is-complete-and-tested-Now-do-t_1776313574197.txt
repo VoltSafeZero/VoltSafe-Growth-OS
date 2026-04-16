@@ -1,0 +1,146 @@
+Smart Revenue Simulator is complete and tested. Now do the next highest-value phase: make it operationally useful inside VoltSafe Cortex.
+
+Build “Revenue Simulator v2 — CRM-Connected Actions + Board Pack Integration” with the following exact scope:
+
+OBJECTIVE
+Turn the simulator from a standalone forecasting toy into an execution tool that:
+1. pulls assumptions from real CRM data,
+2. lets me create actionable plans from a scenario,
+3. pushes scenario outputs into board pack reporting,
+4. tracks forecast accuracy over time.
+
+DO NOT rewrite existing working code. Reuse everything already built where possible.
+
+PHASE T001 — DATA MODEL
+Add only the minimum schema changes needed:
+- revenue_scenarios:
+  - add is_pinned boolean default false
+  - add board_pack_include boolean default false
+  - add source_type text default 'manual' // manual, crm_snapshot, board_pack
+  - add snapshot_date timestamp nullable
+- create table revenue_simulator_actions:
+  - id serial primary key
+  - scenario_id integer not null
+  - title text not null
+  - owner_user_id integer nullable
+  - linked_object_type text nullable // lead, account, opportunity, task
+  - linked_object_id integer nullable
+  - due_date timestamp nullable
+  - status text not null default 'open' // open, in_progress, done, dropped
+  - notes text nullable
+  - created_by integer nullable
+  - created_at timestamp default now()
+- create table revenue_forecast_actuals:
+  - id serial primary key
+  - month_key text not null unique // YYYY-MM
+  - forecast_amount numeric(12,2) not null default 0
+  - actual_amount numeric(12,2) not null default 0
+  - forecasted_from_scenario_id integer nullable
+  - created_at timestamp default now()
+  - updated_at timestamp default now()
+
+Update shared/schema.ts types accordingly.
+
+PHASE T002 — BACKEND LOGIC
+Create a new service:
+server/services/revenue-simulator-insights.ts
+
+It should provide:
+1. deriveScenarioFromCRM()
+   - compute baseline assumptions from actual CRM data
+   - infer:
+     - avg deal size from open + won deals
+     - win rate from closed won / closed lost over a sensible recent window
+     - stage conversion distribution from current pipeline
+     - average sales cycle estimate from created_at to close for won deals where possible
+   - return safe defaults if data is sparse
+2. generateScenarioActions()
+   - input: scenario result + deltas vs baseline
+   - output: 3–7 recommended actions, for example:
+     - “Increase top-of-funnel by 20% to support target”
+     - “Focus on shortening proposal-to-close delay”
+     - “Improve qualifying conversion before adding volume”
+3. computeForecastVsActuals()
+   - compare saved scenarios against actual realized revenue by month
+   - calculate variance amount and variance %
+4. chooseBoardPackScenario()
+   - return the pinned or board_pack_include scenario to use as the default board view
+
+PHASE T003 — API ROUTES
+Add these authenticated routes:
+- GET /api/revenue-sim/crm-baseline
+- GET /api/revenue-sim/forecast-vs-actuals
+- POST /api/revenue-sim/:id/pin
+- POST /api/revenue-sim/:id/board-pack-toggle
+- GET /api/revenue-sim/:id/actions
+- POST /api/revenue-sim/:id/actions
+- PATCH /api/revenue-sim/actions/:actionId
+- POST /api/revenue-sim/actuals/upsert
+
+Requirements:
+- keep route style consistent with existing routes.ts
+- reuse existing auth middleware patterns
+- validate input with zod
+- use safe SQL/db patterns already used elsewhere in the app
+
+PHASE T004 — FRONTEND PAGE UPGRADE
+Upgrade client/src/pages/revenue-sim.tsx without breaking existing functionality.
+
+Add:
+1. CRM Baseline button
+   - pulls recommended assumptions from live CRM data
+   - shows exactly what changed before applying
+2. Recommended Actions panel
+   - auto-generated actions for the selected scenario
+   - option to save actions
+3. Pin scenario
+   - one-click pin/unpin
+4. Include in board pack toggle
+   - one-click include/exclude
+5. Forecast vs Actuals section
+   - chart showing forecasted vs actual revenue by month
+   - variance card
+6. Scenario provenance badge
+   - Manual / CRM Snapshot / Board Pack
+7. Empty states and loading states polished
+
+PHASE T005 — BOARD PACK INTEGRATION
+Find the existing board pack auto-scheduling / board pack generation flow and integrate the simulator:
+- include the selected board-pack scenario in the generated board pack dataset
+- expose:
+  - scenario name
+  - projection horizon
+  - headline projected revenue
+  - top 3 assumptions
+  - variance vs baseline
+- do not duplicate chart code if a reusable chart component already exists
+- if there is an existing board pack JSON payload, append revenue_simulator cleanly to it
+
+PHASE T006 — TESTS
+Add thorough tests for:
+- CRM-derived baseline generation
+- action generation
+- pin + board pack toggle
+- actuals upsert
+- forecast vs actual variance
+- board pack integration
+- auth guards
+- regression checks so existing simulator tests still pass
+
+SUCCESS CRITERIA
+This work is only complete if:
+- the app compiles cleanly
+- all tests pass
+- existing revenue simulator functionality still works
+- board pack route/output includes the selected simulator scenario
+- no placeholder UI text remains
+
+WORK STYLE
+- First inspect existing board pack code and CRM opportunity/revenue sources before writing
+- Reuse existing components, utilities, and patterns
+- Keep the UI clean and executive-friendly
+- Prefer small targeted edits over large rewrites
+- At the end, give me:
+  1. exact files created/modified
+  2. test results
+  3. any assumptions made
