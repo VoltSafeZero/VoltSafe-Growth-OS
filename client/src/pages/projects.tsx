@@ -1219,21 +1219,23 @@ export default function ProjectsPage() {
           ))}
         </div>
 
-        {/* Phase 2 — Cert quick-filter chips (always visible) */}
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wide self-center mr-1">Cert:</span>
-          {CERT_QUICK_FILTERS.map(f => {
-            const active = certFilter === f.key || (f.key === "all_cert" && certFilter === "all_cert");
-            return (
-              <button key={f.key}
-                onClick={() => handleCertFilter(certFilter === f.key ? "" : f.key)}
-                className={`px-2 py-0.5 rounded-full text-xs font-medium border transition-all ${active ? `${f.bg} ${f.color} ${f.border}` : "border-border/40 text-muted-foreground/70 hover:border-border"}`}
-                data-testid={`filter-cert-${f.key}`}>
-                {f.label}
-              </button>
-            );
-          })}
-        </div>
+        {/* Phase 2 — Cert quick-filter chips (only visible when Safety Certification type is selected) */}
+        {(typeFilter === "certification" || certFilter) && (
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wide self-center mr-1">Cert:</span>
+            {CERT_QUICK_FILTERS.map(f => {
+              const active = certFilter === f.key || (f.key === "all_cert" && certFilter === "all_cert");
+              return (
+                <button key={f.key}
+                  onClick={() => handleCertFilter(certFilter === f.key ? "" : f.key)}
+                  className={`px-2 py-0.5 rounded-full text-xs font-medium border transition-all ${active ? `${f.bg} ${f.color} ${f.border}` : "border-border/40 text-muted-foreground/70 hover:border-border"}`}
+                  data-testid={`filter-cert-${f.key}`}>
+                  {f.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="h-8 w-40 text-xs" data-testid="select-status-filter"><SelectValue placeholder="Status" /></SelectTrigger>

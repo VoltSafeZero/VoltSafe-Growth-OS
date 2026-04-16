@@ -157,7 +157,7 @@ app.use((req, res, next) => {
       log(`Listening on 0.0.0.0:${port}`);
 
       try {
-        const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, seedProductionData } = await import("./seed-production");
+        const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, seedProductionData, seedSampleProjects } = await import("./seed-production");
         await migrateUserSchema();
         await migrateEmailSchema();
         await migrateCalendarSchema();
@@ -172,6 +172,7 @@ app.use((req, res, next) => {
         await migrateCsTimelineSchema();
         await migrateTerritorySchema();
         await seedProductionData();
+        await seedSampleProjects();
       } catch (err) {
         console.error("Seed error (non-fatal):", err);
       }

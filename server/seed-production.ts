@@ -879,6 +879,59 @@ export async function migrateCsTimelineSchema(): Promise<void> {
   }
 }
 
+export async function seedSampleProjects(): Promise<void> {
+  try {
+    const result = await db.execute(sql`SELECT COUNT(*) as cnt FROM projects`);
+    const count = Number((result.rows[0] as any).cnt);
+    if (count > 0) {
+      console.log(`[seed] Projects already seeded (${count} found) — skipping.`);
+      return;
+    }
+
+    // Get the first available user id as owner
+    const userResult = await db.execute(sql`SELECT id FROM users WHERE email = 'trevor@voltsafe.com' LIMIT 1`);
+    const ownerId = userResult.rows.length > 0 ? (userResult.rows[0] as any).id : null;
+
+    const samples = [
+      { name: "BC Coastal Marina Pilot — Phase 1", type: "pilot", status: "active", phase: "Discovery", description: "Shore power pilot at 3 marinas along Vancouver Island's west coast.", budget: 45000 },
+      { name: "Pacific Rim Marina Network — Pilot", type: "pilot", status: "active", phase: "Installation", description: "20-slip pilot deployment in Ucluelet harbour.", budget: 32000 },
+      { name: "San Juan Islands Lighthouse Program", type: "lighthouse", status: "active", phase: "Negotiation", description: "Lighthouse customer initiative with Friday Harbor Marina.", budget: 78000 },
+      { name: "OEM Licensing Outreach Q2", type: "partnership", status: "active", phase: "Negotiation", description: "Partnership discussions with three marine equipment OEMs.", budget: 5000 },
+      { name: "BC Sustainable Marina Grant", type: "grant", status: "planning", phase: "Application", description: "CleanBC grant application for shore power infrastructure.", budget: 120000 },
+      { name: "Shore Power ROI Study 2025", type: "research", status: "active", phase: "Data Collection", description: "Internal research project quantifying energy savings across pilot sites.", budget: 18000 },
+      { name: "Victoria Boat Show 2025", type: "event", status: "planning", phase: "Logistics", description: "Presence at Victoria Boat Show including demo station.", budget: 12000 },
+      { name: "Marina Owner Campaign — Q3", type: "marketing", status: "active", phase: "Content Creation", description: "Email + LinkedIn campaign targeting BC marina operators.", budget: 8500 },
+      { name: "CRM Data Cleanup Initiative", type: "internal", status: "active", phase: "In Progress", description: "Standardise account tagging and lead sources across all regions.", budget: null },
+      { name: "VoltSafe EV Shore Power — CSA Certification", type: "certification", status: "active", phase: "Testing", description: "CSA Group certification for EV shore power adapter product line.", budget: 65000 },
+    ];
+
+    for (const p of samples) {
+      await db.execute(sql`
+        INSERT INTO projects (name, type, status, phase, description, owner_user_id, budget, currency, created_at, updated_at)
+        VALUES (
+          ${p.name}, ${p.type}, ${p.status}, ${p.phase}, ${p.description},
+          ${ownerId}, ${p.budget ?? null}, 'CAD', now(), now()
+        )
+      `);
+    }
+
+    // For the certification project, add a basic project_certifications row
+    const certResult = await db.execute(sql`SELECT id FROM projects WHERE type = 'certification' LIMIT 1`);
+    if (certResult.rows.length > 0) {
+      const certProjId = (certResult.rows[0] as any).id;
+      await db.execute(sql`
+        INSERT INTO project_certifications (project_id, certification_program, product_name, certification_status, overall_risk, launch_blocker)
+        VALUES (${certProjId}, '["CSA"]', 'VoltSafe EV Shore Power Adapter', 'In Progress', 'medium', false)
+        ON CONFLICT (project_id) DO NOTHING
+      `);
+    }
+
+    console.log(`[seed] Inserted ${samples.length} sample projects.`);
+  } catch (err) {
+    console.error("[seed] seedSampleProjects error (non-fatal):", err);
+  }
+}
+
 export async function migrateTerritorySchema(): Promise<void> {
   try {
     await db.execute(sql`
