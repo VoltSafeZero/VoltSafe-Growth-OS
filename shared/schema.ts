@@ -60,6 +60,7 @@ export const users = pgTable("users", {
   permissions: jsonb("permissions").default({ crm: "edit", partnerships: "edit", projects: "edit", communications: "edit", team_workload: "edit", knowledge: "edit", support: "edit", quoting: "edit", calendar: "edit", mail_team: {}, calendar_team: [] }),
   preferredLayout: text("preferred_layout").notNull().default("expanded"),
   widgetVisibility: jsonb("widget_visibility").default({}),
+  dashboardLayouts: jsonb("dashboard_layouts").default({}),
   defaultCommandCenter: text("default_command_center"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastLogin: timestamp("last_login"),

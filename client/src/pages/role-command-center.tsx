@@ -30,7 +30,9 @@ import { CEOCommandCenter } from "@/components/command-centers/ceo-center";
 import { CFOCommandCenter } from "@/components/command-centers/cfo-center";
 import { CTOCommandCenter } from "@/components/command-centers/cto-center";
 import { CMOCommandCenter } from "@/components/command-centers/cmo-center";
-import { ActionWidgetsGrid } from "@/components/command-centers/action-widgets";
+import { ActionWidgetsGrid, ACTION_WIDGET_MAP } from "@/components/command-centers/action-widgets";
+import { DashboardGrid, DashboardEditToolbar, generateDefaultLayouts, reconcileLayouts } from "@/components/command-centers/dashboard-grid";
+import type { Layouts } from "react-grid-layout";
 import { format, formatDistanceToNow, isToday, isTomorrow } from "date-fns";
 import { Link } from "wouter";
 
@@ -576,6 +578,11 @@ export default function RoleCommandCenter() {
   const orderSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toast } = useToast();
 
+  // ── Dashboard grid edit state ───────────────────────────────────────
+  const [editingLayout, setEditingLayout] = useState(false);
+  const [draftLayouts, setDraftLayouts] = useState<Layouts | null>(null);
+  const [resetSeed, setResetSeed] = useState(0); // bumps to force grid to re-read defaults
+
   const profileQuery = useQuery<UserProfile>({ queryKey: ["/api/users/me/profile"] });
 
   const saveMutation = useMutation({
@@ -599,6 +606,16 @@ export default function RoleCommandCenter() {
   const layoutMode = (localLayout ?? profile?.preferredLayout ?? "expanded") as "expanded" | "compact";
   const compact = layoutMode === "compact";
   const widgetOrder = localWidgetOrder ?? config?.widgetOrder ?? [];
+
+  // ── Dashboard grid layout per center ──────────────────────────────────────
+  // Filter visible IDs that have a registered grid widget component
+  const visibleGridIds = widgetOrder.filter(id => visible[id] !== false && id in ACTION_WIDGET_MAP);
+  const allDashboardLayouts = (profile?.dashboardLayouts ?? {}) as Record<string, Layouts>;
+  const savedLayoutsForCenter: Layouts | undefined = useRoleDefault
+    ? undefined
+    : allDashboardLayouts[displayCenterType];
+  // When resetSeed bumps, force grid to fall back to defaults by passing undefined
+  const effectiveSavedLayouts = resetSeed > 0 && !savedLayoutsForCenter ? undefined : savedLayoutsForCenter;
 
   const handleToggleWidget = useCallback((id: string) => {
     const current = localVisibility ?? config?.visibleWidgets ?? {};
@@ -627,6 +644,51 @@ export default function RoleCommandCenter() {
       ...(localLayout ? { preferredLayout: localLayout } : {}),
     });
   };
+
+  // ── Dashboard grid handlers ───────────────────────────────────────
+  const handleEnterEditMode = useCallback(() => {
+    setEditingLayout(true);
+    setDraftLayouts(null);
+  }, []);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingLayout(false);
+    setDraftLayouts(null);
+    // Bump seed to force re-sync from server-saved layouts
+    setResetSeed(s => s + 1);
+  }, []);
+
+  const handleSaveDashboard = useCallback(() => {
+    if (!draftLayouts) {
+      setEditingLayout(false);
+      return;
+    }
+    saveMutation.mutate(
+      { dashboardLayouts: { [displayCenterType]: draftLayouts } } as any,
+      {
+        onSuccess: () => {
+          setEditingLayout(false);
+          setDraftLayouts(null);
+        },
+      },
+    );
+  }, [draftLayouts, displayCenterType, saveMutation]);
+
+  const resetMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/users/me/layout/reset", { centerType: displayCenterType }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users/me/profile"] });
+      setEditingLayout(false);
+      setDraftLayouts(null);
+      setResetSeed(s => s + 1);
+      toast({ title: "Layout reset to role default" });
+    },
+    onError: (err: any) => toast({ title: "Reset failed", description: err?.message, variant: "destructive" }),
+  });
+
+  const handleResetDashboard = useCallback(() => {
+    resetMutation.mutate();
+  }, [resetMutation]);
 
   const handleSetDefaultCenter = (ct: CenterType) => {
     saveMutation.mutate({ defaultCommandCenter: ct });
@@ -731,6 +793,17 @@ export default function RoleCommandCenter() {
             </DropdownMenu>
           )}
 
+          {/* Dashboard grid edit toolbar */}
+          <DashboardEditToolbar
+            editing={editingLayout}
+            dirty={!!draftLayouts}
+            saving={saveMutation.isPending || resetMutation.isPending}
+            onEdit={handleEnterEditMode}
+            onSave={handleSaveDashboard}
+            onCancel={handleCancelEdit}
+            onReset={handleResetDashboard}
+          />
+
           {/* Widget settings */}
           <Sheet>
             <SheetTrigger asChild>
@@ -786,12 +859,13 @@ export default function RoleCommandCenter() {
         </div>
       </div>
 
-      {/* ── New Draggable Action Widgets ────────────────────────────────── */}
-      <ActionWidgetsGrid
-        visible={visible}
-        widgetOrder={widgetOrder}
-        compact={compact}
-        onReorder={handleReorder}
+      {/* ── Dashboard Grid (drag + resize) ────────────────────────────── */}
+      <DashboardGrid
+        key={`grid-${displayCenterType}-${resetSeed}`}
+        visibleIds={visibleGridIds}
+        savedLayouts={effectiveSavedLayouts}
+        editing={editingLayout}
+        onLayoutsChange={setDraftLayouts}
       />
 
       {/* ── Role-Specific Center Content ────────────────────────────────── */}

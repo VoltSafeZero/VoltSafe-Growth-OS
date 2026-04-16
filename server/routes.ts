@@ -576,6 +576,7 @@ export async function registerRoutes(
       userType: user.userType,
       preferredLayout: user.preferredLayout ?? "expanded",
       widgetVisibility: user.widgetVisibility ?? {},
+      dashboardLayouts: user.dashboardLayouts ?? {},
       defaultCommandCenter: user.defaultCommandCenter,
       permissions: user.permissions,
     });
@@ -584,7 +585,7 @@ export async function registerRoutes(
   // PATCH /api/users/me/layout — persist layout preferences
   app.patch("/api/users/me/layout", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId as number;
-    const { preferredLayout, widgetVisibility, defaultCommandCenter, widgetOrder } = req.body;
+    const { preferredLayout, widgetVisibility, defaultCommandCenter, widgetOrder, dashboardLayouts } = req.body;
 
     const VALID_LAYOUTS = ["expanded", "compact"];
     const VALID_CENTERS = ["ceo", "cfo", "cto", "cmo", "sales", "cs", "default", null];
@@ -601,6 +602,9 @@ export async function registerRoutes(
     if (widgetOrder !== undefined && !Array.isArray(widgetOrder)) {
       return res.status(400).json({ message: "widgetOrder must be an array" });
     }
+    if (dashboardLayouts !== undefined && (typeof dashboardLayouts !== "object" || Array.isArray(dashboardLayouts))) {
+      return res.status(400).json({ message: "dashboardLayouts must be an object" });
+    }
 
     const update: Record<string, any> = {};
     if (preferredLayout !== undefined) update.preferredLayout = preferredLayout;
@@ -612,12 +616,37 @@ export async function registerRoutes(
       const mergedVis = { ...(existing?.wv as Record<string,any> ?? {}), __order: widgetOrder };
       update.widgetVisibility = mergedVis;
     }
+    // Persist dashboardLayouts: merge per-centerType (keep other centers untouched)
+    if (dashboardLayouts !== undefined) {
+      const [existing] = await db.select({ dl: users.dashboardLayouts }).from(users).where(eq(users.id, userId)).limit(1);
+      const merged = { ...(existing?.dl as Record<string,any> ?? {}), ...dashboardLayouts };
+      update.dashboardLayouts = merged;
+    }
     if (Object.keys(update).length === 0) return res.status(400).json({ message: "No fields to update" });
 
     const [updated] = await db.update(users).set(update).where(eq(users.id, userId)).returning({
       preferredLayout: users.preferredLayout,
       widgetVisibility: users.widgetVisibility,
+      dashboardLayouts: users.dashboardLayouts,
       defaultCommandCenter: users.defaultCommandCenter,
+    });
+    res.json(updated);
+  });
+
+  // POST /api/users/me/layout/reset — reset dashboard grid layout for a center type
+  app.post("/api/users/me/layout/reset", requireAuth, async (req, res) => {
+    const userId = (req.session as any).userId as number;
+    const { centerType } = req.body ?? {};
+    const VALID_CENTERS = ["ceo", "cfo", "cto", "cmo", "sales", "cs", "default"];
+    if (!centerType || !VALID_CENTERS.includes(centerType)) {
+      return res.status(400).json({ message: `centerType required, one of ${VALID_CENTERS.join(", ")}` });
+    }
+    const [existing] = await db.select({ dl: users.dashboardLayouts }).from(users).where(eq(users.id, userId)).limit(1);
+    const current = (existing?.dl as Record<string, any>) ?? {};
+    const next = { ...current };
+    delete next[centerType];
+    const [updated] = await db.update(users).set({ dashboardLayouts: next }).where(eq(users.id, userId)).returning({
+      dashboardLayouts: users.dashboardLayouts,
     });
     res.json(updated);
   });

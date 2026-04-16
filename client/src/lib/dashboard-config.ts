@@ -11,6 +11,7 @@ export type UserProfile = {
   defaultCommandCenter?: string | null;
   preferredLayout?: string;
   widgetVisibility?: Record<string, boolean | any>;
+  dashboardLayouts?: Record<string, any>;
   name?: string;
 };
 

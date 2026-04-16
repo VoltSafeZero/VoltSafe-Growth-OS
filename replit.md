@@ -1344,3 +1344,35 @@ Added `task_board_views` table via `CREATE TABLE IF NOT EXISTS` matching the new
 - Default isDefault=true clears prior default ✓
 - Archive→restore round-trip via PATCH /api/tasks/:id ✓
 - Board endpoint omits archived ✓
+
+## Slice C — Draggable + Resizable Dashboard Grid (Complete)
+
+**Goal**: Replace the fixed `ActionWidgetsGrid` in the Role Command Center with a true responsive grid where users can drag and resize widgets, and persist their layout per command-center type (sales/cs/ops/cert/ceo/inbox/default).
+
+### Schema
+- Added `users.dashboard_layouts jsonb DEFAULT '{}'` (non-destructive ADD COLUMN). Shape: `{ [centerType]: { lg: Layout[], md: Layout[], sm: Layout[], xs: Layout[], xxs: Layout[] } }`.
+- `shared/schema.ts` updated; `UserProfile` in `client/src/lib/dashboard-config.ts` adds `dashboardLayouts?: Record<string, any>`.
+
+### API
+- `GET /api/users/me/profile` now returns `dashboardLayouts`.
+- `PATCH /api/users/me/layout` accepts `dashboardLayouts: { [centerType]: Layouts }` — server merges per-centerType so other centers are preserved.
+- `POST /api/users/me/layout/reset` body `{ centerType }` — deletes that key, falling back to client-generated defaults.
+
+### Frontend
+- New `client/src/components/command-centers/dashboard-grid.tsx`:
+  - `WIDGET_SIZE_HINTS` per-widget defaults (w/h/minW/minH).
+  - `generateDefaultLayouts(ids)` produces sensible per-breakpoint layouts (12/10/6/4/2 cols).
+  - `reconcileLayouts(saved, visibleIds)` preserves user positions, adds new widgets at the bottom, strips removed widgets — survives admin widget visibility toggles.
+  - `DashboardGrid` uses `Responsive` from react-grid-layout. Drag is gated behind `editing` flag using `.widget-drag-handle` overlay; resize handles only show in edit mode.
+  - `DashboardEditToolbar` — single "Edit Layout" button → expands to Save / Cancel / Reset to Default.
+- `client/src/index.css` — react-grid-layout + react-resizable CSS imports + custom placeholder/handle/edit-mode outline styles.
+- `client/src/pages/role-command-center.tsx`:
+  - Replaced `ActionWidgetsGrid` with `DashboardGrid`.
+  - Added edit state (`editingLayout`, `draftLayouts`, `resetSeed`) and handlers wired to PATCH/reset endpoints.
+  - Save sends `{ dashboardLayouts: { [centerType]: layouts } }`; reset bumps `resetSeed` to remount the grid with regenerated defaults.
+
+### Smoke-tested
+- Login + GET profile returns `dashboardLayouts` ✓
+- PATCH `/api/users/me/layout` with `{dashboardLayouts:{sales:{lg:[…]}}}` saves and persists ✓
+- POST `/api/users/me/layout/reset` with `{centerType:"sales"}` clears the key ✓
+- Vite/React bundle compiles cleanly (no runtime overlay) after fixing react-grid-layout type names (LayoutItem/ResponsiveLayouts) and removing the now-deprecated WidthProvider wrapper ✓
