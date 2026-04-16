@@ -294,7 +294,7 @@ export default function ProcurementPage() {
   const dash = dashboard;
 
   return (
-    <div className="flex-1 overflow-auto bg-background p-6 space-y-4">
+    <div className="flex-1 overflow-auto bg-background p-6 pb-24 md:pb-6 space-y-4">
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
