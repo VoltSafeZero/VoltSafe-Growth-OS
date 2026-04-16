@@ -305,7 +305,18 @@ function DeploymentDetail({ deployId, onClose }: { deployId: number; onClose: ()
               {dep.target_go_live && <span><Clock className="h-3 w-3 inline mr-0.5" />Go-live {fmtDate(dep.target_go_live)}</span>}
             </div>
           </div>
-          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={onClose}>Close</Button>
+          <div className="flex items-center gap-1.5">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs gap-1"
+              onClick={() => window.dispatchEvent(new CustomEvent("open-quick-capture", { detail: { tab: "task", prefill: { title: `Deployment task: ${dep.site_name}`, linkedObjectType: "deployment", linkedObjectId: dep.id, accountId: dep.account_id } } }))}
+              data-testid={`button-add-task-deploy-${dep.id}`}
+            >
+              <Plus className="h-3 w-3" /> Task
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={onClose}>Close</Button>
+          </div>
         </div>
 
         {/* Commissioning progress bar */}

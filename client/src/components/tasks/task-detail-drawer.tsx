@@ -164,7 +164,28 @@ export function TaskDetailDrawer({ taskId, onOpenChange, onTaskChanged }: Props)
               <AssigneeButton task={t} users={users} onChanged={invalidate} />
               <MoveButton task={t} onChanged={invalidate} />
               <DependenciesButton task={t} deps={data.dependencies} onChanged={invalidate} />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs gap-1"
+                onClick={async () => {
+                  const archiving = !t.archived;
+                  if (archiving && !confirm("Archive this task? It will be hidden from the board.")) return;
+                  await patchTask.mutateAsync({ archived: archiving });
+                  toast({ title: archiving ? "Task archived" : "Task restored" });
+                  if (archiving) onOpenChange(false);
+                }}
+                data-testid="button-archive-task"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {t.archived ? "Restore" : "Archive"}
+              </Button>
             </div>
+            {t.archived && (
+              <div className="px-6 py-2 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 flex items-center gap-2">
+                <Trash2 className="h-3.5 w-3.5" /> This task is archived and hidden from the board.
+              </div>
+            )}
 
             <div className="px-6 py-4 space-y-6">
               {/* Quick chips: assignee, due, completed-by */}

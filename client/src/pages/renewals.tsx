@@ -438,7 +438,18 @@ function CustomerDetailPanel({ csId, onClose }: { csId: number; onClose: () => v
               <>
                 <Separator />
                 <div className="space-y-2">
-                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Renewal Tasks</div>
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Renewal Tasks</div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 text-xs gap-1 px-2"
+                      onClick={() => window.dispatchEvent(new CustomEvent("open-quick-capture", { detail: { tab: "task", prefill: { title: `Renewal task: ${d.account_name || "customer"}`, linkedObjectType: "customer_success", linkedObjectId: csId, accountId: d.account_id } } }))}
+                      data-testid={`button-add-task-renewal-${csId}`}
+                    >
+                      <Plus className="h-3 w-3" /> Add Task
+                    </Button>
+                  </div>
                   {(d.tasks as any[]).map((t: any) => (
                     <div key={t.id} className="flex items-start gap-2 text-xs border border-border/40 rounded-md p-2">
                       <Clock className="h-3.5 w-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />

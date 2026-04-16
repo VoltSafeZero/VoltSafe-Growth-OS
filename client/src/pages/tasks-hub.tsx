@@ -18,7 +18,7 @@ import {
   CheckCircle2, Circle, Clock, AlertTriangle, ChevronDown, ChevronRight,
   CalendarDays, Flag, User2, Link2, MoreHorizontal, Plus, Search,
   SlidersHorizontal, ListTodo, CheckSquare, Users, RefreshCcw, Bell, LayoutGrid,
-  Building2, ArrowRight, Zap, Sparkles, ThumbsDown, Settings2,
+  Building2, ArrowRight, Zap, Sparkles, ThumbsDown, Settings2, Trash2, RotateCcw,
 } from "lucide-react";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 import { TaskBoard } from "@/components/tasks/task-board";
@@ -60,7 +60,7 @@ type HubResponse = {
   total: number;
 };
 
-type ViewTab = "board" | "my" | "team" | "today" | "overdue" | "upcoming" | "completed" | "suggestions";
+type ViewTab = "board" | "my" | "team" | "today" | "overdue" | "upcoming" | "completed" | "suggestions" | "archived";
 type GroupBy = "due_date" | "priority" | "linked_record" | "assignee";
 
 const VIEW_LABELS: Record<ViewTab, string> = {
@@ -72,6 +72,7 @@ const VIEW_LABELS: Record<ViewTab, string> = {
   upcoming: "Upcoming",
   completed: "Completed",
   suggestions: "Suggestions",
+  archived: "Archived",
 };
 
 const VIEW_ICONS: Record<ViewTab, React.ElementType> = {
@@ -83,6 +84,7 @@ const VIEW_ICONS: Record<ViewTab, React.ElementType> = {
   upcoming: Clock,
   completed: CheckCircle2,
   suggestions: Sparkles,
+  archived: Trash2,
 };
 
 const GROUP_LABELS: Record<GroupBy, string> = {
@@ -726,7 +728,7 @@ export default function TasksHubPage() {
     return oa !== ob ? oa - ob : a.localeCompare(b);
   });
 
-  const viewTabs: ViewTab[] = ["board", "my", "team", "today", "overdue", "upcoming", "completed", "suggestions"];
+  const viewTabs: ViewTab[] = ["board", "my", "team", "today", "overdue", "upcoming", "completed", "suggestions", "archived"];
 
   const suggestionsList = suggestionsData?.suggestions ?? [];
 
@@ -828,6 +830,8 @@ export default function TasksHubPage() {
           <div className="p-4 md:p-6">
             <TaskBoard view="team" onOpenTask={(id) => setOpenTaskId(id)} />
           </div>
+        ) : view === "archived" ? (
+          <ArchivedList onOpenTask={(id) => setOpenTaskId(id)} />
         ) : view === "suggestions" ? (
           suggestionsLoading ? (
             <div className="p-4 space-y-3">
@@ -960,6 +964,73 @@ export default function TasksHubPage() {
           queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
         }}
       />
+    </div>
+  );
+}
+
+function ArchivedList({ onOpenTask }: { onOpenTask: (id: number) => void }) {
+  const { toast } = useToast();
+  const { data, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/tasks/archived"],
+    queryFn: () => fetch("/api/tasks/archived", { credentials: "include" }).then(r => r.json()),
+  });
+  const restore = useMutation({
+    mutationFn: (id: number) => apiRequest("PATCH", `/api/tasks/${id}`, { archived: false }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/archived"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/board"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
+      toast({ title: "Task restored" });
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="p-4 md:p-6 space-y-2">
+        {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+      </div>
+    );
+  }
+  const list = data || [];
+  if (list.length === 0) {
+    return (
+      <div className="p-12 text-center text-sm text-muted-foreground">
+        <Trash2 className="h-8 w-8 mx-auto mb-2 opacity-40" />
+        No archived tasks.
+      </div>
+    );
+  }
+  return (
+    <div className="p-4 md:p-6 space-y-2 max-w-4xl mx-auto" data-testid="archived-list">
+      <p className="text-xs text-muted-foreground mb-3">
+        {list.length} archived task{list.length !== 1 ? "s" : ""}. Click a task to view details, or restore it to bring it back to the board.
+      </p>
+      {list.map((t: any) => (
+        <div
+          key={t.id}
+          className="flex items-center gap-3 rounded-md border border-border/50 bg-card px-3 py-2 hover:bg-secondary/30 transition-colors"
+          data-testid={`archived-task-${t.id}`}
+        >
+          <button onClick={() => onOpenTask(t.id)} className="flex-1 text-left min-w-0">
+            <div className="text-sm font-medium truncate">{t.title}</div>
+            <div className="text-[11px] text-muted-foreground truncate">
+              {t.account_name && <>{t.account_name} · </>}
+              {t.priority} · archived {t.archived_at ? new Date(t.archived_at).toLocaleDateString() : ""}
+              {t.archived_by_name && <> by {t.archived_by_name}</>}
+            </div>
+          </button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs gap-1"
+            onClick={() => restore.mutate(t.id)}
+            disabled={restore.isPending}
+            data-testid={`button-restore-${t.id}`}
+          >
+            <RotateCcw className="h-3 w-3" /> Restore
+          </Button>
+        </div>
+      ))}
     </div>
   );
 }

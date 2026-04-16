@@ -51,11 +51,11 @@ function NoteForm({ onClose }: { onClose: () => void }) {
   );
 }
 
-function TaskForm({ onClose }: { onClose: () => void }) {
+function TaskForm({ onClose, prefill }: { onClose: () => void; prefill?: any }) {
   const { toast } = useToast();
-  const [title, setTitle] = useState("");
-  const [dueDate, setDueDate] = useState("");
-  const [priority, setPriority] = useState("medium");
+  const [title, setTitle] = useState(prefill?.title || "");
+  const [dueDate, setDueDate] = useState(prefill?.dueDate || "");
+  const [priority, setPriority] = useState(prefill?.priority || "medium");
 
   const mutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/tasks", {
@@ -63,6 +63,9 @@ function TaskForm({ onClose }: { onClose: () => void }) {
       dueDate: dueDate || null,
       priority,
       status: "pending",
+      linkedObjectType: prefill?.linkedObjectType || null,
+      linkedObjectId: prefill?.linkedObjectId || null,
+      accountId: prefill?.accountId || null,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
@@ -274,9 +277,11 @@ function MeetingNoteForm({ onClose }: { onClose: () => void }) {
 export function QuickCapture() {
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("task");
+  const [prefill, setPrefill] = useState<any>(null);
 
-  const handleOpen = useCallback((tab?: Tab) => {
+  const handleOpen = useCallback((tab?: Tab, pre?: any) => {
     setActiveTab(tab ?? "task");
+    setPrefill(pre || null);
     setOpen(true);
   }, []);
 
@@ -294,7 +299,10 @@ export function QuickCapture() {
 
   // Global event listener for programmatic open
   useEffect(() => {
-    const handler = (e: Event) => handleOpen((e as CustomEvent).detail?.tab);
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      handleOpen(detail.tab, detail.prefill);
+    };
     window.addEventListener("open-quick-capture", handler);
     return () => window.removeEventListener("open-quick-capture", handler);
   }, [handleOpen]);
@@ -344,7 +352,7 @@ export function QuickCapture() {
 
           <div className="p-5">
             {activeTab === "note" && <NoteForm onClose={() => setOpen(false)} />}
-            {activeTab === "task" && <TaskForm onClose={() => setOpen(false)} />}
+            {activeTab === "task" && <TaskForm onClose={() => setOpen(false)} prefill={prefill} />}
             {activeTab === "contact" && <ContactForm onClose={() => setOpen(false)} />}
             {activeTab === "opportunity" && <OpportunityForm onClose={() => setOpen(false)} />}
             {activeTab === "meeting-note" && <MeetingNoteForm onClose={() => setOpen(false)} />}

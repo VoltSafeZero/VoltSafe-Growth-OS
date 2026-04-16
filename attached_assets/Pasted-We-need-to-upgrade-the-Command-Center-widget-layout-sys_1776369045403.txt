@@ -1,0 +1,185 @@
+We need to upgrade the Command Center widget layout system so users can fully customize widget placement and widget size.
+
+GOAL:
+Make widgets behave more like a modern customizable dashboard:
+- drag widgets anywhere on the page/grid
+- widgets should adaptively fit into open spaces
+- users can resize widgets horizontally and vertically
+- resizing should feel like resizing a browser window panel
+- layout should persist per user
+- layout should remain responsive across desktop sizes
+- role-default layouts should still exist, but users can override them with “My Layout”
+
+IMPORTANT:
+Do not build a flimsy one-off drag system.
+Build a proper grid-based dashboard layout engine.
+
+==================================================
+PHASE 1 — GRID LAYOUT ENGINE
+==================================================
+
+Replace the current fixed widget layout with a real dashboard grid system.
+
+Requirements:
+- draggable widgets
+- resizable widgets
+- widgets snap to a grid
+- widgets auto-flow to available space
+- no overlap
+- no widget should render partially on top of another
+- stable layout after page refresh
+
+Each widget should support layout metadata like:
+- x
+- y
+- w
+- h
+- minW
+- minH
+- maxW optional
+- maxH optional
+
+Use a proven grid layout approach/library if appropriate rather than inventing fragile custom drag math.
+
+==================================================
+PHASE 2 — DRAG / DROP BEHAVIOR
+==================================================
+
+Users should be able to:
+- drag widgets to new positions
+- reorder widgets visually
+- drop them into open grid areas
+- have nearby widgets shift intelligently to make space
+- see a clear placeholder while dragging
+
+Requirements:
+- smooth drag interaction
+- no jittery behavior
+- no accidental text selection while dragging
+- preserve layout integrity
+
+==================================================
+PHASE 3 — RESIZING
+==================================================
+
+Users should be able to resize widgets:
+- horizontally
+- vertically
+- larger or smaller
+- constrained by sensible min/max sizes
+
+Requirements:
+- resize handles visible when layout editing is enabled
+- resizing should snap to grid units
+- widgets should reflow cleanly around resized widgets
+- prevent impossible or broken layouts
+- widget content should adapt to the new size
+
+Examples:
+- make KPI widget short + wide
+- make task list tall
+- make map widget large
+- make notes feed medium square
+
+==================================================
+PHASE 4 — USER LAYOUT PERSISTENCE
+==================================================
+
+Persist layout per user.
+
+Each user should be able to save:
+- widget positions
+- widget sizes
+- visible/hidden widgets
+- compact vs expanded mode if still relevant
+
+Support:
+- My Layout
+- Role Default
+- Reset to Role Default
+
+Requirements:
+- user custom layout overrides role default
+- if a widget is newly introduced later, place it intelligently without breaking user layouts
+- preserve hidden widgets cleanly
+
+==================================================
+PHASE 5 — RESPONSIVE BEHAVIOR
+==================================================
+
+The layout must behave well across different screen sizes.
+
+Requirements:
+- desktop-first, but responsive
+- layout adapts on narrower screens
+- mobile/small screens can simplify if needed
+- avoid broken overlaps or tiny unusable widgets
+- support multiple breakpoints if helpful
+
+If needed:
+- use separate saved layouts per breakpoint
+or
+- use a sane responsive compaction strategy
+
+==================================================
+PHASE 6 — EDIT MODE / UX
+==================================================
+
+Create a clean dashboard edit mode.
+
+When edit mode is ON:
+- drag handles appear
+- resize handles appear
+- users can move/resize freely
+- save/cancel/reset controls are visible
+
+When edit mode is OFF:
+- dashboard feels clean and stable
+- no accidental dragging
+
+Add:
+- Save layout
+- Cancel changes
+- Reset to role default
+
+==================================================
+PHASE 7 — WIDGET CONTRACTS
+==================================================
+
+Make sure widgets themselves behave well inside variable sizes.
+
+Requirements:
+- widgets should handle small/medium/large gracefully
+- scrolling inside widgets should work when height is constrained
+- charts/lists/cards should reflow cleanly
+- empty states should still look intentional
+- no content spilling outside widget bounds
+
+==================================================
+PHASE 8 — TESTING / HARDENING
+==================================================
+
+Add tests for:
+- drag and drop persistence
+- resize persistence
+- no overlap after save
+- role default reset
+- hidden widget restoration
+- responsive behavior
+- no regressions to command center loading and role-based widget logic
+
+==================================================
+IMPLEMENTATION RULES
+==================================================
+
+- Reuse the existing role-based command center logic and widget selection system
+- Do not remove role defaults — layer user customization on top
+- Use a robust grid layout system if practical
+- Keep the interaction polished and stable
+- Summarize:
+  - files changed
+  - layout model changes
+  - persistence model
+  - drag/resize behavior
+  - tests passed/failed
+  - any limitations

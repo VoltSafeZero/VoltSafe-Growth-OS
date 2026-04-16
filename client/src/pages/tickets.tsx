@@ -353,6 +353,17 @@ function TicketDetailDialog({ ticket, statuses, onUpdate, onClose }: {
             <Badge variant="outline" className={statusBadgeColors[ticket.status] || ""}>{ticket.status.replace("_"," ")}</Badge>
           </div>
           <DialogTitle className="text-lg leading-snug mt-1">{ticket.subject}</DialogTitle>
+          <div className="flex items-center gap-2 mt-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs gap-1"
+              onClick={() => window.dispatchEvent(new CustomEvent("open-quick-capture", { detail: { tab: "task", prefill: { title: `Follow up on ticket #${ticket.id}: ${ticket.subject}`, linkedObjectType: "ticket", linkedObjectId: ticket.id } } }))}
+              data-testid={`button-add-task-ticket-${ticket.id}`}
+            >
+              <Plus className="h-3 w-3" /> Add Task
+            </Button>
+          </div>
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2">

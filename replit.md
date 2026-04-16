@@ -1310,3 +1310,37 @@ All endpoints guarded by `requirePermission("crm", "view"|"edit")`.
 - Bulk drag-select on the board
 - Real-time updates via WebSocket
 - Email-task threading (reply directly from drawer)
+
+## Tasks System — Slice B (Saved views, Archive, Embedded creation, Notification polish)
+
+### What shipped
+1. **Saved board views** — `task_board_views` table (id serial PK, user_id, name, filters jsonb, is_default bool, sort_order, created_at). CRUD endpoints `/api/task-board-views` (GET/POST/PATCH/DELETE). Single-default enforced per user. Board UI now has filter bar (search, owner [me/unassigned/user], priority, label multi-select), saved-views dropdown with set-default + delete, and "Save current filters" dialog. Default view auto-applies on first board load.
+2. **Archive bin** — `tasks.archived` boolean already existed. Added `GET /api/tasks/archived` and `archived` field to PATCH whitelist. Drawer header gets an Archive/Restore button (closes drawer on archive). New "Archived" tab in Tasks Hub renders the archived list with per-row Restore button. Board endpoint already excludes archived.
+3. **Embedded task creation** — `Add Task` buttons now appear on:
+   - `tickets.tsx` — `TicketDetailDialog` header
+   - `renewals.tsx` — `CustomerDetailPanel` "Renewal Tasks" subhead
+   - `deployments.tsx` — `DeploymentDetail` header (next to Close)
+   All dispatch `window.dispatchEvent("open-quick-capture", { detail: { tab: "task", prefill: { title, linkedObjectType, linkedObjectId, accountId } } })`.
+   `quick-capture.tsx` `TaskForm` updated to honor `prefill` (title/dueDate/priority/linkedObjectType/linkedObjectId/accountId).
+4. **Notification polish** — helpers `notifyAssignment`, `notifyCompletion`, `notifyDependencyUnblock` write to `notifications` with dedupe_key. Wired into:
+   - PATCH /api/tasks/:id when ownerUserId changes (assigned + reassigned-away)
+   - POST /api/tasks/:id/complete + PATCH /board→done (completion + cascading dep-unblock)
+   - DELETE /api/tasks/:id/dependencies/:depId (manual unblock)
+
+### Schema change (raw SQL, type-safe)
+Added `task_board_views` table via `CREATE TABLE IF NOT EXISTS` matching the new Drizzle schema in `shared/schema.ts`. Reason: drizzle-kit `db:push --force` blocked on an interactive rename-disambiguation prompt; CREATE statement is the exact equivalent of what drizzle would emit (serial PK, integer FK to users, jsonb filters, boolean is_default, etc.). No existing PK types changed.
+
+### Files touched
+- `shared/schema.ts` — added `taskBoardViews` table + insertSchema + types
+- `server/routes-tasks.ts` — CRUD `/api/task-board-views`, `/api/tasks/archived`, notification helpers, hooks on assign/complete/board-move/dep-delete
+- `client/src/components/tasks/task-board.tsx` — full rewrite with filter bar + saved-views dropdown + save dialog
+- `client/src/components/tasks/task-detail-drawer.tsx` — Archive/Restore button + archived banner
+- `client/src/components/quick-capture.tsx` — prefill propagation through open-quick-capture event
+- `client/src/pages/tasks-hub.tsx` — Archived tab + ArchivedList component
+- `client/src/pages/tickets.tsx`, `renewals.tsx`, `deployments.tsx` — Add Task buttons
+
+### Smoke-tested
+- Saved view CRUD (create/list/patch isDefault/delete) ✓
+- Default isDefault=true clears prior default ✓
+- Archive→restore round-trip via PATCH /api/tasks/:id ✓
+- Board endpoint omits archived ✓

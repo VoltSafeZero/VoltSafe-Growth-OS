@@ -30,6 +30,135 @@ async function logActivity(
   `);
 }
 
+// ── Notification helpers ───────────────────────────────────────────────────
+// Insert a row into the notifications table for the recipient. Idempotent via
+// dedupe_key on the notifications table.
+async function notifyUser(args: {
+  userId: number;
+  type: string;
+  title: string;
+  body?: string | null;
+  severity?: "high" | "medium" | "low";
+  taskId: number;
+  dedupeKey: string;
+}) {
+  if (!args.userId) return;
+  try {
+    await db.execute(sql`
+      INSERT INTO notifications
+        (user_id, type, title, body, severity, linked_object_type, linked_object_id, action_url, dedupe_key, is_read, created_at)
+      VALUES
+        (${args.userId}, ${args.type}, ${args.title}, ${args.body ?? null},
+         ${args.severity ?? "medium"}, 'task', ${args.taskId},
+         ${'/execution/tasks?taskId=' + args.taskId}, ${args.dedupeKey}, false, NOW())
+      ON CONFLICT (dedupe_key) DO NOTHING
+    `);
+  } catch (err: any) {
+    console.warn("[notifyUser]", err.message);
+  }
+}
+
+async function getTaskMeta(taskId: number) {
+  const r: any = await db.execute(sql`
+    SELECT t.id, t.title, t.owner_user_id, t.created_by_user_id,
+           ou.name AS owner_name
+    FROM tasks t LEFT JOIN users ou ON ou.id = t.owner_user_id
+    WHERE t.id = ${taskId} LIMIT 1`);
+  return r.rows?.[0] ?? null;
+}
+
+async function getActorName(userId: number | null): Promise<string> {
+  if (!userId) return "Someone";
+  const r: any = await db.execute(sql`SELECT name FROM users WHERE id = ${userId}`);
+  return r.rows?.[0]?.name ?? "Someone";
+}
+
+// Notify the new owner (and optionally the previous one) when a task is reassigned.
+async function notifyAssignment(taskId: number, prevOwnerId: number | null, newOwnerId: number | null, actorId: number | null) {
+  if (newOwnerId === prevOwnerId) return;
+  const t = await getTaskMeta(taskId);
+  if (!t) return;
+  const actorName = await getActorName(actorId);
+  const stamp = Date.now();
+  if (newOwnerId && newOwnerId !== actorId) {
+    await notifyUser({
+      userId: newOwnerId,
+      type: "task_assigned",
+      title: prevOwnerId ? `Task reassigned to you: ${t.title}` : `Task assigned to you: ${t.title}`,
+      body: `${actorName} ${prevOwnerId ? "reassigned" : "assigned"} this task to you`,
+      severity: "medium",
+      taskId,
+      dedupeKey: `task-assign-${taskId}-${newOwnerId}-${stamp}`,
+    });
+  }
+  if (prevOwnerId && prevOwnerId !== actorId && prevOwnerId !== newOwnerId) {
+    await notifyUser({
+      userId: prevOwnerId,
+      type: "task_reassigned_away",
+      title: `Task reassigned away: ${t.title}`,
+      body: `${actorName} reassigned this task to someone else`,
+      severity: "low",
+      taskId,
+      dedupeKey: `task-reassign-away-${taskId}-${prevOwnerId}-${stamp}`,
+    });
+  }
+}
+
+// Notify creator + watchers when a task is completed.
+async function notifyCompletion(taskId: number, actorId: number | null) {
+  const t = await getTaskMeta(taskId);
+  if (!t) return;
+  const actorName = await getActorName(actorId);
+  const recipients = new Set<number>();
+  if (t.created_by_user_id && t.created_by_user_id !== actorId) recipients.add(t.created_by_user_id);
+  const w: any = await db.execute(sql`SELECT user_id FROM task_watchers WHERE task_id = ${taskId}`);
+  for (const row of (w.rows ?? [])) {
+    if (row.user_id !== actorId) recipients.add(row.user_id);
+  }
+  const stamp = Date.now();
+  for (const uid of recipients) {
+    await notifyUser({
+      userId: uid,
+      type: "task_completed",
+      title: `Task completed: ${t.title}`,
+      body: `${actorName} marked this task complete`,
+      severity: "low",
+      taskId,
+      dedupeKey: `task-complete-${taskId}-${uid}-${stamp}`,
+    });
+  }
+}
+
+// When a dependency is removed OR the task it depends on is completed, check
+// every dependent task — if it now has zero open deps, ping its owner.
+async function notifyDependencyUnblock(completedOrRemovedTaskId: number, actorId: number | null) {
+  // Find dependents of the just-completed task
+  const deps: any = await db.execute(sql`
+    SELECT DISTINCT d.task_id FROM task_dependencies d
+    WHERE d.depends_on_task_id = ${completedOrRemovedTaskId}`);
+  const stamp = Date.now();
+  for (const row of (deps.rows ?? [])) {
+    const tid = row.task_id;
+    const open: any = await db.execute(sql`
+      SELECT COUNT(*)::int AS open FROM task_dependencies d
+      JOIN tasks t ON t.id = d.depends_on_task_id
+      WHERE d.task_id = ${tid} AND t.status NOT IN ('completed','done')`);
+    if ((open.rows?.[0]?.open ?? 0) > 0) continue;
+    const t = await getTaskMeta(tid);
+    if (!t || !t.owner_user_id) continue;
+    if (t.owner_user_id === actorId) continue;
+    await notifyUser({
+      userId: t.owner_user_id,
+      type: "task_unblocked",
+      title: `Task unblocked: ${t.title}`,
+      body: "All dependencies are now complete — you're clear to start",
+      severity: "medium",
+      taskId: tid,
+      dedupeKey: `task-unblock-${tid}-${stamp}`,
+    });
+  }
+}
+
 async function loadTaskFull(taskId: number) {
   const taskRes: any = await db.execute(sql`
     SELECT
@@ -219,6 +348,11 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       if (prev.board_column !== boardColumn) {
         await logActivity(id, userId, "moved", prev.board_column, boardColumn);
       }
+      // Notifications when transitioning into/out of done via the board
+      if (boardColumn === "done" && prev.status !== "completed" && prev.status !== "done") {
+        await notifyCompletion(id, userId);
+        await notifyDependencyUnblock(id, userId);
+      }
       res.json({ success: true });
     } catch (err: any) {
       console.error("[tasks/:id/board]", err.message);
@@ -272,6 +406,14 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       for (const [field, before, after] of log) {
         await logActivity(id, userId, `updated_${field.replace(/\s+/g, "_")}`, before, after);
       }
+      // Notify on assignment changes
+      if ("ownerUserId" in body) {
+        const newOwner = body.ownerUserId == null ? null : Number(body.ownerUserId);
+        const prevOwner = (prev as any).owner_user_id == null ? null : Number((prev as any).owner_user_id);
+        if (newOwner !== prevOwner) {
+          await notifyAssignment(id, prevOwner, newOwner, userId);
+        }
+      }
       res.json({ success: true });
     } catch (err: any) {
       console.error("[tasks/:id PATCH]", err.message);
@@ -291,6 +433,8 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
         WHERE id = ${id}
       `);
       await logActivity(id, userId, "completed", null, null, notes ? { notes } : undefined);
+      await notifyCompletion(id, userId);
+      await notifyDependencyUnblock(id, userId);
       res.json({ success: true });
     } catch (err: any) {
       console.error("[tasks/:id/complete]", err.message);
@@ -350,8 +494,31 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       const id = Number(req.params.id);
       const depId = Number(req.params.depId);
       const userId = uid(req);
+      const depRow: any = await db.execute(sql`SELECT depends_on_task_id FROM task_dependencies WHERE id = ${depId} AND task_id = ${id}`);
+      const removedDep = depRow.rows?.[0]?.depends_on_task_id ?? null;
       await db.execute(sql`DELETE FROM task_dependencies WHERE id = ${depId} AND task_id = ${id}`);
       await logActivity(id, userId, "dependency_removed", String(depId), null);
+      // After removal, the dependent task may now be unblocked
+      if (removedDep) {
+        const open: any = await db.execute(sql`
+          SELECT COUNT(*)::int AS open FROM task_dependencies d
+          JOIN tasks t ON t.id = d.depends_on_task_id
+          WHERE d.task_id = ${id} AND t.status NOT IN ('completed','done')`);
+        if ((open.rows?.[0]?.open ?? 0) === 0) {
+          const t = await getTaskMeta(id);
+          if (t?.owner_user_id && t.owner_user_id !== userId) {
+            await notifyUser({
+              userId: t.owner_user_id,
+              type: "task_unblocked",
+              title: `Task unblocked: ${t.title}`,
+              body: "All dependencies cleared — you're clear to start",
+              severity: "medium",
+              taskId: id,
+              dedupeKey: `task-unblock-${id}-${Date.now()}`,
+            });
+          }
+        }
+      }
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -564,6 +731,110 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
   });
 
   // ── Quick search for dependency picker ────────────────────────────────────
+  // ── Saved board views (per user) ───────────────────────────────────────────
+  app.get("/api/task-board-views", canView, async (req, res) => {
+    try {
+      const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const r: any = await db.execute(sql`
+        SELECT id, name, filters, is_default AS "isDefault", sort_order AS "sortOrder", created_at AS "createdAt"
+        FROM task_board_views WHERE user_id = ${userId}
+        ORDER BY sort_order, id`);
+      res.json(r.rows ?? []);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/task-board-views", canEdit, async (req, res) => {
+    try {
+      const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const name = String(req.body?.name || "").trim().slice(0, 80);
+      if (!name) return res.status(400).json({ message: "Name required" });
+      const filters = req.body?.filters ?? {};
+      const isDefault = Boolean(req.body?.isDefault);
+      if (isDefault) {
+        await db.execute(sql`UPDATE task_board_views SET is_default = false WHERE user_id = ${userId}`);
+      }
+      const r: any = await db.execute(sql`
+        INSERT INTO task_board_views (user_id, name, filters, is_default)
+        VALUES (${userId}, ${name}, ${JSON.stringify(filters)}::jsonb, ${isDefault})
+        RETURNING id, name, filters, is_default AS "isDefault", sort_order AS "sortOrder", created_at AS "createdAt"`);
+      res.json(r.rows?.[0]);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/task-board-views/:id", canEdit, async (req, res) => {
+    try {
+      const userId = uid(req);
+      const id = Number(req.params.id);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const own: any = await db.execute(sql`SELECT 1 FROM task_board_views WHERE id = ${id} AND user_id = ${userId}`);
+      if (!own.rows?.length) return res.status(404).json({ message: "Not found" });
+      const sets: any[] = [];
+      if (typeof req.body?.name === "string") sets.push(sql`name = ${String(req.body.name).slice(0, 80)}`);
+      if (req.body?.filters !== undefined) sets.push(sql`filters = ${JSON.stringify(req.body.filters)}::jsonb`);
+      if (typeof req.body?.isDefault === "boolean") {
+        if (req.body.isDefault) {
+          await db.execute(sql`UPDATE task_board_views SET is_default = false WHERE user_id = ${userId}`);
+        }
+        sets.push(sql`is_default = ${req.body.isDefault}`);
+      }
+      if (typeof req.body?.sortOrder === "number") sets.push(sql`sort_order = ${req.body.sortOrder}`);
+      if (!sets.length) return res.json({ success: true, noop: true });
+      await db.execute(sql`UPDATE task_board_views SET ${sql.join(sets, sql`, `)} WHERE id = ${id} AND user_id = ${userId}`);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/task-board-views/:id", canEdit, async (req, res) => {
+    try {
+      const userId = uid(req);
+      const id = Number(req.params.id);
+      await db.execute(sql`DELETE FROM task_board_views WHERE id = ${id} AND user_id = ${userId}`);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Archived tasks (archive bin) ───────────────────────────────────────────
+  app.get("/api/tasks/archived", canView, async (req, res) => {
+    try {
+      const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const view = String(req.query.view || "my");
+      const admin = isAdmin(req);
+      const allowAll = view === "team" || admin;
+      const ownerFilter = allowAll ? sql`` : sql`AND t.owner_user_id = ${userId}`;
+      const r: any = await db.execute(sql`
+        SELECT t.id, t.title, t.priority, t.status,
+               t.due_date AS "dueDate", t.updated_at AS "updatedAt",
+               t.board_column AS "boardColumn",
+               t.owner_user_id AS "ownerUserId",
+               ou.name AS "ownerName",
+               cu.name AS "creatorName",
+               cb.name AS "completedByName",
+               t.completed_at AS "completedAt",
+               a.name AS "accountName"
+        FROM tasks t
+        LEFT JOIN users ou ON ou.id = t.owner_user_id
+        LEFT JOIN users cu ON cu.id = t.created_by_user_id
+        LEFT JOIN users cb ON cb.id = t.completed_by_user_id
+        LEFT JOIN accounts a ON a.id = t.account_id
+        WHERE t.archived = true ${ownerFilter}
+        ORDER BY t.updated_at DESC LIMIT 500`);
+      res.json(r.rows ?? []);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/tasks/search", canView, async (req, res) => {
     try {
       const q = String(req.query.q || "").slice(0, 100);
