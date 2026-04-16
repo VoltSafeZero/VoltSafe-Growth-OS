@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ import {
   TrendingUp, XCircle, TriangleAlert, RefreshCw, FileText,
   FlaskRound, Users, BarChart3, Link2, Upload, Download, X,
   Activity, Paperclip, Settings, Table2, PlusCircle, Trash,
+  Maximize2, Minimize2,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -606,6 +607,15 @@ function LiveTestTrackerTab({ projectId, projectName }: { projectId: number; pro
   const [sheetSync, setSheetSync] = useState<SheetSyncResult | null>(null);
   const [syncLoading, setSyncLoading] = useState(false);
   const [alertState, setAlertState] = useState<AlertState | null>(null);
+  const [sheetFullscreen, setSheetFullscreen] = useState(false);
+
+  // Close fullscreen on Escape
+  useEffect(() => {
+    if (!sheetFullscreen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSheetFullscreen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [sheetFullscreen]);
 
   const { data: cert, isLoading: certLoading, refetch: refetchCert } = useQuery<CertRecord>({
     queryKey: ["/api/projects", projectId, "certification"],
@@ -735,17 +745,69 @@ function LiveTestTrackerTab({ projectId, projectName }: { projectId: number; pro
               <Button size="sm" variant="ghost" onClick={() => setConfigOpen(true)}>Fix URL</Button>
             </div>
           ) : (
-            <div className="relative rounded-lg border border-border/30 overflow-hidden bg-white" style={{ height: "460px" }}>
-              <iframe
-                key={iframeKey}
-                src={embedUrl!}
-                className="w-full h-full"
-                title={`${projectName} — Live Test Tracker`}
-                onLoad={() => setLastLoaded(new Date())}
-                allow="fullscreen"
-                data-testid="iframe-sheet-viewer"
-              />
-            </div>
+            <>
+              {/* Inline viewer (normal mode) */}
+              {!sheetFullscreen && (
+                <div className="relative rounded-lg border border-border/30 overflow-hidden bg-white group" style={{ height: "460px" }}>
+                  <iframe
+                    key={iframeKey}
+                    src={embedUrl!}
+                    className="w-full h-full"
+                    title={`${projectName} — Live Test Tracker`}
+                    onLoad={() => setLastLoaded(new Date())}
+                    allow="fullscreen"
+                    data-testid="iframe-sheet-viewer"
+                  />
+                  {/* Expand button — top-right corner, appears on hover */}
+                  <button
+                    onClick={() => setSheetFullscreen(true)}
+                    className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded-md bg-black/60 hover:bg-black/80 text-white text-[11px] font-medium opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Expand to full screen (Esc to exit)"
+                    data-testid="button-sheet-fullscreen"
+                  >
+                    <Maximize2 className="h-3 w-3" />
+                    Expand
+                  </button>
+                </div>
+              )}
+
+              {/* Fullscreen overlay */}
+              {sheetFullscreen && (
+                <div className="fixed inset-0 z-[70] bg-black/90 flex flex-col" data-testid="sheet-fullscreen-overlay">
+                  {/* Overlay toolbar */}
+                  <div className="flex items-center gap-3 px-4 py-2.5 bg-background/95 backdrop-blur border-b border-border/40 flex-shrink-0">
+                    <span className="text-sm font-medium truncate flex-1">{projectName} — Live Test Tracker</span>
+                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={handleRefresh} data-testid="button-fullscreen-refresh">
+                      <RefreshCw className={`h-3 w-3 ${syncLoading ? "animate-spin" : ""}`} /> Refresh
+                    </Button>
+                    {trackerUrl && (
+                      <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => window.open(trackerUrl, "_blank")} data-testid="button-fullscreen-open-sheets">
+                        <ExternalLink className="h-3 w-3" /> Open in Sheets
+                      </Button>
+                    )}
+                    <button
+                      onClick={() => setSheetFullscreen(false)}
+                      className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium bg-muted hover:bg-muted/80 text-foreground transition-colors"
+                      title="Exit fullscreen (Esc)"
+                      data-testid="button-sheet-exit-fullscreen"
+                    >
+                      <Minimize2 className="h-3.5 w-3.5" /> Exit
+                    </button>
+                  </div>
+                  {/* Full-height iframe */}
+                  <div className="flex-1 min-h-0 bg-white">
+                    <iframe
+                      key={`fs-${iframeKey}`}
+                      src={embedUrl!}
+                      className="w-full h-full"
+                      title={`${projectName} — Live Test Tracker (fullscreen)`}
+                      allow="fullscreen"
+                      data-testid="iframe-sheet-viewer-fullscreen"
+                    />
+                  </div>
+                </div>
+              )}
+            </>
           )}
           <p className="text-[10px] text-muted-foreground/50 mt-1.5">
             For private sheets, share as "Anyone with the link can view". The NRTL shared editing workflow is unaffected.
