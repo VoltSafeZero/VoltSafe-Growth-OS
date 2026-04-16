@@ -5930,6 +5930,90 @@ export async function registerRoutes(
     }
   });
 
+  // ── Inbox Summary (for Mission Control widgets) ───────────────────────────
+  app.get("/api/command-center/inbox-summary", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const userId = Number(getSessionUserId(req));
+      if (!userId || !Number.isFinite(userId)) return res.status(401).json({ message: "Unauthorized" });
+
+      const [teamRes, myRecentRes] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT
+            ea.id              AS account_id,
+            ea.user_id         AS user_id,
+            u.name             AS user_name,
+            ea.email_address   AS email_address,
+            ea.display_name    AS display_name,
+            ea.is_shared       AS is_shared,
+            ea.last_sync_at    AS last_sync_at,
+            ea.auth_status     AS auth_status,
+            COALESCE(stats.awaiting_count, 0)::int       AS awaiting_count,
+            COALESCE(stats.recent_inbound_count, 0)::int AS recent_inbound_count
+          FROM email_accounts ea
+          JOIN users u ON u.id = ea.user_id
+          LEFT JOIN LATERAL (
+            SELECT
+              COUNT(DISTINCT et.id) FILTER (WHERE et.awaiting_reply_since IS NOT NULL) AS awaiting_count,
+              COUNT(em.id) FILTER (WHERE em.direction = 'inbound' AND em.sent_at >= NOW() - INTERVAL '7 days') AS recent_inbound_count
+            FROM email_messages em
+            LEFT JOIN email_threads et ON et.gmail_thread_id = em.gmail_thread_id
+            WHERE em.source_account_id = ea.id
+          ) stats ON true
+          WHERE ea.is_active = true
+          ORDER BY u.name ASC
+        `)),
+
+        db.execute(sql.raw(`
+          SELECT em.id, em.subject, em.from_name, em.from_email, em.snippet, em.sent_at, em.gmail_thread_id,
+                 et.awaiting_reply_since
+          FROM email_messages em
+          LEFT JOIN email_threads et ON et.gmail_thread_id = em.gmail_thread_id
+          LEFT JOIN email_accounts ea ON ea.id = em.source_account_id
+          WHERE ea.user_id = ${userId}
+            AND em.direction = 'inbound'
+          ORDER BY em.sent_at DESC NULLS LAST
+          LIMIT 5
+        `)),
+      ]);
+
+      const teamRows: any[] = (teamRes as any).rows ?? [];
+      const myAccounts = teamRows.filter(r => r.user_id === userId && !r.is_shared);
+      const myAwaiting = myAccounts.reduce((s, r) => s + Number(r.awaiting_count || 0), 0);
+      const myRecent   = myAccounts.reduce((s, r) => s + Number(r.recent_inbound_count || 0), 0);
+      const primary    = myAccounts[0];
+
+      res.json({
+        myInbox: {
+          userId,
+          emailAddress:       primary?.email_address ?? null,
+          displayName:        primary?.display_name ?? null,
+          authStatus:         primary?.auth_status ?? "none",
+          awaitingReplyCount: myAwaiting,
+          recentInboundCount: myRecent,
+          accountCount:       myAccounts.length,
+          recent:             (myRecentRes as any).rows ?? [],
+        },
+        teamInboxes: teamRows
+          .filter(r => r.user_id !== userId || r.is_shared)
+          .map(r => ({
+            accountId:          r.account_id,
+            userId:             r.user_id,
+            userName:           r.user_name,
+            emailAddress:       r.email_address,
+            displayName:        r.display_name,
+            isShared:           r.is_shared,
+            authStatus:         r.auth_status,
+            lastSyncAt:         r.last_sync_at,
+            awaitingReplyCount: Number(r.awaiting_count || 0),
+            recentInboundCount: Number(r.recent_inbound_count || 0),
+          })),
+      });
+    } catch (err: any) {
+      console.error("[inbox-summary]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ─── Daily Command Center ─────────────────────────────────────────────────
   app.get("/api/daily-command-center", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     try {

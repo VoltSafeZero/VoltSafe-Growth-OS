@@ -898,6 +898,173 @@ export function TodaysMeetingsWidget({ compact, isDragging, dragProps }: WidgetP
   );
 }
 
+// ── My Inbox & Team Inboxes (Mission Control) ────────────────────────────────
+
+type InboxSummary = {
+  myInbox: {
+    userId: number;
+    emailAddress: string | null;
+    displayName: string | null;
+    authStatus: string;
+    awaitingReplyCount: number;
+    recentInboundCount: number;
+    accountCount: number;
+    recent: Array<{
+      id: number; subject: string | null; from_name: string | null; from_email: string | null;
+      snippet: string | null; sent_at: string | null; gmail_thread_id: string;
+      awaiting_reply_since: string | null;
+    }>;
+  };
+  teamInboxes: Array<{
+    accountId: number; userId: number; userName: string;
+    emailAddress: string; displayName: string | null;
+    isShared: boolean; authStatus: string; lastSyncAt: string | null;
+    awaitingReplyCount: number; recentInboundCount: number;
+  }>;
+};
+
+function useInboxSummary() {
+  return useQuery<InboxSummary>({
+    queryKey: ["/api/command-center/inbox-summary"],
+    staleTime: 2 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+  });
+}
+
+export function MyInboxWidget({ compact, isDragging, dragProps }: WidgetProps) {
+  const { data, isLoading } = useInboxSummary();
+  const inbox = data?.myInbox;
+  const recent = inbox?.recent ?? [];
+  const notConnected = !inbox?.emailAddress || inbox.authStatus !== "active";
+
+  return (
+    <ActionWidgetShell
+      id="my_inbox"
+      icon={Mail}
+      title="My Inbox"
+      count={inbox?.awaitingReplyCount}
+      link="/gmail"
+      compact={compact}
+      isDragging={isDragging}
+      dragProps={dragProps}
+    >
+      {isLoading && <Skeleton className="h-20" />}
+
+      {!isLoading && notConnected && (
+        <Link href="/gmail">
+          <div className="flex items-center justify-between gap-3 py-2 cursor-pointer hover:bg-muted/40 px-2 -mx-2 rounded-md transition-colors" data-testid="my-inbox-not-connected">
+            <div className="min-w-0">
+              <p className="text-sm text-muted-foreground">No Gmail account connected.</p>
+              <p className="text-xs text-muted-foreground/70 mt-0.5">Connect your inbox to see messages here.</p>
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+          </div>
+        </Link>
+      )}
+
+      {!isLoading && !notConnected && (
+        <>
+          <Link href="/gmail">
+            <div className="flex items-center justify-between gap-3 py-2 px-2 -mx-2 rounded-md hover:bg-muted/40 cursor-pointer transition-colors mb-1" data-testid="my-inbox-summary">
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground truncate">{inbox.emailAddress}</p>
+                <div className="flex items-center gap-3 mt-0.5">
+                  <span className="text-xs text-amber-400 font-medium" data-testid="text-my-inbox-awaiting">
+                    {inbox.awaitingReplyCount} awaiting
+                  </span>
+                  <span className="text-xs text-muted-foreground" data-testid="text-my-inbox-recent">
+                    {inbox.recentInboundCount} this week
+                  </span>
+                </div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+            </div>
+          </Link>
+
+          {recent.length === 0 && <EmptyState message="No recent inbound emails." />}
+
+          {recent.slice(0, 4).map((m) => {
+            const awaiting = !!m.awaiting_reply_since;
+            const since = m.sent_at;
+            const timeAgo = since
+              ? formatDistanceToNow(new Date(since), { addSuffix: false })
+              : "";
+            return (
+              <ItemRow
+                key={m.id}
+                title={m.subject || "(No subject)"}
+                subtitle={m.from_name || m.from_email || undefined}
+                right={timeAgo}
+                severity={awaiting ? "medium" : "low"}
+                link="/gmail"
+                testId={`my-inbox-row-${m.id}`}
+              />
+            );
+          })}
+        </>
+      )}
+    </ActionWidgetShell>
+  );
+}
+
+export function TeamInboxesWidget({ compact, isDragging, dragProps }: WidgetProps) {
+  const { data, isLoading } = useInboxSummary();
+  const team = data?.teamInboxes ?? [];
+  const totalAwaiting = team.reduce((s, t) => s + (t.awaitingReplyCount || 0), 0);
+
+  return (
+    <ActionWidgetShell
+      id="team_inboxes"
+      icon={Users}
+      title="Team Inboxes"
+      count={totalAwaiting}
+      link="/gmail"
+      compact={compact}
+      isDragging={isDragging}
+      dragProps={dragProps}
+    >
+      {isLoading && <Skeleton className="h-20" />}
+      {!isLoading && team.length === 0 && (
+        <EmptyState message="No other team inboxes connected yet." />
+      )}
+      {!isLoading && team.slice(0, 6).map((t) => {
+        const stale = t.authStatus !== "active";
+        const subtitle = t.isShared
+          ? `Shared inbox · ${t.userName}`
+          : t.userName;
+        return (
+          <Link key={t.accountId} href="/gmail">
+            <div
+              className="flex items-center justify-between gap-3 py-1.5 px-2 -mx-2 rounded-md hover:bg-muted/40 cursor-pointer transition-colors group"
+              data-testid={`team-inbox-row-${t.accountId}`}
+            >
+              <div className="flex items-start gap-2 min-w-0 flex-1">
+                <div className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${
+                  stale ? "bg-red-400" : t.awaitingReplyCount > 0 ? "bg-amber-400" : "bg-emerald-500"
+                }`} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-foreground truncate">{t.emailAddress}</p>
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">{subtitle}</p>
+                </div>
+              </div>
+              <div className="flex flex-col items-end shrink-0">
+                <span className={`text-xs font-medium whitespace-nowrap ${
+                  t.awaitingReplyCount > 0 ? "text-amber-400" : "text-muted-foreground"
+                }`}>
+                  {t.awaitingReplyCount} awaiting
+                </span>
+                <span className="text-[10px] text-muted-foreground whitespace-nowrap mt-0.5">
+                  {t.recentInboundCount}/wk
+                </span>
+              </div>
+            </div>
+          </Link>
+        );
+      })}
+    </ActionWidgetShell>
+  );
+}
+
 // ── Widget type + registry ────────────────────────────────────────────────────
 
 export type WidgetProps = {
@@ -927,6 +1094,8 @@ export const ACTION_WIDGET_MAP: Record<string, React.ComponentType<WidgetProps>>
   renewal_countdown:      RenewalCountdownWidget,
   forecast_gap:           ForecastGapWidget,
   todays_meetings:        TodaysMeetingsWidget,
+  my_inbox:               MyInboxWidget,
+  team_inboxes:           TeamInboxesWidget,
 };
 
 // ── Drag-and-drop hook (native HTML5 DnD) ────────────────────────────────────

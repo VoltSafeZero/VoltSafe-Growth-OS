@@ -135,6 +135,16 @@ const NEW_WIDGETS: Record<string, WidgetDef> = {
     description: "Calendar events and customer calls happening today",
     defaultVisible: true, category: "action", isNew: true,
   },
+  my_inbox: {
+    id: "my_inbox", label: "My Inbox",
+    description: "High-level view of your email inbox — click to open Gmail",
+    defaultVisible: true, category: "action", isNew: true,
+  },
+  team_inboxes: {
+    id: "team_inboxes", label: "Team Inboxes",
+    description: "Email activity across the team — awaiting replies and recent volume",
+    defaultVisible: true, category: "team", isNew: true,
+  },
 };
 
 // ── Widget definitions per center type ───────────────────────────────────────
@@ -168,6 +178,8 @@ export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {
     { ...NEW_WIDGETS.recent_wins,            defaultVisible: true  },
     { ...NEW_WIDGETS.pipeline_funnel,        defaultVisible: true  },
     { ...NEW_WIDGETS.forecast_gap,           defaultVisible: true  },
+    { ...NEW_WIDGETS.my_inbox,               defaultVisible: true  },
+    { ...NEW_WIDGETS.team_inboxes,           defaultVisible: true  },
     { ...NEW_WIDGETS.top_performers,         defaultVisible: false },
     { ...NEW_WIDGETS.ai_suggested_moves,     defaultVisible: false },
     { ...NEW_WIDGETS.quick_create_launcher,  defaultVisible: false },
