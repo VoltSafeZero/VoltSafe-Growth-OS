@@ -4,6 +4,15 @@ export interface ScoreResult {
   label: string;
   reasons: string[];
   scoredAt: string;
+  confidence: number;        // 0-100: how many data points were available
+  confidenceLabel: string;   // "low" | "medium" | "high"
+  modelName: string;         // machine-readable model identifier
+}
+
+function toConfidenceLabel(c: number): string {
+  if (c >= 70) return "high";
+  if (c >= 40) return "medium";
+  return "low";
 }
 
 function clamp(n: number): number {
@@ -114,12 +123,27 @@ export function scoreLeadQuality(lead: LeadInput): ScoreResult {
   if ((lead.overdueTaskCount ?? 0) > 0) { score -= 5; reasons.push(`${lead.overdueTaskCount} overdue task(s)`); }
 
   const finalScore = clamp(score);
+  const conf = clamp(
+    (lead.source ? 12 : 0) +
+    (lead.contactEmail ? 12 : 0) +
+    (lead.ownerUserId ? 12 : 0) +
+    (lead.dealAmount ? 12 : 0) +
+    (lead.status ? 10 : 0) +
+    (lead.updatedAt ? 10 : 0) +
+    (lead.estCloseDate ? 10 : 0) +
+    (lead.region ? 8 : 0) +
+    ((lead.activityCount ?? 0) > 0 ? 8 : 0) +
+    (lead.contactPhone ? 6 : 0)
+  );
   return {
     score: finalScore,
     band: toBand(finalScore, [30, 55, 72]),
     label: "Lead Quality",
     reasons,
     scoredAt: new Date().toISOString(),
+    confidence: conf,
+    confidenceLabel: toConfidenceLabel(conf),
+    modelName: "lead_quality",
   };
 }
 
@@ -166,10 +190,10 @@ export function scoreOpportunityClose(opp: OpportunityInput): ScoreResult {
   reasons.push(`Stage: ${stage.replace(/_/g, " ")} (base ${base})`);
 
   if (stage === "closed_won") {
-    return { score: 100, band: "critical", label: "Opportunity Close", reasons: ["Closed won"], scoredAt: new Date().toISOString() };
+    return { score: 100, band: "critical", label: "Opportunity Close", reasons: ["Closed won"], scoredAt: new Date().toISOString(), confidence: 100, confidenceLabel: "high", modelName: "opportunity_close" };
   }
   if (stage === "closed_lost") {
-    return { score: 0, band: "low", label: "Opportunity Close", reasons: ["Closed lost"], scoredAt: new Date().toISOString() };
+    return { score: 0, band: "low", label: "Opportunity Close", reasons: ["Closed lost"], scoredAt: new Date().toISOString(), confidence: 100, confidenceLabel: "high", modelName: "opportunity_close" };
   }
 
   if (opp.hasQuote) { score += 8; reasons.push("Active quote attached"); }
