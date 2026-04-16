@@ -1,0 +1,566 @@
+I need you to redesign the VoltSafe Cortex email system properly so it can support 6+ years of history, multiple inboxes, Gmail-grade threading, fast search, CRM linking, and near-real-time sync.
+
+Build this as a production-grade email architecture, not a demo.
+
+==================================================
+CORE GOAL
+==================================================
+
+VoltSafe Cortex Email must become the central email command center for:
+- trevor@voltsafe.com
+- support@voltsafe.com
+- sales@voltsafe.com
+- media@voltsafe.com
+- trevor@hyalos.com
+
+It must support:
+- historical backfill of all mailboxes
+- near real-time sync
+- exact unread counts and mailbox counts
+- Gmail-style thread view
+- attachment handling
+- fast global search
+- automatic CRM linking to leads, accounts, contacts, partners, opportunities, quotes, tasks
+- operational reliability with resumable jobs and audit logs
+
+==================================================
+DATABASE DESIGN
+==================================================
+
+Implement the following schema.
+
+1) mailboxes
+Purpose: one row per connected mailbox/account
+
+Columns:
+- id UUID PK
+- email TEXT UNIQUE NOT NULL
+- display_name TEXT
+- provider TEXT NOT NULL default 'gmail'
+- mailbox_type TEXT NOT NULL
+  -- values: personal, shared, alias, support, sales, media, other
+- status TEXT NOT NULL default 'connected'
+  -- values: connected, disconnected, auth_expired, sync_error, backfilling
+- google_account_id TEXT
+- oauth_subject TEXT
+- access_token_encrypted TEXT
+- refresh_token_encrypted TEXT
+- token_expires_at TIMESTAMP
+- scope TEXT
+- history_id TEXT
+- watch_expiration_at TIMESTAMP
+- sync_enabled BOOLEAN NOT NULL default true
+- backfill_enabled BOOLEAN NOT NULL default true
+- last_full_sync_at TIMESTAMP
+- last_incremental_sync_at TIMESTAMP
+- last_successful_sync_at TIMESTAMP
+- last_error_at TIMESTAMP
+- last_error_message TEXT
+- oldest_message_date TIMESTAMP
+- newest_message_date TIMESTAMP
+- total_message_count BIGINT default 0
+- unread_count BIGINT default 0
+- inbox_count BIGINT default 0
+- sent_count BIGINT default 0
+- archive_count BIGINT default 0
+- trash_count BIGINT default 0
+- spam_count BIGINT default 0
+- created_by INTEGER
+- created_at TIMESTAMP NOT NULL default now()
+- updated_at TIMESTAMP NOT NULL default now()
+
+Indexes:
+- unique(email)
+- index(status)
+- index(sync_enabled)
+
+2) email_threads
+Purpose: normalized thread/conversation layer
+
+Columns:
+- id UUID PK
+- mailbox_id UUID NOT NULL references mailboxes(id)
+- provider_thread_id TEXT NOT NULL
+- subject TEXT
+- normalized_subject TEXT
+- snippet TEXT
+- participant_summary TEXT
+- message_count INTEGER NOT NULL default 0
+- unread_count INTEGER NOT NULL default 0
+- has_attachments BOOLEAN NOT NULL default false
+- last_message_at TIMESTAMP
+- first_message_at TIMESTAMP
+- latest_inbound_at TIMESTAMP
+- latest_outbound_at TIMESTAMP
+- is_archived BOOLEAN NOT NULL default false
+- is_spam BOOLEAN NOT NULL default false
+- is_trash BOOLEAN NOT NULL default false
+- is_draft BOOLEAN NOT NULL default false
+- crm_primary_object_type TEXT
+- crm_primary_object_id INTEGER
+- ai_summary TEXT
+- sentiment TEXT
+- priority_score NUMERIC(10,2)
+- needs_reply BOOLEAN NOT NULL default false
+- waiting_on_us BOOLEAN NOT NULL default false
+- waiting_on_them BOOLEAN NOT NULL default false
+- snoozed_until TIMESTAMP
+- pinned BOOLEAN NOT NULL default false
+- created_at TIMESTAMP NOT NULL default now()
+- updated_at TIMESTAMP NOT NULL default now()
+
+Constraints:
+- unique(mailbox_id, provider_thread_id)
+
+Indexes:
+- index(mailbox_id, last_message_at desc)
+- index(mailbox_id, unread_count)
+- index(crm_primary_object_type, crm_primary_object_id)
+- full text index on subject, snippet, participant_summary if supported
+
+3) email_messages
+Purpose: one row per email message
+
+Columns:
+- id UUID PK
+- mailbox_id UUID NOT NULL references mailboxes(id)
+- thread_id UUID NOT NULL references email_threads(id)
+- provider_message_id TEXT NOT NULL
+- provider_internal_date TIMESTAMP
+- internet_message_id TEXT
+- gmail_history_id TEXT
+- subject TEXT
+- normalized_subject TEXT
+- snippet TEXT
+- body_text TEXT
+- body_html TEXT
+- from_name TEXT
+- from_email TEXT
+- reply_to JSONB
+- sender JSONB
+- to_recipients JSONB
+- cc_recipients JSONB
+- bcc_recipients JSONB
+- all_participants JSONB
+- direction TEXT NOT NULL
+  -- inbound, outbound, internal, draft
+- folder_hint TEXT
+- labels JSONB
+- is_read BOOLEAN NOT NULL default true
+- is_starred BOOLEAN NOT NULL default false
+- is_important BOOLEAN NOT NULL default false
+- is_archived BOOLEAN NOT NULL default false
+- is_spam BOOLEAN NOT NULL default false
+- is_trash BOOLEAN NOT NULL default false
+- is_draft BOOLEAN NOT NULL default false
+- has_attachments BOOLEAN NOT NULL default false
+- attachment_count INTEGER NOT NULL default 0
+- size_bytes BIGINT
+- received_at TIMESTAMP
+- sent_at TIMESTAMP
+- imported_at TIMESTAMP NOT NULL default now()
+- sync_version INTEGER NOT NULL default 1
+- raw_headers JSONB
+- raw_payload JSONB
+- created_at TIMESTAMP NOT NULL default now()
+- updated_at TIMESTAMP NOT NULL default now()
+
+Constraints:
+- unique(mailbox_id, provider_message_id)
+- unique(mailbox_id, internet_message_id) where internet_message_id is not null
+
+Indexes:
+- index(mailbox_id, received_at desc)
+- index(thread_id, received_at asc)
+- index(from_email)
+- index(direction)
+- index(is_read)
+- index(has_attachments)
+- GIN/JSON index on labels if supported
+- full text index on subject, snippet, body_text
+
+4) email_addresses
+Purpose: normalized email identities for search, stats, CRM matching
+
+Columns:
+- id UUID PK
+- email TEXT UNIQUE NOT NULL
+- display_name TEXT
+- domain TEXT
+- person_name_guess TEXT
+- organization_guess TEXT
+- is_internal BOOLEAN NOT NULL default false
+- is_known_contact BOOLEAN NOT NULL default false
+- linked_contact_id INTEGER
+- linked_account_id INTEGER
+- linked_lead_id INTEGER
+- linked_partner_id INTEGER
+- first_seen_at TIMESTAMP
+- last_seen_at TIMESTAMP
+- created_at TIMESTAMP NOT NULL default now()
+- updated_at TIMESTAMP NOT NULL default now()
+
+Indexes:
+- unique(email)
+- index(domain)
+- index(linked_contact_id)
+- index(linked_account_id)
+- index(linked_lead_id)
+- index(linked_partner_id)
+
+5) email_message_participants
+Purpose: join table between messages and addresses
+
+Columns:
+- id UUID PK
+- message_id UUID NOT NULL references email_messages(id) on delete cascade
+- address_id UUID NOT NULL references email_addresses(id)
+- role TEXT NOT NULL
+  -- from, to, cc, bcc, reply_to, sender
+- position INTEGER
+- created_at TIMESTAMP NOT NULL default now()
+
+Constraints:
+- unique(message_id, address_id, role, position)
+
+Indexes:
+- index(message_id)
+- index(address_id)
+- index(role)
+
+6) email_attachments
+Purpose: attachment metadata + file storage references
+
+Columns:
+- id UUID PK
+- mailbox_id UUID NOT NULL references mailboxes(id)
+- message_id UUID NOT NULL references email_messages(id) on delete cascade
+- provider_attachment_id TEXT
+- filename TEXT
+- mime_type TEXT
+- size_bytes BIGINT
+- content_id TEXT
+- content_disposition TEXT
+- is_inline BOOLEAN NOT NULL default false
+- storage_key TEXT
+- download_status TEXT NOT NULL default 'pending'
+  -- pending, downloaded, failed, skipped
+- sha256 TEXT
+- virus_scan_status TEXT
+- preview_text TEXT
+- created_at TIMESTAMP NOT NULL default now()
+- updated_at TIMESTAMP NOT NULL default now()
+
+Indexes:
+- index(message_id)
+- index(mailbox_id)
+- index(filename)
+- index(mime_type)
+
+7) email_labels
+Purpose: cached provider labels/folders
+
+Columns:
+- id UUID PK
+- mailbox_id UUID NOT NULL references mailboxes(id)
+- provider_label_id TEXT NOT NULL
+- name TEXT NOT NULL
+- type TEXT
+  -- system, user
+- unread_count BIGINT default 0
+- total_count BIGINT default 0
+- is_visible BOOLEAN NOT NULL default true
+- created_at TIMESTAMP NOT NULL default now()
+- updated_at TIMESTAMP NOT NULL default now()
+
+Constraints:
+- unique(mailbox_id, provider_label_id)
+
+Indexes:
+- index(mailbox_id)
+- index(name)
+
+8) email_message_labels
+Purpose: exact many-to-many label membership
+
+Columns:
+- id UUID PK
+- message_id UUID NOT NULL references email_messages(id) on delete cascade
+- label_id UUID NOT NULL references email_labels(id) on delete cascade
+- created_at TIMESTAMP NOT NULL default now()
+
+Constraints:
+- unique(message_id, label_id)
+
+Indexes:
+- index(message_id)
+- index(label_id)
+
+9) email_sync_jobs
+Purpose: track every sync/backfill run
+
+Columns:
+- id UUID PK
+- mailbox_id UUID NOT NULL references mailboxes(id)
+- job_type TEXT NOT NULL
+  -- full_backfill, incremental_sync, watch_refresh, attachment_backfill, recount
+- status TEXT NOT NULL
+  -- queued, running, paused, completed, failed, cancelled
+- priority INTEGER NOT NULL default 100
+- cursor TEXT
+- started_at TIMESTAMP
+- completed_at TIMESTAMP
+- last_checkpoint_at TIMESTAMP
+- range_start TIMESTAMP
+- range_end TIMESTAMP
+- estimated_total BIGINT
+- processed_count BIGINT NOT NULL default 0
+- created_count BIGINT NOT NULL default 0
+- updated_count BIGINT NOT NULL default 0
+- skipped_count BIGINT NOT NULL default 0
+- failed_count BIGINT NOT NULL default 0
+- api_calls_count BIGINT NOT NULL default 0
+- oldest_reached_at TIMESTAMP
+- newest_reached_at TIMESTAMP
+- last_error_message TEXT
+- metadata JSONB
+- created_at TIMESTAMP NOT NULL default now()
+- updated_at TIMESTAMP NOT NULL default now()
+
+Indexes:
+- index(mailbox_id, status)
+- index(job_type, status)
+- index(created_at desc)
+
+10) email_sync_events
+Purpose: detailed audit log
+
+Columns:
+- id UUID PK
+- mailbox_id UUID references mailboxes(id)
+- job_id UUID references email_sync_jobs(id) on delete cascade
+- level TEXT NOT NULL
+  -- info, warning, error
+- event_type TEXT NOT NULL
+  -- page_fetched, token_refreshed, rate_limited, message_saved, attachment_failed, watch_renewed, recount_done
+- message TEXT
+- payload JSONB
+- created_at TIMESTAMP NOT NULL default now()
+
+Indexes:
+- index(job_id, created_at desc)
+- index(mailbox_id, created_at desc)
+- index(level)
+
+11) email_crm_links
+Purpose: explicit link table from email threads/messages to CRM records
+
+Columns:
+- id UUID PK
+- mailbox_id UUID NOT NULL references mailboxes(id)
+- thread_id UUID references email_threads(id) on delete cascade
+- message_id UUID references email_messages(id) on delete cascade
+- object_type TEXT NOT NULL
+  -- lead, account, contact, partner, opportunity, quote, task, ticket, invoice
+- object_id INTEGER NOT NULL
+- link_type TEXT NOT NULL
+  -- auto, manual, inferred, primary
+- confidence_score NUMERIC(5,2)
+- reason TEXT
+- created_by INTEGER
+- created_at TIMESTAMP NOT NULL default now()
+- updated_at TIMESTAMP NOT NULL default now()
+
+Indexes:
+- index(object_type, object_id)
+- index(thread_id)
+- index(message_id)
+- index(link_type)
+
+12) email_actions
+Purpose: UI/workflow actions like snooze, pin, reminder, assign
+
+Columns:
+- id UUID PK
+- mailbox_id UUID NOT NULL references mailboxes(id)
+- thread_id UUID references email_threads(id) on delete cascade
+- message_id UUID references email_messages(id) on delete cascade
+- action_type TEXT NOT NULL
+  -- snooze, reminder, pin, assign, close_loop, mark_waiting, mark_done
+- action_value JSONB
+- due_at TIMESTAMP
+- completed_at TIMESTAMP
+- created_by INTEGER
+- created_at TIMESTAMP NOT NULL default now()
+- updated_at TIMESTAMP NOT NULL default now()
+
+Indexes:
+- index(action_type, due_at)
+- index(thread_id)
+- index(completed_at)
+
+==================================================
+CRM LINKING LOGIC
+==================================================
+
+Build automatic email-to-CRM linking using this priority order:
+
+1. Exact email address match to existing contact
+2. Exact email address match to lead
+3. Exact domain match to account/company domain
+4. Existing thread already linked to a CRM object
+5. Manual override by user
+6. AI-assisted fallback suggestion only if confidence is low
+
+For every email/thread, store:
+- primary linked object
+- all linked objects
+- confidence score
+- why it was linked
+
+Examples:
+- marina GM email -> account + contact + opportunity
+- investor email -> lead or partner depending on type
+- support issue -> account + ticket
+- quote thread -> account + quote + opportunity
+
+==================================================
+SYNC ARCHITECTURE
+==================================================
+
+Implement both:
+
+A) Historical backfill service
+- pulls all-time history in pages
+- resumable from checkpoint
+- idempotent
+- rate-limit aware
+- visible progress in UI
+- can pause/resume/cancel
+- supports mailbox-by-mailbox runs
+
+B) Incremental sync service
+- runs every 2 minutes
+- uses Gmail push/watch if possible
+- falls back to polling if watch expires
+- updates unread counts, labels, threads, messages, attachments
+- never only fetches 200 and quits; must keep paging until caught up for recent delta
+
+==================================================
+COUNTS AND SIDEBAR
+==================================================
+
+Sidebar counts must come from actual mailbox + label counts, not from CRM-routed subsets.
+
+Required counts:
+- Inbox
+- Unread
+- Sent
+- Drafts
+- Archive
+- Spam
+- Trash
+- All Mail
+- Team inbox counts per mailbox
+
+Unread counts must match Gmail/Spark as closely as possible.
+
+==================================================
+SEARCH
+==================================================
+
+Build fast search across:
+- subject
+- sender
+- recipients
+- body text
+- attachment filename
+- mailbox
+- linked CRM records
+
+Filters:
+- mailbox
+- unread
+- has attachments
+- date range
+- linked account/lead/contact/partner
+- label/folder
+- inbound/outbound
+- waiting on us / waiting on them
+
+==================================================
+THREAD UX
+==================================================
+
+Thread view must support:
+- newest or oldest first toggle
+- participant chips
+- attachment strip
+- linked CRM objects side panel
+- task/reminder side panel
+- notes on thread
+- pin/snooze/remind/assign
+- mark waiting on us / waiting on them
+- quick reply
+- open in Gmail
+
+==================================================
+ADMIN / SETTINGS
+==================================================
+
+Add mailbox admin screen showing:
+- mailbox
+- status
+- connected/disconnected
+- token expiry
+- watch status
+- last sync
+- oldest synced email
+- newest synced email
+- total messages
+- unread count
+- last error
+- buttons: reconnect, resync, backfill, pause, resume, recount
+
+==================================================
+MIGRATION PLAN
+==================================================
+
+Phase 1:
+- create all tables
+- migrate existing email data into new schema
+- preserve message IDs where possible
+
+Phase 2:
+- connect Trevor mailbox into new structure
+- run full backfill all-time
+- verify counts match Gmail
+
+Phase 3:
+- connect shared/team inboxes
+- enable cross-mailbox search
+
+Phase 4:
+- enable CRM auto-linking and workflow features
+
+==================================================
+NON-NEGOTIABLES
+==================================================
+
+- no duplicate messages
+- no orphan threads
+- no fake counts
+- no UI pretending a mailbox is connected when it is not
+- every sync error must be visible
+- every backfill must be resumable
+- every mailbox must have its own health status
+- design for 100k+ messages without the UI becoming slow
+
+Implement this in phases and show me:
+1. schema created
+2. migrations run
+3. mailbox admin screen
+4. backfill job system
+5. incremental sync system
+6. counts matching Gmail
+7. CRM linking working
