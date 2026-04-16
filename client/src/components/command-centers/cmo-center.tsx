@@ -4,8 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Users, BarChart3, MapPin, TrendingUp, ChevronRight, Zap,
+  Users, BarChart3, MapPin, TrendingUp, ChevronRight, Zap, Flame,
 } from "lucide-react";
+import { useCommandCenterWidgets } from "@/hooks/use-scores";
+import { ScoreListWidget } from "@/components/scores/score-widget";
 
 function fmt$(n: number) {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
@@ -58,6 +60,7 @@ export function CMOCommandCenter({ visible, compact }: { visible: Record<string,
   const sourceBreak = useQuery<any>({ queryKey: ["/api/analytics/source-attribution"] });
   const geoWhite    = useQuery<any>({ queryKey: ["/api/analytics/geo/whitespace"] });
   const forecast    = useQuery<any>({ queryKey: ["/api/pipeline/forecast"] });
+  const { widgets, isLoading: widgetsLoading } = useCommandCenterWidgets(visible.hottest_leads_score);
 
   if (sourceAttr.isLoading) {
     return (
@@ -75,6 +78,20 @@ export function CMOCommandCenter({ visible, compact }: { visible: Record<string,
 
   return (
     <div className="grid gap-4 md:grid-cols-2" data-testid="cmo-command-center">
+
+      {visible.hottest_leads_score && (
+        <ScoreListWidget
+          title="Hottest Leads"
+          icon={Flame}
+          items={widgets?.hottestLeads ?? []}
+          objectType="lead"
+          accentColor="text-orange-400"
+          link="/opportunities"
+          compact={compact}
+          isLoading={widgetsLoading}
+          emptyMessage="No leads to score right now"
+        />
+      )}
 
       {visible.lead_volume && (
         <WidgetCard title="Lead Volume" icon={Users} link="/opportunities" compact={compact}>

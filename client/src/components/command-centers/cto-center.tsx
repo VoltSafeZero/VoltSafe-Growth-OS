@@ -4,8 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  ShieldAlert, Truck, CheckSquare, Package, ChevronRight, Cpu,
+  ShieldAlert, Truck, CheckSquare, Package, ChevronRight, Cpu, AlertOctagon,
 } from "lucide-react";
+import { useCommandCenterWidgets } from "@/hooks/use-scores";
+import { ScoreListWidget } from "@/components/scores/score-widget";
 
 function WidgetCard({ title, icon: Icon, children, link, compact }: {
   title: string; icon: React.ElementType; children: React.ReactNode; link?: string; compact?: boolean;
@@ -53,6 +55,7 @@ export function CTOCommandCenter({ visible, compact }: { visible: Record<string,
   const deployDash  = useQuery<any>({ queryKey: ["/api/deployments/dashboard"] });
   const dailyCC     = useQuery<any>({ queryKey: ["/api/daily-command-center"] });
   const kpis        = useQuery<any>({ queryKey: ["/api/executive/kpis"] });
+  const { widgets, isLoading: widgetsLoading } = useCommandCenterWidgets(visible.deployment_risk_score);
 
   if (certSummary.isLoading && deployDash.isLoading) {
     return (
@@ -155,6 +158,20 @@ export function CTOCommandCenter({ visible, compact }: { visible: Record<string,
             )}
           </div>
         </WidgetCard>
+      )}
+
+      {visible.deployment_risk_score && (
+        <ScoreListWidget
+          title="Deployment Delay Risk"
+          icon={AlertOctagon}
+          items={widgets?.deploymentRisks ?? []}
+          objectType="deployment"
+          accentColor="text-blue-400"
+          link="/deployments"
+          compact={compact}
+          isLoading={widgetsLoading}
+          emptyMessage="No active deployments to score"
+        />
       )}
 
       {visible.critical_tasks && (

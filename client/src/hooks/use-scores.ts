@@ -70,3 +70,26 @@ export function useHotList(limit = 15) {
     retry: false,
   });
 }
+
+export interface CommandCenterWidgets {
+  hottestLeads: any[];
+  closeOpps: any[];
+  urgentQuotes: any[];
+  deploymentRisks: any[];
+  churnRisks: any[];
+  expansionReady: any[];
+}
+
+export function useCommandCenterWidgets(enabled = true) {
+  const q = useQuery<CommandCenterWidgets>({
+    queryKey: ["/api/scores/command-center-widgets"],
+    enabled,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+  return {
+    widgets: q.data,
+    isLoading: q.isLoading,
+    isError: q.isError,
+  };
+}

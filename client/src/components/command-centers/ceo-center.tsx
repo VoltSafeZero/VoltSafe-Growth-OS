@@ -5,9 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   TrendingUp, AlertTriangle, ShieldAlert, Truck, Building2,
-  Zap, ChevronRight, DollarSign,
+  Zap, ChevronRight, DollarSign, Target, UserX,
 } from "lucide-react";
 import type { LayoutMode } from "@/lib/dashboard-config";
+import { useCommandCenterWidgets } from "@/hooks/use-scores";
+import { ScoreListWidget } from "@/components/scores/score-widget";
 
 function fmt$(n: number) {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
@@ -64,6 +66,7 @@ export function CEOCommandCenter({ visible, compact }: { visible: Record<string,
   const csDash = useQuery<any>({ queryKey: ["/api/cs/dashboard"] });
   const certSummary = useQuery<any>({ queryKey: ["/api/projects/cert-summary"] });
   const deployDash = useQuery<any>({ queryKey: ["/api/deployments/dashboard"] });
+  const { widgets, isLoading: widgetsLoading } = useCommandCenterWidgets(visible.close_opps_score || visible.churn_score);
 
   const isLoading = kpis.isLoading || forecast.isLoading;
   const kd = kpis.data;
@@ -229,6 +232,34 @@ export function CEOCommandCenter({ visible, compact }: { visible: Record<string,
             ) : <p className="text-sm text-muted-foreground">No deployment data</p>}
           </div>
         </WidgetCard>
+      )}
+
+      {visible.close_opps_score && (
+        <ScoreListWidget
+          title="Close-Likelihood Deals"
+          icon={Target}
+          items={widgets?.closeOpps ?? []}
+          objectType="opportunity"
+          accentColor="text-violet-400"
+          link="/pipeline"
+          compact={compact}
+          isLoading={widgetsLoading}
+          emptyMessage="No open opportunities to score"
+        />
+      )}
+
+      {visible.churn_score && (
+        <ScoreListWidget
+          title="Churn Risk Signals"
+          icon={UserX}
+          items={widgets?.churnRisks ?? []}
+          objectType="account"
+          accentColor="text-red-400"
+          link="/renewals"
+          compact={compact}
+          isLoading={widgetsLoading}
+          emptyMessage="No churn risk signals"
+        />
       )}
 
       {visible.key_accounts && (

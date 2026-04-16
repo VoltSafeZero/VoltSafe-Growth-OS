@@ -16818,6 +16818,178 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ── GET /api/scores/command-center-widgets ───────────────────────────────────
+  app.get("/api/scores/command-center-widgets", requireAuth, async (req, res) => {
+    try {
+      const TOP = 5;
+
+      const [leadsR, oppsR, quotesR, deploysR, churnR, expansionR] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT l.id, l.company AS name, l.source, l.contact_email, l.contact_phone, l.owner_user_id,
+            l.deal_amount, l.estimated_slips_impacted, l.estimated_pedestal_count, l.status,
+            l.created_at, l.updated_at, l.next_step, l.est_close_date, l.region,
+            (SELECT COUNT(*) FROM tasks t WHERE t.linked_object_type='lead' AND t.linked_object_id=l.id AND t.status NOT IN ('done','completed','dismissed') AND t.due_date < NOW()) AS overdue_tasks,
+            (SELECT COUNT(*) FROM activities a WHERE a.linked_object_type='lead' AND a.linked_object_id=l.id) AS activity_count
+          FROM leads l WHERE l.status NOT IN ('closed_won','closed_lost','disqualified','converted')
+          ORDER BY l.updated_at DESC LIMIT 100
+        `)),
+        db.execute(sql.raw(`
+          SELECT o.id, o.title AS name, o.stage, o.amount, o.owner_user_id, o.est_close_date,
+            o.last_activity_date, o.is_stalled, o.champion_identified, o.economic_buyer_identified,
+            o.decision_criteria_known, o.decision_process_known, o.pain_clarity, o.risk_flags,
+            o.forecast_category,
+            (SELECT COUNT(*) FROM quotes q WHERE q.opportunity_id=o.id AND q.status NOT IN ('archived','declined')) AS quote_count,
+            (SELECT COUNT(*) FROM tasks t WHERE t.linked_object_type='opportunity' AND t.linked_object_id=o.id AND t.status NOT IN ('done','completed','dismissed') AND t.due_date < NOW()) AS overdue_tasks
+          FROM opportunities o WHERE o.stage NOT IN ('closed_won','closed_lost')
+          ORDER BY o.updated_at DESC LIMIT 100
+        `)),
+        db.execute(sql.raw(`
+          SELECT q.*,
+            (SELECT COUNT(*) FROM tasks t WHERE t.linked_object_type='quote' AND t.linked_object_id=q.id AND t.status NOT IN ('done','completed','dismissed')) AS task_count
+          FROM quotes q WHERE q.status NOT IN ('archived')
+          ORDER BY q.updated_at DESC LIMIT 100
+        `)),
+        db.execute(sql.raw(`
+          SELECT d.*,
+            (SELECT COUNT(*) FROM deployment_blockers b WHERE b.deployment_id=d.id AND b.status='open') AS open_blockers,
+            (SELECT COUNT(*) FROM deployment_blockers b WHERE b.deployment_id=d.id AND b.status='open' AND b.severity='critical') AS critical_blockers,
+            (SELECT COUNT(*) FROM commissioning_checkpoints c WHERE c.deployment_id=d.id AND c.status='pending') AS pending_checkpoints
+          FROM deployments d WHERE d.status NOT IN ('completed','live','cancelled')
+          ORDER BY d.updated_at DESC LIMIT 100
+        `)),
+        db.execute(sql.raw(`
+          SELECT cs.*, a.name AS account_name, a.id AS account_id_raw,
+            (SELECT COUNT(*) FROM tasks t WHERE t.linked_object_type='account' AND t.linked_object_id=cs.account_id AND t.status NOT IN ('done','completed','dismissed') AND t.due_date < NOW()) AS overdue_tasks
+          FROM customer_subscriptions cs
+          JOIN accounts a ON a.id = cs.account_id
+          WHERE cs.status NOT IN ('cancelled','churned')
+          ORDER BY cs.updated_at DESC LIMIT 200
+        `)),
+        db.execute(sql.raw(`
+          SELECT a.*,
+            cs.health_status, cs.health_score, cs.arr, cs.expansion_potential AS cs_expansion_potential,
+            (SELECT COUNT(*) FROM opportunities o WHERE o.account_id=a.id AND o.stage NOT IN ('closed_won','closed_lost')) AS open_opps,
+            (SELECT COUNT(*) FROM activities act WHERE act.linked_object_type='account' AND act.linked_object_id=a.id) AS activity_count
+          FROM accounts a
+          LEFT JOIN LATERAL (
+            SELECT health_status, health_score, arr, expansion_potential
+            FROM customer_subscriptions WHERE account_id = a.id ORDER BY updated_at DESC LIMIT 1
+          ) cs ON true
+          WHERE a.lead_status NOT IN ('closed_lost','disqualified')
+          ORDER BY a.updated_at DESC LIMIT 200
+        `)),
+      ]);
+
+      function addDelta(items: any[], modelName: string): Promise<any[]> {
+        if (!items.length) return Promise.resolve(items);
+        const ids = items.map(i => i.id).join(",");
+        return db.execute(sql.raw(`
+          SELECT DISTINCT ON (entity_id) entity_id, previous_score, previous_band
+          FROM score_snapshots WHERE model_name = '${modelName}' AND entity_id IN (${ids})
+          ORDER BY entity_id, recorded_at DESC
+        `)).then(r => {
+          const snapMap: Record<number, { previous_score: number | null; previous_band: string | null }> = {};
+          for (const row of r.rows as any[]) snapMap[row.entity_id] = { previous_score: row.previous_score, previous_band: row.previous_band };
+          return items.map(item => {
+            const snap = snapMap[item.id];
+            const delta = snap?.previous_score != null ? item.score - snap.previous_score : null;
+            return { ...item, delta, previousScore: snap?.previous_score ?? null, previousBand: snap?.previous_band ?? null };
+          });
+        });
+      }
+
+      const scoredLeads = (leadsR.rows as any[]).map(lead => {
+        const score = scoreLeadQuality({
+          source: lead.source, contactEmail: lead.contact_email, contactPhone: lead.contact_phone,
+          ownerUserId: lead.owner_user_id, dealAmount: lead.deal_amount,
+          estimatedSlipsImpacted: lead.estimated_slips_impacted, estimatedPedestalCount: lead.estimated_pedestal_count,
+          status: lead.status, createdAt: lead.created_at, updatedAt: lead.updated_at,
+          nextStep: lead.next_step, estCloseDate: lead.est_close_date, region: lead.region,
+          overdueTaskCount: parseInt(lead.overdue_tasks ?? 0), activityCount: parseInt(lead.activity_count ?? 0),
+        });
+        return { id: lead.id, name: lead.name, link: `/leads/${lead.id}`, suggestedAction: actionHintFor("lead", score), ...score };
+      }).sort((a, b) => b.score - a.score).slice(0, TOP);
+
+      const scoredOpps = (oppsR.rows as any[]).map(opp => {
+        const score = scoreOpportunityClose({
+          stage: opp.stage, estCloseDate: opp.est_close_date, lastActivityDate: opp.last_activity_date,
+          isStalled: opp.is_stalled, ownerUserId: opp.owner_user_id,
+          championIdentified: opp.champion_identified, economicBuyerIdentified: opp.economic_buyer_identified,
+          decisionCriteriaKnown: opp.decision_criteria_known, decisionProcessKnown: opp.decision_process_known,
+          amount: opp.amount, hasQuote: parseInt(opp.quote_count ?? 0) > 0, painClarity: opp.pain_clarity,
+          riskFlags: opp.risk_flags, forecastCategory: opp.forecast_category,
+          overdueTaskCount: parseInt(opp.overdue_tasks ?? 0),
+        });
+        return { id: opp.id, name: opp.name, amount: opp.amount, stage: opp.stage, link: `/pipeline/${opp.id}`, suggestedAction: actionHintFor("opportunity", score), ...score };
+      }).sort((a, b) => b.score - a.score).slice(0, TOP);
+
+      const scoredQuotes = (quotesR.rows as any[]).map(q => {
+        const score = scoreQuoteFollowUpUrgency({
+          status: q.status, sentAt: q.sent_at, validUntil: q.valid_until, total: q.total,
+          opportunityId: q.opportunity_id, hasFollowUpTask: parseInt(q.task_count ?? 0) > 0,
+          ownerUserId: q.owner_user_id,
+        });
+        return { id: q.id, name: q.quote_number, customerName: q.customer_name, total: q.total, link: `/quotes/${q.id}`, suggestedAction: actionHintFor("quote", score), ...score };
+      }).sort((a, b) => b.score - a.score).slice(0, TOP);
+
+      const scoredDeployments = (deploysR.rows as any[]).map(dep => {
+        const score = scoreDeploymentDelayRisk({
+          status: dep.status, plannedStart: dep.planned_start, actualStart: dep.actual_start,
+          targetGoLive: dep.target_go_live, ownerUserId: dep.owner_user_id, blockers: dep.blockers,
+          openBlockerCount: parseInt(dep.open_blockers ?? 0),
+          criticalBlockerCount: parseInt(dep.critical_blockers ?? 0),
+          pendingCheckpointCount: parseInt(dep.pending_checkpoints ?? 0),
+          updatedAt: dep.updated_at, createdAt: dep.created_at,
+        });
+        return { id: dep.id, name: dep.site_name, deployNumber: dep.deploy_number, link: `/deployments/${dep.id}`, suggestedAction: actionHintFor("deployment", score), ...score };
+      }).sort((a, b) => b.score - a.score).slice(0, TOP);
+
+      const scoredChurn = (churnR.rows as any[]).map(sub => {
+        const flags = Array.isArray(sub.churn_risk_flags) ? sub.churn_risk_flags : (sub.churn_risk_flags ? JSON.parse(sub.churn_risk_flags) : []);
+        const score = scoreChurnRisk({
+          healthScore: sub.health_score, healthStatus: sub.health_status, billingStatus: sub.billing_status,
+          renewalDate: sub.renewal_date, status: sub.status, lastCheckinAt: sub.last_checkin_at,
+          expansionPotential: sub.expansion_potential, churnRiskFlags: flags,
+          mrr: sub.mrr, arr: sub.arr, contractTermMonths: sub.contract_term_months,
+          overdueTaskCount: parseInt(sub.overdue_tasks ?? 0),
+        });
+        return { id: sub.account_id, name: sub.account_name, arr: sub.arr, link: `/accounts/${sub.account_id}`, suggestedAction: actionHintFor("churn", score), ...score };
+      }).sort((a, b) => b.score - a.score).slice(0, TOP);
+
+      const scoredExpansion = (expansionR.rows as any[]).map(acc => {
+        const score = scoreExpansionLikelihood({
+          expansionPlans: acc.expansion_plans, expansionNotes: acc.expansion_notes,
+          expansionPotential: acc.cs_expansion_potential ?? (acc.expansion_notes ? "low" : "none"),
+          contractedUnits: acc.contracted_units, installedUnits: acc.installed_units,
+          voltsafeSlipsLive: acc.voltsafe_slips_live, slipCount: acc.slip_count, totalSlips: acc.total_slips,
+          healthStatus: acc.health_status, healthScore: acc.health_score,
+          priority: acc.priority, betaTester: acc.beta_tester,
+          lastInteractionAt: acc.last_interaction_at, activityCount: parseInt(acc.activity_count ?? 0),
+          openOpportunityCount: parseInt(acc.open_opps ?? 0), arr: acc.arr,
+        });
+        return { id: acc.id, name: acc.name, arr: acc.arr, link: `/accounts/${acc.id}`, suggestedAction: actionHintFor("expansion", score), ...score };
+      }).sort((a, b) => b.score - a.score).slice(0, TOP);
+
+      const [leadsWithDelta, oppsWithDelta, quotesWithDelta, deploysWithDelta, churnWithDelta, expansionWithDelta] = await Promise.all([
+        addDelta(scoredLeads, "lead_quality"),
+        addDelta(scoredOpps, "opportunity_close"),
+        addDelta(scoredQuotes, "quote_urgency"),
+        addDelta(scoredDeployments, "deployment_risk"),
+        addDelta(scoredChurn, "churn_risk"),
+        addDelta(scoredExpansion, "expansion_likelihood"),
+      ]);
+
+      res.json({
+        hottestLeads: leadsWithDelta,
+        closeOpps: oppsWithDelta,
+        urgentQuotes: quotesWithDelta,
+        deploymentRisks: deploysWithDelta,
+        churnRisks: churnWithDelta,
+        expansionReady: expansionWithDelta,
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // ── Executive Digest & Alert Routes ─────────────────────────────────────────
 
   // Helper: get or create a user's digest config with role-based defaults

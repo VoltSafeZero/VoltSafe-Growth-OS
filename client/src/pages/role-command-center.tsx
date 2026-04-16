@@ -18,7 +18,8 @@ import {
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { ScoreBadge } from "@/components/scores/score-badge";
-import { useHotList } from "@/hooks/use-scores";
+import { useHotList, useCommandCenterWidgets } from "@/hooks/use-scores";
+import { ScoreListWidget } from "@/components/scores/score-widget";
 import {
   buildDashboardConfig, detectCenterType, ALL_CENTER_TYPES,
   type CenterType, type UserProfile,
@@ -182,6 +183,8 @@ function SalesCommandCenter({ visible, compact }: { visible: Record<string, bool
   const { data, isLoading } = useQuery<any>({ queryKey: ["/api/daily-command-center"], refetchInterval: 5 * 60 * 1000 });
   const sections = data?.sections;
   const { data: hotList, isLoading: hotLoading } = useHotList(10);
+  const scoreWidgetsEnabled = !!(visible.hottest_leads_score || visible.close_opps_score || visible.quote_urgency_score);
+  const { widgets: scoreWidgets, isLoading: scoreWidgetsLoading } = useCommandCenterWidgets(scoreWidgetsEnabled);
 
   if (isLoading) return (
     <div className="grid gap-4 md:grid-cols-2" data-testid="sales-center-loading">
@@ -287,6 +290,48 @@ function SalesCommandCenter({ visible, compact }: { visible: Record<string, bool
           }
         </SalesSection>
       )}
+      {visible.hottest_leads_score && (
+        <ScoreListWidget
+          title="Hottest Leads"
+          icon={Zap}
+          items={scoreWidgets?.hottestLeads ?? []}
+          objectType="lead"
+          accentColor="text-primary"
+          link="/opportunities"
+          compact={compact}
+          isLoading={scoreWidgetsLoading}
+          emptyMessage="No leads to score right now"
+        />
+      )}
+
+      {visible.close_opps_score && (
+        <ScoreListWidget
+          title="Close-Likelihood Deals"
+          icon={TrendingUp}
+          items={scoreWidgets?.closeOpps ?? []}
+          objectType="opportunity"
+          accentColor="text-emerald-400"
+          link="/pipeline"
+          compact={compact}
+          isLoading={scoreWidgetsLoading}
+          emptyMessage="No open opportunities to score"
+        />
+      )}
+
+      {visible.quote_urgency_score && (
+        <ScoreListWidget
+          title="Quote Follow-up Urgency"
+          icon={AlertTriangle}
+          items={scoreWidgets?.urgentQuotes ?? []}
+          objectType="quote"
+          accentColor="text-amber-400"
+          link="/quotes"
+          compact={compact}
+          isLoading={scoreWidgetsLoading}
+          emptyMessage="No active quotes to score"
+        />
+      )}
+
       {visible.hot_list !== false && (
         <SalesSection icon={Zap} title="Priority Hot List" count={hotList?.length ?? 0} compact={compact}
           className="md:col-span-2">
@@ -324,6 +369,8 @@ function CSCommandCenter({ visible, compact }: { visible: Record<string, boolean
   const dailyCC = useQuery<any>({ queryKey: ["/api/daily-command-center"] });
   const cd = csDash.data;
   const sections = dailyCC.data?.sections;
+  const csScoreEnabled = !!(visible.churn_risk_score || visible.expansion_score);
+  const { widgets: csScoreWidgets, isLoading: csScoreLoading } = useCommandCenterWidgets(csScoreEnabled);
 
   if (csDash.isLoading) return (
     <div className="grid gap-4 md:grid-cols-2" data-testid="cs-center-loading">
@@ -386,6 +433,34 @@ function CSCommandCenter({ visible, compact }: { visible: Record<string, boolean
               ))
           }
         </SalesSection>
+      )}
+
+      {visible.churn_risk_score && (
+        <ScoreListWidget
+          title="Churn Risk"
+          icon={ShieldAlert}
+          items={csScoreWidgets?.churnRisks ?? []}
+          objectType="account"
+          accentColor="text-cyan-400"
+          link="/renewals"
+          compact={compact}
+          isLoading={csScoreLoading}
+          emptyMessage="No active accounts with churn risk"
+        />
+      )}
+
+      {visible.expansion_score && (
+        <ScoreListWidget
+          title="Expansion Ready"
+          icon={TrendingUp}
+          items={csScoreWidgets?.expansionReady ?? []}
+          objectType="account"
+          accentColor="text-emerald-400"
+          link="/accounts"
+          compact={compact}
+          isLoading={csScoreLoading}
+          emptyMessage="No accounts flagged for expansion"
+        />
       )}
     </div>
   );

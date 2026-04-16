@@ -5,8 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   DollarSign, TrendingUp, AlertTriangle, Lock, RefreshCw,
-  ChevronRight, BarChart3, Cpu,
+  ChevronRight, BarChart3, Cpu, UserX,
 } from "lucide-react";
+import { useCommandCenterWidgets } from "@/hooks/use-scores";
+import { ScoreListWidget } from "@/components/scores/score-widget";
 
 function fmt$(n: number) {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
@@ -56,6 +58,7 @@ export function CFOCommandCenter({ visible, compact }: { visible: Record<string,
   const csDash  = useQuery<any>({ queryKey: ["/api/cs/dashboard"] });
   const forecast = useQuery<any>({ queryKey: ["/api/pipeline/forecast"] });
   const kpis    = useQuery<any>({ queryKey: ["/api/executive/kpis"] });
+  const { widgets, isLoading: widgetsLoading } = useCommandCenterWidgets(visible.churn_risk_financial);
 
   if (revDash.isLoading) {
     return (
@@ -161,6 +164,20 @@ export function CFOCommandCenter({ visible, compact }: { visible: Record<string,
             )}
           </div>
         </WidgetCard>
+      )}
+
+      {visible.churn_risk_financial && (
+        <ScoreListWidget
+          title="Churn Risk / Revenue Exposure"
+          icon={UserX}
+          items={widgets?.churnRisks ?? []}
+          objectType="account"
+          accentColor="text-red-400"
+          link="/renewals"
+          compact={compact}
+          isLoading={widgetsLoading}
+          emptyMessage="No churn risk signals"
+        />
       )}
 
       {visible.forecast_pressure && (
