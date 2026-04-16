@@ -533,6 +533,17 @@ export type TaskChecklistItem = typeof taskChecklistItems.$inferSelect;
 export type TaskWatcher = typeof taskWatchers.$inferSelect;
 export type TaskActivityRow = typeof taskActivity.$inferSelect;
 
+export const taskBoardViews = pgTable("task_board_views", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  name: text("name").notNull(),
+  filters: jsonb("filters").notNull().default({}),
+  isDefault: boolean("is_default").notNull().default(false),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type TaskBoardView = typeof taskBoardViews.$inferSelect;
+
 export const taskSuggestions = pgTable("task_suggestions", {
   id: serial("id").primaryKey(),
   objectType: text("object_type").notNull(),
