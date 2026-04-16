@@ -16818,9 +16818,32 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ── POST /api/scores/acknowledge — dismiss a score item for cooldown window ──
+  app.post("/api/scores/acknowledge", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const { modelName, recordType, recordId } = req.body;
+      if (!modelName || !recordType || !recordId) {
+        return res.status(400).json({ message: "modelName, recordType, recordId required" });
+      }
+      const mn = String(modelName).replace(/'/g, "''").slice(0, 80);
+      const rt = String(recordType).replace(/'/g, "''").slice(0, 80);
+      const rid = Number(recordId);
+      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+      const result = await db.execute(sql.raw(
+        `INSERT INTO score_acknowledgments (user_id, model_name, record_type, record_id, acknowledged_at, expires_at)
+         VALUES (${userId}, '${mn}', '${rt}', ${rid}, NOW(), '${expiresAt}')
+         RETURNING id, user_id AS "userId", model_name AS "modelName", record_type AS "recordType",
+                   record_id AS "recordId", acknowledged_at AS "acknowledgedAt", expires_at AS "expiresAt"`
+      ));
+      res.status(201).json((result as any).rows[0] ?? { acknowledged: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // ── GET /api/scores/command-center-widgets ───────────────────────────────────
   app.get("/api/scores/command-center-widgets", requireAuth, async (req, res) => {
     try {
+      const userId = req.session.userId as number;
       const TOP = 5;
 
       const [leadsR, oppsR, quotesR, deploysR, churnR, expansionR] = await Promise.all([
@@ -16970,13 +16993,25 @@ export function registerConfluenceRoutes(app: Express) {
         return { id: acc.id, name: acc.name, arr: acc.arr, link: `/accounts/${acc.id}`, suggestedAction: actionHintFor("expansion", score), ...score };
       }).sort((a, b) => b.score - a.score).slice(0, TOP);
 
+      // Filter out items acknowledged by this user within their cooldown window
+      const acksResult = await db.execute(sql.raw(
+        `SELECT model_name AS "modelName", record_id AS "recordId"
+         FROM score_acknowledgments
+         WHERE user_id = ${userId} AND expires_at > NOW()`
+      ));
+      const ackedKeys = new Set(
+        ((acksResult as any).rows ?? []).map((r: any) => `${r.modelName}:${r.recordId}`)
+      );
+      const filterAcked = (arr: any[], mn: string) =>
+        arr.filter(i => !ackedKeys.has(`${mn}:${i.id}`));
+
       const [leadsWithDelta, oppsWithDelta, quotesWithDelta, deploysWithDelta, churnWithDelta, expansionWithDelta] = await Promise.all([
-        addDelta(scoredLeads, "lead_quality"),
-        addDelta(scoredOpps, "opportunity_close"),
-        addDelta(scoredQuotes, "quote_urgency"),
-        addDelta(scoredDeployments, "deployment_risk"),
-        addDelta(scoredChurn, "churn_risk"),
-        addDelta(scoredExpansion, "expansion_likelihood"),
+        addDelta(filterAcked(scoredLeads, "lead_quality"), "lead_quality"),
+        addDelta(filterAcked(scoredOpps, "opportunity_close"), "opportunity_close"),
+        addDelta(filterAcked(scoredQuotes, "quote_urgency"), "quote_urgency"),
+        addDelta(filterAcked(scoredDeployments, "deployment_risk"), "deployment_risk"),
+        addDelta(filterAcked(scoredChurn, "churn_risk"), "churn_risk"),
+        addDelta(filterAcked(scoredExpansion, "expansion_likelihood"), "expansion_likelihood"),
       ]);
 
       res.json({

@@ -4,6 +4,12 @@ import { useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
@@ -12,7 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  TrendingUp, TrendingDown, Minus, ChevronRight, MoreHorizontal,
+  TrendingUp, TrendingDown, ChevronRight, MoreHorizontal,
   CheckSquare, StickyNote, ExternalLink, ShieldOff, Info,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -57,6 +63,23 @@ function bandBg(band: string): string {
     case "medium":   return "bg-amber-500/10 border-amber-500/30";
     default:         return "bg-blue-500/10 border-blue-500/30";
   }
+}
+
+function taskTitleFor(item: ScoredWidgetItem): string {
+  switch (item.modelName) {
+    case "lead_quality":         return `Follow up with high-score lead: ${item.name}`;
+    case "opportunity_close":    return `Push to close opportunity: ${item.name}`;
+    case "quote_urgency":        return `Review urgent quote for ${item.name}`;
+    case "deployment_risk":      return `Resolve deployment risk: ${item.name}`;
+    case "churn_risk":           return `Contact churn-risk account: ${item.name}`;
+    case "expansion_likelihood": return `Initiate expansion discussion: ${item.name}`;
+    default:                     return `Follow up: ${item.name}`;
+  }
+}
+
+function noteTemplateFor(item: ScoredWidgetItem): string {
+  const topReasons = item.reasons.slice(0, 3).join("; ");
+  return `Score review (${item.label} — ${item.score}/100): ${item.suggestedAction}${topReasons ? `\n\nKey signals: ${topReasons}` : ""}`;
 }
 
 function ScorePill({ score, band }: { score: number; band: string }) {
@@ -178,37 +201,187 @@ function ExplainPopover({ item, accentColor }: { item: ScoredWidgetItem; accentC
   );
 }
 
-function QuickActions({ item, objectType }: { item: ScoredWidgetItem; objectType: string }) {
+function TaskModal({
+  item, objectType, open, onClose,
+}: {
+  item: ScoredWidgetItem | null;
+  objectType: string;
+  open: boolean;
+  onClose: () => void;
+}) {
   const { toast } = useToast();
+  const [title, setTitle] = useState("");
+  const [dueDate, setDueDate] = useState("");
 
   const createTask = useMutation({
     mutationFn: () => apiRequest("POST", "/api/tasks", {
-      title: `Follow up: ${item.name}`,
+      title: title.trim() || (item ? taskTitleFor(item) : "Follow up"),
       linkedObjectType: objectType,
-      linkedObjectId: item.id,
-      priority: item.band === "critical" ? "high" : item.band === "high" ? "high" : "medium",
+      linkedObjectId: item?.id,
+      priority: item?.band === "critical" || item?.band === "high" ? "high" : "medium",
       status: "pending",
+      source: "score_widget",
+      sourceLabel: item?.modelName ?? undefined,
+      sourceMeta: item ? { score: item.score, band: item.band, modelName: item.modelName } : undefined,
+      ...(dueDate ? { dueDate: new Date(dueDate).toISOString() } : {}),
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      toast({ title: "Task created", description: `Follow-up task for ${item.name}` });
+      queryClient.invalidateQueries({ queryKey: ["/api/scores/command-center-widgets"] });
+      toast({ title: "Task created", description: item ? `Follow-up task for ${item.name}` : "Task created" });
+      onClose();
     },
     onError: () => toast({ title: "Failed to create task", variant: "destructive" }),
   });
 
+  function handleOpen(isOpen: boolean) {
+    if (isOpen && item) {
+      setTitle(taskTitleFor(item));
+      setDueDate("");
+    }
+    if (!isOpen) onClose();
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogContent className="sm:max-w-md" data-testid="task-modal">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <CheckSquare className="h-4 w-4 text-blue-400" />
+            Create Task
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="space-y-1.5">
+            <Label htmlFor="task-title" className="text-xs">Title</Label>
+            <Input
+              id="task-title"
+              data-testid="input-task-title"
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="Task title"
+              className="text-sm"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="task-due" className="text-xs">Due date <span className="text-muted-foreground">(optional)</span></Label>
+            <Input
+              id="task-due"
+              data-testid="input-task-due"
+              type="date"
+              value={dueDate}
+              onChange={e => setDueDate(e.target.value)}
+              className="text-sm"
+            />
+          </div>
+          {item && (
+            <p className="text-[11px] text-muted-foreground">
+              Linked to: <span className="text-foreground font-medium">{item.name}</span>
+              {" "}·{" "}
+              <span className={bandColor(item.band)}>{item.label} ({item.score}/100)</span>
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={onClose} data-testid="button-cancel-task">Cancel</Button>
+          <Button
+            size="sm"
+            onClick={() => createTask.mutate()}
+            disabled={createTask.isPending}
+            data-testid="button-save-task">
+            {createTask.isPending ? "Creating…" : "Create Task"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function NoteModal({
+  item, objectType, open, onClose,
+}: {
+  item: ScoredWidgetItem | null;
+  objectType: string;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [content, setContent] = useState("");
+
   const logNote = useMutation({
     mutationFn: () => apiRequest("POST", "/api/notes", {
-      content: `Score signal (${item.label}): ${item.suggestedAction}`,
+      content: content.trim() || (item ? noteTemplateFor(item) : "Score note"),
       linkedObjectType: objectType,
-      linkedObjectId: item.id,
+      linkedObjectId: item?.id,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notes"] });
-      toast({ title: "Note logged", description: `Score note added to ${item.name}` });
+      queryClient.invalidateQueries({ queryKey: ["/api/scores/command-center-widgets"] });
+      toast({ title: "Note logged", description: item ? `Score note added to ${item.name}` : "Note logged" });
+      onClose();
     },
     onError: () => toast({ title: "Failed to log note", variant: "destructive" }),
   });
 
+  function handleOpen(isOpen: boolean) {
+    if (isOpen && item) setContent(noteTemplateFor(item));
+    if (!isOpen) onClose();
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogContent className="sm:max-w-md" data-testid="note-modal">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <StickyNote className="h-4 w-4 text-amber-400" />
+            Log Score Note
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="space-y-1.5">
+            <Label htmlFor="note-content" className="text-xs">Note</Label>
+            <Textarea
+              id="note-content"
+              data-testid="input-note-content"
+              value={content}
+              onChange={e => setContent(e.target.value)}
+              rows={4}
+              className="text-sm resize-none"
+              placeholder="Enter note…"
+            />
+          </div>
+          {item && (
+            <p className="text-[11px] text-muted-foreground">
+              Attached to: <span className="text-foreground font-medium">{item.name}</span>
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={onClose} data-testid="button-cancel-note">Cancel</Button>
+          <Button
+            size="sm"
+            onClick={() => logNote.mutate()}
+            disabled={logNote.isPending}
+            data-testid="button-save-note">
+            {logNote.isPending ? "Saving…" : "Save Note"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function QuickActions({
+  item,
+  onTask,
+  onNote,
+  onAck,
+}: {
+  item: ScoredWidgetItem;
+  onTask: (item: ScoredWidgetItem) => void;
+  onNote: (item: ScoredWidgetItem) => void;
+  onAck: (item: ScoredWidgetItem) => void;
+}) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -222,33 +395,28 @@ function QuickActions({ item, objectType }: { item: ScoredWidgetItem; objectType
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuItem
           data-testid={`action-task-${item.id}`}
-          onClick={e => { e.stopPropagation(); createTask.mutate(); }}>
+          onClick={e => { e.stopPropagation(); onTask(item); }}>
           <CheckSquare className="h-3.5 w-3.5 mr-2 text-blue-400" />
           Create follow-up task
         </DropdownMenuItem>
         <DropdownMenuItem
           data-testid={`action-note-${item.id}`}
-          onClick={e => { e.stopPropagation(); logNote.mutate(); }}>
+          onClick={e => { e.stopPropagation(); onNote(item); }}>
           <StickyNote className="h-3.5 w-3.5 mr-2 text-amber-400" />
           Log score note
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link href={item.link}>
+          <Link href={item.link} data-testid={`action-open-${item.id}`}>
             <ExternalLink className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
             Open record
           </Link>
         </DropdownMenuItem>
-        {(item.band === "critical" || item.band === "high") && (
-          <DropdownMenuItem
-            data-testid={`action-ack-${item.id}`}
-            onClick={e => {
-              e.stopPropagation();
-              toast({ title: "Risk acknowledged", description: `${item.name} marked as reviewed` });
-            }}>
-            <ShieldOff className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-            Acknowledge risk
-          </DropdownMenuItem>
-        )}
+        <DropdownMenuItem
+          data-testid={`action-ack-${item.id}`}
+          onClick={e => { e.stopPropagation(); onAck(item); }}>
+          <ShieldOff className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+          Acknowledge risk
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -261,8 +429,16 @@ function fmt$(n?: number | null): string {
   return `$${n}`;
 }
 
-function ScoredRow({ item, objectType, accentColor }: {
-  item: ScoredWidgetItem; objectType: string; accentColor: string;
+function ScoredRow({
+  item, objectType, accentColor, dimmed, onTask, onNote, onAck,
+}: {
+  item: ScoredWidgetItem;
+  objectType: string;
+  accentColor: string;
+  dimmed?: boolean;
+  onTask: (item: ScoredWidgetItem) => void;
+  onNote: (item: ScoredWidgetItem) => void;
+  onAck: (item: ScoredWidgetItem) => void;
 }) {
   const sub = item.arr ? `ARR ${fmt$(item.arr)}` :
     item.amount ? fmt$(item.amount) :
@@ -274,7 +450,7 @@ function ScoredRow({ item, objectType, accentColor }: {
   return (
     <div
       data-testid={`score-row-${item.id}`}
-      className="flex items-center gap-2 py-1.5 rounded hover:bg-muted/30 -mx-1 px-1 transition-colors group">
+      className={`flex items-center gap-2 py-1.5 rounded hover:bg-muted/30 -mx-1 px-1 transition-all group ${dimmed ? "opacity-40 pointer-events-none" : ""}`}>
       <ScorePill score={item.score} band={item.band} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -292,7 +468,7 @@ function ScoredRow({ item, objectType, accentColor }: {
       </div>
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
         <ExplainPopover item={item} accentColor={accentColor} />
-        <QuickActions item={item} objectType={objectType} />
+        <QuickActions item={item} onTask={onTask} onNote={onNote} onAck={onAck} />
       </div>
     </div>
   );
@@ -319,38 +495,85 @@ export function ScoreListWidget({
   isLoading?: boolean;
   emptyMessage?: string;
 }) {
+  const { toast } = useToast();
+  const [taskModalItem, setTaskModalItem] = useState<ScoredWidgetItem | null>(null);
+  const [noteModalItem, setNoteModalItem] = useState<ScoredWidgetItem | null>(null);
+  const [acknowledgedIds, setAcknowledgedIds] = useState<Set<number>>(new Set());
+
+  const acknowledge = useMutation({
+    mutationFn: (item: ScoredWidgetItem) => apiRequest("POST", "/api/scores/acknowledge", {
+      modelName: item.modelName,
+      recordType: objectType,
+      recordId: item.id,
+    }),
+    onSuccess: (_data, item) => {
+      setAcknowledgedIds(prev => new Set([...prev, item.id]));
+      queryClient.invalidateQueries({ queryKey: ["/api/scores/command-center-widgets"] });
+      toast({
+        title: "Risk acknowledged",
+        description: `${item.name} suppressed for 48 hours`,
+      });
+    },
+    onError: () => toast({ title: "Failed to acknowledge", variant: "destructive" }),
+  });
+
+  const visibleItems = items.filter(i => !acknowledgedIds.has(i.id));
+
   return (
-    <Card className="border border-border/50 bg-card/80" data-testid={`score-widget-${title.toLowerCase().replace(/\s+/g, "-")}`}>
-      <CardHeader className={`${compact ? "pb-1 pt-3 px-4" : "pb-2 pt-4 px-4"}`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Icon className={`h-4 w-4 ${accentColor}`} />
-            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</CardTitle>
+    <>
+      <Card className="border border-border/50 bg-card/80" data-testid={`score-widget-${title.toLowerCase().replace(/\s+/g, "-")}`}>
+        <CardHeader className={`${compact ? "pb-1 pt-3 px-4" : "pb-2 pt-4 px-4"}`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Icon className={`h-4 w-4 ${accentColor}`} />
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</CardTitle>
+            </div>
+            {link && (
+              <Link href={link}>
+                <button className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-0.5">
+                  View all <ChevronRight className="h-3 w-3" />
+                </button>
+              </Link>
+            )}
           </div>
-          {link && (
-            <Link href={link}>
-              <button className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-0.5">
-                View all <ChevronRight className="h-3 w-3" />
-              </button>
-            </Link>
+        </CardHeader>
+        <CardContent className={`${compact ? "px-4 pb-3 pt-0" : "px-4 pb-4 pt-0"}`}>
+          {isLoading ? (
+            <div className="space-y-2 mt-1">
+              {[1, 2, 3].map(i => <Skeleton key={i} className="h-10 rounded" />)}
+            </div>
+          ) : visibleItems.length > 0 ? (
+            <div className="space-y-0 mt-1" data-testid={`score-list-${title.toLowerCase().replace(/\s+/g, "-")}`}>
+              {visibleItems.map(item => (
+                <ScoredRow
+                  key={item.id}
+                  item={item}
+                  objectType={objectType}
+                  accentColor={accentColor}
+                  onTask={setTaskModalItem}
+                  onNote={setNoteModalItem}
+                  onAck={item => acknowledge.mutate(item)}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground mt-1">{emptyMessage}</p>
           )}
-        </div>
-      </CardHeader>
-      <CardContent className={`${compact ? "px-4 pb-3 pt-0" : "px-4 pb-4 pt-0"}`}>
-        {isLoading ? (
-          <div className="space-y-2 mt-1">
-            {[1, 2, 3].map(i => <Skeleton key={i} className="h-10 rounded" />)}
-          </div>
-        ) : items.length > 0 ? (
-          <div className="space-y-0 mt-1" data-testid={`score-list-${title.toLowerCase().replace(/\s+/g, "-")}`}>
-            {items.map(item => (
-              <ScoredRow key={item.id} item={item} objectType={objectType} accentColor={accentColor} />
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground mt-1">{emptyMessage}</p>
-        )}
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+
+      <TaskModal
+        item={taskModalItem}
+        objectType={objectType}
+        open={!!taskModalItem}
+        onClose={() => setTaskModalItem(null)}
+      />
+      <NoteModal
+        item={noteModalItem}
+        objectType={objectType}
+        open={!!noteModalItem}
+        onClose={() => setNoteModalItem(null)}
+      />
+    </>
   );
 }
