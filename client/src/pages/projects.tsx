@@ -1168,7 +1168,7 @@ export default function ProjectsPage() {
 
   const handleCertFilter = (f: string) => {
     setCertFilter(f);
-    setTypeFilter("all");
+    setTypeFilter("certification");
     setStatusFilter("all");
   };
 
@@ -1220,7 +1220,7 @@ export default function ProjectsPage() {
         </div>
 
         {/* Phase 2 — Cert quick-filter chips (only visible when Safety Certification type is selected) */}
-        {(typeFilter === "certification" || certFilter) && (
+        {typeFilter === "certification" && (
           <div className="flex flex-wrap gap-1.5 mb-3">
             <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wide self-center mr-1">Cert:</span>
             {CERT_QUICK_FILTERS.map(f => {
