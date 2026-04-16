@@ -315,7 +315,7 @@ export default function RevenueOpsPage() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 pb-24 md:pb-6 space-y-5">
+        <div className="flex-1 overflow-y-auto p-6 pb-36 md:pb-24 space-y-5">
 
           {/* ── Gap to Plan Scoreboard ── */}
           <div className={`border rounded-xl overflow-hidden ${StatusConf.bg}`}>

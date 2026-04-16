@@ -142,14 +142,23 @@
 
 /*
  * Z-INDEX LAYER SYSTEM (do not deviate from these values)
- * --z-sticky:   10  — sticky headers / sub-navs
- * --z-sidebar:  20  — desktop sidebar rail / resize handle
- * --z-panel:    40  — slide-out side panels, mobile nav, mobile overlay
- * --z-modal:    50  — dialogs, popovers, dropdowns, FAB
- * --z-toast:   100  — toast notifications (always on top)
+ * --z-sticky:    10  — sticky headers / sub-navs
+ * --z-sidebar:   20  — desktop sidebar rail / resize handle
+ * --z-panel:     40  — slide-out side panels, mobile nav, mobile overlay
+ * --z-modal:     50  — Radix/Shadcn dialogs, popovers, dropdowns, FAB
+ * --z-fullscreen: 60 — custom non-portal full-screen modal backdrops (above FAB)
+ * --z-toast:    100  — toast notifications (always on top)
  *
- * FAB sits at z-50, ABOVE side panels (z-40) so it remains reachable.
- * When a side panel is open the FAB is repositioned via .has-right-panel.
+ * FAB sits at z-50, ABOVE side panels (z-40).
+ * Radix portals (Dialog, Sheet) also use z-50 but render after the FAB in DOM
+ * order (portal appends to <body>), so they naturally appear above the FAB.
+ * Custom non-portal fixed-inset-0 modals must use z-[60] to appear above FAB.
+ * When a right panel is open the FAB shifts left via .has-right-panel.
+ * When a full-screen modal is open the FAB hides via .has-modal.
+ *
+ * FAB position: bottom-24 (96px) on mobile, md:bottom-10 (40px) on desktop.
+ * FAB top edge: mobile 144px, desktop 88px from viewport bottom.
+ * Scroll container clearance: pb-36 mobile (144px), md:pb-24 desktop (96px).
  */
 
 /* iOS safe area for home indicator */
@@ -162,23 +171,31 @@
  * Shifts the quick-capture FAB left so it clears the panel.
  * Usage: add class "has-right-panel" to <body> (or a wrapper div) when panel opens.
  */
+/* Shift FAB left when a fixed right-side panel is open (renewals CS panel) */
 body.has-right-panel #quick-capture-fab {
   right: calc(var(--right-panel-width, 480px) + 1.5rem);
 }
 
+/* Hide FAB when a full-screen custom modal is open (non-Radix portals) */
+body.has-modal #quick-capture-fab {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.15s;
+}
+
 /*
- * Bottom clearance for page scroll containers on mobile.
- * Use "pb-fab" on the outermost scrollable div inside pages that have content
- * near the bottom-right (lists, tables, cards) so the FAB never hides the last row.
+ * Bottom clearance for page scroll containers.
+ * FAB mobile: bottom-24 (96px) + h-12 (48px) = top at 144px from viewport bottom.
+ * FAB desktop: md:bottom-10 (40px) + h-12 (48px) = top at 88px from viewport bottom.
+ * Use "pb-fab" on the outermost scrollable div so the last row is never hidden.
  */
 .pb-fab {
-  /* mobile: FAB top ≈ 88 px + 48 px FAB height = 136 px → use 144px = 9rem */
-  padding-bottom: 9rem;
+  padding-bottom: 9rem; /* 144px mobile — clears FAB top at 144px */
 }
 @media (min-width: 768px) {
   .pb-fab {
-    /* desktop: FAB top ≈ 32 px + 48 px = 80 px → use 88px = 5.5rem */
-    padding-bottom: 5.5rem;
+    padding-bottom: 6rem; /* 96px desktop — 8px above FAB top at 88px */
   }
 }
 

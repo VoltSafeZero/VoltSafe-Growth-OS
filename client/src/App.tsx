@@ -164,7 +164,7 @@ function AppShell({ children, user, onLogout }: { children: React.ReactNode; use
         </div>
         <div className="flex flex-col flex-1 w-full overflow-hidden">
           <Header user={user} onLogout={onLogout} />
-          <main className="flex-1 overflow-y-auto overflow-x-hidden relative scroll-smooth pb-36 md:pb-8">
+          <main className="flex-1 overflow-y-auto overflow-x-hidden relative scroll-smooth pb-44 md:pb-16">
             {children}
           </main>
         </div>

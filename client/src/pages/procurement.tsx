@@ -105,7 +105,7 @@ function CreatePOButton({ suppliers }: { suppliers: Supplier[] }) {
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" data-testid="create-po-modal">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" data-testid="create-po-modal">
       <div className="bg-card border border-border rounded-xl p-5 w-full max-w-sm space-y-3 shadow-xl">
         <div className="font-semibold text-sm">New Purchase Order</div>
         <Select value={supplierId} onValueChange={setSupplierId}>
@@ -161,7 +161,7 @@ function CreateBatchButton({ parts }: { parts: Part[] }) {
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" data-testid="create-batch-modal">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" data-testid="create-batch-modal">
       <div className="bg-card border border-border rounded-xl p-5 w-full max-w-sm space-y-3 shadow-xl">
         <div className="font-semibold text-sm">New Production Batch</div>
         <Select value={partId} onValueChange={setPartId}>
@@ -294,7 +294,7 @@ export default function ProcurementPage() {
   const dash = dashboard;
 
   return (
-    <div className="flex-1 overflow-auto bg-background p-6 pb-24 md:pb-6 space-y-4">
+    <div className="flex-1 overflow-auto bg-background p-6 pb-36 md:pb-24 space-y-4">
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>

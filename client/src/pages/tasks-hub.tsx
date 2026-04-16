@@ -807,7 +807,7 @@ export default function TasksHubPage() {
       </div>
 
       {/* Body — pb-24 on mobile ensures the last task row isn't hidden under the FAB */}
-      <div className="flex-1 overflow-y-auto pb-24 md:pb-6">
+      <div className="flex-1 overflow-y-auto pb-36 md:pb-24">
         {view === "suggestions" ? (
           suggestionsLoading ? (
             <div className="p-4 space-y-3">

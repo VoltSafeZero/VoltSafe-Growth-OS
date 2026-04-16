@@ -925,7 +925,7 @@ export default function TerritoryRoutingPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 pb-24 md:pb-6">
+      <div className="flex-1 overflow-y-auto p-6 pb-36 md:pb-24">
         {/* Filters */}
         {showFilters && (
           <div className="mb-4">

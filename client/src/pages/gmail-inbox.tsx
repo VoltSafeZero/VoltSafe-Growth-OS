@@ -3463,7 +3463,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           </div>
 
           {/* Message list — bottom padding ensures last email isn't hidden under the FAB */}
-          <div className="flex-1 overflow-y-auto pb-24 md:pb-6">
+          <div className="flex-1 overflow-y-auto pb-36 md:pb-24">
             {/* Drafts tab */}
             {tab === "drafts" && (
               draftsQuery.isLoading ? (
@@ -4095,7 +4095,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             </div>
 
             {/* Messages in thread — bottom padding so last message is not hidden under FAB */}
-            <div className="flex-1 overflow-y-auto pt-4 px-4 pb-24 md:pb-6 space-y-4">
+            <div className="flex-1 overflow-y-auto pt-4 px-4 pb-36 md:pb-24 space-y-4">
               {threadQuery.isLoading && (
                 <div className="space-y-3">
                   {Array.from({ length: 3 }).map((_, i) => (

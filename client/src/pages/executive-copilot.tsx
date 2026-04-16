@@ -229,7 +229,7 @@ export default function ExecutiveCopilotPage() {
           </Button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 pb-24 md:pb-6 space-y-5">
+        <div className="flex-1 overflow-y-auto p-6 pb-36 md:pb-24 space-y-5">
 
           {/* ── Today's Brief ── */}
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">

@@ -515,7 +515,7 @@ function NewCustomerModal({ onClose, onCreated }: { onClose: () => void; onCreat
   const [selectedAccount, setSelectedAccount] = useState<any>(null);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="bg-background border border-border rounded-xl shadow-2xl w-full max-w-lg">
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/50">
           <span className="font-semibold text-sm">Add Customer to CS</span>

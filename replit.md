@@ -9,16 +9,19 @@ Always use these z-index values — do not deviate:
 | sticky | 10 | sticky headers, sub-navs |
 | sidebar | 20 | desktop sidebar rail |
 | panel | 40 | side panels, mobile nav, mobile overlays |
-| modal | 50 | dialogs, dropdowns, FAB |
+| modal | 50 | Radix dialogs/sheets (portals), FAB |
+| non-portal modals | 60 | custom `fixed inset-0` divs that don't use Radix portals |
 | toast | 100 | toast notifications |
 
 ### FAB (Quick Capture) Rules
 - **`id="quick-capture-fab"`** — required ID for CSS targeting
-- **Mobile position**: `bottom-[5.5rem] right-4` (88px from bottom, clears 64px mobile nav + 24px gap)
-- **Desktop position**: `md:bottom-8 md:right-6`
-- **Right-panel shift**: Pages that open a fixed right panel must call `document.body.classList.add("has-right-panel")` + `document.body.style.setProperty("--right-panel-width", "480px")` when panel opens, and remove on close/unmount
-- **CSS rule in index.css**: `body.has-right-panel #quick-capture-fab { right: calc(var(--right-panel-width, 480px) + 1.5rem) }`
-- Currently applied to: `renewals.tsx` (CS detail panel), `deployments.tsx` (deployment detail)
+- **Mobile position**: `bottom-24 right-4` (96px from bottom)
+- **Desktop position**: `md:bottom-10 md:right-6` (40px from bottom)
+- **z-index**: z-50 (Radix portals naturally render above it; custom modals use z-[60])
+- **has-modal**: Pages that open a custom non-Radix modal/panel must call `document.body.classList.add("has-modal")` when opening and remove on close/unmount. CSS in index.css hides the FAB (`opacity:0 pointer-events:none visibility:hidden`) while `body.has-modal` is active.
+- **has-right-panel**: ONLY for true fixed right-rail panels. `renewals.tsx` uses this correctly (480px side panel). Do NOT apply to centered dialogs.
+- Currently using `has-right-panel`: `renewals.tsx` (CS customer detail panel — genuine right rail)
+- Currently using `has-modal`: `data-quality.tsx`, `procurement.tsx`, `deployments.tsx`
 
 ### Scroll Container Bottom Padding Rule
 Any `flex-1 overflow-y-auto` container that reaches the bottom of the viewport must have:

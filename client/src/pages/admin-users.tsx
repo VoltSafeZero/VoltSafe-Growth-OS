@@ -468,7 +468,7 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
         </div>
 
         {/* User list */}
-        <div className="flex-1 overflow-auto pb-24 md:pb-6">
+        <div className="flex-1 overflow-auto pb-36 md:pb-24">
           {isLoading ? (
             <div className="p-6 space-y-3">{[...Array(5)].map((_, i) => <div key={i} className="h-16 bg-secondary/20 rounded-lg animate-pulse" />)}</div>
           ) : filtered.length === 0 ? (
@@ -584,7 +584,7 @@ function UserDetailPanel({ user, currentUserId, isMasterAdmin, onClose, onUpdate
         ))}
       </div>
 
-      <div className="flex-1 overflow-auto p-6 pb-24 md:pb-6 space-y-6">
+      <div className="flex-1 overflow-auto p-6 pb-36 md:pb-24 space-y-6">
         {activeTab === "info" ? (
           <>
             {/* Status + Role badges */}

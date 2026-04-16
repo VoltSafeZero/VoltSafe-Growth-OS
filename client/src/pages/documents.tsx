@@ -328,12 +328,37 @@ function DocumentDetail({ doc, onClose, onDeleted }: { doc: Attachment; onClose:
 
   return (
     <div className="flex flex-col h-full border-l border-border/30 bg-card/30">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
-        <span className="text-sm font-medium">Document Details</span>
-        <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors" data-testid="button-close-detail"><X className="h-4 w-4" /></button>
+      {/* Header with inline actions — no bottom footer, avoids split-pane FAB conflict */}
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/30">
+        <span className="text-sm font-medium flex-1 truncate min-w-0">Document Details</span>
+        <div className="flex items-center gap-0.5 shrink-0">
+          {doc.source === "upload" && doc.fileName && !editing && (
+            <a href={`/api/attachments/file/${doc.fileName}`} download={doc.originalName}>
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Download" data-testid="button-download">
+                <Download className="h-3.5 w-3.5" />
+              </Button>
+            </a>
+          )}
+          {editing ? (
+            <>
+              <Button variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => setEditing(false)} data-testid="button-cancel-edit">Cancel</Button>
+              <Button size="sm" className="h-7 text-xs px-2" disabled={updateMutation.isPending} onClick={() => updateMutation.mutate()} data-testid="button-save-edit">
+                {updateMutation.isPending ? "…" : "Save"}
+              </Button>
+            </>
+          ) : (
+            <Button variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => setEditing(true)} data-testid="button-edit-doc">Edit</Button>
+          )}
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive/70 hover:text-destructive hover:bg-destructive/10" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate()} data-testid="button-delete-doc">
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+          <button onClick={onClose} className="ml-1 h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors" data-testid="button-close-detail">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto pt-4 px-4 pb-24 md:pb-6 space-y-4">
+      <div className="flex-1 overflow-y-auto pt-4 px-4 pb-8 space-y-4">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-lg bg-muted/30 flex items-center justify-center shrink-0">
             {doc.source === "link" ? <Link2 className="h-5 w-5 text-primary" /> : <MimeIcon className="h-5 w-5 text-muted-foreground" />}
@@ -413,28 +438,6 @@ function DocumentDetail({ doc, onClose, onDeleted }: { doc: Attachment; onClose:
         )}
       </div>
 
-      <div className="p-3 border-t border-border/30 flex flex-wrap gap-2">
-        {doc.source === "upload" && doc.fileName && (
-          <a href={`/api/attachments/file/${doc.fileName}`} download={doc.originalName} className="flex-1">
-            <Button variant="outline" size="sm" className="w-full text-xs gap-1.5" data-testid="button-download">
-              <Download className="h-3.5 w-3.5" /> Download
-            </Button>
-          </a>
-        )}
-        {editing ? (
-          <>
-            <Button variant="outline" size="sm" className="text-xs" onClick={() => setEditing(false)} data-testid="button-cancel-edit">Cancel</Button>
-            <Button size="sm" className="text-xs" disabled={updateMutation.isPending} onClick={() => updateMutation.mutate()} data-testid="button-save-edit">
-              {updateMutation.isPending ? "Saving…" : "Save"}
-            </Button>
-          </>
-        ) : (
-          <Button variant="outline" size="sm" className="text-xs" onClick={() => setEditing(true)} data-testid="button-edit-doc">Edit</Button>
-        )}
-        <Button variant="ghost" size="sm" className="text-xs text-destructive hover:text-destructive" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate()} data-testid="button-delete-doc">
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
-      </div>
     </div>
   );
 }
@@ -630,7 +633,7 @@ export default function DocumentsPage() {
           )}
 
           {/* List */}
-          <div className="flex-1 overflow-y-auto pb-24 md:pb-6">
+          <div className="flex-1 overflow-y-auto pb-36 md:pb-24">
             {isLoading ? (
               <div className="space-y-0">
                 {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-14 w-full rounded-none" />)}

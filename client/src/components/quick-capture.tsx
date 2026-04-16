@@ -305,7 +305,7 @@ export function QuickCapture() {
       <button
         id="quick-capture-fab"
         onClick={() => handleOpen()}
-        className="fixed bottom-[5.5rem] right-4 z-50 w-12 h-12 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center md:bottom-8 md:right-6"
+        className="fixed bottom-24 right-4 z-50 w-12 h-12 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center md:bottom-10 md:right-6"
         title="Quick capture (⌘K)"
         data-testid="button-quick-capture"
       >

@@ -227,7 +227,7 @@ export default function JiraPage() {
             <RefreshCw className="h-3.5 w-3.5" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto py-1 pb-24 md:pb-6">
+        <div className="flex-1 overflow-y-auto py-1 pb-36 md:pb-24">
           {projectsQuery.isLoading
             ? Array.from({ length: 6 }).map((_, i) => <div key={i} className="px-3 py-2"><Skeleton className="h-4 w-full" /></div>)
             : projects.map((p) => (
@@ -290,7 +290,7 @@ export default function JiraPage() {
             </div>
 
             {/* Detail content */}
-            <div className="flex-1 overflow-y-auto pb-24 md:pb-6">
+            <div className="flex-1 overflow-y-auto pb-36 md:pb-24">
               {issueDetailQuery.isLoading ? (
                 <div className="max-w-3xl mx-auto px-8 py-8 space-y-4">
                   <Skeleton className="h-7 w-3/4" />
@@ -495,7 +495,7 @@ export default function JiraPage() {
             </div>
 
             {/* Issue rows */}
-            <div className="flex-1 overflow-y-auto pb-24 md:pb-6">
+            <div className="flex-1 overflow-y-auto pb-36 md:pb-24">
               {issuesQuery.isLoading && (
                 <div className="divide-y divide-border/30">
                   {Array.from({ length: 12 }).map((_, i) => (

@@ -155,7 +155,7 @@ function CreateDeploymentButton() {
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" data-testid="create-deployment-modal">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" data-testid="create-deployment-modal">
       <div className="bg-card border border-border rounded-xl p-5 w-full max-w-sm space-y-3 shadow-xl">
         <div className="font-semibold text-sm">New Site Deployment</div>
         <Input value={siteName} onChange={e => setSiteName(e.target.value)}
@@ -276,7 +276,7 @@ function DeploymentDetail({ deployId, onClose }: { deployId: number; onClose: ()
   });
 
   if (isLoading) return (
-    <div className="fixed inset-0 z-40 flex items-end md:items-center justify-center bg-black/30">
+    <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/30">
       <div className="bg-card border border-border rounded-xl p-6 w-full max-w-2xl"><Skeleton className="h-64" /></div>
     </div>
   );
@@ -288,7 +288,7 @@ function DeploymentDetail({ deployId, onClose }: { deployId: number; onClose: ()
   const openBls   = dep.blockers?.filter((b: BlockerRow) => b.status === "open") ?? [];
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end md:items-center justify-center bg-black/40 p-4" data-testid="deployment-detail-panel">
+    <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/40 p-4" data-testid="deployment-detail-panel">
       <div className="bg-card border border-border rounded-xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl">
         {/* Header */}
         <div className="flex items-start justify-between p-5 border-b border-border/40">
@@ -458,18 +458,15 @@ export default function DeploymentsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedDeployId, setSelectedDeployId] = useState<number | null>(null);
 
-  // Shift the global FAB left when the right detail panel is open
+  // Hide the global FAB while a deployment detail modal is open (z-[60] panel covers it anyway)
   useEffect(() => {
     if (selectedDeployId !== null) {
-      document.body.classList.add("has-right-panel");
-      document.body.style.setProperty("--right-panel-width", "480px");
+      document.body.classList.add("has-modal");
     } else {
-      document.body.classList.remove("has-right-panel");
-      document.body.style.removeProperty("--right-panel-width");
+      document.body.classList.remove("has-modal");
     }
     return () => {
-      document.body.classList.remove("has-right-panel");
-      document.body.style.removeProperty("--right-panel-width");
+      document.body.classList.remove("has-modal");
     };
   }, [selectedDeployId]);
 
