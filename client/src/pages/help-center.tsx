@@ -13,69 +13,125 @@ import kbData from "../docs/ai-knowledge-base.json";
 
 type FAQ = { id: string; question: string; answer: string; tags: string[] };
 
+function mdToHtml(md: string): string {
+  let html = md;
+
+  // Escape HTML special chars inside code blocks first (protect them)
+  const codeBlocks: string[] = [];
+  html = html.replace(/```[\s\S]*?```/g, (m) => {
+    const lang = m.match(/^```(\w*)/)?.[1] ?? "";
+    const code = m.replace(/^```\w*\n?/, "").replace(/\n?```$/, "");
+    const escaped = code.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    codeBlocks.push(`<pre><code${lang ? ` class="language-${lang}"` : ""}>${escaped}</code></pre>`);
+    return `\x00CODE${codeBlocks.length - 1}\x00`;
+  });
+
+  // Inline code
+  html = html.replace(/`([^`\n]+)`/g, (_, c) => `<code>${c.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code>`);
+
+  // Tables
+  html = html.replace(/\|(.+)\|\n\|[-| :]+\|\n((?:\|.+\|\n?)*)/g, (_, header, body) => {
+    const th = header.split("|").filter(Boolean).map((c: string) => `<th>${c.trim()}</th>`).join("");
+    const rows = body.trim().split("\n").map((row: string) =>
+      "<tr>" + row.split("|").filter(Boolean).map((c: string) => `<td>${c.trim()}</td>`).join("") + "</tr>"
+    ).join("");
+    return `<table><thead><tr>${th}</tr></thead><tbody>${rows}</tbody></table>`;
+  });
+
+  // Headings
+  html = html.replace(/^######\s+(.+)$/gm, "<h6>$1</h6>");
+  html = html.replace(/^#####\s+(.+)$/gm, "<h5>$1</h5>");
+  html = html.replace(/^####\s+(.+)$/gm, "<h4>$1</h4>");
+  html = html.replace(/^###\s+(.+)$/gm, "<h3>$1</h3>");
+  html = html.replace(/^##\s+(.+)$/gm, "<h2>$1</h2>");
+  html = html.replace(/^#\s+(.+)$/gm, "<h1>$1</h1>");
+
+  // Horizontal rules
+  html = html.replace(/^(?:---|\*\*\*|___)\s*$/gm, "<hr>");
+
+  // Blockquotes (single-level)
+  html = html.replace(/^>\s?(.+)$/gm, "<blockquote>$1</blockquote>");
+  html = html.replace(/<\/blockquote>\n<blockquote>/g, "\n");
+
+  // Unordered lists
+  html = html.replace(/((?:^[-*+]\s.+\n?)+)/gm, (block) => {
+    const items = block.trim().split("\n").map(l => `<li>${l.replace(/^[-*+]\s/, "")}</li>`).join("");
+    return `<ul>${items}</ul>`;
+  });
+
+  // Ordered lists
+  html = html.replace(/((?:^\d+\.\s.+\n?)+)/gm, (block) => {
+    const items = block.trim().split("\n").map(l => `<li>${l.replace(/^\d+\.\s/, "")}</li>`).join("");
+    return `<ol>${items}</ol>`;
+  });
+
+  // Bold + italic
+  html = html.replace(/\*\*\*(.+?)\*\*\*/g, "<strong><em>$1</em></strong>");
+  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/__(.+?)__/g, "<strong>$1</strong>");
+  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
+  html = html.replace(/_(.+?)_/g, "<em>$1</em>");
+
+  // Links and images
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img alt="$1" src="$2" style="max-width:100%">');
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+
+  // Paragraphs — wrap non-block lines
+  html = html.replace(/^(?!<[hupbolistabletrd]).+$/gm, (line) => {
+    if (line.trim() === "" || line.startsWith("\x00CODE")) return line;
+    return `<p>${line}</p>`;
+  });
+
+  // Restore code blocks
+  codeBlocks.forEach((block, i) => {
+    html = html.replace(`\x00CODE${i}\x00`, block);
+  });
+
+  return html;
+}
+
 function MarkdownDoc({ content, title }: { content: string; title: string }) {
   const handlePrint = () => {
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>${title} — VoltSafe Cortex</title>
-          <meta charset="utf-8" />
-          <style>
-            body { font-family: system-ui, sans-serif; max-width: 860px; margin: 40px auto; padding: 0 24px; color: #111; line-height: 1.6; }
-            h1 { font-size: 2em; border-bottom: 2px solid #0ea5e9; padding-bottom: 0.3em; }
-            h2 { font-size: 1.5em; margin-top: 2em; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.2em; }
-            h3 { font-size: 1.2em; margin-top: 1.5em; }
-            table { border-collapse: collapse; width: 100%; margin: 1em 0; }
-            th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; }
-            th { background: #f1f5f9; font-weight: 600; }
-            code { background: #f1f5f9; padding: 2px 5px; border-radius: 3px; font-size: 0.9em; }
-            pre { background: #f1f5f9; padding: 12px; border-radius: 6px; overflow-x: auto; }
-            blockquote { border-left: 4px solid #0ea5e9; margin: 0; padding-left: 16px; color: #475569; }
-            a { color: #0ea5e9; }
-            ul, ol { padding-left: 1.5em; }
-            li { margin: 0.25em 0; }
-            hr { border: none; border-top: 1px solid #e2e8f0; margin: 2em 0; }
-            @media print { body { margin: 20px; } }
-          </style>
-        </head>
-        <body>${document.createElement("div").innerHTML = content || ""}</body>
-      </html>
-    `);
 
-    const tempDiv = document.createElement("div");
-    tempDiv.innerHTML = content;
+    const bodyHtml = mdToHtml(content);
+    const css = `
+      body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 40px auto; padding: 0 24px; color: #111; line-height: 1.7; font-size: 15px; }
+      h1 { font-size: 2em; border-bottom: 2px solid #0ea5e9; padding-bottom: 0.3em; margin-top: 0.5em; }
+      h2 { font-size: 1.5em; margin-top: 2em; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.2em; }
+      h3 { font-size: 1.2em; margin-top: 1.5em; color: #0f172a; }
+      h4, h5, h6 { margin-top: 1.2em; }
+      p { margin: 0.6em 0; }
+      table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+      th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; }
+      th { background: #f1f5f9; font-weight: 600; }
+      code { background: #f1f5f9; padding: 2px 5px; border-radius: 3px; font-size: 0.88em; font-family: ui-monospace, monospace; }
+      pre { background: #f1f5f9; padding: 12px 16px; border-radius: 6px; overflow-x: auto; margin: 1em 0; }
+      pre code { background: none; padding: 0; font-size: 0.88em; }
+      blockquote { border-left: 4px solid #0ea5e9; margin: 1em 0; padding: 4px 0 4px 16px; color: #475569; background: #f8fafc; }
+      a { color: #0ea5e9; }
+      ul, ol { padding-left: 1.75em; margin: 0.5em 0; }
+      li { margin: 0.3em 0; }
+      hr { border: none; border-top: 1px solid #e2e8f0; margin: 2em 0; }
+      img { max-width: 100%; }
+      @media print {
+        body { margin: 0; }
+        a { color: #0ea5e9; }
+        pre, code, blockquote { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      }
+    `;
 
-    const printArea = printWindow.document.querySelector("body")!;
-    printArea.innerHTML = "";
-    printArea.appendChild(tempDiv);
-    printWindow.document.title = `${title} — VoltSafe Cortex`;
-
-    printWindow.document.head.innerHTML = `
+    printWindow.document.write(`<!DOCTYPE html><html><head>
       <title>${title} — VoltSafe Cortex</title>
       <meta charset="utf-8" />
-      <style>
-        body { font-family: system-ui, sans-serif; max-width: 860px; margin: 40px auto; padding: 0 24px; color: #111; line-height: 1.6; }
-        h1 { font-size: 2em; border-bottom: 2px solid #0ea5e9; padding-bottom: 0.3em; }
-        h2 { font-size: 1.5em; margin-top: 2em; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.2em; }
-        h3 { font-size: 1.2em; margin-top: 1.5em; }
-        table { border-collapse: collapse; width: 100%; margin: 1em 0; }
-        th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; }
-        th { background: #f1f5f9; font-weight: 600; }
-        code { background: #f1f5f9; padding: 2px 5px; border-radius: 3px; font-size: 0.9em; }
-        pre { background: #f1f5f9; padding: 12px; border-radius: 6px; overflow-x: auto; }
-        blockquote { border-left: 4px solid #0ea5e9; margin: 0; padding-left: 16px; color: #475569; }
-        a { color: #0ea5e9; }
-        ul, ol { padding-left: 1.5em; }
-        li { margin: 0.25em 0; }
-        hr { border: none; border-top: 1px solid #e2e8f0; margin: 2em 0; }
-      </style>
-    `;
+      <style>${css}</style>
+    </head><body>${bodyHtml}</body></html>`);
+    printWindow.document.close();
+
     setTimeout(() => {
       printWindow.print();
-    }, 300);
+    }, 400);
   };
 
   return (
