@@ -1957,3 +1957,44 @@ export const rolloutPhases = pgTable("rollout_phases", {
 export const insertRolloutPhaseSchema = createInsertSchema(rolloutPhases).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertRolloutPhase = z.infer<typeof insertRolloutPhaseSchema>;
 export type RolloutPhase = typeof rolloutPhases.$inferSelect;
+
+// ── Executive Alerting / Digest Automation ────────────────────────────────────
+
+export const digestConfigs = pgTable("digest_configs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().unique(),
+  enabled: boolean("enabled").notNull().default(true),
+  cadence: text("cadence").notNull().default("daily"),           // 'daily' | 'weekly'
+  sendHour: integer("send_hour").notNull().default(8),            // 0-23
+  sendDayOfWeek: integer("send_day_of_week").notNull().default(1), // 1=Mon (weekly only)
+  channels: jsonb("channels").notNull().default(["in_app"]),
+  sections: jsonb("sections").notNull().default({}),
+  severityThreshold: text("severity_threshold").notNull().default("medium"),
+  isRoleDefault: boolean("is_role_default").notNull().default(true),
+  quietHoursStart: integer("quiet_hours_start").notNull().default(21),
+  quietHoursEnd: integer("quiet_hours_end").notNull().default(7),
+  alertRules: jsonb("alert_rules").notNull().default({}),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertDigestConfigSchema = createInsertSchema(digestConfigs).omit({ id: true, updatedAt: true });
+export type InsertDigestConfig = z.infer<typeof insertDigestConfigSchema>;
+export type DigestConfig = typeof digestConfigs.$inferSelect;
+
+export const digestRuns = pgTable("digest_runs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  digestType: text("digest_type").notNull(),                   // 'daily' | 'weekly' | 'manual' | 'alert'
+  status: text("status").notNull().default("pending"),          // 'pending' | 'delivered' | 'failed' | 'skipped'
+  channel: text("channel").notNull().default("in_app"),         // 'in_app' | 'email'
+  sectionsSent: jsonb("sections_sent").notNull().default([]),
+  payloadSummary: jsonb("payload_summary").notNull().default({}),
+  errorMessage: text("error_message"),
+  generatedAt: timestamp("generated_at").defaultNow().notNull(),
+  deliveredAt: timestamp("delivered_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertDigestRunSchema = createInsertSchema(digestRuns).omit({ id: true, createdAt: true });
+export type InsertDigestRun = z.infer<typeof insertDigestRunSchema>;
+export type DigestRun = typeof digestRuns.$inferSelect;
