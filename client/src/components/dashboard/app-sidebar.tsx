@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Link, useLocation } from "wouter";
-import growthOsLogo from "@assets/VoltSafe_Growth_OS_Logo_1776305525943.png";
+import voltSafeVIcon from "@assets/Screenshot_2026-04-15_at_7.26.57_PM_1776306420926.png";
 import { Sidebar, SidebarContent, SidebarHeader } from "@/components/ui/sidebar";
 import { Input } from "@/components/ui/input";
 import type { UserPermissions } from "@/App";
@@ -276,17 +276,21 @@ export function AppSidebar({
 
   return (
     <Sidebar className="border-r border-border/50">
-      <SidebarHeader className="h-auto py-1 flex items-center px-2">
+      <SidebarHeader className="h-auto py-3 flex items-center px-4">
         <Link
           href="/"
-          className="block w-full cursor-pointer transition-opacity hover:opacity-80 active:scale-[0.98]"
+          className="flex items-center gap-3 cursor-pointer transition-opacity hover:opacity-80 active:scale-[0.98]"
           data-testid="link-sidebar-home"
         >
           <img
-            src={growthOsLogo}
-            alt="VoltSafe Growth OS"
-            className="w-full h-14 object-cover object-center rounded"
+            src={voltSafeVIcon}
+            alt="VoltSafe V"
+            className="h-12 w-12 object-cover object-center rounded-lg shrink-0"
           />
+          <div className="flex flex-col leading-tight">
+            <span className="text-xl font-bold tracking-tight text-foreground">VoltSafe</span>
+            <span className="text-base font-semibold text-primary tracking-tight">Growth OS</span>
+          </div>
         </Link>
       </SidebarHeader>
 

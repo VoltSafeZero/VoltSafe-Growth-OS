@@ -1,0 +1,137 @@
+Field Execution Mobile Mode is complete and tested. Next, build Executive Alerting / Digest Automation.
+
+Goal:
+Make Cortex proactively deliver the most important risks, opportunities, and actions to the right users on the right cadence, using the role-based command center, predictive scores, revenue architecture, and automation systems already in place.
+
+Build this in phases.
+
+PHASE 1 — DIGEST DATA MODEL
+Add digest/alert config support per user:
+- enabled/disabled
+- cadence (daily / weekly)
+- send time
+- delivery channel (start with in-app + Gmail)
+- included sections
+- severity threshold
+- role-default vs user-custom
+- quiet hours if useful
+
+Also add alert/digest run history:
+- user_id
+- digest type
+- generated_at
+- delivered_at
+- status
+- payload summary
+- errors if any
+
+PHASE 2 — DIGEST COMPOSER
+Build a deterministic digest composer that assembles role-aware summaries using existing live data.
+
+Support sections like:
+- top priorities
+- overdue tasks
+- hot leads / hot opportunities
+- quotes needing follow-up
+- blocked installs / deployments
+- certification blockers
+- revenue at risk
+- current vs future MRR
+- renewal risks
+- churn risks
+- territory whitespace / source highlights
+- key summary bullets
+
+PHASE 3 — ROLE-BASED DEFAULT DIGESTS
+Seed sensible defaults for:
+- CEO
+- CFO
+- CTO
+- CMO
+- Sales
+- CS
+- Ops
+
+Examples:
+CEO:
+- revenue at risk
+- blocked installs
+- certification blockers
+- top pipeline movement
+- top priorities
+
+CFO:
+- MRR changes
+- booked vs delivered hardware
+- pricing lock expiries
+- renewal exposure
+- forecast risks
+
+CTO:
+- cert blockers
+- technical deployment blockers
+- blocked batches / procurement
+- overdue engineering tasks
+
+CMO:
+- lead volume
+- source performance
+- conversion movement
+- territory whitespace
+
+PHASE 4 — ALERT ENGINE
+Create real-time / scheduled alert triggers for:
+- deal goes stalled
+- quote unanswered > threshold
+- churn score crosses threshold
+- deployment blocked > X days
+- certification blocker active
+- renewal due / overdue
+- pricing lock expiry approaching
+- major score band change
+
+Support:
+- create in-app alert
+- include in next digest
+- optional immediate email for critical alerts
+
+PHASE 5 — UI
+Create a Digest / Alerts settings page where users can:
+- enable/disable digests
+- choose cadence
+- preview digest
+- tune included sections
+- set severity threshold
+- view recent digest history
+- view active alerts
+
+Also add an executive digest preview page if useful.
+
+PHASE 6 — DELIVERY
+Start with:
+- in-app digest center
+- Gmail delivery using existing integration
+
+Digest format should be:
+- concise
+- plain-English
+- role-aware
+- skimmable on desktop and mobile
+
+PHASE 7 — TESTING
+Add tests for:
+- digest config CRUD
+- role-default selection
+- digest composition
+- section inclusion/exclusion
+- alert trigger conditions
+- digest history logging
+- Gmail/in-app delivery flow
+- no regression to command center, automations, scoring, CS, and revenue systems
+
+Implementation rules:
+- keep it deterministic and useful
+- do not spam users
+- prioritize high-signal summaries over noisy alerts
+- reuse existing automation and Gmail systems where possible
+- summarize changed files and final pass/fail at the end
