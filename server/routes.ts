@@ -532,7 +532,50 @@ export async function registerRoutes(
       status: user.status,
       mustChangePassword: user.mustChangePassword,
       permissions: user.permissions ?? { crm: "edit", partnerships: "edit", projects: "edit", communications: "edit", team_workload: "edit", knowledge: "edit", support: "edit", quoting: "edit", calendar: "edit", mail_team: {}, calendar_team: [] },
+      department: user.department,
+      jobTitle: user.jobTitle,
+      userType: user.userType,
+      preferredLayout: user.preferredLayout ?? "expanded",
+      widgetVisibility: user.widgetVisibility ?? {},
+      defaultCommandCenter: user.defaultCommandCenter,
     });
+  });
+
+  // GET /api/users/me/profile — extended user profile for command center
+  app.get("/api/users/me/profile", requireAuth, async (req, res) => {
+    const userId = (req.session as any).userId as number;
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      globalRole: user.globalRole,
+      department: user.department,
+      jobTitle: user.jobTitle,
+      userType: user.userType,
+      preferredLayout: user.preferredLayout ?? "expanded",
+      widgetVisibility: user.widgetVisibility ?? {},
+      defaultCommandCenter: user.defaultCommandCenter,
+      permissions: user.permissions,
+    });
+  });
+
+  // PATCH /api/users/me/layout — persist layout preferences
+  app.patch("/api/users/me/layout", requireAuth, async (req, res) => {
+    const userId = (req.session as any).userId as number;
+    const { preferredLayout, widgetVisibility, defaultCommandCenter } = req.body;
+    const update: Record<string, any> = {};
+    if (preferredLayout !== undefined) update.preferredLayout = preferredLayout;
+    if (widgetVisibility !== undefined) update.widgetVisibility = widgetVisibility;
+    if (defaultCommandCenter !== undefined) update.defaultCommandCenter = defaultCommandCenter;
+    if (Object.keys(update).length === 0) return res.status(400).json({ message: "No fields to update" });
+    const [updated] = await db.update(users).set(update).where(eq(users.id, userId)).returning({
+      preferredLayout: users.preferredLayout,
+      widgetVisibility: users.widgetVisibility,
+      defaultCommandCenter: users.defaultCommandCenter,
+    });
+    res.json(updated);
   });
 
   app.post("/api/auth/change-password", async (req, res) => {

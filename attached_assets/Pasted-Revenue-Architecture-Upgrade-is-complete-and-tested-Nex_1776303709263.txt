@@ -1,0 +1,105 @@
+Revenue Architecture Upgrade is complete and tested. Next, build Role-Based Daily Command Center 2.0.
+
+Goal:
+Create adaptive command centers that change by user profile, permissions, department, title, and internal/external user type, with some layout flexibility.
+
+Build this in phases.
+
+PHASE 1 — USER PROFILE MODEL
+Ensure user profiles support:
+- department
+- jobTitle
+- userType (internal / external)
+- preferredLayout
+- widgetVisibility
+- defaultCommandCenter
+- optional territory / region
+
+Use additive schema changes only.
+
+PHASE 2 — COMMAND CENTER CONFIG ENGINE
+Create a dashboard config engine that determines:
+- default widgets
+- layout
+- alert priority
+- metric emphasis
+- hidden sections
+based on:
+- department
+- jobTitle
+- userType
+- permissions
+- optional region/territory
+
+PHASE 3 — EXECUTIVE COMMAND CENTERS
+Build first-class command centers for:
+
+CEO:
+- top priorities
+- revenue at risk
+- pipeline health
+- certification blockers
+- blocked installs/deployments
+- key accounts needing action
+- summary bullets
+
+CFO:
+- current MRR
+- fully deployed MRR
+- booked vs delivered hardware revenue
+- pricing lock expiries
+- renewal exposure
+- billing anomalies / inactive lines
+- forecast pressure
+
+CTO:
+- certification engineering blockers
+- deployment technical blockers
+- blocked procurement/batches
+- system/ops issues
+- install workflows at risk
+- critical tasks
+
+CMO:
+- lead volume
+- source attribution
+- conversion by source
+- territory whitespace
+- campaign / channel performance
+- quotes created and pipeline created by source
+
+PHASE 4 — LAYOUT FLEXIBILITY
+Allow users to:
+- reorder widgets
+- hide/show widgets
+- save layout
+- reset to role default
+- compact vs expanded mode
+
+PHASE 5 — ACCESS CONTROL
+Only show data allowed by:
+- permissions
+- user type
+- department scope
+- record access rules
+
+PHASE 6 — UI / ROUTING
+Create or upgrade the Daily Command Center page so:
+- the default view loads based on the logged-in user profile
+- a user can switch between “My Layout” and “Role Default”
+- admin can preview role dashboards if appropriate
+
+PHASE 7 — TESTING
+Add tests for:
+- profile-based dashboard selection
+- widget visibility by role
+- permission filtering
+- layout persistence
+- executive widget accuracy
+- no regression to executive dashboard, revenue hub, geo, CS, and automation systems
+
+Implementation rules:
+- keep it modular so more roles can be added later
+- do not build one giant static dashboard
+- reuse existing executive, revenue, CS, geo, certification, deployment, and automation data
+- summarize changed files and final pass/fail at the end
