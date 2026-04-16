@@ -17,6 +17,8 @@ import {
   ChevronRight, Zap, CalendarDays, ShieldAlert, ArrowRight,
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { ScoreBadge } from "@/components/scores/score-badge";
+import { useHotList } from "@/hooks/use-scores";
 import {
   buildDashboardConfig, detectCenterType, ALL_CENTER_TYPES,
   type CenterType, type UserProfile,
@@ -38,11 +40,11 @@ const STAGE_LABEL: Record<string, string> = {
 };
 function fmtMoney(n?: number) { return n && n > 0 ? (n >= 1000 ? `$${(n / 1000).toFixed(0)}k` : `$${n}`) : "—"; }
 
-function SalesSection({ icon: Icon, title, count, link, children, compact }: {
-  icon: React.ElementType; title: string; count: number; link?: string; children: React.ReactNode; compact?: boolean;
+function SalesSection({ icon: Icon, title, count, link, children, compact, className }: {
+  icon: React.ElementType; title: string; count: number; link?: string; children: React.ReactNode; compact?: boolean; className?: string;
 }) {
   return (
-    <Card className="border border-border/50 bg-card/80" data-testid={`widget-${title.toLowerCase().replace(/\s+/g, "-")}`}>
+    <Card className={`border border-border/50 bg-card/80 ${className ?? ""}`} data-testid={`widget-${title.toLowerCase().replace(/\s+/g, "-")}`}>
       <CardHeader className={`${compact ? "pb-1 pt-3 px-4" : "pb-2 pt-4 px-4"}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -87,9 +89,14 @@ function SalesItemRow({ link, severity, title, subtitle, rightLabel, action, tes
   );
 }
 
+const TYPE_ICONS: Record<string, string> = {
+  lead: "🎯", opportunity: "📊", quote: "📋", deployment: "🏗️", churn: "⚠️", expansion: "🚀",
+};
+
 function SalesCommandCenter({ visible, compact }: { visible: Record<string, boolean>; compact?: boolean }) {
   const { data, isLoading } = useQuery<any>({ queryKey: ["/api/daily-command-center"], refetchInterval: 5 * 60 * 1000 });
   const sections = data?.sections;
+  const { data: hotList, isLoading: hotLoading } = useHotList(10);
 
   if (isLoading) return (
     <div className="grid gap-4 md:grid-cols-2" data-testid="sales-center-loading">
@@ -193,6 +200,28 @@ function SalesCommandCenter({ visible, compact }: { visible: Record<string, bool
                 </>
               )
           }
+        </SalesSection>
+      )}
+      {visible.hot_list !== false && (
+        <SalesSection icon={Zap} title="Priority Hot List" count={hotList?.length ?? 0} compact={compact}
+          className="md:col-span-2">
+          {hotLoading && <Skeleton className="h-20" />}
+          {!hotLoading && (!hotList || hotList.length === 0) && (
+            <p className="text-xs text-muted-foreground italic py-2">No high-priority items across pipeline, quotes, or accounts right now.</p>
+          )}
+          {!hotLoading && (hotList ?? []).map((item: any, i: number) => (
+            <Link key={`${item.type}-${item.id}`} href={item.link}>
+              <div className="flex items-center gap-2.5 py-1.5 hover:bg-muted/30 rounded -mx-1 px-1 transition-colors cursor-pointer group" data-testid={`hot-list-item-${item.type}-${item.id}`}>
+                <span className="text-base shrink-0">{TYPE_ICONS[item.type] ?? "•"}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium truncate leading-tight">{item.name}</p>
+                  <p className="text-xs text-muted-foreground truncate">{item.actionHint}</p>
+                </div>
+                <ScoreBadge score={item.score} variant="compact" showReasons={true} />
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-muted-foreground shrink-0 transition-colors" />
+              </div>
+            </Link>
+          ))}
         </SalesSection>
       )}
     </div>

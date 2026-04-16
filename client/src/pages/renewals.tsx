@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { ScoreBadge } from "@/components/scores/score-badge";
+import { useChurnRiskScores } from "@/hooks/use-scores";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AttachmentsSection } from "@/components/attachments-section";
 import { apiRequest } from "@/lib/queryClient";
@@ -675,6 +677,9 @@ function DashboardTab() {
                   <Building2 className="h-3.5 w-3.5 text-muted-foreground/60" />
                   <span className="font-medium">{cs.account_name}</span>
                   <StatusBadge status={cs.status} />
+                  {churnScores[cs.account_id] && churnScores[cs.account_id].band !== "low" && (
+                    <ScoreBadge score={churnScores[cs.account_id]} variant="compact" data-testid={`score-churn-risk-${cs.account_id}`} />
+                  )}
                 </div>
                 <div className="flex items-center gap-3 text-right">
                   <span className="text-muted-foreground">{fmtDate(cs.renewal_date)}</span>
@@ -737,6 +742,7 @@ export default function RenewalsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [healthFilter, setHealthFilter] = useState<string>("all");
   const qc = useQueryClient();
+  const { scoreMap: churnScores } = useChurnRiskScores();
 
   // Build query params for active tab
   const buildParams = () => {

@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { ScoreBadge } from "@/components/scores/score-badge";
+import { useDeploymentRiskScores } from "@/hooks/use-scores";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { AttachmentsSection } from "@/components/attachments-section";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -456,6 +458,8 @@ export default function DeploymentsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedDeployId, setSelectedDeployId] = useState<number | null>(null);
 
+  const { scoreMap: deployRiskScores } = useDeploymentRiskScores();
+
   const { data: dashboard, isLoading: dashLoading } = useQuery<DashboardData>({
     queryKey: ["/api/deployments/dashboard"],
     queryFn: () => fetch("/api/deployments/dashboard", { credentials: "include" }).then(r => r.json()),
@@ -585,6 +589,9 @@ export default function DeploymentsPage() {
                             <span className="text-sm font-medium truncate">{dep.site_name}</span>
                             <StatusBadge status={dep.status} />
                             {isOverdue && <span className="text-[10px] text-red-400 font-medium">OVERDUE</span>}
+                            {deployRiskScores[dep.id] && deployRiskScores[dep.id].band !== "low" && (
+                              <ScoreBadge score={deployRiskScores[dep.id]} variant="compact" data-testid={`score-deploy-risk-${dep.id}`} />
+                            )}
                           </div>
                           <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                             <span className="font-mono text-[10px]">{dep.deploy_number}</span>

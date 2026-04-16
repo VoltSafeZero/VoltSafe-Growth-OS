@@ -19,6 +19,8 @@ import {
   CheckCircle2, AlertCircle, Link2, UserCheck, Shuffle, ClipboardList, Archive,
 } from "lucide-react";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
+import { ScoreBadge } from "@/components/scores/score-badge";
+import { useLeadScores } from "@/hooks/use-scores";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
 import { lazy, Suspense } from "react";
 const NearbyMarinasMap = lazy(() => import("@/components/nearby-marinas-map"));
@@ -119,6 +121,7 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
   const [activeViewId, setActiveViewId] = useState<number | null>(null);
   const toggleSelect = (id: number) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const { toast } = useToast();
+  const { scoreMap: leadScores } = useLeadScores(view === "list");
 
   const { data: pendingOrgData } = useQuery<Account>({
     queryKey: ["/api/accounts", pendingOrgId],
@@ -578,6 +581,7 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
                     <SortableHeader label="Deal $" sortKey="dealAmount" sort={sort} onSort={handleSort} className="hidden xl:table-cell" />
                     <SortableHeader label="Stage" sortKey="status" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Source" sortKey="source" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />
+                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden xl:table-cell">Quality</th>
                     <th className="text-right p-3 sm:p-4 text-sm font-medium text-muted-foreground">Actions</th>
                   </tr>
                 </thead>
@@ -619,6 +623,9 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
                         </Badge>
                       </td>
                       <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell" onClick={() => setSelectedLead(lead)}>{lead.source || "—"}</td>
+                      <td className="p-3 sm:p-4 hidden xl:table-cell" onClick={() => setSelectedLead(lead)}>
+                        {leadScores[lead.id] && <ScoreBadge score={leadScores[lead.id]} variant="compact" data-testid={`score-lead-quality-${lead.id}`} />}
+                      </td>
                       <td className="p-3 sm:p-4 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <Link href={`/opportunities/${lead.id}`}>

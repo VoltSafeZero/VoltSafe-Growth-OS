@@ -1,5 +1,52 @@
 # Replit Agent Configuration
 
+## Predictive Scoring Layer (Complete)
+
+### What was built
+Deterministic, explainable predictive scoring across 6 business object types. All scores are rule-based with no black-box AI — every score shows the exact reasons it was computed.
+
+**Score Types:**
+1. **Lead Quality** (0-100) — Source quality, contact info, owner assigned, deal size, site size, status, recency, next step
+2. **Opportunity Close** (0-100) — Stage base, quote attached, champion/buyer identified, close date proximity, activity recency, stalled flag
+3. **Quote Follow-up Urgency** (0-100) — Status, days since sent, validity expiry, deal size, task coverage
+4. **Deployment Delay Risk** (0-100) — Open blockers, overdue go-live, no actual start, no owner, stale updates
+5. **Churn Risk** (0-100) — Health score/status, billing status, renewal timing, check-in recency, churn risk flags
+6. **Expansion Likelihood** (0-100) — Expansion plans, potential, remaining contracted units, live slips, account health, activity level
+
+**Score Engine** (`server/services/scoring-engine.ts`): Pure TypeScript functions, no DB access. Each returns `{ score, band, label, reasons[], scoredAt }`. Bands: low/medium/high/critical.
+
+**API Routes** (all under `/api/scores/`):
+- Bulk: `GET /api/scores/leads|opportunities|quotes|deployments/risk|accounts/churn|accounts/expansion`
+- Single: `GET /api/scores/lead/:id|opportunity/:id|quote/:id|deployment/:id|account/churn/:id|account/expansion/:id`
+- Hot list: `GET /api/scores/hot-list?limit=15` — top priority items across all entity types, sorted by band+score
+
+**UI Components** (`client/src/components/scores/score-badge.tsx`):
+- `ScoreBadge` — variants: `pill` (default), `compact`, `ring`, `inline`; shows tooltip with all reasons
+- `ScorePanel` — expanded view with full reason list
+
+**Hook** (`client/src/hooks/use-scores.ts`): `useLeadScores()`, `useOpportunityScores()`, `useQuoteScores()`, `useDeploymentRiskScores()`, `useChurnRiskScores()`, `useHotList(limit)` — all fetch bulk and return `Record<id, ScoreData>` maps. 5-min staleTime.
+
+**UI Integration:**
+- Leads table — "Quality" column with compact score badge (XL+ screen)
+- Opportunities kanban — compact score badge below DealSignals on each card
+- Deployments list — delay risk badge shown on high/critical cards
+- Renewals — churn risk badge on upcoming renewal items (medium+ only)
+- Sales Command Center — "Priority Hot List" widget (full-width) showing top items with type icon, name, action hint, score badge, and link
+
+**Tests** (`tests/scoring.test.js`): 135/135 — auth guards, all 6 bulk endpoints, all 6 single endpoints, 404 handling, hot list (structure, sorting, custom limit), band logic (all valid, 0-100 range, all have reasons), scoredAt freshness, reason quality checks, regression across command-center/revenue/CS/automations.
+
+### Key files
+- `server/services/scoring-engine.ts` — pure scoring functions
+- `client/src/components/scores/score-badge.tsx` — ScoreBadge + ScorePanel components
+- `client/src/hooks/use-scores.ts` — data fetching hooks
+- `tests/scoring.test.js` — 135 tests
+
+### Running total test count
+scoring.test.js 135 new — added on top of existing suites.
+Prior totals: cs 44, oversight 70, geography 111, documents 20, documents-search-timeline 20, automations 38, board-pack 45, revenue 58, command-center 114 = 520 existing + 135 = **655 tests across key suites**
+
+---
+
 ## Role-Based Daily Command Center 2.0 (Complete)
 
 ### What was built

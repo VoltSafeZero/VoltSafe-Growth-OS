@@ -22,6 +22,8 @@ import {
 import { ExportButton } from "@/components/ui/export-button";
 import { NotesPanel } from "@/components/notes-panel";
 import { TimelineTab } from "@/components/timeline-tab";
+import { ScoreBadge } from "@/components/scores/score-badge";
+import { useOpportunityScores } from "@/hooks/use-scores";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 import { AssignUserSelect } from "@/components/assign-user-select";
@@ -158,6 +160,8 @@ export default function OpportunitiesPage({ canEdit = true }: { canEdit?: boolea
   const [stageFilter, setStageFilter] = useState<string>("");
   const [bulkStageValue, setBulkStageValue] = useState("");
   const [bulkAssignValue, setBulkAssignValue] = useState<number | null>(null);
+
+  const { scoreMap: oppScores } = useOpportunityScores();
 
   const { data, isLoading } = useQuery<{ data: Opportunity[]; total: number }>({
     queryKey: ["/api/opportunities"],
@@ -395,6 +399,11 @@ export default function OpportunitiesPage({ canEdit = true }: { canEdit?: boolea
                         </span>
                       </div>
                       <div onClick={() => setSelectedDeal(deal)}><DealSignals deal={deal} /></div>
+                      {oppScores[deal.id] && (
+                        <div onClick={() => setSelectedDeal(deal)}>
+                          <ScoreBadge score={oppScores[deal.id]} variant="compact" data-testid={`score-opp-close-${deal.id}`} />
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 ))}

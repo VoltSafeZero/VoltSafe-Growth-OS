@@ -144,7 +144,11 @@ export function buildDashboardConfig(profile: UserProfile, overrideCenterType?: 
   const centerType = overrideCenterType ?? detectCenterType(profile);
   const widgets = WIDGET_DEFS[centerType];
 
-  const userVisibility: Record<string, boolean> = (profile.widgetVisibility ?? {}) as Record<string, boolean>;
+  const rawVis = profile.widgetVisibility;
+  const userVisibility: Record<string, boolean> =
+    (rawVis !== null && typeof rawVis === "object" && !Array.isArray(rawVis))
+      ? (rawVis as Record<string, boolean>)
+      : {};
   const visibleWidgets: Record<string, boolean> = {};
   for (const w of widgets) {
     visibleWidgets[w.id] = w.id in userVisibility ? userVisibility[w.id] : w.defaultVisible;
