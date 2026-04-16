@@ -482,7 +482,7 @@ function MergeAuditPanel({ onClose }: { onClose: () => void }) {
 }
 
 // ── Duplicates Tab ─────────────────────────────────────────────────────────────
-function DuplicatesTab() {
+function DuplicatesTab({ subFilter }: { subFilter?: string }) {
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/data-quality/issues", "duplicates"],
     queryFn: () => fetch("/api/data-quality/issues?category=duplicates", { credentials: "include" }).then(r => r.json()),
@@ -501,6 +501,12 @@ function DuplicatesTab() {
       qc.invalidateQueries({ queryKey: ["/api/data-quality/summary"] });
     },
   });
+
+  useEffect(() => {
+    if (!subFilter) return;
+    const el = document.getElementById(`dq-section-${subFilter}`);
+    if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }, [subFilter]);
 
   if (isLoading) return <div className="space-y-3">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-28" />)}</div>;
   if (!data) return null;
@@ -576,9 +582,9 @@ function DuplicatesTab() {
         </div>
       )}
 
-      {data.accounts.map((c: any, i: number) => renderCluster(c, "account", i))}
-      {data.contacts.map((c: any, i: number) => renderCluster(c, "contact", i))}
-      {data.leads.map((c: any, i: number) => renderCluster(c, "lead", i))}
+      {data.accounts?.length > 0 && <div id="dq-section-accounts" className="space-y-3">{data.accounts.map((c: any, i: number) => renderCluster(c, "account", i))}</div>}
+      {data.contacts?.length > 0 && <div id="dq-section-contacts" className="space-y-3">{data.contacts.map((c: any, i: number) => renderCluster(c, "contact", i))}</div>}
+      {data.leads?.length > 0    && <div id="dq-section-leads"    className="space-y-3">{data.leads.map((c: any, i: number) => renderCluster(c, "lead", i))}</div>}
 
       {/* Merge review panel */}
       {mergeTarget && (
@@ -598,7 +604,7 @@ function DuplicatesTab() {
 }
 
 // ── Missing Owner Tab ──────────────────────────────────────────────────────────
-function MissingOwnerTab() {
+function MissingOwnerTab({ subFilter }: { subFilter?: string }) {
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/data-quality/issues", "missing_owner"],
     queryFn: () => fetch("/api/data-quality/issues?category=missing_owner", { credentials: "include" }).then(r => r.json()),
@@ -606,6 +612,12 @@ function MissingOwnerTab() {
   const [assignDialog, setAssignDialog] = useState<{ objectType: string; objectId: number } | null>(null);
   const { toast } = useToast();
   const qc = useQueryClient();
+
+  useEffect(() => {
+    if (!subFilter) return;
+    const el = document.getElementById(`dq-section-${subFilter}`);
+    if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }, [subFilter]);
 
   const bulkAssign = useMutation({
     mutationFn: ({ ids, objectType, userId }: any) =>
@@ -657,9 +669,9 @@ function MissingOwnerTab() {
   );
 
   const sections = [
-    { label: "Opportunities", key: "opportunities", icon: TrendingUp, items: data.opportunities ?? [] },
-    { label: "Tasks",         key: "tasks",         icon: Zap,         items: data.tasks         ?? [] },
-    { label: "Leads",         key: "leads",         icon: Users,       items: data.leads         ?? [] },
+    { label: "Opportunities", key: "opportunity", dataKey: "opportunities", icon: TrendingUp, items: data.opportunities ?? [] },
+    { label: "Tasks",         key: "task",        dataKey: "tasks",         icon: Zap,         items: data.tasks         ?? [] },
+    { label: "Leads",         key: "lead",        dataKey: "leads",         icon: Users,       items: data.leads         ?? [] },
   ];
 
   return (
@@ -685,7 +697,7 @@ function MissingOwnerTab() {
         </div>
       )}
       {sections.map(sec => sec.items.length > 0 && (
-        <Card key={sec.key} className="border border-border/50">
+        <Card key={sec.key} id={`dq-section-${sec.key}`} className="border border-border/50">
           <CardHeader className="py-2.5 px-4 border-b border-border/30">
             <div className="flex items-center gap-2 text-sm">
               <sec.icon className="h-4 w-4 text-muted-foreground" />
@@ -694,7 +706,7 @@ function MissingOwnerTab() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            {sec.items.map((r: any) => renderRow(r, sec.key.replace("ies","y").replace("ities","ity").replace("opportunities","opportunity").replace("tasks","task").replace("leads","lead")))}
+            {sec.items.map((r: any) => renderRow(r, sec.key))}
           </CardContent>
         </Card>
       ))}
@@ -709,7 +721,7 @@ function MissingOwnerTab() {
 }
 
 // ── Missing Fields Tab ─────────────────────────────────────────────────────────
-function MissingFieldsTab() {
+function MissingFieldsTab({ subFilter }: { subFilter?: string }) {
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/data-quality/issues", "missing_fields"],
     queryFn: () => fetch("/api/data-quality/issues?category=missing_fields", { credentials: "include" }).then(r => r.json()),
@@ -717,6 +729,12 @@ function MissingFieldsTab() {
   const [dateDialog, setDateDialog] = useState<number | null>(null);
   const [amtDialog,  setAmtDialog]  = useState<number | null>(null);
   const qc = useQueryClient();
+
+  useEffect(() => {
+    if (!subFilter) return;
+    const el = document.getElementById(`dq-section-${subFilter}`);
+    if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }, [subFilter]);
 
   if (isLoading) return <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16" />)}</div>;
   if (!data) return null;
@@ -753,7 +771,7 @@ function MissingFieldsTab() {
   return (
     <div className="space-y-4">
       {data.missingCloseDate?.length > 0 && (
-        <Card className="border border-border/50">
+        <Card id="dq-section-close_date" className="border border-border/50">
           <CardHeader className="py-2.5 px-4 border-b border-border/30">
             <div className="flex items-center gap-2 text-sm">
               <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -772,7 +790,7 @@ function MissingFieldsTab() {
         </Card>
       )}
       {data.missingAmount?.length > 0 && (
-        <Card className="border border-border/50">
+        <Card id="dq-section-amount" className="border border-border/50">
           <CardHeader className="py-2.5 px-4 border-b border-border/30">
             <div className="flex items-center gap-2 text-sm">
               <DollarSign className="h-4 w-4 text-muted-foreground" />
@@ -801,13 +819,19 @@ function MissingFieldsTab() {
 }
 
 // ── Orphans Tab ────────────────────────────────────────────────────────────────
-function OrphansTab() {
+function OrphansTab({ subFilter }: { subFilter?: string }) {
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/data-quality/issues", "orphans"],
     queryFn: () => fetch("/api/data-quality/issues?category=orphans", { credentials: "include" }).then(r => r.json()),
   });
   const { toast } = useToast();
   const qc = useQueryClient();
+
+  useEffect(() => {
+    if (!subFilter) return;
+    const el = document.getElementById(`dq-section-${subFilter}`);
+    if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }, [subFilter]);
 
   const archive = useMutation({
     mutationFn: ({ objectType, objectId }: { objectType: string; objectId: number }) =>
@@ -833,7 +857,7 @@ function OrphansTab() {
   return (
     <div className="space-y-4">
       {data.orphanQuotes?.length > 0 && (
-        <Card className="border border-amber-500/20">
+        <Card id="dq-section-quotes" className="border border-amber-500/20">
           <CardHeader className="py-2.5 px-4 border-b border-border/30">
             <div className="flex items-center gap-2 text-sm">
               <FileText className="h-4 w-4 text-amber-400" />
@@ -863,7 +887,7 @@ function OrphansTab() {
         </Card>
       )}
       {data.orphanOpps?.length > 0 && (
-        <Card className="border border-red-500/20">
+        <Card id="dq-section-opps" className="border border-red-500/20">
           <CardHeader className="py-2.5 px-4 border-b border-border/30">
             <div className="flex items-center gap-2 text-sm">
               <Link2Off className="h-4 w-4 text-red-400" />
@@ -893,7 +917,7 @@ function OrphansTab() {
         </Card>
       )}
       {data.brokenLeadLinks?.length > 0 && (
-        <Card className="border border-border/50">
+        <Card id="dq-section-broken" className="border border-border/50">
           <CardHeader className="py-2.5 px-4 border-b border-border/30">
             <div className="flex items-center gap-2 text-sm">
               <Link2Off className="h-4 w-4 text-muted-foreground" />
@@ -1017,22 +1041,22 @@ function StaleTab() {
 }
 
 // ── Overview Tab ───────────────────────────────────────────────────────────────
-function OverviewTab({ summary, onTabChange }: { summary: Summary; onTabChange: (tab: string) => void }) {
+function OverviewTab({ summary, onNavigate }: { summary: Summary; onNavigate: (tab: string, subFilter?: string) => void }) {
   const { counts, forecast } = summary;
   const issues = [
-    { label: "Duplicate account clusters",     count: counts.duplicate_account_clusters,  tab: "duplicates",     severity: "warning"  as const, icon: Building2 },
-    { label: "Duplicate contact clusters",     count: counts.duplicate_contact_clusters,  tab: "duplicates",     severity: "warning"  as const, icon: Users },
-    { label: "Duplicate lead clusters",        count: counts.duplicate_lead_clusters,     tab: "duplicates",     severity: "warning"  as const, icon: Hash },
-    { label: "Opportunities without owner",    count: counts.missing_owner_opps,          tab: "missing_owner",  severity: "critical" as const, icon: UserX },
-    { label: "Tasks without owner",            count: counts.missing_owner_tasks,         tab: "missing_owner",  severity: "warning"  as const, icon: UserX },
-    { label: "Leads without owner",            count: counts.missing_owner_leads,         tab: "missing_owner",  severity: "warning"  as const, icon: UserX },
-    { label: "Opportunities missing close date", count: counts.missing_close_date,        tab: "missing_fields", severity: "critical" as const, icon: Calendar },
-    { label: "Opportunities missing amount",   count: counts.missing_amount,              tab: "missing_fields", severity: "critical" as const, icon: DollarSign },
-    { label: "Orphan quotes",                  count: counts.orphan_quotes,               tab: "orphans",        severity: "warning"  as const, icon: FileText },
-    { label: "Orphan opportunities",           count: counts.orphan_opps,                 tab: "orphans",        severity: "critical" as const, icon: Link2Off },
-    { label: "Broken converted lead links",    count: counts.broken_lead_links,           tab: "orphans",        severity: "warning"  as const, icon: Link2Off },
-    { label: "Stale leads (30+ days)",         count: counts.stale_leads,                 tab: "stale",          severity: "info"     as const, icon: RefreshCw },
-    { label: "Contacts without valid account", count: counts.contacts_no_account,         tab: "stale",          severity: "info"     as const, icon: Users },
+    { label: "Duplicate account clusters",     count: counts.duplicate_account_clusters,  tab: "duplicates",     subFilter: "accounts",   severity: "warning"  as const, icon: Building2 },
+    { label: "Duplicate contact clusters",     count: counts.duplicate_contact_clusters,  tab: "duplicates",     subFilter: "contacts",   severity: "warning"  as const, icon: Users },
+    { label: "Duplicate lead clusters",        count: counts.duplicate_lead_clusters,     tab: "duplicates",     subFilter: "leads",      severity: "warning"  as const, icon: Hash },
+    { label: "Opportunities without owner",    count: counts.missing_owner_opps,          tab: "missing_owner",  subFilter: "opportunity",severity: "critical" as const, icon: UserX },
+    { label: "Tasks without owner",            count: counts.missing_owner_tasks,         tab: "missing_owner",  subFilter: "task",       severity: "warning"  as const, icon: UserX },
+    { label: "Leads without owner",            count: counts.missing_owner_leads,         tab: "missing_owner",  subFilter: "lead",       severity: "warning"  as const, icon: UserX },
+    { label: "Opportunities missing close date", count: counts.missing_close_date,        tab: "missing_fields", subFilter: "close_date", severity: "critical" as const, icon: Calendar },
+    { label: "Opportunities missing amount",   count: counts.missing_amount,              tab: "missing_fields", subFilter: "amount",     severity: "critical" as const, icon: DollarSign },
+    { label: "Orphan quotes",                  count: counts.orphan_quotes,               tab: "orphans",        subFilter: "quotes",     severity: "warning"  as const, icon: FileText },
+    { label: "Orphan opportunities",           count: counts.orphan_opps,                 tab: "orphans",        subFilter: "opps",       severity: "critical" as const, icon: Link2Off },
+    { label: "Broken converted lead links",    count: counts.broken_lead_links,           tab: "orphans",        subFilter: "broken",     severity: "warning"  as const, icon: Link2Off },
+    { label: "Stale leads (30+ days)",         count: counts.stale_leads,                 tab: "stale",          subFilter: undefined,    severity: "info"     as const, icon: RefreshCw },
+    { label: "Contacts without valid account", count: counts.contacts_no_account,         tab: "stale",          subFilter: undefined,    severity: "info"     as const, icon: Users },
   ].filter(i => i.count > 0);
 
   return (
@@ -1087,7 +1111,7 @@ function OverviewTab({ summary, onTabChange }: { summary: Summary; onTabChange: 
           {issues.map((issue, i) => (
             <button key={i}
               className="w-full flex items-center justify-between py-2 px-3 rounded-lg bg-muted/20 hover:bg-muted/50 cursor-pointer text-left transition-colors"
-              onClick={() => onTabChange(issue.tab)}
+              onClick={() => onNavigate(issue.tab, issue.subFilter)}
               data-testid={`overview-issue-${i}`}>
               <div className="flex items-center gap-2 text-sm">
                 <issue.icon className="h-4 w-4 text-muted-foreground" />
@@ -1109,6 +1133,12 @@ function OverviewTab({ summary, onTabChange }: { summary: Summary; onTabChange: 
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function DataQualityPage() {
   const [activeTab, setActiveTab] = useState("overview");
+  const [subFilter, setSubFilter] = useState<string | undefined>(undefined);
+
+  function navigate(tab: string, sf?: string) {
+    setSubFilter(sf);
+    setActiveTab(tab);
+  }
 
   const { data: summary, isLoading } = useQuery<Summary>({
     queryKey: ["/api/data-quality/summary"],
@@ -1161,7 +1191,7 @@ export default function DataQualityPage() {
       )}
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={t => { setSubFilter(undefined); setActiveTab(t); }}>
         <TabsList className="w-full justify-start gap-1 h-9 bg-muted/40 p-1">
           <TabsTrigger value="overview"       className="text-xs" data-testid="tab-overview">Overview</TabsTrigger>
           <TabsTrigger value="duplicates"     className="text-xs" data-testid="tab-duplicates">
@@ -1196,11 +1226,11 @@ export default function DataQualityPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview"       className="mt-4">{summary ? <OverviewTab summary={summary} onTabChange={setActiveTab} /> : <Skeleton className="h-40" />}</TabsContent>
-        <TabsContent value="duplicates"     className="mt-4"><DuplicatesTab /></TabsContent>
-        <TabsContent value="missing_owner"  className="mt-4"><MissingOwnerTab /></TabsContent>
-        <TabsContent value="missing_fields" className="mt-4"><MissingFieldsTab /></TabsContent>
-        <TabsContent value="orphans"        className="mt-4"><OrphansTab /></TabsContent>
+        <TabsContent value="overview"       className="mt-4">{summary ? <OverviewTab summary={summary} onNavigate={navigate} /> : <Skeleton className="h-40" />}</TabsContent>
+        <TabsContent value="duplicates"     className="mt-4"><DuplicatesTab subFilter={activeTab === "duplicates" ? subFilter : undefined} /></TabsContent>
+        <TabsContent value="missing_owner"  className="mt-4"><MissingOwnerTab subFilter={activeTab === "missing_owner" ? subFilter : undefined} /></TabsContent>
+        <TabsContent value="missing_fields" className="mt-4"><MissingFieldsTab subFilter={activeTab === "missing_fields" ? subFilter : undefined} /></TabsContent>
+        <TabsContent value="orphans"        className="mt-4"><OrphansTab subFilter={activeTab === "orphans" ? subFilter : undefined} /></TabsContent>
         <TabsContent value="stale"          className="mt-4"><StaleTab /></TabsContent>
       </Tabs>
     </div>
