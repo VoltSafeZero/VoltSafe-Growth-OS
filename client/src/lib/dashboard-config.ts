@@ -68,6 +68,7 @@ export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {
     { id: "stale_deals",          label: "Stale Deals",              description: "Opportunities with no recent activity",  defaultVisible: true  },
     { id: "inbox_followups",      label: "Inbox Follow-ups",         description: "Emails needing responses",               defaultVisible: true  },
     { id: "week_priorities",      label: "This Week",                description: "Tasks and meetings due this week",       defaultVisible: true  },
+    { id: "nearby_routes",        label: "Nearby Routes",            description: "High-priority stops near your location", defaultVisible: true  },
   ],
   cs: [
     { id: "health_scores",        label: "Account Health",           description: "CS health scores and risk signals",      defaultVisible: true  },

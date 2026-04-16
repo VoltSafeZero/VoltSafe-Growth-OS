@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
   Home, Users, LifeBuoy, Settings2, Building2, Contact, FileText, Mail,
   CalendarClock, FolderOpen, Tags, Zap, Settings, ChevronRight, Users2,
-  ClipboardList, Layers, ShieldCheck, Sun, Moon, GitBranch,
+  ClipboardList, Layers, ShieldCheck, Sun, Moon, GitBranch, MapPin,
   LayoutDashboard, Target, Share2, Brain, SlidersHorizontal, BarChart3,
   Megaphone, TrendingUp, Landmark, Truck, Factory, FlaskConical, Newspaper,
   Circle, StickyNote, CheckSquare, RefreshCcw, Bell, BellRing, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen,
@@ -132,6 +132,7 @@ const sections: NavSection[] = [
       { title: "Score Feedback", url: "/scores/feedback", icon: Target },
       { title: "Rel. Intelligence", url: "/intelligence/rel-intelligence", icon: BarChart3 },
       { title: "Territory & Geo", url: "/geography", icon: Globe, permKey: "crm" },
+      { title: "Territory Routing", url: "/routing", icon: MapPin },
     ],
   },
 

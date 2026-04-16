@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
   LayoutDashboard, RefreshCw, ChevronDown,
   Eye, EyeOff, RotateCcw, Maximize2, Minimize2, SlidersHorizontal,
   AlertTriangle, CheckSquare, TrendingUp, Building2, Mail,
-  ChevronRight, Zap, CalendarDays, ShieldAlert, ArrowRight,
+  ChevronRight, Zap, CalendarDays, ShieldAlert, ArrowRight, Route, MapPin, Navigation,
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { ScoreBadge } from "@/components/scores/score-badge";
@@ -92,6 +92,91 @@ function SalesItemRow({ link, severity, title, subtitle, rightLabel, action, tes
 const TYPE_ICONS: Record<string, string> = {
   lead: "🎯", opportunity: "📊", quote: "📋", deployment: "🏗️", churn: "⚠️", expansion: "🚀",
 };
+
+function useNearbyRoutes() {
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [locError, setLocError] = useState(false);
+
+  useEffect(() => {
+    if (!navigator.geolocation) { setLocError(true); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => setLocError(true),
+      { timeout: 5000 }
+    );
+  }, []);
+
+  const { data, isLoading } = useQuery<{ suggestions: any[] }>({
+    queryKey: ["/api/routing/suggestions", coords?.lat, coords?.lng],
+    enabled: !!coords,
+    queryFn: async () => {
+      if (!coords) return { suggestions: [] };
+      const res = await fetch(`/api/routing/suggestions?lat=${coords.lat}&lng=${coords.lng}`, { credentials: "include" });
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  return { suggestions: data?.suggestions ?? [], isLoading: isLoading && !!coords, locError, hasCoords: !!coords };
+}
+
+function NearbyRoutesWidget({ compact }: { compact?: boolean }) {
+  const { suggestions, isLoading, locError, hasCoords } = useNearbyRoutes();
+
+  if (locError || !hasCoords) {
+    return (
+      <div className="flex flex-col items-center justify-center py-4 gap-2" data-testid="nearby-routes-no-location">
+        <MapPin className="h-6 w-6 text-muted-foreground/30" />
+        <p className="text-xs text-muted-foreground text-center">
+          Enable location access to see nearby route suggestions.
+        </p>
+        <Link href="/routing">
+          <button className="text-xs text-primary underline-offset-2 hover:underline">Open Territory Routing</button>
+        </Link>
+      </div>
+    );
+  }
+
+  if (isLoading) return <Skeleton className="h-16" />;
+
+  if (suggestions.length === 0) {
+    return (
+      <div className="py-3" data-testid="nearby-routes-empty">
+        <p className="text-xs text-muted-foreground italic">No high-priority stops within 25–50 km of your current location.</p>
+        <Link href="/routing">
+          <button className="mt-1.5 text-xs text-primary underline-offset-2 hover:underline flex items-center gap-1">
+            <Route className="h-3 w-3" />View Territory Routing
+          </button>
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2" data-testid="nearby-routes-list">
+      {suggestions.map((s: any, i: number) => (
+        <Link key={i} href={s.link ?? "/routing"}>
+          <div
+            className="flex items-center gap-2.5 py-1.5 hover:bg-muted/30 rounded -mx-1 px-1 transition-colors cursor-pointer group"
+            data-testid={`nearby-route-${i}`}
+          >
+            <span className="text-base shrink-0">{s.icon}</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium truncate leading-tight">{s.title}</p>
+              <p className="text-xs text-muted-foreground truncate">{s.subtitle}</p>
+            </div>
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-muted-foreground shrink-0 transition-colors" />
+          </div>
+        </Link>
+      ))}
+      <Link href="/routing">
+        <button className="text-xs text-primary underline-offset-2 hover:underline flex items-center gap-1 mt-1">
+          <Navigation className="h-3 w-3" />Plan a route
+        </button>
+      </Link>
+    </div>
+  );
+}
 
 function SalesCommandCenter({ visible, compact }: { visible: Record<string, boolean>; compact?: boolean }) {
   const { data, isLoading } = useQuery<any>({ queryKey: ["/api/daily-command-center"], refetchInterval: 5 * 60 * 1000 });
@@ -222,6 +307,11 @@ function SalesCommandCenter({ visible, compact }: { visible: Record<string, bool
               </div>
             </Link>
           ))}
+        </SalesSection>
+      )}
+      {visible.nearby_routes !== false && (
+        <SalesSection icon={Route} title="Nearby Routes" count={0} link="/routing" compact={compact}>
+          <NearbyRoutesWidget compact={compact} />
         </SalesSection>
       )}
     </div>

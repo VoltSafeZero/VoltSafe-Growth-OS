@@ -71,6 +71,7 @@ import FieldPage from "@/pages/field";
 import FieldNearbyPage from "@/pages/field-nearby";
 import AlertsDigestPage from "@/pages/alerts-digest";
 import ScoreFeedbackPage from "@/pages/score-feedback";
+import TerritoryRoutingPage from "@/pages/territory-routing";
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -194,6 +195,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/deployments">{() => guard("crm", <DeploymentsPage />)}</Route>
       <Route path="/renewals">{() => guard("crm", <RenewalsPage />)}</Route>
       <Route path="/geography">{() => guard("crm", <GeographyPage />)}</Route>
+      <Route path="/routing">{() => wrap(<TerritoryRoutingPage />)}</Route>
       <Route path="/documents">{() => wrap(<DocumentsPage />)}</Route>
 
       {/* ── Sidebar alias routes — each nav item gets a unique URL so active   */}

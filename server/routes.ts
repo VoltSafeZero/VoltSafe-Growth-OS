@@ -13,6 +13,7 @@ import { storage } from "./storage";
 import { runAutomationRule, evaluateConditions, type TriggerContext, type Condition, type Action } from "./services/automation-engine";
 import { scoreLeadQuality, scoreOpportunityClose, scoreQuoteFollowUpUrgency, scoreDeploymentDelayRisk, scoreChurnRisk, scoreExpansionLikelihood, bandRank, actionHintFor, type HotListItem } from "./services/scoring-engine";
 import { composeReport, ALL_SECTION_KEYS } from "./services/report-composer";
+import { computeRankedNearby, getRouteSuggestions, generateDirectionsUrl } from "./services/routing-engine";
 import { db } from "./db";
 import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications } from "@shared/schema";
 import {
@@ -17216,6 +17217,188 @@ export function registerConfluenceRoutes(app: Express) {
       const { daysBack } = req.body;
       const results = await getAllModelAccuracy(daysBack ?? 180);
       res.json({ ok: true, models: results.map(r => ({ modelName: r.modelName, directionAccuracy: r.directionAccuracy, totalOutcomes: r.totalOutcomes })) });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Territory Routing + Travel Engine ───────────────────────────────────────
+
+  // GET /api/routing/nearby-ranked — scored & ranked nearby stops
+  app.get("/api/routing/nearby-ranked", requireAuth, async (req, res) => {
+    try {
+      const lat = parseFloat(String(req.query.lat ?? ""));
+      const lng = parseFloat(String(req.query.lng ?? ""));
+      if (isNaN(lat) || isNaN(lng)) return res.status(400).json({ message: "lat and lng required" });
+
+      const radiusKm = Math.min(parseFloat(String(req.query.radius ?? "50")), 500);
+      const maxStops = Math.min(parseInt(String(req.query.maxStops ?? "20")), 100);
+      const scoreThreshold = parseInt(String(req.query.scoreThreshold ?? "0"));
+      const urgencyFilter = String(req.query.urgencyFilter ?? "all") as any;
+      const typesRaw = String(req.query.types ?? "lead,account,opportunity,deployment");
+      const recordTypes = typesRaw.split(",").map(t => t.trim()).filter(Boolean) as any[];
+
+      const stops = await computeRankedNearby({ lat, lng, radiusKm, maxStops, recordTypes, scoreThreshold, urgencyFilter });
+      res.json({ stops, total: stops.length, lat, lng, radiusKm });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/routing/suggestions — command center route suggestions (requires lat/lng)
+  app.get("/api/routing/suggestions", requireAuth, async (req, res) => {
+    try {
+      const lat = parseFloat(String(req.query.lat ?? ""));
+      const lng = parseFloat(String(req.query.lng ?? ""));
+      if (isNaN(lat) || isNaN(lng)) return res.json({ suggestions: [] });
+      const suggestions = await getRouteSuggestions(lat, lng);
+      res.json({ suggestions });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/routing/directions — generate directions URL
+  app.get("/api/routing/directions", requireAuth, (req, res) => {
+    try {
+      const lat = parseFloat(String(req.query.lat ?? ""));
+      const lng = parseFloat(String(req.query.lng ?? ""));
+      const label = String(req.query.label ?? "Destination");
+      if (isNaN(lat) || isNaN(lng)) return res.status(400).json({ message: "lat and lng required" });
+      res.json({
+        google: generateDirectionsUrl(lat, lng, label),
+        apple: `maps://maps.apple.com/?daddr=${lat},${lng}&q=${encodeURIComponent(label)}`,
+        waze: `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`,
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/routing/plans — list user's trip plans
+  app.get("/api/routing/plans", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const rows = await db.execute(sql`
+        SELECT p.*,
+          (SELECT COUNT(*) FROM trip_stops s WHERE s.trip_plan_id = p.id) AS stop_count,
+          (SELECT COUNT(*) FROM trip_stops s WHERE s.trip_plan_id = p.id AND s.visited = true) AS visited_count
+        FROM trip_plans p
+        WHERE p.user_id = ${userId}
+        ORDER BY p.updated_at DESC
+        LIMIT 50
+      `);
+      res.json(rows.rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/routing/plans — create a trip plan
+  app.post("/api/routing/plans", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const { name, radiusKm = 50, maxStops = 10, notes = "" } = req.body;
+      if (!name?.trim()) return res.status(400).json({ message: "name required" });
+      const rows = await db.execute(sql`
+        INSERT INTO trip_plans (user_id, name, status, radius_km, max_stops, notes)
+        VALUES (${userId}, ${name.trim()}, 'draft', ${radiusKm}, ${maxStops}, ${notes})
+        RETURNING *
+      `);
+      res.status(201).json(rows.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/routing/plans/:id — get a specific plan with stops
+  app.get("/api/routing/plans/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const planId = parseInt(req.params.id);
+      const planR = await db.execute(sql`SELECT * FROM trip_plans WHERE id = ${planId} AND user_id = ${userId}`);
+      if (!planR.rows.length) return res.status(404).json({ message: "Not found" });
+      const stopsR = await db.execute(sql`SELECT * FROM trip_stops WHERE trip_plan_id = ${planId} ORDER BY sort_order ASC, id ASC`);
+      res.json({ ...planR.rows[0], stops: stopsR.rows });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // PATCH /api/routing/plans/:id — update plan metadata
+  app.patch("/api/routing/plans/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const planId = parseInt(req.params.id);
+      const { name, status, radiusKm, maxStops, notes } = req.body;
+      const rows = await db.execute(sql`
+        UPDATE trip_plans SET
+          name = COALESCE(${name ?? null}, name),
+          status = COALESCE(${status ?? null}, status),
+          radius_km = COALESCE(${radiusKm ?? null}, radius_km),
+          max_stops = COALESCE(${maxStops ?? null}, max_stops),
+          notes = COALESCE(${notes ?? null}, notes),
+          updated_at = NOW()
+        WHERE id = ${planId} AND user_id = ${userId}
+        RETURNING *
+      `);
+      if (!rows.rows.length) return res.status(404).json({ message: "Not found" });
+      res.json(rows.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // DELETE /api/routing/plans/:id — delete plan and its stops
+  app.delete("/api/routing/plans/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const planId = parseInt(req.params.id);
+      await db.execute(sql`DELETE FROM trip_stops WHERE trip_plan_id = ${planId}`);
+      await db.execute(sql`DELETE FROM trip_plans WHERE id = ${planId} AND user_id = ${userId}`);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/routing/plans/:id/stops — add a stop to a plan
+  app.post("/api/routing/plans/:id/stops", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const planId = parseInt(req.params.id);
+      const planCheck = await db.execute(sql`SELECT id FROM trip_plans WHERE id = ${planId} AND user_id = ${userId}`);
+      if (!planCheck.rows.length) return res.status(404).json({ message: "Plan not found" });
+      const { entityType, entityId, entityName, entitySubtype, lat, lng, address, score, compositeScore, rank, reasons, sortOrder = 0 } = req.body;
+      if (!entityType || !entityId || !entityName) return res.status(400).json({ message: "entityType, entityId, entityName required" });
+      const rows = await db.execute(sql`
+        INSERT INTO trip_stops (trip_plan_id, entity_type, entity_id, entity_name, entity_subtype, lat, lng, address, score, composite_score, rank, reasons, sort_order)
+        VALUES (${planId}, ${entityType}, ${entityId}, ${entityName}, ${entitySubtype ?? null}, ${lat ?? null}, ${lng ?? null}, ${address ?? null}, ${score ?? null}, ${compositeScore ?? null}, ${rank ?? null}, ${JSON.stringify(reasons ?? [])}, ${sortOrder})
+        ON CONFLICT DO NOTHING
+        RETURNING *
+      `);
+      await db.execute(sql`UPDATE trip_plans SET updated_at = NOW() WHERE id = ${planId}`);
+      res.status(201).json(rows.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // PATCH /api/routing/plans/:id/stops/:stopId — update a stop (visited, notes, reorder)
+  app.patch("/api/routing/plans/:id/stops/:stopId", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const planId = parseInt(req.params.id);
+      const stopId = parseInt(req.params.stopId);
+      const planCheck = await db.execute(sql`SELECT id FROM trip_plans WHERE id = ${planId} AND user_id = ${userId}`);
+      if (!planCheck.rows.length) return res.status(404).json({ message: "Plan not found" });
+      const { visited, visitNotes, sortOrder } = req.body;
+      const rows = await db.execute(sql`
+        UPDATE trip_stops SET
+          visited = COALESCE(${visited !== undefined ? visited : null}, visited),
+          visited_at = CASE WHEN ${visited === true} THEN NOW() WHEN ${visited === false} THEN NULL ELSE visited_at END,
+          visit_notes = COALESCE(${visitNotes ?? null}, visit_notes),
+          sort_order = COALESCE(${sortOrder ?? null}, sort_order)
+        WHERE id = ${stopId} AND trip_plan_id = ${planId}
+        RETURNING *
+      `);
+      await db.execute(sql`UPDATE trip_plans SET updated_at = NOW() WHERE id = ${planId}`);
+      if (!rows.rows.length) return res.status(404).json({ message: "Stop not found" });
+      res.json(rows.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // DELETE /api/routing/plans/:id/stops/:stopId — remove a stop
+  app.delete("/api/routing/plans/:id/stops/:stopId", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const planId = parseInt(req.params.id);
+      const stopId = parseInt(req.params.stopId);
+      const planCheck = await db.execute(sql`SELECT id FROM trip_plans WHERE id = ${planId} AND user_id = ${userId}`);
+      if (!planCheck.rows.length) return res.status(404).json({ message: "Plan not found" });
+      await db.execute(sql`DELETE FROM trip_stops WHERE id = ${stopId} AND trip_plan_id = ${planId}`);
+      await db.execute(sql`UPDATE trip_plans SET updated_at = NOW() WHERE id = ${planId}`);
+      res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
