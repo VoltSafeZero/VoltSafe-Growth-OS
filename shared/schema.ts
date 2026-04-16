@@ -443,7 +443,10 @@ export const tasks = pgTable("tasks", {
   title: text("title").notNull(),
   description: text("description"),
   dueDate: timestamp("due_date"),
+  startDate: timestamp("start_date"),
   status: text("status").notNull().default("pending"),
+  boardColumn: text("board_column"),
+  sortOrder: integer("sort_order").notNull().default(0),
   priority: text("priority").notNull().default("medium"),
   aiSuggested: boolean("ai_suggested").default(false),
   reminderAt: timestamp("reminder_at"),
@@ -454,12 +457,81 @@ export const tasks = pgTable("tasks", {
   dismissedAt: timestamp("dismissed_at"),
   dismissedBy: integer("dismissed_by"),
   completedAt: timestamp("completed_at"),
+  completedByUserId: integer("completed_by_user_id"),
+  completionNotes: text("completion_notes"),
+  lastUpdatedByUserId: integer("last_updated_by_user_id"),
+  archived: boolean("archived").notNull().default(false),
   lastRemindedAt: timestamp("last_reminded_at"),
   reminderCount: integer("reminder_count").default(0),
   escalationLevel: integer("escalation_level").default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+export const taskDependencies = pgTable("task_dependencies", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id").notNull(),
+  dependsOnTaskId: integer("depends_on_task_id").notNull(),
+  createdByUserId: integer("created_by_user_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const taskLabels = pgTable("task_labels", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  color: text("color").notNull().default("slate"),
+  createdByUserId: integer("created_by_user_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const taskLabelAssignments = pgTable("task_label_assignments", {
+  taskId: integer("task_id").notNull(),
+  labelId: integer("label_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const taskChecklists = pgTable("task_checklists", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id").notNull(),
+  title: text("title").notNull().default("Checklist"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const taskChecklistItems = pgTable("task_checklist_items", {
+  id: serial("id").primaryKey(),
+  checklistId: integer("checklist_id").notNull(),
+  content: text("content").notNull(),
+  completed: boolean("completed").notNull().default(false),
+  completedAt: timestamp("completed_at"),
+  completedByUserId: integer("completed_by_user_id"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const taskWatchers = pgTable("task_watchers", {
+  taskId: integer("task_id").notNull(),
+  userId: integer("user_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const taskActivity = pgTable("task_activity", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id").notNull(),
+  userId: integer("user_id"),
+  action: text("action").notNull(),
+  fromValue: text("from_value"),
+  toValue: text("to_value"),
+  meta: jsonb("meta"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type TaskDependency = typeof taskDependencies.$inferSelect;
+export type TaskLabel = typeof taskLabels.$inferSelect;
+export type TaskChecklist = typeof taskChecklists.$inferSelect;
+export type TaskChecklistItem = typeof taskChecklistItems.$inferSelect;
+export type TaskWatcher = typeof taskWatchers.$inferSelect;
+export type TaskActivityRow = typeof taskActivity.$inferSelect;
 
 export const taskSuggestions = pgTable("task_suggestions", {
   id: serial("id").primaryKey(),

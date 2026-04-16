@@ -352,6 +352,8 @@ export async function registerRoutes(
   registerChatRoutes(app);
   registerAudioRoutes(app);
   registerImageRoutes(app);
+  const { registerTaskRoutes } = await import("./routes-tasks");
+  registerTaskRoutes(app, requireAuth);
 
   // ── Public Tracking Routes (NO auth — served to email clients) ─────────────
   // 1x1 transparent GIF pixel for open tracking

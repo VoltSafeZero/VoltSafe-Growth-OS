@@ -17,10 +17,12 @@ import {
 import {
   CheckCircle2, Circle, Clock, AlertTriangle, ChevronDown, ChevronRight,
   CalendarDays, Flag, User2, Link2, MoreHorizontal, Plus, Search,
-  SlidersHorizontal, ListTodo, CheckSquare, Users, RefreshCcw, Bell,
+  SlidersHorizontal, ListTodo, CheckSquare, Users, RefreshCcw, Bell, LayoutGrid,
   Building2, ArrowRight, Zap, Sparkles, ThumbsDown, Settings2,
 } from "lucide-react";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
+import { TaskBoard } from "@/components/tasks/task-board";
+import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
 
 type HubTask = {
   id: number;
@@ -58,10 +60,11 @@ type HubResponse = {
   total: number;
 };
 
-type ViewTab = "my" | "team" | "today" | "overdue" | "upcoming" | "completed" | "suggestions";
+type ViewTab = "board" | "my" | "team" | "today" | "overdue" | "upcoming" | "completed" | "suggestions";
 type GroupBy = "due_date" | "priority" | "linked_record" | "assignee";
 
 const VIEW_LABELS: Record<ViewTab, string> = {
+  board: "Board",
   my: "My Tasks",
   team: "Team Tasks",
   today: "Due Today",
@@ -72,6 +75,7 @@ const VIEW_LABELS: Record<ViewTab, string> = {
 };
 
 const VIEW_ICONS: Record<ViewTab, React.ElementType> = {
+  board: LayoutGrid,
   my: ListTodo,
   team: Users,
   today: CalendarDays,
@@ -571,7 +575,18 @@ export default function TasksHubPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [view, setView] = useState<ViewTab>("my");
+  const [view, setView] = useState<ViewTab>("board");
+  const [openTaskId, setOpenTaskId] = useState<number | null>(null);
+
+  // Allow any list-row component to request the drawer via a window event
+  useEffect(() => {
+    const handler = (e: any) => {
+      const id = Number(e?.detail?.taskId);
+      if (Number.isFinite(id)) setOpenTaskId(id);
+    };
+    window.addEventListener("open-task-drawer", handler as EventListener);
+    return () => window.removeEventListener("open-task-drawer", handler as EventListener);
+  }, []);
   const [groupBy, setGroupBy] = useState<GroupBy>("due_date");
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -595,6 +610,7 @@ export default function TasksHubPage() {
     queryFn: () =>
       fetch(`/api/tasks/hub?view=${view}&groupBy=${groupBy}`, { credentials: "include" }).then(r => r.json()),
     refetchInterval: 30_000,
+    enabled: view !== "board" && view !== "suggestions",
   });
 
   const { data: usersData = [] } = useQuery<{ id: number; name: string }[]>({
@@ -710,7 +726,7 @@ export default function TasksHubPage() {
     return oa !== ob ? oa - ob : a.localeCompare(b);
   });
 
-  const viewTabs: ViewTab[] = ["my", "team", "today", "overdue", "upcoming", "completed", "suggestions"];
+  const viewTabs: ViewTab[] = ["board", "my", "team", "today", "overdue", "upcoming", "completed", "suggestions"];
 
   const suggestionsList = suggestionsData?.suggestions ?? [];
 
@@ -808,7 +824,11 @@ export default function TasksHubPage() {
 
       {/* Body — pb-24 on mobile ensures the last task row isn't hidden under the FAB */}
       <div className="flex-1 overflow-y-auto pb-36 md:pb-24">
-        {view === "suggestions" ? (
+        {view === "board" ? (
+          <div className="p-4 md:p-6">
+            <TaskBoard view="team" onOpenTask={(id) => setOpenTaskId(id)} />
+          </div>
+        ) : view === "suggestions" ? (
           suggestionsLoading ? (
             <div className="p-4 space-y-3">
               {[...Array(4)].map((_, i) => (
@@ -931,6 +951,15 @@ export default function TasksHubPage() {
           </div>
         )}
       </div>
+
+      <TaskDetailDrawer
+        taskId={openTaskId}
+        onOpenChange={(o) => !o && setOpenTaskId(null)}
+        onTaskChanged={() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/tasks/board"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
+        }}
+      />
     </div>
   );
 }

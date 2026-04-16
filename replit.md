@@ -1273,3 +1273,40 @@ Covers: auth guards (6), products CRUD (12), cases CRUD (15), KB CRUD (15), dash
 
 ### Seed Data
 Auto-seeded on boot (if empty): 3 products (Gen 1, Gen 2, Pro) + 7 KB articles covering overheating, charging issues, magnet/cable/compatibility/warranty/retailer.
+
+## Trello-style Tasks System — Slice A (Complete)
+
+Major upgrade to the existing Tasks Hub at `/execution/tasks`. The legacy List view is preserved alongside a new Board view as the new default.
+
+### Schema (additive, applied via raw SQL — no destructive migrations)
+- `tasks` gained columns: `completed_by_user_id`, `last_updated_by_user_id`, `start_date`, `completion_notes`, `archived` (default false), `sort_order` (default 0), `board_column` (backfilled for 161 existing rows)
+- New tables: `task_dependencies`, `task_labels`, `task_label_assignments`, `task_checklists`, `task_checklist_items`, `task_watchers`, `task_activity`
+- 8 default labels seeded (Urgent, Customer, Internal, Sales, Engineering, Field, Blocker, Quick Win)
+- Comments are reused via the existing polymorphic `comments` table (`object_type='task'`, `object_id`, `user_id`, `user_name`, `content`)
+
+### Routes (all in `server/routes-tasks.ts`, registered from `server/routes.ts`)
+All endpoints guarded by `requirePermission("crm", "view"|"edit")`.
+- `GET /api/tasks/:id/full` — task + labels + dependencies + blocking + checklists + watchers + activity (incl. `isBlocked` flag)
+- `GET /api/tasks/board?view=my|team` — grouped by column with embedded labels, checklist progress, comment count, openDependencies
+- `PATCH /api/tasks/:id/board` — column move + sort_order; auto-syncs status<->column for `done`; **rejects move to `done` when openDependencies > 0**
+- `PATCH /api/tasks/:id` — generic field updates (title, desc, priority, due_date, start_date, owner, completion_notes, archived). **status & boardColumn are intentionally read-only here** to preserve invariants.
+- `POST /api/tasks/:id/complete` + `/reopen` — completion lifecycle
+- `POST/DELETE /api/tasks/:id/dependencies[/:depId]` — with recursive cycle detection
+- `GET/POST /api/task-labels` and `POST/DELETE /api/tasks/:id/labels/:labelId`
+- Checklists: `POST /api/tasks/:id/checklists`, `DELETE /api/task-checklists/:id`, `POST /api/task-checklists/:id/items`, `PATCH/DELETE /api/task-checklist-items/:id`
+- Watchers: `POST/DELETE /api/tasks/:id/watchers/:userId`
+- `GET/POST /api/tasks/:id/comments`
+- `GET /api/tasks/search?q&exclude` — picker for dependency selection
+- Every meaningful change writes to `task_activity` via `logActivity()`
+
+### Frontend
+- `client/src/components/tasks/task-board.tsx` — 5-column board with HTML5 native drag-and-drop, optimistic updates, auto-blocked badge, due-date colour coding, label color bars, priority dots, assignee + completed-by chips
+- `client/src/components/tasks/task-detail-drawer.tsx` — right-side Sheet drawer with Trello-style action row (Labels / Dates / Checklist / Assignee / Move / Dependencies), inline-editable title & description, completion notes, comments, full activity feed
+- `client/src/pages/tasks-hub.tsx` — adds **Board** as the first view tab (and new default); legacy List views preserved; integrates `TaskDetailDrawer` (also openable from anywhere via `window.dispatchEvent(new CustomEvent('open-task-drawer', { detail: { taskId } }))`)
+
+### Slice B/C (deferred)
+- Saved board filters per user, column-specific sort, archive bin
+- Attachments on tasks (currently action button absent)
+- Bulk drag-select on the board
+- Real-time updates via WebSocket
+- Email-task threading (reply directly from drawer)
