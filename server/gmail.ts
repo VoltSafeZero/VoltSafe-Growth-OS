@@ -276,7 +276,7 @@ export async function saveDraft(userId: number, to: string, subject: string, bod
 
 export async function listDraftSummaries(userId: number, accountId?: number) {
   const gmail = await getGmailClient(userId, accountId);
-  const listRes = await gmail.users.drafts.list({ userId: "me", maxResults: 20 });
+  const listRes = await gmail.users.drafts.list({ userId: "me", maxResults: 100 });
   const drafts = listRes.data.drafts || [];
   if (!drafts.length) return [];
   const summaries = await Promise.all(

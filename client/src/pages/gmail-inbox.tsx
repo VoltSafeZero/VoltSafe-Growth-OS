@@ -2412,11 +2412,29 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     enabled: tab === "sent",
   });
 
-  // Reset extra pages when the base query data refreshes (e.g. search change or account switch)
   const inboxBaseToken = inboxQuery.data?.nextPageToken ?? null;
   const sentBaseToken = sentQuery.data?.nextPageToken ?? null;
-  useEffect(() => { setInboxExtra([]); setInboxNextToken(inboxBaseToken); }, [inboxQuery.data]);
-  useEffect(() => { setSentExtra([]); setSentNextToken(sentBaseToken); }, [sentQuery.data]);
+
+  // Only reset extras when the search query or active account changes, NOT on background refetches.
+  // Using a ref-tracked "reset key" prevents wipeout of already-loaded pages on refetch.
+  const prevInboxKey = useRef<string>("");
+  const prevSentKey = useRef<string>("");
+  useEffect(() => {
+    const key = `${searchQuery}|${activeAccountId ?? ""}`;
+    if (prevInboxKey.current === key) return;
+    prevInboxKey.current = key;
+    setInboxExtra([]);
+    setInboxNextToken(inboxBaseToken);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inboxBaseToken, searchQuery, activeAccountId]);
+  useEffect(() => {
+    const key = `sent|${activeAccountId ?? ""}`;
+    if (prevSentKey.current === key) return;
+    prevSentKey.current = key;
+    setSentExtra([]);
+    setSentNextToken(sentBaseToken);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sentBaseToken, activeAccountId]);
 
   const loadMoreInbox = async () => {
     if (!inboxNextToken || loadingMoreInbox) return;
@@ -2499,7 +2517,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: canSend && tab === "drafts",
+    enabled: canSend,
   });
 
   const scheduledQuery = useQuery<ScheduledEmail[]>({
@@ -2854,6 +2872,19 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const hasMore = tab === "inbox" ? !!inboxNextToken : tab === "sent" ? !!sentNextToken : false;
   const isLoadingMore = tab === "inbox" ? loadingMoreInbox : tab === "sent" ? loadingMoreSent : false;
   const loadMore = tab === "inbox" ? loadMoreInbox : loadMoreSent;
+
+  // Infinite scroll: fire loadMore automatically when the sentinel div scrolls into view
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting && hasMore && !isLoadingMore) loadMore(); },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore, isLoadingMore, loadMore]);
 
   // Batch fetch signal + triage data for visible thread IDs
   const visibleThreadIds = useMemo(
@@ -4032,20 +4063,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               );
             })}
 
-            {/* Load more button */}
-            {tab !== "drafts" && tab !== "scheduled" && !isLoading && !error && hasMore && (
-              <div className="p-3 flex justify-center">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={loadMore}
-                  disabled={isLoadingMore}
-                  data-testid="button-load-more-emails"
-                  className="w-full text-xs gap-1.5"
-                >
-                  {isLoadingMore ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                  {isLoadingMore ? "Loading..." : "Load more emails"}
-                </Button>
+            {/* Infinite scroll sentinel — becomes visible at the bottom, triggers auto-load */}
+            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && !isLoading && !error && (
+              <div ref={sentinelRef} className="py-4 flex justify-center" data-testid="infinite-scroll-sentinel">
+                {isLoadingMore && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
               </div>
             )}
           </div>
