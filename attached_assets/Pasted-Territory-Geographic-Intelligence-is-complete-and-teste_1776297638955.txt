@@ -1,0 +1,87 @@
+Territory + Geographic Intelligence is complete and tested. Next, build the Smart Document Hub.
+
+Goal:
+Create a practical document system inside Cortex so files, links, and key records are organized, searchable, and tied to the right CRM/ops objects.
+
+Build this in phases.
+
+PHASE 1 — DOCUMENT DATA MODEL
+Add or extend support for documents/attachments so they can be linked to:
+- accounts
+- leads
+- contacts
+- opportunities
+- quotes
+- install workflows
+- deployments
+- procurement records
+- projects / safety certification
+- customer success records
+
+Track at minimum:
+- title
+- file type
+- source (upload / link)
+- linked object type/id
+- category
+- uploaded by
+- created_at
+- notes/description
+- tags
+
+PHASE 2 — DOCUMENT CATEGORIES
+Support practical categories like:
+- quote / proposal
+- contract
+- certification
+- lab report
+- drawing / spec
+- install document
+- deployment photo
+- procurement / PO
+- invoice / billing
+- customer success / renewal
+- general
+
+PHASE 3 — DOCUMENT HUB UI
+Create a dedicated Document Hub page with:
+- search
+- filters by category, linked object type, owner, date
+- recent documents
+- linked-record context
+- upload and link actions
+- preview/download where possible
+
+PHASE 4 — RECORD INTEGRATION
+On major record pages, show a Documents section with:
+- linked files
+- linked URLs
+- quick upload
+- quick link existing document
+- category badges
+
+PHASE 5 — SEARCH / AI FRIENDLINESS
+Make document metadata searchable from the command bar/global search where practical.
+Structure metadata cleanly so VoltSafe Cortex can explain what docs belong to what records.
+
+PHASE 6 — TIMELINE / AUDIT
+Add timeline events for:
+- document uploaded
+- document linked/unlinked
+- category changed
+- important doc added (quote, certificate, report)
+
+PHASE 7 — TESTING
+Add tests for:
+- upload/link flows
+- category filtering
+- record linkage
+- timeline events
+- permission enforcement
+- no regression to certification/projects/quotes/deployments/procurement flows
+
+Implementation rules:
+- keep it practical, not a bloated DMS
+- reuse existing attachment patterns where possible
+- prioritize searchability and record linkage
+- summarize changed files and final pass/fail at the end

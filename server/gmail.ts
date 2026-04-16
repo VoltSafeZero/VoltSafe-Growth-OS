@@ -97,28 +97,35 @@ export async function getMessageSummaries(userId: number, maxResults: number = 5
   });
   const messageIds = listRes.data.messages || [];
   const nextPageToken = listRes.data.nextPageToken || null;
-  const summaries = await Promise.all(
-    messageIds.map(async ({ id }) => {
-      const msg = await gmail.users.messages.get({
-        userId: "me",
-        id: id!,
-        format: "metadata",
-        metadataHeaders: ["From", "To", "Subject", "Date"],
-      });
-      const headers = msg.data.payload?.headers || [];
-      return {
-        id: msg.data.id,
-        threadId: msg.data.threadId,
-        snippet: msg.data.snippet,
-        internalDate: msg.data.internalDate,
-        labelIds: msg.data.labelIds || [],
-        from: getHeader(headers, "From"),
-        to: getHeader(headers, "To"),
-        subject: getHeader(headers, "Subject"),
-        date: getHeader(headers, "Date"),
-      };
-    })
-  );
+  // Fetch message details in batches of 10 to stay within Gmail API rate limits
+  // (firing all 50 simultaneously causes 429/rate-limit errors on subsequent pages)
+  const BATCH = 10;
+  const summaries: Awaited<ReturnType<typeof fetchOne>>[] = [];
+  async function fetchOne(id: string) {
+    const msg = await gmail.users.messages.get({
+      userId: "me",
+      id,
+      format: "metadata",
+      metadataHeaders: ["From", "To", "Subject", "Date"],
+    });
+    const headers = msg.data.payload?.headers || [];
+    return {
+      id: msg.data.id,
+      threadId: msg.data.threadId,
+      snippet: msg.data.snippet,
+      internalDate: msg.data.internalDate,
+      labelIds: msg.data.labelIds || [],
+      from: getHeader(headers, "From"),
+      to: getHeader(headers, "To"),
+      subject: getHeader(headers, "Subject"),
+      date: getHeader(headers, "Date"),
+    };
+  }
+  for (let i = 0; i < messageIds.length; i += BATCH) {
+    const chunk = messageIds.slice(i, i + BATCH);
+    const results = await Promise.all(chunk.map(({ id }) => fetchOne(id!)));
+    summaries.push(...results);
+  }
   return { summaries, nextPageToken };
 }
 

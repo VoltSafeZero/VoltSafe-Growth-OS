@@ -2691,7 +2691,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               : m
           )
         } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery], updateMsgs);
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], updateMsgs);
       setInboxExtra(prev => prev.map(m =>
         messageIds.includes(m.id)
           ? { ...m, labelIds: isRead ? m.labelIds.filter(l => l !== "UNREAD") : [...m.labelIds.filter(l => l !== "UNREAD"), "UNREAD"] }
@@ -2716,7 +2716,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onSuccess: ({ threadIds }) => {
       const removeArchived = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
         old ? { ...old, messages: old.messages.filter(m => !threadIds.includes(m.threadId)) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery], removeArchived);
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeArchived);
       setInboxExtra(prev => prev.filter(m => !threadIds.includes(m.threadId)));
       if (selectedThreadId && threadIds.includes(selectedThreadId)) {
         setSelectedThreadId(null);
@@ -2757,7 +2757,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onSuccess: ({ threadId }) => {
       const removeArchived = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
         old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery], removeArchived);
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeArchived);
       setInboxExtra(prev => prev.filter(m => m.threadId !== threadId));
       if (selectedThreadId === threadId) { setSelectedThreadId(null); setSelectedMessageId(null); }
       toast({ title: "Thread archived" });
@@ -2890,8 +2890,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         old ? { ...old, messages: old.messages.map((m) =>
           m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m
         ) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery], removeUnread);
-      queryClient.setQueryData(["/api/gmail/messages", "sent", searchQuery], removeUnread);
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeUnread);
+      queryClient.setQueryData(["/api/gmail/messages", "sent", searchQuery, activeAccountId], removeUnread);
       // Also update the locally-stored extra pages
       setInboxExtra((prev) => prev.map((m) => m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
       setSentExtra((prev) => prev.map((m) => m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
