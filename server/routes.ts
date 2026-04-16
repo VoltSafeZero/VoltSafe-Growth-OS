@@ -18521,7 +18521,17 @@ export function registerConfluenceRoutes(app: Express) {
       const id = Number(req.params.id);
       const { status, resolution, ownerId, issueType, severity, productId, kbArticleId, country, productVersion } = req.body;
       const sets: string[] = [];
-      if (status !== undefined) sets.push(`status = '${String(status).replace(/'/g, "''")}'`);
+      if (status !== undefined) {
+        sets.push(`status = '${String(status).replace(/'/g, "''")}'`);
+        // Auto-stamp SLA timestamps on status transitions
+        if (["in_progress", "triaging", "awaiting_customer"].includes(String(status))) {
+          sets.push("first_response_at = COALESCE(first_response_at, NOW())");
+        }
+        if (["resolved", "closed"].includes(String(status))) {
+          sets.push("first_response_at = COALESCE(first_response_at, NOW())");
+          sets.push("resolved_at = COALESCE(resolved_at, NOW())");
+        }
+      }
       if (resolution !== undefined) sets.push(`resolution = ${resolution ? `'${String(resolution).replace(/'/g, "''")}'` : "NULL"}`);
       if (ownerId !== undefined) sets.push(`owner_id = ${ownerId ? Number(ownerId) : "NULL"}`);
       if (issueType !== undefined) sets.push(`issue_type = '${String(issueType).replace(/'/g, "''")}'`);
@@ -18531,7 +18541,9 @@ export function registerConfluenceRoutes(app: Express) {
       if (country !== undefined) sets.push(`country = ${country ? `'${String(country).replace(/'/g, "''")}'` : "NULL"}`);
       if (productVersion !== undefined) sets.push(`product_version = ${productVersion ? `'${String(productVersion).replace(/'/g, "''")}'` : "NULL"}`);
       sets.push("updated_at = NOW()");
-      const r = await db.execute(sql.raw(`UPDATE winter_support_cases SET ${sets.join(", ")} WHERE id = ${id} RETURNING id, case_number AS "caseNumber", status, updated_at AS "updatedAt"`));
+      const r = await db.execute(sql.raw(`UPDATE winter_support_cases SET ${sets.join(", ")} WHERE id = ${id}
+        RETURNING id, case_number AS "caseNumber", status, updated_at AS "updatedAt",
+                  first_response_at AS "firstResponseAt", resolved_at AS "resolvedAt"`));
       if (!(r as any).rows?.length) return res.status(404).json({ message: "Case not found" });
       res.json((r as any).rows[0]);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -18733,6 +18745,299 @@ export function registerConfluenceRoutes(app: Express) {
       const { limitHours = 720 } = req.body;
       const result = await scanEmailsForWinter(Number(limitHours));
       res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Response Templates ─────────────────────────────────────────────────────
+
+  async function seedWinterTemplates() {
+    try {
+      const cnt = await db.execute(sql.raw(`SELECT COUNT(*) FROM winter_response_templates`));
+      if (Number((cnt as any).rows?.[0]?.count ?? 1) !== 0) return;
+      await db.execute(sql.raw(`
+        INSERT INTO winter_response_templates (name, issue_type, subject_template, body_template, sort_order) VALUES
+        ('Warranty Acknowledgement', 'warranty',
+         'Re: Your VoltSafe Winter Warranty Request',
+         E'Hi {{customer_name}},\n\nThank you for reaching out about your VoltSafe Winter unit.\n\nYour unit is covered under our 2-year limited warranty. To process your claim, please provide:\n1. Proof of purchase (order number or receipt)\n2. Unit serial number (printed on the base label)\n3. A brief description of the issue\n\nWe will review and respond within 3 business days.\n\nBest,\nVoltSafe Support', 10),
+
+        ('Overheating Guidance', 'overheating',
+         'Re: VoltSafe Winter Unit Overheating',
+         E'Hi {{customer_name}},\n\nThank you for reporting this issue. Overheating in sub-zero temperatures can occur if airflow around the unit is restricted.\n\nPlease check the following:\n• Ensure at least 6 inches of clearance around all vents\n• Confirm the unit is not buried in snow or covered\n• Try a charging session under 2 hours and monitor heat\n\nIf the issue continues, please share your serial number so we can check whether a firmware update or replacement applies to your unit.\n\nBest,\nVoltSafe Support', 20),
+
+        ('Charging Cutoff Troubleshoot', 'charging_issue',
+         'Re: VoltSafe Winter Charging Stopping Early',
+         E'Hi {{customer_name}},\n\nThank you for contacting us. Intermittent charging cutoffs in cold weather are a known issue on Gen 1 units shipped before March 2020.\n\nNext steps:\n1. Share your unit serial number so we can confirm the firmware version\n2. If your unit is affected, we will send firmware patch VS-W-FW-003 or arrange a replacement\n3. As a workaround, charging in ambient temps above -10°C may reduce cutoff frequency\n\nWe will follow up within 24 hours.\n\nBest,\nVoltSafe Support', 30),
+
+        ('Cable Upgrade Offer', 'cable_wear',
+         'Re: VoltSafe Winter Cable Issue',
+         E'Hi {{customer_name}},\n\nThank you for flagging this. VoltSafe Winter cables are rated to -20°C. Below this threshold, the outer jacket can lose flexibility and develop stress cracks.\n\nWe would like to send you our cold-weather cable upgrade (SKU: VS-W-CAB-CW) at no charge. This cable is rated to -40°C and uses a reinforced jacket.\n\nPlease confirm your shipping address and we will dispatch it within 2 business days.\n\nBest,\nVoltSafe Support', 40),
+
+        ('Replacement Initiation', 'replacement',
+         'Re: VoltSafe Winter Unit Replacement',
+         E'Hi {{customer_name}},\n\nThank you for your patience. We have reviewed your case and would like to proceed with a replacement unit.\n\nTo complete the replacement:\n1. Confirm your shipping address\n2. We will send a prepaid return label for the defective unit\n3. Your replacement will ship within 3–5 business days of receiving the return\n\nPlease reply with your address and we will get this moving immediately.\n\nBest,\nVoltSafe Support', 50),
+
+        ('Retailer Wholesale Inquiry', 'retailer_inquiry',
+         'Re: VoltSafe Winter Wholesale Inquiry',
+         E'Hi {{customer_name}},\n\nThank you for your interest in carrying VoltSafe Winter.\n\nWe are currently evaluating restock quantities and retail partner availability. Our sales team will follow up within 48 hours with:\n• Current inventory status\n• Wholesale pricing tiers\n• Lead times\n\nIn the meantime, feel free to send any volume targets or preferred regions so we can prioritize your inquiry.\n\nBest,\nVoltSafe Sales', 60),
+
+        ('Relaunch Interest Acknowledgement', 'reorder_interest',
+         'Re: VoltSafe Winter Availability',
+         E'Hi {{customer_name}},\n\nThank you for reaching out — we are thrilled to hear there is continued demand for VoltSafe Winter.\n\nWe are actively tracking relaunch interest and your inquiry has been noted. We will notify you as soon as new stock or a relaunch is confirmed.\n\nIf you have a specific volume requirement or timeline in mind, please share it and we will make sure you are first in line.\n\nBest,\nVoltSafe Team', 70),
+
+        ('Escalation Acknowledgement', 'complaint',
+         'Re: Your VoltSafe Winter Complaint — Escalated',
+         E'Hi {{customer_name}},\n\nI sincerely apologize for the experience you have had with your VoltSafe Winter unit. This has been escalated to our senior support team and we will personally follow up within 24 hours.\n\nIn the meantime, if there is an urgent safety concern, please discontinue use of the unit and contact us immediately at support@voltsafe.com.\n\nWe take this seriously and will make it right.\n\nBest,\nVoltSafe Support', 80)
+      `));
+    } catch (_) { /* already seeded */ }
+  }
+  seedWinterTemplates().catch(() => {});
+
+  app.get("/api/winter/templates", requireAuth, async (req, res) => {
+    try {
+      const { issueType, active } = req.query as Record<string, string>;
+      const where: string[] = [];
+      if (issueType && issueType !== "all") where.push(`issue_type = '${issueType.replace(/'/g,"''")}'`);
+      if (active === "true") where.push(`is_active = true`);
+      const r = await db.execute(sql.raw(
+        `SELECT id, name, issue_type AS "issueType", subject_template AS "subjectTemplate",
+                body_template AS "bodyTemplate", tags, is_active AS "isActive",
+                sort_order AS "sortOrder", created_at AS "createdAt", updated_at AS "updatedAt"
+         FROM winter_response_templates
+         ${where.length ? "WHERE " + where.join(" AND ") : ""}
+         ORDER BY sort_order, name`
+      ));
+      res.json((r as any).rows ?? []);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/winter/templates", requireAuth, async (req, res) => {
+    try {
+      const { name, issueType, subjectTemplate, bodyTemplate, tags = [], isActive = true, sortOrder = 0 } = req.body;
+      if (!name || !issueType || !bodyTemplate) return res.status(400).json({ message: "name, issueType, bodyTemplate required" });
+      const tagsArr = Array.isArray(tags) && tags.length > 0 ? `ARRAY[${tags.map((t: string) => `'${String(t).replace(/'/g,"''")}'`).join(",")}]` : "ARRAY[]::text[]";
+      const r = await db.execute(sql.raw(
+        `INSERT INTO winter_response_templates (name, issue_type, subject_template, body_template, tags, is_active, sort_order)
+         VALUES ('${String(name).replace(/'/g,"''")}', '${String(issueType).replace(/'/g,"''")}',
+                 ${subjectTemplate ? `'${String(subjectTemplate).replace(/'/g,"''")}'` : "NULL"},
+                 '${String(bodyTemplate).replace(/'/g,"''")}', ${tagsArr}, ${isActive ? "true" : "false"}, ${Number(sortOrder)})
+         RETURNING id, name, issue_type AS "issueType", is_active AS "isActive", created_at AS "createdAt"`
+      ));
+      res.status(201).json((r as any).rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.put("/api/winter/templates/:id", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { name, issueType, subjectTemplate, bodyTemplate, isActive, sortOrder } = req.body;
+      const sets: string[] = [];
+      if (name !== undefined) sets.push(`name = '${String(name).replace(/'/g,"''")}'`);
+      if (issueType !== undefined) sets.push(`issue_type = '${String(issueType).replace(/'/g,"''")}'`);
+      if (subjectTemplate !== undefined) sets.push(`subject_template = ${subjectTemplate ? `'${String(subjectTemplate).replace(/'/g,"''")}'` : "NULL"}`);
+      if (bodyTemplate !== undefined) sets.push(`body_template = '${String(bodyTemplate).replace(/'/g,"''")}'`);
+      if (isActive !== undefined) sets.push(`is_active = ${isActive ? "true" : "false"}`);
+      if (sortOrder !== undefined) sets.push(`sort_order = ${Number(sortOrder)}`);
+      sets.push("updated_at = NOW()");
+      const r = await db.execute(sql.raw(`UPDATE winter_response_templates SET ${sets.join(", ")} WHERE id = ${id} RETURNING id, name, is_active AS "isActive"`));
+      if (!(r as any).rows?.length) return res.status(404).json({ message: "Template not found" });
+      res.json((r as any).rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Case Queues ────────────────────────────────────────────────────────────
+
+  app.get("/api/winter/queues", requireAuth, async (req, res) => {
+    try {
+      const [unassigned, highSev, retailer, relaunch, escalated, awaitingCustomer] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT c.id, c.case_number AS "caseNumber", c.customer_name AS "customerName",
+                 c.customer_email AS "customerEmail", c.issue_type AS "issueType", c.severity,
+                 c.status, c.subject, c.country, c.created_at AS "createdAt",
+                 p.name AS "productName",
+                 EXTRACT(EPOCH FROM (NOW() - c.created_at))/86400 AS "daysOpen"
+          FROM winter_support_cases c
+          LEFT JOIN winter_products p ON p.id = c.product_id
+          WHERE c.owner_id IS NULL AND c.status NOT IN ('resolved','closed')
+          ORDER BY c.created_at ASC LIMIT 50
+        `)),
+        db.execute(sql.raw(`
+          SELECT c.id, c.case_number AS "caseNumber", c.customer_name AS "customerName",
+                 c.customer_email AS "customerEmail", c.issue_type AS "issueType", c.severity,
+                 c.status, c.subject, c.country, c.created_at AS "createdAt",
+                 p.name AS "productName",
+                 EXTRACT(EPOCH FROM (NOW() - c.created_at))/86400 AS "daysOpen",
+                 c.first_response_at IS NULL AS "noFirstResponse"
+          FROM winter_support_cases c
+          LEFT JOIN winter_products p ON p.id = c.product_id
+          WHERE c.severity IN ('critical','high') AND c.status NOT IN ('resolved','closed')
+          ORDER BY CASE c.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 END, c.created_at ASC
+          LIMIT 50
+        `)),
+        db.execute(sql.raw(`
+          SELECT c.id, c.case_number AS "caseNumber", c.customer_name AS "customerName",
+                 c.customer_email AS "customerEmail", c.issue_type AS "issueType",
+                 c.severity, c.status, c.subject, c.country, c.created_at AS "createdAt",
+                 EXTRACT(EPOCH FROM (NOW() - c.created_at))/86400 AS "daysOpen"
+          FROM winter_support_cases c
+          WHERE c.issue_type = 'retailer_inquiry' AND c.status NOT IN ('resolved','closed')
+          ORDER BY c.created_at ASC LIMIT 50
+        `)),
+        db.execute(sql.raw(`
+          SELECT c.id, c.case_number AS "caseNumber", c.customer_name AS "customerName",
+                 c.customer_email AS "customerEmail", c.issue_type AS "issueType",
+                 c.severity, c.status, c.subject, c.country, c.created_at AS "createdAt",
+                 EXTRACT(EPOCH FROM (NOW() - c.created_at))/86400 AS "daysOpen"
+          FROM winter_support_cases c
+          WHERE c.issue_type = 'reorder_interest' AND c.status NOT IN ('resolved','closed')
+          ORDER BY c.created_at ASC LIMIT 50
+        `)),
+        db.execute(sql.raw(`
+          SELECT c.id, c.case_number AS "caseNumber", c.customer_name AS "customerName",
+                 c.issue_type AS "issueType", c.severity, c.status, c.subject,
+                 c.created_at AS "createdAt",
+                 EXTRACT(EPOCH FROM (NOW() - c.created_at))/86400 AS "daysOpen"
+          FROM winter_support_cases c
+          WHERE c.status = 'escalated'
+          ORDER BY c.created_at ASC LIMIT 50
+        `)),
+        db.execute(sql.raw(`
+          SELECT c.id, c.case_number AS "caseNumber", c.customer_name AS "customerName",
+                 c.issue_type AS "issueType", c.severity, c.status, c.subject,
+                 c.last_customer_reply_at AS "lastCustomerReplyAt", c.created_at AS "createdAt",
+                 EXTRACT(EPOCH FROM (NOW() - c.last_customer_reply_at))/86400 AS "daysSinceReply"
+          FROM winter_support_cases c
+          WHERE c.status = 'awaiting_customer'
+          ORDER BY c.last_customer_reply_at DESC NULLS LAST LIMIT 50
+        `)),
+      ]);
+
+      res.json({
+        unassigned: (unassigned as any).rows ?? [],
+        highSeverity: (highSev as any).rows ?? [],
+        retailer: (retailer as any).rows ?? [],
+        relaunches: (relaunch as any).rows ?? [],
+        escalated: (escalated as any).rows ?? [],
+        awaitingCustomer: (awaitingCustomer as any).rows ?? [],
+        counts: {
+          unassigned: (unassigned as any).rows?.length ?? 0,
+          highSeverity: (highSev as any).rows?.length ?? 0,
+          retailer: (retailer as any).rows?.length ?? 0,
+          relaunches: (relaunch as any).rows?.length ?? 0,
+          escalated: (escalated as any).rows?.length ?? 0,
+          awaitingCustomer: (awaitingCustomer as any).rows?.length ?? 0,
+        },
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Case Workflow: SLA timestamp auto-update (patch onto PUT /winter/cases/:id) ──
+  // (Handled inline in the existing PUT route by checking status transition)
+
+  // ── Case Metrics ───────────────────────────────────────────────────────────
+
+  app.get("/api/winter/metrics", requireAuth, async (req, res) => {
+    try {
+      const [slaR, byTypeR, trendR, demandDefectR, staffR] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT
+            COUNT(*) AS total_cases,
+            COUNT(*) FILTER (WHERE status NOT IN ('resolved','closed')) AS open_cases,
+            COUNT(*) FILTER (WHERE status = 'escalated') AS escalated,
+            COUNT(*) FILTER (WHERE first_response_at IS NOT NULL) AS responded,
+            COUNT(*) FILTER (WHERE first_response_at IS NULL AND status NOT IN ('resolved','closed')) AS no_first_response,
+            ROUND(AVG(EXTRACT(EPOCH FROM (first_response_at - created_at))/3600) FILTER (WHERE first_response_at IS NOT NULL), 1) AS avg_first_response_hrs,
+            ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/3600) FILTER (WHERE resolved_at IS NOT NULL), 1) AS avg_resolution_hrs,
+            ROUND(AVG(EXTRACT(EPOCH FROM (NOW() - created_at))/86400) FILTER (WHERE status NOT IN ('resolved','closed')), 1) AS avg_days_open,
+            MAX(EXTRACT(EPOCH FROM (NOW() - created_at))/86400) FILTER (WHERE status NOT IN ('resolved','closed')) AS max_days_open,
+            COUNT(*) FILTER (WHERE severity = 'critical' AND status NOT IN ('resolved','closed')) AS critical_open,
+            COUNT(*) FILTER (WHERE first_response_at IS NULL AND severity = 'critical' AND status NOT IN ('resolved','closed')) AS critical_no_response
+          FROM winter_support_cases
+        `)),
+        db.execute(sql.raw(`
+          SELECT issue_type AS "issueType",
+                 COUNT(*) AS total,
+                 COUNT(*) FILTER (WHERE status NOT IN ('resolved','closed')) AS open_count,
+                 COUNT(*) FILTER (WHERE status IN ('resolved','closed')) AS resolved_count,
+                 ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/3600) FILTER (WHERE resolved_at IS NOT NULL), 1) AS avg_res_hrs
+          FROM winter_support_cases
+          GROUP BY issue_type
+          ORDER BY total DESC
+        `)),
+        db.execute(sql.raw(`
+          SELECT DATE_TRUNC('week', created_at)::date AS week,
+                 COUNT(*) AS new_cases,
+                 COUNT(*) FILTER (WHERE status IN ('resolved','closed')) AS resolved_week,
+                 ROUND(AVG(sentiment_score)) AS avg_sentiment,
+                 COUNT(*) FILTER (WHERE severity IN ('critical','high')) AS high_sev
+          FROM winter_support_cases
+          WHERE created_at > NOW() - INTERVAL '12 weeks'
+          GROUP BY 1 ORDER BY 1
+        `)),
+        db.execute(sql.raw(`
+          SELECT
+            COUNT(*) FILTER (WHERE issue_type IN ('reorder_interest','retailer_inquiry')) AS demand_cases,
+            COUNT(*) FILTER (WHERE issue_type IN ('warranty','troubleshooting','replacement','overheating','charging_issue','magnet_issue','cable_wear','complaint')) AS defect_cases,
+            COUNT(*) FILTER (WHERE issue_type = 'feature_request') AS feature_cases,
+            COUNT(*) FILTER (WHERE issue_type = 'retailer_inquiry') AS retailer_cases,
+            COUNT(DISTINCT COALESCE(customer_email,'')) FILTER (WHERE issue_type IN ('reorder_interest','retailer_inquiry')) AS unique_demand_sources,
+            COUNT(*) FILTER (WHERE issue_type IN ('overheating','charging_issue','magnet_issue','cable_wear')) AS technical_defects,
+            COUNT(*) FILTER (WHERE severity = 'critical' AND issue_type NOT IN ('reorder_interest','retailer_inquiry')) AS critical_defects
+          FROM winter_support_cases
+        `)),
+        db.execute(sql.raw(`
+          SELECT u.id, u.name,
+                 COUNT(c.id) AS assigned_cases,
+                 COUNT(c.id) FILTER (WHERE c.status NOT IN ('resolved','closed')) AS open_cases,
+                 COUNT(c.id) FILTER (WHERE c.status IN ('resolved','closed')) AS closed_cases
+          FROM users u
+          LEFT JOIN winter_support_cases c ON c.owner_id = u.id
+          GROUP BY u.id, u.name
+          HAVING COUNT(c.id) > 0
+          ORDER BY open_cases DESC
+        `)),
+      ]);
+
+      const sla = (slaR as any).rows?.[0] ?? {};
+      res.json({
+        sla: {
+          totalCases: Number(sla.total_cases ?? 0),
+          openCases: Number(sla.open_cases ?? 0),
+          escalated: Number(sla.escalated ?? 0),
+          responded: Number(sla.responded ?? 0),
+          noFirstResponse: Number(sla.no_first_response ?? 0),
+          avgFirstResponseHrs: sla.avg_first_response_hrs ? Number(sla.avg_first_response_hrs) : null,
+          avgResolutionHrs: sla.avg_resolution_hrs ? Number(sla.avg_resolution_hrs) : null,
+          avgDaysOpen: sla.avg_days_open ? Number(sla.avg_days_open) : null,
+          maxDaysOpen: sla.max_days_open ? Number(sla.max_days_open) : null,
+          criticalOpen: Number(sla.critical_open ?? 0),
+          criticalNoResponse: Number(sla.critical_no_response ?? 0),
+        },
+        byType: (byTypeR as any).rows ?? [],
+        weeklyTrend: (trendR as any).rows ?? [],
+        demandVsDefect: (demandDefectR as any).rows?.[0] ?? {},
+        staffBreakdown: (staffR as any).rows ?? [],
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Case SLA patch: auto-set resolved_at when status transitions ───────────
+  // This is done inline in the existing PUT /api/winter/cases/:id — extend it
+  // by intercepting status=resolved|closed to stamp resolved_at, and status=
+  // in_progress to stamp first_response_at if not yet set.
+  // We add a separate PATCH specifically for SLA field updates:
+
+  app.patch("/api/winter/cases/:id/sla", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { action } = req.body; // "first_response" | "customer_replied" | "resolve"
+      let set = "";
+      if (action === "first_response") set = "first_response_at = COALESCE(first_response_at, NOW()), status = CASE WHEN status IN ('new','triaging','open') THEN 'in_progress' ELSE status END";
+      else if (action === "customer_replied") set = "last_customer_reply_at = NOW()";
+      else if (action === "resolve") set = "resolved_at = COALESCE(resolved_at, NOW()), status = 'resolved'";
+      else return res.status(400).json({ message: "action must be first_response | customer_replied | resolve" });
+      const r = await db.execute(sql.raw(`UPDATE winter_support_cases SET ${set}, updated_at = NOW() WHERE id = ${id} RETURNING id, status, first_response_at AS "firstResponseAt", resolved_at AS "resolvedAt", last_customer_reply_at AS "lastCustomerReplyAt"`));
+      if (!(r as any).rows?.length) return res.status(404).json({ message: "Case not found" });
+      res.json((r as any).rows[0]);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
