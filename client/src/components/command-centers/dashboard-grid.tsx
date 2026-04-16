@@ -183,8 +183,12 @@ function WidgetRenderer({ id, editing }: { id: string; editing: boolean }) {
           <span className="handle-label">Drag</span>
         </div>
       )}
-      {/* Push card content below the drag strip in edit mode */}
-      <div className={editing ? "pt-8 h-full flex flex-col min-h-0" : "h-full flex flex-col min-h-0"}>
+      {/* Push card content below the drag strip in edit mode.
+          The [&>*] selector ensures the inner widget Card fills the cell so
+          headers don't get clipped and content can scroll inside. */}
+      <div
+        className={`${editing ? "pt-8 " : ""}h-full flex flex-col min-h-0 [&>*]:flex-1 [&>*]:min-h-0 [&>*]:flex [&>*]:flex-col`}
+      >
         <Comp />
       </div>
     </div>
@@ -269,9 +273,21 @@ export function DashboardGrid({
     }
   }, [savedLayouts, renderableIds]);
 
+  // Keep local layouts in sync on every RGL emit (also fires on mount/remeasure).
   const handleLayoutChange = useCallback((_current: any, all: Layouts) => {
     setLayouts(all);
-    if (editing) onLayoutsChange(all);
+  }, []);
+
+  // Only mark "dirty" (notify parent → enables Save) on actual user gestures.
+  // RGL fires onLayoutChange on mount, breakpoint, and width re-measurement,
+  // which would falsely flag the layout as dirty the moment edit mode opens.
+  const emitChangeIfEditing = useCallback(() => {
+    if (!editing) return;
+    // Use the most recent layouts state captured by handleLayoutChange.
+    setLayouts(curr => {
+      onLayoutsChange(curr);
+      return curr;
+    });
   }, [editing, onLayoutsChange]);
 
   // Measure container width — react-grid-layout v2 Responsive needs an explicit
@@ -318,6 +334,8 @@ export function DashboardGrid({
           preventCollision={false}
           useCSSTransforms
           onLayoutChange={handleLayoutChange as any}
+          onDragStop={emitChangeIfEditing as any}
+          onResizeStop={emitChangeIfEditing as any}
         >
           {renderableIds.map(id => (
             <div key={id} data-testid={`grid-item-${id}`}>
