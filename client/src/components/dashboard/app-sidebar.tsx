@@ -190,7 +190,7 @@ const sections: NavSection[] = [
       { title: "Integrations", url: "/admin/integrations", icon: Zap },
       { title: "My Mailboxes", url: "/settings/mailbox", icon: Mail },
       { title: "Global Search", url: "/search", icon: Search },
-      { title: "Settings", url: "/settings", icon: Settings },
+      { title: "Settings", url: "/settings", icon: Settings, exactMatch: true },
     ],
   },
 ];
