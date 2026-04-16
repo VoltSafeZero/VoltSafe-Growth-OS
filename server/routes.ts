@@ -3996,6 +3996,14 @@ export async function registerRoutes(
         source: "upload",
         url: null,
       });
+      // Phase 6 — emit activity for notable document categories
+      const NOTABLE_CATS = ["certification", "contract", "lab_report", "quote_proposal"];
+      if (NOTABLE_CATS.includes(attachment.category || "")) {
+        const docLabel = (attachment.title || attachment.originalName || "document").replace(/'/g, "''");
+        const catLabel = (attachment.category || "general").replace(/_/g, " ");
+        const uid = req.session.userId ?? null;
+        db.execute(sql.raw(`INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at) VALUES ('${objectType}', ${Number(objectId)}, 'activity', 'Important document added', '${catLabel} uploaded: ${docLabel}', ${uid ?? "NULL"}, NOW())`)).catch(() => {});
+      }
       res.status(201).json(attachment);
     } catch (e) {
       try { fs.unlinkSync(req.file.path); } catch {}
@@ -4013,12 +4021,20 @@ export async function registerRoutes(
       return res.status(403).json({ message: "Not authorized" });
     }
     const { category, title, notes, tags } = req.body;
+    const oldCategory = attachment.category;
     const updated = await storage.updateAttachment(attachment.id, {
       ...(category !== undefined ? { category } : {}),
       ...(title !== undefined ? { title } : {}),
       ...(notes !== undefined ? { notes } : {}),
       ...(tags !== undefined ? { tags: Array.isArray(tags) ? tags : tags.split(",").map((t: string) => t.trim()).filter(Boolean) } : {}),
     });
+    // Phase 6 — emit activity when category changes
+    if (category !== undefined && category !== oldCategory) {
+      const uid = req.session.userId ?? null;
+      const oldCat = (oldCategory || "general").replace(/'/g, "''");
+      const newCat = String(category).replace(/'/g, "''");
+      db.execute(sql.raw(`INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at) VALUES ('${attachment.objectType}', ${attachment.objectId}, 'activity', 'Document category changed', 'Category changed from ${oldCat} to ${newCat}', ${uid ?? "NULL"}, NOW())`)).catch(() => {});
+    }
     res.json(updated);
   });
 
@@ -4065,6 +4081,14 @@ export async function registerRoutes(
         source: "link",
         url,
       });
+      // Phase 6 — emit activity for notable linked-document categories
+      const NOTABLE_CATS_LINK = ["certification", "contract", "lab_report", "quote_proposal"];
+      if (NOTABLE_CATS_LINK.includes(attachment.category || "")) {
+        const docLabel = (attachment.title || url || "link").replace(/'/g, "''");
+        const catLabel = (attachment.category || "general").replace(/_/g, " ");
+        const uid2 = req.session.userId ?? null;
+        db.execute(sql.raw(`INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at) VALUES ('${objectType}', ${Number(objectId)}, 'activity', 'Important document linked', '${catLabel} link added: ${docLabel}', ${uid2 ?? "NULL"}, NOW())`)).catch(() => {});
+      }
       res.status(201).json(attachment);
     } catch (e) {
       res.status(500).json({ message: "Failed to save link" });
@@ -4093,6 +4117,10 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorized to delete this attachment" });
       }
     }
+    // Phase 6 — log removal activity before deleting the row
+    const docLabel = (attachment.title || attachment.originalName || attachment.fileName || "document").replace(/'/g, "''");
+    const delUid = req.session.userId ?? null;
+    db.execute(sql.raw(`INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at) VALUES ('${attachment.objectType}', ${attachment.objectId}, 'activity', 'Document removed', 'Removed: ${docLabel}', ${delUid ?? "NULL"}, NOW())`)).catch(() => {});
     const filePath = path.join(UPLOADS_DIR, path.basename(attachment.fileName));
     try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch {}
     await storage.deleteAttachment(attachment.id);
@@ -8907,18 +8935,27 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           UNION ALL
 
           SELECT
-            CONCAT('attachment_', att.id::text)                                                          AS timeline_id,
-            'attachment'                                                                                  AS type,
-            att.original_name                                                                            AS title,
-            CONCAT(att.mime_type, ' · ', ROUND(att.file_size::numeric / 1024.0, 1), ' KB')             AS body,
+            CONCAT('attachment_', att.id::text)                                                                AS timeline_id,
+            'attachment'                                                                                        AS type,
+            COALESCE(NULLIF(att.title,''), att.original_name, att.url, 'Document')                            AS title,
+            CASE
+              WHEN att.source = 'link' THEN
+                INITCAP(REPLACE(COALESCE(att.category,'general'),'_',' ')) || '  ·  external link'
+              ELSE
+                INITCAP(REPLACE(COALESCE(att.category,'general'),'_',' ')) || '  ·  ' ||
+                ROUND(att.file_size::numeric / 1024.0, 1)::text || ' KB'
+            END                                                                                                AS body,
             att.created_at,
-            att.uploaded_by_name                                                                         AS created_by,
+            att.uploaded_by_name                                                                               AS created_by,
             json_build_object(
               'attachmentId', att.id,
               'fileName',     att.file_name,
               'mimeType',     att.mime_type,
-              'fileSize',     att.file_size
-            )::text                                                                                       AS metadata
+              'fileSize',     att.file_size,
+              'source',       att.source,
+              'url',          att.url,
+              'category',     att.category
+            )::text                                                                                            AS metadata
           FROM attachments att
           WHERE att.object_type = '${ot}' AND att.object_id = ${oid}
 
@@ -10601,7 +10638,22 @@ export function registerConfluenceRoutes(app: Express) {
         (SELECT 'note' as type, n.id::text, SUBSTRING(n.content, 1, 90) as label,
                 n.linked_object_type as sub, NULL as sub2, n.linked_object_id::text as linked_id
          FROM notes n WHERE n.content ILIKE '${term}' LIMIT 4)
-        LIMIT 24
+        UNION ALL
+        (SELECT 'document' as type, a.id::text,
+                COALESCE(NULLIF(a.title,''), a.original_name, a.url, 'Untitled') as label,
+                a.category as sub,
+                INITCAP(REPLACE(a.object_type, '_', ' ')) || COALESCE(' · ' || COALESCE(ac.name, l.company, op.title), '') as sub2,
+                a.object_type || ':' || a.object_id::text as linked_id
+         FROM attachments a
+         LEFT JOIN accounts ac ON ac.id = a.object_id AND a.object_type = 'account'
+         LEFT JOIN leads l ON l.id = a.object_id AND a.object_type = 'lead'
+         LEFT JOIN opportunities op ON op.id = a.object_id AND a.object_type = 'opportunity'
+         WHERE COALESCE(a.title, a.original_name, '') ILIKE '${term}'
+            OR COALESCE(a.notes, '') ILIKE '${term}'
+            OR COALESCE(a.category, '') ILIKE '${term}'
+            OR array_to_string(COALESCE(a.tags, '{}'), ' ') ILIKE '${term}'
+         LIMIT 4)
+        LIMIT 28
       `));
       res.json({ results: result.rows });
     } catch (err: any) {

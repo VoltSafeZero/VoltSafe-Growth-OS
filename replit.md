@@ -4,6 +4,21 @@
 
 **VoltSafe Growth OS** is VoltSafe's internal sales intelligence and CRM platform for marina-focused sales, support, and relationship management. It features a comprehensive sales pipeline (Leads to Quotes), support ticketing, a marina directory, communication tools, and an analytics dashboard. **Cortex** is the embedded AI assistant within the platform.
 
+### Smart Document Hub (all phases complete)
+
+**Phase 5 — Global Search Integration**
+- `GET /api/search` UNION branch: searches `title`, `original_name`, `notes`, `category`, `tags`; returns `type="document"`, `sub=category`, `sub2="ObjectType · record name"`, `linked_id="objectType:objectId"`, LIMIT 4.
+- `header.tsx` updated: `SearchResultItem` includes `"document"`, `BookOpen` icon; `SEARCH_TYPE_META` / `TYPE_ORDER` updated; `navigateToResult` and `open-linked` action parse `linked_id` as `objectType:objectId`.
+
+**Phase 6 — Timeline / Audit Events**
+- Upload notable categories (certification, contract, lab_report, quote_proposal) → activity emitted.
+- URL link with notable category → activity emitted.
+- DELETE attachment → "Document removed" activity logged before row deletion.
+- PATCH category change → "Category changed" activity logged only when value actually changes.
+- Timeline attachment `body` now shows `Category · external link` or `Category · X KB` (not raw mime type); `title` field used with fallback chain.
+
+**Tests**: `tests/documents-search-timeline.test.js` 20/20; `tests/documents.test.js` 20/20.
+
 ### Smart Document Hub (complete)
 - **Schema**: Extended `attachments` table with new columns: `title`, `category` (default `general`), `notes`, `tags text[]`, `source` (upload/link), `url`. Migration: `migrateDocumentSchema()` in seed-production.ts runs idempotently via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
 - **Supported object types (broadened)**: `lead`, `account`, `partnership`, `contact`, `opportunity`, `quote`, `install_workflow`, `deployment`, `purchase_order`, `project`, `customer_success`, `general`.

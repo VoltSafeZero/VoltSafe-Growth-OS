@@ -5,7 +5,7 @@ import {
   Search, Bell, LogOut, X, Plus, CalendarDays, CheckSquare, UserPlus as UserPlusIcon,
   Mail, Flame, AlertTriangle, Building2, Contact, FileText, Ticket, FolderOpen, Layers,
   Users, Target, StickyNote, ArrowRight, Sun, LayoutDashboard, Zap, Clock, GitBranch,
-  ExternalLink, Copy,
+  ExternalLink, Copy, BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,7 +41,7 @@ type NotificationAlert = {
 type NotificationsResponse = { notifications: NotificationAlert[]; unreadCount: number };
 
 type SearchResultItem = {
-  type: "account" | "contact" | "opportunity" | "lead" | "note";
+  type: "account" | "contact" | "opportunity" | "lead" | "note" | "document";
   id: string;
   label: string;
   sub: string | null;
@@ -66,9 +66,10 @@ const SEARCH_TYPE_META: Record<string, { label: string; Icon: ElementType; color
   opportunity: { label: "Opportunities", Icon: Target,       color: "text-emerald-400", href: "/opportunities" },
   lead:        { label: "Leads",         Icon: UserPlusIcon, color: "text-cyan-400",    href: "/leads" },
   note:        { label: "Notes",         Icon: StickyNote,   color: "text-amber-400",   href: "/notes" },
+  document:    { label: "Documents",     Icon: BookOpen,     color: "text-teal-400",    href: "/documents" },
 };
 
-const TYPE_ORDER = ["account", "contact", "opportunity", "lead", "note"] as const;
+const TYPE_ORDER = ["account", "contact", "opportunity", "lead", "note", "document"] as const;
 
 function escapeRegex(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -209,6 +210,10 @@ const RECORD_ACTIONS: Record<string, RecordAction[]> = {
     { id: "copy-note",    label: "Copy",   icon: Copy },
     { id: "open-linked",  label: "Linked", icon: ArrowRight },
   ],
+  document: [
+    { id: "open",         label: "Open",   icon: ExternalLink, primary: true },
+    { id: "open-linked",  label: "Record", icon: ArrowRight },
+  ],
 };
 
 function getRecordActions(type: string, canEdit: boolean): RecordAction[] {
@@ -337,6 +342,15 @@ function GlobalSearch({ canEdit }: { canEdit: boolean }) {
       if (r.sub === "opportunity" && r.linked_id) { navigate(`/opportunities/${r.linked_id}`); return; }
       navigate("/notes");
     }
+    if (r.type === "document") {
+      // linked_id is "objectType:objectId" — navigate to the linked record's page
+      const [linkedType, linkedId] = (r.linked_id || "").split(":");
+      if (linkedType === "account"     && linkedId) { navigate(`/accounts/${linkedId}`); return; }
+      if (linkedType === "contact"     && linkedId) { navigate(`/contacts/${linkedId}`); return; }
+      if (linkedType === "opportunity" && linkedId) { navigate(`/opportunities/${linkedId}`); return; }
+      if (linkedType === "lead"        && linkedId) { navigate(`/opportunities?selected=${linkedId}`); return; }
+      navigate("/documents");
+    }
   }, [navigate]);
 
   // Navigate to a command action
@@ -389,10 +403,20 @@ function GlobalSearch({ canEdit }: { canEdit: boolean }) {
         navigator.clipboard.writeText(r.label).catch(() => {});
         break;
       case "open-linked":
-        if (r.sub === "account"     && r.linked_id) navigate(`/accounts/${r.linked_id}`);
-        else if (r.sub === "contact"     && r.linked_id) navigate(`/contacts/${r.linked_id}`);
-        else if (r.sub === "opportunity" && r.linked_id) navigate(`/opportunities/${r.linked_id}`);
-        else navigate("/notes");
+        if (r.type === "document") {
+          // linked_id is "objectType:objectId" for documents
+          const [dLinkedType, dLinkedId] = (r.linked_id || "").split(":");
+          if (dLinkedType === "account"     && dLinkedId) navigate(`/accounts/${dLinkedId}`);
+          else if (dLinkedType === "contact"     && dLinkedId) navigate(`/contacts/${dLinkedId}`);
+          else if (dLinkedType === "opportunity" && dLinkedId) navigate(`/opportunities/${dLinkedId}`);
+          else if (dLinkedType === "lead"        && dLinkedId) navigate(`/opportunities?selected=${dLinkedId}`);
+          else navigate("/documents");
+        } else {
+          if (r.sub === "account"     && r.linked_id) navigate(`/accounts/${r.linked_id}`);
+          else if (r.sub === "contact"     && r.linked_id) navigate(`/contacts/${r.linked_id}`);
+          else if (r.sub === "opportunity" && r.linked_id) navigate(`/opportunities/${r.linked_id}`);
+          else navigate("/notes");
+        }
         break;
       case "update-stage":
         navigate(`/pipeline?opportunity=${r.id}`);
