@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   Home, Users, LifeBuoy, Settings2, Building2, Contact, UserPlus, FileText,
   Mail, CalendarClock, Megaphone, FolderOpen, Tags, Zap, Settings,
-  X, Users2, ClipboardList, Layers, LayoutDashboard,
+  X, Users2, ClipboardList, Layers, LayoutDashboard, LayoutGrid,
   Target, Share2, Brain, SlidersHorizontal, Truck, Landmark, Factory,
   FlaskConical, Newspaper, Circle, ShieldCheck,
   Zap as ZapIcon, Smartphone, Plus, MapPin, ChevronRight,
@@ -70,11 +70,14 @@ const allNavGroups = [
   },
 ];
 
-const PRIMARY_NAV = [
+// 2 tabs left of center, 2 tabs right of center
+const LEFT_NAV = [
   { title: "Home", url: "/", icon: Home, exactMatch: true },
-  { title: "Field", url: "/field", icon: Smartphone },
   { title: "Accounts", url: "/accounts", icon: Building2 },
+];
+const RIGHT_NAV = [
   { title: "Pipeline", url: "/pipeline", icon: Target },
+  { title: "Log", url: null, icon: Plus },
 ];
 
 export function MobileNav() {
@@ -158,7 +161,8 @@ export function MobileNav() {
         data-testid="mobile-bottom-nav"
       >
         <div className="flex items-stretch h-16">
-          {PRIMARY_NAV.map((item) => {
+          {/* Left tabs */}
+          {LEFT_NAV.map((item) => {
             const isActive = item.exactMatch
               ? location === item.url
               : location.startsWith(item.url);
@@ -177,30 +181,56 @@ export function MobileNav() {
             );
           })}
 
-          {/* Centre FAB: Quick Log */}
-          <button
-            onClick={() => setShowQuickLog(true)}
-            className="flex flex-col items-center justify-center gap-1 flex-1 py-2 min-h-[44px] transition-all active:scale-95 text-muted-foreground"
-            data-testid="mobile-nav-quick-log"
-            aria-label="Quick Log"
-          >
-            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center shadow-md shadow-primary/25 -mt-3">
-              <Plus className="w-4 h-4 text-primary-foreground" />
-            </div>
-            <span className="text-[10px] font-medium">Log</span>
-          </button>
-
-          {/* More */}
+          {/* Centre: Menu — most thumb-accessible position */}
           <button
             onClick={() => setShowMore(!showMore)}
-            className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 min-h-[44px] transition-all active:scale-95 ${
-              showMore ? "text-primary" : "text-muted-foreground"
-            }`}
-            data-testid="mobile-nav-more"
+            className="flex flex-col items-center justify-center gap-1 flex-1 py-2 min-h-[44px] transition-all active:scale-95"
+            data-testid="mobile-nav-menu"
+            aria-label="All sections menu"
           >
-            <LayoutDashboard className={`w-5 h-5 ${showMore ? "text-primary" : ""}`} />
-            <span className="text-[10px] font-medium">More</span>
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center -mt-3 shadow-md transition-colors ${
+              showMore
+                ? "bg-primary shadow-primary/30"
+                : "bg-primary/90 shadow-primary/20"
+            }`}>
+              <LayoutGrid className="w-4 h-4 text-primary-foreground" />
+            </div>
+            <span className={`text-[10px] font-medium ${showMore ? "text-primary" : "text-muted-foreground"}`}>Menu</span>
           </button>
+
+          {/* Right tabs */}
+          {RIGHT_NAV.map((item) => {
+            const isActive = item.url
+              ? (item.url === "/" ? location === "/" : location.startsWith(item.url))
+              : false;
+            if (item.url === null) {
+              return (
+                <button
+                  key="log"
+                  onClick={() => setShowQuickLog(true)}
+                  className="flex flex-col items-center justify-center gap-1 flex-1 py-2 min-h-[44px] transition-all active:scale-95 text-muted-foreground"
+                  data-testid="mobile-nav-quick-log"
+                  aria-label="Quick Log"
+                >
+                  <item.icon className="w-5 h-5" />
+                  <span className="text-[10px] font-medium">{item.title}</span>
+                </button>
+              );
+            }
+            return (
+              <Link
+                key={item.url}
+                href={item.url}
+                className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 min-h-[44px] transition-all active:scale-95 ${
+                  isActive ? "text-primary" : "text-muted-foreground"
+                }`}
+                data-testid={`mobile-nav-${item.title.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
+              >
+                <item.icon className={`w-5 h-5 ${isActive ? "text-primary" : ""}`} />
+                <span className="text-[10px] font-medium">{item.title}</span>
+              </Link>
+            );
+          })}
         </div>
       </nav>
 
