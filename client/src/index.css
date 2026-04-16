@@ -323,59 +323,155 @@ body.has-modal #quick-capture-fab {
 .confluence-content hr { border: none; border-top: 1px solid hsl(var(--border)); margin: 1.5em 0; }
 .confluence-content .confluence-information-macro { background: hsl(var(--muted) / 0.5); border: 1px solid hsl(var(--border)); border-radius: 6px; padding: 0.75em 1em; margin-bottom: 0.75em; }
 
-/* ── React Grid Layout ──────────────────────────────────────────── */
+/* ── React Grid Layout — VoltSafe Cortex polish ──────────────────── */
+
+/* Smooth, settled motion for non-interactive transitions */
+.react-grid-item {
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+              width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+              height 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+/* Drop landing zone — branded, breathing border */
 .react-grid-item.react-grid-placeholder {
-  background: hsl(var(--primary) / 0.18) !important;
-  border: 2px dashed hsl(var(--primary) / 0.6);
-  border-radius: 12px;
+  background:
+    linear-gradient(135deg, hsl(var(--primary) / 0.14), hsl(var(--primary) / 0.08)) !important;
+  border: 1.5px dashed hsl(var(--primary) / 0.7);
+  border-radius: 14px;
   opacity: 1 !important;
-  transition-duration: 100ms;
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--primary) / 0.18),
+    0 0 0 4px hsl(var(--primary) / 0.06);
+  transition: all 120ms ease-out;
   z-index: 2;
   user-select: none;
+  animation: rgl-placeholder-pulse 1.6s ease-in-out infinite;
 }
+@keyframes rgl-placeholder-pulse {
+  0%, 100% { box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.18), 0 0 0 4px hsl(var(--primary) / 0.04); }
+  50%      { box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.30), 0 0 0 6px hsl(var(--primary) / 0.10); }
+}
+
+/* Active drag — lifted card with deeper shadow + slight scale */
 .react-grid-item.react-draggable-dragging {
-  z-index: 30;
-  opacity: 0.92;
+  z-index: 40;
   cursor: grabbing !important;
   transition: none;
 }
+.react-grid-item.react-draggable-dragging > .widget-fill {
+  transform: scale(1.015);
+  box-shadow:
+    0 12px 32px -8px rgb(0 0 0 / 0.45),
+    0 4px 12px -4px rgb(0 0 0 / 0.30),
+    0 0 0 1px hsl(var(--primary) / 0.45);
+  transition: transform 160ms ease-out, box-shadow 160ms ease-out;
+}
+
+/* Active resize — focused outline, no scale */
 .react-grid-item.resizing {
-  z-index: 25;
-  opacity: 0.95;
+  z-index: 30;
   transition: none;
 }
+.react-grid-item.resizing > .widget-fill {
+  box-shadow:
+    0 8px 24px -6px rgb(0 0 0 / 0.40),
+    0 0 0 1px hsl(var(--primary) / 0.55),
+    0 0 0 4px hsl(var(--primary) / 0.10);
+}
+
+/* Resize handle — subtle in normal mode, prominent in edit */
 .react-grid-item > .react-resizable-handle {
-  width: 14px;
-  height: 14px;
-  bottom: 4px;
-  right: 4px;
+  width: 18px;
+  height: 18px;
+  bottom: 0;
+  right: 0;
   background: none;
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+  z-index: 3;
 }
 .react-grid-item > .react-resizable-handle::after {
   content: "";
   position: absolute;
-  right: 3px;
-  bottom: 3px;
-  width: 8px;
-  height: 8px;
-  border-right: 2px solid hsl(var(--muted-foreground) / 0.5);
-  border-bottom: 2px solid hsl(var(--muted-foreground) / 0.5);
-  border-radius: 0 0 2px 0;
+  right: 5px;
+  bottom: 5px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid hsl(var(--primary) / 0.85);
+  border-bottom: 2px solid hsl(var(--primary) / 0.85);
+  border-radius: 0 0 4px 0;
 }
+.react-grid-item > .react-resizable-handle::before {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  background: linear-gradient(135deg, transparent 50%, hsl(var(--primary) / 0.18) 50%);
+  border-radius: 0 0 12px 0;
+}
+
+/* Edit-mode grid wash — softens the canvas to highlight cards */
+.dashboard-grid-edit {
+  position: relative;
+  padding: 10px;
+  margin: -10px;
+  background:
+    radial-gradient(circle at 0 0, hsl(var(--primary) / 0.04), transparent 40%),
+    repeating-linear-gradient(
+      0deg,
+      transparent 0,
+      transparent 29px,
+      hsl(var(--primary) / 0.04) 29px,
+      hsl(var(--primary) / 0.04) 30px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 29px,
+      hsl(var(--primary) / 0.04) 29px,
+      hsl(var(--primary) / 0.04) 30px
+    );
+  border-radius: 16px;
+  transition: background 200ms ease-out;
+}
+
+/* Edit-mode card affordance — a soft ring + reveal handles on hover */
 .dashboard-grid-edit .react-grid-item:not(.react-grid-placeholder) {
-  outline: 1px dashed hsl(var(--primary) / 0.35);
-  outline-offset: -2px;
-  border-radius: 12px;
+  border-radius: 14px;
 }
-.dashboard-grid-edit .react-grid-item:not(.react-grid-placeholder):hover {
-  outline-color: hsl(var(--primary) / 0.7);
+.dashboard-grid-edit .react-grid-item:not(.react-grid-placeholder) > .widget-fill {
+  position: relative;
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.20),
+    0 1px 2px rgb(0 0 0 / 0.25);
+  border-radius: 14px;
+  transition: box-shadow 180ms ease-out;
 }
+.dashboard-grid-edit .react-grid-item:not(.react-grid-placeholder):hover > .widget-fill {
+  box-shadow:
+    0 0 0 1.5px hsl(var(--primary) / 0.55),
+    0 6px 16px -6px rgb(0 0 0 / 0.35);
+}
+.dashboard-grid-edit .react-grid-item:hover > .react-resizable-handle {
+  opacity: 1;
+}
+.dashboard-grid-edit .react-grid-item.react-draggable-dragging > .react-resizable-handle,
+.dashboard-grid-edit .react-grid-item.resizing > .react-resizable-handle {
+  opacity: 1;
+}
+
+/* Widget card surface — fills the grid cell, internal scroll */
 .react-grid-item > .widget-fill {
   height: 100%;
   width: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border-radius: 14px;
+  background: transparent;
 }
 .react-grid-item > .widget-fill > * {
   flex: 1 1 auto;
@@ -387,4 +483,53 @@ body.has-modal #quick-capture-fab {
   overflow-y: auto;
   flex: 1 1 auto;
   min-height: 0;
+}
+
+/* Drag handle strip — premium grip with branded gradient */
+.widget-drag-handle {
+  background: linear-gradient(
+    180deg,
+    hsl(var(--primary) / 0.10) 0%,
+    hsl(var(--primary) / 0.04) 100%
+  );
+  border-bottom: 1px solid hsl(var(--primary) / 0.25);
+  backdrop-filter: blur(6px);
+  transition: background 160ms ease-out, border-color 160ms ease-out;
+}
+.widget-drag-handle:hover {
+  background: linear-gradient(
+    180deg,
+    hsl(var(--primary) / 0.20) 0%,
+    hsl(var(--primary) / 0.08) 100%
+  );
+  border-bottom-color: hsl(var(--primary) / 0.55);
+}
+.widget-drag-handle .grip-dots {
+  display: grid;
+  grid-template-columns: repeat(3, 3px);
+  grid-template-rows: repeat(2, 3px);
+  gap: 3px;
+}
+.widget-drag-handle .grip-dots > span {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: hsl(var(--primary) / 0.75);
+}
+.widget-drag-handle .handle-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: hsl(var(--primary) / 0.85);
+}
+
+/* Subtle entrance for newly-added widgets */
+@keyframes rgl-widget-enter {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.dashboard-grid-edit .react-grid-item:not(.react-draggable-dragging):not(.resizing) {
+  animation: rgl-widget-enter 240ms ease-out;
+  animation-fill-mode: backwards;
 }

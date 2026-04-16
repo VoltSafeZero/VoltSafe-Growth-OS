@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { Responsive as ResponsiveGridLayout, type LayoutItem, type ResponsiveLayouts } from "react-grid-layout";
 import { Button } from "@/components/ui/button";
-import { Pencil, Save, X, RotateCcw, GripVertical } from "lucide-react";
+import { Pencil, Save, X, RotateCcw, Move } from "lucide-react";
 import { ACTION_WIDGET_MAP } from "@/components/command-centers/action-widgets";
 
 // Re-export friendlier aliases so callers don't have to know about RGL's naming
@@ -166,20 +166,27 @@ export function reconcileLayouts(savedLayouts: Layouts | undefined, visibleIds: 
 function WidgetRenderer({ id, editing }: { id: string; editing: boolean }) {
   const Comp = ACTION_WIDGET_MAP[id];
   if (!Comp) return null;
-  // The shell already includes a GripVertical handle; in edit mode we use a
-  // dedicated overlay so the entire card-header area becomes the drag handle.
   return (
     <div className="widget-fill" data-testid={`widget-cell-${id}`}>
       {editing && (
         <div
-          className="widget-drag-handle absolute inset-x-0 top-0 h-9 cursor-grab active:cursor-grabbing z-20 flex items-center justify-center bg-primary/5 hover:bg-primary/10 rounded-t-xl border-b border-primary/20"
+          className="widget-drag-handle absolute inset-x-0 top-0 h-8 cursor-grab active:cursor-grabbing z-20 flex items-center justify-between px-3 rounded-t-[14px] select-none"
           data-testid={`drag-handle-${id}`}
-          title="Drag to move"
+          title="Drag to move · use the corner handle to resize"
         >
-          <GripVertical className="h-4 w-4 text-primary/70" />
+          <div className="flex items-center gap-2">
+            <span className="grip-dots" aria-hidden="true">
+              <span /><span /><span /><span /><span /><span />
+            </span>
+            <Move className="h-3 w-3 text-primary/80" aria-hidden="true" />
+          </div>
+          <span className="handle-label">Drag</span>
         </div>
       )}
-      <Comp />
+      {/* Push card content below the drag strip in edit mode */}
+      <div className={editing ? "pt-8 h-full flex flex-col min-h-0" : "h-full flex flex-col min-h-0"}>
+        <Comp />
+      </div>
     </div>
   );
 }
