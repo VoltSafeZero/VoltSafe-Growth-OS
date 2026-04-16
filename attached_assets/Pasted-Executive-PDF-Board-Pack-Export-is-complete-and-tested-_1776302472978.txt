@@ -1,0 +1,106 @@
+Executive PDF / Board Pack Export is complete and tested. Next, build the Revenue Architecture Upgrade for phased hardware rollout + flexible SaaS pricing.
+
+Goal:
+Model the real VoltSafe commercial structure where a marina may quote and PO a full project now, deploy hardware in phases over time, and pay different SaaS rates for VoltSafe-equipped slips vs non-VoltSafe slips using lighter software features.
+
+Build this in phases.
+
+PHASE 1 — ACCOUNT COMMERCIAL MODEL
+Add account-level commercial fields:
+- total_slips
+- voltsafe_slips_live
+- non_voltsafe_slips_on_software
+- future_upgrade_slips
+- contracted_units
+- installed_units
+- remaining_units
+- contracted_hardware_value
+- booked_hardware_value
+- delivered_hardware_value
+- rollout_start_date
+- rollout_end_target
+- pricing_lock_date
+- pricing_lock_expiry
+- commercial_notes
+
+PHASE 2 — SAAS BILLING LINES
+Create a flexible billing-line model per account.
+
+Support line types:
+- full_smart_slip
+- software_lite_slip
+- marina_platform_fee
+- custom_add_on
+
+Each billing line should store:
+- account_id
+- line_type
+- quantity
+- monthly_rate
+- annual_rate optional
+- billing_start_date
+- billing_end_date optional
+- active status
+- notes
+- linked_phase optional
+
+PHASE 3 — ROLLOUT PHASES
+Create rollout phases linked to accounts and optionally deployments/install workflows.
+
+Each phase should support:
+- phase_name
+- dock / finger / zone
+- planned_units
+- installed_units
+- target_install_date
+- actual_install_date
+- status
+- blockers
+- linked_deployment_id optional
+- linked_quote_id optional
+- linked_po_id optional
+
+PHASE 4 — REVENUE METRICS
+Compute and expose per account:
+- current MRR
+- contracted future MRR
+- fully deployed MRR
+- software-only MRR
+- hardware-booked revenue
+- hardware-remaining revenue
+- rollout completion %
+- expansion MRR opportunity
+
+PHASE 5 — ACCOUNT UI
+Add a Commercial / Revenue section on account detail pages showing:
+- hardware contract summary
+- rollout phase summary
+- SaaS line items
+- current vs future revenue
+- pricing lock details
+- slips breakdown
+
+PHASE 6 — DASHBOARDS / EXECUTIVE INTEGRATION
+Update executive and board-pack reporting to include:
+- contracted vs deployed hardware revenue
+- current vs fully deployed MRR
+- software-only slips
+- future upgrade slips
+- top phased-rollout accounts
+- expansion opportunity by account
+
+PHASE 7 — TESTING
+Add tests for:
+- billing line calculations
+- rollout phase logic
+- current vs future MRR math
+- booked vs delivered hardware math
+- executive/report integration
+- no regression to quotes, deployments, customer success, and board-pack exports
+
+Implementation rules:
+- use additive schema changes only
+- keep pricing flexible and editable
+- do not assume one flat SaaS price per marina
+- reflect phased rollout reality cleanly
+- summarize changed files and final pass/fail at the end
