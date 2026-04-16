@@ -523,11 +523,26 @@ function WidgetVisibilityPanel({ widgets, visible, onToggle, onReset }: {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Toggle widgets on or off. Drag handles appear on hover.</p>
-        <Button variant="ghost" size="sm" onClick={onReset} className="text-xs gap-1">
-          <RotateCcw className="h-3 w-3" /> Reset
-        </Button>
+      <div className="space-y-2">
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            Toggle which widgets appear on your dashboard.
+          </p>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onReset}
+            className="text-xs gap-1 shrink-0"
+            title="Restore the default set of visible widgets for your role. This does NOT change widget positions or sizes — use 'Reset Layout Positions' on the dashboard for that."
+            data-testid="picker-reset-visibility-btn"
+          >
+            <RotateCcw className="h-3 w-3" /> Reset Visible Widgets
+          </Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground/70 leading-snug">
+          Only changes which widgets are shown or hidden. To restore widget
+          positions and sizes, use <span className="font-medium text-foreground/80">Reset Layout Positions</span> in the dashboard's Edit Layout toolbar.
+        </p>
       </div>
 
       {/* Tab bar */}

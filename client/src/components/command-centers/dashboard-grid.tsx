@@ -222,8 +222,9 @@ export function DashboardEditToolbar({
         <X className="h-3.5 w-3.5" /> Cancel
       </Button>
       <Button variant="ghost" size="sm" className="gap-1.5 text-xs h-8 text-muted-foreground hover:text-foreground"
-        onClick={onReset} disabled={saving} data-testid="dashboard-reset-btn">
-        <RotateCcw className="h-3.5 w-3.5" /> Reset to Default
+        onClick={onReset} disabled={saving} data-testid="dashboard-reset-btn"
+        title="Restore widget positions and sizes to the role default. This does NOT change which widgets are enabled.">
+        <RotateCcw className="h-3.5 w-3.5" /> Reset Layout Positions
       </Button>
     </div>
   );
