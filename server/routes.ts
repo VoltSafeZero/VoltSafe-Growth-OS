@@ -11,6 +11,7 @@ import {
 } from "./executive-kpis";
 import { storage } from "./storage";
 import { runAutomationRule, evaluateConditions, type TriggerContext, type Condition, type Action } from "./services/automation-engine";
+import { scanEmailsForWinter, generateCaseNumber, classifyIssueType, classifySeverity, scoreSentiment } from "./services/winter-detector";
 import { scoreLeadQuality, scoreOpportunityClose, scoreQuoteFollowUpUrgency, scoreDeploymentDelayRisk, scoreChurnRisk, scoreExpansionLikelihood, bandRank, actionHintFor, type HotListItem } from "./services/scoring-engine";
 import { composeReport, ALL_SECTION_KEYS } from "./services/report-composer";
 import { computeRankedNearby, getRouteSuggestions, generateDirectionsUrl } from "./services/routing-engine";
@@ -18302,6 +18303,438 @@ export function registerConfluenceRoutes(app: Express) {
   // ── Board Pack scheduler boot ────────────────────────────────────────────────
   seedDefaultSchedules().catch(err => console.error("[board-pack-scheduler] seed error:", err));
   startBoardPackScheduler();
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // WINTER SUPPORT + LEGACY PRODUCT OPERATIONS
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // Helper: seed default products + KB articles if tables are empty
+  async function seedWinterDefaults() {
+    try {
+      const prodCount = await db.execute(sql.raw(`SELECT COUNT(*) FROM winter_products`));
+      if (Number((prodCount as any).rows?.[0]?.count ?? 1) === 0) {
+        await db.execute(sql.raw(`
+          INSERT INTO winter_products (name, sku, version, launch_year, certifications, units_sold, channels, status, notes)
+          VALUES
+            ('VoltSafe Winter Gen 1', 'VS-W-001', '1.0', 2019, ARRAY['CSA','UL'], 4200,
+             ARRAY['amazon','retail','dtc'], 'legacy',
+             'Original winter marina charging unit. CSA-certified for Canadian marinas.'),
+            ('VoltSafe Winter Gen 2', 'VS-W-002', '2.0', 2021, ARRAY['CSA','UL','ETL'], 2800,
+             ARRAY['amazon','retail'], 'paused',
+             'Improved thermal management. Paused pending relaunch feasibility study.'),
+            ('VoltSafe Winter Pro', 'VS-W-PRO', '1.5', 2022, ARRAY['CSA'], 650,
+             ARRAY['dtc'], 'relaunch_candidate',
+             'Pro tier with smart monitoring. Strong reorder demand from 3 retail partners.')
+        `));
+      }
+      const kbCount = await db.execute(sql.raw(`SELECT COUNT(*) FROM winter_kb_articles`));
+      if (Number((kbCount as any).rows?.[0]?.count ?? 1) === 0) {
+        await db.execute(sql.raw(`
+          INSERT INTO winter_kb_articles (title, issue_type, description, approved_response, internal_notes, status)
+          VALUES
+            ('Unit overheating above -5°C', 'overheating',
+             'Customers report unit gets hot during extended charging in sub-zero temps.',
+             'Thank you for reaching out. Overheating in extreme cold can occur if ventilation is blocked. Please ensure 6" clearance around the unit. If the issue persists, we will arrange a warranty replacement.',
+             'Root cause: thermal cutoff threshold too low on Gen 1 firmware. Gen 2 fix deployed.',
+             'active'),
+            ('Charging stops after ~45 minutes', 'charging_issue',
+             'Intermittent charging cutoff, typically in temperatures below -10°C.',
+             'This is a known firmware issue affecting Gen 1 units shipped before March 2020. We can provide a firmware update or replacement unit. Please share your unit serial number.',
+             'Firmware patch VS-W-FW-003 addresses this. Offer replacement for units pre-2020.',
+             'active'),
+            ('Magnetic connector fails in ice/snow', 'magnet_issue',
+             'Connector does not engage reliably when ice or snow is present.',
+             'The magnetic connector is rated for light precipitation. For heavy ice/snow exposure, we recommend our weatherproof dock cover (sold separately). A cleaning guide is attached.',
+             'High-volume complaint Q1/Q2. Design change in Gen 2+.',
+             'active'),
+            ('Cable jacket cracking in cold', 'cable_wear',
+             'Cable outer jacket develops cracks in sustained temperatures below -20°C.',
+             'VoltSafe Winter cables are rated to -20°C. Temperatures below this threshold may affect cable flexibility. We can provide a cold-weather cable upgrade at no charge for affected customers.',
+             'Upgrade cable SKU: VS-W-CAB-CW. Stock check before promising.',
+             'active'),
+            ('Compatibility with third-party EV charging adapters', 'compatibility',
+             'Customers asking about compatibility with non-VoltSafe EV adapters.',
+             'VoltSafe Winter uses a proprietary magnetic connector. It is not compatible with standard J1772 or CCS adapters without the VoltSafe Bridge Adapter (VS-BRIDGE). We will send details.',
+             'Bridge adapter is EOL. Route to sales if they want bulk order.',
+             'active'),
+            ('Warranty claim and replacement request', 'warranty',
+             'Standard warranty claim process for Winter units.',
+             'VoltSafe Winter products carry a 2-year limited warranty. Please provide your proof of purchase and serial number. We will process your warranty claim within 3 business days.',
+             'Route claims >2 years to customer discretion pricing.',
+             'active'),
+            ('Retailer reorder and wholesale inquiry', 'retailer_inquiry',
+             'Retailers asking to restock Winter units.',
+             'Thank you for your interest in carrying VoltSafe Winter. Our retail team will follow up within 48 hours with current availability and wholesale pricing.',
+             'Forward to sales@voltsafe.com. Note in case if they mention competitor pricing.',
+             'active')
+        `));
+      }
+    } catch (e) { /* silent — already seeded */ }
+  }
+  seedWinterDefaults().catch(() => {});
+
+  // ── Products ────────────────────────────────────────────────────────────────
+
+  app.get("/api/winter/products", requireAuth, async (req, res) => {
+    try {
+      const r = await db.execute(sql.raw(
+        `SELECT id, name, sku, version, launch_year AS "launchYear",
+                certifications, units_sold AS "unitsSold", channels, status, notes,
+                created_at AS "createdAt", updated_at AS "updatedAt"
+         FROM winter_products ORDER BY launch_year DESC NULLS LAST`
+      ));
+      res.json((r as any).rows ?? []);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/winter/products", requireAuth, async (req, res) => {
+    try {
+      const { name, sku, version, launchYear, certifications, unitsSold, channels, status, notes } = req.body;
+      if (!name) return res.status(400).json({ message: "name required" });
+      const certsArr = Array.isArray(certifications) ? `ARRAY[${certifications.map((c: string) => `'${String(c).replace(/'/g, "''")}'`).join(",")}]` : "ARRAY[]::text[]";
+      const chansArr = Array.isArray(channels) ? `ARRAY[${channels.map((c: string) => `'${String(c).replace(/'/g, "''")}'`).join(",")}]` : "ARRAY[]::text[]";
+      const r = await db.execute(sql.raw(
+        `INSERT INTO winter_products (name, sku, version, launch_year, certifications, units_sold, channels, status, notes, updated_at)
+         VALUES ('${String(name).replace(/'/g, "''")}', ${sku ? `'${String(sku).replace(/'/g, "''")}'` : "NULL"}, ${version ? `'${String(version).replace(/'/g, "''")}'` : "NULL"}, ${launchYear ? Number(launchYear) : "NULL"}, ${certsArr}, ${unitsSold ? Number(unitsSold) : 0}, ${chansArr}, '${String(status ?? "legacy").replace(/'/g, "''")}', ${notes ? `'${String(notes).replace(/'/g, "''")}'` : "NULL"}, NOW())
+         RETURNING id, name, sku, version, launch_year AS "launchYear", certifications, units_sold AS "unitsSold", channels, status, notes, created_at AS "createdAt", updated_at AS "updatedAt"`
+      ));
+      res.status(201).json((r as any).rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.put("/api/winter/products/:id", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { name, sku, version, launchYear, certifications, unitsSold, channels, status, notes } = req.body;
+      const sets: string[] = [];
+      if (name !== undefined) sets.push(`name = '${String(name).replace(/'/g, "''")}'`);
+      if (sku !== undefined) sets.push(`sku = ${sku ? `'${String(sku).replace(/'/g, "''")}'` : "NULL"}`);
+      if (version !== undefined) sets.push(`version = ${version ? `'${String(version).replace(/'/g, "''")}'` : "NULL"}`);
+      if (launchYear !== undefined) sets.push(`launch_year = ${launchYear ? Number(launchYear) : "NULL"}`);
+      if (certifications !== undefined && Array.isArray(certifications)) sets.push(`certifications = ARRAY[${certifications.map((c: string) => `'${String(c).replace(/'/g, "''")}'`).join(",")}]`);
+      if (unitsSold !== undefined) sets.push(`units_sold = ${Number(unitsSold)}`);
+      if (channels !== undefined && Array.isArray(channels)) sets.push(`channels = ARRAY[${channels.map((c: string) => `'${String(c).replace(/'/g, "''")}'`).join(",")}]`);
+      if (status !== undefined) sets.push(`status = '${String(status).replace(/'/g, "''")}'`);
+      if (notes !== undefined) sets.push(`notes = ${notes ? `'${String(notes).replace(/'/g, "''")}'` : "NULL"}`);
+      sets.push("updated_at = NOW()");
+      const r = await db.execute(sql.raw(`UPDATE winter_products SET ${sets.join(", ")} WHERE id = ${id} RETURNING id, name, status, updated_at AS "updatedAt"`));
+      if (!(r as any).rows?.length) return res.status(404).json({ message: "Product not found" });
+      res.json((r as any).rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Support Cases ──────────────────────────────────────────────────────────
+
+  app.get("/api/winter/cases", requireAuth, async (req, res) => {
+    try {
+      const { status, issueType, severity, search, limit = "50", offset = "0" } = req.query as Record<string, string>;
+      const where: string[] = [];
+      if (status && status !== "all") where.push(`c.status = '${status.replace(/'/g, "''")}'`);
+      if (issueType && issueType !== "all") where.push(`c.issue_type = '${issueType.replace(/'/g, "''")}'`);
+      if (severity && severity !== "all") where.push(`c.severity = '${severity.replace(/'/g, "''")}'`);
+      if (search) {
+        const s = search.replace(/'/g, "''");
+        where.push(`(c.customer_name ILIKE '%${s}%' OR c.customer_email ILIKE '%${s}%' OR c.subject ILIKE '%${s}%' OR c.case_number ILIKE '%${s}%')`);
+      }
+      const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+      const r = await db.execute(sql.raw(
+        `SELECT c.id, c.case_number AS "caseNumber", c.customer_name AS "customerName",
+                c.customer_email AS "customerEmail", c.email_thread_id AS "emailThreadId",
+                c.gmail_thread_id AS "gmailThreadId", c.issue_type AS "issueType",
+                c.severity, c.product_id AS "productId", c.product_version AS "productVersion",
+                c.country, c.status, c.owner_id AS "ownerId", c.resolution,
+                c.auto_detected AS "autoDetected", c.sentiment_score AS "sentimentScore",
+                c.kb_article_id AS "kbArticleId", c.subject, c.body_excerpt AS "bodyExcerpt",
+                c.tags, c.created_at AS "createdAt", c.updated_at AS "updatedAt",
+                p.name AS "productName", u.name AS "ownerName"
+         FROM winter_support_cases c
+         LEFT JOIN winter_products p ON p.id = c.product_id
+         LEFT JOIN users u ON u.id = c.owner_id
+         ${whereClause}
+         ORDER BY c.created_at DESC
+         LIMIT ${Math.min(Number(limit), 200)} OFFSET ${Number(offset)}`
+      ));
+      res.json((r as any).rows ?? []);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/winter/cases/:id", requireAuth, async (req, res) => {
+    try {
+      const r = await db.execute(sql.raw(
+        `SELECT c.*, p.name AS "productName", u.name AS "ownerName",
+                k.title AS "kbTitle", k.approved_response AS "kbApprovedResponse"
+         FROM winter_support_cases c
+         LEFT JOIN winter_products p ON p.id = c.product_id
+         LEFT JOIN users u ON u.id = c.owner_id
+         LEFT JOIN winter_kb_articles k ON k.id = c.kb_article_id
+         WHERE c.id = ${Number(req.params.id)}`
+      ));
+      if (!(r as any).rows?.length) return res.status(404).json({ message: "Case not found" });
+      res.json((r as any).rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/winter/cases", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const {
+        customerName, customerEmail, emailThreadId, gmailThreadId,
+        issueType = "general", severity = "medium", productId, productVersion,
+        country, status = "open", resolution, sentimentScore, kbArticleId,
+        subject, bodyExcerpt, tags,
+      } = req.body;
+      const caseNumber = generateCaseNumber();
+      const tagsArr = Array.isArray(tags) ? `ARRAY[${tags.map((t: string) => `'${String(t).replace(/'/g, "''")}'`).join(",")}]` : "ARRAY[]::text[]";
+      const r = await db.execute(sql.raw(
+        `INSERT INTO winter_support_cases
+           (case_number, customer_name, customer_email, email_thread_id, gmail_thread_id,
+            issue_type, severity, product_id, product_version, country, status,
+            owner_id, resolution, sentiment_score, kb_article_id, subject, body_excerpt, tags)
+         VALUES
+           ('${caseNumber}',
+            ${customerName ? `'${String(customerName).replace(/'/g, "''")}'` : "NULL"},
+            ${customerEmail ? `'${String(customerEmail).replace(/'/g, "''")}'` : "NULL"},
+            ${emailThreadId ? `'${String(emailThreadId).replace(/'/g, "''")}'` : "NULL"},
+            ${gmailThreadId ? `'${String(gmailThreadId).replace(/'/g, "''")}'` : "NULL"},
+            '${String(issueType).replace(/'/g, "''")}',
+            '${String(severity).replace(/'/g, "''")}',
+            ${productId ? Number(productId) : "NULL"},
+            ${productVersion ? `'${String(productVersion).replace(/'/g, "''")}'` : "NULL"},
+            ${country ? `'${String(country).replace(/'/g, "''")}'` : "NULL"},
+            '${String(status).replace(/'/g, "''")}',
+            ${userId},
+            ${resolution ? `'${String(resolution).replace(/'/g, "''")}'` : "NULL"},
+            ${sentimentScore != null ? Number(sentimentScore) : "NULL"},
+            ${kbArticleId ? Number(kbArticleId) : "NULL"},
+            ${subject ? `'${String(subject).replace(/'/g, "''").slice(0, 255)}'` : "NULL"},
+            ${bodyExcerpt ? `'${String(bodyExcerpt).replace(/'/g, "''").slice(0, 500)}'` : "NULL"},
+            ${tagsArr})
+         RETURNING id, case_number AS "caseNumber", customer_name AS "customerName", status,
+                   issue_type AS "issueType", severity, created_at AS "createdAt"`
+      ));
+      res.status(201).json((r as any).rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.put("/api/winter/cases/:id", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { status, resolution, ownerId, issueType, severity, productId, kbArticleId, country, productVersion } = req.body;
+      const sets: string[] = [];
+      if (status !== undefined) sets.push(`status = '${String(status).replace(/'/g, "''")}'`);
+      if (resolution !== undefined) sets.push(`resolution = ${resolution ? `'${String(resolution).replace(/'/g, "''")}'` : "NULL"}`);
+      if (ownerId !== undefined) sets.push(`owner_id = ${ownerId ? Number(ownerId) : "NULL"}`);
+      if (issueType !== undefined) sets.push(`issue_type = '${String(issueType).replace(/'/g, "''")}'`);
+      if (severity !== undefined) sets.push(`severity = '${String(severity).replace(/'/g, "''")}'`);
+      if (productId !== undefined) sets.push(`product_id = ${productId ? Number(productId) : "NULL"}`);
+      if (kbArticleId !== undefined) sets.push(`kb_article_id = ${kbArticleId ? Number(kbArticleId) : "NULL"}`);
+      if (country !== undefined) sets.push(`country = ${country ? `'${String(country).replace(/'/g, "''")}'` : "NULL"}`);
+      if (productVersion !== undefined) sets.push(`product_version = ${productVersion ? `'${String(productVersion).replace(/'/g, "''")}'` : "NULL"}`);
+      sets.push("updated_at = NOW()");
+      const r = await db.execute(sql.raw(`UPDATE winter_support_cases SET ${sets.join(", ")} WHERE id = ${id} RETURNING id, case_number AS "caseNumber", status, updated_at AS "updatedAt"`));
+      if (!(r as any).rows?.length) return res.status(404).json({ message: "Case not found" });
+      res.json((r as any).rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Knowledge Base ─────────────────────────────────────────────────────────
+
+  app.get("/api/winter/kb", requireAuth, async (req, res) => {
+    try {
+      const { issueType, status } = req.query as Record<string, string>;
+      const where: string[] = [];
+      if (issueType && issueType !== "all") where.push(`issue_type = '${issueType.replace(/'/g, "''")}'`);
+      if (status && status !== "all") where.push(`status = '${status.replace(/'/g, "''")}'`);
+      const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+      const r = await db.execute(sql.raw(
+        `SELECT id, title, issue_type AS "issueType", description, approved_response AS "approvedResponse",
+                internal_notes AS "internalNotes", status, applies_to_versions AS "appliesToVersions",
+                related_case_count AS "relatedCaseCount", last_reviewed_at AS "lastReviewedAt",
+                created_at AS "createdAt", updated_at AS "updatedAt"
+         FROM winter_kb_articles ${whereClause}
+         ORDER BY issue_type, title`
+      ));
+      res.json((r as any).rows ?? []);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/winter/kb", requireAuth, async (req, res) => {
+    try {
+      const { title, issueType, description, approvedResponse, internalNotes, status = "active", appliesToVersions } = req.body;
+      if (!title || !issueType) return res.status(400).json({ message: "title and issueType required" });
+      const versArr = Array.isArray(appliesToVersions) ? `ARRAY[${appliesToVersions.map((v: string) => `'${String(v).replace(/'/g, "''")}'`).join(",")}]` : "ARRAY[]::text[]";
+      const r = await db.execute(sql.raw(
+        `INSERT INTO winter_kb_articles (title, issue_type, description, approved_response, internal_notes, status, applies_to_versions)
+         VALUES ('${String(title).replace(/'/g, "''")}', '${String(issueType).replace(/'/g, "''")}',
+                 ${description ? `'${String(description).replace(/'/g, "''")}'` : "NULL"},
+                 ${approvedResponse ? `'${String(approvedResponse).replace(/'/g, "''")}'` : "NULL"},
+                 ${internalNotes ? `'${String(internalNotes).replace(/'/g, "''")}'` : "NULL"},
+                 '${String(status).replace(/'/g, "''")}', ${versArr})
+         RETURNING id, title, issue_type AS "issueType", status, created_at AS "createdAt"`
+      ));
+      res.status(201).json((r as any).rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.put("/api/winter/kb/:id", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { title, issueType, description, approvedResponse, internalNotes, status } = req.body;
+      const sets: string[] = [];
+      if (title !== undefined) sets.push(`title = '${String(title).replace(/'/g, "''")}'`);
+      if (issueType !== undefined) sets.push(`issue_type = '${String(issueType).replace(/'/g, "''")}'`);
+      if (description !== undefined) sets.push(`description = ${description ? `'${String(description).replace(/'/g, "''")}'` : "NULL"}`);
+      if (approvedResponse !== undefined) sets.push(`approved_response = ${approvedResponse ? `'${String(approvedResponse).replace(/'/g, "''")}'` : "NULL"}`);
+      if (internalNotes !== undefined) sets.push(`internal_notes = ${internalNotes ? `'${String(internalNotes).replace(/'/g, "''")}'` : "NULL"}`);
+      if (status !== undefined) sets.push(`status = '${String(status).replace(/'/g, "''")}'`);
+      sets.push("last_reviewed_at = NOW()", "updated_at = NOW()");
+      const r = await db.execute(sql.raw(`UPDATE winter_kb_articles SET ${sets.join(", ")} WHERE id = ${id} RETURNING id, title, status`));
+      if (!(r as any).rows?.length) return res.status(404).json({ message: "Article not found" });
+      res.json((r as any).rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Dashboard / Executive View ─────────────────────────────────────────────
+
+  app.get("/api/winter/dashboard", requireAuth, async (req, res) => {
+    try {
+      const [statsR, issuesR, trendsR, productsR] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT
+            COUNT(*) FILTER (WHERE status = 'open') AS open_cases,
+            COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress_cases,
+            COUNT(*) FILTER (WHERE status = 'resolved' OR status = 'closed') AS resolved_cases,
+            COUNT(*) FILTER (WHERE severity = 'critical') AS critical_cases,
+            COUNT(*) FILTER (WHERE severity = 'high') AS high_cases,
+            COUNT(*) FILTER (WHERE auto_detected = true) AS auto_detected,
+            COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') AS last_30d,
+            COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS last_7d,
+            ROUND(AVG(sentiment_score)) AS avg_sentiment,
+            COUNT(*) FILTER (WHERE issue_type = 'reorder_interest') AS reorder_signals,
+            COUNT(*) FILTER (WHERE issue_type = 'retailer_inquiry') AS retailer_signals
+          FROM winter_support_cases
+        `)),
+        db.execute(sql.raw(`
+          SELECT issue_type AS "issueType", COUNT(*) AS count,
+                 COUNT(*) FILTER (WHERE status = 'open') AS open_count
+          FROM winter_support_cases
+          GROUP BY issue_type
+          ORDER BY count DESC
+          LIMIT 10
+        `)),
+        db.execute(sql.raw(`
+          SELECT DATE_TRUNC('week', created_at)::date AS week,
+                 COUNT(*) AS cases,
+                 ROUND(AVG(sentiment_score)) AS avg_sentiment
+          FROM winter_support_cases
+          WHERE created_at > NOW() - INTERVAL '12 weeks'
+          GROUP BY 1 ORDER BY 1 DESC
+          LIMIT 12
+        `)),
+        db.execute(sql.raw(`
+          SELECT p.id, p.name, p.status, p.units_sold AS "unitsSold",
+                 COUNT(c.id) AS case_count,
+                 COUNT(c.id) FILTER (WHERE c.status = 'open') AS open_count
+          FROM winter_products p
+          LEFT JOIN winter_support_cases c ON c.product_id = p.id
+          GROUP BY p.id, p.name, p.status, p.units_sold
+          ORDER BY case_count DESC
+        `)),
+      ]);
+
+      const stats = (statsR as any).rows?.[0] ?? {};
+      const openCases = Number(stats.open_cases ?? 0);
+      const reorderSignals = Number(stats.reorder_signals ?? 0) + Number(stats.retailer_signals ?? 0);
+      const demandScore = Math.min(100, Math.round(
+        (reorderSignals * 15) + (Number(stats.last_30d ?? 0) * 2) + (Number(stats.avg_sentiment ?? 0) > 0 ? 10 : 0)
+      ));
+      const revenueOpportunity = reorderSignals * 8500;
+
+      res.json({
+        stats: {
+          openCases,
+          inProgressCases: Number(stats.in_progress_cases ?? 0),
+          resolvedCases: Number(stats.resolved_cases ?? 0),
+          criticalCases: Number(stats.critical_cases ?? 0),
+          highCases: Number(stats.high_cases ?? 0),
+          autoDetected: Number(stats.auto_detected ?? 0),
+          last30d: Number(stats.last_30d ?? 0),
+          last7d: Number(stats.last_7d ?? 0),
+          avgSentiment: Number(stats.avg_sentiment ?? 0),
+        },
+        topIssues: (issuesR as any).rows ?? [],
+        weeklyTrend: (trendsR as any).rows ?? [],
+        productBreakdown: (productsR as any).rows ?? [],
+        demandScore,
+        revenueOpportunity,
+        reorderSignals,
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Demand Signals ─────────────────────────────────────────────────────────
+
+  app.get("/api/winter/demand-signals", requireAuth, async (req, res) => {
+    try {
+      const [byCountryR, retailersR, improvementsR, complaintsByMonthR, sentimentR] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT COALESCE(country, 'Unknown') AS country, COUNT(*) AS count
+          FROM winter_support_cases
+          WHERE issue_type IN ('reorder_interest','retailer_inquiry','general','feature_request')
+          GROUP BY country ORDER BY count DESC
+        `)),
+        db.execute(sql.raw(`
+          SELECT customer_name AS "customerName", customer_email AS "customerEmail",
+                 issue_type AS "issueType", subject, created_at AS "createdAt"
+          FROM winter_support_cases
+          WHERE issue_type = 'retailer_inquiry'
+          ORDER BY created_at DESC LIMIT 20
+        `)),
+        db.execute(sql.raw(`
+          SELECT subject, body_excerpt AS "bodyExcerpt", created_at AS "createdAt",
+                 customer_name AS "customerName"
+          FROM winter_support_cases
+          WHERE issue_type = 'feature_request'
+          ORDER BY created_at DESC LIMIT 20
+        `)),
+        db.execute(sql.raw(`
+          SELECT DATE_TRUNC('month', created_at)::date AS month,
+                 COUNT(*) FILTER (WHERE issue_type = 'complaint') AS complaints,
+                 COUNT(*) FILTER (WHERE issue_type = 'reorder_interest') AS reorders,
+                 COUNT(*) FILTER (WHERE issue_type = 'retailer_inquiry') AS retailer_inquiries
+          FROM winter_support_cases
+          WHERE created_at > NOW() - INTERVAL '6 months'
+          GROUP BY 1 ORDER BY 1 DESC
+        `)),
+        db.execute(sql.raw(`
+          SELECT
+            COUNT(*) FILTER (WHERE sentiment_score > 20) AS positive,
+            COUNT(*) FILTER (WHERE sentiment_score BETWEEN -20 AND 20) AS neutral,
+            COUNT(*) FILTER (WHERE sentiment_score < -20) AS negative,
+            ROUND(AVG(sentiment_score)) AS avg_score
+          FROM winter_support_cases WHERE sentiment_score IS NOT NULL
+        `)),
+      ]);
+
+      res.json({
+        byCountry: (byCountryR as any).rows ?? [],
+        retailers: (retailersR as any).rows ?? [],
+        improvements: (improvementsR as any).rows ?? [],
+        monthlyTrend: (complaintsByMonthR as any).rows ?? [],
+        sentiment: (sentimentR as any).rows?.[0] ?? { positive: 0, neutral: 0, negative: 0, avg_score: 0 },
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Email Scan ─────────────────────────────────────────────────────────────
+
+  app.post("/api/winter/scan-emails", requireAuth, async (req, res) => {
+    try {
+      const { limitHours = 720 } = req.body;
+      const result = await scanEmailsForWinter(Number(limitHours));
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
 
   // ── Engagement scheduler + default rules ────────────────────────────────────
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));

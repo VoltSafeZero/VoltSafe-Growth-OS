@@ -2198,3 +2198,72 @@ export const scoreAcknowledgments = pgTable("score_acknowledgments", {
 export const insertScoreAcknowledgmentSchema = createInsertSchema(scoreAcknowledgments).omit({ id: true, acknowledgedAt: true });
 export type InsertScoreAcknowledgment = z.infer<typeof insertScoreAcknowledgmentSchema>;
 export type ScoreAcknowledgment = typeof scoreAcknowledgments.$inferSelect;
+
+// ── Winter Support + Legacy Product Operations ──────────────────────────────
+
+export const winterProducts = pgTable("winter_products", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  sku: text("sku"),
+  version: text("version"),
+  launchYear: integer("launch_year"),
+  certifications: text("certifications").array(),
+  unitsSold: integer("units_sold").default(0),
+  channels: text("channels").array(),
+  status: text("status").notNull().default("legacy"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertWinterProductSchema = createInsertSchema(winterProducts).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertWinterProduct = z.infer<typeof insertWinterProductSchema>;
+export type WinterProduct = typeof winterProducts.$inferSelect;
+
+export const winterSupportCases = pgTable("winter_support_cases", {
+  id: serial("id").primaryKey(),
+  caseNumber: text("case_number").notNull().unique(),
+  customerName: text("customer_name"),
+  customerEmail: text("customer_email"),
+  emailThreadId: text("email_thread_id"),
+  gmailThreadId: text("gmail_thread_id"),
+  issueType: text("issue_type").notNull().default("general"),
+  severity: text("severity").notNull().default("medium"),
+  productId: integer("product_id"),
+  productVersion: text("product_version"),
+  country: text("country"),
+  status: text("status").notNull().default("open"),
+  ownerId: integer("owner_id"),
+  resolution: text("resolution"),
+  autoDetected: boolean("auto_detected").default(false),
+  sentimentScore: integer("sentiment_score"),
+  kbArticleId: integer("kb_article_id"),
+  subject: text("subject"),
+  bodyExcerpt: text("body_excerpt"),
+  tags: text("tags").array(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertWinterSupportCaseSchema = createInsertSchema(winterSupportCases).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertWinterSupportCase = z.infer<typeof insertWinterSupportCaseSchema>;
+export type WinterSupportCase = typeof winterSupportCases.$inferSelect;
+
+export const winterKbArticles = pgTable("winter_kb_articles", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  issueType: text("issue_type").notNull(),
+  description: text("description"),
+  approvedResponse: text("approved_response"),
+  internalNotes: text("internal_notes"),
+  status: text("status").notNull().default("active"),
+  appliesToVersions: text("applies_to_versions").array(),
+  relatedCaseCount: integer("related_case_count").default(0),
+  lastReviewedAt: timestamp("last_reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertWinterKbArticleSchema = createInsertSchema(winterKbArticles).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertWinterKbArticle = z.infer<typeof insertWinterKbArticleSchema>;
+export type WinterKbArticle = typeof winterKbArticles.$inferSelect;

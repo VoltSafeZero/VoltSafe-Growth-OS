@@ -1,0 +1,89 @@
+Score Widget Quick Actions are complete and tested. Next, build VoltSafe Winter Support + Legacy Product Ops inside Cortex.
+
+Goal:
+Use real inbound support@voltsafe.com traffic and historical VoltSafe Winter demand to run a practical support + product intelligence workflow inside Cortex.
+
+Build this in phases.
+
+PHASE 1 — PRODUCT ENTITY
+Add product records for legacy/current products, starting with VoltSafe Winter.
+
+Fields:
+- name
+- sku / version
+- launch year
+- certification history
+- channel(s)
+- status (legacy / active / paused / relaunch candidate)
+- units sold estimate
+- notes
+
+PHASE 2 — SUPPORT CASE MODEL
+Create support cases with:
+- product_id
+- customer/contact info
+- linked email thread
+- case type
+- severity
+- status
+- owner
+- country/region
+- order/source notes if known
+- resolution summary
+
+Case types:
+- warranty
+- troubleshooting
+- replacement
+- complaint
+- feature request
+- retailer inquiry
+- reorder interest
+- general
+
+PHASE 3 — EMAIL INTAKE / TAGGING
+From support@voltsafe.com emails:
+- detect VoltSafe Winter mentions
+- tag/classify likely Winter cases
+- allow manual override
+- link email thread to the product/case
+
+PHASE 4 — KNOWN ISSUES / KNOWLEDGE
+Add simple issue taxonomy / known-issues tracking:
+- issue name
+- frequency
+- severity
+- notes
+- recommended response
+- relaunch relevance
+
+PHASE 5 — DEMAND / RELAUNCH SIGNALS
+Create a dashboard for:
+- requests by month
+- requests by country
+- retailer interest
+- unresolved complaints
+- most common issues
+- relaunch demand score
+
+PHASE 6 — WINTER COMMAND CENTER
+Create a focused page showing:
+- open Winter cases
+- top issue themes
+- unresolved high-severity items
+- relaunch demand signals
+- common requested improvements
+
+PHASE 7 — TESTING
+Add tests for:
+- case creation
+- email tagging/classification
+- issue tracking
+- dashboard rollups
+- regressions with inbox/email systems
+
+Implementation rules:
+- keep it practical and lightweight
+- do not build a giant helpdesk suite
+- reuse existing email, notes, tasks, timeline, and command center systems
+- summarize changed files and final pass/fail at the end
