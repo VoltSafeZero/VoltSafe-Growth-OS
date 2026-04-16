@@ -1,0 +1,189 @@
+You don’t just want documents.
+You want a living operating system where:
+* humans can read the manual
+* new staff can train quickly
+* and users can ask VoltSafe Cortex questions inside the CMS and get instant help using real system context
+ 
+That’s how adoption happens.
+ 
+What to Ask Replit
+ 
+Use this master prompt:
+I want you to create a complete documentation + training system for VoltSafe Cortex (our internal CMS/CRM), and also make it usable by the built-in VoltSafe Cortex AI assistant inside the platform.
+ 
+GOAL:
+Create:
+1. Full Operations Manual
+2. Internal Staff Training Handbook
+3. In-app AI Help Knowledge Base for VoltSafe Cortex assistant
+4. Fast onboarding materials for new employees
+ 
+IMPORTANT:
+Before writing anything, audit the actual codebase so documentation matches real features that exist today.
+Do not invent features.
+If something is unclear, say “unclear from code”.
+ 
+==================================================
+PART 1 — FULL OPERATIONS MANUAL
+==================================================
+ 
+Create a very comprehensive VoltSafe Cortex Operations Manual.
+ 
+Audience:
+A complete beginner.
+ 
+Writing style:
+Extremely simple plain English so even an 8-year-old child could understand it.
+ 
+Rules:
+- very short sentences
+- step-by-step instructions
+- define all technical words simply
+- lots of examples
+- explain buttons, pages, filters, tabs, workflows
+- include warnings and common mistakes
+- include screenshot placeholders
+ 
+Cover all major modules:
+- login
+- navigation
+- dashboard
+- command center
+- accounts
+- leads
+- contacts
+- opportunities
+- pipeline
+- quotes
+- tasks hub
+- suggestions
+- command bar / search
+- gmail inbox
+- email signals
+- timelines
+- saved views
+- bulk actions
+- data quality center
+- install workflows
+- executive dashboard
+- source attribution
+- admin/settings
+- daily workflows
+- troubleshooting
+- glossary
+ 
+Deliverables:
+- Quick Start Guide
+- Full Manual
+- Daily Use Best Practices
+- Top 20 Most Important Things to Remember
+ 
+==================================================
+PART 2 — INTERNAL STAFF TRAINING HANDBOOK
+==================================================
+ 
+Create a separate training handbook for employees.
+ 
+Audience:
+New hires and existing team members.
+ 
+Make role-based guides for:
+- CEO / Admin
+- Sales
+- Operations
+- Read-only users
+ 
+For each role include:
+- what to do daily
+- what pages matter most
+- what success looks like
+- common mistakes
+- weekly habits
+- KPI ownership
+ 
+Also create:
+- 30-minute training plan
+- 7-day mastery plan
+- New employee onboarding checklist
+- Manager training checklist
+- How to know if someone is using the system correctly
+ 
+==================================================
+PART 3 — VOLTSAFE CORTEX AI HELP SYSTEM
+==================================================
+ 
+Create an internal AI help knowledge base so users can ask VoltSafe Cortex questions inside the CMS.
+ 
+Examples:
+- How do I create a lead?
+- How do I convert a lead?
+- Why is this opportunity stale?
+- How do I send a quote?
+- What does weighted pipeline mean?
+- How do I assign tasks in bulk?
+- Where do I find install workflows?
+ 
+Build:
+1. FAQ database (100+ Q&A pairs)
+2. Feature explanations
+3. Troubleshooting answers
+4. How-to guides
+5. Definitions of CRM terms in simple language
+6. Common user mistakes and fixes
+ 
+Format the knowledge base in structured JSON or Markdown so the AI assistant can search it quickly.
+ 
+==================================================
+PART 4 — IN-APP AI ASSISTANT BEHAVIOR
+==================================================
+ 
+Upgrade VoltSafe Cortex assistant so when users ask for help inside the CMS it can:
+ 
+- explain any page
+- explain any metric
+- explain any button
+- teach workflows step by step
+- suggest next best actions
+- help users fix mistakes
+- explain terminology simply
+- guide onboarding users
+- answer based on the real system
+ 
+If the answer is uncertain:
+say clearly what is known vs unclear.
+ 
+==================================================
+PART 5 — DELIVERY FORMAT
+==================================================
+ 
+Do this in phases:
+ 
+Phase 1:
+Audit the codebase and list all real modules/routes/features.
+ 
+Phase 2:
+Write Quick Start Guide.
+ 
+Phase 3:
+Write Full Operations Manual.
+ 
+Phase 4:
+Write Training Handbook.
+ 
+Phase 5:
+Write AI Help Knowledge Base.
+ 
+Phase 6:
+Wire the knowledge base into VoltSafe Cortex assistant.
+ 
+At the end of each phase provide:
+- completed items
+- files created
+- what still remains
+- gaps or unclear areas
+ 
+OUTPUT:
+Use Markdown files and structured JSON where helpful.
+Make everything polished, practical, and easy to use.
+ 
+Also make this accessible (& downloadable in pdf form) for users under TOOLS. Also ensure VoltSafe Cortex (AI Chatbot) has full knowledge and access to it.
