@@ -11,6 +11,7 @@ import {
 } from "./executive-kpis";
 import { storage } from "./storage";
 import { runAutomationRule, evaluateConditions, type TriggerContext, type Condition, type Action } from "./services/automation-engine";
+import { composeReport, ALL_SECTION_KEYS } from "./services/report-composer";
 import { db } from "./db";
 import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications } from "@shared/schema";
 import {
@@ -15888,6 +15889,108 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const ok = await storage.deleteAutomationRule(Number(req.params.id));
       if (!ok) return res.status(404).json({ message: "Rule not found" });
+      res.json({ message: "Deleted" });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Board Pack / Executive Report Composer ────────────────────────────────
+
+  // GET /api/reports/types — report type metadata
+  app.get("/api/reports/types", requireAuth, (_req, res) => {
+    res.json([
+      { value: "executive_weekly", label: "Executive Weekly", description: "Snapshot of key KPIs, pipeline, and risks for weekly exec review." },
+      { value: "monthly_leadership", label: "Monthly Leadership Review", description: "Full business review across all modules for leadership team." },
+      { value: "board_pack", label: "Board Pack", description: "Comprehensive board-ready report with narrative and all sections." },
+      { value: "fundraising_snapshot", label: "Fundraising Snapshot", description: "Growth-focused report highlighting pipeline, ARR, and source attribution." },
+      { value: "ops_review", label: "Ops Review", description: "Deployments, procurement risks, certifications, and support blockers." },
+    ]);
+  });
+
+  // GET /api/reports/sections — section metadata
+  app.get("/api/reports/sections", requireAuth, (_req, res) => {
+    res.json([
+      { key: "kpi_summary", label: "KPI Summary", description: "Top-line pipeline, quotes, installs, and leads metrics.", defaultFor: ["executive_weekly", "monthly_leadership", "board_pack", "fundraising_snapshot", "ops_review"] },
+      { key: "pipeline_forecast", label: "Pipeline Forecast", description: "6-month forward-looking pipeline by month and forecast category.", defaultFor: ["executive_weekly", "monthly_leadership", "board_pack", "fundraising_snapshot"] },
+      { key: "quote_snapshot", label: "Quote Snapshot", description: "Win rates, accepted revenue, and recent quote status.", defaultFor: ["executive_weekly", "monthly_leadership", "board_pack", "fundraising_snapshot"] },
+      { key: "installs_deployments", label: "Installs & Deployments", description: "Active installations, blockers, and completion trends.", defaultFor: ["monthly_leadership", "board_pack", "ops_review"] },
+      { key: "procurement_risks", label: "Procurement Risks", description: "Inventory levels, pending POs, and supply-chain blockers.", defaultFor: ["ops_review", "board_pack"] },
+      { key: "certification_oversight", label: "Certification Oversight", description: "UL/CSA certification status, blockers, and expiring certs.", defaultFor: ["ops_review", "board_pack", "monthly_leadership"] },
+      { key: "customer_success", label: "Customer Success & Renewals", description: "Account health, renewal pipeline, and churn-risk accounts.", defaultFor: ["monthly_leadership", "board_pack", "fundraising_snapshot"] },
+      { key: "geography_territory", label: "Geography & Territory", description: "Regional pipeline breakdown and whitespace opportunity.", defaultFor: ["monthly_leadership", "board_pack"] },
+      { key: "source_attribution", label: "Source Attribution", description: "Lead source performance, conversion rates, and revenue attribution.", defaultFor: ["monthly_leadership", "board_pack", "fundraising_snapshot"] },
+      { key: "risk_blockers", label: "Risks & Blockers", description: "Stalled opps, awaiting quotes, overdue tasks, and data quality.", defaultFor: ["executive_weekly", "monthly_leadership", "board_pack", "ops_review"] },
+      { key: "narrative_bullets", label: "Narrative Summary", description: "Auto-generated deterministic summary bullets from the data.", defaultFor: ["executive_weekly", "monthly_leadership", "board_pack", "fundraising_snapshot"] },
+    ]);
+  });
+
+  // POST /api/reports/compose — assemble report data
+  app.post("/api/reports/compose", requireAuth, async (req, res) => {
+    try {
+      const { reportType = "executive_weekly", dateFrom, dateTo, ownerUserId, region, sections } = req.body as {
+        reportType?: string;
+        dateFrom?: string;
+        dateTo?: string;
+        ownerUserId?: number;
+        region?: string;
+        sections?: string[];
+      };
+      const data = await composeReport(reportType, { dateFrom, dateTo, ownerUserId, region, sections });
+      res.json(data);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/reports/presets — list saved presets
+  app.get("/api/reports/presets", requireAuth, async (req, res) => {
+    try {
+      const presets = await storage.getReportPresets();
+      res.json(presets);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/reports/presets — create preset
+  app.post("/api/reports/presets", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const { name, reportType, dateRangePreset, customDateFrom, customDateTo, ownerUserId, regionFilter, includedSections, config, description, isDefault } = req.body;
+      if (!name) return res.status(400).json({ message: "name is required" });
+      const preset = await storage.createReportPreset({
+        name, description, reportType: reportType ?? "executive_weekly",
+        dateRangePreset: dateRangePreset ?? "this_month",
+        customDateFrom: customDateFrom ? new Date(customDateFrom) : undefined,
+        customDateTo: customDateTo ? new Date(customDateTo) : undefined,
+        ownerUserId, regionFilter,
+        includedSections: includedSections ?? ALL_SECTION_KEYS,
+        config: config ?? {},
+        isDefault: isDefault ?? false,
+        createdBy: userId,
+      });
+      res.json(preset);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/reports/presets/:id
+  app.get("/api/reports/presets/:id", requireAuth, async (req, res) => {
+    try {
+      const preset = await storage.getReportPreset(Number(req.params.id));
+      if (!preset) return res.status(404).json({ message: "Preset not found" });
+      res.json(preset);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // PUT /api/reports/presets/:id
+  app.put("/api/reports/presets/:id", requireAuth, async (req, res) => {
+    try {
+      const updated = await storage.updateReportPreset(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Preset not found" });
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // DELETE /api/reports/presets/:id
+  app.delete("/api/reports/presets/:id", requireAuth, async (req, res) => {
+    try {
+      const ok = await storage.deleteReportPreset(Number(req.params.id));
+      if (!ok) return res.status(404).json({ message: "Preset not found" });
       res.json({ message: "Deleted" });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });

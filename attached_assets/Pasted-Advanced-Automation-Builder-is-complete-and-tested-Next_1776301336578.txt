@@ -1,0 +1,92 @@
+Advanced Automation Builder is complete and tested. Next, build the Executive PDF / Board Pack Export layer.
+
+Goal:
+Generate clean exportable leadership and board-ready reports from Cortex using the real executive, pipeline, quote, deployment, certification, customer-success, geography, and source-attribution data already in the system.
+
+Build this in phases.
+
+PHASE 1 — REPORT DATA COMPOSER
+Create backend report-composer endpoints that assemble board-ready data from existing modules:
+- executive KPIs
+- pipeline forecast
+- quote-to-close snapshot
+- installs / deployments
+- procurement risks
+- certification oversight
+- customer success / renewals
+- geography / territory
+- source attribution
+- top risks / blockers
+
+Support report date range and optional owner / region filters.
+
+PHASE 2 — BOARD PACK UI
+Create a page for generating reports with:
+- report type selector
+- date range
+- owner / region filters
+- include/exclude section toggles
+- preview mode
+- export button
+
+Report types:
+- executive weekly
+- monthly leadership review
+- board pack
+- fundraising snapshot
+
+PHASE 3 — EXPORT OUTPUT
+Support export to:
+- printable HTML
+- PDF
+- optionally DOC-style markdown export if helpful
+
+Output should be:
+- clean
+- branded for VoltSafe
+- readable in portrait or landscape where appropriate
+- suitable for screenshot/PDF distribution
+
+PHASE 4 — REPORT SECTIONS
+Build reusable report sections:
+- KPI summary
+- key deltas
+- summary bullets
+- pipeline table / forecast
+- source attribution highlights
+- install / deployment progress
+- certification risk section
+- customer success / renewals
+- geography summary
+- risk / blocker section
+
+PHASE 5 — NARRATIVE LAYER
+Auto-generate short deterministic summary bullets using existing metrics, such as:
+- strongest source this period
+- biggest forecast risk
+- blocked installs count
+- renewal exposure
+- certification blocker summary
+Keep it deterministic and explainable.
+
+PHASE 6 — SAVED REPORT CONFIGS
+Allow saving report presets/configurations:
+- weekly exec
+- monthly board
+- fundraising snapshot
+- ops review
+
+PHASE 7 — TESTING
+Add tests for:
+- report data assembly
+- filtering
+- section inclusion/exclusion
+- narrative bullet generation
+- export route shape
+- no regression to executive dashboard / analytics endpoints
+
+Implementation rules:
+- do not build a giant BI suite
+- reuse existing executive/dashboard analytics modules wherever possible
+- keep output polished and concise
+- summarize changed files and final pass/fail at the end

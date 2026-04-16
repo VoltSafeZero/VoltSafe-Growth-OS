@@ -1,5 +1,45 @@
 # Replit Agent Configuration
 
+## Executive PDF / Board Pack Export (All 7 Phases Complete)
+
+### What was built
+A leadership and board-ready report generation layer that composes live data from all VoltSafe modules.
+
+**Phase 1 — Report Data Composer** (`server/services/report-composer.ts`): Assembles board-ready data from direct DB queries across all modules — KPI summary, pipeline forecast, quote snapshot, installs/deployments, procurement risks, certification oversight, customer success/renewals, geography/territory, source attribution, and risks/blockers.
+
+**Phase 2 — Board Pack UI** (`client/src/pages/board-pack.tsx`): Full builder page at `/board-pack` with report type selector (5 types), date range presets, region filter, 11 section toggles (enable/disable individually), saved presets sidebar, and live preview panel.
+
+**Phase 3 — Export Output**: Download as HTML (clean branded file), Download as Markdown (structured), and Print/PDF via browser print dialog with `@media print` CSS (VoltSafe branded, portrait-optimised).
+
+**Phase 4 — Report Sections**: 11 reusable section components — KPI grid, pipeline table, quote snapshot, installs, procurement, certification, customer success, geography, source attribution, risk/blockers, narrative.
+
+**Phase 5 — Narrative Layer**: Deterministic auto-generated summary bullets derived from live metrics (pipeline size, stalled opps, win rate, renewal exposure, source attribution, certification blockers, territory leader).
+
+**Phase 6 — Saved Report Configs**: `report_presets` table + full CRUD (`GET/POST/PUT/DELETE /api/reports/presets`) for saving named presets (name, report type, date range, included sections).
+
+**Phase 7 — Tests**: `tests/board-pack.test.js` 45/45.
+
+### Key files
+- `server/services/report-composer.ts` — multi-section data composer
+- `client/src/pages/board-pack.tsx` — board pack builder UI
+- `shared/schema.ts` — `report_presets` table (added at end)
+- `tests/board-pack.test.js` — 45 tests
+
+### API endpoints
+- `GET /api/reports/types` — 5 report type definitions
+- `GET /api/reports/sections` — 11 section definitions with defaultFor maps
+- `POST /api/reports/compose` — compose report data (reportType, dateFrom/To, region, sections)
+- `GET/POST /api/reports/presets` — list/create presets
+- `GET/PUT/DELETE /api/reports/presets/:id` — single preset CRUD
+
+### Report types
+executive_weekly, monthly_leadership, board_pack, fundraising_snapshot, ops_review
+
+### Report sections (11)
+kpi_summary, pipeline_forecast, quote_snapshot, installs_deployments, procurement_risks,
+certification_oversight, customer_success, geography_territory, source_attribution,
+risk_blockers, narrative_bullets
+
 ## Advanced Automation Builder (All 7 Phases Complete)
 
 ### What was built

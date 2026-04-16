@@ -64,6 +64,7 @@ import RenewalsPage from "@/pages/renewals";
 import GeographyPage from "@/pages/geography";
 import DocumentsPage from "@/pages/documents";
 import AutomationsPage from "@/pages/automations";
+import BoardPackPage from "@/pages/board-pack";
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -238,6 +239,9 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
 
       {/* ── SUPPORT ───────────────────────────────────────────────── */}
       <Route path="/support/tickets">{() => guard("support", <TicketsPage canEdit={isAdmin(role) || perms.support === "edit"} />)}</Route>
+
+      {/* ── REPORTS ───────────────────────────────────────────────── */}
+      <Route path="/board-pack">{() => wrap(<BoardPackPage />)}</Route>
 
       {/* ── AUTOMATION ────────────────────────────────────────────── */}
       <Route path="/automations">{() => wrap(<AutomationsPage />)}</Route>

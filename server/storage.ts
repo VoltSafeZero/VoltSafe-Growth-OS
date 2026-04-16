@@ -44,6 +44,8 @@ import {
   automationRules, automationRunLogs,
   type AutomationRule, type InsertAutomationRule,
   type AutomationRunLog,
+  reportPresets,
+  type ReportPreset, type InsertReportPreset,
 } from "@shared/schema";
 import { ilike, eq, or, sql, asc, desc, and, type AnyColumn, type SQL } from "drizzle-orm";
 
@@ -255,6 +257,13 @@ export interface IStorage {
   updateAutomationRule(id: number, data: Partial<InsertAutomationRule> & { lastRunAt?: Date | null; lastResult?: string | null; runCount?: number }): Promise<AutomationRule | undefined>;
   deleteAutomationRule(id: number): Promise<boolean>;
   getAutomationRunLogs(ruleId: number, limit?: number): Promise<AutomationRunLog[]>;
+
+  // Report Presets
+  getReportPresets(createdBy?: number): Promise<ReportPreset[]>;
+  getReportPreset(id: number): Promise<ReportPreset | undefined>;
+  createReportPreset(data: InsertReportPreset): Promise<ReportPreset>;
+  updateReportPreset(id: number, data: Partial<InsertReportPreset>): Promise<ReportPreset | undefined>;
+  deleteReportPreset(id: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1384,6 +1393,34 @@ export class DatabaseStorage implements IStorage {
 
   async getAutomationRunLogs(ruleId: number, limit = 50): Promise<AutomationRunLog[]> {
     return db.select().from(automationRunLogs).where(eq(automationRunLogs.ruleId, ruleId)).orderBy(desc(automationRunLogs.executedAt)).limit(limit);
+  }
+
+  // ── Report Presets ────────────────────────────────────────────────────────
+  async getReportPresets(createdBy?: number): Promise<ReportPreset[]> {
+    if (createdBy !== undefined) {
+      return db.select().from(reportPresets).where(eq(reportPresets.createdBy, createdBy)).orderBy(desc(reportPresets.updatedAt));
+    }
+    return db.select().from(reportPresets).orderBy(desc(reportPresets.updatedAt));
+  }
+
+  async getReportPreset(id: number): Promise<ReportPreset | undefined> {
+    const [r] = await db.select().from(reportPresets).where(eq(reportPresets.id, id));
+    return r;
+  }
+
+  async createReportPreset(data: InsertReportPreset): Promise<ReportPreset> {
+    const [r] = await db.insert(reportPresets).values(data).returning();
+    return r;
+  }
+
+  async updateReportPreset(id: number, data: Partial<InsertReportPreset>): Promise<ReportPreset | undefined> {
+    const [r] = await db.update(reportPresets).set({ ...data, updatedAt: new Date() }).where(eq(reportPresets.id, id)).returning();
+    return r;
+  }
+
+  async deleteReportPreset(id: number): Promise<boolean> {
+    const [r] = await db.delete(reportPresets).where(eq(reportPresets.id, id)).returning();
+    return !!r;
   }
 }
 

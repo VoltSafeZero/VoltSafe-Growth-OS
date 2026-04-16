@@ -1855,3 +1855,26 @@ export const automationRunLogs = pgTable("automation_run_logs", {
 export const insertAutomationRunLogSchema = createInsertSchema(automationRunLogs).omit({ id: true, executedAt: true });
 export type InsertAutomationRunLog = z.infer<typeof insertAutomationRunLogSchema>;
 export type AutomationRunLog = typeof automationRunLogs.$inferSelect;
+
+// ── Board Pack / Executive Report Presets ──────────────────────────────────────
+export const reportPresets = pgTable("report_presets", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  reportType: text("report_type").notNull().default("executive_weekly"), // executive_weekly|monthly_leadership|board_pack|fundraising_snapshot|ops_review
+  dateRangePreset: text("date_range_preset").notNull().default("this_month"), // this_week|this_month|this_quarter|last_month|last_quarter|custom
+  customDateFrom: timestamp("custom_date_from"),
+  customDateTo: timestamp("custom_date_to"),
+  ownerUserId: integer("owner_user_id"),
+  regionFilter: text("region_filter"),
+  includedSections: jsonb("included_sections").notNull().default([]),  // string[] section keys
+  config: jsonb("config").notNull().default({}),                       // any extra per-preset options
+  isDefault: boolean("is_default").notNull().default(false),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertReportPresetSchema = createInsertSchema(reportPresets).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertReportPreset = z.infer<typeof insertReportPresetSchema>;
+export type ReportPreset = typeof reportPresets.$inferSelect;
