@@ -286,11 +286,11 @@ export function AppSidebar({
           <img
             src={voltSafeVIcon}
             alt="VoltSafe V"
-            className="h-12 w-12 object-cover object-center rounded-lg shrink-0"
+            className="h-[72px] w-[72px] object-cover object-center rounded-xl shrink-0"
           />
           <div className="flex flex-col leading-tight">
-            <span className="text-xl font-bold tracking-tight text-foreground">VoltSafe</span>
-            <span className="text-base font-semibold text-primary tracking-tight">Growth OS</span>
+            <span className="text-3xl font-bold tracking-tight text-foreground">VoltSafe</span>
+            <span className="text-xl font-semibold text-primary tracking-tight">Growth OS</span>
           </div>
         </Link>
       </SidebarHeader>
