@@ -1,0 +1,215 @@
+Revenue Simulator v2 is complete and stable. Now build the next highest-value phase: “Revenue Operating System v3 — Scenario Commitments, Gap-to-Plan Tracking, and Auto-Task Creation.”
+
+OBJECTIVE
+Turn the simulator from a forecasting + reporting tool into an operating cadence system that:
+1. lets leadership commit to an official monthly revenue plan,
+2. measures gap-to-plan in real time,
+3. creates and tracks execution tasks tied to that gap,
+4. surfaces accountability by owner and due date.
+
+Do not rewrite working code. Reuse the existing revenue simulator, actions, CRM, and board pack infrastructure.
+
+PHASE T001 — DATA MODEL
+Add only the minimum schema needed:
+
+1) create table revenue_plan_commits:
+- id serial primary key
+- name text not null
+- scenario_id integer nullable
+- month_key text not null // YYYY-MM
+- committed_revenue numeric(12,2) not null default 0
+- baseline_revenue numeric(12,2) not null default 0
+- stretch_revenue numeric(12,2) nullable
+- notes text nullable
+- status text not null default 'active' // draft, active, superseded, closed
+- committed_by integer nullable
+- created_at timestamp default now()
+- updated_at timestamp default now()
+
+2) create table revenue_gap_snapshots:
+- id serial primary key
+- month_key text not null
+- snapshot_date timestamp not null default now()
+- committed_revenue numeric(12,2) not null default 0
+- actual_revenue_to_date numeric(12,2) not null default 0
+- forecast_revenue_to_date numeric(12,2) not null default 0
+- projected_month_end_revenue numeric(12,2) not null default 0
+- gap_amount numeric(12,2) not null default 0
+- gap_percent numeric(8,2) not null default 0
+- source_scenario_id integer nullable
+- created_at timestamp default now()
+
+3) alter revenue_simulator_actions:
+- add priority text not null default 'medium' // low, medium, high, critical
+- add action_type text default 'manual' // manual, auto_gap, auto_pipeline, auto_velocity, auto_conversion
+- add plan_commit_id integer nullable
+- add metric_target numeric(12,2) nullable
+- add metric_unit text nullable // deals, dollars, percent, days
+- add completed_at timestamp nullable
+
+Update shared/schema.ts accordingly.
+
+PHASE T002 — OPERATING LOGIC
+Create:
+server/services/revenue-operating-system.ts
+
+Implement these exported functions:
+
+1. createPlanCommitFromScenario()
+- create an official monthly commit from a selected scenario
+- copy key values from scenario projection for the selected month
+- store committed_revenue, baseline_revenue, optional stretch
+- mark prior active commit for the same month as superseded
+
+2. computeGapToPlan()
+- input: month_key
+- compare:
+  - committed revenue
+  - actuals to date
+  - latest simulator projection / selected board-pack scenario
+- return:
+  - current gap amount
+  - gap %
+  - projected finish
+  - status flag: on_track, at_risk, off_track
+
+3. generateGapClosureActions()
+- create 3–8 recommended actions based on the type of gap:
+  - top-of-funnel shortfall
+  - low conversion
+  - slow velocity
+  - churn drag
+  - expansion weakness
+- include:
+  - title
+  - reason
+  - priority
+  - action_type
+  - metric_target
+  - metric_unit
+
+4. autoCreateTasksFromActions()
+- where relevant, convert recommended actions into tasks using existing task infrastructure
+- preserve linked_object_type / linked_object_id if available
+- avoid duplicate task creation for the same plan/action title
+
+5. snapshotGapStatus()
+- write a revenue_gap_snapshots row for the active month
+- used for trend history and board pack reporting
+
+PHASE T003 — API ROUTES
+Add authenticated routes:
+
+- GET /api/revenue-ops/plan-commits
+- POST /api/revenue-ops/plan-commits
+- PATCH /api/revenue-ops/plan-commits/:id
+- GET /api/revenue-ops/gap/:monthKey
+- POST /api/revenue-ops/gap/:monthKey/snapshot
+- GET /api/revenue-ops/gap-history/:monthKey
+- POST /api/revenue-ops/gap/:monthKey/actions
+- POST /api/revenue-ops/actions/:id/create-task
+- POST /api/revenue-ops/plan-commits/:id/set-active
+
+Requirements:
+- keep consistent with existing routes.ts patterns
+- zod-validate request bodies
+- reuse existing requireAuth
+- use existing task creation logic instead of inventing parallel task systems
+
+PHASE T004 — FRONTEND
+Upgrade the revenue simulator page or create a focused companion page if cleaner:
+client/src/pages/revenue-ops.tsx
+
+Required UI:
+
+1. Monthly Commit section
+- choose month
+- choose scenario
+- create official commit
+- show committed / baseline / stretch numbers
+
+2. Gap to Plan scoreboard
+- committed revenue
+- actual revenue
+- projected month-end revenue
+- gap amount
+- gap %
+- status badge: On Track / At Risk / Off Track
+
+3. Gap Driver cards
+- show which factor is most responsible:
+  - volume
+  - conversion
+  - velocity
+  - churn
+  - expansion
+
+4. Recommended Actions table
+- title
+- reason
+- priority
+- target
+- save action
+- create task
+
+5. Gap History chart
+- x-axis = snapshot dates
+- y-axis = gap amount
+- include projected finish line if useful
+
+6. Clean empty/loading states
+- executive-friendly layout
+- no placeholder copy
+
+PHASE T005 — BOARD PACK INTEGRATION
+Extend the board pack generator so the chosen board pack report also includes:
+- active monthly revenue commit
+- current gap-to-plan
+- status flag
+- top 3 gap-closure actions
+- latest projected month-end revenue
+- latest actual vs commit
+
+Add this cleanly to the existing board pack payload / HTML output under a new section:
+“Revenue Execution”
+
+Do not duplicate formatting patterns already used in board-pack-scheduler.ts.
+
+PHASE T006 — AUTOMATION / DEFAULTS
+Add one safe automation path:
+- when a user creates a plan commit, offer a one-click option to:
+  - generate recommended actions
+  - save them
+  - create linked tasks for high/critical actions only
+
+This should be user-triggered, not automatic in the background.
+
+PHASE T007 — TESTS
+Add thorough tests for:
+- creating a plan commit from scenario
+- superseding prior commit for same month
+- gap calculation
+- gap snapshot creation
+- action generation by gap type
+- task creation from actions without duplicates
+- board pack revenue execution block
+- auth guards
+- regression checks for all existing revenue simulator tests
+
+SUCCESS CRITERIA
+Complete only if:
+- app compiles cleanly
+- all prior simulator tests still pass
+- new tests pass
+- plan commit, gap-to-plan, and create-task flow all work
+- board pack includes Revenue Execution section
+- no duplicate task systems were created
+
+WORK STYLE
+- inspect existing task creation and board pack code before writing
+- make small targeted edits
+- reuse current simulator logic and tables wherever possible
+- at the end provide:
+  1. files created/modified
+  2. test counts/results
+  3. assumptions made
