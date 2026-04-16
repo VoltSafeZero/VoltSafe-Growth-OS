@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Link, useLocation } from "wouter";
-import navLogo from "@assets/nav-logo.png";
+import growthOsLogo from "@assets/VoltSafe_Growth_OS_Logo_1776305525943.png";
 import { Sidebar, SidebarContent, SidebarHeader } from "@/components/ui/sidebar";
 import { Input } from "@/components/ui/input";
 import type { UserPermissions } from "@/App";
@@ -276,19 +276,18 @@ export function AppSidebar({
 
   return (
     <Sidebar className="border-r border-border/50">
-      <SidebarHeader className="h-auto py-2 flex items-center px-5">
-        <button
-          onClick={() => window.dispatchEvent(new Event("open-cortex-ai"))}
-          className="flex items-center gap-2 font-bold tracking-tight cursor-pointer transition-opacity hover:opacity-80 active:scale-[0.98]"
-          data-testid="button-sidebar-cortex-ai"
+      <SidebarHeader className="h-auto py-1 flex items-center px-2">
+        <Link
+          href="/"
+          className="block w-full cursor-pointer transition-opacity hover:opacity-80 active:scale-[0.98]"
+          data-testid="link-sidebar-home"
         >
           <img
-            src={navLogo}
+            src={growthOsLogo}
             alt="VoltSafe Growth OS"
-            className="w-14 h-14 object-contain mix-blend-screen brightness-125 shrink-0"
+            className="w-full h-14 object-cover object-center rounded"
           />
-          <span className="text-xl leading-tight">VoltSafe<br /><span className="text-primary">Growth OS</span></span>
-        </button>
+        </Link>
       </SidebarHeader>
 
       <div className="px-4 pb-2">
