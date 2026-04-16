@@ -279,7 +279,7 @@ export function CashPulseWidget({ compact, isDragging, dragProps }: WidgetProps)
         </div>
       )}
       {!isLoading && (
-        <Link href="/executive">
+        <Link href="/executive-dashboard">
           <button className="text-xs text-primary hover:underline flex items-center gap-1 mt-2">
             Full executive view <ArrowRight className="h-3 w-3" />
           </button>
