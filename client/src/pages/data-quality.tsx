@@ -1017,7 +1017,7 @@ function StaleTab() {
 }
 
 // ── Overview Tab ───────────────────────────────────────────────────────────────
-function OverviewTab({ summary }: { summary: Summary }) {
+function OverviewTab({ summary, onTabChange }: { summary: Summary; onTabChange: (tab: string) => void }) {
   const { counts, forecast } = summary;
   const issues = [
     { label: "Duplicate account clusters",     count: counts.duplicate_account_clusters,  tab: "duplicates",     severity: "warning"  as const, icon: Building2 },
@@ -1085,7 +1085,9 @@ function OverviewTab({ summary }: { summary: Summary }) {
         <div className="space-y-1.5">
           <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">All Issues ({counts.total})</h3>
           {issues.map((issue, i) => (
-            <div key={i} className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/20 hover:bg-muted/40"
+            <button key={i}
+              className="w-full flex items-center justify-between py-2 px-3 rounded-lg bg-muted/20 hover:bg-muted/50 cursor-pointer text-left transition-colors"
+              onClick={() => onTabChange(issue.tab)}
               data-testid={`overview-issue-${i}`}>
               <div className="flex items-center gap-2 text-sm">
                 <issue.icon className="h-4 w-4 text-muted-foreground" />
@@ -1096,7 +1098,7 @@ function OverviewTab({ summary }: { summary: Summary }) {
                 <span className="text-sm font-semibold tabular-nums">{issue.count}</span>
                 <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -1194,7 +1196,7 @@ export default function DataQualityPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview"       className="mt-4">{summary ? <OverviewTab summary={summary} /> : <Skeleton className="h-40" />}</TabsContent>
+        <TabsContent value="overview"       className="mt-4">{summary ? <OverviewTab summary={summary} onTabChange={setActiveTab} /> : <Skeleton className="h-40" />}</TabsContent>
         <TabsContent value="duplicates"     className="mt-4"><DuplicatesTab /></TabsContent>
         <TabsContent value="missing_owner"  className="mt-4"><MissingOwnerTab /></TabsContent>
         <TabsContent value="missing_fields" className="mt-4"><MissingFieldsTab /></TabsContent>
