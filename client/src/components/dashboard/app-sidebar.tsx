@@ -134,6 +134,7 @@ const sections: NavSection[] = [
       { title: "Territory & Geo", url: "/geography", icon: Globe, permKey: "crm" },
       { title: "Territory Routing", url: "/routing", icon: MapPin },
       { title: "Revenue Simulator", url: "/revenue-sim", icon: FlaskRound },
+      { title: "Revenue Ops", url: "/revenue-ops", icon: Target },
     ],
   },
 

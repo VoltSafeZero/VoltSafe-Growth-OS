@@ -17,6 +17,7 @@ import { computeRankedNearby, getRouteSuggestions, generateDirectionsUrl } from 
 import { generateAndDeliver, computeNextRunAt, seedDefaultSchedules, startBoardPackScheduler } from "./services/board-pack-scheduler";
 import { getBaseline, runSimulation } from "./services/revenue-simulator";
 import { deriveScenarioFromCRM, generateScenarioActions, computeForecastVsActuals, chooseBoardPackScenario } from "./services/revenue-simulator-insights";
+import { createPlanCommitFromScenario, computeGapToPlan, generateGapClosureActions, autoCreateTasksFromActions, snapshotGapStatus } from "./services/revenue-operating-system";
 import { db } from "./db";
 import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications } from "@shared/schema";
 import {
@@ -17870,6 +17871,173 @@ export function registerConfluenceRoutes(app: Express) {
         UPDATE revenue_simulator_actions SET ${updates.join(", ")} WHERE id = ${actionId} RETURNING *
       `));
       res.json(row.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Revenue Operating System v3 routes ───────────────────────────────────────
+
+  // GET /api/revenue-ops/plan-commits — list all plan commits
+  app.get("/api/revenue-ops/plan-commits", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const rows = await db.execute(sql`
+        SELECT pc.*, rs.name AS scenario_name
+        FROM revenue_plan_commits pc
+        LEFT JOIN revenue_scenarios rs ON rs.id = pc.scenario_id
+        WHERE pc.committed_by = ${userId} OR pc.committed_by IS NULL
+        ORDER BY pc.created_at DESC
+        LIMIT 100
+      `);
+      res.json(rows.rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/revenue-ops/plan-commits — create a plan commit
+  app.post("/api/revenue-ops/plan-commits", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const schema = z.object({
+        name: z.string().min(1),
+        monthKey: z.string().regex(/^\d{4}-\d{2}$/, "monthKey must be YYYY-MM"),
+        scenarioId: z.number().int().optional().nullable(),
+        committedRevenue: z.number().min(0),
+        baselineRevenue: z.number().min(0).default(0),
+        stretchRevenue: z.number().optional().nullable(),
+        notes: z.string().optional().nullable(),
+        status: z.enum(["draft", "active", "superseded", "closed"]).default("active"),
+      });
+      const body = schema.safeParse(req.body);
+      if (!body.success) return res.status(400).json({ message: "Validation error", errors: body.error.issues });
+      const commit = await createPlanCommitFromScenario({ ...body.data, committedBy: userId });
+      res.status(201).json(commit);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // PATCH /api/revenue-ops/plan-commits/:id — update a plan commit
+  app.patch("/api/revenue-ops/plan-commits/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const check = await db.execute(sql`SELECT id FROM revenue_plan_commits WHERE id = ${id} LIMIT 1`);
+      if (!check.rows.length) return res.status(404).json({ message: "Plan commit not found" });
+      const { name, notes, stretchRevenue, status } = req.body;
+      const updates: string[] = ["updated_at = NOW()"];
+      if (name != null) updates.push(`name = '${String(name).replace(/'/g, "''")}'`);
+      if (notes != null) updates.push(`notes = '${String(notes).replace(/'/g, "''")}'`);
+      if (stretchRevenue != null) updates.push(`stretch_revenue = ${parseFloat(stretchRevenue)}`);
+      if (status != null) updates.push(`status = '${status}'`);
+      const row = await db.execute(sql.raw(`UPDATE revenue_plan_commits SET ${updates.join(", ")} WHERE id = ${id} RETURNING *`));
+      res.json(row.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/revenue-ops/plan-commits/:id/set-active — activate a specific commit
+  app.post("/api/revenue-ops/plan-commits/:id/set-active", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const commit = await db.execute(sql`SELECT * FROM revenue_plan_commits WHERE id = ${id} LIMIT 1`);
+      if (!commit.rows.length) return res.status(404).json({ message: "Plan commit not found" });
+      const c = commit.rows[0] as any;
+      // Supersede other active commits for the same month
+      await db.execute(sql`
+        UPDATE revenue_plan_commits SET status = 'superseded', updated_at = NOW()
+        WHERE month_key = ${c.month_key} AND status = 'active' AND id != ${id}
+      `);
+      const updated = await db.execute(sql`
+        UPDATE revenue_plan_commits SET status = 'active', updated_at = NOW() WHERE id = ${id} RETURNING *
+      `);
+      res.json(updated.rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/revenue-ops/gap/:monthKey — compute gap to plan for a month
+  app.get("/api/revenue-ops/gap/:monthKey", requireAuth, async (req, res) => {
+    try {
+      const { monthKey } = req.params;
+      if (!/^\d{4}-\d{2}$/.test(monthKey)) return res.status(400).json({ message: "monthKey must be YYYY-MM" });
+      const gap = await computeGapToPlan(monthKey);
+      res.json(gap);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/revenue-ops/gap/:monthKey/snapshot — save a gap snapshot
+  app.post("/api/revenue-ops/gap/:monthKey/snapshot", requireAuth, async (req, res) => {
+    try {
+      const { monthKey } = req.params;
+      if (!/^\d{4}-\d{2}$/.test(monthKey)) return res.status(400).json({ message: "monthKey must be YYYY-MM" });
+      const snapshot = await snapshotGapStatus(monthKey);
+      res.status(201).json(snapshot);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/revenue-ops/gap-history/:monthKey — get gap snapshots for a month
+  app.get("/api/revenue-ops/gap-history/:monthKey", requireAuth, async (req, res) => {
+    try {
+      const { monthKey } = req.params;
+      if (!/^\d{4}-\d{2}$/.test(monthKey)) return res.status(400).json({ message: "monthKey must be YYYY-MM" });
+      const rows = await db.execute(sql`
+        SELECT * FROM revenue_gap_snapshots WHERE month_key = ${monthKey} ORDER BY snapshot_date ASC LIMIT 90
+      `);
+      res.json(rows.rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/revenue-ops/gap/:monthKey/actions — generate gap closure actions
+  app.post("/api/revenue-ops/gap/:monthKey/actions", requireAuth, async (req, res) => {
+    try {
+      const { monthKey } = req.params;
+      if (!/^\d{4}-\d{2}$/.test(monthKey)) return res.status(400).json({ message: "monthKey must be YYYY-MM" });
+      const gap = await computeGapToPlan(monthKey);
+      const actions = generateGapClosureActions(gap);
+      res.json({ gap, actions });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/revenue-ops/actions/:id/create-task — convert a gap action to a real task
+  app.post("/api/revenue-ops/actions/:id/create-task", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const schema = z.object({
+        title: z.string().min(1),
+        reason: z.string().optional().default(""),
+        priority: z.enum(["low", "medium", "high", "critical"]).default("medium"),
+        actionType: z.string().optional().default("manual"),
+        metricTarget: z.number().optional().nullable(),
+        metricUnit: z.string().optional().nullable(),
+        linkedObjectType: z.string().optional().nullable(),
+        planCommitId: z.number().int().optional().nullable(),
+      });
+      const body = schema.safeParse(req.body);
+      if (!body.success) return res.status(400).json({ message: "Validation error", errors: body.error.issues });
+      const b = body.data;
+
+      // Check for duplicate
+      const dup = await db.execute(sql`
+        SELECT id FROM tasks WHERE title = ${b.title} AND source = 'revenue_ops' LIMIT 1
+      `);
+      if (dup.rows.length) return res.json({ taskId: Number((dup.rows[0] as any).id), created: false, duplicate: true });
+
+      const due = new Date();
+      due.setDate(due.getDate() + 7);
+      const taskRes = await db.execute(sql`
+        INSERT INTO tasks
+          (title, description, priority, status, source, source_label, source_meta,
+           owner_user_id, created_by_user_id, linked_object_type, due_date)
+        VALUES (
+          ${b.title},
+          ${b.reason},
+          ${b.priority === "critical" ? "high" : b.priority},
+          'pending',
+          'revenue_ops',
+          'Revenue Ops Gap Closure',
+          ${JSON.stringify({ planCommitId: b.planCommitId, actionType: b.actionType, metricTarget: b.metricTarget, metricUnit: b.metricUnit })}::jsonb,
+          ${userId},
+          ${userId},
+          ${b.linkedObjectType ?? null},
+          ${due.toISOString()}
+        )
+        RETURNING id
+      `);
+      res.status(201).json({ taskId: Number((taskRes.rows[0] as any).id), created: true, duplicate: false });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

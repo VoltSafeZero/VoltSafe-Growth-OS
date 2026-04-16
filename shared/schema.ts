@@ -2084,6 +2084,13 @@ export const revenueSimulatorActions = pgTable("revenue_simulator_actions", {
   status: text("status").notNull().default("open"), // open | in_progress | done | dropped
   notes: text("notes"),
   createdBy: integer("created_by"),
+  // v3 fields
+  priority: text("priority").notNull().default("medium"), // low | medium | high | critical
+  actionType: text("action_type").default("manual"), // manual | auto_gap | auto_pipeline | auto_velocity | auto_conversion
+  planCommitId: integer("plan_commit_id"),
+  metricTarget: numeric("metric_target", { precision: 12, scale: 2 }),
+  metricUnit: text("metric_unit"), // deals | dollars | percent | days
+  completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -2104,3 +2111,42 @@ export const revenueForecastActuals = pgTable("revenue_forecast_actuals", {
 export const insertRevenueForecastActualSchema = createInsertSchema(revenueForecastActuals).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertRevenueForecastActual = z.infer<typeof insertRevenueForecastActualSchema>;
 export type RevenueForecastActual = typeof revenueForecastActuals.$inferSelect;
+
+// ── Revenue Operating System v3 ────────────────────────────────────────────────
+
+export const revenuePlanCommits = pgTable("revenue_plan_commits", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  scenarioId: integer("scenario_id"),
+  monthKey: text("month_key").notNull(), // YYYY-MM
+  committedRevenue: numeric("committed_revenue", { precision: 12, scale: 2 }).notNull().default("0"),
+  baselineRevenue: numeric("baseline_revenue", { precision: 12, scale: 2 }).notNull().default("0"),
+  stretchRevenue: numeric("stretch_revenue", { precision: 12, scale: 2 }),
+  notes: text("notes"),
+  status: text("status").notNull().default("active"), // draft | active | superseded | closed
+  committedBy: integer("committed_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertRevenuePlanCommitSchema = createInsertSchema(revenuePlanCommits).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertRevenuePlanCommit = z.infer<typeof insertRevenuePlanCommitSchema>;
+export type RevenuePlanCommit = typeof revenuePlanCommits.$inferSelect;
+
+export const revenueGapSnapshots = pgTable("revenue_gap_snapshots", {
+  id: serial("id").primaryKey(),
+  monthKey: text("month_key").notNull(),
+  snapshotDate: timestamp("snapshot_date").notNull().defaultNow(),
+  committedRevenue: numeric("committed_revenue", { precision: 12, scale: 2 }).notNull().default("0"),
+  actualRevenueToDate: numeric("actual_revenue_to_date", { precision: 12, scale: 2 }).notNull().default("0"),
+  forecastRevenueToDate: numeric("forecast_revenue_to_date", { precision: 12, scale: 2 }).notNull().default("0"),
+  projectedMonthEndRevenue: numeric("projected_month_end_revenue", { precision: 12, scale: 2 }).notNull().default("0"),
+  gapAmount: numeric("gap_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+  gapPercent: numeric("gap_percent", { precision: 8, scale: 2 }).notNull().default("0"),
+  sourceScenarioId: integer("source_scenario_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertRevenueGapSnapshotSchema = createInsertSchema(revenueGapSnapshots).omit({ id: true, createdAt: true });
+export type InsertRevenueGapSnapshot = z.infer<typeof insertRevenueGapSnapshotSchema>;
+export type RevenueGapSnapshot = typeof revenueGapSnapshots.$inferSelect;

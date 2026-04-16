@@ -4,6 +4,7 @@ import { composeReport, type ReportFilters, type SectionKey, ALL_SECTION_KEYS } 
 import { sendEmail } from "../gmail";
 import { isGmailConnected } from "../gmail-oauth";
 import { chooseBoardPackScenario, type BoardPackScenario } from "./revenue-simulator-insights";
+import { buildRevenueExecutionBlock, type RevenueExecutionBlock } from "./revenue-operating-system";
 
 const SYSTEM_SENDER_ID = 4;
 
@@ -72,6 +73,7 @@ export function formatReportAsHtml(data: any, meta: {
   reportType: string;
   generatedAt: string;
   revenueSimulator?: BoardPackScenario;
+  revenueExecution?: RevenueExecutionBlock;
 }): string {
   const kpi = data.kpiSummary;
   const pip = data.pipelineForecast;
@@ -173,6 +175,31 @@ export function formatReportAsHtml(data: any, meta: {
     `;
   })()}
 
+  ${(() => {
+    const exec = meta.revenueExecution;
+    if (!exec) return "";
+    const statusColor = exec.status === "on_track" ? "#16a34a" : exec.status === "at_risk" ? "#d97706" : "#dc2626";
+    const statusLabel = exec.status === "on_track" ? "On Track" : exec.status === "at_risk" ? "At Risk" : "Off Track";
+    const gapLabel = exec.gapAmount >= 0 ? `+${fmt(exec.gapAmount)}` : `-${fmt(Math.abs(exec.gapAmount))}`;
+    const gapColor = exec.gapAmount >= 0 ? "#16a34a" : "#dc2626";
+    const actionItems = exec.topActions.map(a => {
+      const pColor = a.priority === "critical" || a.priority === "high" ? "#dc2626" : a.priority === "medium" ? "#d97706" : "#64748b";
+      return `<li style="margin-bottom:4px;"><b style="color:${pColor}">[${a.priority.toUpperCase()}]</b> ${a.title}</li>`;
+    }).join("");
+    return `
+    <h3>Revenue Execution — ${exec.monthKey}</h3>
+    <table><tbody>
+      <tr><td>Commit</td><td><b>${exec.commitName ?? "—"}</b></td></tr>
+      <tr><td>Committed Target</td><td><b>${fmt(exec.committedRevenue)}</b></td></tr>
+      <tr><td>Actuals to Date</td><td><b>${fmt(exec.actualRevenueToDate)}</b></td></tr>
+      <tr><td>Projected Month-End</td><td><b>${fmt(exec.projectedMonthEndRevenue)}</b></td></tr>
+      <tr><td>Gap to Plan</td><td><b style="color:${gapColor}">${gapLabel}</b></td></tr>
+      <tr><td>Status</td><td><b style="color:${statusColor}">${statusLabel}</b></td></tr>
+    </tbody></table>
+    ${actionItems ? `<p style="font-size:13px;color:#374151;margin-top:8px;font-weight:600;">Top Gap-Closure Actions</p><ul style="font-size:13px;color:#4b5563;margin-top:0;">${actionItems}</ul>` : ""}
+    `;
+  })()}
+
   <div class="footer">VoltSafe Growth OS · Board Pack Auto-Scheduling · <a href="https://voltsafe.com">voltsafe.com</a></div>
 </body>
 </html>`;
@@ -210,10 +237,11 @@ export async function generateAndDeliver(
         : ALL_SECTION_KEYS,
     };
 
-    // Compose report + fetch board-pack simulator scenario in parallel
-    const [data, simScenario] = await Promise.all([
+    // Compose report + fetch board-pack simulator scenario + revenue execution block in parallel
+    const [data, simScenario, execBlock] = await Promise.all([
       composeReport(sched.report_type, filters),
       chooseBoardPackScenario().catch(() => null),
+      buildRevenueExecutionBlock().catch(() => null),
     ]);
     const recipients: string[] = sched.recipients ?? [];
     const channels: string[] = sched.delivery_channels ?? ["in_app"];
@@ -234,6 +262,20 @@ export async function generateAndDeliver(
         sourceType: simScenario.sourceType,
       };
     }
+    // Append revenue execution block (gap-to-plan, commit, top actions)
+    if (execBlock) {
+      payloadMeta.revenue_execution = {
+        monthKey: execBlock.monthKey,
+        commitName: execBlock.commitName,
+        committedRevenue: execBlock.committedRevenue,
+        projectedMonthEndRevenue: execBlock.projectedMonthEndRevenue,
+        actualRevenueToDate: execBlock.actualRevenueToDate,
+        gapAmount: execBlock.gapAmount,
+        gapPercent: execBlock.gapPercent,
+        status: execBlock.status,
+        topActions: execBlock.topActions,
+      };
+    }
 
     let recipientCount = 0;
     const errors: string[] = [];
@@ -245,6 +287,7 @@ export async function generateAndDeliver(
         reportType: sched.report_type,
         generatedAt: data.meta?.generatedAt ?? new Date().toISOString(),
         revenueSimulator: simScenario ?? undefined,
+        revenueExecution: execBlock ?? undefined,
       });
       const subject = `${sched.name} — ${new Date().toLocaleDateString("en-CA", { month: "long", year: "numeric" })}`;
 

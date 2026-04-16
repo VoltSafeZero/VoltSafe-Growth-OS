@@ -1,5 +1,52 @@
 # Replit Agent Configuration
 
+## Revenue Operating System v3 — Plan Commits, Gap-to-Plan, Auto-Tasks (Complete — Feature 8)
+
+### What was added in v3
+Monthly plan commitment workflow with real-time gap-to-plan scoring, gap driver analysis, AI-recommended gap-closure actions, one-click task automation, and historical snapshots for trend tracking.
+
+**Schema additions** (via direct SQL migration):
+- `revenue_plan_commits` — id, name, scenario_id FK, month_key (YYYY-MM), committed_revenue, baseline_revenue, stretch_revenue, notes, status (active/superseded/closed/draft), committed_by FK, created_at
+- `revenue_gap_snapshots` — id, plan_commit_id FK, month_key, snapshot_date, committed/actual/forecast/projected revenue, gap_amount, gap_percent, created_at
+- `revenue_simulator_actions` — 6 new v3 columns: priority, action_type, plan_commit_id FK, metric_target, metric_unit, completed_at
+
+**`server/services/revenue-operating-system.ts`** (new service):
+- `createPlanCommitFromScenario()` — creates/supersedes commits, links to simulator scenario
+- `computeGapToPlan()` — computes actuals, CRM forecast, pace rate, gap amount+%, status (on_track/at_risk/off_track/no_commit), drivers
+- `generateGapClosureActions()` — pure function: maps gap drivers → prioritised actions with metric targets
+- `autoCreateTasksFromActions()` — converts actions to real tasks (dedup by title+source)
+- `snapshotGapStatus()` — persists current gap state to `revenue_gap_snapshots`
+- `buildRevenueExecutionBlock()` — assembles board pack execution summary block
+
+**9 new API routes** in `server/routes.ts`:
+- `GET /api/revenue-ops/plan-commits` — list all plan commits
+- `POST /api/revenue-ops/plan-commits` — create a commit (supersedes prior active for same month)
+- `PATCH /api/revenue-ops/plan-commits/:id` — update commit fields
+- `POST /api/revenue-ops/plan-commits/:id/set-active` — reactivate a superseded commit
+- `GET /api/revenue-ops/gap/:monthKey` — compute gap to plan for a month
+- `POST /api/revenue-ops/gap/:monthKey/snapshot` — save current gap state
+- `GET /api/revenue-ops/gap-history/:monthKey` — historical snapshots for a month
+- `POST /api/revenue-ops/gap/:monthKey/actions` — generate gap-closure actions
+- `POST /api/revenue-ops/actions/:id/create-task` — convert a gap action to a tracked task
+
+**Board Pack integration** (`server/services/board-pack-scheduler.ts`):
+- `generateAndDeliver` now calls `buildRevenueExecutionBlock()` in parallel
+- Appends `revenue_execution` block to `payloadMeta`
+- `formatReportAsHtml` renders an Execution Block section in board pack HTML emails
+
+**Frontend** `client/src/pages/revenue-ops.tsx` (new page):
+- Gap Scoreboard — 6 KPI cards (committed, actuals, projected, gap $, gap %, days elapsed), status badge (on_track / at_risk / off_track / no_commit)
+- Gap Drivers panel — visual breakdown of volume/conversion/velocity/churn/expansion impact
+- Gap-Closure Actions panel — collapsible, with one-click "Create Tasks" button for high+critical actions (dedup skipped automatically)
+- Gap History chart — area chart of committed vs projected vs gap across saved snapshots
+- Plan Commits table — all commits, active badge, "Set Active" action, superseded indicator
+- New Commit Dialog — scenario prefill (auto-populates revenue from simulator), month picker, stretch target, notes
+- Route: `/revenue-ops` registered in `App.tsx`; "Revenue Ops" added to sidebar under same Revenue section
+
+**Test suite** `tests/revenue-ops.test.js`: 49 tests across 8 groups (CRUD, supersede, gap calc, snapshots, actions, task creation, board pack, regression)
+
+---
+
 ## Smart Revenue Simulator v2 — CRM Integration + Board Pack (Complete — Feature 7+)
 
 ### What was added in v2
