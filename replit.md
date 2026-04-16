@@ -1,5 +1,55 @@
 # Replit Agent Configuration
 
+## Role-Based Daily Command Center 2.0 (Complete)
+
+### What was built
+An adaptive command center system that auto-detects the user's role (CEO/CFO/CTO/CMO/Sales/CS/Default) from their job title, department, and global role, then renders a purpose-built view populated from live API data.
+
+**Schema** (`shared/schema.ts`): Added `preferredLayout` (text, default 'expanded'), `widgetVisibility` (jsonb), `defaultCommandCenter` (text) to users table.
+
+**API** (`server/routes.ts`):
+- `GET /api/users/me/profile` — extended user profile with all layout/role fields
+- `PATCH /api/users/me/layout` — persist layout preferences with validation (preferredLayout must be expanded/compact, defaultCommandCenter must be valid center type, widgetVisibility must be object)
+- `/api/auth/me` — extended to include department/jobTitle/userType
+
+**Config Engine** (`client/src/lib/dashboard-config.ts`): `detectCenterType()` maps user profile → center type via title keywords → dept keywords → globalRole fallback. `buildDashboardConfig()` produces full widget list with per-widget visibility. `ALL_CENTER_TYPES` for admin preview dropdown.
+
+**Executive Centers** (`client/src/components/command-centers/`):
+- `ceo-center.tsx` — Executive snapshot, pipeline health (periods), revenue at risk (CS overview), cert blockers, deployment blockers, key accounts (risk-alerts signal)
+- `cfo-center.tsx` — MRR overview, hardware revenue, pricing lock expiries, renewal exposure, billing anomalies, forecast pressure
+- `cto-center.tsx` — Cert blockers, deployment blockers, install workflows at risk, procurement blocked, critical tasks
+- `cmo-center.tsx` — Lead volume, source attribution, territory whitespace, pipeline by source, conversion by source
+
+**Main Page** (`client/src/pages/role-command-center.tsx`): Full adaptive page including:
+- My Layout / Role Default toggle
+- Admin preview dropdown (preview any center type without changing default)
+- Widget show/hide sheet with per-widget toggles + save/reset
+- Compact/expanded layout mode toggle
+- Inline Sales and CS center implementations
+- Home route (`/`) now serves the Role Command Center
+
+**Tests** (`tests/command-center.test.js`): 114/114 passing — auth/me fields, profile endpoint, layout persistence (preferredLayout/widgetVisibility/defaultCommandCenter), input validation, auth guards, all 6 underlying widget data endpoints, schema regression.
+
+### Key files
+- `client/src/lib/dashboard-config.ts` — center type detection + widget config
+- `client/src/pages/role-command-center.tsx` — main adaptive page
+- `client/src/components/command-centers/ceo-center.tsx`
+- `client/src/components/command-centers/cfo-center.tsx`
+- `client/src/components/command-centers/cto-center.tsx`
+- `client/src/components/command-centers/cmo-center.tsx`
+- `tests/command-center.test.js` — 114 tests
+
+### API field notes (actual response shapes)
+- `/api/executive/kpis`: `pipeline.totalOpps.current`, `quotes.winRate.current`, `installs.overdueInstalls`, `risks.overdueTaskCount`
+- `/api/pipeline/forecast`: `{ periods: [...], summary: { commit, best_case, pipeline, closed_won, totalWeighted } }`
+- `/api/executive/risk-alerts`: `{ stalledOpps, overdueTasks, installBlockers, awaitingQuotes, severity, distinctAtRiskCount }`
+- `/api/cs/dashboard`: `{ overview: { renewalDue, churnRisk, active, totalArr, ... }, atRisk: [], upcomingRenewals: [] }`
+- `/api/projects/cert-summary`: `{ total, blocked, at_risk, failure_open, certified, cert_expiring_90d, ... }`
+- `/api/deployments/dashboard`: `{ overview: { total, blocked, commissioning, liveThisMonth, overdue }, blockedDeployments: [] }`
+
+### Test totals (all suites)
+cs.test.js 44/44, oversight.test.js 70/70, geography.test.js 111/111, documents.test.js 20/20, documents-search-timeline.test.js 20/20, automations.test.js 38/38, board-pack.test.js 45/45, revenue.test.js 58/58, command-center.test.js 114/114
+
 ## Executive PDF / Board Pack Export (All 7 Phases Complete)
 
 ### What was built

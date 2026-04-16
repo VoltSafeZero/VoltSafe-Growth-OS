@@ -565,11 +565,26 @@ export async function registerRoutes(
   app.patch("/api/users/me/layout", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId as number;
     const { preferredLayout, widgetVisibility, defaultCommandCenter } = req.body;
+
+    const VALID_LAYOUTS = ["expanded", "compact"];
+    const VALID_CENTERS = ["ceo", "cfo", "cto", "cmo", "sales", "cs", "default", null];
+
+    if (preferredLayout !== undefined && !VALID_LAYOUTS.includes(preferredLayout)) {
+      return res.status(400).json({ message: `preferredLayout must be one of: ${VALID_LAYOUTS.join(", ")}` });
+    }
+    if (defaultCommandCenter !== undefined && !VALID_CENTERS.includes(defaultCommandCenter)) {
+      return res.status(400).json({ message: `defaultCommandCenter must be one of: ${VALID_CENTERS.filter(Boolean).join(", ")}` });
+    }
+    if (widgetVisibility !== undefined && (typeof widgetVisibility !== "object" || Array.isArray(widgetVisibility))) {
+      return res.status(400).json({ message: "widgetVisibility must be an object" });
+    }
+
     const update: Record<string, any> = {};
     if (preferredLayout !== undefined) update.preferredLayout = preferredLayout;
     if (widgetVisibility !== undefined) update.widgetVisibility = widgetVisibility;
     if (defaultCommandCenter !== undefined) update.defaultCommandCenter = defaultCommandCenter;
     if (Object.keys(update).length === 0) return res.status(400).json({ message: "No fields to update" });
+
     const [updated] = await db.update(users).set(update).where(eq(users.id, userId)).returning({
       preferredLayout: users.preferredLayout,
       widgetVisibility: users.widgetVisibility,

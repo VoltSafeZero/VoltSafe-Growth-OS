@@ -53,7 +53,7 @@ const sections: NavSection[] = [
     label: "Command Center",
     icon: LayoutDashboard,
     items: [
-      { title: "Dashboard", url: "/", icon: Home, exactMatch: true },
+      { title: "Command Center", url: "/", icon: LayoutDashboard, exactMatch: true },
       { title: "Activity Feed", url: "/activity", icon: BarChart3 },
       { title: "Reports", url: "/relationships", icon: TrendingUp },
       { title: "Forecasting", url: "/execution/forecast", icon: GitBranch },

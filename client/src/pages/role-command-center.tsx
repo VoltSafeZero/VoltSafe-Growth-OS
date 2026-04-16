@@ -1,0 +1,536 @@
+import { useState, useCallback } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
+} from "@/components/ui/sheet";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  LayoutDashboard, RefreshCw, ChevronDown,
+  Eye, EyeOff, RotateCcw, Maximize2, Minimize2, SlidersHorizontal,
+  AlertTriangle, CheckSquare, TrendingUp, Building2, Mail,
+  ChevronRight, Zap, CalendarDays, ShieldAlert, ArrowRight,
+} from "lucide-react";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import {
+  buildDashboardConfig, detectCenterType, ALL_CENTER_TYPES,
+  type CenterType, type UserProfile,
+} from "@/lib/dashboard-config";
+import { CEOCommandCenter } from "@/components/command-centers/ceo-center";
+import { CFOCommandCenter } from "@/components/command-centers/cfo-center";
+import { CTOCommandCenter } from "@/components/command-centers/cto-center";
+import { CMOCommandCenter } from "@/components/command-centers/cmo-center";
+import { format, formatDistanceToNow, isToday, isTomorrow } from "date-fns";
+import { Link } from "wouter";
+
+// ── Sales / Default Command Center (reuse existing data) ─────────────────────
+
+type Severity = "high" | "medium" | "low";
+const SEV_DOT: Record<Severity, string> = { high: "bg-red-400", medium: "bg-amber-400", low: "bg-blue-400" };
+const STAGE_LABEL: Record<string, string> = {
+  inbound_new: "New", qualifying: "Qualifying", proposal: "Proposal",
+  negotiation: "Negotiating", verbal_commit: "Verbal", closed_won: "Won", closed_lost: "Lost",
+};
+function fmtMoney(n?: number) { return n && n > 0 ? (n >= 1000 ? `$${(n / 1000).toFixed(0)}k` : `$${n}`) : "—"; }
+
+function SalesSection({ icon: Icon, title, count, link, children, compact }: {
+  icon: React.ElementType; title: string; count: number; link?: string; children: React.ReactNode; compact?: boolean;
+}) {
+  return (
+    <Card className="border border-border/50 bg-card/80" data-testid={`widget-${title.toLowerCase().replace(/\s+/g, "-")}`}>
+      <CardHeader className={`${compact ? "pb-1 pt-3 px-4" : "pb-2 pt-4 px-4"}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Icon className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</CardTitle>
+            {count > 0 && (
+              <span className="inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full bg-primary/10 text-primary text-xs font-bold">{count}</span>
+            )}
+          </div>
+          {link && count > 0 && (
+            <Link href={link}>
+              <button className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-0.5">
+                View all <ChevronRight className="h-3 w-3" />
+              </button>
+            </Link>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className={`${compact ? "px-4 pb-3 pt-0" : "px-4 pb-4 pt-0"}`}>{children}</CardContent>
+    </Card>
+  );
+}
+
+function SalesItemRow({ link, severity, title, subtitle, rightLabel, action, testId }: {
+  link: string; severity: Severity; title: string; subtitle?: string;
+  rightLabel?: string; action?: string; testId?: string;
+}) {
+  return (
+    <Link href={link}>
+      <div className="flex items-start gap-2 py-2 px-2 -mx-2 rounded-md hover:bg-muted/40 cursor-pointer transition-colors group" data-testid={testId}>
+        <div className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${SEV_DOT[severity]}`} />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-foreground truncate">{title}</p>
+          {subtitle && <p className="text-xs text-muted-foreground truncate mt-0.5">{subtitle}</p>}
+        </div>
+        <div className="flex flex-col items-end shrink-0 gap-1">
+          {rightLabel && <span className="text-xs text-muted-foreground whitespace-nowrap">{rightLabel}</span>}
+          {action && <span className="text-xs text-primary opacity-0 group-hover:opacity-100 flex items-center gap-0.5">{action} <ArrowRight className="h-3 w-3" /></span>}
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function SalesCommandCenter({ visible, compact }: { visible: Record<string, boolean>; compact?: boolean }) {
+  const { data, isLoading } = useQuery<any>({ queryKey: ["/api/daily-command-center"], refetchInterval: 5 * 60 * 1000 });
+  const sections = data?.sections;
+
+  if (isLoading) return (
+    <div className="grid gap-4 md:grid-cols-2" data-testid="sales-center-loading">
+      {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-36 rounded-xl" />)}
+    </div>
+  );
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2" data-testid="sales-command-center">
+      {visible.overdue_tasks && (
+        <SalesSection icon={CheckSquare} title="Overdue Tasks" count={sections?.overdueTasks.count ?? 0} link="/execution/tasks" compact={compact}>
+          {sections?.overdueTasks.count === 0
+            ? <p className="text-xs text-muted-foreground italic py-2">No overdue tasks.</p>
+            : sections?.overdueTasks.items.slice(0, 5).map((t: any) => (
+                <SalesItemRow key={t.id} link={t.deepLink} severity={t.severity} title={t.title}
+                  subtitle={t.linked_object_name ? `${t.linked_object_type}: ${t.linked_object_name}` : undefined}
+                  rightLabel={`${Math.round(t.days_overdue)}d overdue`} action="Open" testId={`task-overdue-${t.id}`} />
+              ))
+          }
+        </SalesSection>
+      )}
+      {visible.suggested_actions && (
+        <SalesSection icon={Zap} title="Suggested Actions" count={sections?.suggestedActions.count ?? 0} compact={compact}>
+          {sections?.suggestedActions.count === 0
+            ? <p className="text-xs text-muted-foreground italic py-2">No urgent signals.</p>
+            : sections?.suggestedActions.items.slice(0, 5).map((s: any) => (
+                <SalesItemRow key={s.id} link={s.deepLink} severity={s.severity} title={s.title}
+                  subtitle={s.reason} action={s.suggested_action_label} testId={`suggestion-${s.id}`} />
+              ))
+          }
+        </SalesSection>
+      )}
+      {visible.accounts_at_risk && (
+        <SalesSection icon={Building2} title="Accounts at Risk" count={sections?.accountsAtRisk.count ?? 0} link="/accounts" compact={compact}>
+          {sections?.accountsAtRisk.count === 0
+            ? <p className="text-xs text-muted-foreground italic py-2">All accounts recently touched.</p>
+            : sections?.accountsAtRisk.items.slice(0, 5).map((a: any) => (
+                <SalesItemRow key={a.id} link={a.deepLink} severity={a.severity} title={a.name}
+                  subtitle={Number(a.open_deal_count) > 0 ? `${a.open_deal_count} deals · ${fmtMoney(Number(a.open_deal_value))}` : "No open deals"}
+                  rightLabel={a.last_interaction_at ? `${Math.round(Number(a.days_since_touch))}d ago` : "Never"} action="View" testId={`account-risk-${a.id}`} />
+              ))
+          }
+        </SalesSection>
+      )}
+      {visible.stale_deals && (
+        <SalesSection icon={TrendingUp} title="Stale Deals" count={sections?.staleOpportunities.count ?? 0} link="/pipeline" compact={compact}>
+          {sections?.staleOpportunities.count === 0
+            ? <p className="text-xs text-muted-foreground italic py-2">All deals have recent activity.</p>
+            : sections?.staleOpportunities.items.slice(0, 5).map((o: any) => (
+                <SalesItemRow key={o.id} link={o.deepLink} severity={o.severity} title={o.title}
+                  subtitle={[o.account_name, STAGE_LABEL[o.stage] ?? o.stage].filter(Boolean).join(" · ")}
+                  rightLabel={`${Math.round(Number(o.days_stale))}d stale`} action="Review" testId={`opp-stale-${o.id}`} />
+              ))
+          }
+        </SalesSection>
+      )}
+      {visible.inbox_followups && (
+        <SalesSection icon={Mail} title="Inbox Follow-ups" count={sections?.inboxFollowUps.count ?? 0} link="/communications" compact={compact}>
+          {sections?.inboxFollowUps.count === 0
+            ? <p className="text-xs text-muted-foreground italic py-2">Inbox clear.</p>
+            : sections?.inboxFollowUps.items.slice(0, 4).map((e: any) => (
+                <SalesItemRow key={e.id} link={e.deepLink} severity="high"
+                  title={e.subject ?? "(No subject)"}
+                  subtitle={`From: ${e.from_name ?? e.from_email ?? "Unknown"}${e.account_name ? ` · ${e.account_name}` : ""}`}
+                  rightLabel={e.sent_at ? formatDistanceToNow(new Date(e.sent_at), { addSuffix: true }) : ""}
+                  action="Follow up" testId={`inbox-followup-${e.id}`} />
+              ))
+          }
+        </SalesSection>
+      )}
+      {visible.week_priorities && (
+        <SalesSection icon={CalendarDays} title="This Week" count={sections?.thisWeekPriorities.count ?? 0} compact={compact}>
+          {sections?.thisWeekPriorities.count === 0
+            ? <p className="text-xs text-muted-foreground italic py-2">Nothing on the calendar this week.</p>
+            : (
+                <>
+                  {(sections?.thisWeekPriorities.meetings ?? []).slice(0, 3).map((m: any) => {
+                    const start = new Date(m.start_time);
+                    const label = isToday(start) ? `Today ${format(start, "h:mm a")}` : isTomorrow(start) ? `Tomorrow` : format(start, "EEE MMM d");
+                    return (
+                      <Link key={m.id} href="/execution/calendar">
+                        <div className="flex items-center gap-2 py-1.5 hover:bg-muted/30 rounded -mx-1 px-1 transition-colors">
+                          <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <p className="flex-1 text-sm font-medium truncate">{m.title}</p>
+                          <span className="text-xs text-muted-foreground">{label}</span>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                  {(sections?.thisWeekPriorities.tasks ?? []).slice(0, 3).map((t: any) => {
+                    const due = new Date(t.due_date);
+                    const label = isToday(due) ? "Today" : isTomorrow(due) ? "Tomorrow" : format(due, "EEE MMM d");
+                    return (
+                      <div key={t.id} className="flex items-center gap-2 py-1.5">
+                        <div className={`h-2 w-2 rounded-full shrink-0 ${t.priority === "high" ? "bg-red-400" : t.priority === "medium" ? "bg-amber-400" : "bg-blue-400"}`} />
+                        <p className="flex-1 text-sm font-medium truncate">{t.title}</p>
+                        <span className="text-xs text-muted-foreground">{label}</span>
+                      </div>
+                    );
+                  })}
+                </>
+              )
+          }
+        </SalesSection>
+      )}
+    </div>
+  );
+}
+
+// ── CS Command Center ─────────────────────────────────────────────────────────
+function CSCommandCenter({ visible, compact }: { visible: Record<string, boolean>; compact?: boolean }) {
+  const csDash = useQuery<any>({ queryKey: ["/api/cs/dashboard"] });
+  const dailyCC = useQuery<any>({ queryKey: ["/api/daily-command-center"] });
+  const cd = csDash.data;
+  const sections = dailyCC.data?.sections;
+
+  if (csDash.isLoading) return (
+    <div className="grid gap-4 md:grid-cols-2" data-testid="cs-center-loading">
+      {[1, 2].map(i => <Skeleton key={i} className="h-40 rounded-xl" />)}
+    </div>
+  );
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2" data-testid="cs-command-center">
+      {visible.health_scores && (
+        <SalesSection icon={ShieldAlert} title="Account Health" count={cd?.atRiskCount ?? 0} link="/renewals" compact={compact}>
+          {cd ? (
+            <div className="space-y-1 mt-1">
+              <div className="flex gap-3">
+                <div className="text-center">
+                  <p className="text-xl font-bold text-blue-400">{cd.avgHealthScore != null ? Math.round(cd.avgHealthScore) : "—"}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase">Avg Health</p>
+                </div>
+                <div className="h-8 w-px bg-border/50" />
+                <div className="text-center">
+                  <p className="text-xl font-bold text-red-400">{cd.atRiskCount ?? 0}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase">At Risk</p>
+                </div>
+                <div className="h-8 w-px bg-border/50" />
+                <div className="text-center">
+                  <p className="text-xl font-bold text-amber-400">{cd.renewalsThisMonth ?? 0}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase">Renewals</p>
+                </div>
+              </div>
+            </div>
+          ) : <p className="text-sm text-muted-foreground">No CS data</p>}
+        </SalesSection>
+      )}
+      {visible.renewal_exposure && (
+        <SalesSection icon={RefreshCw} title="Renewal Exposure" count={cd?.renewalsThisMonth ?? 0} link="/renewals" compact={compact}>
+          {cd?.totalRenewalValue > 0
+            ? <p className="text-base font-bold text-amber-400 mt-1">${(cd.totalRenewalValue / 1000).toFixed(0)}k at stake</p>
+            : <p className="text-xs text-emerald-400 mt-1">✓ No renewal exposure this month</p>
+          }
+        </SalesSection>
+      )}
+      {visible.overdue_tasks && (
+        <SalesSection icon={CheckSquare} title="Overdue Tasks" count={sections?.overdueTasks.count ?? 0} link="/execution/tasks" compact={compact}>
+          {sections?.overdueTasks.count === 0
+            ? <p className="text-xs text-muted-foreground italic py-2">No overdue tasks.</p>
+            : sections?.overdueTasks.items.slice(0, 4).map((t: any) => (
+                <SalesItemRow key={t.id} link={t.deepLink} severity={t.severity} title={t.title}
+                  rightLabel={`${Math.round(t.days_overdue)}d overdue`} testId={`task-overdue-${t.id}`} />
+              ))
+          }
+        </SalesSection>
+      )}
+      {visible.accounts_at_risk && (
+        <SalesSection icon={Building2} title="Accounts at Risk" count={sections?.accountsAtRisk.count ?? 0} link="/accounts" compact={compact}>
+          {sections?.accountsAtRisk.count === 0
+            ? <p className="text-xs text-muted-foreground italic py-2">All accounts recently touched.</p>
+            : sections?.accountsAtRisk.items.slice(0, 4).map((a: any) => (
+                <SalesItemRow key={a.id} link={a.deepLink} severity={a.severity} title={a.name}
+                  rightLabel={a.last_interaction_at ? `${Math.round(Number(a.days_since_touch))}d ago` : "Never"} testId={`account-risk-${a.id}`} />
+              ))
+          }
+        </SalesSection>
+      )}
+    </div>
+  );
+}
+
+// ── Widget Visibility Panel ───────────────────────────────────────────────────
+function WidgetVisibilityPanel({ widgets, visible, onToggle, onReset }: {
+  widgets: { id: string; label: string; description: string }[];
+  visible: Record<string, boolean>;
+  onToggle: (id: string) => void;
+  onReset: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">Toggle widgets on or off for your layout.</p>
+        <Button variant="ghost" size="sm" onClick={onReset} className="text-xs gap-1">
+          <RotateCcw className="h-3 w-3" /> Reset
+        </Button>
+      </div>
+      <div className="space-y-2">
+        {widgets.map(w => (
+          <div key={w.id} className="flex items-center justify-between p-3 rounded-lg border border-border/40 hover:bg-muted/30 transition-colors">
+            <div className="flex-1 min-w-0 pr-4">
+              <p className="text-sm font-medium">{w.label}</p>
+              <p className="text-xs text-muted-foreground">{w.description}</p>
+            </div>
+            <Button
+              variant={visible[w.id] ? "default" : "outline"}
+              size="sm"
+              onClick={() => onToggle(w.id)}
+              className="shrink-0 gap-1 text-xs h-7"
+              data-testid={`toggle-widget-${w.id}`}
+            >
+              {visible[w.id] ? <><Eye className="h-3 w-3" /> On</> : <><EyeOff className="h-3 w-3" /> Off</>}
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
+export default function RoleCommandCenter() {
+  const [previewCenterType, setPreviewCenterType] = useState<CenterType | null>(null);
+  const [useRoleDefault, setUseRoleDefault] = useState(false);
+  const [localVisibility, setLocalVisibility] = useState<Record<string, boolean> | null>(null);
+  const [localLayout, setLocalLayout] = useState<"expanded" | "compact" | null>(null);
+
+  const profileQuery = useQuery<UserProfile>({ queryKey: ["/api/users/me/profile"] });
+
+  const saveMutation = useMutation({
+    mutationFn: (data: { preferredLayout?: string; widgetVisibility?: Record<string, boolean>; defaultCommandCenter?: string }) =>
+      apiRequest("PATCH", "/api/users/me/layout", data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/users/me/profile"] }),
+  });
+
+  const profile = profileQuery.data;
+  const isAdmin = profile ? ["master_admin", "admin"].includes(profile.globalRole) : false;
+
+  const baseConfig = profile ? buildDashboardConfig(profile) : null;
+  const displayCenterType = previewCenterType ?? (profile ? detectCenterType(profile) : "default");
+  const config = profile ? buildDashboardConfig(profile, displayCenterType) : null;
+
+  const visible = localVisibility ?? (useRoleDefault ? undefined : config?.visibleWidgets) ?? config?.visibleWidgets ?? {};
+  const layoutMode = (localLayout ?? profile?.preferredLayout ?? "expanded") as "expanded" | "compact";
+  const compact = layoutMode === "compact";
+
+  const handleToggleWidget = useCallback((id: string) => {
+    const current = localVisibility ?? config?.visibleWidgets ?? {};
+    const next = { ...current, [id]: !current[id] };
+    setLocalVisibility(next);
+  }, [localVisibility, config]);
+
+  const handleResetWidgets = useCallback(() => {
+    setLocalVisibility(null);
+  }, []);
+
+  const handleSaveLayout = () => {
+    if (!localVisibility && !localLayout) return;
+    saveMutation.mutate({
+      ...(localVisibility ? { widgetVisibility: localVisibility } : {}),
+      ...(localLayout ? { preferredLayout: localLayout } : {}),
+    });
+  };
+
+  const handleSetDefaultCenter = (ct: CenterType) => {
+    saveMutation.mutate({ defaultCommandCenter: ct });
+  };
+
+  if (profileQuery.isLoading) {
+    return (
+      <div className="p-4 sm:p-6 space-y-4" data-testid="role-command-center-loading">
+        <Skeleton className="h-8 w-64" />
+        <div className="grid gap-4 md:grid-cols-2">
+          {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-40 rounded-xl" />)}
+        </div>
+      </div>
+    );
+  }
+
+  if (!profile || !config) {
+    return (
+      <div className="p-6 text-center text-muted-foreground" data-testid="role-command-center-error">
+        <p>Unable to load command center.</p>
+      </div>
+    );
+  }
+
+  // greeting
+  const h = new Date().getHours();
+  const greet = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+
+  return (
+    <div className="flex flex-col gap-5 p-4 sm:p-6" data-testid="role-command-center">
+
+      {/* ── Header ────────────────────────────────────────────────────── */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-xl font-bold text-foreground" data-testid="rcc-greeting">
+            {greet}, {profile.name?.split(" ")[0] ?? "there"}
+          </h1>
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            <p className="text-sm text-muted-foreground">{config.centerLabel}</p>
+            {previewCenterType && (
+              <Badge variant="outline" className="text-[10px] text-amber-400 border-amber-500/30">Preview mode</Badge>
+            )}
+            {profile.department && (
+              <Badge variant="outline" className="text-[10px]">{profile.department}</Badge>
+            )}
+            {profile.jobTitle && (
+              <Badge variant="outline" className="text-[10px]">{profile.jobTitle}</Badge>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Layout toggle */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-xs h-8"
+            onClick={() => setLocalLayout(l => l === "compact" || (l === null && layoutMode === "compact") ? "expanded" : "compact")}
+            data-testid="rcc-layout-toggle"
+          >
+            {compact ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
+            {compact ? "Expanded" : "Compact"}
+          </Button>
+
+          {/* My Layout / Role Default toggle */}
+          <div className="flex items-center rounded-md border border-border/50 overflow-hidden h-8">
+            <button
+              className={`px-3 text-xs h-full transition-colors ${!useRoleDefault ? "bg-primary text-primary-foreground" : "hover:bg-muted/50 text-muted-foreground"}`}
+              onClick={() => setUseRoleDefault(false)}
+              data-testid="rcc-my-layout-btn"
+            >
+              My Layout
+            </button>
+            <button
+              className={`px-3 text-xs h-full border-l border-border/50 transition-colors ${useRoleDefault ? "bg-primary text-primary-foreground" : "hover:bg-muted/50 text-muted-foreground"}`}
+              onClick={() => { setUseRoleDefault(true); setLocalVisibility(null); }}
+              data-testid="rcc-role-default-btn"
+            >
+              Role Default
+            </button>
+          </div>
+
+          {/* Admin preview dropdown */}
+          {isAdmin && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" data-testid="rcc-preview-dropdown">
+                  <LayoutDashboard className="h-3.5 w-3.5" />
+                  Preview <ChevronDown className="h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setPreviewCenterType(null)} data-testid="preview-my-role">
+                  My Role ({baseConfig?.centerLabel})
+                </DropdownMenuItem>
+                {ALL_CENTER_TYPES.map(ct => (
+                  <DropdownMenuItem key={ct.value} onClick={() => setPreviewCenterType(ct.value)} data-testid={`preview-${ct.value}`}>
+                    {ct.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          {/* Widget settings */}
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" data-testid="rcc-settings-btn">
+                <SlidersHorizontal className="h-3.5 w-3.5" /> Widgets
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-80">
+              <SheetHeader>
+                <SheetTitle>Widget Settings</SheetTitle>
+              </SheetHeader>
+              <div className="mt-4">
+                <WidgetVisibilityPanel
+                  widgets={config.widgets}
+                  visible={visible}
+                  onToggle={handleToggleWidget}
+                  onReset={handleResetWidgets}
+                />
+                {(localVisibility || localLayout) && (
+                  <div className="mt-4 pt-4 border-t border-border/30">
+                    <Button
+                      className="w-full text-sm"
+                      onClick={handleSaveLayout}
+                      disabled={saveMutation.isPending}
+                      data-testid="rcc-save-layout-btn"
+                    >
+                      {saveMutation.isPending ? "Saving…" : "Save Layout"}
+                    </Button>
+                    {saveMutation.isSuccess && (
+                      <p className="text-xs text-emerald-400 text-center mt-2">Layout saved.</p>
+                    )}
+                  </div>
+                )}
+                {isAdmin && (
+                  <div className="mt-4 pt-4 border-t border-border/30">
+                    <p className="text-xs text-muted-foreground mb-2 font-semibold uppercase tracking-wide">Set Default Center</p>
+                    <div className="space-y-1">
+                      {ALL_CENTER_TYPES.map(ct => (
+                        <Button key={ct.value} variant={profile.defaultCommandCenter === ct.value ? "default" : "outline"}
+                          size="sm" className="w-full text-xs justify-start"
+                          onClick={() => handleSetDefaultCenter(ct.value)}
+                          data-testid={`set-default-${ct.value}`}
+                        >
+                          {ct.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </SheetContent>
+          </Sheet>
+        </div>
+      </div>
+
+      {/* ── Center Content ──────────────────────────────────────────────── */}
+      {displayCenterType === "ceo" && (
+        <CEOCommandCenter visible={visible} compact={compact} />
+      )}
+      {displayCenterType === "cfo" && (
+        <CFOCommandCenter visible={visible} compact={compact} />
+      )}
+      {displayCenterType === "cto" && (
+        <CTOCommandCenter visible={visible} compact={compact} />
+      )}
+      {displayCenterType === "cmo" && (
+        <CMOCommandCenter visible={visible} compact={compact} />
+      )}
+      {(displayCenterType === "sales" || displayCenterType === "default") && (
+        <SalesCommandCenter visible={visible} compact={compact} />
+      )}
+      {displayCenterType === "cs" && (
+        <CSCommandCenter visible={visible} compact={compact} />
+      )}
+    </div>
+  );
+}
