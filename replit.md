@@ -1,5 +1,55 @@
 # Replit Agent Configuration
 
+## Certification Tracker Alert Engine (Complete — Phase 6)
+
+### What was built
+Active alerting layer on top of the Live Test Tracker. Synced sheet counts now trigger per-project notifications, tasks, executive alerts, and a persistent alert banner — with cooldown/dedupe to prevent spam.
+
+### New Files
+- `server/services/cert-alert-engine.ts` — Core alert engine: `evaluateConditions()`, `runAlertEngine()`, `parseAlertState()`, `getActiveAlerts()`
+- `scripts/migrate-cert-alerts.ts` — Migration that adds `tracker_alert_state TEXT` column to `project_certifications`
+- `tests/cert-alerts.test.js` — **28/28 tests passing**
+
+### Schema Change
+`project_certifications.tracker_alert_state TEXT` — JSON blob: `{ lastEvalAt, conditions: { failed_test, blocker, retest_required, cert_risk, due_soon } }`
+
+### Backend Routes Added (in `server/routes.ts`)
+- `GET  /api/projects/:id/tracker-alerts/state` — Returns current stored alert state + list of active (within-cooldown) alert types
+- `POST /api/projects/:id/tracker-alerts/evaluate` — Accepts SheetSyncSnapshot body, evaluates all 5 alert conditions, runs outputs (notification + task + exec alert), saves new state; returns `{ triggered, cooledDown, notificationsCreated, tasksCreated, execAlertsCreated, newState }`
+- `certSqlSets` extended with `trackerAlertState → tracker_alert_state`
+- `GET /api/executive/risk-alerts` extended with `certTrackerAlerts` array + updated `distinctAtRiskCount`
+
+### Alert Engine Logic (5 conditions)
+| Alert Type | Trigger | Severity |
+|---|---|---|
+| `failed_test` | failed > 0 | medium / high (≥3) |
+| `blocker` | blockerCount > 0 | high / critical (≥2) |
+| `retest_required` | retestCount > 0 | medium |
+| `cert_risk` | alertConditions.certRisk=true | high |
+| `due_soon` | dueSoonCount ≥ threshold (default 5) | medium |
+
+**Dedupe / cooldown logic:** alert triggers only if `(!prevTriggered && conditionMet)` OR `(conditionMet && currentCount > prevCount)`. Configurable `cooldownHours` (default 24) per `alertHooks` in `trackerSheetConfig`.
+
+### Outputs (per triggered condition)
+1. **Notification** — `cert_tracker_alert` type with dedupe key `cert_alert_{projectId}_{type}_{YYYY-MM-DD}`
+2. **Task** — `source: 'cert_alert'` linked to project, 48h due date; only for high/critical severity
+3. **Executive alert** — `executive_alerts` table; only for high/critical severity
+4. **State persisted** — `tracker_alert_state` saved on every evaluate call
+
+### Frontend Changes (`client/src/pages/projects.tsx`)
+- New types: `AlertState`, `AlertConditionState`, `AlertType`, `ALERT_LABELS`, `ALERT_SEVERITY`, `getActiveAlertTypes()`
+- `LiveTestTrackerTab`: loads alert state on mount via `GET /api/projects/:id/tracker-alerts/state`; after every successful sync, auto-calls `POST /api/projects/:id/tracker-alerts/evaluate`
+- `LiveTrackerCertSummary`: accepts `alertState` prop; shows persistent "Active Alerts" banner above health badge when active alerts exist
+- `ProjectDetailDialog`: queries alert state; shows red badge count on "Live Test Tracker" tab trigger
+- Tab badge: `data-testid="badge-tracker-alerts"` — red pill showing count of active alerts
+
+### Tests (`tests/cert-alerts.test.js`) — 28/28 ✓
+Phase 1 (evaluation), Phase 2 (notification/task/exec alert creation), Phase 3 (cooldown/dedupe), Phase 4 (exec risk-alerts), validation, regression, cleanup.
+
+Also: `tests/live-tracker.test.js` — still **27/27 ✓** (no regression).
+
+---
+
 ## Help Center & AI Training System (Complete — Feature 11)
 
 ### What was built

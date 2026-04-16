@@ -63,6 +63,34 @@ type SheetSyncResult = {
   error: string | null;
   message?: string;
 };
+type AlertConditionState = { triggered: boolean; at: string | null; count: number };
+type AlertState = {
+  lastEvalAt: string;
+  conditions: Partial<Record<"failed_test" | "blocker" | "retest_required" | "cert_risk" | "due_soon", AlertConditionState>>;
+};
+type AlertType = "failed_test" | "blocker" | "retest_required" | "cert_risk" | "due_soon";
+const ALERT_LABELS: Record<AlertType, string> = {
+  failed_test:     "Failed Tests",
+  blocker:         "Blockers",
+  retest_required: "Retests Required",
+  cert_risk:       "Certification Risk",
+  due_soon:        "Due Soon",
+};
+const ALERT_SEVERITY: Record<AlertType, "high" | "medium"> = {
+  failed_test:     "high",
+  blocker:         "high",
+  retest_required: "medium",
+  cert_risk:       "high",
+  due_soon:        "medium",
+};
+function getActiveAlertTypes(state: AlertState | null): AlertType[] {
+  if (!state) return [];
+  const cooldownMs = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  return (Object.entries(state.conditions) as [AlertType, AlertConditionState][])
+    .filter(([, v]) => v.triggered && v.at && (now - new Date(v.at).getTime()) < cooldownMs)
+    .map(([k]) => k);
+}
 
 // ── Sheet URL helpers ──────────────────────────────────────────────────────────
 function extractSheetId(url: string): string | null {
@@ -401,13 +429,14 @@ function TrackerConfigDialog({
 
 // ── Live Test Tracker: Certification Summary Panel ────────────────────────────
 function LiveTrackerCertSummary({
-  cert, milestones, sheetSync, syncLoading, onSync,
+  cert, milestones, sheetSync, syncLoading, onSync, alertState,
 }: {
   cert: CertRecord | null | undefined;
   milestones: Milestone[];
   sheetSync?: SheetSyncResult | null;
   syncLoading?: boolean;
   onSync?: () => void;
+  alertState?: AlertState | null;
 }) {
   if (!cert) return <div className="w-64 shrink-0 text-xs text-muted-foreground text-center pt-8">No certification data yet.</div>;
 
@@ -436,8 +465,30 @@ function LiveTrackerCertSummary({
   const syncError = sheetSync?.error;
   const ac = sheetSync?.alertConditions;
 
+  const activeAlerts = getActiveAlertTypes(alertState ?? null);
+  const hasHighAlert = activeAlerts.some(a => ALERT_SEVERITY[a] === "high");
+
   return (
     <div className="w-64 shrink-0 space-y-3" data-testid="panel-cert-summary">
+      {/* Persistent alert banner (from stored alert state) */}
+      {activeAlerts.length > 0 && (
+        <div
+          className={`rounded-lg border px-3 py-2 space-y-1 ${hasHighAlert ? "border-red-500/40 bg-red-500/10" : "border-amber-500/30 bg-amber-500/10"}`}
+          data-testid="panel-active-alerts-banner"
+        >
+          <div className={`text-[10px] font-semibold uppercase tracking-wide flex items-center gap-1 ${hasHighAlert ? "text-red-400" : "text-amber-400"}`}>
+            <TriangleAlert className="h-3 w-3" />
+            {activeAlerts.length} Active Alert{activeAlerts.length !== 1 ? "s" : ""}
+          </div>
+          {activeAlerts.map(a => (
+            <div key={a} className={`text-[10px] flex items-center gap-1 ${ALERT_SEVERITY[a] === "high" ? "text-red-300/90" : "text-amber-300/90"}`}>
+              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${ALERT_SEVERITY[a] === "high" ? "bg-red-400" : "bg-amber-400"}`} />
+              {ALERT_LABELS[a]}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Health badge */}
       <div className={`rounded-lg border px-3 py-2.5 flex items-center gap-2 ${health.bg} ${health.border}`}>
         <ShieldCheck className={`h-4 w-4 ${health.color}`} />
@@ -554,6 +605,7 @@ function LiveTestTrackerTab({ projectId, projectName }: { projectId: number; pro
   const [configOpen, setConfigOpen] = useState(false);
   const [sheetSync, setSheetSync] = useState<SheetSyncResult | null>(null);
   const [syncLoading, setSyncLoading] = useState(false);
+  const [alertState, setAlertState] = useState<AlertState | null>(null);
 
   const { data: cert, isLoading: certLoading, refetch: refetchCert } = useQuery<CertRecord>({
     queryKey: ["/api/projects", projectId, "certification"],
@@ -564,6 +616,18 @@ function LiveTestTrackerTab({ projectId, projectName }: { projectId: number; pro
     queryFn: () => apiRequest("GET", `/api/projects/${projectId}/milestones`).then(r => r.json()),
   });
 
+  // Load stored alert state on mount
+  const { data: alertStateData, refetch: refetchAlertState } = useQuery<{ alertState: AlertState | null; activeAlerts: AlertType[] }>({
+    queryKey: ["/api/projects", projectId, "tracker-alerts", "state"],
+    queryFn: () => apiRequest("GET", `/api/projects/${projectId}/tracker-alerts/state`).then(r => r.json()),
+  });
+  // Keep alertState in sync with server data (overridden by evaluate result after each sync)
+  useMemo(() => {
+    if (alertStateData?.alertState && !alertState) {
+      setAlertState(alertStateData.alertState);
+    }
+  }, [alertStateData]);
+
   const trackerUrl = cert?.tracker_sheet_url ?? "";
   const config: TrackerConfig = useMemo(() => {
     try { return JSON.parse(cert?.tracker_sheet_config ?? "{}"); } catch { return { tabs: [] }; }
@@ -573,7 +637,7 @@ function LiveTestTrackerTab({ projectId, projectName }: { projectId: number; pro
   const sheetId = useMemo(() => extractSheetId(trackerUrl), [trackerUrl]);
   const embedUrl = useMemo(() => sheetId ? makeEmbedUrl(sheetId, currentGid) : null, [sheetId, currentGid]);
 
-  // Sync sheet data from server
+  // Sync sheet data from server, then auto-evaluate alert conditions
   const handleSync = useCallback(async () => {
     if (!trackerUrl) return;
     setSyncLoading(true);
@@ -581,6 +645,18 @@ function LiveTestTrackerTab({ projectId, projectName }: { projectId: number; pro
       const r = await apiRequest("GET", `/api/projects/${projectId}/tracker-sync${currentGid ? `?gid=${currentGid}` : ""}`);
       const data: SheetSyncResult = await r.json();
       setSheetSync(data);
+
+      // Phase 2: evaluate alerts if sync succeeded and has column data
+      if (!data.error && data.total >= 0) {
+        try {
+          const evalR = await apiRequest("POST", `/api/projects/${projectId}/tracker-alerts/evaluate`, data);
+          const evalData = await evalR.json();
+          if (evalData.newState) {
+            setAlertState(evalData.newState);
+            refetchAlertState();
+          }
+        } catch { /* alert eval failure is non-fatal */ }
+      }
     } catch {
       setSheetSync({ error: "fetch_error", message: "Could not reach sync endpoint.", source: "", gid: currentGid, total: 0, passed: 0, failed: 0, pending: 0, inProgress: 0, other: 0, blockerCount: 0, retestCount: 0, dueSoonCount: 0, lastUpdated: null, syncedAt: new Date().toISOString(), columnsFound: {}, alertConditions: { failedTest: false, blocker: false, retestRequired: false, certRisk: false } });
     } finally {
@@ -676,13 +752,14 @@ function LiveTestTrackerTab({ projectId, projectName }: { projectId: number; pro
           </p>
         </div>
 
-        {/* Cert Summary Panel — passes live sheet sync data */}
+        {/* Cert Summary Panel — passes live sheet sync data + stored alert state */}
         <LiveTrackerCertSummary
           cert={cert}
           milestones={milestones as Milestone[]}
           sheetSync={sheetSync}
           syncLoading={syncLoading}
           onSync={trackerUrl ? handleSync : undefined}
+          alertState={alertState}
         />
       </div>
 
@@ -1501,6 +1578,13 @@ function ProjectDetailDialog({ project, onClose, onDelete }: { project: Project;
     enabled: isCert,
   });
 
+  const { data: trackerAlertData } = useQuery<{ alertState: AlertState | null; activeAlerts: AlertType[] }>({
+    queryKey: ["/api/projects", project.id, "tracker-alerts", "state"],
+    queryFn: () => fetch(`/api/projects/${project.id}/tracker-alerts/state`, { credentials: "include" }).then(r => r.json()),
+    enabled: isCert,
+  });
+  const tabBadgeCount = trackerAlertData?.activeAlerts?.length ?? 0;
+
   const health = isCert ? calcCertHealth(cert) : null;
 
   return (
@@ -1572,7 +1656,18 @@ function ProjectDetailDialog({ project, onClose, onDelete }: { project: Project;
                 {isCert && <TabsTrigger value="milestones" data-testid="tab-milestones">Milestones</TabsTrigger>}
                 <TabsTrigger value="notes">Notes</TabsTrigger>
                 {isCert && <TabsTrigger value="timeline" data-testid="tab-timeline">Timeline</TabsTrigger>}
-                {isCert && <TabsTrigger value="tracker" data-testid="tab-tracker" className="gap-1.5"><Table2 className="h-3.5 w-3.5" />Live Test Tracker</TabsTrigger>}
+                {isCert && (
+                  <TabsTrigger value="tracker" data-testid="tab-tracker" className="gap-1.5 relative">
+                    <Table2 className="h-3.5 w-3.5" />
+                    Live Test Tracker
+                    {tabBadgeCount > 0 && (
+                      <span
+                        className="ml-1 text-[9px] font-bold px-1 py-0 rounded-full bg-red-500 text-white leading-4"
+                        data-testid="badge-tracker-alerts"
+                      >{tabBadgeCount}</span>
+                    )}
+                  </TabsTrigger>
+                )}
               </TabsList>
 
               <ScrollArea className="flex-1 min-h-0">

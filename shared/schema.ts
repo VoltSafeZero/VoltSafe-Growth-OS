@@ -1250,6 +1250,8 @@ export const projectCertifications = pgTable("project_certifications", {
   trackerSheetUrl: text("tracker_sheet_url"),
   trackerSheetConfig: text("tracker_sheet_config"),     // JSON: { defaultGid, tabs, columnMap, alertHooks }
   trackerSheetLastSynced: timestamp("tracker_sheet_last_synced"),
+  // JSON: { lastEvalAt, conditions: { failedTest: {triggered, at, count}, ... } }
+  trackerAlertState: text("tracker_alert_state"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

@@ -10065,6 +10065,7 @@ export function registerConfluenceRoutes(app: Express) {
       trackerSheetUrl: "tracker_sheet_url",
       trackerSheetConfig: "tracker_sheet_config",
       trackerSheetLastSynced: "tracker_sheet_last_synced",
+      trackerAlertState: "tracker_alert_state",
     };
     const sets: string[] = [];
     for (const [k, v] of Object.entries(body)) {
@@ -10619,6 +10620,64 @@ export function registerConfluenceRoutes(app: Express) {
         alertConditions,
         error:          null,
       });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── GET /api/projects/:id/tracker-alerts/state ────────────────────────────────
+  // Returns current stored alert state (conditions, last eval timestamp).
+  app.get("/api/projects/:id/tracker-alerts/state", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(
+        `SELECT tracker_alert_state FROM project_certifications WHERE project_id = ${id}`
+      ));
+      const row = ((rows as any).rows ?? [])[0];
+      if (!row) return res.json({ alertState: null, activeAlerts: [] });
+      const { parseAlertState, getActiveAlerts } = await import("./services/cert-alert-engine");
+      const state = parseAlertState(row.tracker_alert_state);
+      res.json({ alertState: state, activeAlerts: getActiveAlerts(state) });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── POST /api/projects/:id/tracker-alerts/evaluate ───────────────────────────
+  // Accepts a SheetSyncSnapshot in the body (from the most recent sync) and runs
+  // the full alert evaluation pipeline: conditions → outputs → cooldown state save.
+  app.post("/api/projects/:id/tracker-alerts/evaluate", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId = req.session.userId as number;
+
+      // Load project name + cert record for alert state + config
+      const [projRows, certRows] = await Promise.all([
+        db.execute(sql.raw(`SELECT name FROM projects WHERE id = ${id}`)),
+        db.execute(sql.raw(`SELECT tracker_sheet_config, tracker_alert_state FROM project_certifications WHERE project_id = ${id}`)),
+      ]);
+      const project = ((projRows as any).rows ?? [])[0];
+      const cert    = ((certRows as any).rows ?? [])[0];
+      if (!project) return res.status(404).json({ message: "Project not found" });
+
+      let config: Record<string, any> = {};
+      try { config = JSON.parse(cert?.tracker_sheet_config ?? "{}"); } catch { config = {}; }
+      const hooks = config.alertHooks ?? {};
+
+      const { parseAlertState, runAlertEngine } = await import("./services/cert-alert-engine");
+      const prevState = parseAlertState(cert?.tracker_alert_state ?? null);
+
+      const sync = req.body as any;
+      if (!sync || typeof sync.total !== "number") {
+        return res.status(400).json({ message: "Request body must contain a valid SheetSyncSnapshot (with numeric 'total' field)." });
+      }
+
+      const result = await runAlertEngine(
+        { projectId: id, projectName: project.name, userId, gid: sync.gid ?? "" },
+        sync,
+        hooks,
+        prevState,
+      );
+
+      res.json(result);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
@@ -12241,7 +12300,7 @@ export function registerConfluenceRoutes(app: Express) {
       const q = req.query as Record<string,string>;
       const ownerClause = q.ownerId && !isNaN(parseInt(q.ownerId)) ? `AND o.owner_user_id = ${parseInt(q.ownerId)}` : "";
 
-      const [stalledRes, quotesRes, installsRes, tasksRes, dqRes, noOwnerRes] = await Promise.all([
+      const [stalledRes, quotesRes, installsRes, tasksRes, dqRes, noOwnerRes, certAlertRes] = await Promise.all([
         // Top stalled high-value opps — uses shared buildStalledWhere + buildDaysStaleExpr
         db.execute(sql.raw(`
           SELECT o.id, o.title, o.amount, o.stage, u.name AS owner_name,
@@ -12301,6 +12360,18 @@ export function registerConfluenceRoutes(app: Express) {
           SELECT id, company, source, status, created_at
           FROM leads WHERE owner_user_id IS NULL AND status NOT IN ('converted','disqualified')
           ORDER BY created_at DESC LIMIT 8`)),
+
+        // Certification projects with active tracker alerts (Phase 4)
+        db.execute(sql.raw(`
+          SELECT p.id, p.name, pc.certification_status, pc.overall_risk,
+                 pc.tracker_alert_state, pc.tracker_sheet_last_synced,
+                 pc.launch_blocker
+          FROM project_certifications pc
+          JOIN projects p ON p.id = pc.project_id
+          WHERE pc.tracker_alert_state IS NOT NULL
+            AND pc.tracker_sheet_last_synced > NOW() - INTERVAL '48 hours'
+          ORDER BY pc.tracker_sheet_last_synced DESC
+          LIMIT 10`)),
       ]);
 
       const mapRow = (r: any) => ({ ...r });
@@ -12311,19 +12382,39 @@ export function registerConfluenceRoutes(app: Express) {
       const tasksList      = ((tasksRes     as any).rows ?? []).map(mapRow);
       const unownedList    = ((noOwnerRes   as any).rows ?? []).map(mapRow);
       const dqRow          = (dqRes         as any).rows?.[0] ?? {};
+      const rawCertAlerts  = ((certAlertRes as any).rows ?? []).map(mapRow);
+
+      // Resolve which cert projects have genuinely active (within-cooldown) alerts
+      const { parseAlertState, getActiveAlerts } = await import("./services/cert-alert-engine");
+      const certTrackerAlerts = rawCertAlerts
+        .map((r: any) => {
+          const state = parseAlertState(r.tracker_alert_state);
+          const active = getActiveAlerts(state);
+          return active.length > 0 ? {
+            projectId: r.id,
+            projectName: r.name,
+            certificationStatus: r.certification_status,
+            overallRisk: r.overall_risk,
+            launchBlocker: r.launch_blocker,
+            activeAlerts: active,
+            lastSyncedAt: r.tracker_sheet_last_synced,
+          } : null;
+        })
+        .filter(Boolean);
 
       res.json({
-        stalledOpps:     stalledList,
-        awaitingQuotes:  quotingList,
-        installBlockers: blockerList,
-        overdueTasks:    tasksList,
-        dqRisks:         dqRow,
-        unownedLeads:    unownedList,
+        stalledOpps:       stalledList,
+        awaitingQuotes:    quotingList,
+        installBlockers:   blockerList,
+        overdueTasks:      tasksList,
+        dqRisks:           dqRow,
+        unownedLeads:      unownedList,
+        certTrackerAlerts,          // Phase 4: active cert tracker alerts
         // Severity classification from shared module — drives UI colour coding
         severity: RISK_SEVERITY,
         // Distinct count of at-risk records across the top categories
         distinctAtRiskCount:
-          stalledList.length + quotingList.length + blockerList.length,
+          stalledList.length + quotingList.length + blockerList.length + certTrackerAlerts.length,
         // Threshold reference so clients can display rules
         stalledThresholdDays: STALLED_THRESHOLD_DAYS,
         awaitingThresholdDays: QUOTE_AWAITING_THRESHOLD_DAYS,

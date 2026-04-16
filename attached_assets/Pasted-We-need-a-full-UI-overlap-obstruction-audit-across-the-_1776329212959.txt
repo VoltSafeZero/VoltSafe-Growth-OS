@@ -1,0 +1,88 @@
+We need a full UI overlap / obstruction audit across the entire app.
+
+Immediate bug:
+The floating + button in the bottom-right is covering other buttons and text, especially in views like the inbox / relationship intelligence layout. Move it upward and make sure it never blocks interactive controls or readable content.
+
+But do not fix only this one button.
+Do a global audit and resolve this class of issue everywhere.
+
+GOAL:
+Find and fix all cases where floating, sticky, fixed, absolute, or overlay UI elements block:
+- buttons
+- links
+- inputs
+- text
+- tabs
+- filters
+- bottom toolbars
+- side panels
+- mobile nav
+- floating action buttons
+- toasts
+- drawers
+- modals
+- popovers
+
+AUDIT SCOPE:
+Check all major pages/modules, especially:
+- inbox / email workspace
+- relationship intelligence
+- command centers
+- field mobile mode
+- data quality center
+- projects / certification
+- documents
+- deployments
+- revenue pages
+- board pack
+- customer success
+- routing / geography
+- Winter support
+- any page with bottom-right floating buttons
+- any page with sticky toolbars / bottom nav / drawers
+
+SPECIFIC THINGS TO LOOK FOR:
+1. Floating action buttons covering other controls
+2. Bottom nav or fixed bars covering page content
+3. Drawers/panels overlapping key actions
+4. Text hidden under chips, toolbars, or overlays
+5. Buttons visually present but not actually clickable because another element sits on top
+6. Mobile safe-area issues
+7. Small-screen and zoom-level collisions
+8. Overlap inside split-pane layouts
+9. “Back” buttons or footer actions hidden by fixed elements
+10. Z-index issues causing the wrong layer to sit on top
+
+REQUIRED FIX STRATEGY:
+- Establish safe spacing rules for floating UI
+- Ensure page content has enough bottom/right padding when FABs or sticky bars are present
+- Move the floating + button upward/rightward as needed so it never blocks actions
+- Hide, reposition, or contextually suppress floating UI when it would interfere with local controls
+- Use consistent z-index layering rules across the app
+- Respect iOS safe areas / mobile bottom insets
+- Keep fixes systematic, not one-off hacks
+
+DELIVERABLES:
+1. List every overlap/obstruction issue found
+2. Severity for each:
+   - Critical
+   - High
+   - Medium
+   - Low
+3. Files changed
+4. What global layout rules were introduced
+5. Screenshots or notes for key before/after fixes
+6. Final pass/fail summary
+
+TESTING:
+Add regression coverage where practical for:
+- floating action button positioning
+- bottom safe padding
+- split-pane layouts
+- mobile views
+- pages with sticky controls
+- no blocked buttons in key workflows
+
+IMPORTANT:
+Do not just move one button.
+Fix the underlying pattern so this does not keep happening elsewhere.
