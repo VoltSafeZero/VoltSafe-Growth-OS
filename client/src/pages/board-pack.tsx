@@ -1436,8 +1436,8 @@ ${previewRef.current.innerHTML}
           </div>
         </div>
 
-        {/* Right panel: Preview */}
-        <div className="flex-1 overflow-y-auto">
+        {/* Right panel: Preview — bottom padding prevents FAB from hiding last content */}
+        <div className="flex-1 overflow-y-auto pb-24 md:pb-6">
           {!reportData ? (
             <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-6 no-print">
               <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">

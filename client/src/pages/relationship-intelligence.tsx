@@ -155,7 +155,7 @@ export default function RelationshipIntelligencePage() {
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-y-auto bg-background">
-      <div className="max-w-[1400px] w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
+      <div className="max-w-[1400px] w-full mx-auto px-4 sm:px-6 py-6 pb-24 md:pb-8 space-y-6">
 
         {/* Header */}
         <div className="flex items-start justify-between gap-4 flex-wrap">

@@ -1174,7 +1174,7 @@ export default function DataQualityPage() {
   const totalIssues = summary?.counts.total ?? 0;
 
   return (
-    <div className="flex-1 overflow-auto bg-background p-6 space-y-5">
+    <div className="flex-1 overflow-auto bg-background pt-6 px-6 pb-24 md:pb-8 space-y-5">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>

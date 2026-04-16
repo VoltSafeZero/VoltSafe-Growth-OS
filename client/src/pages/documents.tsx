@@ -333,7 +333,7 @@ function DocumentDetail({ doc, onClose, onDeleted }: { doc: Attachment; onClose:
         <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors" data-testid="button-close-detail"><X className="h-4 w-4" /></button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto pt-4 px-4 pb-24 md:pb-6 space-y-4">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-lg bg-muted/30 flex items-center justify-center shrink-0">
             {doc.source === "link" ? <Link2 className="h-5 w-5 text-primary" /> : <MimeIcon className="h-5 w-5 text-muted-foreground" />}
@@ -630,7 +630,7 @@ export default function DocumentsPage() {
           )}
 
           {/* List */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto pb-24 md:pb-6">
             {isLoading ? (
               <div className="space-y-0">
                 {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-14 w-full rounded-none" />)}

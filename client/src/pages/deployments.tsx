@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ScoreBadge } from "@/components/scores/score-badge";
 import { useDeploymentRiskScores } from "@/hooks/use-scores";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -457,6 +457,21 @@ export default function DeploymentsPage() {
   const [activeTab, setActiveTab] = useState("deployments");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedDeployId, setSelectedDeployId] = useState<number | null>(null);
+
+  // Shift the global FAB left when the right detail panel is open
+  useEffect(() => {
+    if (selectedDeployId !== null) {
+      document.body.classList.add("has-right-panel");
+      document.body.style.setProperty("--right-panel-width", "480px");
+    } else {
+      document.body.classList.remove("has-right-panel");
+      document.body.style.removeProperty("--right-panel-width");
+    }
+    return () => {
+      document.body.classList.remove("has-right-panel");
+      document.body.style.removeProperty("--right-panel-width");
+    };
+  }, [selectedDeployId]);
 
   const { scoreMap: deployRiskScores } = useDeploymentRiskScores();
 

@@ -138,11 +138,48 @@
   }
 }
 
-/* ── Field Execution Mobile Shell ────────────────────────────── */
+/* ── Global Layout Safety Rules ────────────────────────────── */
+
+/*
+ * Z-INDEX LAYER SYSTEM (do not deviate from these values)
+ * --z-sticky:   10  — sticky headers / sub-navs
+ * --z-sidebar:  20  — desktop sidebar rail / resize handle
+ * --z-panel:    40  — slide-out side panels, mobile nav, mobile overlay
+ * --z-modal:    50  — dialogs, popovers, dropdowns, FAB
+ * --z-toast:   100  — toast notifications (always on top)
+ *
+ * FAB sits at z-50, ABOVE side panels (z-40) so it remains reachable.
+ * When a side panel is open the FAB is repositioned via .has-right-panel.
+ */
 
 /* iOS safe area for home indicator */
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/*
+ * FAB SAFE ZONE — applied to body by pages that open a fixed right panel.
+ * Shifts the quick-capture FAB left so it clears the panel.
+ * Usage: add class "has-right-panel" to <body> (or a wrapper div) when panel opens.
+ */
+body.has-right-panel #quick-capture-fab {
+  right: calc(var(--right-panel-width, 480px) + 1.5rem);
+}
+
+/*
+ * Bottom clearance for page scroll containers on mobile.
+ * Use "pb-fab" on the outermost scrollable div inside pages that have content
+ * near the bottom-right (lists, tables, cards) so the FAB never hides the last row.
+ */
+.pb-fab {
+  /* mobile: FAB top ≈ 88 px + 48 px FAB height = 136 px → use 144px = 9rem */
+  padding-bottom: 9rem;
+}
+@media (min-width: 768px) {
+  .pb-fab {
+    /* desktop: FAB top ≈ 32 px + 48 px = 80 px → use 88px = 5.5rem */
+    padding-bottom: 5.5rem;
+  }
 }
 
 /* Larger touch targets on mobile — all interactive elements */

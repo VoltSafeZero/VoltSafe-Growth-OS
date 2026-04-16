@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ScoreBadge } from "@/components/scores/score-badge";
 import { useChurnRiskScores } from "@/hooks/use-scores";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -742,6 +742,21 @@ export default function RenewalsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [healthFilter, setHealthFilter] = useState<string>("all");
   const qc = useQueryClient();
+
+  // Shift the global FAB left when the right detail panel is open
+  useEffect(() => {
+    if (selectedCsId !== null) {
+      document.body.classList.add("has-right-panel");
+      document.body.style.setProperty("--right-panel-width", "480px");
+    } else {
+      document.body.classList.remove("has-right-panel");
+      document.body.style.removeProperty("--right-panel-width");
+    }
+    return () => {
+      document.body.classList.remove("has-right-panel");
+      document.body.style.removeProperty("--right-panel-width");
+    };
+  }, [selectedCsId]);
   const { scoreMap: churnScores } = useChurnRiskScores();
 
   // Build query params for active tab

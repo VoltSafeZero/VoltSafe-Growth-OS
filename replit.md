@@ -1,5 +1,45 @@
 # Replit Agent Configuration
 
+## Global Layout Safety Rules (Established in UI Overlap Audit)
+
+### Z-Index Layer System
+Always use these z-index values — do not deviate:
+| Layer | z-index | Elements |
+|---|---|---|
+| sticky | 10 | sticky headers, sub-navs |
+| sidebar | 20 | desktop sidebar rail |
+| panel | 40 | side panels, mobile nav, mobile overlays |
+| modal | 50 | dialogs, dropdowns, FAB |
+| toast | 100 | toast notifications |
+
+### FAB (Quick Capture) Rules
+- **`id="quick-capture-fab"`** — required ID for CSS targeting
+- **Mobile position**: `bottom-[5.5rem] right-4` (88px from bottom, clears 64px mobile nav + 24px gap)
+- **Desktop position**: `md:bottom-8 md:right-6`
+- **Right-panel shift**: Pages that open a fixed right panel must call `document.body.classList.add("has-right-panel")` + `document.body.style.setProperty("--right-panel-width", "480px")` when panel opens, and remove on close/unmount
+- **CSS rule in index.css**: `body.has-right-panel #quick-capture-fab { right: calc(var(--right-panel-width, 480px) + 1.5rem) }`
+- Currently applied to: `renewals.tsx` (CS detail panel), `deployments.tsx` (deployment detail)
+
+### Scroll Container Bottom Padding Rule
+Any `flex-1 overflow-y-auto` container that reaches the bottom of the viewport must have:
+- **Mobile**: `pb-24` minimum (96px) to clear the FAB
+- **Desktop**: `pb-6` or `md:pb-6`
+- Use `pb-24 md:pb-6` shorthand on the scroll container
+- Applied to: gmail-inbox, relationship-intelligence, tasks-hub, board-pack, data-quality, jira, confluence, documents, assets
+
+### App.tsx Main Container
+`main` has `pb-36 md:pb-8` — provides 144px bottom clearance on mobile (FAB + nav + breathing room), 32px on desktop.
+Do not reduce `pb-36` below `pb-28`.
+
+### Toast Viewport
+Toast viewport uses `sm:bottom-[5.5rem] sm:right-4` to sit above the FAB on desktop. Do not move it back to `sm:bottom-0`.
+
+### Utility CSS Classes (index.css)
+- `.safe-area-bottom` — `padding-bottom: env(safe-area-inset-bottom, 0px)` for iOS home bar
+- `.pb-fab` — 9rem mobile / 5.5rem desktop, for pages that manage their own scroll container
+
+---
+
 ## Certification Tracker Alert Engine (Complete — Phase 6)
 
 ### What was built
