@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
   Home, Users, LifeBuoy, Settings2, Building2, Contact, FileText, Mail,
   CalendarClock, FolderOpen, Tags, Zap, Settings, ChevronRight, Users2,
-  ClipboardList, Layers, ShieldCheck, Sun, Moon, GitBranch, Search, X,
+  ClipboardList, Layers, ShieldCheck, Sun, Moon, GitBranch,
   LayoutDashboard, Target, Share2, Brain, SlidersHorizontal, BarChart3,
   Megaphone, TrendingUp, Landmark, Truck, Factory, FlaskConical, Newspaper,
   Circle, StickyNote, CheckSquare, RefreshCcw, Bell, BellRing, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen,
@@ -11,7 +11,6 @@ import { useTheme } from "@/components/theme-provider";
 import { Link, useLocation } from "wouter";
 import voltSafeVIcon from "@assets/Screenshot_2026-04-15_at_7.26.57_PM_1776306420926.png";
 import { Sidebar, SidebarContent, SidebarHeader } from "@/components/ui/sidebar";
-import { Input } from "@/components/ui/input";
 import type { UserPermissions } from "@/App";
 
 type AccessLevel = "none" | "view" | "edit";
@@ -207,7 +206,6 @@ export function AppSidebar({
   const perms: UserPermissions = userPermissions ?? DEFAULT_PERMISSIONS;
   const [location, navigate] = useLocation();
   const [openSection, setOpenSection] = useState<string>(() => getActiveSectionId(location));
-  const [searchQuery, setSearchQuery] = useState("");
   const { theme, setTheme } = useTheme();
   const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
 
@@ -237,28 +235,6 @@ export function AppSidebar({
       items: s.items?.filter(item => canSeeItem(item)),
     })).filter(s => s.isDivider || !s.items || s.items.length > 0);
   }, [isAdmin, perms]);
-
-  const filteredSections = useMemo(() => {
-    if (!searchQuery.trim()) return visibleSections;
-    const q = searchQuery.toLowerCase();
-    const results: NavSection[] = [];
-    for (const section of visibleSections) {
-      if (section.isDivider) continue;
-      if (!section.items) {
-        if (section.label.toLowerCase().includes(q)) results.push(section);
-        continue;
-      }
-      const matchingItems = section.items.filter(
-        item => item.title.toLowerCase().includes(q) || section.label.toLowerCase().includes(q)
-      );
-      if (matchingItems.length > 0) {
-        results.push({ ...section, items: matchingItems });
-      }
-    }
-    return results;
-  }, [searchQuery, visibleSections]);
-
-  const isSearching = searchQuery.trim().length > 0;
 
   const handleSectionClick = (section: NavSection) => {
     if (section.url) {
@@ -296,31 +272,9 @@ export function AppSidebar({
         </Link>
       </SidebarHeader>
 
-      <div className="px-4 pb-2">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-          <Input
-            placeholder="Search..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="pl-8 pr-7 h-8 text-sm bg-secondary/30 border-transparent focus-visible:border-primary/30 focus-visible:ring-primary/10 rounded-lg"
-            data-testid="input-sidebar-search"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              data-testid="button-clear-search"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
-
       <SidebarContent className="px-3 py-1 overflow-y-auto">
         <nav className="flex flex-col gap-0.5">
-          {filteredSections.map((section) => {
+          {visibleSections.map((section) => {
             if (section.isDivider) {
               return (
                 <div key={section.id} className="px-3 pt-4 pb-1 flex items-center gap-2">
@@ -332,7 +286,7 @@ export function AppSidebar({
               );
             }
 
-            const isSectionOpen = isSearching || openSection === section.id;
+            const isSectionOpen = openSection === section.id;
             const isSectionActive = section.url
               ? location === section.url
               : section.items?.some((item) => item.exactMatch ? location === item.url : location.startsWith(item.url) && item.url !== "/") ?? false;
@@ -390,11 +344,6 @@ export function AppSidebar({
             );
           })}
 
-          {isSearching && filteredSections.length === 0 && (
-            <div className="px-3 py-6 text-center">
-              <p className="text-xs text-muted-foreground">No results for "{searchQuery}"</p>
-            </div>
-          )}
         </nav>
 
         {/* Theme toggle */}
