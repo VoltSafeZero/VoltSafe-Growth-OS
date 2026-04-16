@@ -53,11 +53,13 @@ const sections: NavSection[] = [
     icon: LayoutDashboard,
     items: [
       { title: "Mission Control", url: "/", icon: LayoutDashboard, exactMatch: true },
+      { title: "Daily Execution", url: "/execution/daily", icon: PlayCircle },
+      { title: "Tasks Hub", url: "/execution/tasks", icon: CheckSquare },
       { title: "Activity Feed", url: "/activity", icon: BarChart3 },
+      { title: "Executive Dashboard", url: "/executive-dashboard", icon: Trophy, permKey: "crm" },
       { title: "Reports", url: "/relationships", icon: TrendingUp },
       { title: "Forecasting", url: "/execution/forecast", icon: GitBranch },
       { title: "Source Attribution", url: "/analytics/source-attribution", icon: TrendingUp, permKey: "crm" },
-      { title: "Executive Dashboard", url: "/executive-dashboard", icon: Trophy, permKey: "crm" },
     ],
   },
 
@@ -70,8 +72,6 @@ const sections: NavSection[] = [
       { title: "Contacts", url: "/contacts", icon: Contact, permKey: "crm" },
       { title: "Organizations", url: "/accounts", icon: Building2, permKey: "crm" },
       { title: "Notes", url: "/notes", icon: StickyNote },
-      { title: "Tasks Hub", url: "/execution/tasks", icon: CheckSquare },
-      { title: "Daily Execution", url: "/execution/daily", icon: PlayCircle },
     ],
   },
 
