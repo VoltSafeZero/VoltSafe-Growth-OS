@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
 import { NotesPanel } from "@/components/notes-panel";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -22,7 +23,7 @@ import {
   ChevronDown, ChevronRight, ExternalLink, Zap, Loader2,
   TrendingUp, XCircle, TriangleAlert, RefreshCw, FileText,
   FlaskRound, Users, BarChart3, Link2, Upload, Download, X,
-  Activity, Paperclip,
+  Activity, Paperclip, Settings, Table2, PlusCircle, Trash,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -36,6 +37,26 @@ type Project = {
 };
 type CertRecord = Record<string, any>;
 type Milestone = { id: number; project_id: number; title: string; status: string; sort_order: number; due_date?: string; completed_at?: string; notes?: string; };
+type SheetTab = { name: string; gid: string };
+type TrackerConfig = {
+  defaultGid?: string;
+  tabs: SheetTab[];
+  columnMap?: { status?: string; result?: string; blocker?: string; retest?: string; dueDate?: string };
+  alertHooks?: { failedTest?: boolean; blocker?: boolean; retestRequired?: boolean; certRisk?: boolean };
+};
+
+// ── Sheet URL helpers ──────────────────────────────────────────────────────────
+function extractSheetId(url: string): string | null {
+  const m = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return m ? m[1] : null;
+}
+function makeEmbedUrl(sheetId: string, gid?: string): string {
+  return `https://docs.google.com/spreadsheets/d/${sheetId}/htmlview${gid ? `?gid=${gid}` : ""}`;
+}
+function extractGidFromUrl(url: string): string {
+  const m = url.match(/[?#&]gid=(\d+)/);
+  return m ? m[1] : "0";
+}
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const PROJECT_TYPES = [
@@ -177,6 +198,383 @@ function CertWarningBanners({ cert, projectName }: { cert: CertRecord | null | u
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── Live Test Tracker: Config Dialog ─────────────────────────────────────────
+function TrackerConfigDialog({
+  projectId, initialConfig, initialUrl, open, onClose,
+}: {
+  projectId: number; initialConfig: TrackerConfig; initialUrl: string;
+  open: boolean; onClose: (saved?: boolean) => void;
+}) {
+  const { toast } = useToast();
+  const [url, setUrl] = useState(initialUrl);
+  const [tabs, setTabs] = useState<SheetTab[]>(initialConfig.tabs?.length ? initialConfig.tabs : [{ name: "Sheet1", gid: "0" }]);
+  const [defaultGid, setDefaultGid] = useState(initialConfig.defaultGid ?? "0");
+  const [colMap, setColMap] = useState(initialConfig.columnMap ?? {});
+  const [alerts, setAlerts] = useState(initialConfig.alertHooks ?? { failedTest: false, blocker: false, retestRequired: false, certRisk: false });
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      const config: TrackerConfig = {
+        defaultGid,
+        tabs,
+        columnMap: colMap,
+        alertHooks: alerts,
+      };
+      return apiRequest("POST", `/api/projects/${projectId}/certification`, {
+        trackerSheetUrl: url.trim(),
+        trackerSheetConfig: JSON.stringify(config),
+        trackerSheetLastSynced: new Date().toISOString(),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "certification"] });
+      toast({ title: "Tracker configured", description: "Sheet source saved." });
+      onClose(true);
+    },
+    onError: (e: any) => toast({ title: "Save failed", description: e.message, variant: "destructive" }),
+  });
+
+  const addTab = () => setTabs(t => [...t, { name: `Sheet${t.length + 1}`, gid: "" }]);
+  const removeTab = (i: number) => setTabs(t => t.filter((_, idx) => idx !== i));
+  const updateTab = (i: number, field: "name" | "gid", val: string) =>
+    setTabs(t => t.map((tab, idx) => idx === i ? { ...tab, [field]: val } : tab));
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Table2 className="h-4 w-4 text-emerald-400" />
+            Live Test Tracker — Sheet Source
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-5 pt-1">
+          {/* Sheet URL */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Google Sheets URL</Label>
+            <Input
+              data-testid="input-tracker-sheet-url"
+              value={url}
+              onChange={e => setUrl(e.target.value)}
+              placeholder="https://docs.google.com/spreadsheets/d/..."
+              className="text-xs font-mono"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Share the sheet as "Anyone with the link can view" for the embed to load. Your existing NRTL sharing workflow is unaffected.
+            </p>
+          </div>
+
+          <Separator />
+
+          {/* Tab config */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-medium">Worksheet Tabs</Label>
+              <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={addTab} data-testid="button-add-tab">
+                <PlusCircle className="h-3.5 w-3.5" /> Add Tab
+              </Button>
+            </div>
+            <p className="text-[10px] text-muted-foreground">Find the GID in the sheet URL after <code>#gid=</code> — e.g. <code>...#gid=1234567890</code></p>
+            {tabs.map((tab, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  data-testid={`input-tab-name-${i}`}
+                  value={tab.name}
+                  onChange={e => updateTab(i, "name", e.target.value)}
+                  placeholder="Tab name"
+                  className="text-xs flex-1"
+                />
+                <Input
+                  data-testid={`input-tab-gid-${i}`}
+                  value={tab.gid}
+                  onChange={e => updateTab(i, "gid", e.target.value)}
+                  placeholder="GID (e.g. 0)"
+                  className="text-xs w-32 font-mono"
+                />
+                <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
+                  onClick={() => removeTab(i)} disabled={tabs.length === 1}>
+                  <Trash className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+            {tabs.length > 0 && (
+              <div className="flex items-center gap-2 mt-1">
+                <Label className="text-xs text-muted-foreground shrink-0">Default tab:</Label>
+                <Select value={defaultGid} onValueChange={setDefaultGid}>
+                  <SelectTrigger className="h-7 text-xs flex-1">
+                    <SelectValue placeholder="Select default tab" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tabs.map((t, i) => (
+                      <SelectItem key={i} value={t.gid || "0"}>{t.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
+          <Separator />
+
+          {/* Column mapping */}
+          <div className="space-y-2">
+            <Label className="text-xs font-medium">Column Mapping <span className="text-muted-foreground font-normal">(optional — for future data sync)</span></Label>
+            <div className="grid grid-cols-2 gap-2">
+              {(["status", "result", "blocker", "retest", "dueDate"] as const).map(field => (
+                <div key={field} className="space-y-0.5">
+                  <Label className="text-[10px] text-muted-foreground capitalize">{field === "dueDate" ? "Due Date" : field} column header</Label>
+                  <Input
+                    data-testid={`input-colmap-${field}`}
+                    value={(colMap as any)[field] ?? ""}
+                    onChange={e => setColMap(m => ({ ...m, [field]: e.target.value }))}
+                    placeholder={field === "dueDate" ? "Due Date" : field.charAt(0).toUpperCase() + field.slice(1)}
+                    className="text-xs h-7"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Alert hooks */}
+          <div className="space-y-2">
+            <Label className="text-xs font-medium">Alert Hooks <span className="text-muted-foreground font-normal">(future — structure ready)</span></Label>
+            <div className="grid grid-cols-2 gap-y-2 gap-x-4">
+              {([
+                ["failedTest", "Failed test found"],
+                ["blocker", "Blocker found"],
+                ["retestRequired", "Retest required"],
+                ["certRisk", "Certification risk rising"],
+              ] as const).map(([key, label]) => (
+                <div key={key} className="flex items-center gap-2">
+                  <Switch
+                    data-testid={`switch-alert-${key}`}
+                    checked={!!(alerts as any)[key]}
+                    onCheckedChange={v => setAlerts(a => ({ ...a, [key]: v }))}
+                    className="scale-75 origin-left"
+                  />
+                  <span className="text-xs text-muted-foreground">{label}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-muted-foreground">These settings are stored now and will activate when sheet sync is enabled.</p>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="ghost" size="sm" onClick={() => onClose()}>Cancel</Button>
+            <Button size="sm" onClick={() => saveMut.mutate()} disabled={saveMut.isPending} data-testid="button-save-tracker-config">
+              {saveMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+              Save Configuration
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Live Test Tracker: Certification Summary Panel ────────────────────────────
+function LiveTrackerCertSummary({ cert, milestones }: { cert: CertRecord | null | undefined; milestones: Milestone[] }) {
+  if (!cert) return <div className="w-64 shrink-0 text-xs text-muted-foreground text-center pt-8">No certification data yet.</div>;
+
+  const health = calcCertHealth(cert);
+  const mTotal = milestones.length;
+  const mDone = milestones.filter(m => m.status === "done").length;
+  const mInProg = milestones.filter(m => m.status === "in_progress").length;
+  const mPending = milestones.filter(m => m.status === "pending").length;
+  const mSkipped = milestones.filter(m => m.status === "skipped").length;
+
+  const statRow = (label: string, val: string | number | boolean | null | undefined, color?: string) => (
+    <div className="flex items-center justify-between py-1 border-b border-border/20 last:border-0">
+      <span className="text-[10px] text-muted-foreground">{label}</span>
+      <span className={`text-xs font-medium ${color ?? ""}`}>{val === null || val === undefined ? "—" : String(val)}</span>
+    </div>
+  );
+
+  const lastUpdate = cert.last_status_update
+    ? new Date(cert.last_status_update).toLocaleDateString("en-CA", { month: "short", day: "numeric" })
+    : null;
+
+  return (
+    <div className="w-64 shrink-0 space-y-3" data-testid="panel-cert-summary">
+      {/* Health badge */}
+      <div className={`rounded-lg border px-3 py-2.5 flex items-center gap-2 ${health.bg} ${health.border}`}>
+        <ShieldCheck className={`h-4 w-4 ${health.color}`} />
+        <div>
+          <div className="text-[10px] text-muted-foreground">Certification Health</div>
+          <div className={`text-sm font-semibold ${health.color}`}>{health.label}</div>
+        </div>
+      </div>
+
+      {/* Test status stats */}
+      <div className="rounded-lg border border-border/30 bg-card p-3 space-y-0">
+        <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Milestones</div>
+        {statRow("Total", mTotal)}
+        {statRow("Completed", mDone, "text-emerald-400")}
+        {statRow("In Progress", mInProg, "text-blue-400")}
+        {statRow("Pending", mPending, "text-muted-foreground")}
+        {statRow("Skipped", mSkipped, "text-slate-500")}
+      </div>
+
+      {/* Cert status */}
+      <div className="rounded-lg border border-border/30 bg-card p-3 space-y-0">
+        <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Certification Status</div>
+        {statRow("Status", cert.certification_status)}
+        {statRow("Overall Risk", cert.overall_risk, cert.overall_risk === "Critical" || cert.overall_risk === "High" ? "text-red-400" : cert.overall_risk === "Medium" ? "text-yellow-400" : "text-emerald-400")}
+        {statRow("Launch Blocker", cert.launch_blocker ? "YES" : "No", cert.launch_blocker ? "text-red-400" : "text-emerald-400")}
+        {statRow("Failure Found", cert.failure_found ? "YES" : "No", cert.failure_found ? "text-red-400" : "text-emerald-400")}
+        {statRow("Retest Required", cert.retest_required ? "YES" : "No", cert.retest_required ? "text-amber-400" : "text-emerald-400")}
+        {lastUpdate && statRow("Last Update", lastUpdate)}
+      </div>
+
+      {/* Blocker summary */}
+      {cert.launch_blocker && cert.blocker_summary && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+          <div className="font-medium mb-0.5">Blocker</div>
+          <div className="text-red-300/80">{cert.blocker_summary}</div>
+        </div>
+      )}
+
+      {/* Scaffolded future sync note */}
+      <div className="rounded-lg border border-dashed border-border/30 bg-muted/10 px-3 py-2">
+        <div className="text-[10px] text-muted-foreground/60 text-center">
+          Sheet-based test counts coming with direct sync. Configure column mapping in sheet settings.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Live Test Tracker: Main Tab ───────────────────────────────────────────────
+function LiveTestTrackerTab({ projectId, projectName }: { projectId: number; projectName: string }) {
+  const [activeGid, setActiveGid] = useState<string>("");
+  const [lastLoaded, setLastLoaded] = useState<Date | null>(null);
+  const [iframeKey, setIframeKey] = useState(0);
+  const [configOpen, setConfigOpen] = useState(false);
+
+  const { data: cert, isLoading: certLoading, refetch: refetchCert } = useQuery<CertRecord>({
+    queryKey: ["/api/projects", projectId, "certification"],
+    queryFn: () => apiRequest("GET", `/api/projects/${projectId}/certification`).then(r => r.json()),
+  });
+  const { data: milestones = [] } = useQuery<Milestone[]>({
+    queryKey: ["/api/projects", projectId, "milestones"],
+    queryFn: () => apiRequest("GET", `/api/projects/${projectId}/milestones`).then(r => r.json()),
+  });
+
+  const trackerUrl = cert?.tracker_sheet_url ?? "";
+  const config: TrackerConfig = useMemo(() => {
+    try { return JSON.parse(cert?.tracker_sheet_config ?? "{}"); } catch { return { tabs: [] }; }
+  }, [cert?.tracker_sheet_config]);
+
+  const currentGid = activeGid || config.defaultGid || config.tabs?.[0]?.gid || "";
+  const sheetId = useMemo(() => extractSheetId(trackerUrl), [trackerUrl]);
+  const embedUrl = useMemo(() => sheetId ? makeEmbedUrl(sheetId, currentGid) : null, [sheetId, currentGid]);
+
+  const handleRefresh = useCallback(() => {
+    setIframeKey(k => k + 1);
+    setLastLoaded(new Date());
+  }, []);
+
+  if (certLoading) return <div className="flex items-center justify-center h-40"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+
+  return (
+    <div className="space-y-0" data-testid="tab-live-tracker">
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        {(config.tabs?.length ?? 0) > 1 && (
+          <Select value={currentGid} onValueChange={v => { setActiveGid(v); setIframeKey(k => k + 1); }}>
+            <SelectTrigger className="h-8 text-xs w-44" data-testid="select-sheet-tab">
+              <SelectValue placeholder="Select tab" />
+            </SelectTrigger>
+            <SelectContent>
+              {config.tabs.map((t, i) => (
+                <SelectItem key={i} value={t.gid || "0"} data-testid={`option-tab-${i}`}>{t.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={handleRefresh} data-testid="button-tracker-refresh">
+          <RefreshCw className="h-3.5 w-3.5" /> Refresh
+        </Button>
+        {trackerUrl && (
+          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={() => window.open(trackerUrl, "_blank")} data-testid="button-open-in-sheets">
+            <ExternalLink className="h-3.5 w-3.5" /> Open in Google Sheets
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" className="h-8 text-xs gap-1.5" onClick={() => setConfigOpen(true)} data-testid="button-tracker-settings">
+          <Settings className="h-3.5 w-3.5" /> {trackerUrl ? "Sheet Settings" : "Configure Sheet"}
+        </Button>
+        {lastLoaded && (
+          <span className="text-[10px] text-muted-foreground ml-auto">
+            Loaded {lastLoaded.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        )}
+      </div>
+
+      {/* Main layout: left = viewer, right = summary */}
+      <div className="flex gap-4 min-h-0">
+        {/* Sheet Viewer */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {!trackerUrl ? (
+            <div className="flex flex-col items-center justify-center h-64 rounded-lg border border-dashed border-border/40 bg-muted/10 gap-3">
+              <Table2 className="h-8 w-8 text-muted-foreground/40" />
+              <div className="text-center space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">No sheet configured</p>
+                <p className="text-xs text-muted-foreground/60 max-w-xs">
+                  Connect a Google Sheet to view the live certification test tracker without leaving this page.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setConfigOpen(true)} data-testid="button-setup-tracker">
+                <Settings className="h-3.5 w-3.5" /> Configure Sheet Source
+              </Button>
+            </div>
+          ) : !sheetId ? (
+            <div className="flex flex-col items-center justify-center h-64 rounded-lg border border-dashed border-amber-500/30 bg-amber-500/5 gap-2">
+              <AlertTriangle className="h-6 w-6 text-amber-400" />
+              <p className="text-sm text-amber-400">Invalid Google Sheets URL</p>
+              <Button size="sm" variant="ghost" onClick={() => setConfigOpen(true)}>Fix URL</Button>
+            </div>
+          ) : (
+            <div className="relative rounded-lg border border-border/30 overflow-hidden bg-white" style={{ height: "460px" }}>
+              <iframe
+                key={iframeKey}
+                src={embedUrl!}
+                className="w-full h-full"
+                title={`${projectName} — Live Test Tracker`}
+                onLoad={() => setLastLoaded(new Date())}
+                allow="fullscreen"
+                data-testid="iframe-sheet-viewer"
+              />
+            </div>
+          )}
+          <p className="text-[10px] text-muted-foreground/50 mt-1.5">
+            For private sheets, share as "Anyone with the link can view". The NRTL shared editing workflow is unaffected.
+          </p>
+        </div>
+
+        {/* Cert Summary Panel */}
+        <LiveTrackerCertSummary cert={cert} milestones={milestones as Milestone[]} />
+      </div>
+
+      {configOpen && (
+        <TrackerConfigDialog
+          projectId={projectId}
+          initialConfig={config}
+          initialUrl={trackerUrl}
+          open={configOpen}
+          onClose={(saved) => {
+            setConfigOpen(false);
+            if (saved) { refetchCert(); setIframeKey(k => k + 1); }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1051,6 +1449,7 @@ function ProjectDetailDialog({ project, onClose, onDelete }: { project: Project;
                 {isCert && <TabsTrigger value="milestones" data-testid="tab-milestones">Milestones</TabsTrigger>}
                 <TabsTrigger value="notes">Notes</TabsTrigger>
                 {isCert && <TabsTrigger value="timeline" data-testid="tab-timeline">Timeline</TabsTrigger>}
+                {isCert && <TabsTrigger value="tracker" data-testid="tab-tracker" className="gap-1.5"><Table2 className="h-3.5 w-3.5" />Live Test Tracker</TabsTrigger>}
               </TabsList>
 
               <ScrollArea className="flex-1 min-h-0">
@@ -1118,6 +1517,12 @@ function ProjectDetailDialog({ project, onClose, onDelete }: { project: Project;
                   {isCert && (
                     <TabsContent value="timeline" className="mt-0">
                       <TimelinePanel projectId={project.id} />
+                    </TabsContent>
+                  )}
+
+                  {isCert && (
+                    <TabsContent value="tracker" className="mt-0">
+                      <LiveTestTrackerTab projectId={project.id} projectName={project.name} />
                     </TabsContent>
                   )}
                 </div>

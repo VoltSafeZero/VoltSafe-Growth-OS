@@ -1246,6 +1246,10 @@ export const projectCertifications = pgTable("project_certifications", {
   sharedDriveFolderLink: text("shared_drive_folder_link"),
   certificateFile: text("certificate_file"),
   complianceNotes: text("compliance_notes"),
+  // ── Live Test Tracker (Google Sheets integration) ───────────────────────────
+  trackerSheetUrl: text("tracker_sheet_url"),
+  trackerSheetConfig: text("tracker_sheet_config"),     // JSON: { defaultGid, tabs, columnMap, alertHooks }
+  trackerSheetLastSynced: timestamp("tracker_sheet_last_synced"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

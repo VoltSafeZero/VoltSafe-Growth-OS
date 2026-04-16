@@ -10062,6 +10062,9 @@ export function registerConfluenceRoutes(app: Express) {
       sharedDriveFolderLink: "shared_drive_folder_link",
       certificateFile: "certificate_file",
       complianceNotes: "compliance_notes",
+      trackerSheetUrl: "tracker_sheet_url",
+      trackerSheetConfig: "tracker_sheet_config",
+      trackerSheetLastSynced: "tracker_sheet_last_synced",
     };
     const sets: string[] = [];
     for (const [k, v] of Object.entries(body)) {

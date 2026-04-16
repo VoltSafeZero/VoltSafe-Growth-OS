@@ -1,0 +1,90 @@
+Enhance Operations > Projects > VoltSafe Marine 3.0 to support a live multi-tab Google Sheets certification tracker.
+
+The source document is a Google Sheet based on an .xlsx file and contains multiple tabs.
+
+Goal:
+Let the VoltSafe team view the live certification testing tracker inside Growth OS without leaving the project page, while preserving the shared Google Sheets workflow with the NRTL.
+
+Build this in phases.
+
+PHASE 1 — LIVE TEST TRACKER TAB
+Add a new project tab:
+- Live Test Tracker
+
+Inside it:
+- embed the Google Sheet in a responsive viewer
+- support multi-tab sheet navigation (dropdown or tab selector)
+- default to a chosen primary worksheet
+- add:
+  - Open in Google Sheets
+  - Refresh
+  - Last loaded / last synced timestamp
+
+PHASE 2 — GOOGLE SHEETS ACCESS
+Support private Google Sheets access properly.
+Use the safest practical approach:
+- Google OAuth if already available
+- or service account if appropriate
+- or fallback to open-in-Google-Sheets if API sync is not yet ready
+
+Important:
+Do not assume Gmail integration automatically gives Sheets API access.
+Handle Sheets auth explicitly.
+
+PHASE 3 — CERTIFICATION SUMMARY PANEL
+Add a side summary panel in the project showing:
+- total tests
+- passed
+- failed
+- pending
+- in progress
+- retest required
+- blockers
+- latest update date
+- certification health status:
+  - On Track
+  - At Risk
+  - Blocked
+
+If direct tab parsing is not fully ready in phase 1, scaffold this panel for the future sync.
+
+PHASE 4 — TAB MAPPING / CONFIG
+Allow project settings for this tracker to define:
+- which worksheet is the default
+- which worksheet(s) are included in the summary
+- optional mapping for key columns like:
+  - status
+  - result
+  - blocker
+  - retest
+  - due date
+
+PHASE 5 — ALERT READINESS
+Prepare future alert hooks for:
+- failed test found
+- blocker found
+- retest required
+- certificate risk rising
+
+Do not overbuild alerts yet, just structure the integration for them.
+
+PHASE 6 — UX
+Keep this inside the existing Projects module.
+Do not build a separate certification system.
+Use a clean layout:
+- left/main = sheet viewer
+- right = certification summary / quick status / related links
+
+PHASE 7 — TESTING
+Add tests for:
+- project tab renders
+- sheet source config saves
+- tab selector works
+- summary panel renders
+- no regressions to the existing certification project module
+
+Implementation rules:
+- keep the NRTL shared Google Sheets workflow intact
+- do not duplicate the whole spreadsheet into Growth OS yet
+- optimize for visibility first, structured sync second
+- summarize changed files and final pass/fail at the end
