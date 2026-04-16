@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { AttachmentsSection } from "@/components/attachments-section";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -448,6 +449,9 @@ function CustomerDetailPanel({ csId, onClose }: { csId: number; onClose: () => v
                 </div>
               </>
             )}
+
+            <Separator />
+            <AttachmentsSection objectType="customer_success" objectId={csId} />
           </div>
         )}
       </ScrollArea>

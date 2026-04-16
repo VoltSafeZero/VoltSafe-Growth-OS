@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { AttachmentsSection } from "@/components/attachments-section";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -329,6 +330,7 @@ function DeploymentDetail({ deployId, onClose }: { deployId: number; onClose: ()
             </TabsTrigger>
             <TabsTrigger value="hardware" className="text-xs h-6" data-testid="dtab-hardware">Hardware</TabsTrigger>
             <TabsTrigger value="info" className="text-xs h-6" data-testid="dtab-info">Info</TabsTrigger>
+            <TabsTrigger value="documents" className="text-xs h-6" data-testid="dtab-documents">Documents</TabsTrigger>
           </TabsList>
 
           {/* Checklist */}
@@ -436,6 +438,11 @@ function DeploymentDetail({ deployId, onClose }: { deployId: number; onClose: ()
                 <div className="text-xs text-muted-foreground mt-2 p-2 bg-muted/20 rounded">{dep.notes}</div>
               )}
             </div>
+          </TabsContent>
+
+          {/* Documents */}
+          <TabsContent value="documents" className="flex-1 overflow-auto px-4 pb-4 pt-2">
+            <AttachmentsSection objectType="deployment" objectId={dep.id} />
           </TabsContent>
         </Tabs>
       </div>

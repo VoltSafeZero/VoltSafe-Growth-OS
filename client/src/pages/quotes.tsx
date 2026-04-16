@@ -27,6 +27,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ExportButton } from "@/components/ui/export-button";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
 import type { Quote, Account } from "@shared/schema";
+import { AttachmentsSection } from "@/components/attachments-section";
 
 const statusColors: Record<string, string> = {
   draft:         "bg-gray-500/10 text-gray-400 border-gray-500/20",
@@ -863,6 +864,10 @@ function QuoteDetailDialog({ quoteId, accountMap, onClose, onSendViaGmail }: {
           {q.notes && <div><Label className="text-xs text-muted-foreground">Notes</Label><p className="text-sm whitespace-pre-wrap mt-1">{q.notes}</p></div>}
           {q.assumptions && <div><Label className="text-xs text-muted-foreground">Assumptions</Label><p className="text-sm whitespace-pre-wrap mt-1">{q.assumptions}</p></div>}
           {q.exclusions && <div><Label className="text-xs text-muted-foreground">Exclusions</Label><p className="text-sm whitespace-pre-wrap mt-1">{q.exclusions}</p></div>}
+
+          <Separator className="my-2" />
+          <AttachmentsSection objectType="quote" objectId={q.id} />
+          <Separator className="my-2" />
 
           {/* Status History */}
           {history && history.length > 0 && (

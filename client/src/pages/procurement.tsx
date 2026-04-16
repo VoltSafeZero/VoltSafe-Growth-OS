@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
+import { AttachmentsSection } from "@/components/attachments-section";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -239,6 +240,7 @@ export default function ProcurementPage() {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [poStatusFilter, setPoStatusFilter] = useState("all");
   const [batchStatusFilter, setBatchStatusFilter] = useState("all");
+  const [selectedPoId, setSelectedPoId] = useState<number | null>(null);
 
   const { data: dashboard, isLoading: dashLoading } = useQuery<DashboardData>({
     queryKey: ["/api/procurement/dashboard"],
@@ -487,15 +489,27 @@ export default function ProcurementPage() {
                   </thead>
                   <tbody>
                     {pos.map((po) => (
-                      <tr key={po.id} className="border-b border-border/20 hover:bg-muted/10" data-testid={`po-row-${po.id}`}>
-                        <td className="py-2 px-3 font-mono font-medium">{po.po_number}</td>
-                        <td className="py-2 px-3 text-right">{po.supplier_name ?? "—"}</td>
-                        <td className="py-2 px-3 text-right"><POStatusSelect po={po} /></td>
-                        <td className="py-2 px-3 text-right text-muted-foreground">{po.account_name ?? "—"}</td>
-                        <td className="py-2 px-3 text-right text-muted-foreground">{fmtDate(po.expected_delivery_date)}</td>
-                        <td className="py-2 px-3 text-right tabular-nums">{fmtAmt(po.total_amount)}</td>
-                        <td className="py-2 px-3 text-right tabular-nums">{po.line_count ?? 0}</td>
-                      </tr>
+                      <Fragment key={po.id}>
+                        <tr
+                          className={`border-b border-border/20 hover:bg-muted/10 cursor-pointer ${selectedPoId === po.id ? "bg-muted/20" : ""}`}
+                          onClick={() => setSelectedPoId(selectedPoId === po.id ? null : po.id)}
+                          data-testid={`po-row-${po.id}`}>
+                          <td className="py-2 px-3 font-mono font-medium">{po.po_number}</td>
+                          <td className="py-2 px-3 text-right">{po.supplier_name ?? "—"}</td>
+                          <td className="py-2 px-3 text-right" onClick={e => e.stopPropagation()}><POStatusSelect po={po} /></td>
+                          <td className="py-2 px-3 text-right text-muted-foreground">{po.account_name ?? "—"}</td>
+                          <td className="py-2 px-3 text-right text-muted-foreground">{fmtDate(po.expected_delivery_date)}</td>
+                          <td className="py-2 px-3 text-right tabular-nums">{fmtAmt(po.total_amount)}</td>
+                          <td className="py-2 px-3 text-right tabular-nums">{po.line_count ?? 0}</td>
+                        </tr>
+                        {selectedPoId === po.id && (
+                          <tr className="border-b border-border/20 bg-muted/10">
+                            <td colSpan={7} className="px-4 py-3">
+                              <AttachmentsSection objectType="purchase_order" objectId={po.id} />
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
