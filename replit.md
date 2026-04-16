@@ -1,5 +1,57 @@
 # Replit Agent Configuration
 
+## Predictive Score Feedback Loop (Complete)
+
+### What was built
+Closed-loop ML feedback system that tracks score predictions vs actual outcomes and continuously improves model quality.
+
+**Schema** (3 new tables via direct SQL):
+- `score_snapshots` — every score ever computed per entity/model, with delta tracking, confidence, and reasons
+- `score_outcomes` — final outcomes (won/lost/churned/expanded/renewed) linked back to snapshot predictions
+- `score_model_configs` — per-model configuration: display name, entity type, underperformance threshold, accuracy metrics, weight overrides, tuning recommendations
+
+**`server/services/scoring-engine.ts` updated**:
+- Added `confidence: number`, `confidenceLabel: "low"|"medium"|"high"`, `modelName: string` to `ScoreResult` interface
+- All 6 score functions compute confidence from data completeness (0-100) and return `modelName`
+
+**`server/services/feedback-engine.ts`** (new service):
+- `snapshotScore()` — stores a score reading, skips duplicates within 1h, tracks delta from prior reading
+- `recordOutcome()` — logs a final outcome, linking back to the most recent snapshot for predicted score/band
+- `computeModelAccuracy(modelName)` — direction accuracy, band accuracy, avg score on win/loss, band breakdown, rep/region breakdown; persists to `score_model_configs`
+- `getAllModelAccuracy()` — runs all 6 models in parallel
+- `getTuningRecommendations(modelName)` — AI-style recommendations: score separation, band calibration, sample size guidance
+- `getExplainabilityData(entityType, entityId)` — full explainability: current score + reasons + 30-point history + 7d/30d deltas + outcome + prediction accuracy
+- `checkUnderperformance()` — returns models below threshold
+- `getOutcomes()` — paginated, filterable outcome list
+- `getFeedbackOverview()` — dashboard summary data
+
+**`server/services/alert-engine.ts`**: Fixed `score_history` → `score_snapshots` reference
+
+**Auto-snapshotting**: 5 existing score routes (`/api/scores/lead/:id`, `/api/scores/opportunity/:id`, `/api/scores/quote/:id`, `/api/scores/deployment/:id`, `/api/scores/account/churn/:id`) now fire a non-blocking snapshot on every score computation
+
+**14 new API routes** under `/api/scores/`:
+- `POST /api/scores/snapshot`, `POST /api/scores/outcome`
+- `GET /api/scores/outcomes`, `GET /api/scores/snapshots/:entityType/:entityId`
+- `GET /api/scores/accuracy`, `GET /api/scores/accuracy/:modelName`
+- `GET /api/scores/recommendations`, `GET /api/scores/recommendations/:modelName`
+- `GET /api/scores/explainability/:entityType/:entityId`
+- `GET /api/scores/underperforming`, `GET /api/scores/feedback/overview`
+- `GET /api/scores/model-configs`, `PUT /api/scores/model-configs/:modelName`
+- `POST /api/scores/evaluate-all`
+
+**Frontend** (`client/src/pages/score-feedback.tsx`) at `/scores/feedback`:
+- 5-tab layout: Overview, Outcomes, Explainability, Recommendations, History
+- Overview: per-model accuracy cards with band breakdown bars, re-evaluate button, recent activity feed
+- Outcomes: outcome recording form + filterable list with predicted vs actual display
+- Explainability: entity search → reasons list (✓/✗ per factor) + sparkline history + prediction accuracy verdict
+- Recommendations: weight tuning suggestions grouped by model with improvement projections
+- History: outcome timeline chart + outcome log with filters
+- Sidebar link: "Score Feedback" under Intelligence section
+
+**Tests** (`tests/score-feedback.test.js`): 64 tests, 0 failures covering all 7 sections
+
+**Cumulative test totals**: 778 (prior) + 64 = 842 tests, 0 failures
+
 ## Field Execution Mobile Mode (Complete)
 
 ### What was built

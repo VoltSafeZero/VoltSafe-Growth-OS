@@ -70,6 +70,7 @@ import RevenuePage from "@/pages/revenue";
 import FieldPage from "@/pages/field";
 import FieldNearbyPage from "@/pages/field-nearby";
 import AlertsDigestPage from "@/pages/alerts-digest";
+import ScoreFeedbackPage from "@/pages/score-feedback";
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -292,6 +293,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/ecosystem/regions">{() => wrap(<EcosystemRegionsPage />)}</Route>
       <Route path="/marinas">{() => wrap(<MarinasPage />)}</Route>
       <Route path="/alerts-digest">{() => wrap(<AlertsDigestPage />)}</Route>
+      <Route path="/scores/feedback">{() => wrap(<ScoreFeedbackPage />)}</Route>
 
       <Route component={NotFound} />
     </Switch>

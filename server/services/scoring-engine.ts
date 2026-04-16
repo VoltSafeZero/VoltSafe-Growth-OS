@@ -231,12 +231,27 @@ export function scoreOpportunityClose(opp: OpportunityInput): ScoreResult {
   if (opp.forecastCategory === "commit") { score += 8; reasons.push("Forecast category: commit"); }
 
   const finalScore = clamp(score);
+  const conf = clamp(
+    (opp.stage ? 15 : 0) +
+    (opp.amount ? 12 : 0) +
+    (opp.estCloseDate ? 12 : 0) +
+    (opp.ownerUserId ? 12 : 0) +
+    (opp.lastActivityDate ? 10 : 0) +
+    (opp.championIdentified === "yes" ? 8 : 0) +
+    (opp.economicBuyerIdentified === "yes" ? 8 : 0) +
+    (opp.painClarity ? 8 : 0) +
+    (opp.forecastCategory ? 8 : 0) +
+    (opp.hasQuote ? 7 : 0)
+  );
   return {
     score: finalScore,
     band: toBand(finalScore, [30, 55, 75]),
     label: "Opportunity Close",
     reasons,
     scoredAt: new Date().toISOString(),
+    confidence: conf,
+    confidenceLabel: toConfidenceLabel(conf),
+    modelName: "opportunity_close",
   };
 }
 
@@ -261,11 +276,9 @@ export function scoreQuoteFollowUpUrgency(quote: QuoteInput): ScoreResult {
 
   if (["accepted", "declined", "archived"].includes(status)) {
     return {
-      score: 0,
-      band: "low",
-      label: "Quote Follow-up Urgency",
-      reasons: [`Quote ${status} — no follow-up needed`],
-      scoredAt: new Date().toISOString(),
+      score: 0, band: "low", label: "Quote Follow-up Urgency",
+      reasons: [`Quote ${status} — no follow-up needed`], scoredAt: new Date().toISOString(),
+      confidence: 80, confidenceLabel: "high", modelName: "quote_urgency",
     };
   }
 
@@ -302,12 +315,23 @@ export function scoreQuoteFollowUpUrgency(quote: QuoteInput): ScoreResult {
   if (!quote.ownerUserId) { score += 5; reasons.push("No owner assigned to quote"); }
 
   const finalScore = clamp(score);
+  const conf = clamp(
+    (quote.status ? 20 : 0) +
+    (quote.sentAt ? 20 : 0) +
+    (quote.validUntil ? 15 : 0) +
+    (quote.total ? 15 : 0) +
+    (quote.ownerUserId ? 15 : 0) +
+    (quote.opportunityId ? 15 : 0)
+  );
   return {
     score: finalScore,
     band: toBand(finalScore, [25, 50, 72]),
     label: "Quote Follow-up Urgency",
     reasons,
     scoredAt: new Date().toISOString(),
+    confidence: conf,
+    confidenceLabel: toConfidenceLabel(conf),
+    modelName: "quote_urgency",
   };
 }
 
@@ -334,11 +358,9 @@ export function scoreDeploymentDelayRisk(dep: DeploymentInput): ScoreResult {
 
   if (status === "completed" || status === "live") {
     return {
-      score: 0,
-      band: "low",
-      label: "Deployment Delay Risk",
-      reasons: ["Deployment completed"],
-      scoredAt: new Date().toISOString(),
+      score: 0, band: "low", label: "Deployment Delay Risk",
+      reasons: ["Deployment completed"], scoredAt: new Date().toISOString(),
+      confidence: 100, confidenceLabel: "high", modelName: "deployment_risk",
     };
   }
 
@@ -395,12 +417,23 @@ export function scoreDeploymentDelayRisk(dep: DeploymentInput): ScoreResult {
   }
 
   const finalScore = clamp(score);
+  const conf = clamp(
+    (dep.status ? 20 : 0) +
+    (dep.targetGoLive ? 20 : 0) +
+    (dep.ownerUserId ? 15 : 0) +
+    (dep.plannedStart ? 15 : 0) +
+    (dep.updatedAt ? 15 : 0) +
+    ((dep.openBlockerCount !== undefined) ? 15 : 0)
+  );
   return {
     score: finalScore,
     band: toBand(finalScore, [25, 50, 72]),
     label: "Deployment Delay Risk",
     reasons,
     scoredAt: new Date().toISOString(),
+    confidence: conf,
+    confidenceLabel: toConfidenceLabel(conf),
+    modelName: "deployment_risk",
   };
 }
 
@@ -478,12 +511,25 @@ export function scoreChurnRisk(sub: ChurnRiskInput): ScoreResult {
   if ((sub.overdueTaskCount ?? 0) > 0) { score += 8; reasons.push(`${sub.overdueTaskCount} overdue task(s) for this account`); }
 
   const finalScore = clamp(score);
+  const conf = clamp(
+    (sub.healthScore !== undefined && sub.healthScore !== null ? 18 : 0) +
+    (sub.healthStatus ? 15 : 0) +
+    (sub.billingStatus ? 15 : 0) +
+    (sub.renewalDate ? 15 : 0) +
+    (sub.lastCheckinAt ? 12 : 0) +
+    (sub.status ? 12 : 0) +
+    ((sub.churnRiskFlags && sub.churnRiskFlags.length > 0) ? 8 : 0) +
+    (sub.expansionPotential ? 5 : 0)
+  );
   return {
     score: finalScore,
     band: toBand(finalScore, [25, 50, 72]),
     label: "Churn Risk",
     reasons,
     scoredAt: new Date().toISOString(),
+    confidence: conf,
+    confidenceLabel: toConfidenceLabel(conf),
+    modelName: "churn_risk",
   };
 }
 
@@ -569,12 +615,25 @@ export function scoreExpansionLikelihood(acc: ExpansionInput): ScoreResult {
   }
 
   const finalScore = clamp(score);
+  const conf = clamp(
+    (acc.expansionPotential ? 18 : 0) +
+    (acc.healthStatus ? 15 : 0) +
+    (acc.healthScore !== undefined && acc.healthScore !== null ? 15 : 0) +
+    (acc.arr ? 12 : 0) +
+    (acc.lastInteractionAt ? 12 : 0) +
+    (acc.contractedUnits !== undefined ? 10 : 0) +
+    (acc.priority ? 10 : 0) +
+    (acc.activityCount !== undefined ? 8 : 0)
+  );
   return {
     score: finalScore,
     band: toBand(finalScore, [25, 50, 72]),
     label: "Expansion Likelihood",
     reasons,
     scoredAt: new Date().toISOString(),
+    confidence: conf,
+    confidenceLabel: toConfidenceLabel(conf),
+    modelName: "expansion_likelihood",
   };
 }
 

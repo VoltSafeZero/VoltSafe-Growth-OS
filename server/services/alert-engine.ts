@@ -219,7 +219,7 @@ export async function runAlertEngine(userId: number, rules: AlertRule = DEFAULT_
     try {
       const scoreRes = await db.execute(sql.raw(
         `SELECT sh.entity_type, sh.entity_id, sh.score, sh.previous_score, sh.entity_name
-         FROM score_history sh
+         FROM score_snapshots sh
          WHERE sh.recorded_at >= '${oneDayAgo.toISOString()}'
            AND ABS(sh.score - COALESCE(sh.previous_score, sh.score)) >= 20
          ORDER BY ABS(sh.score - COALESCE(sh.previous_score, sh.score)) DESC LIMIT 5`

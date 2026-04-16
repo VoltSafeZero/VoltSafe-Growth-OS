@@ -60,6 +60,7 @@ import { startEngagementScheduler } from "./services/engagement-scheduler";
 import { seedDefaultRules } from "./services/engagement-defaults";
 import { composeDigest, getSectionsForRole, formatDigestAsHtml, formatDigestAsText, DEFAULT_ALERT_RULES as DC_DEFAULT_SECTIONS, type DigestSection } from "./services/digest-composer";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
+import { snapshotScore, recordOutcome, computeModelAccuracy, getAllModelAccuracy, getTuningRecommendations, getExplainabilityData, checkUnderperformance, getOutcomes, getFeedbackOverview } from "./services/feedback-engine";
 import { computeAwaitingReply, clearAwaitingReply, getTriageSummary, getAwaitingReplyThreads } from "./services/awaiting-reply";
 import {
   emailMessages, emailThreads, emailAssociations, associationFeedback, emailFilters, scheduledEmails,
@@ -16409,6 +16410,7 @@ export function registerConfluenceRoutes(app: Express) {
         nextStep: lead.next_step, estCloseDate: lead.est_close_date, region: lead.region,
         ...tasks, activityCount: acts.activityCount,
       });
+      snapshotScore({ entityType: "lead", entityId: id, entityName: lead.company, modelName: score.modelName, score: score.score, band: score.band, confidence: score.confidence, reasons: score.reasons, ownerUserId: lead.owner_user_id, region: lead.region, source: lead.source }).catch(() => {});
       res.json({ id, name: lead.company, ...score });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -16456,6 +16458,7 @@ export function registerConfluenceRoutes(app: Express) {
         amount: opp.amount, hasQuote: qr.rows.length > 0, painClarity: opp.pain_clarity,
         riskFlags: opp.risk_flags, forecastCategory: opp.forecast_category, ...tasks,
       });
+      snapshotScore({ entityType: "opportunity", entityId: id, entityName: opp.title, modelName: score.modelName, score: score.score, band: score.band, confidence: score.confidence, reasons: score.reasons, ownerUserId: opp.owner_user_id }).catch(() => {});
       res.json({ id, name: opp.title, ...score });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -16501,6 +16504,7 @@ export function registerConfluenceRoutes(app: Express) {
         opportunityId: q.opportunity_id, hasFollowUpTask: tr.rows.length > 0,
         ownerUserId: q.owner_user_id,
       });
+      snapshotScore({ entityType: "quote", entityId: id, entityName: q.quote_number, modelName: score.modelName, score: score.score, band: score.band, confidence: score.confidence, reasons: score.reasons, ownerUserId: q.owner_user_id }).catch(() => {});
       res.json({ id, name: q.quote_number, customerName: q.customer_name, ...score });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -16552,6 +16556,7 @@ export function registerConfluenceRoutes(app: Express) {
         pendingCheckpointCount: parseInt(checkpoints?.pending ?? 0),
         updatedAt: dep.updated_at, createdAt: dep.created_at,
       });
+      snapshotScore({ entityType: "deployment", entityId: id, entityName: dep.site_name, modelName: score.modelName, score: score.score, band: score.band, confidence: score.confidence, reasons: score.reasons, ownerUserId: dep.owner_user_id }).catch(() => {});
       res.json({ id, name: dep.site_name, deployNumber: dep.deploy_number, ...score });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -16602,6 +16607,7 @@ export function registerConfluenceRoutes(app: Express) {
         mrr: sub.mrr, arr: sub.arr, contractTermMonths: sub.contract_term_months,
         ...tasks,
       });
+      snapshotScore({ entityType: "account", entityId: id, entityName: accountName, modelName: score.modelName, score: score.score, band: score.band, confidence: score.confidence, reasons: score.reasons, ownerUserId: null }).catch(() => {});
       res.json({ id, accountId: id, subscriptionId: sub.id, name: accountName, ...score });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -17059,6 +17065,158 @@ export function registerConfluenceRoutes(app: Express) {
       await db.execute(sql.raw(`UPDATE digest_configs SET alert_rules = '${rulesJson}'::jsonb, updated_at = NOW() WHERE user_id = ${userId}`));
       res.json({ rules: updated });
     } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // SCORE FEEDBACK LOOP ROUTES
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // POST /api/scores/snapshot — manually snapshot a score for an entity
+  app.post("/api/scores/snapshot", requireAuth, async (req, res) => {
+    try {
+      const { entityType, entityId, entityName, modelName, score, band, confidence, reasons, ownerUserId, region, source } = req.body;
+      if (!entityType || !entityId || !modelName || score === undefined || !band) {
+        return res.status(400).json({ message: "entityType, entityId, modelName, score, band are required" });
+      }
+      await snapshotScore({ entityType, entityId: Number(entityId), entityName, modelName, score: Number(score), band, confidence: Number(confidence ?? 50), reasons: reasons ?? [], ownerUserId: ownerUserId ?? null, region: region ?? null, source: source ?? null });
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/scores/outcome — record an outcome for an entity
+  app.post("/api/scores/outcome", requireAuth, async (req, res) => {
+    try {
+      const { entityType, entityId, entityName, modelName, outcome, outcomeValue, outcomeDate, ownerUserId, region, source, notes } = req.body;
+      if (!entityType || !entityId || !modelName || !outcome) {
+        return res.status(400).json({ message: "entityType, entityId, modelName, outcome are required" });
+      }
+      const result = await recordOutcome({ entityType, entityId: Number(entityId), entityName, modelName, outcome, outcomeValue: outcomeValue ?? null, outcomeDate: outcomeDate ?? null, ownerUserId: ownerUserId ?? null, region: region ?? null, source: source ?? null, notes: notes ?? null });
+      res.json({ ok: true, id: result.id });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/scores/outcomes — list recorded outcomes
+  app.get("/api/scores/outcomes", requireAuth, async (req, res) => {
+    try {
+      const { modelName, entityType, outcome, limit, offset } = req.query;
+      const result = await getOutcomes({
+        modelName: modelName as string | undefined,
+        entityType: entityType as string | undefined,
+        outcome: outcome as string | undefined,
+        limit: limit ? parseInt(String(limit)) : 50,
+        offset: offset ? parseInt(String(offset)) : 0,
+      });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/scores/snapshots/:entityType/:entityId — score history for one entity
+  app.get("/api/scores/snapshots/:entityType/:entityId", requireAuth, async (req, res) => {
+    try {
+      const { entityType, entityId } = req.params;
+      const { modelName, limit } = req.query;
+      const lim = Math.min(parseInt(String(limit ?? 100)), 500);
+      let where = `WHERE entity_type = '${entityType}' AND entity_id = ${parseInt(entityId)}`;
+      if (modelName) where += ` AND model_name = '${String(modelName)}'`;
+      const result = await db.execute(sql.raw(`
+        SELECT * FROM score_snapshots ${where}
+        ORDER BY recorded_at DESC LIMIT ${lim}
+      `));
+      res.json({ rows: result.rows, total: result.rows.length });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/scores/accuracy — accuracy summary for all models
+  app.get("/api/scores/accuracy", requireAuth, async (req, res) => {
+    try {
+      const { daysBack } = req.query;
+      const results = await getAllModelAccuracy(daysBack ? parseInt(String(daysBack)) : 180);
+      res.json(results);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/scores/accuracy/:modelName — accuracy for one model
+  app.get("/api/scores/accuracy/:modelName", requireAuth, async (req, res) => {
+    try {
+      const { daysBack } = req.query;
+      const result = await computeModelAccuracy(req.params.modelName, daysBack ? parseInt(String(daysBack)) : 180);
+      if (!result) return res.status(404).json({ message: "Model not found" });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/scores/recommendations — tuning recommendations for all models
+  app.get("/api/scores/recommendations", requireAuth, async (req, res) => {
+    try {
+      const configRes = await db.execute(sql.raw(`SELECT model_name FROM score_model_configs ORDER BY model_name`));
+      const models = (configRes.rows as any[]).map(r => r.model_name as string);
+      const allRecs = await Promise.all(models.map(m => getTuningRecommendations(m)));
+      res.json(allRecs.flat());
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/scores/recommendations/:modelName — tuning recommendations for one model
+  app.get("/api/scores/recommendations/:modelName", requireAuth, async (req, res) => {
+    try {
+      const recs = await getTuningRecommendations(req.params.modelName);
+      res.json(recs);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/scores/explainability/:entityType/:entityId — why score = X
+  app.get("/api/scores/explainability/:entityType/:entityId", requireAuth, async (req, res) => {
+    try {
+      const { entityType, entityId } = req.params;
+      const { modelName } = req.query;
+      const data = await getExplainabilityData(entityType, parseInt(entityId), modelName as string | undefined);
+      res.json(data);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/scores/underperforming — models below accuracy threshold
+  app.get("/api/scores/underperforming", requireAuth, async (req, res) => {
+    try {
+      const results = await checkUnderperformance();
+      res.json(results);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/scores/feedback/overview — dashboard overview
+  app.get("/api/scores/feedback/overview", requireAuth, async (req, res) => {
+    try {
+      const overview = await getFeedbackOverview();
+      res.json(overview);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/scores/model-configs — list all model configurations
+  app.get("/api/scores/model-configs", requireAuth, async (req, res) => {
+    try {
+      const result = await db.execute(sql.raw(`SELECT * FROM score_model_configs ORDER BY model_name`));
+      res.json(result.rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // PUT /api/scores/model-configs/:modelName — update thresholds/weight overrides
+  app.put("/api/scores/model-configs/:modelName", requireAuth, async (req, res) => {
+    try {
+      const { modelName } = req.params;
+      const { underperformanceThreshold, weightOverrides } = req.body;
+      const updates: string[] = ["updated_at = NOW()"];
+      if (underperformanceThreshold !== undefined) updates.push(`underperformance_threshold = ${Number(underperformanceThreshold)}`);
+      if (weightOverrides !== undefined) updates.push(`weight_overrides = '${JSON.stringify(weightOverrides).replace(/'/g, "''")}'::jsonb`);
+      await db.execute(sql.raw(`UPDATE score_model_configs SET ${updates.join(", ")} WHERE model_name = '${modelName}'`));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/scores/evaluate-all — trigger accuracy evaluation for all models
+  app.post("/api/scores/evaluate-all", requireAuth, async (req, res) => {
+    try {
+      const { daysBack } = req.body;
+      const results = await getAllModelAccuracy(daysBack ?? 180);
+      res.json({ ok: true, models: results.map(r => ({ modelName: r.modelName, directionAccuracy: r.directionAccuracy, totalOutcomes: r.totalOutcomes })) });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
   // ── Engagement scheduler + default rules ────────────────────────────────────

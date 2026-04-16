@@ -130,6 +130,7 @@ const sections: NavSection[] = [
       { title: "Meeting Briefs", url: "/intelligence/briefs", icon: Sparkles },
       { title: "Signals & Alerts", url: "/intelligence/signals", icon: Bell },
       { title: "Digest & Alerts", url: "/alerts-digest", icon: BellRing },
+      { title: "Score Feedback", url: "/scores/feedback", icon: Target },
       { title: "Rel. Intelligence", url: "/intelligence/rel-intelligence", icon: BarChart3 },
       { title: "Territory & Geo", url: "/geography", icon: Globe, permKey: "crm" },
     ],
