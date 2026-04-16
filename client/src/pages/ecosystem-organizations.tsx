@@ -49,6 +49,7 @@ export default function EcosystemOrganizationsPage() {
       setCreateOpen(false);
       toast({ title: "Organization created" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to create organization", variant: "destructive" }); },
   });
 
   const updateMutation = useMutation({
@@ -61,6 +62,7 @@ export default function EcosystemOrganizationsPage() {
       setSelected(null);
       toast({ title: "Organization updated" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to update organization", variant: "destructive" }); },
   });
 
   const deleteMutation = useMutation({
@@ -72,6 +74,7 @@ export default function EcosystemOrganizationsPage() {
       setSelected(null);
       toast({ title: "Organization deleted" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to delete organization", variant: "destructive" }); },
   });
 
   return (

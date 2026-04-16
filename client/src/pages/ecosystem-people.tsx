@@ -49,6 +49,7 @@ export default function EcosystemPeoplePage() {
       setCreateOpen(false);
       toast({ title: "Person created" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to create person", variant: "destructive" }); },
   });
 
   const updateMutation = useMutation({
@@ -61,6 +62,7 @@ export default function EcosystemPeoplePage() {
       setSelected(null);
       toast({ title: "Person updated" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to update person", variant: "destructive" }); },
   });
 
   const deleteMutation = useMutation({
@@ -72,6 +74,7 @@ export default function EcosystemPeoplePage() {
       setSelected(null);
       toast({ title: "Person deleted" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to delete person", variant: "destructive" }); },
   });
 
   return (

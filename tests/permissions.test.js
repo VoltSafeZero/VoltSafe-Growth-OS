@@ -194,6 +194,44 @@ async function run() {
     200
   );
 
+  // ── UNAUTHENTICATED ACCESS (no session) ────────────────────────────────────
+  console.log("\n── Unauthenticated (no session cookie) ──");
+  const anon = (url, opts = {}) => fetch(`${BASE}${url}`, {
+    ...opts,
+    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+  });
+
+  // Chat API — must require auth
+  await check("GET  /api/conversations         [anon → 401]", anon("/api/conversations"), 401);
+  await check("POST /api/conversations         [anon → 401]", anon("/api/conversations", { method: "POST", body: JSON.stringify({ title: "x" }) }), 401);
+  await check("POST /api/conversations/1/msgs  [anon → 401]", anon("/api/conversations/1/messages", { method: "POST", body: JSON.stringify({ content: "x" }) }), 401);
+
+  // Image generation — must require auth
+  await check("POST /api/generate-image        [anon → 401]", anon("/api/generate-image", { method: "POST", body: JSON.stringify({ prompt: "x" }) }), 401);
+
+  // Export routes — must require auth
+  await check("GET  /api/leads/export          [anon → 401]", anon("/api/leads/export"), 401);
+  await check("GET  /api/accounts/export       [anon → 401]", anon("/api/accounts/export"), 401);
+  await check("GET  /api/contacts/export       [anon → 401]", anon("/api/contacts/export"), 401);
+  await check("GET  /api/opportunities/export  [anon → 401]", anon("/api/opportunities/export"), 401);
+  await check("GET  /api/quotes/export         [anon → 401]", anon("/api/quotes/export"), 401);
+  await check("GET  /api/tickets/export        [anon → 401]", anon("/api/tickets/export"), 401);
+
+  // Core CRM — must require auth
+  await check("GET  /api/leads                 [anon → 401]", anon("/api/leads?page=1&limit=1"), 401);
+  await check("GET  /api/accounts              [anon → 401]", anon("/api/accounts?page=1&limit=1"), 401);
+
+  // ── ADMIN PRIVILEGE ESCALATION (non-admin cannot use admin write routes) ──
+  console.log("\n── Admin Privilege Escalation (viewer cannot mutate admin routes) ──");
+  const viewerCookieForAdmin = await login("viewer@voltsafe.com", "testpass1234");
+  const v2 = authed(viewerCookieForAdmin);
+
+  await check("POST /api/admin/users           [viewer → 403]", v2("/api/admin/users", { method: "POST", body: JSON.stringify({ name: "x", email: "x@x.com" }) }), 403);
+  await check("POST /api/admin/users/6/suspend [viewer → 403]", v2("/api/admin/users/6/suspend", { method: "POST", body: JSON.stringify({}) }), 403);
+  await check("POST /api/admin/users/6/reset-password [viewer → 403]", v2("/api/admin/users/6/reset-password", { method: "POST", body: JSON.stringify({ newPassword: "newpass1" }) }), 403);
+  await check("DELETE /api/admin/users/6       [viewer → 403]", v2("/api/admin/users/6", { method: "DELETE" }), 403);
+  await check("PUT /api/admin/users/6          [viewer → 403]", v2("/api/admin/users/6", { method: "PUT", body: JSON.stringify({ name: "x" }) }), 403);
+
   // ── SUMMARY ────────────────────────────────────────────────────────────────
   console.log(`\n${"=".repeat(50)}`);
   console.log(`Results: ${passed} passed, ${failed} failed out of ${passed + failed} total`);

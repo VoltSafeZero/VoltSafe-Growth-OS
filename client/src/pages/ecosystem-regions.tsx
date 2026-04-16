@@ -49,6 +49,7 @@ export default function EcosystemRegionsPage() {
       setCreateOpen(false);
       toast({ title: "Region created" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to create region", variant: "destructive" }); },
   });
 
   const updateMutation = useMutation({
@@ -61,6 +62,7 @@ export default function EcosystemRegionsPage() {
       setSelected(null);
       toast({ title: "Region updated" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to update region", variant: "destructive" }); },
   });
 
   const deleteMutation = useMutation({
@@ -72,6 +74,7 @@ export default function EcosystemRegionsPage() {
       setSelected(null);
       toast({ title: "Region deleted" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to delete region", variant: "destructive" }); },
   });
 
   return (

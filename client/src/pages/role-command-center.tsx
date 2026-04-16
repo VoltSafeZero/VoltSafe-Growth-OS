@@ -17,6 +17,7 @@ import {
   ChevronRight, Zap, CalendarDays, ShieldAlert, ArrowRight, Route, MapPin, Navigation,
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { ScoreBadge } from "@/components/scores/score-badge";
 import { useHotList, useCommandCenterWidgets } from "@/hooks/use-scores";
 import { ScoreListWidget } from "@/components/scores/score-widget";
@@ -510,13 +511,18 @@ export default function RoleCommandCenter() {
   const [useRoleDefault, setUseRoleDefault] = useState(false);
   const [localVisibility, setLocalVisibility] = useState<Record<string, boolean> | null>(null);
   const [localLayout, setLocalLayout] = useState<"expanded" | "compact" | null>(null);
+  const { toast } = useToast();
 
   const profileQuery = useQuery<UserProfile>({ queryKey: ["/api/users/me/profile"] });
 
   const saveMutation = useMutation({
     mutationFn: (data: { preferredLayout?: string; widgetVisibility?: Record<string, boolean>; defaultCommandCenter?: string }) =>
       apiRequest("PATCH", "/api/users/me/layout", data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/users/me/profile"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users/me/profile"] });
+      toast({ title: "Layout saved" });
+    },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to save layout", variant: "destructive" }); },
   });
 
   const profile = profileQuery.data;

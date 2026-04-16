@@ -56,6 +56,7 @@ export default function EcosystemRelationshipsPage() {
       setCreateOpen(false);
       toast({ title: "Relationship created" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to create relationship", variant: "destructive" }); },
   });
 
   const updateMutation = useMutation({
@@ -68,6 +69,7 @@ export default function EcosystemRelationshipsPage() {
       setSelected(null);
       toast({ title: "Relationship updated" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to update relationship", variant: "destructive" }); },
   });
 
   const deleteMutation = useMutation({
@@ -79,6 +81,7 @@ export default function EcosystemRelationshipsPage() {
       setSelected(null);
       toast({ title: "Relationship deleted" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to delete relationship", variant: "destructive" }); },
   });
 
   return (

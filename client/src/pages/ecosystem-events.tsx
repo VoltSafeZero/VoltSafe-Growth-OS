@@ -50,6 +50,7 @@ export default function EcosystemEventsPage() {
       setCreateOpen(false);
       toast({ title: "Event created" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to create event", variant: "destructive" }); },
   });
 
   const updateMutation = useMutation({
@@ -62,6 +63,7 @@ export default function EcosystemEventsPage() {
       setSelected(null);
       toast({ title: "Event updated" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to update event", variant: "destructive" }); },
   });
 
   const deleteMutation = useMutation({
@@ -73,6 +75,7 @@ export default function EcosystemEventsPage() {
       setSelected(null);
       toast({ title: "Event deleted" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to delete event", variant: "destructive" }); },
   });
 
   return (

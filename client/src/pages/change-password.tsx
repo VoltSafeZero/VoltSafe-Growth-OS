@@ -120,6 +120,7 @@ export default function ChangePasswordPage({ onComplete }: { onComplete: () => v
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
+                autoComplete="new-password"
                 data-testid="input-confirm-password"
               />
             </div>

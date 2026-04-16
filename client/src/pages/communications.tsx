@@ -45,6 +45,7 @@ export default function CommunicationsPage() {
       setCreateListOpen(false);
       toast({ title: "List created" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to create list", variant: "destructive" }); },
   });
 
   const createCampaignMutation = useMutation({
@@ -57,6 +58,7 @@ export default function CommunicationsPage() {
       setCreateCampaignOpen(false);
       toast({ title: "Campaign draft created" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to create campaign", variant: "destructive" }); },
   });
 
   const updateCampaignMutation = useMutation({
@@ -68,6 +70,7 @@ export default function CommunicationsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       toast({ title: "Campaign updated" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to update campaign", variant: "destructive" }); },
   });
 
   return (

@@ -1,16 +1,38 @@
 # Replit Agent Configuration
 
-## Production Hardening (Complete — Post-Feature 10)
+## Production Hardening Pass 2 (Complete — Comprehensive audit)
 
-### Security fixes applied
-1. **Chat API auth**: Added `requireAuth` to all 5 `/api/conversations` CRUD routes in `server/replit_integrations/chat/routes.ts`
-2. **Audio route dedup**: Stripped 4 duplicate CRUD routes from `audio/routes.ts` (were shadowing chat routes); voice handler renamed to `POST /api/conversations/:id/voice` with `requireAuth`
-3. **Image API auth**: Added `requireAuth` + `requireAdmin` import to `server/replit_integrations/image/routes.ts`
-4. **Admin privilege escalation**: Added `requireAdmin` middleware to 8 previously auth-only admin write routes: `PATCH /api/admin/users/:id/permissions`, `PUT /api/admin/users/:id`, `POST /api/admin/users`, `POST /api/admin/users/:id/resend-invite`, `POST /api/admin/users/:id/suspend`, `POST /api/admin/users/:id/activate`, `POST /api/admin/users/:id/reset-password`, `DELETE /api/admin/users/:id`
-5. **Dead sidebar links removed**: Removed `/segments`, `/tags`, `/imports` from `client/src/components/dashboard/app-sidebar.tsx`
+### Issues found and fixed
+
+#### Security (Critical/High)
+1. **Chat/Audio/Image routes not registered**: `registerChatRoutes`, `registerAudioRoutes`, `registerImageRoutes` were never called in `registerRoutes`. Routes now properly mounted in `server/routes.ts` at boot, with all handlers guarded by `requireAuth`.
+2. **Admin write routes missing `requireAdmin`**: 8 routes only had `requireAuth` — any logged-in user could create/edit/suspend/delete users. Fixed with `requireAdmin` middleware on: `PATCH/PUT/POST /api/admin/users*`, `DELETE /api/admin/users/:id`.
+3. **Dead sidebar links removed**: `/segments`, `/tags`, `/imports` pointed to non-existent pages.
+
+#### UX (Medium) — Silent mutation failures
+Added `onError` toast handlers to 8 pages that had mutations with `onSuccess` but no error feedback:
+- `tickets.tsx`: createMutation + updateMutation (+ added success toast on update)
+- `communications.tsx`: createListMutation, createCampaignMutation, updateCampaignMutation
+- `ecosystem-events/organizations/people/regions/relationships.tsx`: all 3 mutations per page (15 total)
+- `role-command-center.tsx`: saveMutation (also added `useToast` import + success toast)
+
+#### Accessibility (Low)
+- `change-password.tsx`: added `autoComplete="new-password"` to confirm password input
+- `settings.tsx`: added `autoComplete="current-password"` to CalDAV password input
+
+### Audit results — all clean
+- **Sidebar/route parity**: all 54 sidebar links have matching App.tsx routes ✓
+- **API response shapes**: all paginated queries use correct `data?.data` / `data = []` defaults ✓
+- **Empty/loading states**: all pages with `useQuery` have `isLoading` handling ✓
+- **Server logs**: no 500 errors, no unhandled rejections ✓
+- **Browser console**: no errors when authenticated ✓
+- **Export routes**: covered by `app.use("/api/leads", requireAuth)` middleware chain ✓
 
 ### Test coverage
-- `tests/permissions.test.js` — 54/54 tests pass across Viewer, Mixed, Admin users + PATCH permissions validation
+- `tests/permissions.test.js` — **71/71 tests pass**
+  - Original 54 tests (viewer/mixed/admin × all modules)
+  - +12 new unauthenticated access tests (chat API, generate-image, 6 export routes, 2 CRM reads)
+  - +5 new admin privilege escalation tests (viewer → 403 on all admin write routes)
 
 ---
 

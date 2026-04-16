@@ -51,6 +51,9 @@ import {
 } from "./webauthn";
 import { eq, sql, and, or, inArray, lte, gte, ilike, asc, desc, isNull, ne, count, not } from "drizzle-orm";
 import { registerVoiceAssistantRoutes } from "./voice-assistant";
+import { registerChatRoutes } from "./replit_integrations/chat";
+import { registerAudioRoutes } from "./replit_integrations/audio";
+import { registerImageRoutes } from "./replit_integrations/image";
 import { generateInvoiceHtml, generateQuoteXlsx, type QuoteData } from "./quote-generator";
 import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead, saveDraft, listDraftSummaries, getDraftContent, deleteDraft } from "./gmail";
 import { getAuthUrl, exchangeCodeForTokens, isGmailConnected, getGmailClient } from "./gmail-oauth";
@@ -346,6 +349,9 @@ export async function registerRoutes(
 ): Promise<Server> {
 
   registerVoiceAssistantRoutes(app);
+  registerChatRoutes(app);
+  registerAudioRoutes(app);
+  registerImageRoutes(app);
 
   // ── Public Tracking Routes (NO auth — served to email clients) ─────────────
   // 1x1 transparent GIF pixel for open tracking

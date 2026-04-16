@@ -84,6 +84,7 @@ export default function TicketsPage({ canEdit = true }: { canEdit?: boolean }) {
       setCreateOpen(false);
       toast({ title: "Ticket created" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to create ticket", variant: "destructive" }); },
   });
 
   const updateMutation = useMutation({
@@ -93,7 +94,9 @@ export default function TicketsPage({ canEdit = true }: { canEdit?: boolean }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      toast({ title: "Ticket updated" });
     },
+    onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to update ticket", variant: "destructive" }); },
   });
 
   const allTickets = data?.data || [];

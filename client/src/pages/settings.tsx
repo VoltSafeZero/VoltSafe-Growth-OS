@@ -207,6 +207,7 @@ function CalDavConnectDialog({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={isApple ? "xxxx-xxxx-xxxx-xxxx" : "password"}
+                autoComplete="current-password"
                 data-testid="input-caldav-password"
               />
             </div>
