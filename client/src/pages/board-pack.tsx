@@ -578,9 +578,9 @@ function scheduleLabel(s: Schedule): string {
 }
 
 function statusBadge(status?: string | null) {
-  if (!status) return <Badge variant="outline" className="text-xs">Inactive</Badge>;
-  if (status === "completed") return <Badge className="bg-emerald-500/20 text-emerald-700 border-emerald-300 text-xs"><CheckCircle className="w-3 h-3 mr-1" />Delivered</Badge>;
-  if (status === "running") return <Badge className="bg-blue-500/20 text-blue-700 border-blue-300 text-xs"><Timer className="w-3 h-3 mr-1" />Running</Badge>;
+  if (!status) return <Badge variant="outline" className="text-xs text-muted-foreground">Never run</Badge>;
+  if (status === "delivered" || status === "completed") return <Badge className="bg-emerald-500/20 text-emerald-700 border-emerald-300 text-xs"><CheckCircle className="w-3 h-3 mr-1" />Delivered</Badge>;
+  if (status === "running" || status === "generating") return <Badge className="bg-blue-500/20 text-blue-700 border-blue-300 text-xs"><Timer className="w-3 h-3 mr-1" />Running</Badge>;
   if (status === "failed") return <Badge className="bg-red-500/20 text-red-700 border-red-300 text-xs"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>;
   return <Badge variant="outline" className="text-xs">{status}</Badge>;
 }
@@ -802,13 +802,18 @@ function RunHistoryPanel({ scheduleId }: { scheduleId: number }) {
       {runs.map(run => (
         <div key={run.id} className="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-muted/40">
           <div className="flex items-center gap-2">
-            {run.status === "delivered" ? <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> :
+            {(run.status === "delivered" || run.status === "completed") ? <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> :
              run.status === "failed" ? <XCircle className="w-3.5 h-3.5 text-red-500" /> :
              <Timer className="w-3.5 h-3.5 text-blue-500" />}
             <span className="text-muted-foreground">{new Date(run.generated_at).toLocaleString("en-CA", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
             {run.recipient_count > 0 && <span className="text-muted-foreground">· {run.recipient_count} recipient{run.recipient_count > 1 ? "s" : ""}</span>}
+            {run.triggered_by && <span className="text-muted-foreground italic">manual</span>}
           </div>
-          {run.errors && <span className="text-red-500 truncate max-w-32" title={run.errors}>⚠ {run.errors.slice(0, 40)}</span>}
+          {run.errors && (
+            <span className="text-amber-600 dark:text-amber-400 truncate max-w-48 ml-2 shrink-0" title={run.errors}>
+              ⚠ {run.errors.slice(0, 50)}{run.errors.length > 50 ? "…" : ""}
+            </span>
+          )}
         </div>
       ))}
     </div>

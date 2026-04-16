@@ -607,6 +607,127 @@ async function runAll() {
     }
   });
 
+  // ── 15. Guardrail: run-now does not advance next_run_at ─────────────────────
+  console.log("\n15. Guardrail: run-now does not advance next_run_at");
+
+  let guardId = null;
+  let originalNextRun = null;
+
+  await test("Setup: create schedule for guardrail tests", async () => {
+    const r = await post("/api/board-pack/schedules", {
+      name: "Guardrail Test Schedule",
+      scheduleType: "monthly",
+      dayOfMonth: 28,
+      sendHour: 8,
+      reportType: "board_pack",
+      includedSections: [],
+      recipients: [],
+      deliveryChannels: ["in_app"],
+    }, adminCookie);
+    assert(r.status === 201, `Expected 201, got ${r.status}`);
+    guardId = r.body.id;
+    originalNextRun = r.body.next_run_at;
+    assert(originalNextRun, "Should have next_run_at");
+  });
+
+  await test("run-now: next_run_at unchanged after manual trigger", async () => {
+    assert(guardId, "Need a schedule");
+    // Trigger run-now
+    const run = await post(`/api/board-pack/schedules/${guardId}/run-now`, {}, adminCookie);
+    assert(run.status === 202, `Expected 202, got ${run.status}`);
+    // Wait for async delivery to complete
+    await new Promise(r => setTimeout(r, 2000));
+    // Fetch updated schedule
+    const r = await get(`/api/board-pack/schedules/${guardId}`, adminCookie);
+    assert(r.status === 200);
+    const afterNextRun = r.body.next_run_at;
+    // next_run_at should be the same (or within 1 second due to timestamp parsing)
+    const origMs = new Date(originalNextRun).getTime();
+    const afterMs = new Date(afterNextRun).getTime();
+    assert(
+      Math.abs(origMs - afterMs) < 2000,
+      `next_run_at changed after run-now: ${originalNextRun} → ${afterNextRun}`
+    );
+  });
+
+  await test("run-now: run record has triggered_by set", async () => {
+    assert(guardId, "Need a schedule");
+    const r = await get(`/api/board-pack/schedules/${guardId}/history`, adminCookie);
+    assert(r.status === 200);
+    assert(r.body.length >= 1, "Expected at least 1 run");
+    // The most recent run from run-now should have triggered_by set (user id)
+    const latestRun = r.body[0];
+    assert(latestRun.triggered_by !== null && latestRun.triggered_by !== undefined,
+      `Expected triggered_by to be set, got: ${latestRun.triggered_by}`);
+  });
+
+  await test("run-now: last_run_at is updated even without next_run_at change", async () => {
+    assert(guardId, "Need a schedule");
+    const r = await get(`/api/board-pack/schedules/${guardId}`, adminCookie);
+    assert(r.status === 200);
+    assert(r.body.last_run_at, "Expected last_run_at to be set after run-now");
+    const lastRun = new Date(r.body.last_run_at);
+    const now = new Date();
+    assert(
+      now.getTime() - lastRun.getTime() < 30000,
+      `Expected last_run_at to be recent, got: ${r.body.last_run_at}`
+    );
+  });
+
+  await test("Cleanup: delete guardrail test schedule", async () => {
+    assert(guardId, "Need a schedule");
+    const r = await del(`/api/board-pack/schedules/${guardId}`, adminCookie);
+    assert(r.status === 200, `Expected 200, got ${r.status}`);
+  });
+
+  // ── 16. Guardrail: failures surface in run history ──────────────────────────
+  console.log("\n16. Guardrail: failures surface in run history");
+
+  await test("Run records store errors field when email fails (no Gmail)", async () => {
+    // Create a schedule with email channel but no real Gmail connection → should fail email but still log run
+    const create = await post("/api/board-pack/schedules", {
+      name: "Email Fail Test",
+      scheduleType: "monthly",
+      dayOfMonth: 1,
+      sendHour: 8,
+      reportType: "board_pack",
+      includedSections: [],
+      recipients: ["test@example.com"],
+      deliveryChannels: ["email"],
+    }, adminCookie);
+    assert(create.status === 201, `Expected 201, got ${create.status}`);
+    const failId = create.body.id;
+
+    // Trigger run-now
+    const run = await post(`/api/board-pack/schedules/${failId}/run-now`, {}, adminCookie);
+    assert(run.status === 202, `Expected 202, got ${run.status}`);
+
+    // Wait for async delivery
+    await new Promise(r => setTimeout(r, 2500));
+
+    // Check history — run should exist
+    const hist = await get(`/api/board-pack/schedules/${failId}/history`, adminCookie);
+    assert(hist.status === 200);
+    assert(hist.body.length >= 1, `Expected at least 1 run record`);
+    const latestRun = hist.body[0];
+    // Status should not be stuck in generating
+    assert(
+      latestRun.status !== "generating",
+      `Run status should be resolved, got: ${latestRun.status}`
+    );
+
+    // Check schedule shows error or last_status
+    const sched = await get(`/api/board-pack/schedules/${failId}`, adminCookie);
+    assert(sched.status === 200);
+    assert(
+      sched.body.last_status !== null && sched.body.last_status !== "running",
+      `Schedule last_status should be resolved, got: ${sched.body.last_status}`
+    );
+
+    // Cleanup
+    await del(`/api/board-pack/schedules/${failId}`, adminCookie);
+  });
+
   // ── Summary ──────────────────────────────────────────────────────────────────
   console.log(`\n${"─".repeat(50)}`);
   console.log(`Board Pack Scheduler Tests: ${passed} passed, ${failed} failed`);

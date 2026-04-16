@@ -17546,8 +17546,8 @@ export function registerConfluenceRoutes(app: Express) {
       const userId = req.session.userId as number;
       const check = await db.execute(sql`SELECT id, name FROM board_pack_schedules WHERE id = ${id}`);
       if (!check.rows.length) return res.status(404).json({ message: "Schedule not found" });
-      // Fire async — respond immediately
-      generateAndDeliver(id, userId).catch(err =>
+      // Fire async — respond immediately. isManualTrigger=true so next_run_at is NOT advanced.
+      generateAndDeliver(id, userId, true).catch(err =>
         console.error(`[board-pack/run-now] schedule ${id}:`, err.message)
       );
       res.status(202).json({ ok: true, message: "Board pack generation started" });

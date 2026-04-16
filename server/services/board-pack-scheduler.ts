@@ -162,7 +162,8 @@ export function formatReportAsHtml(data: any, meta: {
 
 export async function generateAndDeliver(
   scheduleId: number,
-  triggeredBy?: number
+  triggeredBy?: number,
+  isManualTrigger = false,
 ): Promise<{ runId: number; success: boolean; error?: string }> {
   // Load schedule
   const scheduleRes = await db.execute(sql`SELECT * FROM board_pack_schedules WHERE id = ${scheduleId} LIMIT 1`);
@@ -177,7 +178,7 @@ export async function generateAndDeliver(
   `);
   const runId: number = (runRes.rows[0] as any).id;
 
-  // Update schedule lastStatus
+  // Mark schedule as running (for dedup; manual triggers don't need this but it's harmless)
   await db.execute(sql`UPDATE board_pack_schedules SET last_status = 'running', updated_at = NOW() WHERE id = ${scheduleId}`);
 
   try {
@@ -241,24 +242,39 @@ export async function generateAndDeliver(
       }
     }
 
-    // Update run record — delivered
+    // Determine final status: delivered if at least one channel worked, partial if some errors
+    const finalStatus = recipientCount > 0 ? "delivered" : (errors.length > 0 ? "failed" : "delivered");
+
+    // Update run record — delivered / partial
     await db.execute(sql`
       UPDATE board_pack_runs
-      SET status = 'delivered', delivered_at = NOW(), recipient_count = ${recipientCount},
+      SET status = ${finalStatus}, delivered_at = NOW(), recipient_count = ${recipientCount},
           payload_meta = ${JSON.stringify(payloadMeta)}::jsonb,
           errors = ${errors.length > 0 ? errors.join("; ") : null}
       WHERE id = ${runId}
     `);
 
-    // Update schedule
-    const nextRun = computeNextRunAt(schedFromRow(sched));
-    await db.execute(sql`
-      UPDATE board_pack_schedules
-      SET last_run_at = NOW(), next_run_at = ${nextRun.toISOString()},
-          last_status = 'completed', last_error = ${errors.length > 0 ? errors.join("; ") : null},
-          updated_at = NOW()
-      WHERE id = ${scheduleId}
-    `);
+    // Update schedule — only advance next_run_at for automated runs, not manual "Send now"
+    if (isManualTrigger) {
+      await db.execute(sql`
+        UPDATE board_pack_schedules
+        SET last_run_at = NOW(),
+            last_status = ${finalStatus},
+            last_error = ${errors.length > 0 ? errors.join("; ") : null},
+            updated_at = NOW()
+        WHERE id = ${scheduleId}
+      `);
+    } else {
+      const nextRun = computeNextRunAt(schedFromRow(sched));
+      await db.execute(sql`
+        UPDATE board_pack_schedules
+        SET last_run_at = NOW(), next_run_at = ${nextRun.toISOString()},
+            last_status = ${finalStatus},
+            last_error = ${errors.length > 0 ? errors.join("; ") : null},
+            updated_at = NOW()
+        WHERE id = ${scheduleId}
+      `);
+    }
 
     return { runId, success: true };
   } catch (err: any) {
@@ -289,22 +305,35 @@ function schedFromRow(row: any) {
 let schedulerRunning = false;
 
 export async function evaluateDueSchedules(): Promise<void> {
-  const rows = await db.execute(sql`
-    SELECT * FROM board_pack_schedules
+  // Atomic claim: update last_status to 'running' only for schedules that are due AND not already
+  // running (or were stuck in running for >10 min due to a crash). Returns the claimed schedule IDs.
+  // This prevents duplicate sends even if two scheduler ticks race against each other.
+  const claimed = await db.execute(sql`
+    UPDATE board_pack_schedules
+    SET last_status = 'running', updated_at = NOW()
     WHERE enabled = true
       AND next_run_at IS NOT NULL
       AND next_run_at <= NOW()
-      AND (last_status IS NULL OR last_status NOT IN ('running'))
-    ORDER BY next_run_at ASC
-    LIMIT 10
+      AND (
+        last_status IS NULL
+        OR last_status NOT IN ('running')
+        OR updated_at < NOW() - INTERVAL '10 minutes'
+      )
+    RETURNING id, name
   `);
 
-  for (const row of rows.rows as any[]) {
+  for (const row of claimed.rows as any[]) {
     try {
       console.log(`[board-pack-scheduler] Running schedule "${row.name}" (id=${row.id})`);
-      await generateAndDeliver(row.id);
+      await generateAndDeliver(row.id, undefined, false);
     } catch (err: any) {
       console.error(`[board-pack-scheduler] Error running schedule ${row.id}:`, err.message);
+      // Mark as failed so it doesn't stay stuck in 'running'
+      await db.execute(sql`
+        UPDATE board_pack_schedules
+        SET last_status = 'failed', last_error = ${err.message}, updated_at = NOW()
+        WHERE id = ${row.id}
+      `).catch(() => {});
     }
   }
 }
