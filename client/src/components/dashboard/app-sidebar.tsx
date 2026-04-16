@@ -5,7 +5,7 @@ import {
   ClipboardList, Layers, ShieldCheck, Sun, Moon, GitBranch, MapPin,
   LayoutDashboard, Target, Share2, Brain, SlidersHorizontal, BarChart3,
   Megaphone, TrendingUp, Landmark, Truck, Factory, FlaskConical, Newspaper,
-  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, BellRing, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen, FlaskRound, Snowflake,
+  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, BellRing, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen, FlaskRound, Snowflake, Search,
 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Link, useLocation } from "wouter";
@@ -178,6 +178,8 @@ const sections: NavSection[] = [
     items: [
       { title: "Users", url: "/admin/users", icon: ShieldCheck },
       { title: "Integrations", url: "/admin/integrations", icon: Zap },
+      { title: "My Mailboxes", url: "/settings/mailbox", icon: Mail },
+      { title: "Global Search", url: "/search", icon: Search },
       { title: "Settings", url: "/settings", icon: Settings },
     ],
   },

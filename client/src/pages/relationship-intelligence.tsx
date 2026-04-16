@@ -3,10 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Users, Activity, Clock, UserPlus, Unlink,
   Building2, ArrowUpDown, ArrowUp, ArrowDown,
   Mail, ExternalLink, TrendingUp, UserRoundPlus,
+  Flame, RefreshCw, Network, AlertTriangle, CheckCircle2,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import {
@@ -132,6 +134,7 @@ const PERIOD_OPTIONS: { label: string; value: Period }[] = [
 
 export default function RelationshipIntelligencePage() {
   const [period, setPeriod] = useState<Period>(30);
+  const [activeTab, setActiveTab] = useState("activity");
   const [, navigate] = useLocation();
 
   const { data, isLoading } = useQuery<RiData>({
@@ -162,27 +165,58 @@ export default function RelationshipIntelligencePage() {
               Relationship Intelligence
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Email activity across your CRM contacts — {periodLabel}
+              {activeTab === "activity"
+                ? `Email activity across your CRM contacts — ${periodLabel}`
+                : "Intelligence views powered by relationship graph"}
             </p>
           </div>
-          <div className="flex items-center gap-1 bg-secondary/50 rounded-lg p-1">
-            {PERIOD_OPTIONS.map(opt => (
-              <button
-                key={opt.value}
-                onClick={() => setPeriod(opt.value)}
-                data-testid={`period-${opt.label.toLowerCase()}`}
-                className={`px-3 py-1 rounded-md text-sm font-medium transition-all ${
-                  period === opt.value
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
+          {activeTab === "activity" && (
+            <div className="flex items-center gap-1 bg-secondary/50 rounded-lg p-1">
+              {PERIOD_OPTIONS.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setPeriod(opt.value)}
+                  data-testid={`period-${opt.label.toLowerCase()}`}
+                  className={`px-3 py-1 rounded-md text-sm font-medium transition-all ${
+                    period === opt.value
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
+        {/* Tab navigation */}
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="h-9 bg-muted/40 p-1">
+            <TabsTrigger value="activity" className="text-xs gap-1.5" data-testid="tab-activity">
+              <Activity className="w-3.5 h-3.5" /> Email Activity
+            </TabsTrigger>
+            <TabsTrigger value="reengage" className="text-xs gap-1.5" data-testid="tab-reengage">
+              <RefreshCw className="w-3.5 h-3.5" /> Re-engage
+            </TabsTrigger>
+            <TabsTrigger value="dormant" className="text-xs gap-1.5" data-testid="tab-dormant">
+              <AlertTriangle className="w-3.5 h-3.5" /> Dormant Leads
+            </TabsTrigger>
+            <TabsTrigger value="multithreaded" className="text-xs gap-1.5" data-testid="tab-multithreaded">
+              <Network className="w-3.5 h-3.5" /> Multi-Threaded
+            </TabsTrigger>
+            <TabsTrigger value="nocontact" className="text-xs gap-1.5" data-testid="tab-nocontact">
+              <Clock className="w-3.5 h-3.5" /> 180d No Contact
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="reengage"     className="mt-4"><ReEngageView /></TabsContent>
+          <TabsContent value="dormant"      className="mt-4"><DormantLeadsView /></TabsContent>
+          <TabsContent value="multithreaded" className="mt-4"><MultiThreadedView /></TabsContent>
+          <TabsContent value="nocontact"    className="mt-4"><NoContact180View /></TabsContent>
+
+          <TabsContent value="activity" className="mt-4">
+            <div className="space-y-6">
         {/* Stat Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <StatCard
@@ -643,6 +677,10 @@ export default function RelationshipIntelligencePage() {
           </CardContent>
         </Card>
 
+            </div>{/* /space-y-6 */}
+          </TabsContent>
+        </Tabs>
+
       </div>
     </div>
   );
@@ -718,5 +756,264 @@ function TableSkeleton({ rows }: { rows: number }) {
         <Skeleton key={i} className="h-8 w-full" />
       ))}
     </div>
+  );
+}
+
+// ── Warmness helpers ──────────────────────────────────────────────────────────
+function warmLabel(score: number): { label: string; color: string; icon: string } {
+  if (score >= 70) return { label: "Hot",  color: "text-orange-400", icon: "🔥" };
+  if (score >= 40) return { label: "Warm", color: "text-amber-400",  icon: "☀️" };
+  if (score >= 15) return { label: "Cool", color: "text-blue-400",   icon: "❄️" };
+  return              { label: "Cold", color: "text-muted-foreground", icon: "💤" };
+}
+
+function WarmBadge({ score }: { score: number }) {
+  const { label, color, icon } = warmLabel(score);
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${color}`} title={`Warmness: ${score}`}>
+      {icon} {label}
+    </span>
+  );
+}
+
+// ── Re-engage View ────────────────────────────────────────────────────────────
+function ReEngageView() {
+  const { data = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/relationships/views", "warm_to_reengage"],
+    queryFn: () => fetch("/api/relationships/views?view=warm_to_reengage", { credentials: "include" }).then(r => r.json()),
+  });
+
+  if (isLoading) return <TableSkeleton rows={8} />;
+  if (!data.length) return (
+    <div className="text-center py-12 text-muted-foreground">
+      <CheckCircle2 className="h-10 w-10 mx-auto mb-2 text-emerald-500" />
+      <p>No warm contacts pending re-engagement.</p>
+    </div>
+  );
+
+  return (
+    <Card className="border-border/50">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <RefreshCw className="w-4 h-4 text-amber-400" />
+          Warm Contacts — Ready to Re-engage
+          <span className="text-xs font-normal text-muted-foreground">(score 40+ · no contact 60d+)</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <table className="w-full text-sm" data-testid="table-reengage">
+          <thead>
+            <tr className="border-b border-border/50">
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-left">Contact</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-left">Account</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Warmness</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Silent For</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Total Convos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row, i) => (
+              <tr key={i} className="border-b border-border/30 hover:bg-secondary/30 transition-colors"
+                data-testid={`row-reengage-${i}`}>
+                <td className="px-4 py-2.5 font-medium">
+                  {row.contactId ? (
+                    <Link href={`/contacts?selected=${row.contactId}`} className="hover:text-primary flex items-center gap-1">
+                      {row.contactName ?? row.emailAddress} <ExternalLink className="w-3 h-3 opacity-40" />
+                    </Link>
+                  ) : <span className="text-muted-foreground text-xs">{row.emailAddress}</span>}
+                </td>
+                <td className="px-4 py-2.5 text-muted-foreground text-xs">{row.accountName ?? row.domain ?? "—"}</td>
+                <td className="px-4 py-2.5 text-right"><WarmBadge score={Number(row.warmnessScore ?? 0)} /></td>
+                <td className="px-4 py-2.5 text-right text-xs text-amber-400 font-medium">{row.daysSinceContact}d</td>
+                <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">{row.totalConversations}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Dormant Leads View ────────────────────────────────────────────────────────
+function DormantLeadsView() {
+  const { data = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/relationships/views", "dormant_leads"],
+    queryFn: () => fetch("/api/relationships/views?view=dormant_leads", { credentials: "include" }).then(r => r.json()),
+  });
+
+  if (isLoading) return <TableSkeleton rows={8} />;
+  if (!data.length) return (
+    <div className="text-center py-12 text-muted-foreground">
+      <CheckCircle2 className="h-10 w-10 mx-auto mb-2 text-emerald-500" />
+      <p>No dormant leads detected.</p>
+    </div>
+  );
+
+  return (
+    <Card className="border-border/50">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-red-400" />
+          Dormant Leads
+          <span className="text-xs font-normal text-muted-foreground">(open leads · no email contact in 30d)</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <table className="w-full text-sm" data-testid="table-dormant-leads">
+          <thead>
+            <tr className="border-b border-border/50">
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-left">Company</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-left">Contact</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-left">Status</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-left">Owner</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Warmness</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Stale</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row, i) => (
+              <tr key={row.id ?? i} className="border-b border-border/30 hover:bg-secondary/30 transition-colors"
+                data-testid={`row-dormant-lead-${row.id}`}>
+                <td className="px-4 py-2.5 font-medium">{row.company ?? "—"}</td>
+                <td className="px-4 py-2.5 text-muted-foreground text-xs">{row.contactName ?? row.email ?? "—"}</td>
+                <td className="px-4 py-2.5">
+                  <Badge variant="outline" className="text-[10px]">{row.status}</Badge>
+                </td>
+                <td className="px-4 py-2.5 text-muted-foreground text-xs">{row.ownerName ?? "Unassigned"}</td>
+                <td className="px-4 py-2.5 text-right">
+                  {row.warmnessScore != null ? <WarmBadge score={Number(row.warmnessScore)} /> : <span className="text-muted-foreground text-xs">—</span>}
+                </td>
+                <td className="px-4 py-2.5 text-right text-xs text-red-400 font-medium">
+                  {row.daysSinceContact != null ? `${row.daysSinceContact}d` : "Never"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Multi-Threaded View ───────────────────────────────────────────────────────
+function MultiThreadedView() {
+  const { data = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/relationships/views", "multi_threaded"],
+    queryFn: () => fetch("/api/relationships/views?view=multi_threaded", { credentials: "include" }).then(r => r.json()),
+  });
+
+  if (isLoading) return <TableSkeleton rows={8} />;
+  if (!data.length) return (
+    <div className="text-center py-12 text-muted-foreground">
+      <Network className="h-10 w-10 mx-auto mb-2 opacity-30" />
+      <p>No multi-threaded accounts yet. Build more relationships first.</p>
+    </div>
+  );
+
+  return (
+    <Card className="border-border/50">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <Network className="w-4 h-4 text-blue-400" />
+          Multi-Threaded Accounts
+          <span className="text-xs font-normal text-muted-foreground">(2+ contacts emailed at same account)</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <table className="w-full text-sm" data-testid="table-multithreaded">
+          <thead>
+            <tr className="border-b border-border/50">
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-left">Account</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-left">Type</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Contacts</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Avg Warmness</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Total Convos</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Last Contact</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row, i) => (
+              <tr key={row.accountId ?? i} className="border-b border-border/30 hover:bg-secondary/30 transition-colors"
+                data-testid={`row-multithreaded-${row.accountId}`}>
+                <td className="px-4 py-2.5 font-medium">
+                  <Link href={`/accounts?selected=${row.accountId}`} className="hover:text-primary flex items-center gap-1">
+                    {row.accountName} <ExternalLink className="w-3 h-3 opacity-40" />
+                  </Link>
+                </td>
+                <td className="px-4 py-2.5 text-muted-foreground text-xs">{row.orgType ?? "—"}</td>
+                <td className="px-4 py-2.5 text-right font-semibold text-blue-400 tabular-nums">{row.contactCount}</td>
+                <td className="px-4 py-2.5 text-right"><WarmBadge score={Number(row.avgWarmness ?? 0)} /></td>
+                <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">{row.totalConversations}</td>
+                <td className="px-4 py-2.5 text-right text-xs text-muted-foreground">{relativeDate(row.lastContact)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── 180d No Contact View ──────────────────────────────────────────────────────
+function NoContact180View() {
+  const { data = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/relationships/views", "no_contact_180"],
+    queryFn: () => fetch("/api/relationships/views?view=no_contact_180", { credentials: "include" }).then(r => r.json()),
+  });
+
+  if (isLoading) return <TableSkeleton rows={8} />;
+  if (!data.length) return (
+    <div className="text-center py-12 text-muted-foreground">
+      <CheckCircle2 className="h-10 w-10 mx-auto mb-2 text-emerald-500" />
+      <p>All linked contacts have been contacted within 180 days.</p>
+    </div>
+  );
+
+  return (
+    <Card className="border-border/50">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <Clock className="w-4 h-4 text-red-400" />
+          No Contact in 180 Days
+          <span className="text-xs font-normal text-muted-foreground">({data.length} contacts)</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <table className="w-full text-sm" data-testid="table-no-contact-180">
+          <thead>
+            <tr className="border-b border-border/50">
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-left">Contact</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-left">Account</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Warmness</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Last Contact</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Days Ago</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row, i) => (
+              <tr key={row.contactId ?? i} className="border-b border-border/30 hover:bg-secondary/30 transition-colors"
+                data-testid={`row-no-contact-${row.contactId}`}>
+                <td className="px-4 py-2.5 font-medium">
+                  {row.contactId ? (
+                    <Link href={`/contacts?selected=${row.contactId}`} className="hover:text-primary flex items-center gap-1">
+                      {row.contactName} <ExternalLink className="w-3 h-3 opacity-40" />
+                    </Link>
+                  ) : <span className="text-muted-foreground text-xs">{row.email ?? "—"}</span>}
+                </td>
+                <td className="px-4 py-2.5 text-muted-foreground text-xs">{row.accountName ?? "—"}</td>
+                <td className="px-4 py-2.5 text-right">
+                  {row.warmnessScore != null ? <WarmBadge score={Number(row.warmnessScore)} /> : <span className="text-muted-foreground text-xs">—</span>}
+                </td>
+                <td className="px-4 py-2.5 text-right text-xs text-muted-foreground">{relativeDate(row.lastSeen)}</td>
+                <td className="px-4 py-2.5 text-right text-xs text-red-400 font-medium">
+                  {row.daysSinceContact != null ? `${row.daysSinceContact}d` : "Never"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
   );
 }

@@ -1,5 +1,36 @@
 # Replit Agent Configuration
 
+## Personal + Team Relationship Intelligence (Complete — Feature 10)
+
+### What was added
+Full 8-phase expansion of the Multi-Mailbox system covering per-user mailbox connections, historical backfill, relationship graph with warmness scoring, contact auto-linking, permissions, intelligence views, global search, and testing.
+
+**DB Schema additions** (via direct SQL):
+- `email_accounts.privacy_mode` — `private | metadata_only | business_visible` (default)
+- `backfill_jobs` — resumable per-user job tracking (id, user_id, email_account_id, status, date_from, date_to, processed, total, last_page_token, error_message, created_at, completed_at)
+- `contact_relationships` — warmness cache (email_address, domain, contact_id FK, user_id, first_seen, last_seen, total_sent, total_received, warmness_score)
+
+**Backend** (`server/routes.ts` + `server/services/backfill-service.ts`):
+- `GET/PATCH/DELETE /api/my/mailbox/*` — per-user mailbox list, privacy mode, disconnect
+- `GET /api/my/mailbox/connect` — OAuth redirect (state="personal") → redirects to /settings/mailbox
+- `POST /api/my/mailbox/:id/backfill` + `GET /api/my/mailbox/backfill/status` — async resumable backfill
+- `GET /api/relationships/graph` — per-contact warmness data
+- `GET /api/relationships/views?view=` — 4 views: dormant_leads, warm_to_reengage, multi_threaded, no_contact_180
+- `GET /api/search/global?q=` — search contacts, accounts, emails, relationships
+- `GET /api/team/mailboxes` — team mailbox overview (respects privacy_mode)
+- Warmness formula: score = 100 - (days_since_last_email / 2) + min(30, total_emails/3), clamped 0-100
+
+**Frontend**:
+- `client/src/pages/mailbox-settings.tsx` — `/settings/mailbox` page with personal mailbox list, Connect Gmail button, privacy mode selector, backfill panel with date range + live progress, team mailboxes overview
+- `client/src/pages/relationship-intelligence.tsx` — enhanced with 5-tab layout: Email Activity (existing), Re-engage, Dormant Leads, Multi-Threaded, 180d No Contact; WarmBadge component (🔥/☀️/❄️/💤)
+- `client/src/components/global-search.tsx` — Cmd+K modal with real-time search across contacts/accounts/emails; keyboard navigation (↑↓ arrows, Enter, ESC)
+- `/search` route in App.tsx with search launcher page
+- Sidebar link "Global Search" added to Admin section
+
+**Test suite** `tests/relationship-intelligence.test.js`: 26 tests across 8 groups (personal mailbox, privacy mode, backfill, relationship graph, intelligence views, global search, team mailboxes, no-regression)
+
+---
+
 ## Executive AI Copilot — Daily Decisions Engine (Complete — Feature 9)
 
 ### What was added

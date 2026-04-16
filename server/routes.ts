@@ -8828,16 +8828,19 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       return;
     }
 
-    // ── Gmail OAuth callback (existing) ───────────────────────────────────
+    // ── Gmail OAuth callback (personal + shared) ──────────────────────────
     const isShared = state === "shared";
     try {
       const { emailAddress } = await exchangeCodeForTokens(code, userId, isShared);
-      const label = isShared ? "Team inbox" : "Gmail account";
+      const label = isShared ? "Team inbox" : "personal Gmail account";
+      const returnPath = state === "personal" ? "/settings/mailbox" : "/gmail";
       res.send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
         <div style="text-align:center">
-          <h2 style="color:#22c55e">✓ ${label} Connected</h2>
+          <h2 style="color:#22c55e">✓ ${label === "personal Gmail account" ? "Mailbox" : "Team Inbox"} Connected</h2>
           <p>${emailAddress ? emailAddress + " has been" : "The account has been"} connected to VoltSafe Growth OS${isShared ? " as a shared team inbox" : ""}.</p>
-          <a href="/gmail" style="color:#14b8a6">Go to Gmail Inbox →</a>
+          <p style="color:#94a3b8;font-size:0.85rem">Redirecting you back…</p>
+          <script>setTimeout(() => window.location.href = '${returnPath}', 1500);</script>
+          <a href="${returnPath}" style="color:#14b8a6">← Continue</a>
         </div>
       </body></html>`);
     } catch (err: any) {
@@ -19038,6 +19041,415 @@ export function registerConfluenceRoutes(app: Express) {
       const r = await db.execute(sql.raw(`UPDATE winter_support_cases SET ${set}, updated_at = NOW() WHERE id = ${id} RETURNING id, status, first_response_at AS "firstResponseAt", resolved_at AS "resolvedAt", last_customer_reply_at AS "lastCustomerReplyAt"`));
       if (!(r as any).rows?.length) return res.status(404).json({ message: "Case not found" });
       res.json((r as any).rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PERSONAL + TEAM RELATIONSHIP INTELLIGENCE — Phases 1-7
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── Phase 1: Personal Mailbox Connections ────────────────────────────────
+
+  // GET /api/my/mailbox — list current user's connected mailboxes
+  app.get("/api/my/mailbox", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const rows = await db.execute(sql.raw(`
+        SELECT id, email_address AS "emailAddress", display_name AS "displayName",
+               provider, auth_status AS "authStatus", is_shared AS "isShared",
+               privacy_mode AS "privacyMode", sync_enabled AS "syncEnabled",
+               last_sync_at AS "lastSyncAt", sync_error_message AS "syncErrorMessage",
+               created_at AS "createdAt"
+        FROM email_accounts
+        WHERE user_id = ${userId}
+        ORDER BY created_at ASC
+      `));
+      res.json((rows as any).rows ?? []);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/my/mailbox/connect?shared=1 — redirect to Google OAuth
+  app.get("/api/my/mailbox/connect", requireAuth, async (req, res) => {
+    try {
+      const isShared = req.query.shared === "1";
+      const { getAuthUrl } = await import("./gmail-oauth");
+      const state = isShared ? "shared" : "personal";
+      const url = getAuthUrl(state);
+      res.json({ url });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // PATCH /api/my/mailbox/:id/privacy — update privacy mode
+  app.patch("/api/my/mailbox/:id/privacy", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const id = Number(req.params.id);
+      const { privacyMode } = req.body;
+      const valid = ["private", "metadata_only", "business_visible"];
+      if (!valid.includes(privacyMode)) return res.status(400).json({ message: "privacyMode must be: " + valid.join(", ") });
+      const r = await db.execute(sql.raw(`
+        UPDATE email_accounts
+        SET privacy_mode = '${privacyMode}', updated_at = NOW()
+        WHERE id = ${id} AND user_id = ${userId}
+        RETURNING id, privacy_mode AS "privacyMode"
+      `));
+      if (!(r as any).rows?.length) return res.status(404).json({ message: "Mailbox not found" });
+      res.json((r as any).rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // PATCH /api/my/mailbox/:id/sync — toggle sync enabled
+  app.patch("/api/my/mailbox/:id/sync", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const id = Number(req.params.id);
+      const { syncEnabled } = req.body;
+      const r = await db.execute(sql.raw(`
+        UPDATE email_accounts
+        SET sync_enabled = ${syncEnabled ? "true" : "false"}, updated_at = NOW()
+        WHERE id = ${id} AND user_id = ${userId}
+        RETURNING id, sync_enabled AS "syncEnabled"
+      `));
+      if (!(r as any).rows?.length) return res.status(404).json({ message: "Mailbox not found" });
+      res.json((r as any).rows[0]);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // DELETE /api/my/mailbox/:id — disconnect mailbox (revoke, clear tokens)
+  app.delete("/api/my/mailbox/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const id = Number(req.params.id);
+      const r = await db.execute(sql.raw(`
+        UPDATE email_accounts
+        SET auth_status = 'revoked', refresh_token = NULL, access_token = NULL,
+            sync_enabled = false, disconnected_at = NOW(), updated_at = NOW()
+        WHERE id = ${id} AND user_id = ${userId}
+        RETURNING id
+      `));
+      if (!(r as any).rows?.length) return res.status(404).json({ message: "Mailbox not found" });
+      res.json({ disconnected: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Phase 2: Historical Backfill ─────────────────────────────────────────
+
+  // POST /api/my/mailbox/:id/backfill — start a backfill job
+  app.post("/api/my/mailbox/:id/backfill", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const accountId = Number(req.params.id);
+      const { dateFrom, dateTo } = req.body;
+
+      // Verify ownership
+      const own = await db.execute(sql.raw(
+        `SELECT id FROM email_accounts WHERE id = ${accountId} AND user_id = ${userId} AND auth_status = 'active'`
+      ));
+      if (!(own as any).rows?.length) return res.status(404).json({ message: "Active mailbox not found" });
+
+      // Check for already-running job
+      const running = await db.execute(sql.raw(
+        `SELECT id FROM backfill_jobs WHERE email_account_id = ${accountId} AND status IN ('pending','running') LIMIT 1`
+      ));
+      if ((running as any).rows?.length) return res.status(409).json({ message: "A backfill job is already running for this mailbox" });
+
+      const dfSql = dateFrom ? `'${String(dateFrom).replace(/'/g,"''")}' ` : "NULL";
+      const dtSql = dateTo   ? `'${String(dateTo).replace(/'/g,"''")}' ` : "NULL";
+
+      const [job] = (await db.execute(sql.raw(`
+        INSERT INTO backfill_jobs (user_id, email_account_id, status, date_from, date_to)
+        VALUES (${userId}, ${accountId}, 'pending', ${dfSql}, ${dtSql})
+        RETURNING id, status, date_from AS "dateFrom", date_to AS "dateTo"
+      `)) as any).rows;
+
+      // Run async — don't await
+      const { runBackfillJob } = await import("./services/backfill-service");
+      runBackfillJob({ jobId: job.id, accountId, userId, dateFrom, dateTo })
+        .catch(err => console.error(`[backfill] job ${job.id} error:`, err));
+
+      res.status(202).json({ ...job, message: "Backfill job started" });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/my/mailbox/backfill/status — get backfill jobs for current user
+  app.get("/api/my/mailbox/backfill/status", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const r = await db.execute(sql.raw(`
+        SELECT bj.id, bj.email_account_id AS "emailAccountId",
+               ea.email_address AS "emailAddress",
+               bj.status, bj.date_from AS "dateFrom", bj.date_to AS "dateTo",
+               bj.processed, bj.total_estimate AS "totalEstimate",
+               bj.error_message AS "errorMessage",
+               bj.created_at AS "createdAt", bj.updated_at AS "updatedAt",
+               bj.completed_at AS "completedAt"
+        FROM backfill_jobs bj
+        JOIN email_accounts ea ON ea.id = bj.email_account_id
+        WHERE bj.user_id = ${userId}
+        ORDER BY bj.created_at DESC
+        LIMIT 20
+      `));
+      res.json((r as any).rows ?? []);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/my/mailbox/warmness/compute — trigger warmness recompute
+  app.post("/api/my/mailbox/warmness/compute", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const { computeWarmness } = await import("./services/backfill-service");
+      const count = await computeWarmness(userId);
+      res.json({ computed: count });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Phase 3: Relationship Graph ──────────────────────────────────────────
+
+  // GET /api/relationships/graph — per-contact warmness + relationship data
+  app.get("/api/relationships/graph", requireAuth, async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const offset = Number(req.query.offset) || 0;
+      const sort = req.query.sort === "oldest" ? "last_seen ASC" : req.query.sort === "coldest" ? "warmness_score ASC" : "warmness_score DESC";
+      const domain = req.query.domain ? `AND domain = '${String(req.query.domain).replace(/'/g,"''")}' ` : "";
+
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          cr.id, cr.email_address AS "emailAddress", cr.domain,
+          cr.contact_id AS "contactId", c.name AS "contactName",
+          c.account_id AS "accountId", a.name AS "accountName",
+          cr.first_seen AS "firstSeen", cr.last_seen AS "lastSeen",
+          cr.total_sent AS "totalSent", cr.total_received AS "totalReceived",
+          (cr.total_sent + cr.total_received) AS "totalConversations",
+          cr.warmness_score AS "warmnessScore",
+          EXTRACT(DAY FROM NOW() - cr.last_seen)::int AS "daysSinceContact",
+          cr.computed_at AS "computedAt"
+        FROM contact_relationships cr
+        LEFT JOIN contacts c ON c.id = cr.contact_id
+        LEFT JOIN accounts a ON a.id = c.account_id
+        WHERE cr.last_seen IS NOT NULL ${domain}
+        ORDER BY ${sort}
+        LIMIT ${limit} OFFSET ${offset}
+      `));
+
+      const [countRow] = (await db.execute(sql.raw(
+        `SELECT COUNT(*) AS cnt FROM contact_relationships WHERE last_seen IS NOT NULL ${domain}`
+      )) as any).rows;
+
+      res.json({
+        total: Number(countRow?.cnt ?? 0),
+        relationships: (rows as any).rows ?? [],
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/relationships/graph/stats — aggregate warmness stats
+  app.get("/api/relationships/graph/stats", requireAuth, async (req, res) => {
+    try {
+      const [stats] = (await db.execute(sql.raw(`
+        SELECT
+          COUNT(*) AS total,
+          COUNT(*) FILTER (WHERE warmness_score >= 70) AS hot,
+          COUNT(*) FILTER (WHERE warmness_score BETWEEN 40 AND 69) AS warm,
+          COUNT(*) FILTER (WHERE warmness_score BETWEEN 15 AND 39) AS cool,
+          COUNT(*) FILTER (WHERE warmness_score < 15) AS cold,
+          COUNT(*) FILTER (WHERE last_seen < NOW() - INTERVAL '180 days') AS dormant_180d,
+          AVG(warmness_score)::numeric(5,1) AS avg_score
+        FROM contact_relationships
+        WHERE last_seen IS NOT NULL
+      `)) as any).rows;
+
+      // Top domains
+      const domains = (await db.execute(sql.raw(`
+        SELECT domain,
+               COUNT(*) AS contacts,
+               AVG(warmness_score)::numeric(5,1) AS avg_score,
+               MAX(last_seen) AS last_contact
+        FROM contact_relationships
+        WHERE domain IS NOT NULL AND domain != ''
+        GROUP BY domain
+        ORDER BY COUNT(*) DESC
+        LIMIT 10
+      `)) as any).rows ?? [];
+
+      res.json({ summary: stats ?? {}, domains });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/relationships/views — Phase 6 intelligence views
+  app.get("/api/relationships/views", requireAuth, async (req, res) => {
+    try {
+      const view = (req.query.view as string) || "dormant";
+
+      if (view === "dormant_leads") {
+        // Leads not contacted in 30+ days
+        const rows = await db.execute(sql.raw(`
+          SELECT l.id, l.company, l.contact_name AS "contactName", l.contact_email AS "email",
+                 l.status, l.owner_user_id AS "ownerUserId", u.name AS "ownerName",
+                 cr.last_seen AS "lastSeen", cr.warmness_score AS "warmnessScore",
+                 EXTRACT(DAY FROM NOW() - cr.last_seen)::int AS "daysSinceContact"
+          FROM leads l
+          LEFT JOIN contact_relationships cr ON LOWER(cr.email_address) = LOWER(l.contact_email)
+          LEFT JOIN users u ON u.id = l.owner_user_id
+          WHERE l.status NOT IN ('converted','closed','won','lost')
+            AND (cr.last_seen IS NULL OR cr.last_seen < NOW() - INTERVAL '30 days')
+          ORDER BY cr.last_seen ASC NULLS FIRST
+          LIMIT 50
+        `));
+        return res.json((rows as any).rows ?? []);
+      }
+
+      if (view === "warm_to_reengage") {
+        // Contacts with warmness 40+ but no contact in 60+ days
+        const rows = await db.execute(sql.raw(`
+          SELECT cr.email_address AS "emailAddress", cr.domain, cr.warmness_score AS "warmnessScore",
+                 cr.last_seen AS "lastSeen", c.id AS "contactId", c.name AS "contactName",
+                 a.id AS "accountId", a.name AS "accountName",
+                 EXTRACT(DAY FROM NOW() - cr.last_seen)::int AS "daysSinceContact",
+                 cr.total_sent + cr.total_received AS "totalConversations"
+          FROM contact_relationships cr
+          LEFT JOIN contacts c ON c.id = cr.contact_id
+          LEFT JOIN accounts a ON a.id = c.account_id
+          WHERE cr.warmness_score >= 40
+            AND cr.last_seen < NOW() - INTERVAL '60 days'
+          ORDER BY cr.warmness_score DESC
+          LIMIT 50
+        `));
+        return res.json((rows as any).rows ?? []);
+      }
+
+      if (view === "multi_threaded") {
+        // Accounts with 2+ contacts we've emailed
+        const rows = await db.execute(sql.raw(`
+          SELECT a.id AS "accountId", a.name AS "accountName", a.org_type AS "orgType",
+                 COUNT(DISTINCT cr.email_address) AS "contactCount",
+                 MAX(cr.last_seen) AS "lastContact",
+                 AVG(cr.warmness_score)::numeric(5,1) AS "avgWarmness",
+                 SUM(cr.total_sent + cr.total_received) AS "totalConversations"
+          FROM contact_relationships cr
+          JOIN contacts c ON LOWER(c.email) = LOWER(cr.email_address)
+          JOIN accounts a ON a.id = c.account_id
+          GROUP BY a.id, a.name, a.org_type
+          HAVING COUNT(DISTINCT cr.email_address) >= 2
+          ORDER BY COUNT(DISTINCT cr.email_address) DESC, AVG(cr.warmness_score) DESC
+          LIMIT 40
+        `));
+        return res.json((rows as any).rows ?? []);
+      }
+
+      if (view === "no_contact_180") {
+        // Linked contacts with no email in 180 days
+        const rows = await db.execute(sql.raw(`
+          SELECT c.id AS "contactId", c.name AS "contactName", c.email, c.title,
+                 a.id AS "accountId", a.name AS "accountName",
+                 cr.last_seen AS "lastSeen", cr.warmness_score AS "warmnessScore",
+                 EXTRACT(DAY FROM NOW() - cr.last_seen)::int AS "daysSinceContact"
+          FROM contacts c
+          JOIN contact_relationships cr ON LOWER(cr.email_address) = LOWER(c.email)
+          LEFT JOIN accounts a ON a.id = c.account_id
+          WHERE cr.last_seen < NOW() - INTERVAL '180 days'
+             OR cr.last_seen IS NULL
+          ORDER BY cr.last_seen ASC NULLS FIRST
+          LIMIT 50
+        `));
+        return res.json((rows as any).rows ?? []);
+      }
+
+      // Default: general dormant (30+ days)
+      const rows = await db.execute(sql.raw(`
+        SELECT cr.email_address AS "emailAddress", cr.warmness_score AS "warmnessScore",
+               cr.last_seen AS "lastSeen", c.id AS "contactId", c.name AS "contactName",
+               a.name AS "accountName",
+               EXTRACT(DAY FROM NOW() - cr.last_seen)::int AS "daysSinceContact"
+        FROM contact_relationships cr
+        LEFT JOIN contacts c ON c.id = cr.contact_id
+        LEFT JOIN accounts a ON a.id = c.account_id
+        WHERE cr.last_seen < NOW() - INTERVAL '30 days'
+        ORDER BY cr.last_seen ASC
+        LIMIT 50
+      `));
+      res.json((rows as any).rows ?? []);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Phase 7: Global Search ────────────────────────────────────────────────
+
+  // GET /api/search/global?q=... — search contacts, accounts, emails, relationships
+  app.get("/api/search/global", requireAuth, async (req, res) => {
+    try {
+      const q = String(req.query.q || "").trim();
+      if (!q || q.length < 2) return res.json({ contacts: [], accounts: [], emails: [], relationships: [] });
+
+      const safe = q.replace(/'/g, "''");
+
+      const [contacts, accounts, emails, relationships] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT id, name, email, title, 'contact' AS type
+          FROM contacts
+          WHERE name ILIKE '%${safe}%' OR email ILIKE '%${safe}%' OR title ILIKE '%${safe}%'
+          LIMIT 10
+        `)),
+        db.execute(sql.raw(`
+          SELECT id, name, website, city, 'account' AS type
+          FROM accounts
+          WHERE name ILIKE '%${safe}%' OR website ILIKE '%${safe}%' OR city ILIKE '%${safe}%'
+          LIMIT 10
+        `)),
+        db.execute(sql.raw(`
+          SELECT id, subject, from_email AS "fromEmail", from_name AS "fromName",
+                 sent_at AS "sentAt", gmail_thread_id AS "threadId", 'email' AS type
+          FROM email_messages
+          WHERE subject ILIKE '%${safe}%' OR from_email ILIKE '%${safe}%' OR from_name ILIKE '%${safe}%'
+          ORDER BY sent_at DESC
+          LIMIT 10
+        `)),
+        db.execute(sql.raw(`
+          SELECT cr.email_address AS "emailAddress", cr.domain, cr.warmness_score AS "warmnessScore",
+                 c.name AS "contactName", 'relationship' AS type
+          FROM contact_relationships cr
+          LEFT JOIN contacts c ON c.id = cr.contact_id
+          WHERE cr.email_address ILIKE '%${safe}%' OR cr.domain ILIKE '%${safe}%' OR c.name ILIKE '%${safe}%'
+          LIMIT 10
+        `)),
+      ]);
+
+      res.json({
+        contacts: (contacts as any).rows ?? [],
+        accounts: (accounts as any).rows ?? [],
+        emails: (emails as any).rows ?? [],
+        relationships: (relationships as any).rows ?? [],
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Phase 5: Team Mailbox list (for admins/overview) ─────────────────────
+
+  // GET /api/team/mailboxes — all connected mailboxes (respects privacy_mode)
+  app.get("/api/team/mailboxes", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      // Load requester role
+      const [me] = (await db.execute(sql.raw(
+        `SELECT role FROM users WHERE id = ${userId}`
+      )) as any).rows;
+      const isAdmin = me?.role === "admin" || me?.role === "master_admin";
+
+      const privacyFilter = isAdmin
+        ? "" // admins see everything
+        : "AND (ea.is_shared = true OR ea.privacy_mode = 'business_visible' OR ea.user_id = " + userId + ")";
+
+      const rows = await db.execute(sql.raw(`
+        SELECT ea.id, ea.email_address AS "emailAddress", ea.display_name AS "displayName",
+               ea.provider, ea.auth_status AS "authStatus", ea.is_shared AS "isShared",
+               ea.privacy_mode AS "privacyMode", ea.sync_enabled AS "syncEnabled",
+               ea.last_sync_at AS "lastSyncAt", u.name AS "ownerName", ea.user_id AS "userId",
+               (SELECT COUNT(*) FROM backfill_jobs bj WHERE bj.email_account_id = ea.id) AS "backfillCount"
+        FROM email_accounts ea
+        JOIN users u ON u.id = ea.user_id
+        WHERE ea.is_active = true ${privacyFilter}
+        ORDER BY ea.is_shared DESC, ea.created_at ASC
+      `));
+      res.json((rows as any).rows ?? []);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

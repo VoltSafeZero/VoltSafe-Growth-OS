@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Switch, Route, useLocation } from "wouter";
+import { Search } from "lucide-react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -76,6 +77,8 @@ import FieldNearbyPage from "@/pages/field-nearby";
 import AlertsDigestPage from "@/pages/alerts-digest";
 import ScoreFeedbackPage from "@/pages/score-feedback";
 import TerritoryRoutingPage from "@/pages/territory-routing";
+import MailboxSettingsPage from "@/pages/mailbox-settings";
+import { GlobalSearch } from "@/components/global-search";
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -173,9 +176,26 @@ function AppShell({ children, user, onLogout }: { children: React.ReactNode; use
 function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const perms = user.permissions ?? FULL_PERMISSIONS;
   const role = user.globalRole || "sales";
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setSearchOpen(v => !v);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   function wrap(children: React.ReactNode) {
-    return <AppShell user={user} onLogout={onLogout}>{children}</AppShell>;
+    return (
+      <>
+        <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
+        <AppShell user={user} onLogout={onLogout}>{children}</AppShell>
+      </>
+    );
   }
 
   function guard(section: keyof Pick<UserPermissions, "crm" | "partnerships" | "projects" | "communications" | "team_workload" | "knowledge" | "support" | "quoting" | "calendar">, children: React.ReactNode) {
@@ -279,6 +299,28 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/jira">{() => wrap(<JiraPage />)}</Route>
       <Route path="/confluence">{() => wrap(<ConfluencePage />)}</Route>
       <Route path="/settings">{() => wrap(<SettingsPage />)}</Route>
+      <Route path="/settings/mailbox">{() => wrap(<MailboxSettingsPage />)}</Route>
+      <Route path="/search">{() => wrap(
+        <div className="flex flex-col h-full min-h-0 overflow-y-auto bg-background">
+          <div className="max-w-2xl w-full mx-auto px-4 py-8">
+            <h1 className="text-2xl font-bold mb-4 flex items-center gap-2">
+              <Search className="w-6 h-6 text-primary" /> Global Search
+            </h1>
+            <p className="text-muted-foreground mb-4 text-sm">
+              Use <kbd className="bg-muted border border-border rounded px-1.5 py-0.5 text-xs">⌘K</kbd> anywhere to open the search modal instantly.
+            </p>
+            <button
+              onClick={() => setSearchOpen(true)}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-border bg-secondary/30 hover:bg-secondary/60 transition-colors text-muted-foreground text-sm"
+              data-testid="btn-open-search"
+            >
+              <Search className="w-4 h-4 shrink-0" />
+              <span>Search contacts, accounts, emails…</span>
+              <kbd className="ml-auto bg-muted border border-border rounded px-1.5 py-0.5 text-xs">⌘K</kbd>
+            </button>
+          </div>
+        </div>
+      )}</Route>
 
       {/* ── LEGACY REDIRECTS ──────────────────────────────────────── */}
       <Route path="/tasks">{() => <Redirect to="/execution/tasks" />}</Route>
