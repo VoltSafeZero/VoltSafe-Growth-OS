@@ -11,6 +11,7 @@ import {
 } from "./executive-kpis";
 import { storage } from "./storage";
 import { runAutomationRule, evaluateConditions, type TriggerContext, type Condition, type Action } from "./services/automation-engine";
+import { scoreLeadQuality, scoreOpportunityClose, scoreQuoteFollowUpUrgency, scoreDeploymentDelayRisk, scoreChurnRisk, scoreExpansionLikelihood, bandRank, actionHintFor, type HotListItem } from "./services/scoring-engine";
 import { composeReport, ALL_SECTION_KEYS } from "./services/report-composer";
 import { db } from "./db";
 import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications } from "@shared/schema";
@@ -16360,6 +16361,445 @@ export function registerConfluenceRoutes(app: Express) {
           currentMrr: Math.round(n(r.current_mrr) * 100) / 100,
         })),
       });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Predictive Scoring Layer ─────────────────────────────────────────────────
+
+  // Helper: fetch task counts for a linked object
+  async function getTaskCounts(linkedObjectType: string, linkedObjectId: number) {
+    const r = await db.execute(sql.raw(`
+      SELECT
+        COUNT(*) FILTER (WHERE status NOT IN ('done','completed','dismissed')) AS open_count,
+        COUNT(*) FILTER (WHERE status NOT IN ('done','completed','dismissed') AND due_date < NOW()) AS overdue_count
+      FROM tasks
+      WHERE linked_object_type = '${linkedObjectType}' AND linked_object_id = ${linkedObjectId}
+    `));
+    const row = (r.rows as any[])[0];
+    return { openTaskCount: parseInt(row?.open_count ?? 0), overdueTaskCount: parseInt(row?.overdue_count ?? 0) };
+  }
+
+  // Helper: fetch activity count for a linked object
+  async function getActivityCount(linkedObjectType: string, linkedObjectId: number) {
+    const r = await db.execute(sql.raw(`
+      SELECT COUNT(*) AS cnt, MAX(created_at) AS last_at
+      FROM activities WHERE linked_object_type = '${linkedObjectType}' AND linked_object_id = ${linkedObjectId}
+    `));
+    const row = (r.rows as any[])[0];
+    return { activityCount: parseInt(row?.cnt ?? 0), lastActivityAt: row?.last_at ?? null };
+  }
+
+  // ── GET /api/scores/lead/:id ─────────────────────────────────────────────────
+  app.get("/api/scores/lead/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const lr = await db.execute(sql.raw(`SELECT * FROM leads WHERE id = ${id} LIMIT 1`));
+      if (!lr.rows.length) return res.status(404).json({ message: "Lead not found" });
+      const lead = lr.rows[0] as any;
+      const tasks = await getTaskCounts("lead", id);
+      const acts = await getActivityCount("lead", id);
+      const score = scoreLeadQuality({
+        source: lead.source, contactEmail: lead.contact_email, contactPhone: lead.contact_phone,
+        ownerUserId: lead.owner_user_id, dealAmount: lead.deal_amount,
+        estimatedSlipsImpacted: lead.estimated_slips_impacted, estimatedPedestalCount: lead.estimated_pedestal_count,
+        status: lead.status, createdAt: lead.created_at, updatedAt: lead.updated_at,
+        nextStep: lead.next_step, estCloseDate: lead.est_close_date, region: lead.region,
+        ...tasks, activityCount: acts.activityCount,
+      });
+      res.json({ id, name: lead.company, ...score });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── GET /api/scores/leads (bulk) ─────────────────────────────────────────────
+  app.get("/api/scores/leads", requireAuth, async (req, res) => {
+    try {
+      const where = `WHERE status NOT IN ('closed_won','closed_lost','disqualified','converted')`;
+      const lr = await db.execute(sql.raw(`
+        SELECT l.*,
+          (SELECT COUNT(*) FROM tasks t WHERE t.linked_object_type='lead' AND t.linked_object_id=l.id AND t.status NOT IN ('done','completed','dismissed') AND t.due_date < NOW()) AS overdue_tasks,
+          (SELECT COUNT(*) FROM activities a WHERE a.linked_object_type='lead' AND a.linked_object_id=l.id) AS activity_count
+        FROM leads l ${where} ORDER BY l.updated_at DESC LIMIT 200
+      `));
+      const results = (lr.rows as any[]).map(lead => {
+        const score = scoreLeadQuality({
+          source: lead.source, contactEmail: lead.contact_email, contactPhone: lead.contact_phone,
+          ownerUserId: lead.owner_user_id, dealAmount: lead.deal_amount,
+          estimatedSlipsImpacted: lead.estimated_slips_impacted, estimatedPedestalCount: lead.estimated_pedestal_count,
+          status: lead.status, createdAt: lead.created_at, updatedAt: lead.updated_at,
+          nextStep: lead.next_step, estCloseDate: lead.est_close_date, region: lead.region,
+          overdueTaskCount: parseInt(lead.overdue_tasks ?? 0), activityCount: parseInt(lead.activity_count ?? 0),
+        });
+        return { id: lead.id, name: lead.company, status: lead.status, ownerUserId: lead.owner_user_id, ...score };
+      });
+      results.sort((a, b) => b.score - a.score);
+      res.json(results);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── GET /api/scores/opportunity/:id ─────────────────────────────────────────
+  app.get("/api/scores/opportunity/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const or = await db.execute(sql.raw(`SELECT * FROM opportunities WHERE id = ${id} LIMIT 1`));
+      if (!or.rows.length) return res.status(404).json({ message: "Opportunity not found" });
+      const opp = or.rows[0] as any;
+      const tasks = await getTaskCounts("opportunity", id);
+      const qr = await db.execute(sql.raw(`SELECT id FROM quotes WHERE opportunity_id = ${id} AND status NOT IN ('archived','declined') LIMIT 1`));
+      const score = scoreOpportunityClose({
+        stage: opp.stage, estCloseDate: opp.est_close_date, lastActivityDate: opp.last_activity_date,
+        isStalled: opp.is_stalled, ownerUserId: opp.owner_user_id,
+        championIdentified: opp.champion_identified, economicBuyerIdentified: opp.economic_buyer_identified,
+        decisionCriteriaKnown: opp.decision_criteria_known, decisionProcessKnown: opp.decision_process_known,
+        amount: opp.amount, hasQuote: qr.rows.length > 0, painClarity: opp.pain_clarity,
+        riskFlags: opp.risk_flags, forecastCategory: opp.forecast_category, ...tasks,
+      });
+      res.json({ id, name: opp.title, ...score });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── GET /api/scores/opportunities (bulk) ────────────────────────────────────
+  app.get("/api/scores/opportunities", requireAuth, async (req, res) => {
+    try {
+      const or = await db.execute(sql.raw(`
+        SELECT o.*,
+          (SELECT COUNT(*) FROM tasks t WHERE t.linked_object_type='opportunity' AND t.linked_object_id=o.id AND t.status NOT IN ('done','completed','dismissed') AND t.due_date < NOW()) AS overdue_tasks,
+          (SELECT COUNT(*) FROM quotes q WHERE q.opportunity_id=o.id AND q.status NOT IN ('archived','declined')) AS quote_count
+        FROM opportunities o
+        WHERE o.stage NOT IN ('closed_won','closed_lost')
+        ORDER BY o.updated_at DESC LIMIT 200
+      `));
+      const results = (or.rows as any[]).map(opp => {
+        const score = scoreOpportunityClose({
+          stage: opp.stage, estCloseDate: opp.est_close_date, lastActivityDate: opp.last_activity_date,
+          isStalled: opp.is_stalled, ownerUserId: opp.owner_user_id,
+          championIdentified: opp.champion_identified, economicBuyerIdentified: opp.economic_buyer_identified,
+          decisionCriteriaKnown: opp.decision_criteria_known, decisionProcessKnown: opp.decision_process_known,
+          amount: opp.amount, hasQuote: parseInt(opp.quote_count ?? 0) > 0, painClarity: opp.pain_clarity,
+          riskFlags: opp.risk_flags, forecastCategory: opp.forecast_category,
+          overdueTaskCount: parseInt(opp.overdue_tasks ?? 0),
+        });
+        return { id: opp.id, name: opp.title, stage: opp.stage, amount: opp.amount, ownerUserId: opp.owner_user_id, ...score };
+      });
+      results.sort((a, b) => b.score - a.score);
+      res.json(results);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── GET /api/scores/quote/:id ────────────────────────────────────────────────
+  app.get("/api/scores/quote/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const qr = await db.execute(sql.raw(`SELECT * FROM quotes WHERE id = ${id} LIMIT 1`));
+      if (!qr.rows.length) return res.status(404).json({ message: "Quote not found" });
+      const q = qr.rows[0] as any;
+      const tr = await db.execute(sql.raw(`SELECT id FROM tasks WHERE linked_object_type='quote' AND linked_object_id=${id} AND status NOT IN ('done','completed','dismissed') LIMIT 1`));
+      const score = scoreQuoteFollowUpUrgency({
+        status: q.status, sentAt: q.sent_at, validUntil: q.valid_until, total: q.total,
+        opportunityId: q.opportunity_id, hasFollowUpTask: tr.rows.length > 0,
+        ownerUserId: q.owner_user_id,
+      });
+      res.json({ id, name: q.quote_number, customerName: q.customer_name, ...score });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── GET /api/scores/quotes (bulk) ────────────────────────────────────────────
+  app.get("/api/scores/quotes", requireAuth, async (req, res) => {
+    try {
+      const qr = await db.execute(sql.raw(`
+        SELECT q.*,
+          (SELECT COUNT(*) FROM tasks t WHERE t.linked_object_type='quote' AND t.linked_object_id=q.id AND t.status NOT IN ('done','completed','dismissed')) AS task_count
+        FROM quotes q
+        WHERE q.status NOT IN ('archived')
+        ORDER BY q.updated_at DESC LIMIT 200
+      `));
+      const results = (qr.rows as any[]).map(q => {
+        const score = scoreQuoteFollowUpUrgency({
+          status: q.status, sentAt: q.sent_at, validUntil: q.valid_until, total: q.total,
+          opportunityId: q.opportunity_id, hasFollowUpTask: parseInt(q.task_count ?? 0) > 0,
+          ownerUserId: q.owner_user_id,
+        });
+        return { id: q.id, name: q.quote_number, customerName: q.customer_name, status: q.status, total: q.total, ...score };
+      });
+      results.sort((a, b) => b.score - a.score);
+      res.json(results);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── GET /api/scores/deployment/:id ──────────────────────────────────────────
+  app.get("/api/scores/deployment/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const dr = await db.execute(sql.raw(`SELECT * FROM deployments WHERE id = ${id} LIMIT 1`));
+      if (!dr.rows.length) return res.status(404).json({ message: "Deployment not found" });
+      const dep = dr.rows[0] as any;
+      const br = await db.execute(sql.raw(`
+        SELECT COUNT(*) FILTER (WHERE status='open') AS open_count,
+               COUNT(*) FILTER (WHERE status='open' AND severity='critical') AS critical_count
+        FROM deployment_blockers WHERE deployment_id = ${id}
+      `));
+      const cr = await db.execute(sql.raw(`SELECT COUNT(*) FILTER (WHERE status='pending') AS pending FROM commissioning_checkpoints WHERE deployment_id = ${id}`));
+      const blockers = br.rows[0] as any;
+      const checkpoints = cr.rows[0] as any;
+      const score = scoreDeploymentDelayRisk({
+        status: dep.status, plannedStart: dep.planned_start, actualStart: dep.actual_start,
+        targetGoLive: dep.target_go_live, actualGoLive: dep.actual_go_live,
+        ownerUserId: dep.owner_user_id, blockers: dep.blockers,
+        openBlockerCount: parseInt(blockers?.open_count ?? 0),
+        criticalBlockerCount: parseInt(blockers?.critical_count ?? 0),
+        pendingCheckpointCount: parseInt(checkpoints?.pending ?? 0),
+        updatedAt: dep.updated_at, createdAt: dep.created_at,
+      });
+      res.json({ id, name: dep.site_name, deployNumber: dep.deploy_number, ...score });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── GET /api/scores/deployments/risk (bulk) ──────────────────────────────────
+  app.get("/api/scores/deployments/risk", requireAuth, async (req, res) => {
+    try {
+      const dr = await db.execute(sql.raw(`
+        SELECT d.*,
+          (SELECT COUNT(*) FROM deployment_blockers b WHERE b.deployment_id=d.id AND b.status='open') AS open_blockers,
+          (SELECT COUNT(*) FROM deployment_blockers b WHERE b.deployment_id=d.id AND b.status='open' AND b.severity='critical') AS critical_blockers,
+          (SELECT COUNT(*) FROM commissioning_checkpoints c WHERE c.deployment_id=d.id AND c.status='pending') AS pending_checkpoints
+        FROM deployments d
+        WHERE d.status NOT IN ('completed','live','cancelled')
+        ORDER BY d.updated_at DESC LIMIT 200
+      `));
+      const results = (dr.rows as any[]).map(dep => {
+        const score = scoreDeploymentDelayRisk({
+          status: dep.status, plannedStart: dep.planned_start, actualStart: dep.actual_start,
+          targetGoLive: dep.target_go_live, ownerUserId: dep.owner_user_id, blockers: dep.blockers,
+          openBlockerCount: parseInt(dep.open_blockers ?? 0),
+          criticalBlockerCount: parseInt(dep.critical_blockers ?? 0),
+          pendingCheckpointCount: parseInt(dep.pending_checkpoints ?? 0),
+          updatedAt: dep.updated_at, createdAt: dep.created_at,
+        });
+        return { id: dep.id, name: dep.site_name, deployNumber: dep.deploy_number, status: dep.status, ...score };
+      });
+      results.sort((a, b) => b.score - a.score);
+      res.json(results);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── GET /api/scores/account/churn/:id ───────────────────────────────────────
+  app.get("/api/scores/account/churn/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const sr = await db.execute(sql.raw(`SELECT * FROM customer_subscriptions WHERE account_id = ${id} ORDER BY updated_at DESC LIMIT 1`));
+      if (!sr.rows.length) return res.status(404).json({ message: "No subscription found for account" });
+      const sub = sr.rows[0] as any;
+      const tasks = await getTaskCounts("account", id);
+      const ar = await db.execute(sql.raw(`SELECT name FROM accounts WHERE id = ${id} LIMIT 1`));
+      const accountName = (ar.rows[0] as any)?.name ?? `Account ${id}`;
+      const flags = Array.isArray(sub.churn_risk_flags) ? sub.churn_risk_flags : (sub.churn_risk_flags ? JSON.parse(sub.churn_risk_flags) : []);
+      const score = scoreChurnRisk({
+        healthScore: sub.health_score, healthStatus: sub.health_status, billingStatus: sub.billing_status,
+        renewalDate: sub.renewal_date, status: sub.status, lastCheckinAt: sub.last_checkin_at,
+        expansionPotential: sub.expansion_potential, churnRiskFlags: flags,
+        mrr: sub.mrr, arr: sub.arr, contractTermMonths: sub.contract_term_months,
+        ...tasks,
+      });
+      res.json({ id, accountId: id, subscriptionId: sub.id, name: accountName, ...score });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── GET /api/scores/accounts/churn (bulk) ───────────────────────────────────
+  app.get("/api/scores/accounts/churn", requireAuth, async (req, res) => {
+    try {
+      const sr = await db.execute(sql.raw(`
+        SELECT cs.*, a.name AS account_name,
+          (SELECT COUNT(*) FROM tasks t WHERE t.linked_object_type='account' AND t.linked_object_id=cs.account_id AND t.status NOT IN ('done','completed','dismissed') AND t.due_date < NOW()) AS overdue_tasks
+        FROM customer_subscriptions cs
+        JOIN accounts a ON a.id = cs.account_id
+        WHERE cs.status NOT IN ('cancelled','churned')
+        ORDER BY cs.updated_at DESC LIMIT 300
+      `));
+      const results = (sr.rows as any[]).map(sub => {
+        const flags = Array.isArray(sub.churn_risk_flags) ? sub.churn_risk_flags : (sub.churn_risk_flags ? JSON.parse(sub.churn_risk_flags) : []);
+        const score = scoreChurnRisk({
+          healthScore: sub.health_score, healthStatus: sub.health_status, billingStatus: sub.billing_status,
+          renewalDate: sub.renewal_date, status: sub.status, lastCheckinAt: sub.last_checkin_at,
+          expansionPotential: sub.expansion_potential, churnRiskFlags: flags,
+          mrr: sub.mrr, arr: sub.arr, contractTermMonths: sub.contract_term_months,
+          overdueTaskCount: parseInt(sub.overdue_tasks ?? 0),
+        });
+        return { id: sub.account_id, accountId: sub.account_id, subscriptionId: sub.id, name: sub.account_name, arr: sub.arr, ...score };
+      });
+      results.sort((a, b) => b.score - a.score);
+      res.json(results);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── GET /api/scores/account/expansion/:id ───────────────────────────────────
+  app.get("/api/scores/account/expansion/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const ar = await db.execute(sql.raw(`SELECT * FROM accounts WHERE id = ${id} LIMIT 1`));
+      if (!ar.rows.length) return res.status(404).json({ message: "Account not found" });
+      const acc = ar.rows[0] as any;
+      const sr = await db.execute(sql.raw(`SELECT health_status, health_score, arr, expansion_potential FROM customer_subscriptions WHERE account_id = ${id} ORDER BY updated_at DESC LIMIT 1`));
+      const sub = sr.rows.length ? sr.rows[0] as any : null;
+      const or = await db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM opportunities WHERE account_id = ${id} AND stage NOT IN ('closed_won','closed_lost') LIMIT 1`));
+      const actR = await db.execute(sql.raw(`SELECT COUNT(*) AS cnt FROM activities WHERE linked_object_type='account' AND linked_object_id=${id}`));
+      const score = scoreExpansionLikelihood({
+        expansionPlans: acc.expansion_plans, expansionNotes: acc.expansion_notes,
+        expansionPotential: sub?.expansion_potential ?? acc.expansion_notes ? "low" : "none",
+        contractedUnits: acc.contracted_units, installedUnits: acc.installed_units,
+        voltsafeSlipsLive: acc.voltsafe_slips_live, slipCount: acc.slip_count, totalSlips: acc.total_slips,
+        healthStatus: sub?.health_status, healthScore: sub?.health_score,
+        priority: acc.priority, betaTester: acc.beta_tester,
+        lastInteractionAt: acc.last_interaction_at, activityCount: parseInt(actR.rows[0] as any)?.cnt ?? 0,
+        openOpportunityCount: parseInt((or.rows[0] as any)?.cnt ?? 0), arr: sub?.arr,
+      });
+      res.json({ id, name: acc.name, ...score });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── GET /api/scores/accounts/expansion (bulk) ───────────────────────────────
+  app.get("/api/scores/accounts/expansion", requireAuth, async (req, res) => {
+    try {
+      const ar = await db.execute(sql.raw(`
+        SELECT a.*,
+          cs.health_status, cs.health_score, cs.arr, cs.expansion_potential AS cs_expansion_potential,
+          (SELECT COUNT(*) FROM opportunities o WHERE o.account_id=a.id AND o.stage NOT IN ('closed_won','closed_lost')) AS open_opps,
+          (SELECT COUNT(*) FROM activities act WHERE act.linked_object_type='account' AND act.linked_object_id=a.id) AS activity_count
+        FROM accounts a
+        LEFT JOIN LATERAL (
+          SELECT health_status, health_score, arr, expansion_potential
+          FROM customer_subscriptions WHERE account_id = a.id ORDER BY updated_at DESC LIMIT 1
+        ) cs ON true
+        WHERE a.lead_status NOT IN ('closed_lost','disqualified')
+        ORDER BY a.updated_at DESC LIMIT 300
+      `));
+      const results = (ar.rows as any[]).map(acc => {
+        const score = scoreExpansionLikelihood({
+          expansionPlans: acc.expansion_plans, expansionNotes: acc.expansion_notes,
+          expansionPotential: acc.cs_expansion_potential ?? (acc.expansion_notes ? "low" : "none"),
+          contractedUnits: acc.contracted_units, installedUnits: acc.installed_units,
+          voltsafeSlipsLive: acc.voltsafe_slips_live, slipCount: acc.slip_count, totalSlips: acc.total_slips,
+          healthStatus: acc.health_status, healthScore: acc.health_score,
+          priority: acc.priority, betaTester: acc.beta_tester,
+          lastInteractionAt: acc.last_interaction_at, activityCount: parseInt(acc.activity_count ?? 0),
+          openOpportunityCount: parseInt(acc.open_opps ?? 0), arr: acc.arr,
+        });
+        return { id: acc.id, name: acc.name, arr: acc.arr, ...score };
+      });
+      results.sort((a, b) => b.score - a.score);
+      res.json(results);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── GET /api/scores/hot-list ─────────────────────────────────────────────────
+  app.get("/api/scores/hot-list", requireAuth, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(String(req.query.limit ?? 15)), 50);
+
+      // Fetch top candidates from each category in parallel
+      const [leadsR, oppsR, quotesR, deploysR, churnR] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT l.id, l.company AS name, l.source, l.contact_email, l.contact_phone, l.owner_user_id,
+            l.deal_amount, l.estimated_slips_impacted, l.status, l.updated_at, l.next_step, l.est_close_date, l.region,
+            (SELECT COUNT(*) FROM tasks t WHERE t.linked_object_type='lead' AND t.linked_object_id=l.id AND t.status NOT IN ('done','completed','dismissed') AND t.due_date < NOW()) AS overdue_tasks
+          FROM leads l WHERE l.status NOT IN ('closed_won','closed_lost','disqualified','converted')
+          ORDER BY l.updated_at DESC LIMIT 60
+        `)),
+        db.execute(sql.raw(`
+          SELECT o.id, o.title AS name, o.stage, o.amount, o.owner_user_id, o.est_close_date, o.last_activity_date, o.is_stalled,
+            o.champion_identified, o.economic_buyer_identified, o.decision_criteria_known, o.pain_clarity, o.risk_flags, o.forecast_category,
+            (SELECT COUNT(*) FROM quotes q WHERE q.opportunity_id=o.id AND q.status NOT IN ('archived','declined')) AS quote_count,
+            (SELECT COUNT(*) FROM tasks t WHERE t.linked_object_type='opportunity' AND t.linked_object_id=o.id AND t.status NOT IN ('done','completed','dismissed') AND t.due_date < NOW()) AS overdue_tasks
+          FROM opportunities o WHERE o.stage NOT IN ('closed_won','closed_lost')
+          ORDER BY o.updated_at DESC LIMIT 60
+        `)),
+        db.execute(sql.raw(`
+          SELECT q.id, q.quote_number AS name, q.status, q.total, q.opportunity_id, q.owner_user_id, q.sent_at, q.valid_until, q.customer_name,
+            (SELECT COUNT(*) FROM tasks t WHERE t.linked_object_type='quote' AND t.linked_object_id=q.id AND t.status NOT IN ('done','completed','dismissed')) AS task_count
+          FROM quotes q WHERE q.status NOT IN ('archived','accepted','declined')
+          ORDER BY q.updated_at DESC LIMIT 60
+        `)),
+        db.execute(sql.raw(`
+          SELECT d.id, d.site_name AS name, d.status, d.deploy_number, d.owner_user_id, d.planned_start, d.actual_start, d.target_go_live, d.updated_at, d.blockers,
+            (SELECT COUNT(*) FROM deployment_blockers b WHERE b.deployment_id=d.id AND b.status='open') AS open_blockers,
+            (SELECT COUNT(*) FROM deployment_blockers b WHERE b.deployment_id=d.id AND b.status='open' AND b.severity='critical') AS critical_blockers
+          FROM deployments d WHERE d.status NOT IN ('completed','live','cancelled')
+          ORDER BY d.updated_at DESC LIMIT 60
+        `)),
+        db.execute(sql.raw(`
+          SELECT cs.account_id AS id, a.name, cs.health_status, cs.health_score, cs.billing_status, cs.renewal_date,
+            cs.status, cs.last_checkin_at, cs.expansion_potential, cs.churn_risk_flags, cs.arr,
+            (SELECT COUNT(*) FROM tasks t WHERE t.linked_object_type='account' AND t.linked_object_id=cs.account_id AND t.status NOT IN ('done','completed','dismissed') AND t.due_date < NOW()) AS overdue_tasks
+          FROM customer_subscriptions cs JOIN accounts a ON a.id = cs.account_id
+          WHERE cs.status NOT IN ('cancelled','churned')
+          ORDER BY cs.updated_at DESC LIMIT 60
+        `)),
+      ]);
+
+      const hotList: HotListItem[] = [];
+
+      for (const lead of leadsR.rows as any[]) {
+        const s = scoreLeadQuality({
+          source: lead.source, contactEmail: lead.contact_email, contactPhone: lead.contact_phone,
+          ownerUserId: lead.owner_user_id, dealAmount: lead.deal_amount, estimatedSlipsImpacted: lead.estimated_slips_impacted,
+          status: lead.status, updatedAt: lead.updated_at, nextStep: lead.next_step, region: lead.region,
+          overdueTaskCount: parseInt(lead.overdue_tasks ?? 0),
+        });
+        if (s.band === "high" || s.band === "critical") {
+          hotList.push({ type: "lead", id: lead.id, name: lead.name, score: s, actionHint: actionHintFor("lead", s), link: `/leads/${lead.id}` });
+        }
+      }
+
+      for (const opp of oppsR.rows as any[]) {
+        const s = scoreOpportunityClose({
+          stage: opp.stage, estCloseDate: opp.est_close_date, lastActivityDate: opp.last_activity_date,
+          isStalled: opp.is_stalled, ownerUserId: opp.owner_user_id,
+          championIdentified: opp.champion_identified, economicBuyerIdentified: opp.economic_buyer_identified,
+          decisionCriteriaKnown: opp.decision_criteria_known, amount: opp.amount,
+          hasQuote: parseInt(opp.quote_count ?? 0) > 0, painClarity: opp.pain_clarity,
+          riskFlags: opp.risk_flags, forecastCategory: opp.forecast_category,
+          overdueTaskCount: parseInt(opp.overdue_tasks ?? 0),
+        });
+        if (s.band === "high" || s.band === "critical") {
+          hotList.push({ type: "opportunity", id: opp.id, name: opp.name, score: s, actionHint: actionHintFor("opportunity", s), link: `/opportunities/${opp.id}` });
+        }
+      }
+
+      for (const q of quotesR.rows as any[]) {
+        const s = scoreQuoteFollowUpUrgency({
+          status: q.status, sentAt: q.sent_at, validUntil: q.valid_until, total: q.total,
+          opportunityId: q.opportunity_id, hasFollowUpTask: parseInt(q.task_count ?? 0) > 0, ownerUserId: q.owner_user_id,
+        });
+        if (s.band === "high" || s.band === "critical") {
+          hotList.push({ type: "quote", id: q.id, name: `${q.name}${q.customer_name ? ` (${q.customer_name})` : ""}`, score: s, actionHint: actionHintFor("quote", s), link: `/quotes/${q.id}` });
+        }
+      }
+
+      for (const dep of deploysR.rows as any[]) {
+        const s = scoreDeploymentDelayRisk({
+          status: dep.status, plannedStart: dep.planned_start, actualStart: dep.actual_start,
+          targetGoLive: dep.target_go_live, ownerUserId: dep.owner_user_id, blockers: dep.blockers,
+          openBlockerCount: parseInt(dep.open_blockers ?? 0), criticalBlockerCount: parseInt(dep.critical_blockers ?? 0),
+          updatedAt: dep.updated_at,
+        });
+        if (s.band === "high" || s.band === "critical") {
+          hotList.push({ type: "deployment", id: dep.id, name: dep.name, score: s, actionHint: actionHintFor("deployment", s), link: `/deployments/${dep.id}` });
+        }
+      }
+
+      for (const sub of churnR.rows as any[]) {
+        const flags = Array.isArray(sub.churn_risk_flags) ? sub.churn_risk_flags : (sub.churn_risk_flags ? JSON.parse(sub.churn_risk_flags) : []);
+        const s = scoreChurnRisk({
+          healthScore: sub.health_score, healthStatus: sub.health_status, billingStatus: sub.billing_status,
+          renewalDate: sub.renewal_date, status: sub.status, lastCheckinAt: sub.last_checkin_at,
+          expansionPotential: sub.expansion_potential, churnRiskFlags: flags, arr: sub.arr,
+          overdueTaskCount: parseInt(sub.overdue_tasks ?? 0),
+        });
+        if (s.band === "high" || s.band === "critical") {
+          hotList.push({ type: "churn", id: sub.id, name: sub.name, score: s, actionHint: actionHintFor("churn", s), link: `/accounts/${sub.id}` });
+        }
+      }
+
+      hotList.sort((a, b) => bandRank(b.score.band) - bandRank(a.score.band) || b.score.score - a.score.score);
+      res.json(hotList.slice(0, limit));
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
