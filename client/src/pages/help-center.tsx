@@ -1,17 +1,96 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { BookOpen, GraduationCap, Zap, Download, Search, ChevronDown, ChevronRight, HelpCircle } from "lucide-react";
+import { BookOpen, GraduationCap, Zap, Download, Search, ChevronDown, ChevronRight, HelpCircle, RefreshCw, CheckCircle2, MinusCircle } from "lucide-react";
 import quickStartRaw from "../docs/quick-start-guide.md?raw";
 import opsManualRaw from "../docs/operations-manual.md?raw";
 import trainingRaw from "../docs/training-handbook.md?raw";
-import kbData from "../docs/ai-knowledge-base.json";
+import kbBundled from "../docs/ai-knowledge-base.json";
 
 type FAQ = { id: string; question: string; answer: string; tags: string[] };
+
+type RefreshStatus = {
+  bootTime: string;
+  bootLocalDate: string;
+  nowLocalDate: string;
+  republishedToday: boolean;
+  lastRefreshedAt: string | null;
+  lastRefreshLocalDate: string | null;
+  lastRunAt: string | null;
+  lastRunAction: "refreshed" | "skipped_no_republish" | "failed" | null;
+  willRefreshTonight: boolean;
+  timezone: string;
+};
+
+// Fetches the runtime-served copy of an asset; returns null if there isn't
+// one yet (the bundled copy from `?raw` will be used as the fallback).
+function useRefreshedAsset(name: string): string | null {
+  const { data } = useQuery<string | null>({
+    queryKey: ["/api/help-center/assets", name],
+    queryFn: async () => {
+      const r = await fetch(`/api/help-center/assets/${name}`, { credentials: "include" });
+      if (r.status === 204 || !r.ok) return null;
+      return await r.text();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  return data ?? null;
+}
+
+function RefreshStatusBanner() {
+  const { data } = useQuery<RefreshStatus>({
+    queryKey: ["/api/help-center/refresh-status"],
+    staleTime: 60 * 1000,
+  });
+  if (!data) return null;
+
+  const lastRefreshLabel = data.lastRefreshedAt
+    ? new Date(data.lastRefreshedAt).toLocaleString(undefined, {
+        dateStyle: "medium", timeStyle: "short",
+      })
+    : "never";
+
+  let icon, tone, headline, sub;
+  if (data.willRefreshTonight) {
+    icon = <RefreshCw className="h-3.5 w-3.5 text-primary" />;
+    tone = "border-primary/30 bg-primary/5";
+    headline = "Auto-refresh scheduled tonight";
+    sub = `Production was republished today — assets will be re-stamped at end of day (${data.timezone}).`;
+  } else if (data.lastRunAction === "skipped_no_republish") {
+    icon = <MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />;
+    tone = "border-border bg-muted/30";
+    headline = "No refresh tonight";
+    sub = "Production hasn't been republished today, so end-of-day refresh will be skipped.";
+  } else {
+    icon = <CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground" />;
+    tone = "border-border bg-muted/30";
+    headline = "Help Center is up to date";
+    sub = data.republishedToday
+      ? "Production was republished today — auto-refresh will run tonight."
+      : "Auto-refresh runs end-of-day on republish days only.";
+  }
+
+  return (
+    <div
+      className={`mx-6 mt-3 mb-1 rounded-md border ${tone} px-3 py-2 flex items-start gap-2`}
+      data-testid="help-center-refresh-banner"
+    >
+      <div className="mt-0.5">{icon}</div>
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-medium text-foreground" data-testid="text-refresh-headline">{headline}</div>
+        <div className="text-[11px] text-muted-foreground leading-snug" data-testid="text-refresh-sub">{sub}</div>
+      </div>
+      <div className="text-[11px] text-muted-foreground whitespace-nowrap" data-testid="text-last-refresh">
+        Last revised: <span className="font-medium text-foreground/80">{lastRefreshLabel}</span>
+      </div>
+    </div>
+  );
+}
 
 function mdToHtml(md: string): string {
   let html = md;
@@ -170,6 +249,15 @@ function MarkdownDoc({ content, title }: { content: string; title: string }) {
   );
 }
 
+// Wrapper around MarkdownDoc that prefers the runtime-served (most recently
+// refreshed) version of the asset and falls back to the build-time bundled copy.
+function RefreshableMarkdownDoc({
+  assetName, bundled, title,
+}: { assetName: string; bundled: string; title: string }) {
+  const fresh = useRefreshedAsset(assetName);
+  return <MarkdownDoc content={fresh ?? bundled} title={title} />;
+}
+
 function FAQItem({ faq }: { faq: FAQ }) {
   const [open, setOpen] = useState(false);
   return (
@@ -202,6 +290,13 @@ function FAQItem({ faq }: { faq: FAQ }) {
 function KnowledgeBase() {
   const [search, setSearch] = useState("");
   const [activeTag, setActiveTag] = useState<string | null>(null);
+
+  // Prefer the runtime-served (most recently refreshed) KB; fall back to bundled.
+  const refreshedRaw = useRefreshedAsset("ai-knowledge-base.json");
+  const kbData: typeof kbBundled = (() => {
+    if (!refreshedRaw) return kbBundled as typeof kbBundled;
+    try { return JSON.parse(refreshedRaw); } catch { return kbBundled as typeof kbBundled; }
+  })();
 
   const allTags = Array.from(
     new Set(kbData.faqs.flatMap((f: FAQ) => f.tags))
@@ -356,20 +451,22 @@ export default function HelpCenterPage() {
             >
               <HelpCircle className="h-3.5 w-3.5" />
               FAQ & Glossary
-              <Badge variant="secondary" className="text-[10px] h-4 px-1">{kbData.faqs.length}</Badge>
+              <Badge variant="secondary" className="text-[10px] h-4 px-1">{kbBundled.faqs.length}</Badge>
             </TabsTrigger>
           </TabsList>
         </div>
 
+        <RefreshStatusBanner />
+
         <div className="flex-1 overflow-y-auto">
           <TabsContent value="quickstart" className="mt-0 h-full">
-            <MarkdownDoc content={quickStartRaw} title="Quick Start Guide" />
+            <RefreshableMarkdownDoc assetName="quick-start-guide.md" bundled={quickStartRaw} title="Quick Start Guide" />
           </TabsContent>
           <TabsContent value="manual" className="mt-0 h-full">
-            <MarkdownDoc content={opsManualRaw} title="Operations Manual" />
+            <RefreshableMarkdownDoc assetName="operations-manual.md" bundled={opsManualRaw} title="Operations Manual" />
           </TabsContent>
           <TabsContent value="training" className="mt-0 h-full">
-            <MarkdownDoc content={trainingRaw} title="Training Handbook" />
+            <RefreshableMarkdownDoc assetName="training-handbook.md" bundled={trainingRaw} title="Training Handbook" />
           </TabsContent>
           <TabsContent value="kb" className="mt-0 h-full">
             <KnowledgeBase />

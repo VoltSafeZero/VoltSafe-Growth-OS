@@ -5,6 +5,7 @@ import { registerRoutes, registerJiraRoutes, registerConfluenceRoutes } from "./
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startHourlySyncScheduler } from "./services/gmail-sync";
+import { startHelpCenterRefreshScheduler } from "./services/help-center-refresh";
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);
@@ -180,6 +181,7 @@ app.use((req, res, next) => {
       }
 
       startHourlySyncScheduler();
+      startHelpCenterRefreshScheduler();
     },
   );
 })();

@@ -1,0 +1,100 @@
+[
+  {
+    "ranAt": "2026-04-16T20:55:54.186Z",
+    "localDate": "2026-04-16",
+    "action": "refreshed",
+    "bootTime": "2026-04-16T20:55:54.165Z",
+    "republishedToday": true,
+    "filesUpdated": [
+      "quick-start-guide.md",
+      "operations-manual.md",
+      "training-handbook.md",
+      "ai-knowledge-base.json"
+    ],
+    "trigger": "manual"
+  },
+  {
+    "ranAt": "2026-04-16T20:56:39.790Z",
+    "localDate": "2026-04-16",
+    "action": "refreshed",
+    "bootTime": "2026-04-16T20:54:16.388Z",
+    "republishedToday": true,
+    "filesUpdated": [
+      "quick-start-guide.md",
+      "operations-manual.md",
+      "training-handbook.md",
+      "ai-knowledge-base.json"
+    ],
+    "trigger": "manual"
+  },
+  {
+    "ranAt": "2026-04-16T20:57:04.995Z",
+    "localDate": "2026-04-16",
+    "action": "refreshed",
+    "bootTime": "2026-04-16T20:57:04.960Z",
+    "republishedToday": true,
+    "filesUpdated": [
+      "quick-start-guide.md",
+      "operations-manual.md",
+      "training-handbook.md",
+      "ai-knowledge-base.json"
+    ],
+    "trigger": "manual"
+  },
+  {
+    "ranAt": "2026-04-16T20:57:39.239Z",
+    "localDate": "2026-04-16",
+    "action": "refreshed",
+    "bootTime": "2026-04-16T20:57:39.213Z",
+    "republishedToday": true,
+    "filesUpdated": [
+      "quick-start-guide.md",
+      "operations-manual.md",
+      "training-handbook.md",
+      "ai-knowledge-base.json"
+    ],
+    "trigger": "manual"
+  },
+  {
+    "ranAt": "2026-04-16T20:57:39.758Z",
+    "localDate": "2026-04-16",
+    "action": "refreshed",
+    "bootTime": "2026-04-16T20:54:16.388Z",
+    "republishedToday": true,
+    "filesUpdated": [
+      "quick-start-guide.md",
+      "operations-manual.md",
+      "training-handbook.md",
+      "ai-knowledge-base.json"
+    ],
+    "trigger": "manual"
+  },
+  {
+    "ranAt": "2026-04-16T20:59:15.948Z",
+    "localDate": "2026-04-16",
+    "action": "refreshed",
+    "bootTime": "2026-04-16T20:59:15.923Z",
+    "republishedToday": true,
+    "filesUpdated": [
+      "quick-start-guide.md",
+      "operations-manual.md",
+      "training-handbook.md",
+      "ai-knowledge-base.json"
+    ],
+    "trigger": "manual"
+  },
+  {
+    "ranAt": "2026-04-16T20:59:16.487Z",
+    "localDate": "2026-04-16",
+    "action": "refreshed",
+    "bootTime": "2026-04-16T20:58:55.789Z",
+    "republishedToday": true,
+    "filesUpdated": [
+      "quick-start-guide.md",
+      "operations-manual.md",
+      "training-handbook.md",
+      "ai-knowledge-base.json"
+    ],
+    "trigger": "manual"
+  }
+]

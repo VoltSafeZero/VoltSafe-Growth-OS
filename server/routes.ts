@@ -355,6 +355,60 @@ export async function registerRoutes(
   const { registerTaskRoutes } = await import("./routes-tasks");
   registerTaskRoutes(app, requireAuth);
 
+  // ── Help Center: end-of-day asset refresh ───────────────────────────────────
+  // Runs only on days when the production app has been republished that day
+  // (server boot time == today's local date). Otherwise no action is taken.
+  {
+    const {
+      getRefreshStatus,
+      readRefreshedAsset,
+      readRevisions,
+      runEndOfDayTick,
+      HELP_CENTER_ASSET_NAMES,
+    } = await import("./services/help-center-refresh");
+
+    app.get("/api/help-center/refresh-status", requireAuth, async (_req, res) => {
+      try {
+        res.json(await getRefreshStatus());
+      } catch (err: any) {
+        res.status(500).json({ message: err?.message || "Failed to read status" });
+      }
+    });
+
+    app.get("/api/help-center/revisions", requireAuth, async (_req, res) => {
+      try {
+        const all = await readRevisions();
+        res.json(all.slice(-30).reverse());
+      } catch (err: any) {
+        res.status(500).json({ message: err?.message || "Failed to read revisions" });
+      }
+    });
+
+    app.get("/api/help-center/assets/:name", requireAuth, async (req, res) => {
+      const name = String(req.params.name || "");
+      if (!HELP_CENTER_ASSET_NAMES.includes(name)) {
+        return res.status(404).json({ message: "Unknown asset" });
+      }
+      const content = await readRefreshedAsset(name);
+      if (content === null) return res.status(204).end();
+      const isJson = name.endsWith(".json");
+      res.setHeader("Content-Type", isJson ? "application/json; charset=utf-8" : "text/markdown; charset=utf-8");
+      res.send(content);
+    });
+
+    // Admin-only manual trigger (still respects the "republished today" gate
+    // by passing trigger="manual" — manual runs bypass the once-per-day guard
+    // but are still recorded as refresh-or-skip based on republish state).
+    app.post("/api/help-center/refresh", requireAuth, requireAdmin, async (_req, res) => {
+      try {
+        const rec = await runEndOfDayTick("manual");
+        res.json({ ok: true, record: rec });
+      } catch (err: any) {
+        res.status(500).json({ message: err?.message || "Refresh failed" });
+      }
+    });
+  }
+
   // ── Public Tracking Routes (NO auth — served to email clients) ─────────────
   // 1x1 transparent GIF pixel for open tracking
   // Shared handler for open pixel (both .gif and bare token variants)
