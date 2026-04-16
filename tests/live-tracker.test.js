@@ -181,6 +181,133 @@ async function run() {
     assert("failure_found" in r.body, "failure_found field missing");
   });
 
+  // ── Phase 6 — tracker-sync endpoint tests ────────────────────────────────
+
+  // 1. Not configured → graceful not_configured error
+  await test("GET /api/projects/:id/tracker-sync — no sheet configured returns not_configured", async () => {
+    // Use a fresh project with no tracker URL
+    const makeR = await req("POST", "/api/projects", { name: "Sync Test No URL", type: "certification", status: "active" });
+    assert(makeR.status === 201, `Create failed: ${makeR.status}`);
+    const tmpId = makeR.body.id;
+    const r = await req("GET", `/api/projects/${tmpId}/tracker-sync`);
+    assert(r.status === 200, `Expected 200, got ${r.status}`);
+    assert(r.body.error === "not_configured", `Expected not_configured, got: ${r.body.error}`);
+    // cleanup
+    await req("DELETE", `/api/projects/${tmpId}`);
+  });
+
+  // 2. Invalid URL → graceful invalid_url error
+  await test("GET /api/projects/:id/tracker-sync — invalid URL returns invalid_url", async () => {
+    const makeR = await req("POST", "/api/projects", { name: "Sync Test Bad URL", type: "certification", status: "active" });
+    const tmpId = makeR.body.id;
+    await req("POST", `/api/projects/${tmpId}/certification`, { trackerSheetUrl: "https://notgooglesheets.example.com/bad" });
+    const r = await req("GET", `/api/projects/${tmpId}/tracker-sync`);
+    assert(r.status === 200, `Expected 200, got ${r.status}`);
+    assert(r.body.error === "invalid_url" || r.body.error === "fetch_error", `Expected invalid_url or fetch_error, got: ${r.body.error}`);
+    await req("DELETE", `/api/projects/${tmpId}`);
+  });
+
+  // 3. Requires auth
+  await test("GET /api/projects/:id/tracker-sync — unauthenticated returns 401", async () => {
+    const anonR = await fetch(`${BASE}/api/projects/${certProjectId}/tracker-sync`);
+    assert(anonR.status === 401, `Expected 401, got ${anonR.status}`);
+  });
+
+  // 4. Response structure when URL is set (even if permission_denied)
+  await test("GET /api/projects/:id/tracker-sync — response has required fields", async () => {
+    const r = await req("GET", `/api/projects/${certProjectId}/tracker-sync`);
+    assert(r.status === 200, `Expected 200, got ${r.status}`);
+    // Either a successful sync OR a graceful error response — both must have 'error' field
+    assert("error" in r.body, "Response must have error field");
+    if (!r.body.error) {
+      // Success path — check all required numeric fields
+      const requiredFields = ["total", "passed", "failed", "pending", "inProgress", "blockerCount", "retestCount", "dueSoonCount", "syncedAt", "source"];
+      for (const f of requiredFields) {
+        assert(f in r.body, `Missing field: ${f}`);
+      }
+      assert(r.body.total >= 0, "total must be >= 0");
+      assert(r.body.passed >= 0, "passed must be >= 0");
+      assert(r.body.failed >= 0, "failed must be >= 0");
+      assert(r.body.passed + r.body.failed <= r.body.total, "passed + failed must not exceed total");
+      assert(typeof r.body.alertConditions === "object", "alertConditions must be object");
+      assert("failedTest" in r.body.alertConditions, "alertConditions.failedTest missing");
+      assert("blocker" in r.body.alertConditions, "alertConditions.blocker missing");
+    } else {
+      // Error path — check graceful error structure
+      assert(typeof r.body.error === "string", "error must be string");
+      assert(typeof r.body.message === "string", "error message must be string");
+    }
+  });
+
+  // 5. Tab selection — ?gid= param accepted
+  await test("GET /api/projects/:id/tracker-sync?gid=0 — gid param accepted", async () => {
+    const r = await req("GET", `/api/projects/${certProjectId}/tracker-sync?gid=0`);
+    assert(r.status === 200, `Expected 200, got ${r.status}`);
+    if (!r.body.error) {
+      assert(r.body.gid === "0", `Expected gid=0, got ${r.body.gid}`);
+    }
+  });
+
+  await test("GET /api/projects/:id/tracker-sync?gid=123456 — tab selector respected", async () => {
+    const r = await req("GET", `/api/projects/${certProjectId}/tracker-sync?gid=123456`);
+    assert(r.status === 200, `Expected 200, got ${r.status}`);
+    if (!r.body.error) {
+      assert(r.body.gid === "123456", `Expected gid=123456, got ${r.body.gid}`);
+    }
+  });
+
+  // 6. Column mapping — verify columnsFound reflects stored mappings
+  await test("GET /api/projects/:id/tracker-sync — columnsFound reflects column mapping config", async () => {
+    const r = await req("GET", `/api/projects/${certProjectId}/tracker-sync`);
+    assert(r.status === 200, `Expected 200, got ${r.status}`);
+    if (!r.body.error) {
+      assert("columnsFound" in r.body, "columnsFound must be present");
+      assert(typeof r.body.columnsFound === "object", "columnsFound must be object");
+    }
+  });
+
+  // 7. Alert conditions structure (Phase 5 readiness)
+  await test("GET /api/projects/:id/tracker-sync — alertConditions has all four hooks", async () => {
+    const r = await req("GET", `/api/projects/${certProjectId}/tracker-sync`);
+    assert(r.status === 200, `Expected 200, got ${r.status}`);
+    if (!r.body.error) {
+      const ac = r.body.alertConditions;
+      assert(typeof ac.failedTest === "boolean", "alertConditions.failedTest must be boolean");
+      assert(typeof ac.blocker === "boolean", "alertConditions.blocker must be boolean");
+      assert(typeof ac.retestRequired === "boolean", "alertConditions.retestRequired must be boolean");
+      assert(typeof ac.certRisk === "boolean", "alertConditions.certRisk must be boolean");
+    }
+  });
+
+  // 8. CSV parser unit logic — verify via a public test sheet if accessible
+  await test("GET /api/projects/:id/tracker-sync — public sheet returns data or graceful permission error", async () => {
+    // Uses the stored public demo sheet URL configured in Phase 7 setup
+    const r = await req("GET", `/api/projects/${certProjectId}/tracker-sync`);
+    assert(r.status === 200, `Expected 200, got ${r.status}`);
+    const validErrors = ["permission_denied", "empty_sheet", "fetch_error", "fetch_failed", "not_configured", "invalid_url", null];
+    assert(validErrors.includes(r.body.error), `Unexpected error value: ${r.body.error}`);
+    if (!r.body.error) {
+      assert(typeof r.body.total === "number", "total must be a number on success");
+      assert(r.body.rowCount === r.body.total, "rowCount should equal total");
+    }
+  });
+
+  // 9. Regression: original cert project routes still work
+  await test("POST /api/projects/:id/certification — still works after sync route added", async () => {
+    const r = await req("POST", `/api/projects/${certProjectId}/certification`, {
+      certificationStatus: "In Testing",
+      overallRisk: "Medium",
+    });
+    assert(r.status === 200, `Expected 200, got ${r.status}`);
+    assert(r.body.certification_status === "In Testing", `Status mismatch: ${r.body.certification_status}`);
+  });
+
+  await test("GET /api/projects/:id/milestones — still works after sync route added", async () => {
+    const r = await req("GET", `/api/projects/${certProjectId}/milestones`);
+    assert(r.status === 200, `Expected 200, got ${r.status}`);
+    assert(Array.isArray(r.body), "Expected array");
+  });
+
   // ── Regression: pilot project not affected ────────────────────────────────
   await test("GET /api/projects/:id/certification — regular project has no tracker data from cert project", async () => {
     const r = await req("GET", `/api/projects/${regularProjectId}/certification`);
