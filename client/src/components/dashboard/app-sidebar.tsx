@@ -144,13 +144,13 @@ const sections: NavSection[] = [
     label: "Operations",
     icon: SlidersHorizontal,
     items: [
-      { title: "Automations", url: "/automations", icon: Zap },
-      { title: "Task Rules", url: "/automation/tasks", icon: Zap },
       { title: "Projects", url: "/execution/projects", icon: Layers, permKey: "projects" },
       { title: "Communications", url: "/execution/communications", icon: Megaphone, permKey: "communications" },
       { title: "Document Hub", url: "/documents", icon: BookOpen },
       { title: "Assets", url: "/knowledge/assets", icon: FolderOpen, permKey: "knowledge" },
       { title: "Price Lists", url: "/price-lists", icon: Tags, permKey: "quoting" },
+      { title: "Task Rules", url: "/automation/tasks", icon: Zap },
+      { title: "Automations", url: "/automations", icon: Zap },
     ],
   },
 
