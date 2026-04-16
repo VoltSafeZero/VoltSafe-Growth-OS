@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { cn } from "@/lib/utils";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -483,6 +484,7 @@ function MergeAuditPanel({ onClose }: { onClose: () => void }) {
 
 // ── Duplicates Tab ─────────────────────────────────────────────────────────────
 function DuplicatesTab({ subFilter }: { subFilter?: string }) {
+  const [highlighted, setHighlighted] = useState<string | undefined>(undefined);
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/data-quality/issues", "duplicates"],
     queryFn: () => fetch("/api/data-quality/issues?category=duplicates", { credentials: "include" }).then(r => r.json()),
@@ -506,6 +508,9 @@ function DuplicatesTab({ subFilter }: { subFilter?: string }) {
     if (!subFilter) return;
     const el = document.getElementById(`dq-section-${subFilter}`);
     if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    setHighlighted(subFilter);
+    const t = setTimeout(() => setHighlighted(undefined), 1600);
+    return () => clearTimeout(t);
   }, [subFilter]);
 
   if (isLoading) return <div className="space-y-3">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-28" />)}</div>;
@@ -582,9 +587,9 @@ function DuplicatesTab({ subFilter }: { subFilter?: string }) {
         </div>
       )}
 
-      {data.accounts?.length > 0 && <div id="dq-section-accounts" className="space-y-3">{data.accounts.map((c: any, i: number) => renderCluster(c, "account", i))}</div>}
-      {data.contacts?.length > 0 && <div id="dq-section-contacts" className="space-y-3">{data.contacts.map((c: any, i: number) => renderCluster(c, "contact", i))}</div>}
-      {data.leads?.length > 0    && <div id="dq-section-leads"    className="space-y-3">{data.leads.map((c: any, i: number) => renderCluster(c, "lead", i))}</div>}
+      {data.accounts?.length > 0 && <div id="dq-section-accounts" className={cn("space-y-3 rounded-lg transition-all duration-700", highlighted === "accounts" && "ring-2 ring-primary/40 bg-primary/[0.04] p-1")}>{data.accounts.map((c: any, i: number) => renderCluster(c, "account", i))}</div>}
+      {data.contacts?.length > 0 && <div id="dq-section-contacts" className={cn("space-y-3 rounded-lg transition-all duration-700", highlighted === "contacts" && "ring-2 ring-primary/40 bg-primary/[0.04] p-1")}>{data.contacts.map((c: any, i: number) => renderCluster(c, "contact", i))}</div>}
+      {data.leads?.length > 0    && <div id="dq-section-leads"    className={cn("space-y-3 rounded-lg transition-all duration-700", highlighted === "leads"    && "ring-2 ring-primary/40 bg-primary/[0.04] p-1")}>{data.leads.map((c: any, i: number) => renderCluster(c, "lead", i))}</div>}
 
       {/* Merge review panel */}
       {mergeTarget && (
@@ -605,6 +610,7 @@ function DuplicatesTab({ subFilter }: { subFilter?: string }) {
 
 // ── Missing Owner Tab ──────────────────────────────────────────────────────────
 function MissingOwnerTab({ subFilter }: { subFilter?: string }) {
+  const [highlighted, setHighlighted] = useState<string | undefined>(undefined);
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/data-quality/issues", "missing_owner"],
     queryFn: () => fetch("/api/data-quality/issues?category=missing_owner", { credentials: "include" }).then(r => r.json()),
@@ -617,6 +623,9 @@ function MissingOwnerTab({ subFilter }: { subFilter?: string }) {
     if (!subFilter) return;
     const el = document.getElementById(`dq-section-${subFilter}`);
     if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    setHighlighted(subFilter);
+    const t = setTimeout(() => setHighlighted(undefined), 1600);
+    return () => clearTimeout(t);
   }, [subFilter]);
 
   const bulkAssign = useMutation({
@@ -697,7 +706,7 @@ function MissingOwnerTab({ subFilter }: { subFilter?: string }) {
         </div>
       )}
       {sections.map(sec => sec.items.length > 0 && (
-        <Card key={sec.key} id={`dq-section-${sec.key}`} className="border border-border/50">
+        <Card key={sec.key} id={`dq-section-${sec.key}`} className={cn("border border-border/50 transition-all duration-700", highlighted === sec.key && "ring-2 ring-primary/40 bg-primary/[0.04]")}>
           <CardHeader className="py-2.5 px-4 border-b border-border/30">
             <div className="flex items-center gap-2 text-sm">
               <sec.icon className="h-4 w-4 text-muted-foreground" />
@@ -722,6 +731,7 @@ function MissingOwnerTab({ subFilter }: { subFilter?: string }) {
 
 // ── Missing Fields Tab ─────────────────────────────────────────────────────────
 function MissingFieldsTab({ subFilter }: { subFilter?: string }) {
+  const [highlighted, setHighlighted] = useState<string | undefined>(undefined);
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/data-quality/issues", "missing_fields"],
     queryFn: () => fetch("/api/data-quality/issues?category=missing_fields", { credentials: "include" }).then(r => r.json()),
@@ -734,6 +744,9 @@ function MissingFieldsTab({ subFilter }: { subFilter?: string }) {
     if (!subFilter) return;
     const el = document.getElementById(`dq-section-${subFilter}`);
     if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    setHighlighted(subFilter);
+    const t = setTimeout(() => setHighlighted(undefined), 1600);
+    return () => clearTimeout(t);
   }, [subFilter]);
 
   if (isLoading) return <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16" />)}</div>;
@@ -771,7 +784,7 @@ function MissingFieldsTab({ subFilter }: { subFilter?: string }) {
   return (
     <div className="space-y-4">
       {data.missingCloseDate?.length > 0 && (
-        <Card id="dq-section-close_date" className="border border-border/50">
+        <Card id="dq-section-close_date" className={cn("border border-border/50 transition-all duration-700", highlighted === "close_date" && "ring-2 ring-primary/40 bg-primary/[0.04]")}>
           <CardHeader className="py-2.5 px-4 border-b border-border/30">
             <div className="flex items-center gap-2 text-sm">
               <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -790,7 +803,7 @@ function MissingFieldsTab({ subFilter }: { subFilter?: string }) {
         </Card>
       )}
       {data.missingAmount?.length > 0 && (
-        <Card id="dq-section-amount" className="border border-border/50">
+        <Card id="dq-section-amount" className={cn("border border-border/50 transition-all duration-700", highlighted === "amount" && "ring-2 ring-primary/40 bg-primary/[0.04]")}>
           <CardHeader className="py-2.5 px-4 border-b border-border/30">
             <div className="flex items-center gap-2 text-sm">
               <DollarSign className="h-4 w-4 text-muted-foreground" />
@@ -820,6 +833,7 @@ function MissingFieldsTab({ subFilter }: { subFilter?: string }) {
 
 // ── Orphans Tab ────────────────────────────────────────────────────────────────
 function OrphansTab({ subFilter }: { subFilter?: string }) {
+  const [highlighted, setHighlighted] = useState<string | undefined>(undefined);
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/data-quality/issues", "orphans"],
     queryFn: () => fetch("/api/data-quality/issues?category=orphans", { credentials: "include" }).then(r => r.json()),
@@ -831,6 +845,9 @@ function OrphansTab({ subFilter }: { subFilter?: string }) {
     if (!subFilter) return;
     const el = document.getElementById(`dq-section-${subFilter}`);
     if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    setHighlighted(subFilter);
+    const t = setTimeout(() => setHighlighted(undefined), 1600);
+    return () => clearTimeout(t);
   }, [subFilter]);
 
   const archive = useMutation({
@@ -857,7 +874,7 @@ function OrphansTab({ subFilter }: { subFilter?: string }) {
   return (
     <div className="space-y-4">
       {data.orphanQuotes?.length > 0 && (
-        <Card id="dq-section-quotes" className="border border-amber-500/20">
+        <Card id="dq-section-quotes" className={cn("border border-amber-500/20 transition-all duration-700", highlighted === "quotes" && "ring-2 ring-primary/40 bg-primary/[0.04]")}>
           <CardHeader className="py-2.5 px-4 border-b border-border/30">
             <div className="flex items-center gap-2 text-sm">
               <FileText className="h-4 w-4 text-amber-400" />
@@ -887,7 +904,7 @@ function OrphansTab({ subFilter }: { subFilter?: string }) {
         </Card>
       )}
       {data.orphanOpps?.length > 0 && (
-        <Card id="dq-section-opps" className="border border-red-500/20">
+        <Card id="dq-section-opps" className={cn("border border-red-500/20 transition-all duration-700", highlighted === "opps" && "ring-2 ring-primary/40 bg-primary/[0.04]")}>
           <CardHeader className="py-2.5 px-4 border-b border-border/30">
             <div className="flex items-center gap-2 text-sm">
               <Link2Off className="h-4 w-4 text-red-400" />
@@ -917,7 +934,7 @@ function OrphansTab({ subFilter }: { subFilter?: string }) {
         </Card>
       )}
       {data.brokenLeadLinks?.length > 0 && (
-        <Card id="dq-section-broken" className="border border-border/50">
+        <Card id="dq-section-broken" className={cn("border border-border/50 transition-all duration-700", highlighted === "broken" && "ring-2 ring-primary/40 bg-primary/[0.04]")}>
           <CardHeader className="py-2.5 px-4 border-b border-border/30">
             <div className="flex items-center gap-2 text-sm">
               <Link2Off className="h-4 w-4 text-muted-foreground" />
