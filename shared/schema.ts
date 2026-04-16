@@ -1813,3 +1813,45 @@ export const territories = pgTable("territories", {
 export const insertTerritorySchema = createInsertSchema(territories).omit({ id: true, createdAt: true, updatedAt: true });
 export type Territory = typeof territories.$inferSelect;
 export type InsertTerritory = z.infer<typeof insertTerritorySchema>;
+
+// ── Advanced Automation Builder ────────────────────────────────────────────────
+export const automationRules = pgTable("automation_rules", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  enabled: boolean("enabled").notNull().default(true),
+  triggerType: text("trigger_type").notNull(),
+  conditions: jsonb("conditions").notNull().default([]),
+  actions: jsonb("actions").notNull().default([]),
+  scope: text("scope").notNull().default("global"),
+  cooldownMinutes: integer("cooldown_minutes").notNull().default(0),
+  dedupeKey: text("dedupe_key"),
+  isTemplate: boolean("is_template").notNull().default(false),
+  templateName: text("template_name"),
+  createdBy: integer("created_by"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  lastRunAt: timestamp("last_run_at"),
+  lastResult: text("last_result"),
+  runCount: integer("run_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAutomationRuleSchema = createInsertSchema(automationRules).omit({ id: true, createdAt: true, updatedAt: true, lastRunAt: true, lastResult: true, runCount: true });
+export type InsertAutomationRule = z.infer<typeof insertAutomationRuleSchema>;
+export type AutomationRule = typeof automationRules.$inferSelect;
+
+export const automationRunLogs = pgTable("automation_run_logs", {
+  id: serial("id").primaryKey(),
+  ruleId: integer("rule_id").notNull(),
+  triggerData: jsonb("trigger_data"),
+  actionsResult: jsonb("actions_result"),
+  status: text("status").notNull().default("success"),
+  errorMessage: text("error_message"),
+  dryRun: boolean("dry_run").notNull().default(false),
+  actionsTaken: integer("actions_taken").notNull().default(0),
+  executedAt: timestamp("executed_at").defaultNow().notNull(),
+});
+
+export const insertAutomationRunLogSchema = createInsertSchema(automationRunLogs).omit({ id: true, executedAt: true });
+export type InsertAutomationRunLog = z.infer<typeof insertAutomationRunLogSchema>;
+export type AutomationRunLog = typeof automationRunLogs.$inferSelect;

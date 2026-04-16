@@ -1,0 +1,107 @@
+Smart Document Hub is complete and tested. Next, build the Advanced Automation Builder.
+
+Goal:
+Create a practical rule-based automation layer so Cortex can trigger actions across CRM, quotes, installs, deployments, certification, procurement, customer success, and documents without hardcoding each new workflow.
+
+Build this in phases.
+
+PHASE 1 — AUTOMATION RULE MODEL
+Add a general automation rule system with:
+- name
+- description
+- enabled/disabled
+- trigger_type
+- conditions JSON
+- actions JSON
+- cooldown settings
+- created_by
+- updated_at
+- last_run_at
+- last_result
+- scope / module
+
+Support practical trigger families like:
+- record created
+- field changed
+- status changed
+- date approaching / overdue
+- task overdue
+- quote accepted
+- deployment blocked
+- certification blocker
+- renewal due
+- document added
+- engagement signal changed
+
+PHASE 2 — CONDITION ENGINE
+Support deterministic conditions like:
+- object type = X
+- field equals / not equals
+- field changed from A to B
+- date within X days
+- risk = high
+- status = blocked
+- category = certification
+- owner = specific user
+- region / territory = X
+
+Keep this explainable and rule-based.
+
+PHASE 3 — ACTION ENGINE
+Support high-value actions like:
+- create task
+- create suggestion
+- create notification
+- add timeline event
+- assign owner
+- change status
+- flag record
+- send in-app alert
+- link to existing workflow if appropriate
+
+Do not build outbound email blasting or marketing automation.
+
+PHASE 4 — AUTOMATION UI
+Create an Automation Builder page with:
+- rule list
+- create/edit rule
+- enable/disable toggle
+- trigger selector
+- condition builder
+- action builder
+- run history / last fired
+- simple validation / preview
+
+PHASE 5 — SAFETY / DEDUPE
+Add:
+- cooldown windows
+- dedupe keys
+- last-fired protection
+- dry-run / preview mode where possible
+- auditability
+
+PHASE 6 — STARTER TEMPLATES
+Seed useful VoltSafe templates such as:
+- accepted quote → onboarding task set
+- deployment blocked → ops alert
+- certification retest required → critical task
+- renewal due in 90 days → task
+- lab report added → timeline alert
+- quote not opened in 5 days → follow-up suggestion
+- install workflow overdue → escalation
+
+PHASE 7 — TESTING
+Add tests for:
+- rule creation/update/delete
+- trigger evaluation
+- condition matching
+- action execution
+- cooldown/dedupe
+- audit/run history
+- no regression to existing automations and workflow systems
+
+Implementation rules:
+- keep it practical and deterministic
+- do not build a bloated Zapier clone
+- reuse existing task, suggestion, notification, timeline, and workflow systems
+- summarize changed files and final pass/fail at the end
