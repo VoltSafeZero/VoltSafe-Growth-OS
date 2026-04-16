@@ -665,6 +665,18 @@ export default function TasksHubPage() {
     onSuccess: () => { toast({ description: "Task completed" }); invalidate(); },
   });
 
+  const reopenMut = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/tasks/${id}/reopen`),
+    onSuccess: () => { toast({ description: "Task reopened" }); invalidate(); },
+    onError: () => toast({ variant: "destructive", description: "Failed to reopen task" }),
+  });
+
+  const toggleComplete = (task: HubTask) => {
+    const isDone = task.status === "done" || task.status === "completed";
+    if (isDone) reopenMut.mutate(task.id);
+    else completeMut.mutate(task.id);
+  };
+
   const snoozeMut = useMutation({
     mutationFn: ({ id, preset }: { id: number; preset: string }) =>
       apiRequest("POST", `/api/tasks/${id}/snooze`, { preset }),
@@ -939,7 +951,11 @@ export default function TasksHubPage() {
                   tasks={groupTasks}
                   users={usersData}
                   defaultOpen={idx < 4}
-                  onComplete={(id) => completeMut.mutate(id)}
+                  onComplete={(id) => {
+                    const task = groupTasks.find(t => t.id === id);
+                    if (task) toggleComplete(task);
+                    else completeMut.mutate(id);
+                  }}
                   onSnooze={(id, preset) => snoozeMut.mutate({ id, preset })}
                   onReassign={(id, userId) => reassignMut.mutate({ id, ownerUserId: userId })}
                   onDueDate={(id, date) => dueDateMut.mutate({ id, dueDate: date })}

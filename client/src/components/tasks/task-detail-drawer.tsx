@@ -14,9 +14,16 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import {
   Tag, Calendar as CalendarIcon, ListChecks, User, Link2, MoveRight, AlertTriangle,
-  Trash2, Plus, X, Check, MessageSquare, Activity, Lock, RotateCcw, ChevronDown,
+  Trash2, Plus, X, Check, MessageSquare, Activity, Lock, RotateCcw, ChevronDown, Flag,
 } from "lucide-react";
 import { format } from "date-fns";
+
+const PRIORITY_META: Record<string, { label: string; dot: string }> = {
+  low:    { label: "Low",    dot: "bg-slate-400" },
+  medium: { label: "Medium", dot: "bg-blue-400" },
+  high:   { label: "High",   dot: "bg-amber-400" },
+  urgent: { label: "Urgent", dot: "bg-red-500" },
+};
 
 type Props = {
   taskId: number | null;
@@ -163,6 +170,7 @@ export function TaskDetailDrawer({ taskId, onOpenChange, onTaskChanged }: Props)
               <ChecklistAddButton taskId={t.id} onChanged={invalidate} />
               <AssigneeButton task={t} users={users} onChanged={invalidate} />
               <MoveButton task={t} onChanged={invalidate} />
+              <PriorityButton task={t} onChanged={invalidate} />
               <DependenciesButton task={t} deps={data.dependencies} onChanged={invalidate} />
               <Button
                 variant="outline"
@@ -591,18 +599,40 @@ function MoveButton({ task, onChanged }: any) {
               {task.board_column === c.value && <Check className="h-3.5 w-3.5" />}
             </button>
           ))}
-          <Separator className="my-2" />
+        </div>
+      )}
+    </ActionPopover>
+  );
+}
+
+function PriorityButton({ task, onChanged }: any) {
+  const current = PRIORITY_META[task.priority] ?? PRIORITY_META.medium;
+  return (
+    <ActionPopover
+      icon={<Flag className="h-3.5 w-3.5" />}
+      label={`Priority: ${current.label}`}
+      testId="button-action-priority"
+    >
+      {(close) => (
+        <div className="space-y-1 min-w-[180px]">
           <div className="text-xs font-semibold text-muted-foreground mb-1">Priority</div>
-          {PRIORITY_OPTIONS.map(p => (
-            <button
-              key={p}
-              className={`w-full flex items-center justify-between text-xs px-2 py-1.5 rounded hover:bg-muted ${task.priority === p ? "bg-muted font-medium" : ""}`}
-              onClick={async () => { await apiRequest("PATCH", `/api/tasks/${task.id}`, { priority: p }); onChanged(); close(); }}
-            >
-              <span className="capitalize">{p}</span>
-              {task.priority === p && <Check className="h-3.5 w-3.5" />}
-            </button>
-          ))}
+          {PRIORITY_OPTIONS.map(p => {
+            const meta = PRIORITY_META[p];
+            return (
+              <button
+                key={p}
+                className={`w-full flex items-center justify-between text-xs px-2 py-1.5 rounded hover:bg-muted ${task.priority === p ? "bg-muted font-medium" : ""}`}
+                onClick={async () => { await apiRequest("PATCH", `/api/tasks/${task.id}`, { priority: p }); onChanged(); close(); }}
+                data-testid={`button-priority-${p}`}
+              >
+                <span className="flex items-center gap-2">
+                  <span className={`inline-block w-2 h-2 rounded-full ${meta.dot}`} />
+                  {meta.label}
+                </span>
+                {task.priority === p && <Check className="h-3.5 w-3.5" />}
+              </button>
+            );
+          })}
         </div>
       )}
     </ActionPopover>
