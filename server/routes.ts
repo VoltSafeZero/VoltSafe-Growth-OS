@@ -10,6 +10,7 @@ import {
   calcDelta, getPriorPeriod, generateSummaryBullets,
 } from "./executive-kpis";
 import { storage } from "./storage";
+import { runAutomationRule, evaluateConditions, type TriggerContext, type Condition, type Action } from "./services/automation-engine";
 import { db } from "./db";
 import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications } from "@shared/schema";
 import {
@@ -187,6 +188,141 @@ function requireAdmin(req: any, res: any, next: any) {
     return res.status(403).json({ message: "Admin access required" });
   }
   next();
+}
+
+// ── Automation metadata constants ─────────────────────────────────────────────
+const TRIGGER_TYPES = [
+  { value: "record_created",         label: "Record Created",         group: "Records" },
+  { value: "field_changed",          label: "Field Changed",          group: "Records" },
+  { value: "status_changed",         label: "Status Changed",         group: "Records" },
+  { value: "date_approaching",       label: "Date Approaching",       group: "Dates" },
+  { value: "date_overdue",           label: "Date Overdue",           group: "Dates" },
+  { value: "task_overdue",           label: "Task Overdue",           group: "Tasks" },
+  { value: "quote_accepted",         label: "Quote Accepted",         group: "Sales" },
+  { value: "deployment_blocked",     label: "Deployment Blocked",     group: "Operations" },
+  { value: "certification_blocker",  label: "Certification Blocker",  group: "Operations" },
+  { value: "renewal_due",            label: "Renewal Due",            group: "Customer Success" },
+  { value: "document_added",         label: "Document Added",         group: "Documents" },
+  { value: "engagement_signal",      label: "Engagement Signal Changed", group: "Engagement" },
+  { value: "manual",                 label: "Manual / On-Demand",     group: "Other" },
+];
+
+const CONDITION_OPS = [
+  { value: "equals",         label: "equals" },
+  { value: "not_equals",     label: "does not equal" },
+  { value: "contains",       label: "contains" },
+  { value: "not_contains",   label: "does not contain" },
+  { value: "gt",             label: "greater than" },
+  { value: "gte",            label: "≥ (greater or equal)" },
+  { value: "lt",             label: "less than" },
+  { value: "lte",            label: "≤ (less or equal)" },
+  { value: "in",             label: "is one of" },
+  { value: "not_in",         label: "is not one of" },
+  { value: "is_null",        label: "is empty" },
+  { value: "is_not_null",    label: "is not empty" },
+  { value: "date_within_days", label: "date within X days" },
+  { value: "date_overdue",   label: "date is overdue" },
+  { value: "changed_to",     label: "changed to" },
+  { value: "changed_from",   label: "changed from" },
+];
+
+const ACTION_TYPES = [
+  { value: "create_task",          label: "Create Task",           group: "Tasks" },
+  { value: "create_suggestion",    label: "Create Suggestion",     group: "Tasks" },
+  { value: "create_notification",  label: "Create Notification",   group: "Alerts" },
+  { value: "add_timeline_event",   label: "Add Timeline Event",    group: "Timeline" },
+  { value: "change_status",        label: "Change Status",         group: "Records" },
+  { value: "flag_record",          label: "Flag Record",           group: "Records" },
+  { value: "assign_owner",         label: "Assign Owner",          group: "Records" },
+];
+
+// ── Starter template seed (Phase 6, idempotent) ────────────────────────────────
+async function seedAutomationTemplates() {
+  const existing = await storage.getAutomationRules({ limit: 1 });
+  if (existing.length > 0) return; // Already seeded
+
+  const templates = [
+    {
+      name: "Quote Accepted → Onboarding Tasks",
+      description: "When a quote is accepted, create onboarding task for the account team.",
+      triggerType: "quote_accepted",
+      conditions: [],
+      actions: [
+        { type: "create_task", params: { title: "Begin customer onboarding", description: "Quote accepted — start onboarding process", priority: "high", dueDaysFromNow: 3 } },
+        { type: "add_timeline_event", params: { subject: "Onboarding initiated", summary: "Quote accepted, onboarding task created automatically" } },
+      ],
+      scope: "global", cooldownMinutes: 1440, enabled: true, isTemplate: true, templateName: "quote_accepted_onboarding",
+    },
+    {
+      name: "Deployment Blocked → Ops Alert",
+      description: "When a deployment is blocked, notify ops team immediately.",
+      triggerType: "deployment_blocked",
+      conditions: [{ field: "objectType", op: "equals", value: "deployment" }],
+      actions: [
+        { type: "create_notification", params: { title: "Deployment blocked", body: "A deployment is blocked and requires attention", severity: "high", actionUrl: "/deployments" } },
+        { type: "create_task", params: { title: "Resolve deployment blocker", priority: "urgent", dueDaysFromNow: 1 } },
+      ],
+      scope: "global", cooldownMinutes: 120, enabled: true, isTemplate: true, templateName: "deployment_blocked_ops_alert",
+    },
+    {
+      name: "Certification Retest Required → Critical Task",
+      description: "When certification is flagged as failed or expired, create a critical task.",
+      triggerType: "certification_blocker",
+      conditions: [],
+      actions: [
+        { type: "create_task", params: { title: "Schedule certification retest", priority: "high", dueDaysFromNow: 5 } },
+        { type: "flag_record", params: { note: "Certification retest required — auto-flagged" } },
+      ],
+      scope: "global", cooldownMinutes: 2880, enabled: true, isTemplate: true, templateName: "cert_retest_required",
+    },
+    {
+      name: "Renewal Due in 90 Days → Create Renewal Task",
+      description: "90 days before a subscription renews, create a renewal follow-up task.",
+      triggerType: "renewal_due",
+      conditions: [{ field: "extra.daysUntilRenewal", op: "lte", value: 90 }],
+      actions: [
+        { type: "create_task", params: { title: "Initiate renewal conversation", description: "Renewal approaching — contact customer", priority: "medium", dueDaysFromNow: 7 } },
+        { type: "create_suggestion", params: { title: "Renewal opportunity — start conversations", reason: "Subscription renews within 90 days", priority: "medium" } },
+      ],
+      scope: "global", cooldownMinutes: 10080, enabled: true, isTemplate: true, templateName: "renewal_due_90_days",
+    },
+    {
+      name: "Lab Report Added → Timeline Alert",
+      description: "When a lab report document is uploaded, flag it on the timeline.",
+      triggerType: "document_added",
+      conditions: [{ field: "extra.category", op: "equals", value: "lab_report" }],
+      actions: [
+        { type: "add_timeline_event", params: { subject: "Lab report received", summary: "A lab report was uploaded — review for certification compliance" } },
+      ],
+      scope: "global", cooldownMinutes: 0, enabled: true, isTemplate: true, templateName: "lab_report_added_alert",
+    },
+    {
+      name: "Quote Not Opened in 5 Days → Follow-up Suggestion",
+      description: "If a quote hasn't been opened within 5 days, suggest a follow-up.",
+      triggerType: "date_overdue",
+      conditions: [{ field: "objectType", op: "equals", value: "quote" }],
+      actions: [
+        { type: "create_suggestion", params: { title: "Follow up on unseen quote", reason: "Quote has not been opened in 5 days", priority: "medium" } },
+      ],
+      scope: "global", cooldownMinutes: 1440, enabled: true, isTemplate: true, templateName: "quote_not_opened_followup",
+    },
+    {
+      name: "Install Workflow Overdue → Escalation",
+      description: "When an install workflow is past its due date, escalate to management.",
+      triggerType: "task_overdue",
+      conditions: [{ field: "objectType", op: "equals", value: "install_workflow" }],
+      actions: [
+        { type: "create_notification", params: { title: "Install workflow overdue", body: "An installation workflow has passed its scheduled completion date", severity: "high", actionUrl: "/install-workflows" } },
+        { type: "create_task", params: { title: "Escalate overdue install workflow", priority: "high", dueDaysFromNow: 1 } },
+      ],
+      scope: "global", cooldownMinutes: 720, enabled: true, isTemplate: true, templateName: "install_workflow_overdue_escalation",
+    },
+  ];
+
+  for (const tpl of templates) {
+    await storage.createAutomationRule({ ...tpl, createdBy: null, dedupeKey: tpl.templateName } as any);
+  }
+  console.log("[automations] Seeded", templates.length, "starter templates");
 }
 
 export async function registerRoutes(
@@ -15615,8 +15751,150 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // AUTOMATION RULES  (Phases 1–6)
+  // NOTE: Specific paths MUST come before /:id to avoid parameter capture
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // GET /api/automations — list all rules
+  app.get("/api/automations", requireAuth, async (req, res) => {
+    try {
+      const enabled = req.query.enabled !== undefined ? req.query.enabled === "true" : undefined;
+      const scope = req.query.scope as string | undefined;
+      const rules = await storage.getAutomationRules({ enabled, scope });
+      res.json(rules);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/automations/trigger-types — available trigger families (BEFORE /:id)
+  app.get("/api/automations/trigger-types", requireAuth, (_req, res) => {
+    res.json(TRIGGER_TYPES);
+  });
+
+  // GET /api/automations/condition-ops — available condition operators (BEFORE /:id)
+  app.get("/api/automations/condition-ops", requireAuth, (_req, res) => {
+    res.json(CONDITION_OPS);
+  });
+
+  // GET /api/automations/action-types — available action types (BEFORE /:id)
+  app.get("/api/automations/action-types", requireAuth, (_req, res) => {
+    res.json(ACTION_TYPES);
+  });
+
+  // POST /api/automations — create rule (BEFORE /:id/run)
+  app.post("/api/automations", requireAuth, async (req, res) => {
+    try {
+      const { name, description, triggerType, conditions, actions, scope, cooldownMinutes, dedupeKey, enabled, isTemplate, templateName } = req.body;
+      if (!name || !triggerType) return res.status(400).json({ message: "name and triggerType are required" });
+      const rule = await storage.createAutomationRule({
+        name, description: description ?? null,
+        triggerType,
+        conditions: conditions ?? [],
+        actions: actions ?? [],
+        scope: scope ?? "global",
+        cooldownMinutes: Number(cooldownMinutes ?? 0),
+        dedupeKey: dedupeKey ?? null,
+        enabled: enabled !== false,
+        isTemplate: isTemplate ?? false,
+        templateName: templateName ?? null,
+        createdBy: req.session.userId ?? null,
+      });
+      res.status(201).json(rule);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/automations/preview-conditions — evaluate conditions (BEFORE /:id/run)
+  app.post("/api/automations/preview-conditions", requireAuth, async (req, res) => {
+    try {
+      const { conditions, context } = req.body;
+      if (!Array.isArray(conditions)) return res.status(400).json({ message: "conditions must be array" });
+      const result = evaluateConditions(conditions as Condition[], context ?? {});
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/automations/seed-templates — idempotent starter template seeding
+  app.post("/api/automations/seed-templates", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      await seedAutomationTemplates();
+      res.json({ message: "Templates seeded" });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/automations/:id/history — run logs (BEFORE /:id)
+  app.get("/api/automations/:id/history", requireAuth, async (req, res) => {
+    try {
+      const logs = await storage.getAutomationRunLogs(Number(req.params.id), Number(req.query.limit ?? 50));
+      res.json(logs);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/automations/:id/run — manual trigger with optional dry-run
+  app.post("/api/automations/:id/run", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const rule = await storage.getAutomationRule(id);
+      if (!rule) return res.status(404).json({ message: "Rule not found" });
+      const dryRun = req.body.dryRun === true || req.query.dryRun === "true";
+      const ctx: TriggerContext = {
+        triggerType: rule.triggerType,
+        objectType: req.body.objectType ?? "general",
+        objectId: Number(req.body.objectId ?? 0),
+        actorUserId: req.session.userId ?? null,
+        before: req.body.before ?? {},
+        after: req.body.after ?? {},
+        extra: req.body.extra ?? {},
+      };
+      const result = await runAutomationRule(
+        { id: rule.id, conditions: rule.conditions as any, actions: rule.actions as any, cooldownMinutes: rule.cooldownMinutes, dedupeKey: rule.dedupeKey },
+        ctx,
+        dryRun
+      );
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/automations/:id — single rule
+  app.get("/api/automations/:id", requireAuth, async (req, res) => {
+    const rule = await storage.getAutomationRule(Number(req.params.id));
+    if (!rule) return res.status(404).json({ message: "Rule not found" });
+    res.json(rule);
+  });
+
+  // PUT /api/automations/:id — update rule
+  app.put("/api/automations/:id", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const existing = await storage.getAutomationRule(id);
+      if (!existing) return res.status(404).json({ message: "Rule not found" });
+      const updated = await storage.updateAutomationRule(id, req.body);
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // PATCH /api/automations/:id/toggle — enable/disable
+  app.patch("/api/automations/:id/toggle", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const existing = await storage.getAutomationRule(id);
+      if (!existing) return res.status(404).json({ message: "Rule not found" });
+      const updated = await storage.updateAutomationRule(id, { enabled: !existing.enabled });
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // DELETE /api/automations/:id
+  app.delete("/api/automations/:id", requireAuth, async (req, res) => {
+    try {
+      const ok = await storage.deleteAutomationRule(Number(req.params.id));
+      if (!ok) return res.status(404).json({ message: "Rule not found" });
+      res.json({ message: "Deleted" });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // ── Engagement scheduler + default rules ────────────────────────────────────
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
+  seedAutomationTemplates().catch(err => console.error("[automations] seed error:", err));
   startEngagementScheduler();
 
   // ── Awaiting-reply: initial computation on boot (non-blocking) ─────────────

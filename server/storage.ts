@@ -41,6 +41,9 @@ import {
   type RecordTag, type InsertRecordTag,
   type SavedView, type InsertSavedView,
   type OpportunityContact, type InsertOpportunityContact,
+  automationRules, automationRunLogs,
+  type AutomationRule, type InsertAutomationRule,
+  type AutomationRunLog,
 } from "@shared/schema";
 import { ilike, eq, or, sql, asc, desc, and, type AnyColumn, type SQL } from "drizzle-orm";
 
@@ -244,6 +247,14 @@ export interface IStorage {
   getOpportunityContacts(opportunityId: number): Promise<(OpportunityContact & { contact: any })[]>;
   addOpportunityContact(data: InsertOpportunityContact): Promise<OpportunityContact>;
   removeOpportunityContact(opportunityId: number, contactId: number): Promise<boolean>;
+
+  // Automation Rules
+  getAutomationRules(opts?: { enabled?: boolean; scope?: string; limit?: number; offset?: number }): Promise<AutomationRule[]>;
+  getAutomationRule(id: number): Promise<AutomationRule | undefined>;
+  createAutomationRule(data: InsertAutomationRule): Promise<AutomationRule>;
+  updateAutomationRule(id: number, data: Partial<InsertAutomationRule> & { lastRunAt?: Date | null; lastResult?: string | null; runCount?: number }): Promise<AutomationRule | undefined>;
+  deleteAutomationRule(id: number): Promise<boolean>;
+  getAutomationRunLogs(ruleId: number, limit?: number): Promise<AutomationRunLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1336,6 +1347,43 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(opportunityContacts.opportunityId, opportunityId), eq(opportunityContacts.contactId, contactId)))
       .returning();
     return !!r;
+  }
+
+  // ── Automation Rules ──────────────────────────────────────────────────────
+  async getAutomationRules(opts: { enabled?: boolean; scope?: string; limit?: number; offset?: number } = {}): Promise<AutomationRule[]> {
+    const conditions: SQL[] = [];
+    if (opts.enabled !== undefined) conditions.push(eq(automationRules.enabled, opts.enabled));
+    if (opts.scope) conditions.push(eq(automationRules.scope, opts.scope));
+    const q = db.select().from(automationRules);
+    if (conditions.length > 0) q.where(and(...conditions));
+    q.orderBy(desc(automationRules.createdAt));
+    if (opts.limit) q.limit(opts.limit);
+    if (opts.offset) q.offset(opts.offset);
+    return q;
+  }
+
+  async getAutomationRule(id: number): Promise<AutomationRule | undefined> {
+    const [r] = await db.select().from(automationRules).where(eq(automationRules.id, id));
+    return r;
+  }
+
+  async createAutomationRule(data: InsertAutomationRule): Promise<AutomationRule> {
+    const [r] = await db.insert(automationRules).values(data).returning();
+    return r;
+  }
+
+  async updateAutomationRule(id: number, data: Partial<InsertAutomationRule> & { lastRunAt?: Date | null; lastResult?: string | null; runCount?: number }): Promise<AutomationRule | undefined> {
+    const [r] = await db.update(automationRules).set({ ...data, updatedAt: new Date() }).where(eq(automationRules.id, id)).returning();
+    return r;
+  }
+
+  async deleteAutomationRule(id: number): Promise<boolean> {
+    const [r] = await db.delete(automationRules).where(eq(automationRules.id, id)).returning();
+    return !!r;
+  }
+
+  async getAutomationRunLogs(ruleId: number, limit = 50): Promise<AutomationRunLog[]> {
+    return db.select().from(automationRunLogs).where(eq(automationRunLogs.ruleId, ruleId)).orderBy(desc(automationRunLogs.executedAt)).limit(limit);
   }
 }
 

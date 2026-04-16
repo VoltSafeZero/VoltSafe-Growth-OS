@@ -63,6 +63,7 @@ import DeploymentsPage from "@/pages/deployments";
 import RenewalsPage from "@/pages/renewals";
 import GeographyPage from "@/pages/geography";
 import DocumentsPage from "@/pages/documents";
+import AutomationsPage from "@/pages/automations";
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -200,7 +201,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       {/* ── Growth OS: Coming Soon stubs ──────────────────────────── */}
       <Route path="/activity">{() => wrap(<ActivityFeedPage />)}</Route>
       <Route path="/notes">{() => wrap(<NotesPage />)}</Route>
-      {(["renewals", "segments", "tags", "automations", "imports"] as const).map(slug => (
+      {(["renewals", "segments", "tags", "imports"] as const).map(slug => (
         <Route key={slug} path={`/${slug}`}>{() => wrap(
           <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-6">
             <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
@@ -239,6 +240,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/support/tickets">{() => guard("support", <TicketsPage canEdit={isAdmin(role) || perms.support === "edit"} />)}</Route>
 
       {/* ── AUTOMATION ────────────────────────────────────────────── */}
+      <Route path="/automations">{() => wrap(<AutomationsPage />)}</Route>
       <Route path="/automation/tasks">{() => wrap(<TaskRulesSettingsPage />)}</Route>
       <Route path="/execution/daily">{() => wrap(<DailyExecutionPage />)}</Route>
 

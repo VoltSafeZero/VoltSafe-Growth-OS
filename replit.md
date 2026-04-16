@@ -1,5 +1,37 @@
 # Replit Agent Configuration
 
+## Advanced Automation Builder (All 7 Phases Complete)
+
+### What was built
+A rule-based automation layer integrated across CRM, quotes, deployments, certification, procurement, customer success, and documents.
+
+**Phase 1 — Schema**: `automation_rules` and `automation_run_logs` tables added to `shared/schema.ts` and migrated to PostgreSQL.
+
+**Phase 2 — Condition Engine** (`server/services/automation-engine.ts`): Deterministic condition evaluator supporting `equals`, `not_equals`, `contains`, `in`, `date_within_days`, `date_overdue`, `changed_to`, `changed_from`, `is_null`, `is_not_null`, `gt/gte/lt/lte`, AND/OR chaining.
+
+**Phase 3 — Action Engine**: Executes `create_task`, `create_suggestion`, `create_notification`, `add_timeline_event`, `change_status`, `flag_record`, `assign_owner` against real DB records.
+
+**Phase 4 — Backend Routes** (`server/routes.ts`): Full CRUD for automation rules + toggle, manual run, run history, condition preview, metadata endpoints (trigger-types, condition-ops, action-types). Seed function for starter templates.
+
+**Phase 4 — Frontend** (`client/src/pages/automations.tsx`): Automation Builder page at `/automations` with rule list (grouped: templates / custom), enable/disable toggle, rule editor dialog (trigger selector, condition builder, action builder), run rule dialog (with dry-run), run history dialog, and search/filter controls.
+
+**Phase 5 — Safety**: Cooldown windows enforced per-rule; dry-run mode returns `skipped=true` for all actions without side effects; dedupe key support.
+
+**Phase 6 — Starter Templates**: 7 VoltSafe templates auto-seeded on first boot (idempotent): Quote Accepted → Onboarding, Deployment Blocked → Ops Alert, Cert Retest Required, Renewal Due 90 Days, Lab Report Added → Timeline Alert, Quote Not Opened → Follow-up, Install Workflow Overdue → Escalation.
+
+**Phase 7 — Tests**: `tests/automations.test.js` 38/38.
+
+### Key files
+- `server/services/automation-engine.ts` — condition/action engine
+- `client/src/pages/automations.tsx` — full automation builder UI
+- `tests/automations.test.js` — 38 tests
+
+### Supported triggers (13)
+record_created, field_changed, status_changed, date_approaching, date_overdue, task_overdue, quote_accepted, deployment_blocked, certification_blocker, renewal_due, document_added, engagement_signal, manual
+
+### Supported actions (7)
+create_task, create_suggestion, create_notification, add_timeline_event, change_status, flag_record, assign_owner
+
 ## Overview
 
 **VoltSafe Growth OS** is VoltSafe's internal sales intelligence and CRM platform for marina-focused sales, support, and relationship management. It features a comprehensive sales pipeline (Leads to Quotes), support ticketing, a marina directory, communication tools, and an analytics dashboard. **Cortex** is the embedded AI assistant within the platform.
