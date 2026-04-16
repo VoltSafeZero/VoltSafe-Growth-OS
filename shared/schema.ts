@@ -2184,3 +2184,17 @@ export const executiveAlerts = pgTable("executive_alerts", {
 export const insertExecutiveAlertSchema = createInsertSchema(executiveAlerts).omit({ id: true, createdAt: true });
 export type InsertExecutiveAlert = z.infer<typeof insertExecutiveAlertSchema>;
 export type ExecutiveAlert = typeof executiveAlerts.$inferSelect;
+
+export const scoreAcknowledgments = pgTable("score_acknowledgments", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  modelName: text("model_name").notNull(),
+  recordType: text("record_type").notNull(),
+  recordId: integer("record_id").notNull(),
+  acknowledgedAt: timestamp("acknowledged_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+});
+
+export const insertScoreAcknowledgmentSchema = createInsertSchema(scoreAcknowledgments).omit({ id: true, acknowledgedAt: true });
+export type InsertScoreAcknowledgment = z.infer<typeof insertScoreAcknowledgmentSchema>;
+export type ScoreAcknowledgment = typeof scoreAcknowledgments.$inferSelect;
