@@ -822,6 +822,13 @@ export const attachments = pgTable("attachments", {
   uploadedBy: integer("uploaded_by"),
   uploadedByName: text("uploaded_by_name"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Document Hub extensions
+  title: text("title"),
+  category: text("category").default("general"),
+  notes: text("notes"),
+  tags: text("tags").array(),
+  source: text("source").default("upload"),
+  url: text("url"),
 });
 
 export const insertAttachmentSchema = createInsertSchema(attachments).omit({ id: true, createdAt: true });

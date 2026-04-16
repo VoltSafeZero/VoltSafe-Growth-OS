@@ -5,7 +5,7 @@ import {
   ClipboardList, Layers, ShieldCheck, Sun, Moon, GitBranch, Search, X,
   LayoutDashboard, Target, Share2, Brain, SlidersHorizontal, BarChart3,
   Megaphone, TrendingUp, Landmark, Truck, Factory, FlaskConical, Newspaper,
-  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, Sparkles, PlayCircle, Trophy, Package, Globe,
+  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen,
 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Link, useLocation } from "wouter";
@@ -145,6 +145,7 @@ const sections: NavSection[] = [
       { title: "Imports / Exports", url: "/imports", icon: FolderOpen },
       { title: "Projects", url: "/execution/projects", icon: Layers, permKey: "projects" },
       { title: "Communications", url: "/execution/communications", icon: Megaphone, permKey: "communications" },
+      { title: "Document Hub", url: "/documents", icon: BookOpen },
       { title: "Assets", url: "/knowledge/assets", icon: FolderOpen, permKey: "knowledge" },
       { title: "Price Lists", url: "/price-lists", icon: Tags, permKey: "quoting" },
     ],

@@ -4,6 +4,17 @@
 
 **VoltSafe Growth OS** is VoltSafe's internal sales intelligence and CRM platform for marina-focused sales, support, and relationship management. It features a comprehensive sales pipeline (Leads to Quotes), support ticketing, a marina directory, communication tools, and an analytics dashboard. **Cortex** is the embedded AI assistant within the platform.
 
+### Smart Document Hub (complete)
+- **Schema**: Extended `attachments` table with new columns: `title`, `category` (default `general`), `notes`, `tags text[]`, `source` (upload/link), `url`. Migration: `migrateDocumentSchema()` in seed-production.ts runs idempotently via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+- **Supported object types (broadened)**: `lead`, `account`, `partnership`, `contact`, `opportunity`, `quote`, `install_workflow`, `deployment`, `purchase_order`, `project`, `customer_success`, `general`.
+- **File types (broadened)**: Now accepts images, video, PDF, Word, Excel, PowerPoint, CSV, TXT, ZIP (not just image/video).
+- **11 document categories**: quote_proposal, contract, certification, lab_report, drawing_spec, install_doc, deployment_photo, procurement_po, invoice_billing, cs_renewal, general.
+- **Document Hub page** (`/documents`): Full-page hub with search, category chips, object-type filter, source filter (upload/link), recent docs grid, master-detail list view with detail panel (edit metadata, download, delete, open URL). Upload modal + Link URL modal.
+- **API**: `GET /api/documents` (hub listing with filters: category, objectType, search, limit, offset); `POST /api/documents/link` (URL linking); `PATCH /api/attachments/:id` (metadata update — owner-or-admin gated).
+- **Enhanced AttachmentsSection**: All record pages now show category badges, download links, URL open links, and "Link URL" option alongside file upload. Category selector before upload.
+- **Nav**: "Document Hub" entry added to Operations section in sidebar.
+- **Tests**: `tests/documents.test.js` — 20/20 assertions pass (auth guard, URL linking, file upload, hub listing, record linkage, metadata update, deletion, no regression).
+
 ### Territory + Geographic Intelligence Layer (complete)
 - **Schema**: `territories` table (id, name, code, owner_user_id, status, notes, color, regions, countries); `territory_id` FK added to `accounts` and `leads`; `region` field added to `leads` for region normalization.
 - **Territory CRUD**: Full REST — `GET/POST /api/territories`, `GET/PATCH/DELETE /api/territories/:id`; search + status filter support; account/lead count rollups in list + detail.

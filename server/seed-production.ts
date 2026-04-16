@@ -879,6 +879,24 @@ export async function migrateCsTimelineSchema(): Promise<void> {
   }
 }
 
+export async function migrateDocumentSchema(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE attachments ADD COLUMN IF NOT EXISTS title text`);
+    await db.execute(sql`ALTER TABLE attachments ADD COLUMN IF NOT EXISTS category text NOT NULL DEFAULT 'general'`);
+    await db.execute(sql`ALTER TABLE attachments ADD COLUMN IF NOT EXISTS notes text`);
+    await db.execute(sql`ALTER TABLE attachments ADD COLUMN IF NOT EXISTS tags text[]`);
+    await db.execute(sql`ALTER TABLE attachments ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'upload'`);
+    await db.execute(sql`ALTER TABLE attachments ADD COLUMN IF NOT EXISTS url text`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_attachments_category ON attachments(category)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_attachments_source ON attachments(source)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_attachments_uploaded_by ON attachments(uploaded_by)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_attachments_object ON attachments(object_type, object_id)`);
+    console.log("[migration] Document schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Document schema migration error (non-fatal):", err);
+  }
+}
+
 export async function seedSampleProjects(): Promise<void> {
   try {
     const result = await db.execute(sql`SELECT COUNT(*) as cnt FROM projects`);

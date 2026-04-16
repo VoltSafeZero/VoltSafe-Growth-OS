@@ -78,6 +78,23 @@ if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 const ASSETS_DIR = path.resolve("uploads/assets");
 if (!fs.existsSync(ASSETS_DIR)) fs.mkdirSync(ASSETS_DIR, { recursive: true });
 
+const ALLOWED_ATTACHMENT_TYPES = new Set([
+  // Images & video
+  "image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif",
+  "image/svg+xml", "image/tiff", "image/bmp",
+  "video/mp4", "video/quicktime", "video/webm", "video/ogg",
+  // Documents
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/csv", "text/plain",
+  "application/zip",
+]);
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
@@ -88,11 +105,14 @@ const upload = multer({
   }),
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const allowed = /^(image|video)\//;
-    if (allowed.test(file.mimetype)) {
+    if (
+      ALLOWED_ATTACHMENT_TYPES.has(file.mimetype) ||
+      file.mimetype.startsWith("image/") ||
+      file.mimetype.startsWith("video/")
+    ) {
       cb(null, true);
     } else {
-      cb(new Error("Only image and video files are allowed"));
+      cb(new Error("File type not supported. Allowed: images, videos, PDF, Word, Excel, CSV, ZIP"));
     }
   },
 });
@@ -3953,11 +3973,11 @@ export async function registerRoutes(
     });
   }, async (req, res) => {
     if (!req.file) return res.status(400).json({ message: "No file uploaded" });
-    const { objectType, objectId } = req.body;
-    const allowedTypes = ["lead", "account", "partnership"];
+    const { objectType, objectId, category, title, notes, tags } = req.body;
+    const allowedTypes = ["lead", "account", "partnership", "contact", "opportunity", "quote", "install_workflow", "deployment", "purchase_order", "project", "customer_success", "general"];
     if (!objectType || !objectId || !allowedTypes.includes(objectType)) {
       try { fs.unlinkSync(req.file.path); } catch {}
-      return res.status(400).json({ message: "Valid objectType (lead/account/partnership) and objectId required" });
+      return res.status(400).json({ message: "Valid objectType and objectId required" });
     }
     try {
       const attachment = await storage.createAttachment({
@@ -3969,11 +3989,85 @@ export async function registerRoutes(
         fileSize: req.file.size,
         uploadedBy: req.session.userId ?? null,
         uploadedByName: req.session.name ?? null,
+        category: category ?? "general",
+        title: title ?? null,
+        notes: notes ?? null,
+        tags: tags ? (Array.isArray(tags) ? tags : tags.split(",").map((t: string) => t.trim()).filter(Boolean)) : null,
+        source: "upload",
+        url: null,
       });
       res.status(201).json(attachment);
     } catch (e) {
       try { fs.unlinkSync(req.file.path); } catch {}
       res.status(500).json({ message: "Failed to save attachment" });
+    }
+  });
+
+  app.patch("/api/attachments/:id", requireAuth, async (req, res) => {
+    const attachment = await storage.getAttachment(Number(req.params.id));
+    if (!attachment) return res.status(404).json({ message: "Attachment not found" });
+    const role = String((req.session as any).globalRole || "");
+    const isAdmin = ["master_admin", "admin"].includes(role);
+    const isOwner = req.session.userId === attachment.uploadedBy;
+    if (attachment.uploadedBy !== null && !isAdmin && !isOwner) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+    const { category, title, notes, tags } = req.body;
+    const updated = await storage.updateAttachment(attachment.id, {
+      ...(category !== undefined ? { category } : {}),
+      ...(title !== undefined ? { title } : {}),
+      ...(notes !== undefined ? { notes } : {}),
+      ...(tags !== undefined ? { tags: Array.isArray(tags) ? tags : tags.split(",").map((t: string) => t.trim()).filter(Boolean) } : {}),
+    });
+    res.json(updated);
+  });
+
+  // ── Document Hub endpoints ────────────────────────────────────────────────
+  app.get("/api/documents", requireAuth, async (req, res) => {
+    try {
+      const { category, objectType, search, limit, offset } = req.query;
+      const result = await storage.getAllDocuments({
+        category: category as string,
+        objectType: objectType as string,
+        search: search as string,
+        limit: limit ? Number(limit) : 50,
+        offset: offset ? Number(offset) : 0,
+      });
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ message: "Failed to load documents" });
+    }
+  });
+
+  app.post("/api/documents/link", requireAuth, async (req, res) => {
+    const { objectType, objectId, url, title, category, notes, tags } = req.body;
+    if (!url || !objectType || !objectId) {
+      return res.status(400).json({ message: "url, objectType, and objectId are required" });
+    }
+    const allowedTypes = ["lead", "account", "partnership", "contact", "opportunity", "quote", "install_workflow", "deployment", "purchase_order", "project", "customer_success", "general"];
+    if (!allowedTypes.includes(objectType)) {
+      return res.status(400).json({ message: "Invalid objectType" });
+    }
+    try {
+      const attachment = await storage.createAttachment({
+        objectType,
+        objectId: Number(objectId),
+        fileName: "",
+        originalName: title ?? url,
+        mimeType: "text/uri-list",
+        fileSize: 0,
+        uploadedBy: req.session.userId ?? null,
+        uploadedByName: req.session.name ?? null,
+        category: category ?? "general",
+        title: title ?? null,
+        notes: notes ?? null,
+        tags: tags ? (Array.isArray(tags) ? tags : tags.split(",").map((t: string) => t.trim()).filter(Boolean)) : null,
+        source: "link",
+        url,
+      });
+      res.status(201).json(attachment);
+    } catch (e) {
+      res.status(500).json({ message: "Failed to save link" });
     }
   });
 

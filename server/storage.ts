@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { db, pool } from "./db";
 import {
   metrics, sales, chartData, marinas,
   leads, accounts, contacts, opportunities, dealStageHistory,
@@ -143,6 +143,8 @@ export interface IStorage {
   createAttachment(data: InsertAttachment): Promise<Attachment>;
   deleteAttachment(id: number): Promise<Attachment | undefined>;
   getAttachment(id: number): Promise<Attachment | undefined>;
+  updateAttachment(id: number, data: Partial<InsertAttachment>): Promise<Attachment | undefined>;
+  getAllDocuments(filters: { category?: string; objectType?: string; uploadedBy?: number; search?: string; limit?: number; offset?: number; }): Promise<{ documents: Attachment[]; total: number }>;
 
   getUsers(): Promise<Pick<User, 'id' | 'name' | 'email'>[]>;
 
@@ -885,6 +887,68 @@ export class DatabaseStorage implements IStorage {
   async getAttachment(id: number) {
     const result = await db.select().from(attachments).where(eq(attachments.id, id));
     return result[0];
+  }
+
+  async updateAttachment(id: number, data: Partial<InsertAttachment>) {
+    const result = await db.update(attachments).set(data).where(eq(attachments.id, id)).returning();
+    return result[0];
+  }
+
+  async getAllDocuments(filters: { category?: string; objectType?: string; uploadedBy?: number; search?: string; limit?: number; offset?: number; }) {
+    const limit = filters.limit ?? 50;
+    const offset = filters.offset ?? 0;
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let pi = 1;
+
+    if (filters.category && filters.category !== "all") {
+      conditions.push(`a.category = $${pi++}`);
+      params.push(filters.category);
+    }
+    if (filters.objectType && filters.objectType !== "all") {
+      conditions.push(`a.object_type = $${pi++}`);
+      params.push(filters.objectType);
+    }
+    if (filters.uploadedBy) {
+      conditions.push(`a.uploaded_by = $${pi++}`);
+      params.push(filters.uploadedBy);
+    }
+    if (filters.search) {
+      conditions.push(`(a.original_name ILIKE $${pi} OR a.title ILIKE $${pi} OR a.notes ILIKE $${pi})`);
+      params.push(`%${filters.search}%`);
+      pi++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const countSql = `SELECT COUNT(*) as cnt FROM attachments a ${where}`;
+    const dataSql = `SELECT a.*, u.name as uploader_name FROM attachments a LEFT JOIN users u ON a.uploaded_by = u.id ${where} ORDER BY a.created_at DESC LIMIT $${pi++} OFFSET $${pi++}`;
+
+    const [countRes, dataRes] = await Promise.all([
+      pool.query(countSql, params),
+      pool.query(dataSql, [...params, limit, offset]),
+    ]);
+
+    const total = Number(countRes.rows[0]?.cnt ?? 0);
+    const documents = dataRes.rows.map((r: any) => ({
+      id: r.id,
+      objectType: r.object_type,
+      objectId: r.object_id,
+      fileName: r.file_name,
+      originalName: r.original_name,
+      mimeType: r.mime_type,
+      fileSize: r.file_size,
+      uploadedBy: r.uploaded_by,
+      uploadedByName: r.uploaded_by_name ?? r.uploader_name ?? null,
+      createdAt: r.created_at,
+      title: r.title ?? null,
+      category: r.category ?? "general",
+      notes: r.notes ?? null,
+      tags: r.tags ?? null,
+      source: r.source ?? "upload",
+      url: r.url ?? null,
+    }));
+
+    return { documents, total };
   }
 
   async getUsers(): Promise<Pick<User, 'id' | 'name' | 'email'>[]> {
