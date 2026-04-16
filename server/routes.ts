@@ -582,7 +582,7 @@ export async function registerRoutes(
   // PATCH /api/users/me/layout — persist layout preferences
   app.patch("/api/users/me/layout", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId as number;
-    const { preferredLayout, widgetVisibility, defaultCommandCenter } = req.body;
+    const { preferredLayout, widgetVisibility, defaultCommandCenter, widgetOrder } = req.body;
 
     const VALID_LAYOUTS = ["expanded", "compact"];
     const VALID_CENTERS = ["ceo", "cfo", "cto", "cmo", "sales", "cs", "default", null];
@@ -596,11 +596,20 @@ export async function registerRoutes(
     if (widgetVisibility !== undefined && (typeof widgetVisibility !== "object" || Array.isArray(widgetVisibility))) {
       return res.status(400).json({ message: "widgetVisibility must be an object" });
     }
+    if (widgetOrder !== undefined && !Array.isArray(widgetOrder)) {
+      return res.status(400).json({ message: "widgetOrder must be an array" });
+    }
 
     const update: Record<string, any> = {};
     if (preferredLayout !== undefined) update.preferredLayout = preferredLayout;
     if (widgetVisibility !== undefined) update.widgetVisibility = widgetVisibility;
     if (defaultCommandCenter !== undefined) update.defaultCommandCenter = defaultCommandCenter;
+    // Persist widgetOrder inside widgetVisibility as __order key
+    if (widgetOrder !== undefined) {
+      const [existing] = await db.select({ wv: users.widgetVisibility }).from(users).where(eq(users.id, userId)).limit(1);
+      const mergedVis = { ...(existing?.wv as Record<string,any> ?? {}), __order: widgetOrder };
+      update.widgetVisibility = mergedVis;
+    }
     if (Object.keys(update).length === 0) return res.status(400).json({ message: "No fields to update" });
 
     const [updated] = await db.update(users).set(update).where(eq(users.id, userId)).returning({
@@ -5722,6 +5731,201 @@ export async function registerRoutes(
         intelligence: { upcomingMeetings, inboxSignals: recentEmails.filter((e: any) => e.direction === "inbound"), newContacts: recentContacts },
       });
     } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Command Center Widget Data (action/risk/revenue widgets) ────────────
+  app.get("/api/command-center/widget-data", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const isAdminUser = req.session.globalRole === "master_admin" || req.session.globalRole === "admin";
+
+      const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+      const todayEnd   = new Date(); todayEnd.setHours(23,59,59,999);
+      const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
+
+      const userFilter = isAdminUser ? "" : `AND t.owner_user_id = ${userId}`;
+
+      const [
+        criticalRes, teamLoadRes, waitingOnRes, recentWinsRes,
+        topPerformersRes, boardRes, unrespondedLeadsRes, pipelineFunnelRes,
+      ] = await Promise.all([
+
+        // Today's critical actions — high/urgent priority tasks due today or overdue
+        db.execute(sql.raw(`
+          SELECT t.id, t.title, t.priority, t.due_date, t.status,
+                 t.linked_object_type, t.linked_object_id,
+                 u.name AS owner_name,
+                 COALESCE(a.name, c.name, o.title) AS linked_name,
+                 CASE WHEN t.due_date < NOW() THEN 'overdue' ELSE 'today' END AS urgency
+          FROM tasks t
+          LEFT JOIN users u ON u.id = t.owner_user_id
+          LEFT JOIN accounts a ON t.linked_object_type = 'account' AND t.linked_object_id = a.id
+          LEFT JOIN contacts c ON t.linked_object_type = 'contact' AND t.linked_object_id = c.id
+          LEFT JOIN opportunities o ON t.linked_object_type = 'opportunity' AND t.linked_object_id = o.id
+          WHERE t.status NOT IN ('done','completed','cancelled')
+            AND t.priority IN ('high','urgent')
+            AND t.due_date <= '${todayEnd.toISOString()}'
+            ${userFilter}
+            AND (t.snoozed_until IS NULL OR t.snoozed_until <= NOW())
+          ORDER BY t.due_date ASC NULLS LAST, CASE t.priority WHEN 'urgent' THEN 0 ELSE 1 END
+          LIMIT 10
+        `)),
+
+        // Team load — open task count per owner
+        db.execute(sql.raw(`
+          SELECT u.id AS user_id, u.name AS user_name,
+                 COUNT(*) FILTER (WHERE t.status NOT IN ('done','completed','cancelled'))::int AS open_count,
+                 COUNT(*) FILTER (WHERE t.status NOT IN ('done','completed','cancelled') AND t.due_date < NOW())::int AS overdue_count,
+                 COUNT(*) FILTER (WHERE t.status NOT IN ('done','completed','cancelled') AND t.priority IN ('high','urgent'))::int AS high_count
+          FROM users u
+          LEFT JOIN tasks t ON t.owner_user_id = u.id
+          WHERE u.status != 'suspended'
+          GROUP BY u.id, u.name
+          HAVING COUNT(*) FILTER (WHERE t.status NOT IN ('done','completed','cancelled')) > 0
+          ORDER BY open_count DESC
+          LIMIT 12
+        `)),
+
+        // Waiting on them — tasks where user is explicitly flagged as blocked/waiting
+        db.execute(sql.raw(`
+          SELECT t.id, t.title, t.due_date, t.priority,
+                 COALESCE(a.name, c.name, o.title) AS linked_name,
+                 t.linked_object_type,
+                 EXTRACT(DAY FROM NOW() - t.updated_at)::int AS days_waiting
+          FROM tasks t
+          LEFT JOIN accounts a ON t.linked_object_type = 'account' AND t.linked_object_id = a.id
+          LEFT JOIN contacts c ON t.linked_object_type = 'contact' AND t.linked_object_id = c.id
+          LEFT JOIN opportunities o ON t.linked_object_type = 'opportunity' AND t.linked_object_id = o.id
+          WHERE t.owner_user_id = ${userId}
+            AND t.status IN ('waiting','on_hold','blocked')
+            AND t.status NOT IN ('done','completed','cancelled')
+          ORDER BY t.updated_at ASC
+          LIMIT 8
+        `)),
+
+        // Recent wins — closed_won in last 30 days (use est_close_date or updated_at)
+        db.execute(sql.raw(`
+          SELECT o.id, o.title, o.amount,
+                 COALESCE(o.est_close_date, o.updated_at) AS close_date,
+                 o.stage,
+                 u.name AS owner_name, a.name AS account_name
+          FROM opportunities o
+          LEFT JOIN users u ON u.id = o.owner_user_id
+          LEFT JOIN accounts a ON a.id = o.account_id
+          WHERE o.stage = 'closed_won'
+            AND o.updated_at >= '${thirtyDaysAgo.toISOString()}'
+          ORDER BY o.amount DESC NULLS LAST, o.updated_at DESC
+          LIMIT 8
+        `)),
+
+        // Top performers — users ranked by completed tasks this month
+        db.execute(sql.raw(`
+          SELECT u.id AS user_id, u.name AS user_name,
+                 COUNT(*) FILTER (WHERE t.status IN ('done','completed') AND t.updated_at >= '${monthStart.toISOString()}')::int AS completed_this_month,
+                 COUNT(*) FILTER (WHERE t.status NOT IN ('done','completed','cancelled'))::int AS open_count
+          FROM users u
+          LEFT JOIN tasks t ON t.owner_user_id = u.id
+          WHERE u.status != 'suspended'
+          GROUP BY u.id, u.name
+          HAVING COUNT(*) FILTER (WHERE t.status IN ('done','completed') AND t.updated_at >= '${monthStart.toISOString()}') > 0
+          ORDER BY completed_this_month DESC
+          LIMIT 8
+        `)),
+
+        // Board pack readiness — aggregate signals for executive summary
+        db.execute(sql.raw(`
+          SELECT
+            (SELECT count(*)::int FROM opportunities WHERE stage NOT IN ('closed_won','closed_lost') AND amount IS NOT NULL) AS open_pipeline_count,
+            (SELECT COALESCE(SUM(amount),0)::float FROM opportunities WHERE stage NOT IN ('closed_won','closed_lost')) AS open_pipeline_value,
+            (SELECT COALESCE(SUM(amount),0)::float FROM opportunities WHERE stage = 'closed_won' AND updated_at >= '${monthStart.toISOString()}') AS won_this_month,
+            (SELECT count(*)::int FROM tasks WHERE status NOT IN ('done','completed','cancelled') AND due_date < NOW() AND priority IN ('high','urgent')) AS critical_overdue_tasks,
+            (SELECT count(*)::int FROM quotes WHERE status = 'sent' AND sent_at < NOW() - INTERVAL '14 days') AS stale_quotes,
+            (SELECT count(*)::int FROM leads WHERE status = 'new' AND created_at < NOW() - INTERVAL '3 days') AS unresponded_leads,
+            (SELECT count(*)::int FROM opportunities WHERE stage NOT IN ('closed_won','closed_lost') AND (last_activity_date IS NULL OR last_activity_date < NOW() - INTERVAL '21 days')) AS stalled_opps
+        `)),
+
+        // Unresponded leads — new leads >3 days old with no activity
+        db.execute(sql.raw(`
+          SELECT l.id, l.contact_name AS lead_name, l.company, l.source,
+                 EXTRACT(DAY FROM NOW() - l.created_at)::int AS days_old,
+                 l.created_at
+          FROM leads l
+          WHERE l.status = 'new' AND l.created_at < NOW() - INTERVAL '3 days'
+          ORDER BY l.created_at ASC
+          LIMIT 8
+        `)),
+
+        // Pipeline funnel — open opps by stage with counts and values
+        db.execute(sql.raw(`
+          SELECT stage,
+                 count(*)::int AS opp_count,
+                 COALESCE(SUM(amount), 0)::float AS total_value
+          FROM opportunities
+          WHERE stage NOT IN ('closed_won','closed_lost')
+          GROUP BY stage
+          ORDER BY CASE stage
+            WHEN 'inbound_new' THEN 1 WHEN 'qualifying' THEN 2 WHEN 'proposal' THEN 3
+            WHEN 'negotiation' THEN 4 WHEN 'verbal_commit' THEN 5 ELSE 6
+          END
+        `)),
+      ]);
+
+      const board = (boardRes as any).rows?.[0] ?? {};
+
+      // Compute board pack readiness score (0–100)
+      let boardScore = 100;
+      if (Number(board.critical_overdue_tasks) > 0) boardScore -= Math.min(30, Number(board.critical_overdue_tasks) * 10);
+      if (Number(board.stale_quotes) > 0) boardScore -= Math.min(20, Number(board.stale_quotes) * 5);
+      if (Number(board.unresponded_leads) > 0) boardScore -= Math.min(20, Number(board.unresponded_leads) * 5);
+      if (Number(board.stalled_opps) > 0) boardScore -= Math.min(20, Number(board.stalled_opps) * 5);
+      boardScore = Math.max(0, boardScore);
+
+      res.json({
+        criticalActions: {
+          items: (criticalRes as any).rows ?? [],
+          count: ((criticalRes as any).rows ?? []).length,
+        },
+        teamLoad: {
+          items: (teamLoadRes as any).rows ?? [],
+        },
+        waitingOn: {
+          items: (waitingOnRes as any).rows ?? [],
+          count: ((waitingOnRes as any).rows ?? []).length,
+        },
+        recentWins: {
+          items: (recentWinsRes as any).rows ?? [],
+          count: ((recentWinsRes as any).rows ?? []).length,
+          totalValue: ((recentWinsRes as any).rows ?? []).reduce((s: number, r: any) => s + Number(r.amount ?? 0), 0),
+        },
+        topPerformers: {
+          items: (topPerformersRes as any).rows ?? [],
+        },
+        boardPack: {
+          ...board,
+          readinessScore: boardScore,
+          checks: [
+            { key: "pipeline",      label: "Open pipeline",               ok: Number(board.open_pipeline_count) > 0, value: board.open_pipeline_count },
+            { key: "won",           label: "Revenue closed this month",    ok: Number(board.won_this_month) > 0,      value: board.won_this_month },
+            { key: "tasks",         label: "No critical overdue tasks",    ok: Number(board.critical_overdue_tasks) === 0, value: board.critical_overdue_tasks },
+            { key: "quotes",        label: "No stale sent quotes",         ok: Number(board.stale_quotes) === 0,      value: board.stale_quotes },
+            { key: "leads",         label: "No unresponded leads >3 days", ok: Number(board.unresponded_leads) === 0, value: board.unresponded_leads },
+            { key: "stalled",       label: "No stalled opportunities",     ok: Number(board.stalled_opps) === 0,      value: board.stalled_opps },
+          ],
+        },
+        unrespondedLeads: {
+          items: (unrespondedLeadsRes as any).rows ?? [],
+          count: ((unrespondedLeadsRes as any).rows ?? []).length,
+        },
+        pipelineFunnel: {
+          stages: (pipelineFunnelRes as any).rows ?? [],
+        },
+      });
+    } catch (err: any) {
+      console.error("[widget-data]", err.message);
       res.status(500).json({ message: err.message });
     }
   });

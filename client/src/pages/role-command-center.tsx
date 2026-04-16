@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
   Eye, EyeOff, RotateCcw, Maximize2, Minimize2, SlidersHorizontal,
   AlertTriangle, CheckSquare, TrendingUp, Building2, Mail,
   ChevronRight, Zap, CalendarDays, ShieldAlert, ArrowRight, Route, MapPin, Navigation,
+  Sparkles,
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -23,12 +24,13 @@ import { useHotList, useCommandCenterWidgets } from "@/hooks/use-scores";
 import { ScoreListWidget } from "@/components/scores/score-widget";
 import {
   buildDashboardConfig, detectCenterType, ALL_CENTER_TYPES,
-  type CenterType, type UserProfile,
+  type CenterType, type UserProfile, type WidgetDef,
 } from "@/lib/dashboard-config";
 import { CEOCommandCenter } from "@/components/command-centers/ceo-center";
 import { CFOCommandCenter } from "@/components/command-centers/cfo-center";
 import { CTOCommandCenter } from "@/components/command-centers/cto-center";
 import { CMOCommandCenter } from "@/components/command-centers/cmo-center";
+import { ActionWidgetsGrid } from "@/components/command-centers/action-widgets";
 import { format, formatDistanceToNow, isToday, isTomorrow } from "date-fns";
 import { Link } from "wouter";
 
@@ -468,39 +470,98 @@ function CSCommandCenter({ visible, compact }: { visible: Record<string, boolean
 }
 
 // ── Widget Visibility Panel ───────────────────────────────────────────────────
+const CATEGORY_LABELS: Record<string, string> = {
+  action:   "Action & Productivity",
+  risk:     "Risk & Alerts",
+  revenue:  "Revenue & Finance",
+  team:     "Team",
+  pipeline: "Pipeline & Sales",
+  classic:  "Role-Specific Widgets",
+};
+
 function WidgetVisibilityPanel({ widgets, visible, onToggle, onReset }: {
-  widgets: { id: string; label: string; description: string }[];
+  widgets: WidgetDef[];
   visible: Record<string, boolean>;
   onToggle: (id: string) => void;
   onReset: () => void;
 }) {
+  const [activeTab, setActiveTab] = useState<"new" | "classic">("new");
+
+  const newWidgets     = widgets.filter(w => w.isNew);
+  const classicWidgets = widgets.filter(w => !w.isNew);
+
+  // Group new widgets by category
+  const byCategory: Record<string, WidgetDef[]> = {};
+  for (const w of newWidgets) {
+    const cat = w.category ?? "action";
+    if (!byCategory[cat]) byCategory[cat] = [];
+    byCategory[cat].push(w);
+  }
+
+  const renderWidget = (w: WidgetDef) => (
+    <div key={w.id} className="flex items-center justify-between p-3 rounded-lg border border-border/40 hover:bg-muted/30 transition-colors">
+      <div className="flex-1 min-w-0 pr-4">
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm font-medium">{w.label}</p>
+          {w.isNew && <Badge className="text-[9px] h-3.5 px-1 py-0 bg-primary/20 text-primary border-primary/30 rounded-full">NEW</Badge>}
+        </div>
+        <p className="text-xs text-muted-foreground mt-0.5">{w.description}</p>
+      </div>
+      <Button
+        variant={visible[w.id] ? "default" : "outline"}
+        size="sm"
+        onClick={() => onToggle(w.id)}
+        className="shrink-0 gap-1 text-xs h-7"
+        data-testid={`toggle-widget-${w.id}`}
+      >
+        {visible[w.id] ? <><Eye className="h-3 w-3" /> On</> : <><EyeOff className="h-3 w-3" /> Off</>}
+      </Button>
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Toggle widgets on or off for your layout.</p>
+        <p className="text-sm text-muted-foreground">Toggle widgets on or off. Drag handles appear on hover.</p>
         <Button variant="ghost" size="sm" onClick={onReset} className="text-xs gap-1">
           <RotateCcw className="h-3 w-3" /> Reset
         </Button>
       </div>
-      <div className="space-y-2">
-        {widgets.map(w => (
-          <div key={w.id} className="flex items-center justify-between p-3 rounded-lg border border-border/40 hover:bg-muted/30 transition-colors">
-            <div className="flex-1 min-w-0 pr-4">
-              <p className="text-sm font-medium">{w.label}</p>
-              <p className="text-xs text-muted-foreground">{w.description}</p>
-            </div>
-            <Button
-              variant={visible[w.id] ? "default" : "outline"}
-              size="sm"
-              onClick={() => onToggle(w.id)}
-              className="shrink-0 gap-1 text-xs h-7"
-              data-testid={`toggle-widget-${w.id}`}
-            >
-              {visible[w.id] ? <><Eye className="h-3 w-3" /> On</> : <><EyeOff className="h-3 w-3" /> Off</>}
-            </Button>
-          </div>
-        ))}
+
+      {/* Tab bar */}
+      <div className="flex rounded-md border border-border/50 overflow-hidden">
+        <button
+          className={`flex-1 py-1.5 text-xs font-medium transition-colors ${activeTab === "new" ? "bg-primary text-primary-foreground" : "hover:bg-muted/50 text-muted-foreground"}`}
+          onClick={() => setActiveTab("new")}
+          data-testid="picker-tab-new"
+        >
+          <Sparkles className="h-3 w-3 inline mr-1" />New Widgets ({newWidgets.length})
+        </button>
+        <button
+          className={`flex-1 py-1.5 text-xs font-medium border-l border-border/50 transition-colors ${activeTab === "classic" ? "bg-primary text-primary-foreground" : "hover:bg-muted/50 text-muted-foreground"}`}
+          onClick={() => setActiveTab("classic")}
+          data-testid="picker-tab-classic"
+        >
+          Role-Specific ({classicWidgets.length})
+        </button>
       </div>
+
+      {activeTab === "new" && (
+        <div className="space-y-5">
+          {Object.entries(byCategory).map(([cat, catWidgets]) => (
+            <div key={cat}>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-2 px-1">
+                {CATEGORY_LABELS[cat] ?? cat}
+              </p>
+              <div className="space-y-2">{catWidgets.map(renderWidget)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeTab === "classic" && (
+        <div className="space-y-2">{classicWidgets.map(renderWidget)}</div>
+      )}
     </div>
   );
 }
@@ -511,12 +572,14 @@ export default function RoleCommandCenter() {
   const [useRoleDefault, setUseRoleDefault] = useState(false);
   const [localVisibility, setLocalVisibility] = useState<Record<string, boolean> | null>(null);
   const [localLayout, setLocalLayout] = useState<"expanded" | "compact" | null>(null);
+  const [localWidgetOrder, setLocalWidgetOrder] = useState<string[] | null>(null);
+  const orderSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toast } = useToast();
 
   const profileQuery = useQuery<UserProfile>({ queryKey: ["/api/users/me/profile"] });
 
   const saveMutation = useMutation({
-    mutationFn: (data: { preferredLayout?: string; widgetVisibility?: Record<string, boolean>; defaultCommandCenter?: string }) =>
+    mutationFn: (data: { preferredLayout?: string; widgetVisibility?: Record<string, boolean>; defaultCommandCenter?: string; widgetOrder?: string[] }) =>
       apiRequest("PATCH", "/api/users/me/layout", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/users/me/profile"] });
@@ -535,6 +598,7 @@ export default function RoleCommandCenter() {
   const visible = localVisibility ?? (useRoleDefault ? undefined : config?.visibleWidgets) ?? config?.visibleWidgets ?? {};
   const layoutMode = (localLayout ?? profile?.preferredLayout ?? "expanded") as "expanded" | "compact";
   const compact = layoutMode === "compact";
+  const widgetOrder = localWidgetOrder ?? config?.widgetOrder ?? [];
 
   const handleToggleWidget = useCallback((id: string) => {
     const current = localVisibility ?? config?.visibleWidgets ?? {};
@@ -544,7 +608,17 @@ export default function RoleCommandCenter() {
 
   const handleResetWidgets = useCallback(() => {
     setLocalVisibility(null);
+    setLocalWidgetOrder(null);
   }, []);
+
+  const handleReorder = useCallback((newOrder: string[]) => {
+    setLocalWidgetOrder(newOrder);
+    // Auto-save order with debounce
+    if (orderSaveTimer.current) clearTimeout(orderSaveTimer.current);
+    orderSaveTimer.current = setTimeout(() => {
+      saveMutation.mutate({ widgetOrder: newOrder });
+    }, 1500);
+  }, [saveMutation]);
 
   const handleSaveLayout = () => {
     if (!localVisibility && !localLayout) return;
@@ -712,7 +786,15 @@ export default function RoleCommandCenter() {
         </div>
       </div>
 
-      {/* ── Center Content ──────────────────────────────────────────────── */}
+      {/* ── New Draggable Action Widgets ────────────────────────────────── */}
+      <ActionWidgetsGrid
+        visible={visible}
+        widgetOrder={widgetOrder}
+        compact={compact}
+        onReorder={handleReorder}
+      />
+
+      {/* ── Role-Specific Center Content ────────────────────────────────── */}
       {displayCenterType === "ceo" && (
         <CEOCommandCenter visible={visible} compact={compact} />
       )}
