@@ -10409,6 +10409,219 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
+  // ── GET /api/projects/:id/tracker-sync ───────────────────────────────────────
+  // Reads the configured Google Sheet as CSV (server-side to avoid CORS) and
+  // computes live test counts using the stored column mappings.
+  app.get("/api/projects/:id/tracker-sync", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+
+      // 1. Load cert record
+      const rows = await db.execute(sql.raw(`SELECT tracker_sheet_url, tracker_sheet_config FROM project_certifications WHERE project_id = ${id}`));
+      const cert = ((rows as any).rows ?? [])[0];
+      if (!cert || !cert.tracker_sheet_url) {
+        return res.json({ error: "not_configured", message: "No sheet URL configured for this project." });
+      }
+
+      // 2. Parse config
+      let config: Record<string, any> = {};
+      try { config = JSON.parse(cert.tracker_sheet_config ?? "{}"); } catch { config = {}; }
+
+      // Determine which GID to use: query param → config default → first tab → "0"
+      const requestedGid = (req.query.gid as string) ?? "";
+      const gid = requestedGid || config.defaultGid || config.tabs?.[0]?.gid || "0";
+      const colMap: Record<string, string> = config.columnMap ?? {};
+
+      // 3. Extract sheetId from URL
+      const sheetIdMatch = cert.tracker_sheet_url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+      if (!sheetIdMatch) {
+        return res.json({ error: "invalid_url", message: "Sheet URL format not recognised." });
+      }
+      const sheetId = sheetIdMatch[1];
+
+      // 4. Fetch CSV (server-side — avoids browser CORS restrictions)
+      const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
+      let csvText = "";
+      try {
+        const fetchRes = await fetch(csvUrl, {
+          headers: { "User-Agent": "VoltSafe-Growth-OS/1.0" },
+          redirect: "manual",          // detect auth redirects
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (fetchRes.status === 302 || fetchRes.status === 301) {
+          const location = fetchRes.headers.get("location") ?? "";
+          if (location.includes("accounts.google.com") || location.includes("ServiceLogin")) {
+            return res.json({
+              error: "permission_denied",
+              message: "Sheet is private. Share as 'Anyone with the link can view' to enable sync.",
+            });
+          }
+        }
+        if (fetchRes.status === 403 || fetchRes.status === 401) {
+          return res.json({
+            error: "permission_denied",
+            message: "Sheet is private or access denied. Share as 'Anyone with the link can view' to enable sync.",
+          });
+        }
+        if (!fetchRes.ok) {
+          return res.json({ error: "fetch_failed", message: `Google Sheets returned HTTP ${fetchRes.status}.` });
+        }
+        csvText = await fetchRes.text();
+        // Google returns an HTML login page for private sheets with a 200
+        if (csvText.trim().startsWith("<!DOCTYPE") || csvText.trim().startsWith("<html")) {
+          return res.json({
+            error: "permission_denied",
+            message: "Sheet is private. Share as 'Anyone with the link can view' to enable sync.",
+          });
+        }
+      } catch (fetchErr: any) {
+        return res.json({ error: "fetch_error", message: `Could not reach Google Sheets: ${fetchErr.message}` });
+      }
+
+      // 5. Parse CSV
+      function parseCsv(text: string): string[][] {
+        const lines: string[][] = [];
+        let row: string[] = [];
+        let cell = "";
+        let inQuotes = false;
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+          if (inQuotes) {
+            if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+            else if (ch === '"') { inQuotes = false; }
+            else { cell += ch; }
+          } else {
+            if (ch === '"') { inQuotes = true; }
+            else if (ch === ',') { row.push(cell.trim()); cell = ""; }
+            else if (ch === '\n') { row.push(cell.trim()); lines.push(row); row = []; cell = ""; }
+            else if (ch === '\r') { /* skip */ }
+            else { cell += ch; }
+          }
+        }
+        if (cell || row.length) { row.push(cell.trim()); lines.push(row); }
+        return lines.filter(r => r.some(c => c !== ""));
+      }
+
+      const matrix = parseCsv(csvText);
+      if (matrix.length < 2) {
+        return res.json({ error: "empty_sheet", message: "Sheet appears to be empty or has only a header row." });
+      }
+
+      // 6. Map column names → indices (case-insensitive, trim)
+      const headers = matrix[0].map(h => h.toLowerCase().trim());
+      const findCol = (key: string): number => {
+        const mapped = (colMap[key] ?? "").toLowerCase().trim();
+        if (!mapped) return -1;
+        return headers.findIndex(h => h === mapped);
+      };
+
+      const statusIdx  = findCol("status");
+      const resultIdx  = findCol("result");
+      const blockerIdx = findCol("blocker");
+      const retestIdx  = findCol("retest");
+      const dueDateIdx = findCol("dueDate");
+
+      // Helper: is a cell value "true-ish" vs "false-ish"
+      const FALSE_VALS = new Set(["no", "n", "false", "none", "-", "0", "", "n/a", "na"]);
+      const isTruthy = (v: string) => !FALSE_VALS.has(v.toLowerCase().trim());
+
+      // Status/Result classification
+      const PASS_VALS   = ["pass", "passed", "approved", "complete", "completed", "yes", "✓", "ok"];
+      const FAIL_VALS   = ["fail", "failed", "rejected", "error", "✗", "x"];
+      const IP_VALS     = ["in progress", "in testing", "running", "active", "started", "in-progress", "in_progress", "ongoing"];
+      const PEND_VALS   = ["pending", "not started", "queued", "waiting", "planned", "todo", "not tested", "scheduled"];
+
+      const classify = (statusVal: string, resultVal: string): "passed" | "failed" | "in_progress" | "pending" | "other" => {
+        const sv = statusVal.toLowerCase().trim();
+        const rv = resultVal.toLowerCase().trim();
+        if (FAIL_VALS.some(f => sv === f || rv === f)) return "failed";
+        if (PASS_VALS.some(p => sv === p || rv === p)) return "passed";
+        if (IP_VALS.some(i => sv.includes(i))) return "in_progress";
+        if (PEND_VALS.some(p => sv.includes(p))) return "pending";
+        return "other";
+      };
+
+      // 7. Compute stats from data rows
+      const dataRows = matrix.slice(1);
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const in7days = new Date(today); in7days.setDate(today.getDate() + 7);
+
+      let passed = 0, failed = 0, pending = 0, inProgress = 0, other = 0;
+      let blockerCount = 0, retestCount = 0, dueSoonCount = 0;
+      let latestDate: Date | null = null;
+
+      for (const row of dataRows) {
+        const sv = statusIdx  >= 0 ? (row[statusIdx]  ?? "") : "";
+        const rv = resultIdx  >= 0 ? (row[resultIdx]  ?? "") : "";
+        const bv = blockerIdx >= 0 ? (row[blockerIdx] ?? "") : "";
+        const tv = retestIdx  >= 0 ? (row[retestIdx]  ?? "") : "";
+        const dv = dueDateIdx >= 0 ? (row[dueDateIdx] ?? "") : "";
+
+        const cat = classify(sv, rv);
+        if (cat === "passed")    passed++;
+        else if (cat === "failed")    failed++;
+        else if (cat === "in_progress") inProgress++;
+        else if (cat === "pending")   pending++;
+        else other++;
+
+        if (blockerIdx >= 0 && isTruthy(bv)) blockerCount++;
+        if (retestIdx  >= 0 && isTruthy(tv)) retestCount++;
+
+        if (dv) {
+          const parsed = new Date(dv);
+          if (!isNaN(parsed.getTime())) {
+            parsed.setHours(0, 0, 0, 0);
+            if (parsed >= today && parsed <= in7days) dueSoonCount++;
+            if (!latestDate || parsed > latestDate) latestDate = parsed;
+          }
+        }
+      }
+
+      const total = dataRows.length;
+
+      // 8. Alert conditions (Phase 5)
+      const alertConditions = {
+        failedTest:      failed > 0,
+        blocker:         blockerCount > 0,
+        retestRequired:  retestCount > 0,
+        certRisk:        (failed > 0 || blockerCount > 0) && (total > 0 && failed / total > 0.15),
+      };
+
+      // 9. Column discovery info (for debugging / future use)
+      const columnsFound = {
+        status:  statusIdx  >= 0 ? (colMap.status  ?? "") : null,
+        result:  resultIdx  >= 0 ? (colMap.result  ?? "") : null,
+        blocker: blockerIdx >= 0 ? (colMap.blocker ?? "") : null,
+        retest:  retestIdx  >= 0 ? (colMap.retest  ?? "") : null,
+        dueDate: dueDateIdx >= 0 ? (colMap.dueDate ?? "") : null,
+      };
+
+      res.json({
+        source:         "google_sheets_csv",
+        gid,
+        sheetId,
+        total,
+        passed,
+        failed,
+        pending,
+        inProgress,
+        other,
+        blockerCount,
+        retestCount,
+        dueSoonCount,
+        lastUpdated:    latestDate ? latestDate.toISOString().slice(0, 10) : null,
+        syncedAt:       new Date().toISOString(),
+        rowCount:       total,
+        headerCount:    headers.length,
+        columnsFound,
+        alertConditions,
+        error:          null,
+      });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
   // ── GET /api/projects/:id/timeline ────────────────────────────────────────────
   app.get("/api/projects/:id/timeline", requireAuth, async (req, res) => {
     try {

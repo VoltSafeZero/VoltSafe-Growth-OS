@@ -44,6 +44,25 @@ type TrackerConfig = {
   columnMap?: { status?: string; result?: string; blocker?: string; retest?: string; dueDate?: string };
   alertHooks?: { failedTest?: boolean; blocker?: boolean; retestRequired?: boolean; certRisk?: boolean };
 };
+type SheetSyncResult = {
+  source: string;
+  gid: string;
+  total: number;
+  passed: number;
+  failed: number;
+  pending: number;
+  inProgress: number;
+  other: number;
+  blockerCount: number;
+  retestCount: number;
+  dueSoonCount: number;
+  lastUpdated: string | null;
+  syncedAt: string;
+  columnsFound: Record<string, string | null>;
+  alertConditions: { failedTest: boolean; blocker: boolean; retestRequired: boolean; certRisk: boolean };
+  error: string | null;
+  message?: string;
+};
 
 // ── Sheet URL helpers ──────────────────────────────────────────────────────────
 function extractSheetId(url: string): string | null {
@@ -381,7 +400,15 @@ function TrackerConfigDialog({
 }
 
 // ── Live Test Tracker: Certification Summary Panel ────────────────────────────
-function LiveTrackerCertSummary({ cert, milestones }: { cert: CertRecord | null | undefined; milestones: Milestone[] }) {
+function LiveTrackerCertSummary({
+  cert, milestones, sheetSync, syncLoading, onSync,
+}: {
+  cert: CertRecord | null | undefined;
+  milestones: Milestone[];
+  sheetSync?: SheetSyncResult | null;
+  syncLoading?: boolean;
+  onSync?: () => void;
+}) {
   if (!cert) return <div className="w-64 shrink-0 text-xs text-muted-foreground text-center pt-8">No certification data yet.</div>;
 
   const health = calcCertHealth(cert);
@@ -389,7 +416,6 @@ function LiveTrackerCertSummary({ cert, milestones }: { cert: CertRecord | null 
   const mDone = milestones.filter(m => m.status === "done").length;
   const mInProg = milestones.filter(m => m.status === "in_progress").length;
   const mPending = milestones.filter(m => m.status === "pending").length;
-  const mSkipped = milestones.filter(m => m.status === "skipped").length;
 
   const statRow = (label: string, val: string | number | boolean | null | undefined, color?: string) => (
     <div className="flex items-center justify-between py-1 border-b border-border/20 last:border-0">
@@ -402,25 +428,100 @@ function LiveTrackerCertSummary({ cert, milestones }: { cert: CertRecord | null 
     ? new Date(cert.last_status_update).toLocaleDateString("en-CA", { month: "short", day: "numeric" })
     : null;
 
+  const syncedAt = sheetSync?.syncedAt
+    ? new Date(sheetSync.syncedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : null;
+
+  const hasRealSync = sheetSync && !sheetSync.error && sheetSync.total >= 0;
+  const syncError = sheetSync?.error;
+  const ac = sheetSync?.alertConditions;
+
   return (
     <div className="w-64 shrink-0 space-y-3" data-testid="panel-cert-summary">
       {/* Health badge */}
       <div className={`rounded-lg border px-3 py-2.5 flex items-center gap-2 ${health.bg} ${health.border}`}>
         <ShieldCheck className={`h-4 w-4 ${health.color}`} />
-        <div>
+        <div className="flex-1 min-w-0">
           <div className="text-[10px] text-muted-foreground">Certification Health</div>
           <div className={`text-sm font-semibold ${health.color}`}>{health.label}</div>
         </div>
+        {onSync && (
+          <button
+            onClick={onSync}
+            disabled={syncLoading}
+            title="Sync from Google Sheets"
+            data-testid="button-sync-sheet"
+            className="p-1 rounded hover:bg-white/10 transition-colors"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 text-muted-foreground ${syncLoading ? "animate-spin" : ""}`} />
+          </button>
+        )}
       </div>
 
-      {/* Test status stats */}
+      {/* Sync timestamp / error */}
+      {syncedAt && !syncError && (
+        <p className="text-[10px] text-muted-foreground/60 text-center -mt-1">
+          Sheet synced {syncedAt}
+        </p>
+      )}
+      {syncError === "permission_denied" && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[10px] text-amber-400" data-testid="sync-error-permission">
+          <AlertTriangle className="h-3 w-3 inline mr-1" />
+          {sheetSync?.message ?? "Sheet is private — share as 'Anyone with the link can view' to enable sync."}
+        </div>
+      )}
+      {syncError && syncError !== "permission_denied" && syncError !== "not_configured" && (
+        <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-[10px] text-red-400" data-testid="sync-error-other">
+          <AlertTriangle className="h-3 w-3 inline mr-1" />
+          {sheetSync?.message ?? "Could not read sheet data."}
+        </div>
+      )}
+
+      {/* Live Test Counts (from sheet sync) */}
+      {hasRealSync ? (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 space-y-0" data-testid="panel-sheet-counts">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[10px] font-medium text-emerald-400 uppercase tracking-wide">Live Test Counts</div>
+            <Badge variant="outline" className="text-[9px] h-4 px-1 border-emerald-500/40 text-emerald-400">Sheet</Badge>
+          </div>
+          {statRow("Total Tests", sheetSync!.total)}
+          {statRow("Passed", sheetSync!.passed, sheetSync!.passed > 0 ? "text-emerald-400" : undefined)}
+          {statRow("Failed", sheetSync!.failed, sheetSync!.failed > 0 ? "text-red-400" : undefined)}
+          {statRow("In Progress", sheetSync!.inProgress, sheetSync!.inProgress > 0 ? "text-blue-400" : undefined)}
+          {statRow("Pending", sheetSync!.pending, "text-muted-foreground")}
+          {sheetSync!.blockerCount > 0 && statRow("Blockers", sheetSync!.blockerCount, "text-red-400")}
+          {sheetSync!.retestCount > 0 && statRow("Retest Required", sheetSync!.retestCount, "text-amber-400")}
+          {sheetSync!.dueSoonCount > 0 && statRow("Due ≤7 Days", sheetSync!.dueSoonCount, "text-yellow-400")}
+          {sheetSync!.lastUpdated && statRow("Latest Date", sheetSync!.lastUpdated)}
+        </div>
+      ) : (
+        !syncError && (
+          <div className="rounded-lg border border-dashed border-border/30 bg-muted/10 p-3">
+            <div className="text-[10px] text-muted-foreground/60 text-center">
+              {onSync ? "Click ↻ to sync live counts from Google Sheets." : "Configure column mapping to enable live sync."}
+            </div>
+          </div>
+        )
+      )}
+
+      {/* Alert conditions from sheet (Phase 5) */}
+      {hasRealSync && (ac?.failedTest || ac?.blocker || ac?.retestRequired || ac?.certRisk) && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 space-y-1" data-testid="panel-alert-conditions">
+          <div className="text-[10px] font-medium text-red-400 uppercase tracking-wide">Alert Conditions Found</div>
+          {ac?.failedTest     && <div className="text-[10px] text-red-300/90 flex items-center gap-1"><XCircle className="h-3 w-3 shrink-0" /> Failed tests detected</div>}
+          {ac?.blocker        && <div className="text-[10px] text-red-300/90 flex items-center gap-1"><XCircle className="h-3 w-3 shrink-0" /> Blockers in sheet</div>}
+          {ac?.retestRequired && <div className="text-[10px] text-amber-300/90 flex items-center gap-1"><RefreshCw className="h-3 w-3 shrink-0" /> Retests required</div>}
+          {ac?.certRisk       && <div className="text-[10px] text-orange-300/90 flex items-center gap-1"><AlertTriangle className="h-3 w-3 shrink-0" /> Certification risk rising</div>}
+        </div>
+      )}
+
+      {/* Milestones */}
       <div className="rounded-lg border border-border/30 bg-card p-3 space-y-0">
         <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Milestones</div>
         {statRow("Total", mTotal)}
         {statRow("Completed", mDone, "text-emerald-400")}
         {statRow("In Progress", mInProg, "text-blue-400")}
         {statRow("Pending", mPending, "text-muted-foreground")}
-        {statRow("Skipped", mSkipped, "text-slate-500")}
       </div>
 
       {/* Cert status */}
@@ -434,20 +535,13 @@ function LiveTrackerCertSummary({ cert, milestones }: { cert: CertRecord | null 
         {lastUpdate && statRow("Last Update", lastUpdate)}
       </div>
 
-      {/* Blocker summary */}
+      {/* Blocker note */}
       {cert.launch_blocker && cert.blocker_summary && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
           <div className="font-medium mb-0.5">Blocker</div>
           <div className="text-red-300/80">{cert.blocker_summary}</div>
         </div>
       )}
-
-      {/* Scaffolded future sync note */}
-      <div className="rounded-lg border border-dashed border-border/30 bg-muted/10 px-3 py-2">
-        <div className="text-[10px] text-muted-foreground/60 text-center">
-          Sheet-based test counts coming with direct sync. Configure column mapping in sheet settings.
-        </div>
-      </div>
     </div>
   );
 }
@@ -458,6 +552,8 @@ function LiveTestTrackerTab({ projectId, projectName }: { projectId: number; pro
   const [lastLoaded, setLastLoaded] = useState<Date | null>(null);
   const [iframeKey, setIframeKey] = useState(0);
   const [configOpen, setConfigOpen] = useState(false);
+  const [sheetSync, setSheetSync] = useState<SheetSyncResult | null>(null);
+  const [syncLoading, setSyncLoading] = useState(false);
 
   const { data: cert, isLoading: certLoading, refetch: refetchCert } = useQuery<CertRecord>({
     queryKey: ["/api/projects", projectId, "certification"],
@@ -477,10 +573,26 @@ function LiveTestTrackerTab({ projectId, projectName }: { projectId: number; pro
   const sheetId = useMemo(() => extractSheetId(trackerUrl), [trackerUrl]);
   const embedUrl = useMemo(() => sheetId ? makeEmbedUrl(sheetId, currentGid) : null, [sheetId, currentGid]);
 
+  // Sync sheet data from server
+  const handleSync = useCallback(async () => {
+    if (!trackerUrl) return;
+    setSyncLoading(true);
+    try {
+      const r = await apiRequest("GET", `/api/projects/${projectId}/tracker-sync${currentGid ? `?gid=${currentGid}` : ""}`);
+      const data: SheetSyncResult = await r.json();
+      setSheetSync(data);
+    } catch {
+      setSheetSync({ error: "fetch_error", message: "Could not reach sync endpoint.", source: "", gid: currentGid, total: 0, passed: 0, failed: 0, pending: 0, inProgress: 0, other: 0, blockerCount: 0, retestCount: 0, dueSoonCount: 0, lastUpdated: null, syncedAt: new Date().toISOString(), columnsFound: {}, alertConditions: { failedTest: false, blocker: false, retestRequired: false, certRisk: false } });
+    } finally {
+      setSyncLoading(false);
+    }
+  }, [projectId, trackerUrl, currentGid]);
+
   const handleRefresh = useCallback(() => {
     setIframeKey(k => k + 1);
     setLastLoaded(new Date());
-  }, []);
+    handleSync();
+  }, [handleSync]);
 
   if (certLoading) return <div className="flex items-center justify-center h-40"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
 
@@ -489,7 +601,7 @@ function LiveTestTrackerTab({ projectId, projectName }: { projectId: number; pro
       {/* Toolbar */}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         {(config.tabs?.length ?? 0) > 1 && (
-          <Select value={currentGid} onValueChange={v => { setActiveGid(v); setIframeKey(k => k + 1); }}>
+          <Select value={currentGid} onValueChange={v => { setActiveGid(v); setIframeKey(k => k + 1); setSheetSync(null); }}>
             <SelectTrigger className="h-8 text-xs w-44" data-testid="select-sheet-tab">
               <SelectValue placeholder="Select tab" />
             </SelectTrigger>
@@ -501,19 +613,24 @@ function LiveTestTrackerTab({ projectId, projectName }: { projectId: number; pro
           </Select>
         )}
         <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={handleRefresh} data-testid="button-tracker-refresh">
-          <RefreshCw className="h-3.5 w-3.5" /> Refresh
+          <RefreshCw className={`h-3.5 w-3.5 ${syncLoading ? "animate-spin" : ""}`} /> Refresh
         </Button>
         {trackerUrl && (
-          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={() => window.open(trackerUrl, "_blank")} data-testid="button-open-in-sheets">
-            <ExternalLink className="h-3.5 w-3.5" /> Open in Google Sheets
-          </Button>
+          <>
+            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={handleSync} disabled={syncLoading} data-testid="button-sync-counts">
+              {syncLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BarChart3 className="h-3.5 w-3.5" />} Sync Counts
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={() => window.open(trackerUrl, "_blank")} data-testid="button-open-in-sheets">
+              <ExternalLink className="h-3.5 w-3.5" /> Open in Sheets
+            </Button>
+          </>
         )}
         <Button size="sm" variant="ghost" className="h-8 text-xs gap-1.5" onClick={() => setConfigOpen(true)} data-testid="button-tracker-settings">
           <Settings className="h-3.5 w-3.5" /> {trackerUrl ? "Sheet Settings" : "Configure Sheet"}
         </Button>
         {lastLoaded && (
           <span className="text-[10px] text-muted-foreground ml-auto">
-            Loaded {lastLoaded.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            Viewer loaded {lastLoaded.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </span>
         )}
       </div>
@@ -559,8 +676,14 @@ function LiveTestTrackerTab({ projectId, projectName }: { projectId: number; pro
           </p>
         </div>
 
-        {/* Cert Summary Panel */}
-        <LiveTrackerCertSummary cert={cert} milestones={milestones as Milestone[]} />
+        {/* Cert Summary Panel — passes live sheet sync data */}
+        <LiveTrackerCertSummary
+          cert={cert}
+          milestones={milestones as Milestone[]}
+          sheetSync={sheetSync}
+          syncLoading={syncLoading}
+          onSync={trackerUrl ? handleSync : undefined}
+        />
       </div>
 
       {configOpen && (
@@ -571,7 +694,7 @@ function LiveTestTrackerTab({ projectId, projectName }: { projectId: number; pro
           open={configOpen}
           onClose={(saved) => {
             setConfigOpen(false);
-            if (saved) { refetchCert(); setIframeKey(k => k + 1); }
+            if (saved) { refetchCert(); setIframeKey(k => k + 1); setSheetSync(null); }
           }}
         />
       )}
