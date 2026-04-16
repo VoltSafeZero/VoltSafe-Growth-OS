@@ -26,6 +26,8 @@ import {
   insertEcosystemRelationshipSchema, insertEcosystemEventSchema,
   insertEcosystemRegionSchema,
   insertCalendarEventSchema,
+  insertSaasBillingLineSchema,
+  insertRolloutPhaseSchema,
 } from "@shared/schema";
 import multer from "multer";
 import { z } from "zod";
@@ -15992,6 +15994,314 @@ export function registerConfluenceRoutes(app: Express) {
       const ok = await storage.deleteReportPreset(Number(req.params.id));
       if (!ok) return res.status(404).json({ message: "Preset not found" });
       res.json({ message: "Deleted" });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // REVENUE ARCHITECTURE — SaaS Billing Lines
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // GET /api/accounts/:id/billing-lines
+  app.get("/api/accounts/:id/billing-lines", requireAuth, async (req, res) => {
+    try {
+      const lines = await storage.getBillingLines(Number(req.params.id));
+      res.json(lines);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/accounts/:id/billing-lines
+  app.post("/api/accounts/:id/billing-lines", requireAuth, async (req, res) => {
+    try {
+      const parsed = insertSaasBillingLineSchema.safeParse({ ...req.body, accountId: Number(req.params.id) });
+      if (!parsed.success) return res.status(400).json({ message: "Validation failed", errors: parsed.error.flatten() });
+      const line = await storage.createBillingLine(parsed.data);
+      res.status(201).json(line);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/billing-lines/:id
+  app.get("/api/billing-lines/:id", requireAuth, async (req, res) => {
+    try {
+      const line = await storage.getBillingLine(Number(req.params.id));
+      if (!line) return res.status(404).json({ message: "Billing line not found" });
+      res.json(line);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // PUT /api/billing-lines/:id
+  app.put("/api/billing-lines/:id", requireAuth, async (req, res) => {
+    try {
+      const line = await storage.updateBillingLine(Number(req.params.id), req.body);
+      if (!line) return res.status(404).json({ message: "Billing line not found" });
+      res.json(line);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // DELETE /api/billing-lines/:id
+  app.delete("/api/billing-lines/:id", requireAuth, async (req, res) => {
+    try {
+      const ok = await storage.deleteBillingLine(Number(req.params.id));
+      if (!ok) return res.status(404).json({ message: "Billing line not found" });
+      res.json({ message: "Deleted" });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // REVENUE ARCHITECTURE — Rollout Phases
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // GET /api/accounts/:id/rollout-phases
+  app.get("/api/accounts/:id/rollout-phases", requireAuth, async (req, res) => {
+    try {
+      const phases = await storage.getRolloutPhases(Number(req.params.id));
+      res.json(phases);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/accounts/:id/rollout-phases
+  app.post("/api/accounts/:id/rollout-phases", requireAuth, async (req, res) => {
+    try {
+      const parsed = insertRolloutPhaseSchema.safeParse({ ...req.body, accountId: Number(req.params.id) });
+      if (!parsed.success) return res.status(400).json({ message: "Validation failed", errors: parsed.error.flatten() });
+      const phase = await storage.createRolloutPhase(parsed.data);
+      res.status(201).json(phase);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/rollout-phases/:id
+  app.get("/api/rollout-phases/:id", requireAuth, async (req, res) => {
+    try {
+      const phase = await storage.getRolloutPhase(Number(req.params.id));
+      if (!phase) return res.status(404).json({ message: "Rollout phase not found" });
+      res.json(phase);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // PUT /api/rollout-phases/:id
+  app.put("/api/rollout-phases/:id", requireAuth, async (req, res) => {
+    try {
+      const phase = await storage.updateRolloutPhase(Number(req.params.id), req.body);
+      if (!phase) return res.status(404).json({ message: "Rollout phase not found" });
+      res.json(phase);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // DELETE /api/rollout-phases/:id
+  app.delete("/api/rollout-phases/:id", requireAuth, async (req, res) => {
+    try {
+      const ok = await storage.deleteRolloutPhase(Number(req.params.id));
+      if (!ok) return res.status(404).json({ message: "Rollout phase not found" });
+      res.json({ message: "Deleted" });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // REVENUE ARCHITECTURE — Revenue Metrics (Phase 4)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // GET /api/revenue/account/:id/metrics
+  // Computes per-account revenue snapshot from billing lines + account fields
+  app.get("/api/revenue/account/:id/metrics", requireAuth, async (req, res) => {
+    try {
+      const accountId = Number(req.params.id);
+      const account = await storage.getAccount(accountId);
+      if (!account) return res.status(404).json({ message: "Account not found" });
+
+      const lines = await storage.getBillingLines(accountId);
+      const phases = await storage.getRolloutPhases(accountId);
+
+      const n = (v: any) => v == null ? 0 : parseFloat(String(v));
+      const today = new Date().toISOString().slice(0, 10);
+
+      // Active lines: is_active + (billing_start_date <= today or null) + (billing_end_date >= today or null)
+      const activeLines = lines.filter(l => {
+        if (!l.isActive) return false;
+        if (l.billingStartDate && l.billingStartDate > today) return false;
+        if (l.billingEndDate && l.billingEndDate < today) return false;
+        return true;
+      });
+
+      const currentMrr = activeLines.reduce((s, l) => s + n(l.quantity) * n(l.monthlyRate), 0);
+
+      // Contracted future MRR = all active lines regardless of start date
+      const contractedFutureMrr = lines.filter(l => l.isActive).reduce((s, l) => s + n(l.quantity) * n(l.monthlyRate), 0);
+
+      // Software-only MRR = lines of type software_lite_slip that are active now
+      const softwareOnlyMrr = activeLines.filter(l => l.lineType === "software_lite_slip").reduce((s, l) => s + n(l.quantity) * n(l.monthlyRate), 0);
+
+      // Fully deployed MRR = if all contracted_units were live as full_smart_slip
+      // Infer per-unit rate from existing full_smart_slip lines if present
+      const smartLines = lines.filter(l => l.lineType === "full_smart_slip" && l.isActive);
+      const impliedSmartRate = smartLines.length > 0
+        ? smartLines.reduce((s, l) => s + n(l.monthlyRate), 0) / smartLines.length
+        : 0;
+      const contractedUnits = n(account.contractedUnits);
+      const fullyDeployedMrr = contractedUnits > 0 && impliedSmartRate > 0
+        ? contractedUnits * impliedSmartRate
+        : contractedFutureMrr;
+
+      // Hardware revenue
+      const hardwareBooked = n(account.bookedHardwareValue);
+      const hardwareDelivered = n(account.deliveredHardwareValue);
+      const hardwareContracted = n(account.contractedHardwareValue);
+      const hardwareRemaining = Math.max(0, hardwareContracted - hardwareDelivered);
+
+      // Rollout completion
+      const totalPlanned = phases.reduce((s, p) => s + n(p.plannedUnits), 0);
+      const totalInstalled = phases.reduce((s, p) => s + n(p.installedUnits), 0);
+      const rolloutCompletionPct = totalPlanned > 0 ? Math.round((totalInstalled / totalPlanned) * 100) : null;
+
+      // Expansion MRR opportunity: future_upgrade_slips * implied smart rate
+      const futureUpgradeSlips = n(account.futureUpgradeSlips);
+      const expansionMrrOpportunity = futureUpgradeSlips > 0 && impliedSmartRate > 0
+        ? futureUpgradeSlips * impliedSmartRate
+        : null;
+
+      res.json({
+        accountId,
+        accountName: account.name,
+        slips: {
+          total: account.totalSlips,
+          voltsafeLive: account.voltsafeSlipsLive,
+          softwareOnly: account.nonVoltsafeSlipsOnSoftware,
+          futureUpgrade: account.futureUpgradeSlips,
+        },
+        units: {
+          contracted: account.contractedUnits,
+          installed: account.installedUnits,
+          remaining: account.remainingUnits,
+          rolloutCompletionPct,
+        },
+        hardware: {
+          contracted: hardwareContracted,
+          booked: hardwareBooked,
+          delivered: hardwareDelivered,
+          remaining: hardwareRemaining,
+        },
+        mrr: {
+          current: Math.round(currentMrr * 100) / 100,
+          contractedFuture: Math.round(contractedFutureMrr * 100) / 100,
+          fullyDeployed: Math.round(fullyDeployedMrr * 100) / 100,
+          softwareOnly: Math.round(softwareOnlyMrr * 100) / 100,
+          expansionOpportunity: expansionMrrOpportunity != null ? Math.round(expansionMrrOpportunity * 100) / 100 : null,
+        },
+        pricing: {
+          lockDate: account.pricingLockDate,
+          lockExpiry: account.pricingLockExpiry,
+          rolloutStart: account.rolloutStartDate,
+          rolloutEndTarget: account.rolloutEndTarget,
+        },
+        billingLineCount: lines.length,
+        activeLineCount: activeLines.length,
+        rolloutPhaseCount: phases.length,
+        phases: phases.map(p => ({
+          id: p.id,
+          phaseName: p.phaseName,
+          status: p.status,
+          plannedUnits: p.plannedUnits,
+          installedUnits: p.installedUnits,
+          targetInstallDate: p.targetInstallDate,
+          actualInstallDate: p.actualInstallDate,
+        })),
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/revenue/dashboard
+  // Aggregated revenue dashboard across all accounts with commercial data
+  app.get("/api/revenue/dashboard", requireAuth, async (req, res) => {
+    try {
+      const [
+        mrrR, hardwareR, slipsR, topExpansionR, phaseCountR,
+      ] = await Promise.all([
+        // MRR aggregated from active billing lines
+        db.execute(sql.raw(`
+          SELECT
+            COALESCE(SUM(CASE WHEN is_active AND (billing_start_date IS NULL OR billing_start_date <= CURRENT_DATE) AND (billing_end_date IS NULL OR billing_end_date >= CURRENT_DATE) THEN quantity * monthly_rate ELSE 0 END), 0) AS current_mrr,
+            COALESCE(SUM(CASE WHEN is_active THEN quantity * monthly_rate ELSE 0 END), 0) AS contracted_mrr,
+            COALESCE(SUM(CASE WHEN is_active AND line_type = 'software_lite_slip' AND (billing_start_date IS NULL OR billing_start_date <= CURRENT_DATE) AND (billing_end_date IS NULL OR billing_end_date >= CURRENT_DATE) THEN quantity * monthly_rate ELSE 0 END), 0) AS software_only_mrr,
+            COUNT(DISTINCT account_id) AS accounts_with_billing
+          FROM saas_billing_lines
+        `)),
+        // Hardware revenue from accounts
+        db.execute(sql.raw(`
+          SELECT
+            COALESCE(SUM(contracted_hardware_value), 0) AS total_contracted_hardware,
+            COALESCE(SUM(booked_hardware_value), 0) AS total_booked_hardware,
+            COALESCE(SUM(delivered_hardware_value), 0) AS total_delivered_hardware,
+            COALESCE(SUM(GREATEST(0, COALESCE(contracted_hardware_value,0) - COALESCE(delivered_hardware_value,0))), 0) AS total_remaining_hardware,
+            COUNT(*) FILTER (WHERE contracted_units > 0) AS accounts_with_contracts
+          FROM accounts
+        `)),
+        // Slip counts
+        db.execute(sql.raw(`
+          SELECT
+            COALESCE(SUM(total_slips), 0) AS total_slips,
+            COALESCE(SUM(voltsafe_slips_live), 0) AS voltsafe_live,
+            COALESCE(SUM(non_voltsafe_slips_on_software), 0) AS software_only,
+            COALESCE(SUM(future_upgrade_slips), 0) AS future_upgrade
+          FROM accounts
+        `)),
+        // Top expansion accounts
+        db.execute(sql.raw(`
+          SELECT a.id, a.name, a.future_upgrade_slips, a.contracted_units, a.installed_units,
+                 COALESCE(SUM(CASE WHEN sbl.is_active AND (sbl.billing_start_date IS NULL OR sbl.billing_start_date <= CURRENT_DATE) AND (sbl.billing_end_date IS NULL OR sbl.billing_end_date >= CURRENT_DATE) THEN sbl.quantity * sbl.monthly_rate ELSE 0 END), 0) AS current_mrr
+          FROM accounts a
+          LEFT JOIN saas_billing_lines sbl ON sbl.account_id = a.id
+          WHERE a.future_upgrade_slips > 0 OR a.contracted_units > COALESCE(a.installed_units, 0)
+          GROUP BY a.id, a.name, a.future_upgrade_slips, a.contracted_units, a.installed_units
+          ORDER BY a.future_upgrade_slips DESC NULLS LAST, current_mrr DESC
+          LIMIT 10
+        `)),
+        // Rollout phase counts by status
+        db.execute(sql.raw(`
+          SELECT status, COUNT(*) AS cnt FROM rollout_phases GROUP BY status ORDER BY status
+        `)),
+      ]);
+
+      const mRow = (mrrR.rows as any[])[0] || {};
+      const hRow = (hardwareR.rows as any[])[0] || {};
+      const sRow = (slipsR.rows as any[])[0] || {};
+      const n = (v: any) => v == null ? 0 : parseFloat(String(v));
+      const ni = (v: any) => v == null ? 0 : parseInt(String(v), 10);
+
+      const phasesByStatus: Record<string, number> = {};
+      for (const row of (phaseCountR.rows as any[])) {
+        phasesByStatus[row.status] = ni(row.cnt);
+      }
+
+      res.json({
+        generatedAt: new Date().toISOString(),
+        mrr: {
+          current: Math.round(n(mRow.current_mrr) * 100) / 100,
+          contracted: Math.round(n(mRow.contracted_mrr) * 100) / 100,
+          softwareOnly: Math.round(n(mRow.software_only_mrr) * 100) / 100,
+          accountsWithBilling: ni(mRow.accounts_with_billing),
+        },
+        hardware: {
+          contracted: Math.round(n(hRow.total_contracted_hardware) * 100) / 100,
+          booked: Math.round(n(hRow.total_booked_hardware) * 100) / 100,
+          delivered: Math.round(n(hRow.total_delivered_hardware) * 100) / 100,
+          remaining: Math.round(n(hRow.total_remaining_hardware) * 100) / 100,
+          accountsWithContracts: ni(hRow.accounts_with_contracts),
+        },
+        slips: {
+          total: ni(sRow.total_slips),
+          voltsafeLive: ni(sRow.voltsafe_live),
+          softwareOnly: ni(sRow.software_only),
+          futureUpgrade: ni(sRow.future_upgrade),
+        },
+        rolloutPhases: phasesByStatus,
+        topExpansionAccounts: (topExpansionR.rows as any[]).map(r => ({
+          id: r.id,
+          name: r.name,
+          futureUpgradeSlips: ni(r.future_upgrade_slips),
+          contractedUnits: ni(r.contracted_units),
+          installedUnits: ni(r.installed_units),
+          remainingUnits: Math.max(0, ni(r.contracted_units) - ni(r.installed_units)),
+          currentMrr: Math.round(n(r.current_mrr) * 100) / 100,
+        })),
+      });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

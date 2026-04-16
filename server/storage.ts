@@ -46,6 +46,10 @@ import {
   type AutomationRunLog,
   reportPresets,
   type ReportPreset, type InsertReportPreset,
+  saasBillingLines,
+  type SaasBillingLine, type InsertSaasBillingLine,
+  rolloutPhases,
+  type RolloutPhase, type InsertRolloutPhase,
 } from "@shared/schema";
 import { ilike, eq, or, sql, asc, desc, and, type AnyColumn, type SQL } from "drizzle-orm";
 
@@ -264,6 +268,20 @@ export interface IStorage {
   createReportPreset(data: InsertReportPreset): Promise<ReportPreset>;
   updateReportPreset(id: number, data: Partial<InsertReportPreset>): Promise<ReportPreset | undefined>;
   deleteReportPreset(id: number): Promise<boolean>;
+
+  // Revenue Architecture — SaaS Billing Lines
+  getBillingLines(accountId: number): Promise<SaasBillingLine[]>;
+  getBillingLine(id: number): Promise<SaasBillingLine | undefined>;
+  createBillingLine(data: InsertSaasBillingLine): Promise<SaasBillingLine>;
+  updateBillingLine(id: number, data: Partial<InsertSaasBillingLine>): Promise<SaasBillingLine | undefined>;
+  deleteBillingLine(id: number): Promise<boolean>;
+
+  // Revenue Architecture — Rollout Phases
+  getRolloutPhases(accountId: number): Promise<RolloutPhase[]>;
+  getRolloutPhase(id: number): Promise<RolloutPhase | undefined>;
+  createRolloutPhase(data: InsertRolloutPhase): Promise<RolloutPhase>;
+  updateRolloutPhase(id: number, data: Partial<InsertRolloutPhase>): Promise<RolloutPhase | undefined>;
+  deleteRolloutPhase(id: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1420,6 +1438,56 @@ export class DatabaseStorage implements IStorage {
 
   async deleteReportPreset(id: number): Promise<boolean> {
     const [r] = await db.delete(reportPresets).where(eq(reportPresets.id, id)).returning();
+    return !!r;
+  }
+
+  // ── Revenue Architecture — SaaS Billing Lines ────────────────────────────
+  async getBillingLines(accountId: number): Promise<SaasBillingLine[]> {
+    return db.select().from(saasBillingLines).where(eq(saasBillingLines.accountId, accountId)).orderBy(asc(saasBillingLines.lineType), asc(saasBillingLines.id));
+  }
+
+  async getBillingLine(id: number): Promise<SaasBillingLine | undefined> {
+    const [r] = await db.select().from(saasBillingLines).where(eq(saasBillingLines.id, id));
+    return r;
+  }
+
+  async createBillingLine(data: InsertSaasBillingLine): Promise<SaasBillingLine> {
+    const [r] = await db.insert(saasBillingLines).values(data).returning();
+    return r;
+  }
+
+  async updateBillingLine(id: number, data: Partial<InsertSaasBillingLine>): Promise<SaasBillingLine | undefined> {
+    const [r] = await db.update(saasBillingLines).set({ ...data, updatedAt: new Date() }).where(eq(saasBillingLines.id, id)).returning();
+    return r;
+  }
+
+  async deleteBillingLine(id: number): Promise<boolean> {
+    const [r] = await db.delete(saasBillingLines).where(eq(saasBillingLines.id, id)).returning();
+    return !!r;
+  }
+
+  // ── Revenue Architecture — Rollout Phases ────────────────────────────────
+  async getRolloutPhases(accountId: number): Promise<RolloutPhase[]> {
+    return db.select().from(rolloutPhases).where(eq(rolloutPhases.accountId, accountId)).orderBy(asc(rolloutPhases.targetInstallDate), asc(rolloutPhases.id));
+  }
+
+  async getRolloutPhase(id: number): Promise<RolloutPhase | undefined> {
+    const [r] = await db.select().from(rolloutPhases).where(eq(rolloutPhases.id, id));
+    return r;
+  }
+
+  async createRolloutPhase(data: InsertRolloutPhase): Promise<RolloutPhase> {
+    const [r] = await db.insert(rolloutPhases).values(data).returning();
+    return r;
+  }
+
+  async updateRolloutPhase(id: number, data: Partial<InsertRolloutPhase>): Promise<RolloutPhase | undefined> {
+    const [r] = await db.update(rolloutPhases).set({ ...data, updatedAt: new Date() }).where(eq(rolloutPhases.id, id)).returning();
+    return r;
+  }
+
+  async deleteRolloutPhase(id: number): Promise<boolean> {
+    const [r] = await db.delete(rolloutPhases).where(eq(rolloutPhases.id, id)).returning();
     return !!r;
   }
 }

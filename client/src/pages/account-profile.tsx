@@ -12,6 +12,7 @@ import {
   ArrowLeft, Mail, Phone, Building2, Users, Zap, CheckSquare,
   CalendarDays, TrendingUp, MessageSquare, AlertTriangle, RefreshCw,
   MapPin, Globe, Clock, ExternalLink, Send, Plus, User, Anchor, Pin,
+  DollarSign, Package, BarChart2,
 } from "lucide-react";
 import { formatDistanceToNow, format, isPast } from "date-fns";
 import { Link } from "wouter";
@@ -148,6 +149,11 @@ export default function AccountProfilePage() {
   const openOpps = opportunities.filter((o: any) => !["closed_won", "closed_lost"].includes(o.stage));
   const wonOpps = opportunities.filter((o: any) => o.stage === "closed_won");
   const totalPipeline = openOpps.reduce((s: number, o: any) => s + (Number(o.amount) || 0), 0);
+
+  // Revenue data for this account
+  const { data: billingLines } = useQuery<any[]>({ queryKey: ["/api/accounts", id, "billing-lines"], queryFn: () => fetch(`/api/accounts/${id}/billing-lines`).then(r => r.json()), staleTime: 30_000 });
+  const { data: rolloutPhases } = useQuery<any[]>({ queryKey: ["/api/accounts", id, "rollout-phases"], queryFn: () => fetch(`/api/accounts/${id}/rollout-phases`).then(r => r.json()), staleTime: 30_000 });
+  const { data: revenueMetrics } = useQuery<any>({ queryKey: ["/api/revenue/account", id, "metrics"], queryFn: () => fetch(`/api/revenue/account/${id}/metrics`).then(r => r.json()), staleTime: 30_000 });
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5" data-testid="account-profile-page">
@@ -460,6 +466,210 @@ export default function AccountProfilePage() {
           </SectionCard>
         </div>
       </div>
+
+      {/* Commercial / Revenue Section */}
+      {(revenueMetrics || account.contractedUnits || (billingLines && billingLines.length > 0) || (rolloutPhases && rolloutPhases.length > 0)) && (
+        <div id="account-commercial-section" data-testid="commercial-section">
+          <Card className="border-border/50">
+            <CardHeader className="pb-2 pt-4 px-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="h-4 w-4 text-primary" />
+                  <CardTitle className="text-sm font-semibold">Commercial & Revenue</CardTitle>
+                </div>
+                <Link href="/revenue">
+                  <Button variant="ghost" size="sm" className="text-xs h-7 gap-1" data-testid="button-revenue-hub">
+                    Revenue Hub <BarChart2 className="h-3 w-3" />
+                  </Button>
+                </Link>
+              </div>
+            </CardHeader>
+            <CardContent className="px-4 pb-4 space-y-4">
+              {/* Slip Breakdown */}
+              {(account.totalSlips || account.voltsafeSlipsLive || account.nonVoltsafeSlipsOnSoftware) && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Slip Breakdown</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {account.totalSlips && (
+                      <div className="p-2 rounded-lg border border-border/40 text-center" data-testid="stat-total-slips">
+                        <p className="text-lg font-bold">{account.totalSlips}</p>
+                        <p className="text-[11px] text-muted-foreground">Total Slips</p>
+                      </div>
+                    )}
+                    {account.voltsafeSlipsLive != null && account.voltsafeSlipsLive >= 0 && (
+                      <div className="p-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 text-center" data-testid="stat-voltsafe-live">
+                        <p className="text-lg font-bold text-emerald-400">{account.voltsafeSlipsLive}</p>
+                        <p className="text-[11px] text-muted-foreground">VoltSafe Live</p>
+                      </div>
+                    )}
+                    {account.nonVoltsafeSlipsOnSoftware != null && account.nonVoltsafeSlipsOnSoftware >= 0 && (
+                      <div className="p-2 rounded-lg border border-blue-500/30 bg-blue-500/5 text-center" data-testid="stat-software-only">
+                        <p className="text-lg font-bold text-blue-400">{account.nonVoltsafeSlipsOnSoftware}</p>
+                        <p className="text-[11px] text-muted-foreground">Software Only</p>
+                      </div>
+                    )}
+                    {account.futureUpgradeSlips != null && account.futureUpgradeSlips > 0 && (
+                      <div className="p-2 rounded-lg border border-amber-500/30 bg-amber-500/5 text-center" data-testid="stat-future-upgrade">
+                        <p className="text-lg font-bold text-amber-400">{account.futureUpgradeSlips}</p>
+                        <p className="text-[11px] text-muted-foreground">Future Upgrade</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* MRR Summary */}
+              {revenueMetrics?.mrr && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">SaaS Revenue</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="p-2 rounded-lg border border-border/40 text-center" data-testid="stat-current-mrr">
+                      <p className="text-lg font-bold text-emerald-400">${revenueMetrics.mrr.current.toFixed(0)}</p>
+                      <p className="text-[11px] text-muted-foreground">Current MRR</p>
+                    </div>
+                    <div className="p-2 rounded-lg border border-border/40 text-center" data-testid="stat-contracted-mrr">
+                      <p className="text-lg font-bold">${revenueMetrics.mrr.contractedFuture.toFixed(0)}</p>
+                      <p className="text-[11px] text-muted-foreground">Contracted MRR</p>
+                    </div>
+                    {revenueMetrics.mrr.fullyDeployed > 0 && (
+                      <div className="p-2 rounded-lg border border-border/40 text-center" data-testid="stat-fully-deployed-mrr">
+                        <p className="text-lg font-bold">${revenueMetrics.mrr.fullyDeployed.toFixed(0)}</p>
+                        <p className="text-[11px] text-muted-foreground">Fully Deployed</p>
+                      </div>
+                    )}
+                    {revenueMetrics.mrr.softwareOnly > 0 && (
+                      <div className="p-2 rounded-lg border border-border/40 text-center" data-testid="stat-software-mrr">
+                        <p className="text-lg font-bold text-blue-400">${revenueMetrics.mrr.softwareOnly.toFixed(0)}</p>
+                        <p className="text-[11px] text-muted-foreground">Software MRR</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Hardware Contract */}
+              {(account.contractedHardwareValue || account.contractedUnits) && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Hardware Contract</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {account.contractedHardwareValue && (
+                      <div className="p-2 rounded-lg border border-border/40" data-testid="stat-contracted-hw">
+                        <p className="text-xs text-muted-foreground">Contracted</p>
+                        <p className="text-sm font-bold">${Number(account.contractedHardwareValue).toLocaleString()}</p>
+                      </div>
+                    )}
+                    {account.bookedHardwareValue && (
+                      <div className="p-2 rounded-lg border border-border/40" data-testid="stat-booked-hw">
+                        <p className="text-xs text-muted-foreground">Booked</p>
+                        <p className="text-sm font-bold">${Number(account.bookedHardwareValue).toLocaleString()}</p>
+                      </div>
+                    )}
+                    {account.deliveredHardwareValue && (
+                      <div className="p-2 rounded-lg border border-emerald-500/30" data-testid="stat-delivered-hw">
+                        <p className="text-xs text-muted-foreground">Delivered</p>
+                        <p className="text-sm font-bold text-emerald-400">${Number(account.deliveredHardwareValue).toLocaleString()}</p>
+                      </div>
+                    )}
+                  </div>
+                  {account.contractedUnits && (
+                    <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                      <Package className="h-3 w-3" />
+                      {account.installedUnits ?? 0}/{account.contractedUnits} units installed
+                      {account.rolloutEndTarget && <span>· Target: {account.rolloutEndTarget}</span>}
+                    </div>
+                  )}
+                  {revenueMetrics?.units?.rolloutCompletionPct != null && (
+                    <div className="mt-2">
+                      <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                        <span>Rollout progress</span>
+                        <span>{revenueMetrics.units.rolloutCompletionPct}%</span>
+                      </div>
+                      <div className="w-full bg-border/40 rounded-full h-1.5">
+                        <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, revenueMetrics.units.rolloutCompletionPct)}%` }} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* SaaS Billing Lines */}
+              {billingLines && billingLines.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">SaaS Billing Lines ({billingLines.length})</p>
+                  <div className="space-y-1.5">
+                    {billingLines.map((line: any) => (
+                      <div key={line.id} className={`flex items-center justify-between px-3 py-2 rounded-lg border ${line.isActive ? "border-border/40" : "border-border/20 opacity-50"}`}
+                        data-testid={`billing-line-${line.id}`}>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium truncate">{line.label || line.lineType.replace(/_/g, " ")}</p>
+                            <Badge variant="outline" className={`text-[10px] h-4 px-1 flex-shrink-0 ${line.isActive ? "text-emerald-400" : "text-muted-foreground"}`}>
+                              {line.isActive ? "Active" : "Inactive"}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">{line.quantity}× @ ${Number(line.monthlyRate).toFixed(2)}/mo</p>
+                        </div>
+                        <p className="text-sm font-semibold text-emerald-400 flex-shrink-0">
+                          ${(Number(line.quantity) * Number(line.monthlyRate)).toFixed(2)}/mo
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Rollout Phases */}
+              {rolloutPhases && rolloutPhases.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Rollout Phases ({rolloutPhases.length})</p>
+                  <div className="space-y-1.5">
+                    {rolloutPhases.map((phase: any) => {
+                      const phaseColor: Record<string, string> = {
+                        planned: "text-slate-400", in_progress: "text-blue-400",
+                        complete: "text-emerald-400", blocked: "text-red-400", cancelled: "text-zinc-500",
+                      };
+                      return (
+                        <div key={phase.id} className="flex items-center justify-between px-3 py-2 rounded-lg border border-border/40"
+                          data-testid={`rollout-phase-${phase.id}`}>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium truncate">{phase.phaseName}</p>
+                              {phase.dock_finger_zone && <span className="text-xs text-muted-foreground truncate">{phase.dock_finger_zone}</span>}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+                              <span>{phase.installedUnits}/{phase.plannedUnits} units</span>
+                              {phase.target_install_date && <span>· {phase.target_install_date}</span>}
+                            </div>
+                          </div>
+                          <Badge variant="outline" className={`text-[10px] h-5 px-1.5 capitalize flex-shrink-0 ${phaseColor[phase.status] ?? ""}`}>
+                            {phase.status.replace(/_/g, " ")}
+                          </Badge>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Pricing Lock */}
+              {(account.pricingLockDate || account.pricingLockExpiry || account.commercialNotes) && (
+                <div className="p-3 bg-muted/30 rounded-lg border border-border/30">
+                  {(account.pricingLockDate || account.pricingLockExpiry) && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                      <Pin className="h-3 w-3" />
+                      <span>Pricing lock: {account.pricingLockDate ?? "—"}</span>
+                      {account.pricingLockExpiry && <span>· Expires: {account.pricingLockExpiry}</span>}
+                    </div>
+                  )}
+                  {account.commercialNotes && (
+                    <p className="text-xs text-muted-foreground">{account.commercialNotes}</p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Timeline */}
       <div id="account-timeline-section">

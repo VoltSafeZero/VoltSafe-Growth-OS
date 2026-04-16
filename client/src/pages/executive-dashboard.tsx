@@ -282,6 +282,11 @@ export default function ExecutiveDashboardPage() {
     queryFn: () => fetch(`/api/analytics/source-attribution?${params}`, { credentials: "include" }).then(r => r.json()),
   });
 
+  const { data: revenueDash } = useQuery<any>({
+    queryKey: ["/api/revenue/dashboard"],
+    queryFn: () => fetch("/api/revenue/dashboard", { credentials: "include" }).then(r => r.json()),
+  });
+
   const { data: repPerf } = useQuery<any>({
     queryKey: ["/api/pipeline/rep-performance"],
     queryFn: () => fetch("/api/pipeline/rep-performance", { credentials: "include" }).then(r => r.json()),
@@ -484,6 +489,7 @@ export default function ExecutiveDashboardPage() {
           <TabsTrigger value="source"    className="text-xs h-6" data-testid="tab-source">Source Attribution</TabsTrigger>
           <TabsTrigger value="installs"  className="text-xs h-6" data-testid="tab-installs">Installs</TabsTrigger>
           <TabsTrigger value="reps"      className="text-xs h-6" data-testid="tab-reps">Rep Leaderboard</TabsTrigger>
+          <TabsTrigger value="revenue"   className="text-xs h-6" data-testid="tab-revenue">Revenue</TabsTrigger>
           <TabsTrigger value="risks"     className="text-xs h-6" data-testid="tab-risks">
             Risks {totalRisks > 0 && <Badge className="ml-1 text-[9px] px-1 py-0 bg-red-500 text-white">{totalRisks}</Badge>}
           </TabsTrigger>
@@ -686,7 +692,111 @@ export default function ExecutiveDashboardPage() {
           </Card>
         </TabsContent>
 
-        {/* ── Risks ────────────────────────────────────────────────────────── */}
+        {/* ── Revenue ─────────────────────────────────────────────────────── */}
+        <TabsContent value="revenue" className="mt-3 space-y-4">
+          {!revenueDash ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[...Array(8)].map((_, i) => <div key={i} className="h-24 bg-muted/30 rounded-lg animate-pulse" />)}
+            </div>
+          ) : (
+            <>
+              {/* MRR KPIs */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">SaaS MRR</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { label: "Current MRR",       value: fmtAmt(revenueDash.mrr?.current ?? 0),          sub: `${revenueDash.mrr?.accountsWithBilling ?? 0} billed` },
+                    { label: "Contracted MRR",     value: fmtAmt(revenueDash.mrr?.contracted ?? 0),        sub: "All active lines" },
+                    { label: "MRR Gap",            value: fmtAmt((revenueDash.mrr?.contracted ?? 0) - (revenueDash.mrr?.current ?? 0)), sub: "Rollout upside" },
+                    { label: "Software-Only MRR",  value: fmtAmt(revenueDash.mrr?.softwareOnly ?? 0),      sub: "Lite slip SaaS" },
+                  ].map(k => (
+                    <div key={k.label} className="rounded-lg p-3 border border-border/50 bg-card" data-testid={`rev-kpi-${k.label.toLowerCase().replace(/\s+/g, "-")}`}>
+                      <p className="text-xs text-muted-foreground">{k.label}</p>
+                      <p className="text-xl font-bold mt-0.5">{k.value}</p>
+                      {k.sub && <p className="text-[11px] text-muted-foreground mt-0.5">{k.sub}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Hardware Revenue */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Hardware Revenue</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { label: "Contracted", value: fmtAmt(revenueDash.hardware?.contracted ?? 0) },
+                    { label: "Booked",     value: fmtAmt(revenueDash.hardware?.booked ?? 0) },
+                    { label: "Delivered",  value: fmtAmt(revenueDash.hardware?.delivered ?? 0) },
+                    { label: "Remaining",  value: fmtAmt(revenueDash.hardware?.remaining ?? 0) },
+                  ].map(k => (
+                    <div key={k.label} className="rounded-lg p-3 border border-border/50 bg-card" data-testid={`rev-hw-${k.label.toLowerCase()}`}>
+                      <p className="text-xs text-muted-foreground">{k.label}</p>
+                      <p className="text-xl font-bold mt-0.5">{k.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Slip Counts */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Slip Counts</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { label: "Total Slips",      value: (revenueDash.slips?.total ?? 0).toLocaleString() },
+                    { label: "VoltSafe Live",    value: (revenueDash.slips?.voltsafeLive ?? 0).toLocaleString() },
+                    { label: "Software-Only",    value: (revenueDash.slips?.softwareOnly ?? 0).toLocaleString() },
+                    { label: "Future Upgrade",   value: (revenueDash.slips?.futureUpgrade ?? 0).toLocaleString() },
+                  ].map(k => (
+                    <div key={k.label} className="rounded-lg p-3 border border-border/50 bg-card" data-testid={`rev-slip-${k.label.toLowerCase().replace(/\s+/g, "-")}`}>
+                      <p className="text-xs text-muted-foreground">{k.label}</p>
+                      <p className="text-xl font-bold mt-0.5">{k.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Rollout Phases */}
+              {revenueDash.rolloutPhases && Object.keys(revenueDash.rolloutPhases).length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Rollout Phase Status</p>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(revenueDash.rolloutPhases as Record<string, number>).map(([status, count]) => (
+                      <div key={status} className="rounded-full px-3 py-1.5 border border-border/50 text-sm font-medium capitalize"
+                        data-testid={`exec-phase-${status}`}>
+                        {status.replace(/_/g, " ")}: <span className="font-bold">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Top Expansion Accounts */}
+              {(revenueDash.topExpansionAccounts ?? []).length > 0 && (
+                <Card className="border-border/50">
+                  <CardHeader className="pb-2 pt-4 px-4">
+                    <CardTitle className="text-sm">Top Expansion Accounts</CardTitle>
+                  </CardHeader>
+                  <CardContent className="pb-4 px-4">
+                    <div className="space-y-2">
+                      {revenueDash.topExpansionAccounts.map((a: any) => (
+                        <div key={a.id} className="flex items-center justify-between text-xs py-1.5 border-b border-border/20 last:border-0"
+                          data-testid={`exec-expansion-${a.id}`}>
+                          <span className="font-medium">{a.name}</span>
+                          <div className="flex items-center gap-3 text-muted-foreground">
+                            {a.currentMrr > 0 && <span className="text-emerald-400 font-medium">{fmtAmt(a.currentMrr)}/mo</span>}
+                            {a.futureUpgradeSlips > 0 && <span className="text-amber-400">+{a.futureUpgradeSlips} slips</span>}
+                            {a.contractedUnits > 0 && <span>{a.installedUnits}/{a.contractedUnits} units</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          )}
+        </TabsContent>
+
         <TabsContent value="risks" className="mt-3 space-y-3">
           {riskLoading ? <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24" />)}</div> : risks && (
             <>

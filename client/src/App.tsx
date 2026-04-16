@@ -65,6 +65,7 @@ import GeographyPage from "@/pages/geography";
 import DocumentsPage from "@/pages/documents";
 import AutomationsPage from "@/pages/automations";
 import BoardPackPage from "@/pages/board-pack";
+import RevenuePage from "@/pages/revenue";
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -242,6 +243,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
 
       {/* ── REPORTS ───────────────────────────────────────────────── */}
       <Route path="/board-pack">{() => wrap(<BoardPackPage />)}</Route>
+      <Route path="/revenue">{() => wrap(<RevenuePage />)}</Route>
 
       {/* ── AUTOMATION ────────────────────────────────────────────── */}
       <Route path="/automations">{() => wrap(<AutomationsPage />)}</Route>

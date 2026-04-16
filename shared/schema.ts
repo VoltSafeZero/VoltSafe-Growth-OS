@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, doublePrecision, timestamp, boolean, real, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, doublePrecision, timestamp, boolean, real, jsonb, numeric, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -202,6 +202,29 @@ export const accounts = pgTable("accounts", {
   sourceCapturedAt: timestamp("source_captured_at"),
   // ── Territory + Geo Intelligence ────────────────────────────────────────────
   territoryId: integer("territory_id"),
+
+  // ── Revenue Architecture — Commercial Model (Phase 2026-04) ─────────────────
+  // Slip breakdown
+  totalSlips: integer("total_slips"),
+  voltsafeSlipsLive: integer("voltsafe_slips_live"),
+  nonVoltsafeSlipsOnSoftware: integer("non_voltsafe_slips_on_software"),
+  futureUpgradeSlips: integer("future_upgrade_slips"),
+  // Contract & rollout unit tracking
+  contractedUnits: integer("contracted_units"),
+  installedUnits: integer("installed_units"),
+  remainingUnits: integer("remaining_units"),
+  // Hardware revenue
+  contractedHardwareValue: numeric("contracted_hardware_value", { precision: 14, scale: 2 }),
+  bookedHardwareValue: numeric("booked_hardware_value", { precision: 14, scale: 2 }),
+  deliveredHardwareValue: numeric("delivered_hardware_value", { precision: 14, scale: 2 }),
+  // Rollout dates
+  rolloutStartDate: date("rollout_start_date"),
+  rolloutEndTarget: date("rollout_end_target"),
+  // Pricing lock
+  pricingLockDate: date("pricing_lock_date"),
+  pricingLockExpiry: date("pricing_lock_expiry"),
+  // Internal notes
+  commercialNotes: text("commercial_notes"),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -1878,3 +1901,56 @@ export const reportPresets = pgTable("report_presets", {
 export const insertReportPresetSchema = createInsertSchema(reportPresets).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertReportPreset = z.infer<typeof insertReportPresetSchema>;
 export type ReportPreset = typeof reportPresets.$inferSelect;
+
+// ── Revenue Architecture — SaaS Billing Lines ───────────────────────────────
+// Flexible billing-line model: one account can have multiple SaaS line items
+// at different rates (e.g. full_smart_slip, software_lite_slip, platform fee).
+// line_type canonical values:
+//   full_smart_slip | software_lite_slip | marina_platform_fee | custom_add_on
+export const saasBillingLines = pgTable("saas_billing_lines", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id").notNull(),
+  lineType: text("line_type").notNull().default("full_smart_slip"),
+  label: text("label"),                    // custom label for custom_add_on lines
+  quantity: integer("quantity").notNull().default(1),
+  monthlyRate: numeric("monthly_rate", { precision: 10, scale: 4 }).notNull().default("0"),
+  annualRate: numeric("annual_rate", { precision: 10, scale: 4 }),   // optional override
+  billingStartDate: date("billing_start_date"),
+  billingEndDate: date("billing_end_date"),   // null = open-ended
+  isActive: boolean("is_active").notNull().default(true),
+  notes: text("notes"),
+  linkedPhaseId: integer("linked_phase_id"), // FK to rollout_phases
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSaasBillingLineSchema = createInsertSchema(saasBillingLines).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertSaasBillingLine = z.infer<typeof insertSaasBillingLineSchema>;
+export type SaasBillingLine = typeof saasBillingLines.$inferSelect;
+
+// ── Revenue Architecture — Rollout Phases ───────────────────────────────────
+// A phased deployment plan linked to an account. Each phase covers a dock,
+// finger, or zone and tracks planned vs actual unit counts and dates.
+// status canonical values:
+//   planned | in_progress | complete | blocked | cancelled
+export const rolloutPhases = pgTable("rollout_phases", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id").notNull(),
+  phaseName: text("phase_name").notNull(),
+  dockFingerZone: text("dock_finger_zone"),    // dock / finger / zone label
+  plannedUnits: integer("planned_units").notNull().default(0),
+  installedUnits: integer("installed_units").notNull().default(0),
+  targetInstallDate: date("target_install_date"),
+  actualInstallDate: date("actual_install_date"),
+  status: text("status").notNull().default("planned"),
+  blockers: text("blockers"),
+  linkedDeploymentId: integer("linked_deployment_id"),  // FK to install_workflows
+  linkedQuoteId: integer("linked_quote_id"),            // FK to quotes
+  linkedPoId: text("linked_po_id"),                     // PO reference number (text)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertRolloutPhaseSchema = createInsertSchema(rolloutPhases).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertRolloutPhase = z.infer<typeof insertRolloutPhaseSchema>;
+export type RolloutPhase = typeof rolloutPhases.$inferSelect;
