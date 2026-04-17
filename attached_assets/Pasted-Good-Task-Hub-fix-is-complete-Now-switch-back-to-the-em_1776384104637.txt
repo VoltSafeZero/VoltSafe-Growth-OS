@@ -1,0 +1,86 @@
+Good. Task Hub fix is complete.
+
+Now switch back to the email system problem.
+
+Do not touch unrelated UI. Focus only on diagnosing and fixing email retrieval, mailbox visibility, sync completeness, and count accuracy.
+
+I need a precise forensic audit of the current email architecture and data flow for VoltSafe Cortex.
+
+Investigate and report, with evidence from the actual code and database:
+
+1. Mailbox connections
+- Which mailboxes are truly connected with valid OAuth tokens?
+- Which inboxes shown in the UI are only placeholders or DB rows without working auth?
+- For each mailbox, show:
+  - email
+  - connected/disconnected/auth expired
+  - token present yes/no
+  - refresh token present yes/no
+  - last sync time
+  - last successful sync time
+  - last error
+  - message count currently stored
+
+2. Email history completeness
+- For trevor@voltsafe.com, what is the oldest email currently stored in the DB?
+- What is the newest?
+- How many total messages are stored?
+- How many unread are stored?
+- Compare this against what the live Gmail API currently reports for inbox/unread/all mail if available.
+- Determine whether the system is:
+  - only pulling recent mail
+  - capped per sync
+  - missing pagination
+  - skipping labels/folders
+  - not backfilling sent/archive/all mail
+
+3. Sync pipeline
+Trace the exact sync flow end to end:
+- where OAuth tokens are stored
+- how sync jobs are triggered
+- whether polling or Gmail watch/webhook is used
+- page size / fetch limit
+- how pagination works
+- where sync stops
+- whether backfill exists already
+- whether backfill is wired to UI
+- whether sync updates counts correctly
+- whether messages are deduplicated safely
+
+4. Counts and badges
+- Identify exactly where sidebar counts come from
+- Determine whether counts come from:
+  - Gmail live API
+  - local ingested DB subset
+  - CRM-routed subset
+  - hardcoded / stale cache
+- Explain why Spark/Gmail can show ~150 unread while Cortex does not
+
+5. Threading and storage model
+- What tables currently store mailboxes, messages, threads, labels, and participants?
+- Is the current schema good enough for full 6-year history and multi-mailbox search?
+- Identify architectural weaknesses clearly, but do NOT change schema yet
+
+6. Immediate fixes without schema changes
+Implement only the highest-value fixes that do NOT require schema changes:
+- remove any artificial sync cap preventing recent mail from appearing
+- fix pagination if broken
+- make counts reflect real mailbox data as accurately as possible
+- expose true mailbox connection status in UI
+- ensure Trevor mailbox can fetch far more than the newest small batch
+- if a backfill tool already exists, wire it up properly and make it runnable
+
+7. Deliverables
+When done, give me:
+- a concise diagnosis
+- exact root causes
+- what you fixed in this pass
+- what still requires schema work later
+- what I should click in the app, if anything, to start/import/backfill trevor@voltsafe.com
+
+Important:
+- zero schema changes in this task
+- zero unrelated UI work
+- do not ask broad questions
+- inspect the actual code, routes, DB state, and sync jobs first
+- then make the non-schema fixes immediately
