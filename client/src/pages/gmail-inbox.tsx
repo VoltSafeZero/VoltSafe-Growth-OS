@@ -3193,6 +3193,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       const list = tab === "drafts" || tab === "scheduled" || tab === "folder" ? [] : activeMessages;
       const currentIdx = list.findIndex(m => m.threadId === selectedThreadId);
 
+      const focusRow = (msg: MessageSummary) => {
+        requestAnimationFrame(() => {
+          const el = document.querySelector(`[data-testid="email-row-${msg.id}"]`) as HTMLElement | null;
+          if (el) {
+            el.focus({ preventScroll: true });
+            el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          }
+        });
+      };
+
       switch (e.key) {
         case "j":
         case "ArrowDown":
@@ -3200,6 +3210,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           if (list.length > 0) {
             const next = currentIdx < list.length - 1 ? currentIdx + 1 : 0;
             handleSelectMessage(list[next]);
+            focusRow(list[next]);
           }
           break;
         case "k":
@@ -3207,6 +3218,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           e.preventDefault();
           if (list.length > 0 && currentIdx > 0) {
             handleSelectMessage(list[currentIdx - 1]);
+            focusRow(list[currentIdx - 1]);
           }
           break;
         case "r":
