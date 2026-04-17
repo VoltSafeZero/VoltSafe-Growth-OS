@@ -23,6 +23,10 @@ const INDEX_DDL: { name: string; sql: string }[] = [
   { name: "pg_trgm_extension", sql: `CREATE EXTENSION IF NOT EXISTS pg_trgm` },
   { name: "idx_email_participants_trgm", sql: `CREATE INDEX IF NOT EXISTS idx_email_participants_trgm ON email_messages USING gin (lower(coalesce(all_participants,'')) gin_trgm_ops)` },
   { name: "idx_email_subject_trgm", sql: `CREATE INDEX IF NOT EXISTS idx_email_subject_trgm ON email_messages USING gin (lower(coalesce(subject,'')) gin_trgm_ops)` },
+  // Phase 2E — attachment metadata indexes
+  { name: "idx_email_attach_message", sql: `CREATE INDEX IF NOT EXISTS idx_email_attach_message ON email_attachments(message_id)` },
+  { name: "idx_email_attach_mime", sql: `CREATE INDEX IF NOT EXISTS idx_email_attach_mime ON email_attachments(mime_type)` },
+  { name: "idx_email_attach_filename_trgm", sql: `CREATE INDEX IF NOT EXISTS idx_email_attach_filename_trgm ON email_attachments USING gin (lower(coalesce(filename,'')) gin_trgm_ops)` },
   // Full-text search GIN index — expression-based on (subject + from + body + snippet).
   // No schema column needed; PostgreSQL maintains it automatically.
   {

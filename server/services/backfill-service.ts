@@ -3,6 +3,7 @@ import { emailMessages, emailAccounts } from "../../shared/schema";
 import { eq, and } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { parseGmailMessage } from "./email-parser";
+import { insertAttachmentsForMessage } from "./email-attachments";
 import { runAssociationEngine } from "./association-engine";
 import { routeEmailToFolders } from "./email-folder-router";
 import { log } from "../index";
@@ -117,13 +118,15 @@ export async function runBackfillJob(opts: BackfillOptions): Promise<void> {
             userId: "me", id, format: "full",
           });
           const parsed = parseGmailMessage(msgRes.data as any, myDomain);
+          const { attachments, ...emailData } = parsed;
           const [inserted] = await db
             .insert(emailMessages)
-            .values({ ...parsed, ownerUserId: userId, sourceAccountId: accountId })
+            .values({ ...emailData, ownerUserId: userId, sourceAccountId: accountId })
             .onConflictDoNothing()
             .returning();
 
           if (inserted) {
+            if (attachments.length) await insertAttachmentsForMessage(inserted.id, attachments);
             await runAssociationEngine(inserted.id);
             await routeEmailToFolders(inserted.id, userId, inserted.fromEmail ?? "");
             newMessages++;

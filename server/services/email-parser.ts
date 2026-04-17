@@ -17,6 +17,16 @@ const BULK_SUBJECT_PATTERNS = [
   /weekly digest/i, /daily digest/i, /marketing/i,
 ];
 
+export interface ParsedAttachment {
+  gmailAttachmentId: string | null;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  contentId: string | null;
+  isInline: boolean;
+  partId: string | null;
+}
+
 export interface ParsedEmail {
   gmailMessageId: string;
   gmailThreadId: string;
@@ -40,6 +50,7 @@ export interface ParsedEmail {
   ignoredReason: string | null;
   labelIds: string;
   snippet: string | null;
+  attachments: ParsedAttachment[];
 }
 
 export function parseEmailAddress(raw: string): { email: string; name: string } {
@@ -95,6 +106,38 @@ function extractTextBody(payload: any): string {
     }
   }
   return "";
+}
+
+function extractAttachments(payload: any, out: ParsedAttachment[] = []): ParsedAttachment[] {
+  if (!payload) return out;
+  const headers: { name: string; value: string }[] = payload.headers || [];
+  const get = (n: string) => headers.find(h => h.name.toLowerCase() === n.toLowerCase())?.value || "";
+  const disposition = get("Content-Disposition");
+  const contentIdRaw = get("Content-ID");
+  const contentId = contentIdRaw ? contentIdRaw.replace(/^<|>$/g, "").trim() : null;
+
+  const filename = (payload.filename || "").trim();
+  const hasFilename = filename.length > 0;
+  const hasAttachId = !!payload.body?.attachmentId;
+  const isAttachmentDisp = /^attachment/i.test(disposition);
+  const isInlineDisp = /^inline/i.test(disposition);
+
+  if ((hasFilename || hasAttachId || isAttachmentDisp || (isInlineDisp && contentId)) &&
+      payload.mimeType && !payload.mimeType.startsWith("multipart/")) {
+    out.push({
+      gmailAttachmentId: payload.body?.attachmentId || null,
+      filename: filename || (contentId ? `inline-${contentId}` : "(unnamed)"),
+      mimeType: payload.mimeType || "application/octet-stream",
+      sizeBytes: Number(payload.body?.size || 0),
+      contentId,
+      isInline: isInlineDisp || (!hasFilename && !!contentId),
+      partId: payload.partId || null,
+    });
+  }
+  if (Array.isArray(payload.parts)) {
+    for (const part of payload.parts) extractAttachments(part, out);
+  }
+  return out;
 }
 
 function extractHtmlBody(payload: any): string {
@@ -159,9 +202,8 @@ export function parseGmailMessage(msg: any, myDomain: string): ParsedEmail {
   const bodyText = extractTextBody(msg.payload);
   const bodyHtml = extractHtmlBody(msg.payload);
 
-  const hasAttachments = (msg.payload?.parts || []).some(
-    (p: any) => p.filename && p.filename.length > 0
-  );
+  const attachments = extractAttachments(msg.payload);
+  const hasAttachments = attachments.length > 0;
 
   const labelIds: string[] = msg.labelIds || [];
 
@@ -188,5 +230,6 @@ export function parseGmailMessage(msg: any, myDomain: string): ParsedEmail {
     ignoredReason,
     labelIds: JSON.stringify(labelIds),
     snippet: msg.snippet || null,
+    attachments,
   };
 }

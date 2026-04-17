@@ -1,5 +1,88 @@
 # Replit Agent Configuration
 
+## Attachment Metadata + Search Filters (Phase 2E — Complete)
+
+### Goal
+Make Trevor's mailbox searchable by attachment without storing any binary data yet. Pure metadata + filter pipeline.
+
+### New table — `email_attachments` (additive only)
+| col | type | notes |
+|---|---|---|
+| id | serial PK | matches existing pattern |
+| message_id | integer FK → email_messages.id ON DELETE CASCADE | exact type match to email_messages.id |
+| gmail_attachment_id | text | Gmail's attachment handle (for future binary fetch) |
+| filename | text | best-effort name |
+| mime_type | text | e.g. application/pdf |
+| size_bytes | integer | from Gmail body.size |
+| content_id | text | for inline cid: refs |
+| is_inline | boolean | distinguishes inline images from real attachments |
+| part_id | text | MIME part for future fetch |
+| created_at | timestamp | |
+
+Indexes: `idx_email_attach_message`, `idx_email_attach_mime`, `idx_email_attach_filename_trgm` (gin_trgm_ops on lower(filename)). All registered in `ensureSearchIndexes()` so they survive any DB rebuild.
+
+### Parser — `email-parser.ts`
+- New `extractAttachments(payload)` does DFS over the MIME tree and emits a `ParsedAttachment` for any non-multipart part with a filename, attachment-id, or `Content-Disposition: attachment/inline`.
+- `ParsedEmail` now carries `attachments: ParsedAttachment[]`. All 3 sync sites destructure and route them to the new helper `insertAttachmentsForMessage(messageId, attachments)`.
+
+### Sync sites updated
+- `gmail-sync.ts` (paginated catch-up sync)
+- `gmail-incremental.ts` (real-time push handler)
+- `backfill-service.ts` (bulk historical backfill)
+
+All 3 now write attachment rows transactionally after the parent email row is inserted.
+
+### Backfill — `scripts/attachment-backfill.ts`
+One-off utility that re-fetches messages where `has_attachments=true` but no attachment rows exist yet. Supports throttle: `npx tsx scripts/attachment-backfill.ts <limit> <accountId> <sleepMs>` (default 80 ms when limit > 100). Backfilled the full Trevor mailbox.
+
+### Search filters added
+Available via the Gmail-style `q` param on **all local routes** (`/api/gmail/messages`, `/api/gmail/threads`, `/api/email-search`). They compose freely with each other and with free text:
+
+| filter | example | semantics |
+|---|---|---|
+| `has:attachment` | `in:inbox has:attachment` | EXISTS join, excludes inline images |
+| `filename:foo` | `filename:invoice`, `filename:"PO 4023"` | trigram LIKE on lower(filename) |
+| `mime:type` | `mime:application/pdf`, `mime:image` | substring on lower(mime_type) |
+| `from:term` | `from:zoom`, `from:"acme corp"` | substring on from_email or from_name |
+| `after:YYYY-MM-DD` | `after:2025-01-01` | sent_at >= |
+| `before:YYYY-MM-DD` | `before:2026-01-01` | sent_at < |
+
+All filter values are SQL-escaped via the existing `safe()` wrapper.
+
+### Thread view
+`getLocalThread` now batch-loads attachments for all messages in a single `WHERE message_id IN (...)` query and returns them on each message:
+```json
+{ "filename": "VoltSafe Investor Deck_April 2026.pdf", "mimeType": "application/pdf", "sizeBytes": 3883461, "isInline": false, "contentId": null }
+```
+The inbox UI (`gmail-inbox.tsx`) renders a chip strip below each message body — paperclip icon, filename (truncated 260 px), KB size, full title tooltip with mime+size. Inline attachments (cid: references) are filtered out so the strip shows only real document/image attachments the user would click.
+
+### Performance (Trevor dataset, 14,941 messages)
+| query | time |
+|---|---|
+| `in:inbox` (50 rows) | 9.7 ms |
+| `in:inbox has:attachment` (50 rows) | 10.3 ms |
+| `filename:agreement` (50 rows) | 9.4 ms |
+| `mime:application` (50 rows) | 9.7 ms |
+
+The `has:attachment` EXISTS subquery hits `idx_email_attach_message`. Trigram filename + mime indexes keep filename/mime queries flat.
+
+### Files touched
+- `shared/schema.ts` (new `emailAttachments` table)
+- `server/services/email-parser.ts` (extractAttachments + ParsedEmail.attachments)
+- `server/services/email-attachments.ts` (NEW — insert helper)
+- `server/services/local-mailbox.ts` (filter parser + thread attachments)
+- `server/services/email-search.ts` (3 new index entries)
+- `server/services/gmail-sync.ts`, `gmail-incremental.ts`, `backfill-service.ts` (insert site wiring)
+- `scripts/attachment-backfill.ts` (NEW)
+- `client/src/pages/gmail-inbox.tsx` (chip strip below message body)
+
+### Validation
+- 71/71 permissions tests pass
+- Live Gmail source still returns full results (no regressions)
+- Trevor watch still active (incremental sync unchanged)
+
+---
+
 ## Trevor Push Completion + Local Fidelity (Phase 2D — Complete)
 
 ### What was built

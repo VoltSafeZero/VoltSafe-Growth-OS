@@ -4400,6 +4400,30 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     <div className="px-5 py-4 bg-background/30">
                       <MessageBody body={msg.body} isHtml={msg.isHtml} />
                     </div>
+                    {/* Attachment strip (Phase 2E) */}
+                    {Array.isArray((msg as any).attachments) && (msg as any).attachments.filter((a: any) => !a.isInline).length > 0 && (
+                      <div className="px-5 pb-4 pt-1 bg-background/30 border-t border-border/20">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-2">
+                          {(msg as any).attachments.filter((a: any) => !a.isInline).length} attachment{(msg as any).attachments.filter((a: any) => !a.isInline).length === 1 ? "" : "s"}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {(msg as any).attachments.filter((a: any) => !a.isInline).map((a: any, i: number) => (
+                            <div
+                              key={i}
+                              data-testid={`chip-attachment-${msg.id}-${i}`}
+                              className="flex items-center gap-2 bg-card/60 border border-border/40 rounded-md px-2.5 py-1.5 text-xs hover:border-primary/40 transition-colors"
+                              title={`${a.mimeType} • ${a.sizeBytes ? Math.round(a.sizeBytes/1024) + " KB" : "size unknown"}`}
+                            >
+                              <Paperclip className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                              <span className="max-w-[260px] truncate font-medium">{a.filename}</span>
+                              <span className="text-muted-foreground/60 tabular-nums">
+                                {a.sizeBytes ? `${Math.round(a.sizeBytes/1024)} KB` : ""}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}

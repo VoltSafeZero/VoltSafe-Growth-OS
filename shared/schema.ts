@@ -1054,6 +1054,22 @@ export const emailMessages = pgTable("email_messages", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const emailAttachments = pgTable("email_attachments", {
+  id: serial("id").primaryKey(),
+  messageId: integer("message_id").notNull().references(() => emailMessages.id, { onDelete: "cascade" }),
+  gmailAttachmentId: text("gmail_attachment_id"),
+  filename: text("filename"),
+  mimeType: text("mime_type"),
+  sizeBytes: integer("size_bytes").default(0),
+  contentId: text("content_id"),
+  isInline: boolean("is_inline").default(false),
+  partId: text("part_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export const insertEmailAttachmentSchema = createInsertSchema(emailAttachments).omit({ id: true, createdAt: true });
+export type EmailAttachment = typeof emailAttachments.$inferSelect;
+export type InsertEmailAttachment = z.infer<typeof insertEmailAttachmentSchema>;
+
 export const emailThreads = pgTable("email_threads", {
   id: serial("id").primaryKey(),
   gmailThreadId: text("gmail_thread_id").notNull().unique(),

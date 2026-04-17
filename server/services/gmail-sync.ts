@@ -2,6 +2,7 @@ import { db } from "../db";
 import { emailMessages, emailAccounts, scheduledEmails } from "../../shared/schema";
 import { eq, and, lte, desc, inArray } from "drizzle-orm";
 import { parseGmailMessage } from "./email-parser";
+import { insertAttachmentsForMessage } from "./email-attachments";
 import { runAssociationEngine } from "./association-engine";
 import { routeEmailToFolders } from "./email-folder-router";
 import { runAutoConfirmSweep, AUTO_CONFIRM_DRY_RUN } from "./auto-confirm";
@@ -115,13 +116,15 @@ export async function syncEmailAccount(
       try {
         const msgRes = await gmailClient.users.messages.get({ userId: "me", id, format: "full" });
         const parsed = parseGmailMessage(msgRes.data as any, myDomain);
+        const { attachments, ...emailData } = parsed;
         const [inserted] = await db
           .insert(emailMessages)
-          .values({ ...parsed, ownerUserId, sourceAccountId: account.id })
+          .values({ ...emailData, ownerUserId, sourceAccountId: account.id })
           .onConflictDoNothing()
           .returning();
 
         if (inserted) {
+          if (attachments.length) await insertAttachmentsForMessage(inserted.id, attachments);
           await runAssociationEngine(inserted.id);
           await routeEmailToFolders(inserted.id, ownerUserId, inserted.fromEmail ?? "");
           newCount++;
