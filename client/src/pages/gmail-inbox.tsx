@@ -4990,7 +4990,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           <div className={`flex-1 flex flex-col min-h-0 transition-colors duration-300 ${focusMode ? "bg-gradient-to-b from-background via-background to-card/10" : ""}`}>
             {/* Thread header — premium hero card */}
             <div className={`flex-shrink-0 border-b border-border/30 bg-gradient-to-b from-card/40 via-card/20 to-transparent transition-all duration-300 ${focusMode ? "px-6 py-6" : `${densityClasses.readerHeaderPx} ${densityClasses.readerHeaderPy}`}`}>
-              <div className={`flex items-start gap-3 transition-[max-width] duration-300 ${focusMode ? "max-w-5xl mx-auto w-full" : ""}`}>
+              <div className={`flex items-start gap-3 transition-[max-width] duration-300 ${focusMode ? "max-w-4xl mx-auto w-full" : ""}`}>
                 <Button variant="ghost" size="icon" className="md:hidden h-8 w-8 -ml-2 mt-0.5" onClick={handleBack}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
@@ -5003,13 +5003,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   ) : (
                     <>
                       <h1
-                        className={`font-semibold ${densityClasses.readerSubjectText} leading-[1.25] tracking-[-0.012em] text-foreground`}
+                        className={`font-semibold leading-[1.2] tracking-[-0.018em] text-foreground transition-[font-size] duration-300 ${focusMode ? "text-[26px] md:text-[30px]" : densityClasses.readerSubjectText}`}
                         data-testid="text-thread-subject"
                       >
                         {focusedMsg?.subject || "(no subject)"}
                       </h1>
                       {focusedMsg && (
-                        <p className={`text-[12px] text-muted-foreground/65 ${densityClasses.readerMetaMt} flex items-center gap-2 flex-wrap`}>
+                        <p className={`${focusMode ? "text-[13px] mt-2" : `text-[12px] ${densityClasses.readerMetaMt}`} text-muted-foreground/65 flex items-center gap-2 flex-wrap`}>
                           <span className="tabular-nums font-medium">
                             {selectedMessages.length} message{selectedMessages.length !== 1 ? "s" : ""}
                           </span>
@@ -5108,8 +5108,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             </div>
 
             {/* Messages in thread — bottom padding so last message is not hidden under FAB */}
-            <div className={`flex-1 overflow-y-auto ${densityClasses.readerThreadPt} pb-36 md:pb-24 transition-[padding] duration-300 ${focusMode ? "px-4" : densityClasses.readerThreadPx}`}>
-            <div className={`${densityClasses.readerThreadGap} transition-[max-width] duration-300 ${focusMode ? "max-w-5xl mx-auto w-full" : ""}`}>
+            <div className={`flex-1 overflow-y-auto pb-36 md:pb-24 transition-[padding] duration-300 ${focusMode ? "pt-8 px-4 sm:px-6" : `${densityClasses.readerThreadPt} ${densityClasses.readerThreadPx}`}`}>
+            <div className={`transition-[max-width] duration-300 ${focusMode ? "space-y-6 max-w-3xl mx-auto w-full" : densityClasses.readerThreadGap}`}>
               {threadQuery.isLoading && (
                 <div className="space-y-3">
                   {Array.from({ length: 3 }).map((_, i) => (
@@ -5172,28 +5172,39 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       </div>
                     </div>
                     {/* Message body */}
-                    <div className={`${densityClasses.msgBodyPx} ${densityClasses.msgBodyPy} bg-background/30`}>
+                    <div className={`bg-background/30 ${focusMode ? "px-6 py-7 md:px-8 md:py-9" : `${densityClasses.msgBodyPx} ${densityClasses.msgBodyPy}`}`}>
                       <MessageBody body={msg.body} isHtml={msg.isHtml} />
                     </div>
-                    {/* Attachment strip (Phase 2E) */}
+                    {/* Attachment strip (Phase 2E) — bigger & grid-laid in Focus Mode */}
                     {Array.isArray((msg as any).attachments) && (msg as any).attachments.filter((a: any) => !a.isInline).length > 0 && (
-                      <div className="px-5 pb-4 pt-1 bg-background/30 border-t border-border/20">
-                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-2">
+                      <div className={`bg-background/30 border-t border-border/20 ${focusMode ? "px-6 md:px-8 pb-6 pt-4" : "px-5 pb-4 pt-1"}`}>
+                        <div className={`uppercase tracking-wider text-muted-foreground/60 ${focusMode ? "text-[11px] mb-3 font-semibold" : "text-[10px] mb-2"}`}>
                           {(msg as any).attachments.filter((a: any) => !a.isInline).length} attachment{(msg as any).attachments.filter((a: any) => !a.isInline).length === 1 ? "" : "s"}
                         </div>
-                        <div className="flex flex-wrap gap-2">
+                        <div className={focusMode ? "grid grid-cols-1 sm:grid-cols-2 gap-2.5" : "flex flex-wrap gap-2"}>
                           {(msg as any).attachments.filter((a: any) => !a.isInline).map((a: any, i: number) => (
                             <div
                               key={i}
                               data-testid={`chip-attachment-${msg.id}-${i}`}
-                              className="flex items-center gap-2 bg-card/60 border border-border/40 rounded-md px-2.5 py-1.5 text-xs hover:border-primary/40 transition-colors"
+                              className={`flex items-center bg-card/60 border border-border/40 rounded-md hover:border-primary/40 hover:bg-card/80 transition-colors ${focusMode ? "gap-3 px-3.5 py-3 text-[13px] shadow-sm" : "gap-2 px-2.5 py-1.5 text-xs"}`}
                               title={`${a.mimeType} • ${a.sizeBytes ? Math.round(a.sizeBytes/1024) + " KB" : "size unknown"}`}
                             >
-                              <Paperclip className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                              <span className="max-w-[260px] truncate font-medium">{a.filename}</span>
-                              <span className="text-muted-foreground/60 tabular-nums">
-                                {a.sizeBytes ? `${Math.round(a.sizeBytes/1024)} KB` : ""}
-                              </span>
+                              <div className={`flex items-center justify-center rounded-md bg-primary/10 text-primary flex-shrink-0 ${focusMode ? "h-9 w-9" : ""}`}>
+                                <Paperclip className={focusMode ? "h-4 w-4" : "h-3 w-3 text-muted-foreground"} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className={`truncate font-medium ${focusMode ? "max-w-none text-foreground" : "max-w-[260px]"}`}>{a.filename}</div>
+                                {focusMode && (
+                                  <div className="text-[11px] text-muted-foreground/70 tabular-nums mt-0.5">
+                                    {a.sizeBytes ? `${Math.round(a.sizeBytes/1024)} KB` : ""}{a.mimeType ? ` · ${a.mimeType.split("/")[1] || a.mimeType}` : ""}
+                                  </div>
+                                )}
+                              </div>
+                              {!focusMode && (
+                                <span className="text-muted-foreground/60 tabular-nums">
+                                  {a.sizeBytes ? `${Math.round(a.sizeBytes/1024)} KB` : ""}
+                                </span>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -5206,8 +5217,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             </div>
             {/* Sticky reply bar */}
             {canSend && focusedMsg && (
-              <div className="flex-shrink-0 border-t border-border/30 bg-card/20">
-                <div className={`${densityClasses.replyBarPx} ${densityClasses.replyBarPy} flex items-center gap-2 transition-[max-width] duration-300 ${focusMode ? "max-w-5xl mx-auto w-full" : ""}`}>
+              <div className={`flex-shrink-0 border-t border-border/30 transition-colors duration-300 ${focusMode ? "bg-gradient-to-t from-card/40 to-card/10 backdrop-blur-sm shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.4)]" : "bg-card/20"}`}>
+                <div className={`flex items-center gap-2 transition-[max-width,padding] duration-300 ${focusMode ? "max-w-3xl mx-auto w-full px-4 sm:px-6 py-3" : `${densityClasses.replyBarPx} ${densityClasses.replyBarPy}`}`}>
                   <button
                     onClick={() => handleReply(focusedMsg)}
                     data-testid="button-reply-bar"

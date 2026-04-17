@@ -1,0 +1,73 @@
+Now that Trevor’s personal and team inbox issues are fixed, I want this generalized across the entire product so all current users and all future users inherit the same correct behavior.
+
+Goal:
+Turn these inbox fixes from Trevor-specific fixes into platform-wide guarantees.
+
+Audit and harden the email system across all users.
+
+Required work:
+
+1. Global mailbox behavior audit
+Verify for all current users/mailboxes:
+- mailbox switching scopes correctly
+- personal mailbox default resolution is correct
+- shared/team mailbox resolution is correct
+- no mailbox leaks into another mailbox view
+- local vs Gmail source behavior is correct
+- thread view uses the right account context
+- star/unstar works correctly
+- missing-email first-load behavior is fixed
+- message bodies render correctly in personal + shared mailboxes
+
+2. Remove Trevor-specific assumptions
+Search for any code paths that special-case:
+- Trevor
+- user_id = 4
+- system_settings token fallback assumptions
+- default mailbox ownership assumptions
+- legacy single-user shortcuts
+Replace them with general logic that works for any user/mailbox configuration.
+
+3. Multi-user regression coverage
+Add/expand tests to cover:
+- user with one personal mailbox only
+- user with one personal + multiple shared mailboxes
+- user with only shared mailbox access
+- switching across multiple mailboxes
+- local source scoped correctly per mailbox
+- Gmail fallback scoped correctly per mailbox
+- thread body rendering in shared mailboxes
+- star toggle works repeatedly in all mailbox types
+
+4. New-user safety
+Ensure a newly created user with a newly connected mailbox gets the correct behavior automatically:
+- first personal mailbox becomes the correct default personal mailbox
+- shared mailboxes only appear when actually connected/authorized
+- no stale placeholder rows
+- no dependence on historical/manual data setup
+- no environment-specific assumptions
+
+5. Current-user audit report
+For every current user/mailbox combination, report:
+- which mailboxes exist
+- mailbox type (personal/shared)
+- whether auth is active
+- whether any issue remains
+- whether any data repair/backfill is needed
+
+6. Future-proofing
+If there are any remaining design risks that could recreate this class of bugs for future users, list them and fix the safe ones now.
+
+Rules:
+- no schema changes unless absolutely required and explicitly approved first
+- no db:push
+- no fake validation
+- validate against real current users/mailboxes where possible
+- make this a platform hardening pass, not a Trevor-only patch
+
+Deliverables:
+1. concise audit report
+2. list of generalized fixes made
+3. regression tests added
+4. confirmation of whether all current users are now covered
+5. confirmation that new users will inherit correct mailbox behavior
