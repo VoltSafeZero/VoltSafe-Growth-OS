@@ -54,6 +54,14 @@ args = "mail-permissions"
 task = "workflow.run"
 args = "mailbox-switching"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "tracking-proof"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "tracking-multi-proof"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -114,6 +122,22 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "node tests/mailbox-switching.test.js"
+
+[[workflows.workflow]]
+name = "tracking-proof"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node tests/tracking-proof.test.js"
+
+[[workflows.workflow]]
+name = "tracking-multi-proof"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node tests/tracking-multi-proof.test.js"
 
 [agent]
 integrations = ["javascript_openai_ai_integrations:2.0.0", "google-mail:1.0.0", "jira:1.0.0", "confluence:1.0.0"]

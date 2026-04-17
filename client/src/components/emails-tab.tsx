@@ -39,7 +39,9 @@ type EmailWithAssociation = {
 };
 
 type EngagementStats = {
+  tracked: boolean;
   trackingId: string | null;
+  recipientEmail: string | null;
   opens: number;
   uniqueOpens: number;
   clicks: number;
@@ -180,11 +182,33 @@ function EngagementPanel({ gmailMessageId }: { gmailMessageId: string }) {
   }
 
   const stats = engQuery.data;
-  if (!stats || !stats.trackingId) {
+  if (!stats) {
+    return null;
+  }
+  // Untracked send: explicit, no ambiguity vs. "tracked but no opens yet".
+  if (!stats.tracked) {
     return (
-      <p className="text-xs text-muted-foreground/50 italic">
-        No tracking data — email sent without tracking or tracking not yet recorded.
-      </p>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground/60 italic" data-testid="engagement-untracked">
+        <Eye className="h-3 w-3 opacity-40" />
+        Sent without tracking — no open data is being collected for this message.
+      </div>
+    );
+  }
+  // Tracked but no opens yet — this used to be conflated with "untracked".
+  if (stats.uniqueOpens === 0) {
+    return (
+      <div className="space-y-1" data-testid="engagement-tracked-noopens">
+        <div className="flex items-center gap-2 text-xs text-emerald-400/80">
+          <Eye className="h-3 w-3" />
+          Tracked — not opened yet
+          {stats.recipientEmail && (
+            <span className="text-muted-foreground/60">· {stats.recipientEmail}</span>
+          )}
+        </div>
+        <p className="text-[10px] text-muted-foreground/40">
+          Opens register when the recipient's mail client loads the embedded image.
+        </p>
+      </div>
     );
   }
 
@@ -192,6 +216,11 @@ function EngagementPanel({ gmailMessageId }: { gmailMessageId: string }) {
 
   return (
     <div className="space-y-3" data-testid="engagement-panel">
+      {stats.recipientEmail && (
+        <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wider" data-testid="engagement-recipient">
+          Recipient: <span className="font-mono normal-case text-muted-foreground">{stats.recipientEmail}</span>
+        </div>
+      )}
 
       {/* ── Score + signal level ─────────────────────────── */}
       <div className="flex items-center gap-3 flex-wrap">

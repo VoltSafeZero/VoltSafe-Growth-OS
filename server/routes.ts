@@ -114,6 +114,22 @@ const ALLOWED_ATTACHMENT_TYPES = new Set([
   "application/zip",
 ]);
 
+// Parse "Name <a@x.com>, b@y.com, \"Doe, J.\" <c@z.com>" → ["a@x.com","b@y.com","c@z.com"]
+// Uniqueness is case-insensitive; preserves first-seen order. Used for the
+// /api/gmail/send recipient fanout so each recipient gets their own pixel URL.
+function parseAddressList(input: string | null | undefined): string[] {
+  if (!input) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const re = /<([^<>"\s]+@[^<>"\s]+)>|([\w!#$%&'*+\-/=?^_`{|}~.]+@[\w\-]+(?:\.[\w\-]+)+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(input)) !== null) {
+    const addr = (m[1] || m[2] || "").trim().toLowerCase();
+    if (addr && !seen.has(addr)) { seen.add(addr); out.push(addr); }
+  }
+  return out;
+}
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
@@ -474,14 +490,35 @@ export async function registerRoutes(
   app.get("/api/email-engagement/by-message/:gmailMessageId", requireAuth, async (req, res) => {
     try {
       const gmailMessageId = decodeURIComponent(req.params.gmailMessageId);
-      const [pixel] = (await db.execute(sql.raw(`
-        SELECT tracking_id FROM email_tracking_pixels
+      // After multi-recipient fanout, ONE gmail_message_id maps to exactly one
+      // pixel row (each recipient got their own envelope + pixel). For
+      // legacy single-pixel sends pre-fanout, this is also exactly one row.
+      const pixels = (await db.execute(sql.raw(`
+        SELECT tracking_id, recipient_email
+        FROM email_tracking_pixels
         WHERE gmail_message_id = '${gmailMessageId.replace(/'/g, "''")}'
+        ORDER BY id ASC
         LIMIT 1
       `))).rows as any[];
-      if (!pixel) return res.json({ trackingId: null, opens: 0, uniqueOpens: 0, clicks: 0, uniqueClicks: 0, firstOpenAt: null, lastOpenAt: null, score: 0, signalLevel: "none", isHot: false, events: [] });
+      const pixel = pixels[0];
+      if (!pixel) {
+        // tracked=false → "Sent without tracking". UI uses this to differentiate
+        // "untracked send" from "tracked send, no opens yet".
+        return res.json({
+          tracked: false,
+          trackingId: null, recipientEmail: null,
+          opens: 0, uniqueOpens: 0, clicks: 0, uniqueClicks: 0,
+          firstOpenAt: null, lastOpenAt: null,
+          score: 0, signalLevel: "none", isHot: false, isReplied: false, events: [],
+        });
+      }
       const stats = await getEngagementStats(pixel.tracking_id);
-      res.json({ trackingId: pixel.tracking_id, ...stats });
+      res.json({
+        tracked: true,
+        trackingId: pixel.tracking_id,
+        recipientEmail: pixel.recipient_email ?? null,
+        ...stats,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -9156,51 +9193,191 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         }
       }
 
-      // ── Tracking injection (non-fatal) ────────────────────────────────────
-      const trackingId = generateTrackingId();
       const trackingEnabled = enableTracking !== false; // default: true
-      let trackedBody = body;
-      if (trackingEnabled) {
+      const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
+      const host     = req.headers["x-forwarded-host"]  || req.headers.host  || "localhost:5000";
+      const baseUrl  = `${protocol}://${host}`;
+
+      // Parse recipient lists into normalized address arrays.
+      // Multi-recipient sends MUST fan out to N envelopes — Gmail can only
+      // embed one tracking pixel URL per body, so per-recipient attribution
+      // is physically impossible from a single SendMail call.
+      const toList  = parseAddressList(to);
+      const ccList  = parseAddressList(cc);
+      const bccList = parseAddressList(bcc);
+      type Recipient = { email: string; kind: "to" | "cc" | "bcc" };
+      // Cross-field dedupe: if an address appears in multiple fields (to+cc,
+      // cc+bcc, etc.) we must NOT send/track it twice — keep only the
+      // first-seen kind in to → cc → bcc precedence order.
+      const recipients: Recipient[] = [];
+      const seenAddrs = new Set<string>();
+      const pushUnique = (email: string, kind: "to" | "cc" | "bcc") => {
+        if (seenAddrs.has(email)) return;
+        seenAddrs.add(email);
+        recipients.push({ email, kind });
+      };
+      for (const e of toList)  pushUnique(e, "to");
+      for (const e of ccList)  pushUnique(e, "cc");
+      for (const e of bccList) pushUnique(e, "bcc");
+      const fanoutMode = recipients.length > 1;
+
+      // ── Single-recipient (preserved legacy behavior) ─────────────────────
+      if (!fanoutMode) {
+        const trackingId = generateTrackingId();
+        let trackedBody = body;
+        let trackingFailed = false;
+        if (trackingEnabled) {
+          try {
+            trackedBody = injectTracking(body, trackingId, baseUrl);
+          } catch (trackErr) {
+            console.error("[tracking] injection failed (non-fatal, sending untracked):", trackErr);
+            trackingFailed = true;
+            trackedBody = body;
+          }
+        }
+
+        const result = await sendEmail(
+          resolved.userId, to, subject || "", trackedBody,
+          threadId, mimeAttachments, resolved.accountId,
+          cc || undefined, bcc || undefined
+        );
+
+        if (trackingEnabled && !trackingFailed && result?.id) {
+          try {
+            const recipientEmail = (toList[0] || ccList[0] || bccList[0] || String(to)).toLowerCase();
+            await db.execute(sql.raw(`
+              INSERT INTO email_tracking_pixels (tracking_id, gmail_message_id, subject, recipient_email, sent_by_user_id, created_at)
+              VALUES (
+                '${trackingId}',
+                '${String(result.id).replace(/'/g, "''")}',
+                ${subject ? `'${String(subject).replace(/'/g, "''")}'` : "NULL"},
+                '${recipientEmail.replace(/'/g, "''")}',
+                ${userId},
+                NOW()
+              )
+            `));
+          } catch (saveErr) {
+            console.error("[tracking] pixel save failed (non-fatal, message already sent):", saveErr);
+            trackingFailed = true;
+          }
+        }
+
+        if (threadId && result?.id) {
+          clearAwaitingReply(String(threadId)).catch(e =>
+            console.warn("[awaiting-reply] clearAwaitingReply non-fatal:", e)
+          );
+        }
+
+        return res.json({
+          ...result,
+          trackingId:      trackingEnabled && !trackingFailed ? trackingId : null,
+          trackingEnabled,
+          trackingFailed:  trackingEnabled && trackingFailed,
+          recipientCount:  1,
+          fanout:          false,
+        });
+      }
+
+      // ── Multi-recipient fanout ───────────────────────────────────────────
+      // One Gmail send per recipient, each with its own pixel URL → real
+      // per-recipient open attribution. Recipients won't see each other in
+      // To/Cc — this is the inherent trade-off of true per-recipient tracking.
+      console.warn(`[tracking] fanout mode: sending ${recipients.length} separate envelopes for per-recipient attribution`);
+
+      const sentResults: Array<{
+        recipient: string; recipientKind: "to" | "cc" | "bcc";
+        gmailMessageId: string | null; threadId: string | null;
+        trackingId: string | null; trackingFailed: boolean;
+        error: string | null;
+      }> = [];
+      const trackingIds: string[] = [];
+      let firstThreadId: string | null = threadId || null;
+
+      for (const r of recipients) {
+        const tid = generateTrackingId();
+        let perBody = body;
+        let trackFailed = false;
+        if (trackingEnabled) {
+          try {
+            perBody = injectTracking(body, tid, baseUrl);
+          } catch (e) {
+            console.error(`[tracking] injection failed for ${r.email} (non-fatal):`, e);
+            trackFailed = true;
+          }
+        }
         try {
-          const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
-          const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000";
-          const baseUrl = `${protocol}://${host}`;
-          trackedBody = injectTracking(body, trackingId, baseUrl);
-        } catch (trackErr) {
-          console.warn("[tracking] injection failed (non-fatal):", trackErr);
-          trackedBody = body; // fall back to untracked
+          const result = await sendEmail(
+            resolved.userId, r.email, subject || "", perBody,
+            firstThreadId || undefined, mimeAttachments, resolved.accountId,
+            undefined, undefined
+          );
+          if (!firstThreadId && result?.threadId) firstThreadId = String(result.threadId);
+
+          if (trackingEnabled && !trackFailed && result?.id) {
+            try {
+              await db.execute(sql.raw(`
+                INSERT INTO email_tracking_pixels (tracking_id, gmail_message_id, subject, recipient_email, sent_by_user_id, created_at)
+                VALUES (
+                  '${tid}',
+                  '${String(result.id).replace(/'/g, "''")}',
+                  ${subject ? `'${String(subject).replace(/'/g, "''")}'` : "NULL"},
+                  '${r.email.replace(/'/g, "''")}',
+                  ${userId},
+                  NOW()
+                )
+              `));
+              trackingIds.push(tid);
+            } catch (saveErr) {
+              console.error(`[tracking] pixel save failed for ${r.email} (non-fatal, message already sent):`, saveErr);
+              trackFailed = true;
+            }
+          }
+
+          sentResults.push({
+            recipient: r.email, recipientKind: r.kind,
+            gmailMessageId: result?.id ? String(result.id) : null,
+            threadId: result?.threadId ? String(result.threadId) : null,
+            trackingId: trackingEnabled && !trackFailed ? tid : null,
+            trackingFailed: trackingEnabled && trackFailed,
+            error: null,
+          });
+        } catch (sendErr: any) {
+          console.error(`[send] fanout send failed for ${r.email}:`, sendErr?.message);
+          sentResults.push({
+            recipient: r.email, recipientKind: r.kind,
+            gmailMessageId: null, threadId: null,
+            trackingId: null, trackingFailed: false,
+            error: sendErr?.message || "send failed",
+          });
         }
       }
 
-      const result = await sendEmail(resolved.userId, to, subject || "", trackedBody, threadId, mimeAttachments, resolved.accountId, cc || undefined, bcc || undefined);
+      const successes = sentResults.filter((r) => r.gmailMessageId);
+      const failures  = sentResults.filter((r) => r.error);
 
-      // ── Save tracking record (non-fatal) ──────────────────────────────────
-      if (trackingEnabled && result?.id) {
-        try {
-          await db.execute(sql.raw(`
-            INSERT INTO email_tracking_pixels (tracking_id, gmail_message_id, subject, recipient_email, sent_by_user_id, created_at)
-            VALUES (
-              '${trackingId}',
-              '${String(result.id).replace(/'/g, "''")}',
-              ${subject ? `'${String(subject).replace(/'/g, "''")}'` : "NULL"},
-              '${String(to).replace(/'/g, "''")}',
-              ${userId},
-              NOW()
-            )
-          `));
-        } catch (saveErr) {
-          console.warn("[tracking] pixel save failed (non-fatal):", saveErr);
-        }
-      }
-
-      // ── Clear awaiting-reply when a threaded reply is sent (non-fatal) ──────
-      if (threadId && result?.id) {
-        clearAwaitingReply(String(threadId)).catch(e =>
+      // Only clear awaiting-reply when this WAS a threaded reply AND at least
+      // one envelope actually delivered. If every fanout send failed, the
+      // thread is still legitimately awaiting our reply.
+      if (threadId && firstThreadId && successes.length > 0) {
+        clearAwaitingReply(firstThreadId).catch(e =>
           console.warn("[awaiting-reply] clearAwaitingReply non-fatal:", e)
         );
       }
-
-      res.json({ ...result, trackingId: trackingEnabled ? trackingId : null });
+      // Backwards-compatible top-level fields point at the FIRST successful send.
+      const primary = successes[0] || sentResults[0];
+      return res.json({
+        id:              primary?.gmailMessageId ?? null,
+        threadId:        primary?.threadId ?? null,
+        trackingId:      primary?.trackingId ?? null,
+        trackingEnabled,
+        trackingFailed:  trackingEnabled && successes.length > 0 && successes.every((r) => r.trackingFailed),
+        recipientCount:  recipients.length,
+        fanout:          true,
+        sentCount:       successes.length,
+        failedCount:     failures.length,
+        trackingIds,
+        recipients:      sentResults,
+      });
     } catch (err: any) {
       res.status(503).json({ message: "Failed to send email", error: err.message });
     }
