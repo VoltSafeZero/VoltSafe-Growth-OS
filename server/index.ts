@@ -182,6 +182,9 @@ app.use((req, res, next) => {
 
       startHourlySyncScheduler();
       startHelpCenterRefreshScheduler();
+      // Phase 2A: Gmail watch renewal (no-op if GMAIL_PUBSUB_TOPIC unset)
+      const { startWatchRenewalScheduler } = await import("./services/gmail-watch");
+      startWatchRenewalScheduler();
     },
   );
 })();

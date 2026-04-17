@@ -9291,6 +9291,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           FROM backfill_jobs WHERE email_account_id = ${a.id}
           ORDER BY created_at DESC LIMIT 1
         `));
+        // Phase 2A: derive watch status
+        const now = Date.now();
+        const watchExpMs = a.watchExpirationAt ? new Date(a.watchExpirationAt).getTime() : null;
+        let watchStatus: "active" | "expiring_soon" | "expired" | "not_configured" | "disabled" = "not_configured";
+        const pushTopic = (process.env.GMAIL_PUBSUB_TOPIC || "").trim();
+        if (!pushTopic) watchStatus = "not_configured";
+        else if (!watchExpMs) watchStatus = "disabled";
+        else if (watchExpMs <= now) watchStatus = "expired";
+        else if (watchExpMs - now < 24 * 60 * 60 * 1000) watchStatus = "expiring_soon";
+        else watchStatus = "active";
+
         return {
           id: a.id,
           emailAddress: a.emailAddress,
@@ -9313,16 +9324,104 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           },
           live: liveProfile,
           lastBackfillJob: ((lastJob as any).rows?.[0]) ?? null,
+          // Phase 2A push/incremental visibility
+          push: {
+            configured: !!pushTopic,
+            topic: pushTopic || null,
+            watchStatus,
+            watchExpirationAt: a.watchExpirationAt,
+            watchHistoryId: a.watchHistoryId,
+            lastWebhookAt: a.lastWebhookAt,
+          },
+          incremental: {
+            lastIncrementalSyncAt: a.lastIncrementalSyncAt,
+            eventCount: a.incrementalEventCount ?? 0,
+            hasSeed: !!a.lastHistoryId,
+          },
         };
       }));
 
       res.json({
         userId,
         connectedMailboxes: out.length,
+        pushConfigured: !!(process.env.GMAIL_PUBSUB_TOPIC || "").trim(),
         mailboxes: out,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Phase 2A: incremental sync trigger ─────────────────────────────────────
+  app.post("/api/gmail/sync-incremental", requireAuth, async (req, res) => {
+    try {
+      const accountId = req.query.accountId ? Number(req.query.accountId) : undefined;
+      const { syncIncremental, runIncrementalForAll } = await import("./services/gmail-incremental");
+      const result = accountId ? [await syncIncremental(accountId)] : await runIncrementalForAll();
+      res.json({ count: result.length, results: result });
+    } catch (err: any) {
+      res.status(500).json({ message: "Incremental sync failed", error: err.message });
+    }
+  });
+
+  // ── Phase 2A: watch lifecycle ──────────────────────────────────────────────
+  app.post("/api/gmail/watch/start", requireAuth, async (req, res) => {
+    try {
+      const accountId = Number(req.query.accountId);
+      if (!accountId) return res.status(400).json({ message: "accountId query required" });
+      const { startWatch } = await import("./services/gmail-watch");
+      res.json(await startWatch(accountId));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+  app.post("/api/gmail/watch/stop", requireAuth, async (req, res) => {
+    try {
+      const accountId = Number(req.query.accountId);
+      if (!accountId) return res.status(400).json({ message: "accountId query required" });
+      const { stopWatch } = await import("./services/gmail-watch");
+      res.json(await stopWatch(accountId));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Phase 2A: Gmail Pub/Sub push webhook ───────────────────────────────────
+  // Receives push notifications from Google Pub/Sub when a watched mailbox changes.
+  // Auth: shared secret in `?token=` query param matched against GMAIL_WEBHOOK_TOKEN.
+  // (Pub/Sub subscription is configured with this URL+token.)
+  app.post("/api/webhooks/gmail", async (req, res) => {
+    const expected = (process.env.GMAIL_WEBHOOK_TOKEN || "").trim();
+    if (!expected || req.query.token !== expected) {
+      return res.status(401).json({ message: "unauthorized" });
+    }
+    // Always 200 quickly; Pub/Sub retries on non-2xx
+    res.status(200).json({ ok: true });
+
+    // Parse Pub/Sub envelope: { message: { data: <base64> }, subscription }
+    try {
+      const env = req.body || {};
+      const data = env?.message?.data;
+      if (!data) return;
+      const decoded = Buffer.from(data, "base64").toString("utf-8");
+      const payload = JSON.parse(decoded) as { emailAddress?: string; historyId?: string | number };
+      const emailAddress = (payload.emailAddress || "").trim().toLowerCase();
+      if (!emailAddress) return;
+
+      const [acct] = await db.select().from(emailAccounts)
+        .where(eq(emailAccounts.emailAddress, emailAddress))
+        .limit(1);
+      if (!acct) return;
+
+      await db.update(emailAccounts)
+        .set({ lastWebhookAt: new Date(), updatedAt: new Date() })
+        .where(eq(emailAccounts.id, acct.id));
+
+      // Fire incremental sync in background
+      const { syncIncremental } = await import("./services/gmail-incremental");
+      syncIncremental(acct.id).catch((e) => console.error("[gmail-webhook] incremental sync error:", e.message));
+    } catch (e: any) {
+      console.error("[gmail-webhook] payload parse error:", e.message);
     }
   });
 

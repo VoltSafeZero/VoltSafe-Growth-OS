@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { RefreshCw, Mail, AlertCircle, CheckCircle2, Clock, Database, Loader2 } from "lucide-react";
+import { RefreshCw, Mail, AlertCircle, CheckCircle2, Clock, Database, Loader2, Radio, Zap, PlayCircle, StopCircle } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 
 type Mailbox = {
@@ -25,8 +25,21 @@ type Mailbox = {
   stored: { total: number; unread: number; inbox: number; sent: number; oldestAt: string | null; newestAt: string | null };
   live: { emailAddress?: string; messagesTotalLive?: number | null; threadsTotalLive?: number | null; historyIdLive?: string | null; error?: string };
   lastBackfillJob: any | null;
+  push?: {
+    configured: boolean;
+    topic: string | null;
+    watchStatus: "active" | "expiring_soon" | "expired" | "not_configured" | "disabled";
+    watchExpirationAt: string | null;
+    watchHistoryId: string | null;
+    lastWebhookAt: string | null;
+  };
+  incremental?: {
+    lastIncrementalSyncAt: string | null;
+    eventCount: number;
+    hasSeed: boolean;
+  };
 };
-type Health = { userId: number; connectedMailboxes: number; mailboxes: Mailbox[] };
+type Health = { userId: number; connectedMailboxes: number; pushConfigured?: boolean; mailboxes: Mailbox[] };
 
 function fmt(n: number | null | undefined) { return n == null ? "—" : Number(n).toLocaleString(); }
 function fmtDate(s: string | null | undefined) { if (!s) return "—"; try { const d = new Date(s); return `${format(d, "MMM d, yyyy h:mm a")}`; } catch { return s; } }
@@ -56,6 +69,47 @@ export default function MailboxHealthPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/health"] });
     },
     onError: (e: any) => toast({ variant: "destructive", description: `Sync failed: ${e.message}` }),
+  });
+
+  const incrMut = useMutation({
+    mutationFn: async (mb: Mailbox) => {
+      const res = await apiRequest("POST", `/api/gmail/sync-incremental?accountId=${mb.id}`);
+      return res.json();
+    },
+    onSuccess: (r: any) => {
+      const x = r?.results?.[0];
+      if (x) {
+        toast({ description: `Incremental sync — events:${x.events} added:${x.added} deleted:${x.deleted} labelsChanged:${x.labelsChanged}${x.fellBack ? " (fell back to paginated)" : ""}` });
+      } else {
+        toast({ description: "Incremental sync complete" });
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/health"] });
+    },
+    onError: (e: any) => toast({ variant: "destructive", description: `Incremental failed: ${e.message}` }),
+  });
+
+  const watchStartMut = useMutation({
+    mutationFn: async (mb: Mailbox) => {
+      const res = await apiRequest("POST", `/api/gmail/watch/start?accountId=${mb.id}`);
+      return res.json();
+    },
+    onSuccess: (r: any) => {
+      toast({ description: r.ok ? `Watch started — expires ${new Date(r.expirationMs).toLocaleString()}` : `Watch not started: ${r.reason}`, variant: r.ok ? "default" : "destructive" });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/health"] });
+    },
+    onError: (e: any) => toast({ variant: "destructive", description: `Watch start failed: ${e.message}` }),
+  });
+
+  const watchStopMut = useMutation({
+    mutationFn: async (mb: Mailbox) => {
+      const res = await apiRequest("POST", `/api/gmail/watch/stop?accountId=${mb.id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ description: "Watch stopped." });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/health"] });
+    },
+    onError: (e: any) => toast({ variant: "destructive", description: `Watch stop failed: ${e.message}` }),
   });
 
   const backfillMut = useMutation({
@@ -157,9 +211,55 @@ export default function MailboxHealthPage() {
                 </div>
               )}
 
+              {/* Phase 2A: Push & Incremental Sync */}
+              <div className="border-t pt-4 space-y-3">
+                <div className="text-sm font-semibold flex items-center gap-2"><Zap className="h-4 w-4" /> Push & incremental sync</div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                  <KV k="Last historyId (stored)" v={mb.lastHistoryId ?? "—"} />
+                  <KV k="Live historyId" v={mb.live?.historyIdLive ?? "—"} />
+                  <KV k="Last incremental sync" v={`${fmtDate(mb.incremental?.lastIncrementalSyncAt ?? null)} ${rel(mb.incremental?.lastIncrementalSyncAt ?? null)}`} />
+                  <KV k="Incremental events processed" v={fmt(mb.incremental?.eventCount ?? 0)} />
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                  <KV k="Push (Pub/Sub)" v={mb.push?.configured ? "Configured" : "Not configured"} bad={!mb.push?.configured} />
+                  <KV k="Watch status" v={mb.push?.watchStatus ?? "—"} bad={mb.push?.watchStatus === "expired"} />
+                  <KV k="Watch expires" v={`${fmtDate(mb.push?.watchExpirationAt ?? null)} ${rel(mb.push?.watchExpirationAt ?? null)}`} />
+                  <KV k="Last webhook received" v={`${fmtDate(mb.push?.lastWebhookAt ?? null)} ${rel(mb.push?.lastWebhookAt ?? null)}`} />
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button size="sm" variant="default" onClick={() => incrMut.mutate(mb)} disabled={incrMut.isPending} data-testid="button-sync-incremental">
+                    {incrMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Zap className="h-4 w-4 mr-2" />}
+                    Sync incremental now
+                  </Button>
+                  {mb.push?.configured && (
+                    <>
+                      <Button size="sm" variant="outline" onClick={() => watchStartMut.mutate(mb)} disabled={watchStartMut.isPending} data-testid="button-watch-start">
+                        {watchStartMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <PlayCircle className="h-4 w-4 mr-2" />}
+                        Start / renew watch
+                      </Button>
+                      {(mb.push.watchStatus === "active" || mb.push.watchStatus === "expiring_soon") && (
+                        <Button size="sm" variant="outline" onClick={() => watchStopMut.mutate(mb)} disabled={watchStopMut.isPending} data-testid="button-watch-stop">
+                          {watchStopMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <StopCircle className="h-4 w-4 mr-2" />}
+                          Stop watch
+                        </Button>
+                      )}
+                    </>
+                  )}
+                </div>
+                {!mb.push?.configured && (
+                  <div className="text-xs p-2 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                    <Radio className="h-4 w-4 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-semibold">Real-time push not configured</div>
+                      <div>Set <code className="font-mono">GMAIL_PUBSUB_TOPIC</code> and <code className="font-mono">GMAIL_WEBHOOK_TOKEN</code> env vars (with a Google Cloud Pub/Sub topic + push subscription pointing at <code className="font-mono">/api/webhooks/gmail?token=…</code>) to enable sub-second sync. Until then, the system runs historyId-based incremental sync hourly — still much faster and more accurate than re-listing pages.</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Sync controls */}
               <div className="border-t pt-4 space-y-3">
-                <div className="text-sm font-semibold flex items-center gap-2"><Database className="h-4 w-4" /> Sync controls</div>
+                <div className="text-sm font-semibold flex items-center gap-2"><Database className="h-4 w-4" /> Sync controls (paginated fallback)</div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
                     <Label htmlFor="pages" className="text-xs">Pages to walk (100/page)</Label>
