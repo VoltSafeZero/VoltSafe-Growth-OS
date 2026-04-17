@@ -7225,10 +7225,18 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       if (!isAdmin && mailTeamPerms[String(acct.id)]?.view !== true) return null;
       return { userId: acct.userId, accountId: acct.id, acct };
     }
-    // Default: user's own account
+    // Default: user's own account.
+    // We MUST return `accountId: acct.id` (not undefined). Returning undefined here causes
+    // local-mailbox queries to fall through to a `owner_user_id = userId` filter, which
+    // pulls messages from EVERY account that user owns — including any team inboxes they
+    // connected (is_shared=true rows still have user_id = the connector). Result: clicking
+    // your personal inbox would show a mix of your personal mail + every team inbox you
+    // ever connected, dominated by whichever has the most data. Always bind to the specific
+    // resolved account id so both the live-Gmail client and the local-mailbox SQL filter
+    // by the correct mailbox.
     const acct = await getUserGmailAccount(currentUserId);
     if (!acct) return null;
-    return { userId: currentUserId, accountId: undefined as number | undefined, acct };
+    return { userId: currentUserId, accountId: acct.id, acct };
   }
 
   // Helper: extract role + mail_team perms for the session user.
