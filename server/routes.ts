@@ -8856,8 +8856,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
   app.post("/api/gmail/schedule", requireAuth, async (req, res) => {
     const [user] = await db.select().from(users).where(eq(users.id, req.session.userId!));
-    if (!user || user.email !== "trevor@voltsafe.com") {
-      return res.status(403).json({ message: "Only the account owner can schedule emails." });
+    // Generalized: any master_admin can schedule sends (was hard-coded to a single email).
+    if (!user || user.globalRole !== "master_admin") {
+      return res.status(403).json({ message: "Only workspace administrators can schedule emails." });
     }
     try {
       const { to, subject, body, threadId, scheduledAt } = req.body;

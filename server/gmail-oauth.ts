@@ -160,7 +160,9 @@ export async function exchangeCodeForTokens(
         .onConflictDoNothing();
     }
 
-    // Backward compat: also store in system_settings (Trevor's personal account only)
+    // Legacy compat: also mirror tokens into system_settings under the original
+    // single-user keys. Harmless for multi-user setups (just a constant overwrite
+    // by whoever last connected); kept until the last legacy reader is removed.
     if (tokens.refresh_token) {
       await db.insert(systemSettings)
         .values({ key: "gmail_refresh_token", value: tokens.refresh_token })
@@ -181,12 +183,13 @@ export async function exchangeCodeForTokens(
   return { emailAddress };
 }
 
-// Trevor's user_id — only user whose token falls back to system_settings for Phase 1 compat
-const TREVOR_USER_ID = 4;
-
 // getGmailClient resolves a Gmail API client for either a userId or a specific accountId.
 // When accountId is provided (for shared mailbox access), it looks up by accountId directly,
 // bypassing the userId constraint so any workspace user can access shared inboxes.
+//
+// Multi-user note: when no accountId is given, we prefer the user's PERSONAL account
+// (is_shared=false) so that admins who also connected team inboxes don't accidentally
+// pick up a shared mailbox token. This mirrors getUserGmailAccount in routes.ts.
 export async function getGmailClient(userId: number, accountId?: number) {
   let refreshToken: string | null = null;
 
@@ -198,27 +201,34 @@ export async function getGmailClient(userId: number, accountId?: number) {
       .where(eq(emailAccounts.id, accountId))
       .limit(1);
     refreshToken = acct?.refreshToken ?? null;
-    if (!refreshToken) throw new Error("Shared account has no token — please reconnect it.");
+    if (!refreshToken) throw new Error("Account has no token — please reconnect it.");
   } else {
-    // Standard: per-user token from email_accounts
+    // Standard: per-user PERSONAL token from email_accounts.
+    // is_shared=false avoids returning a team-inbox token when the same user
+    // owns both. Deterministic ordering by id for stability.
     const [acct] = await db
       .select({ refreshToken: emailAccounts.refreshToken })
       .from(emailAccounts)
-      .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isActive, true)))
+      .where(and(
+        eq(emailAccounts.userId, userId),
+        eq(emailAccounts.isActive, true),
+        eq(emailAccounts.isShared, false),
+      ))
+      .orderBy(emailAccounts.id)
       .limit(1);
     refreshToken = acct?.refreshToken ?? null;
 
-    // Fallback ONLY for Trevor: read from system_settings if email_accounts.refresh_token is empty
-    if (!refreshToken && userId === TREVOR_USER_ID) {
+    // Generalized legacy migration aid: if email_accounts has no token but the
+    // legacy single-user system_settings key still holds one, adopt it once and
+    // backfill the per-user row so this branch never runs again. Safe for new
+    // users — they have nothing in system_settings, so this is a no-op.
+    if (!refreshToken) {
       const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, "gmail_refresh_token"));
-      if (row?.value) {
+      if (row?.value && acct) {
         refreshToken = row.value;
-        // Opportunistically backfill email_accounts so fallback isn't needed next time
-        if (acct) {
-          await db.update(emailAccounts)
-            .set({ refreshToken, updatedAt: new Date() })
-            .where(eq(emailAccounts.userId, userId));
-        }
+        await db.update(emailAccounts)
+          .set({ refreshToken, updatedAt: new Date() })
+          .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isShared, false)));
       }
     }
   }
@@ -238,17 +248,26 @@ export async function getGmailClient(userId: number, accountId?: number) {
 
 export async function isGmailConnected(userId: number): Promise<{ connected: boolean; tokenValid: boolean; apiEnabled: boolean }> {
   try {
-    // Check if this user has an active email_accounts record with a token
+    // Check if this user has an active PERSONAL email_accounts record with a token.
+    // is_shared=false ensures we don't report "connected" just because the user has
+    // access to a team inbox.
     const [acct] = await db
       .select({ refreshToken: emailAccounts.refreshToken, authStatus: emailAccounts.authStatus })
       .from(emailAccounts)
-      .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isActive, true)))
+      .where(and(
+        eq(emailAccounts.userId, userId),
+        eq(emailAccounts.isActive, true),
+        eq(emailAccounts.isShared, false),
+      ))
+      .orderBy(emailAccounts.id)
       .limit(1);
 
     let hasToken = !!acct?.refreshToken;
 
-    // Fallback ONLY for Trevor: check system_settings if email_accounts has no token yet
-    if (!hasToken && userId === TREVOR_USER_ID) {
+    // Generalized legacy migration aid: any user whose email_accounts row exists
+    // but has no token may still find one in legacy single-user system_settings.
+    // For new users (no row, no system_settings entry) this stays false.
+    if (!hasToken && acct) {
       const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, "gmail_refresh_token"));
       hasToken = !!row?.value;
     }

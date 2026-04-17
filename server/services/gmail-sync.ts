@@ -8,8 +8,10 @@ import { routeEmailToFolders } from "./email-folder-router";
 import { runAutoConfirmSweep, AUTO_CONFIRM_DRY_RUN } from "./auto-confirm";
 import { log } from "../index";
 
-// Trevor's user ID — the only Gmail user connected in Phase 1
-const TREVOR_USER_ID = 4;
+// Multi-user note: this module is fully account-scoped. Each call to
+// syncEmailAccount() resolves credentials via the account's owner
+// (account.userId), so any number of personal/shared accounts across any
+// number of users sync correctly without per-user assumptions.
 
 // Default page size when paginating (Gmail max is 500)
 const PAGE_SIZE = 100;
