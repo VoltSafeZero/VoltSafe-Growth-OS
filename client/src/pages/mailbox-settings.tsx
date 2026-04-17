@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -22,6 +22,15 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { MoreVertical, UserCog, Pause, Play, ShieldAlert } from "lucide-react";
 
 // Multi-mailbox Phase 2: enriched per-account health snapshot from /api/gmail/accounts/health.
 // Purely read-only / additive. Used to render status dots, watch/webhook freshness,
@@ -216,6 +225,328 @@ function BackfillPanel({ mailboxId, emailAddress }: { mailboxId: number; emailAd
 }
 
 // ── Mailbox Card ──────────────────────────────────────────────────────────────
+// Phase 3: Mailbox access management. Owner OR global admin can grant/revoke
+// view/edit on a shared mailbox per teammate. Reads/writes go through the
+// additive /api/gmail/accounts/:id/access endpoints (server-side authz enforced).
+type AccessGrant = {
+  userId: number; name: string; email: string; role: string;
+  isAdmin: boolean; view: boolean; edit: boolean; implicit: boolean;
+};
+type AccessPayload = {
+  account: { id: number; emailAddress: string; displayName: string | null; isShared: boolean };
+  owner: { id: number; name: string; email: string; role: string } | null;
+  grants: AccessGrant[];
+  isCurrentUserOwner: boolean;
+  isCurrentUserAdmin: boolean;
+};
+function ManageAccessDialog({ accountId, emailAddress, open, onOpenChange }: {
+  accountId: number; emailAddress: string; open: boolean; onOpenChange: (v: boolean) => void;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [draft, setDraft] = useState<Record<number, { view: boolean; edit: boolean }>>({});
+  // Seed the draft only once per dialog open. Without this, a TanStack Query
+  // refetch (focus/reconnect) would clobber in-progress edits because the
+  // effect below depends on accessQuery.data.
+  const seededRef = useRef(false);
+
+  const accessQuery = useQuery<AccessPayload>({
+    queryKey: ["/api/gmail/accounts", accountId, "access"],
+    queryFn: async () => {
+      const res = await fetch(`/api/gmail/accounts/${accountId}/access`, { credentials: "include" });
+      if (!res.ok) throw new Error(`Failed to load access (${res.status})`);
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  // Seed the editable draft once data lands. Admins are implicit-access and
+  // excluded — they're rendered read-only and not sent in the PATCH payload.
+  useEffect(() => {
+    if (!open) { seededRef.current = false; return; }
+    if (seededRef.current || !accessQuery.data) return;
+    const seed: Record<number, { view: boolean; edit: boolean }> = {};
+    for (const g of accessQuery.data.grants) {
+      if (!g.isAdmin) seed[g.userId] = { view: g.view, edit: g.edit };
+    }
+    setDraft(seed);
+    seededRef.current = true;
+  }, [open, accessQuery.data]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const grants = Object.entries(draft).map(([userId, v]) => ({
+        userId: Number(userId), view: v.view, edit: v.edit,
+      }));
+      return apiRequest("PATCH", `/api/gmail/accounts/${accountId}/access`, { grants });
+    },
+    onSuccess: () => {
+      toast({ title: "Access updated", description: `Saved permissions for ${emailAddress}` });
+      qc.invalidateQueries({ queryKey: ["/api/gmail/accounts", accountId, "access"] });
+      qc.invalidateQueries({ queryKey: ["/api/team/mailboxes"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const setEntry = (userId: number, field: "view" | "edit", value: boolean) => {
+    setDraft(prev => {
+      const cur = prev[userId] ?? { view: false, edit: false };
+      // Edit implies view (matches admin-users.tsx semantics).
+      const next = field === "view"
+        ? { view: value, edit: value ? cur.edit : false }
+        : { view: cur.view || value, edit: value };
+      return { ...prev, [userId]: next };
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) setDraft({}); onOpenChange(v); }}>
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col" data-testid={`dialog-manage-access-${accountId}`}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserCog className="h-4 w-4" /> Manage access · {emailAddress}
+          </DialogTitle>
+          <DialogDescription>
+            Grant teammates view or edit access to this shared mailbox. Changes update
+            their personal permissions immediately. Workspace admins always have full
+            access and are shown for reference only.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex-1 overflow-auto space-y-2 py-2">
+          {accessQuery.isLoading && <Skeleton className="h-40" />}
+          {accessQuery.error && (
+            <Alert className="border-red-500/30 bg-red-500/5"><AlertTriangle className="h-4 w-4" />
+              <AlertDescription>{(accessQuery.error as Error).message}</AlertDescription>
+            </Alert>
+          )}
+          {accessQuery.data && (
+            <>
+              {accessQuery.data.owner && (
+                <div className="flex items-center gap-3 p-2.5 rounded-md bg-muted/30 border border-border/40">
+                  <span className="h-7 w-7 rounded-full bg-teal-900/60 text-teal-300 flex items-center justify-center text-[11px] font-bold shrink-0">
+                    {accessQuery.data.owner.name[0]?.toUpperCase()}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{accessQuery.data.owner.name}</div>
+                    <div className="text-[11px] text-muted-foreground truncate">{accessQuery.data.owner.email}</div>
+                  </div>
+                  <Badge className="text-[10px] bg-teal-500/20 text-teal-300 border border-teal-500/40">Owner</Badge>
+                </div>
+              )}
+              {accessQuery.data.grants.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic px-1">No other active users in workspace.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {accessQuery.data.grants.map(g => {
+                    const cur = g.isAdmin ? { view: true, edit: true } : (draft[g.userId] ?? { view: g.view, edit: g.edit });
+                    return (
+                      <div key={g.userId}
+                        className="flex items-center gap-3 py-1.5 px-3 rounded-md bg-secondary/10 border border-border/30"
+                        data-testid={`access-row-${g.userId}`}>
+                        <span className="h-6 w-6 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-[10px] font-bold shrink-0">
+                          {g.name[0]?.toUpperCase()}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">
+                            {g.name}
+                            {g.isAdmin && <Badge variant="outline" className="ml-2 text-[9px] border-amber-500/40 text-amber-300">Admin</Badge>}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground truncate">{g.email}</div>
+                        </div>
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none"
+                          data-testid={`checkbox-access-view-${g.userId}`}>
+                          <input type="checkbox" className="accent-teal-500"
+                            checked={cur.view} disabled={g.isAdmin}
+                            onChange={e => setEntry(g.userId, "view", e.target.checked)} />
+                          <span className="text-[11px] text-muted-foreground">View</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none"
+                          data-testid={`checkbox-access-edit-${g.userId}`}>
+                          <input type="checkbox" className="accent-teal-500"
+                            checked={cur.edit} disabled={g.isAdmin}
+                            onChange={e => setEntry(g.userId, "edit", e.target.checked)} />
+                          <span className="text-[11px] text-muted-foreground">Edit</span>
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="text-[11px] text-muted-foreground/80 mt-3 pl-1">
+                <Info className="inline h-3 w-3 mr-1" />
+                Edit implies view. Removing both revokes the user's access. Disconnect/reconnect actions remain restricted to the owner or workspace admins.
+              </p>
+            </>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="btn-cancel-access">Cancel</Button>
+          <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !accessQuery.data}
+            data-testid="btn-save-access">
+            {saveMutation.isPending ? "Saving…" : "Save access"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Phase 3: shared mailbox row with admin/owner action affordances. Non-privileged
+// viewers (those with view-only grants) get the read-only inline summary.
+function SharedMailboxRow({ mailbox, health, canManage, isOwner }: {
+  mailbox: TeamMailbox;
+  health: AccountHealth | undefined;
+  canManage: boolean;       // owner OR global admin — may pause/disconnect/manage access
+  isOwner: boolean;         // owner only — may reconnect (OAuth must be performed by the account owner)
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [showAccess, setShowAccess] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["/api/team/mailboxes"] });
+    qc.invalidateQueries({ queryKey: ["/api/my/mailbox"] });
+    qc.invalidateQueries({ queryKey: ["/api/gmail/accounts"] });
+    qc.invalidateQueries({ queryKey: ["/api/gmail/accounts", "health"] });
+  };
+  const disconnectMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/gmail/accounts/${mailbox.id}/disconnect`),
+    onSuccess: () => {
+      toast({ title: "Mailbox disconnected", description: "Sync stopped. Historical messages remain searchable for everyone with view access." });
+      setConfirmDisconnect(false);
+      invalidate();
+    },
+    onError: (e: any) => { toast({ title: "Error", description: e.message, variant: "destructive" }); setConfirmDisconnect(false); },
+  });
+  const syncToggleMutation = useMutation({
+    mutationFn: (enabled: boolean) => apiRequest("POST", `/api/gmail/accounts/${mailbox.id}/sync-toggle`, { enabled }),
+    onSuccess: (_d, enabled) => {
+      toast({ title: enabled ? "Sync resumed" : "Sync paused" });
+      invalidate();
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const needsReconnect = !!health && (health.status === "red" || health.authStatus !== "active");
+
+  return (
+    <>
+      <div className="flex items-center justify-between py-2.5 px-4 rounded-lg border border-border/40 bg-muted/20"
+        data-testid={`team-mailbox-${mailbox.id}`}>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="relative shrink-0">
+            <SiGmail className="h-4 w-4 text-red-400" />
+            {health && (
+              <span title={`Sync status: ${health.status}`}
+                data-testid={`status-dot-team-${mailbox.id}`}
+                className={`absolute -bottom-1 -right-1 w-2 h-2 rounded-full border border-background ${statusDotClass(health.status)}`} />
+            )}
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-medium truncate">{mailbox.displayName ? `${mailbox.displayName} · ` : ""}{mailbox.emailAddress}</div>
+            <div className="text-[11px] text-muted-foreground truncate">
+              Owner: {mailbox.ownerName}
+              {!mailbox.syncEnabled && <span className="ml-1.5 text-amber-400">· paused</span>}
+              {health && (
+                <>
+                  <span className="mx-1.5">·</span>
+                  {health.unreadCount.toLocaleString()} unread
+                  <span className="mx-1.5">·</span>
+                  watch {health.watchHoursRemaining != null ? `${health.watchHoursRemaining}h` : "—"}
+                  <span className="mx-1.5">·</span>
+                  push {formatRel(health.lastWebhookMinAgo)}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {statusBadge(mailbox.authStatus)}
+          <Badge variant="outline" className="text-[10px] border-blue-500/30 text-blue-400">Shared</Badge>
+          {isOwner && <Badge variant="outline" className="text-[10px] border-teal-500/30 text-teal-300">You own</Badge>}
+          {canManage && needsReconnect && isOwner && (
+            <Button size="sm" variant="outline"
+              className="h-7 px-2 text-xs gap-1 border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
+              onClick={() => { window.location.href = "/api/auth/gmail/connect"; }}
+              data-testid={`btn-reconnect-team-${mailbox.id}`}>
+              <RotateCcw className="h-3 w-3" /> Reconnect
+            </Button>
+          )}
+          {canManage && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="ghost" className="h-7 w-7 p-0"
+                  data-testid={`btn-team-actions-${mailbox.id}`}>
+                  <MoreVertical className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => setShowAccess(true)}
+                  data-testid={`menu-manage-access-${mailbox.id}`}>
+                  <UserCog className="h-3.5 w-3.5 mr-2" /> Manage access…
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => syncToggleMutation.mutate(!mailbox.syncEnabled)}
+                  disabled={syncToggleMutation.isPending}
+                  data-testid={`menu-sync-toggle-${mailbox.id}`}>
+                  {mailbox.syncEnabled
+                    ? <><Pause className="h-3.5 w-3.5 mr-2" /> Pause sync</>
+                    : <><Play className="h-3.5 w-3.5 mr-2" /> Resume sync</>}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={() => setConfirmDisconnect(true)}
+                  className="text-destructive focus:text-destructive"
+                  data-testid={`menu-disconnect-team-${mailbox.id}`}>
+                  <Trash2 className="h-3.5 w-3.5 mr-2" /> Disconnect mailbox…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      </div>
+
+      {canManage && (
+        <ManageAccessDialog
+          accountId={mailbox.id}
+          emailAddress={mailbox.emailAddress}
+          open={showAccess}
+          onOpenChange={setShowAccess}
+        />
+      )}
+
+      <AlertDialog open={confirmDisconnect} onOpenChange={setConfirmDisconnect}>
+        <AlertDialogContent data-testid={`dialog-confirm-disconnect-team-${mailbox.id}`}>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-destructive" />
+              Disconnect shared mailbox {mailbox.emailAddress}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>Affects:</strong> {mailbox.ownerName} (owner) and every teammate currently granted view or edit access on this mailbox.
+              <br /><br />
+              This revokes Google access tokens and stops new mail from syncing.
+              Your <strong>existing imported messages remain in the system</strong> and stay searchable for anyone who already had view access.
+              The owner can reconnect this Gmail account later — it will land back on the same record.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid={`btn-cancel-disconnect-team-${mailbox.id}`}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => disconnectMutation.mutate()}
+              disabled={disconnectMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid={`btn-confirm-disconnect-team-${mailbox.id}`}>
+              {disconnectMutation.isPending ? "Disconnecting…" : "Disconnect"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
 function MailboxCard({ mailbox, health, showBackfill = false }: {
   mailbox: Mailbox;
   health?: AccountHealth;
@@ -455,6 +786,19 @@ function HealthLegend() {
 export default function MailboxSettingsPage() {
   const { toast } = useToast();
   const [connecting, setConnecting] = useState(false);
+  // Phase 3: filter tabs across the visible mailbox surface.
+  const [filter, setFilter] = useState<"all" | "mine" | "shared">("all");
+
+  // Phase 3: who am I? Used to decide which shared mailboxes I can manage
+  // (owner) and to detect global admin role for elevated controls.
+  const meQuery = useQuery<{ id: number; email: string; globalRole: string }>({
+    queryKey: ["/api/auth/me"],
+  });
+  const isAdmin = useMemo(
+    () => ["master_admin", "admin"].includes(meQuery.data?.globalRole ?? ""),
+    [meQuery.data?.globalRole],
+  );
+  const myUserId = meQuery.data?.id;
 
   const { data: myMailboxes = [], isLoading: myLoading } = useQuery<Mailbox[]>({
     queryKey: ["/api/my/mailbox"],
@@ -508,6 +852,11 @@ export default function MailboxSettingsPage() {
 
   const myPersonal = myMailboxes.filter(m => !m.isShared);
   const teamShared = teamMailboxes.filter(m => m.isShared);
+  // Phase 3 visibility filters. "Shared with me" excludes mailboxes I own,
+  // "All" shows everything I can see in either group.
+  const showMine = filter === "all" || filter === "mine";
+  const showShared = filter === "all" || filter === "shared";
+  const sharedVisible = teamShared.filter(m => filter !== "shared" || m.userId !== myUserId);
 
   return (
     <div className="flex-1 overflow-auto bg-background p-6 space-y-6 max-w-3xl">
@@ -524,6 +873,21 @@ export default function MailboxSettingsPage() {
 
       {/* Phase 2: color-key legend */}
       <HealthLegend />
+
+      {/* Phase 3: filter tabs across visible mailboxes */}
+      <Tabs value={filter} onValueChange={(v) => setFilter(v as any)} data-testid="tabs-mailbox-filter">
+        <TabsList className="h-8">
+          <TabsTrigger value="all" className="text-xs h-6 px-3" data-testid="tab-filter-all">
+            All visible <span className="ml-1.5 text-[10px] text-muted-foreground tabular-nums">{myPersonal.length + teamShared.length}</span>
+          </TabsTrigger>
+          <TabsTrigger value="mine" className="text-xs h-6 px-3" data-testid="tab-filter-mine">
+            My mailboxes <span className="ml-1.5 text-[10px] text-muted-foreground tabular-nums">{myPersonal.length}</span>
+          </TabsTrigger>
+          <TabsTrigger value="shared" className="text-xs h-6 px-3" data-testid="tab-filter-shared">
+            Shared with me <span className="ml-1.5 text-[10px] text-muted-foreground tabular-nums">{teamShared.filter(m => m.userId !== myUserId).length}</span>
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {/* Relationship health summary */}
       {warmStats?.summary && (
@@ -545,6 +909,7 @@ export default function MailboxSettingsPage() {
       )}
 
       {/* My Mailboxes */}
+      {showMine && (
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold flex items-center gap-2">
@@ -580,72 +945,53 @@ export default function MailboxSettingsPage() {
           </div>
         )}
       </div>
+      )}
 
-      <Separator />
+      {showMine && showShared && <Separator />}
 
       {/* Team / Shared Mailboxes */}
+      {showShared && (
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold flex items-center gap-2">
             <Users className="h-4 w-4 text-muted-foreground" />
             Team Mailboxes
-            <Badge variant="outline" className="text-[10px]">{teamShared.length}</Badge>
+            <Badge variant="outline" className="text-[10px]">{sharedVisible.length}</Badge>
           </h2>
         </div>
 
         {teamLoading ? (
           <div className="space-y-2">{[...Array(2)].map((_, i) => <Skeleton key={i} className="h-16" />)}</div>
-        ) : teamShared.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No shared team mailboxes connected. Admins can connect shared inboxes.</p>
+        ) : sharedVisible.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {filter === "shared"
+              ? "No shared mailboxes belong to other people right now."
+              : "No shared team mailboxes connected. Admins can connect shared inboxes."}
+          </p>
         ) : (
           <div className="space-y-2">
-            {teamShared.map(m => {
-              // Phase 2: enrich team rows with the same health dot + freshness summary as
-              // personal cards. Disconnect/Reconnect remain owner-only (handled in MailboxCard).
-              const h = healthMap.get(m.id);
+            {sharedVisible.map(m => {
+              // Phase 3: owner OR global admin gets management affordances
+              // (manage access, pause/resume sync, disconnect). Reconnect is
+              // owner-only because OAuth must be performed by the account owner.
+              const isMineOwned = myUserId === m.userId;
+              const canManage = isMineOwned || isAdmin;
               return (
-                <div key={m.id} className="flex items-center justify-between py-2.5 px-4 rounded-lg border border-border/40 bg-muted/20"
-                  data-testid={`team-mailbox-${m.id}`}>
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="relative shrink-0">
-                      <SiGmail className="h-4 w-4 text-red-400" />
-                      {h && (
-                        <span
-                          title={`Sync status: ${h.status}`}
-                          data-testid={`status-dot-team-${m.id}`}
-                          className={`absolute -bottom-1 -right-1 w-2 h-2 rounded-full border border-background ${statusDotClass(h.status)}`}
-                        />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{m.displayName ? `${m.displayName} · ` : ""}{m.emailAddress}</div>
-                      <div className="text-[11px] text-muted-foreground truncate">
-                        Owner: {m.ownerName}
-                        {h && (
-                          <>
-                            <span className="mx-1.5">·</span>
-                            {h.unreadCount.toLocaleString()} unread
-                            <span className="mx-1.5">·</span>
-                            watch {h.watchHoursRemaining != null ? `${h.watchHoursRemaining}h` : "—"}
-                            <span className="mx-1.5">·</span>
-                            push {formatRel(h.lastWebhookMinAgo)}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {statusBadge(m.authStatus)}
-                    <Badge variant="outline" className="text-[10px] border-blue-500/30 text-blue-400">Shared</Badge>
-                  </div>
-                </div>
+                <SharedMailboxRow
+                  key={m.id}
+                  mailbox={m}
+                  health={healthMap.get(m.id)}
+                  canManage={canManage}
+                  isOwner={isMineOwned}
+                />
               );
             })}
           </div>
         )}
       </div>
+      )}
 
-      <Separator />
+      {(showMine || showShared) && <Separator />}
 
       {/* Warmness compute */}
       <div className="space-y-3">

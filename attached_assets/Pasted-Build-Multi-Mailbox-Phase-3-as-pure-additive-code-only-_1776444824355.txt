@@ -1,0 +1,49 @@
+Build Multi-Mailbox Phase 3 as pure additive code only. No schema changes, no PK changes, no db:push, no migrations. Preserve all existing PKs exactly as serial integer.
+
+Goal:
+Turn shared mailboxes from passive visibility into controlled team-operable inboxes with clean permissions and admin actions.
+
+Requirements:
+1. Add a mailbox access-management UI for shared/team mailboxes.
+2. For each shared mailbox, show:
+   - owner
+   - who currently has access
+   - access level per user (view / operate / admin if existing permission model supports this)
+3. Add additive backend/frontend support to grant and revoke mailbox access for eligible users, reusing existing permission architecture where possible.
+4. Add owner/admin-only actions for shared mailboxes:
+   - reconnect mailbox
+   - disconnect mailbox
+   - stop/start sync if existing architecture supports it safely
+5. Ensure non-owners/non-admins can never disconnect or re-auth someone else’s mailbox.
+6. In unified inbox mode, preserve current behavior but clearly indicate when a mailbox is shared/team-owned.
+7. Add filtering in mailbox settings:
+   - My Mailboxes
+   - Shared With Me
+   - All Visible Mailboxes
+8. Add audit-friendly UI text for destructive actions:
+   - who is affected
+   - whether historical email data remains preserved
+9. Reuse existing endpoints where possible; add only minimal additive endpoints if required.
+10. Preserve all current Phase 1 and Phase 2 behavior exactly:
+   - no NaN account bugs
+   - no owner_user_id authorization mistakes
+   - no regressions to single-account users
+   - no regressions to reconnect/disconnect flow
+
+Quality bar:
+- No schema changes
+- Permission checks server-side, not just UI-side
+- Shared mailbox visibility and actions must follow explicit authorization rules
+- Smoke test:
+  a) owner view
+  b) non-owner shared-access view
+  c) unauthorized user blocked
+  d) unified inbox still routes thread/detail actions correctly
+  e) reconnect/disconnect admin actions work only for allowed users
+
+At the end, report:
+- files changed
+- endpoints added/used
+- exact permission model implemented
+- user-visible behavior
+- known limitations

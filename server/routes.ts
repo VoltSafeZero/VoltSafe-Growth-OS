@@ -9283,18 +9283,27 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // Phase 3 helper: load mailbox + verify the session user is owner or global admin.
+  // Returns { acct, isOwner, isAdmin } when allowed, or sends a response and returns null.
+  async function requireOwnerOrAdmin(req: any, res: any, accountId: number) {
+    const userId = (req.session as any).userId as number;
+    if (!Number.isFinite(accountId)) { res.status(400).json({ message: "Invalid account id" }); return null; }
+    const [acct] = await db.select().from(emailAccounts).where(eq(emailAccounts.id, accountId)).limit(1);
+    if (!acct) { res.status(404).json({ message: "Account not found" }); return null; }
+    const [me] = await db.select({ role: users.globalRole }).from(users).where(eq(users.id, userId)).limit(1);
+    const isAdmin = !!me && ["master_admin", "admin"].includes(me.role as string);
+    const isOwner = acct.userId === userId;
+    if (!isOwner && !isAdmin) { res.status(403).json({ message: "Owner or admin only" }); return null; }
+    return { acct, isOwner, isAdmin, userId };
+  }
+
   // ── S2: Per-account on-demand resync ─────────────────────────────────────
+  // Phase 3: owner OR global admin may trigger resync.
   app.post("/api/gmail/accounts/:id/resync", requireAuth, async (req, res) => {
     try {
-      const userId = (req.session as any).userId;
       const accountId = Number(req.params.id);
-      // Enforce ownership — only resync your own account
-      const [acct] = await db
-        .select()
-        .from(emailAccounts)
-        .where(and(eq(emailAccounts.id, accountId), eq(emailAccounts.userId, userId)))
-        .limit(1);
-      if (!acct) return res.status(404).json({ message: "Account not found" });
+      const ctx = await requireOwnerOrAdmin(req, res, accountId);
+      if (!ctx) return;
       const limit = Number(req.query.limit) || 100;
       const result = await syncEmailAccount(accountId, limit);
       res.json(result);
@@ -9306,17 +9315,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   // ── S2: Per-account disconnect ────────────────────────────────────────────
   // Sets auth_status = 'revoked', disconnected_at = now, sync_enabled = false.
   // Historical emails are preserved.
+  // Phase 3: owner OR global admin may disconnect a shared mailbox; non-admin
+  // teammates with view/edit grants can never disconnect another user's account.
   app.post("/api/gmail/accounts/:id/disconnect", requireAuth, async (req, res) => {
     try {
-      const userId = (req.session as any).userId;
       const accountId = Number(req.params.id);
-      const [acct] = await db
-        .select()
-        .from(emailAccounts)
-        .where(and(eq(emailAccounts.id, accountId), eq(emailAccounts.userId, userId)))
-        .limit(1);
-      if (!acct) return res.status(404).json({ message: "Account not found" });
-
+      const ctx = await requireOwnerOrAdmin(req, res, accountId);
+      if (!ctx) return;
       await db.update(emailAccounts)
         .set({
           authStatus: "revoked",
@@ -9326,6 +9331,122 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         })
         .where(eq(emailAccounts.id, accountId));
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Phase 3: Sync toggle (pause/resume) ──────────────────────────────────
+  // Owner or admin only. Pausing leaves auth intact and preserves all history;
+  // resuming flips sync_enabled back on so the next watch tick will catch up.
+  app.post("/api/gmail/accounts/:id/sync-toggle", requireAuth, async (req, res) => {
+    try {
+      const accountId = Number(req.params.id);
+      const ctx = await requireOwnerOrAdmin(req, res, accountId);
+      if (!ctx) return;
+      const enabled = !!req.body?.enabled;
+      await db.update(emailAccounts)
+        .set({ syncEnabled: enabled, updatedAt: new Date() })
+        .where(eq(emailAccounts.id, accountId));
+      res.json({ success: true, syncEnabled: enabled });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Phase 3: Mailbox access management ────────────────────────────────────
+  // GET returns the owner + every active non-owner user's view/edit grant for
+  // this mailbox (read from users.permissions.mail_team[accountId]).
+  app.get("/api/gmail/accounts/:id/access", requireAuth, async (req, res) => {
+    try {
+      const accountId = Number(req.params.id);
+      const ctx = await requireOwnerOrAdmin(req, res, accountId);
+      if (!ctx) return;
+      const { acct, isOwner, isAdmin } = ctx;
+      const [owner] = await db
+        .select({ id: users.id, name: users.name, email: users.email, role: users.globalRole })
+        .from(users)
+        .where(eq(users.id, acct.userId))
+        .limit(1);
+      const allUsers = await db
+        .select({ id: users.id, name: users.name, email: users.email, role: users.globalRole, status: users.status, permissions: users.permissions })
+        .from(users);
+      const grants = allUsers
+        .filter(u => u.id !== acct.userId && u.status !== "suspended" && u.status !== "deactivated")
+        .map(u => {
+          const mt = ((u.permissions as any)?.mail_team ?? {}) as Record<string, { view: boolean; edit: boolean }>;
+          const entry = mt[String(accountId)] ?? { view: false, edit: false };
+          const userIsAdmin = ["master_admin", "admin"].includes(u.role as string);
+          return {
+            userId: u.id,
+            name: u.name,
+            email: u.email,
+            role: u.role,
+            isAdmin: userIsAdmin,
+            // Admins implicitly have full access (see getAccessibleAccountIds path);
+            // surface that in the UI so reviewers don't think they have nothing.
+            view: userIsAdmin ? true : entry.view,
+            edit: userIsAdmin ? true : entry.edit,
+            implicit: userIsAdmin,
+          };
+        })
+        .sort((a, b) => Number(b.view) - Number(a.view) || a.name.localeCompare(b.name));
+      res.json({
+        account: { id: acct.id, emailAddress: acct.emailAddress, displayName: acct.displayName, isShared: acct.isShared },
+        owner: owner ?? null,
+        grants,
+        isCurrentUserOwner: isOwner,
+        isCurrentUserAdmin: isAdmin,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PATCH bulk-updates per-user view/edit flags for this mailbox by writing into
+  // each user's users.permissions.mail_team[accountId]. Admin users are skipped
+  // (they already have implicit access). Body: { grants: [{userId, view, edit}] }
+  const accessGrantSchema = z.object({
+    grants: z.array(z.object({
+      userId: z.number().int().positive(),
+      view: z.boolean(),
+      edit: z.boolean(),
+    })),
+  });
+  app.patch("/api/gmail/accounts/:id/access", requireAuth, async (req, res) => {
+    try {
+      const accountId = Number(req.params.id);
+      const ctx = await requireOwnerOrAdmin(req, res, accountId);
+      if (!ctx) return;
+      const parsed = accessGrantSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid payload", errors: parsed.error.issues });
+      const targetIds = parsed.data.grants.map(g => g.userId);
+      if (targetIds.length === 0) return res.json({ success: true, updated: 0 });
+      const targets = await db
+        .select({ id: users.id, role: users.globalRole, permissions: users.permissions })
+        .from(users)
+        .where(inArray(users.id, targetIds));
+      let updated = 0;
+      for (const g of parsed.data.grants) {
+        const t = targets.find(x => x.id === g.userId);
+        if (!t) continue;
+        // Skip admins — they already have implicit access; writing perms here is a no-op.
+        if (["master_admin", "admin"].includes(t.role as string)) continue;
+        // Never grant access on the owner's own record (they ARE the owner).
+        if (t.id === ctx.acct.userId) continue;
+        const perms = (t.permissions ?? {}) as any;
+        const mailTeam = { ...(perms.mail_team ?? {}) } as Record<string, { view: boolean; edit: boolean }>;
+        if (!g.view && !g.edit) {
+          delete mailTeam[String(accountId)];
+        } else {
+          // edit implies view (consistent with admin-users.tsx UI rule).
+          mailTeam[String(accountId)] = { view: g.view || g.edit, edit: g.edit };
+        }
+        const nextPerms = { ...perms, mail_team: mailTeam };
+        await db.update(users).set({ permissions: nextPerms } as any).where(eq(users.id, t.id));
+        updated += 1;
+      }
+      res.json({ success: true, updated });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
