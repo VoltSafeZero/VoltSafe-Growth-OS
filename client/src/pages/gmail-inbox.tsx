@@ -4632,7 +4632,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         defaultBody={editingDraft?.body || ""}
         draftId={editingDraft?.draftId}
         threadId={editingDraft?.threadId || replyTo?.threadId}
-        asAccountId={activeAccountId ?? undefined}
+        asAccountId={typeof activeAccountId === "number" ? activeAccountId : undefined}
       />
 
       {/* Create Folder dialog */}

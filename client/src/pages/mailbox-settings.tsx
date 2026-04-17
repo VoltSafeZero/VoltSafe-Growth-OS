@@ -15,9 +15,51 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Mail, Shield, RefreshCw, Plus, Trash2, Eye, EyeOff,
   Building2, AlertTriangle, CheckCircle2, Clock, Loader2,
-  Calendar, Database, Users, Lock,
+  Calendar, Database, Users, Lock, Activity, Info, RotateCcw,
 } from "lucide-react";
 import { SiGmail } from "react-icons/si";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+// Multi-mailbox Phase 2: enriched per-account health snapshot from /api/gmail/accounts/health.
+// Purely read-only / additive. Used to render status dots, watch/webhook freshness,
+// unread counts, and to gate the "Reconnect" CTA for unhealthy accounts.
+type AccountHealth = {
+  id: number;
+  emailAddress: string;
+  displayName: string | null;
+  isShared: boolean;
+  isOwner: boolean;
+  authStatus: string;
+  syncEnabled: boolean;
+  lastSyncAt: string | null;
+  watchExpirationAt: string | null;
+  lastWebhookAt: string | null;
+  unreadCount: number;
+  messageCount: number;
+  lastMessageAt: string | null;
+  watchHoursRemaining: number | null;
+  lastWebhookMinAgo: number | null;
+  syncErrorMessage: string | null;
+  status: "green" | "amber" | "red";
+};
+
+function statusDotClass(s: "green" | "amber" | "red") {
+  return s === "green" ? "bg-emerald-500"
+       : s === "amber" ? "bg-amber-500"
+       : "bg-red-500";
+}
+
+function formatRel(min: number | null): string {
+  if (min == null) return "—";
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const h = Math.round(min / 60);
+  if (h < 48) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
 
 type Mailbox = {
   id: number;
@@ -174,10 +216,16 @@ function BackfillPanel({ mailboxId, emailAddress }: { mailboxId: number; emailAd
 }
 
 // ── Mailbox Card ──────────────────────────────────────────────────────────────
-function MailboxCard({ mailbox, showBackfill = false }: { mailbox: Mailbox; showBackfill?: boolean }) {
+function MailboxCard({ mailbox, health, showBackfill = false }: {
+  mailbox: Mailbox;
+  health?: AccountHealth;
+  showBackfill?: boolean;
+}) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [expanded, setExpanded] = useState(false);
+  // Multi-mailbox Phase 2: confirmation modal state for disconnect.
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
 
   const privacy = useMutation({
     mutationFn: (privacyMode: string) => apiRequest("PATCH", `/api/my/mailbox/${mailbox.id}/privacy`, { privacyMode }),
@@ -189,16 +237,29 @@ function MailboxCard({ mailbox, showBackfill = false }: { mailbox: Mailbox; show
   });
 
   const disconnect = useMutation({
+    // Existing endpoint: revokes auth + clears tokens + flips sync_enabled=false,
+    // but PRESERVES all email_messages rows (data is kept on disk for history).
     mutationFn: () => apiRequest("DELETE", `/api/my/mailbox/${mailbox.id}`),
     onSuccess: () => {
-      toast({ title: "Mailbox disconnected" });
+      toast({ title: "Mailbox disconnected", description: "Sync stopped. Your historical emails are preserved." });
       qc.invalidateQueries({ queryKey: ["/api/my/mailbox"] });
+      qc.invalidateQueries({ queryKey: ["/api/gmail/accounts"] });
+      qc.invalidateQueries({ queryKey: ["/api/gmail/accounts", "health"] });
+      setConfirmingDisconnect(false);
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+      setConfirmingDisconnect(false);
+    },
   });
+
+  // Multi-mailbox Phase 2: launch the OAuth re-consent flow. The connect endpoint upserts
+  // by (userId, emailAddress) so re-auth lands on the same row and just refreshes tokens.
+  const reconnect = () => { window.location.href = "/api/auth/gmail/connect"; };
 
   const pm = PRIVACY_LABELS[mailbox.privacyMode] ?? PRIVACY_LABELS.business_visible;
   const PMIcon = pm.icon;
+  const needsReconnect = !!health && (health.status === "red" || health.authStatus !== "active");
 
   return (
     <Card className="border border-border/50" data-testid={`mailbox-card-${mailbox.id}`}>
@@ -206,18 +267,43 @@ function MailboxCard({ mailbox, showBackfill = false }: { mailbox: Mailbox; show
         {/* Header */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
-            <div className="w-8 h-8 rounded-lg bg-background border border-border/40 flex items-center justify-center shrink-0">
+            <div className="relative w-8 h-8 rounded-lg bg-background border border-border/40 flex items-center justify-center shrink-0">
               <SiGmail className="h-4 w-4 text-red-400" />
+              {/* Multi-mailbox Phase 2: status dot mirrors the inbox sidebar. */}
+              {health && (
+                <span
+                  title={`Sync status: ${health.status}`}
+                  data-testid={`status-dot-${mailbox.id}`}
+                  className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-background ${statusDotClass(health.status)}`}
+                />
+              )}
             </div>
             <div className="min-w-0">
-              <div className="text-sm font-medium truncate">{mailbox.emailAddress}</div>
-              <div className="flex items-center gap-1.5 mt-0.5">
+              <div className="text-sm font-medium truncate" data-testid={`text-mailbox-email-${mailbox.id}`}>
+                {mailbox.displayName ? `${mailbox.displayName} · ` : ""}{mailbox.emailAddress}
+              </div>
+              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                 {statusBadge(mailbox.authStatus)}
+                <Badge variant="outline" className="text-[10px]">Gmail</Badge>
                 {mailbox.isShared && <Badge variant="outline" className="text-[10px] border-blue-500/30 text-blue-400">Shared</Badge>}
+                {health && (
+                  <span className="text-[10px] text-muted-foreground" data-testid={`text-unread-${mailbox.id}`}>
+                    {health.unreadCount.toLocaleString()} unread
+                  </span>
+                )}
               </div>
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
+            {/* Multi-mailbox Phase 2: Reconnect CTA appears only for unhealthy/revoked accounts. */}
+            {needsReconnect && (
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
+                onClick={reconnect}
+                data-testid={`btn-reconnect-${mailbox.id}`}>
+                <RotateCcw className="h-3 w-3" />
+                Reconnect
+              </Button>
+            )}
             <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-muted-foreground"
               onClick={() => setExpanded(e => !e)}
               data-testid={`btn-expand-mailbox-${mailbox.id}`}>
@@ -225,8 +311,7 @@ function MailboxCard({ mailbox, showBackfill = false }: { mailbox: Mailbox; show
             </Button>
             {!mailbox.isShared && (
               <Button size="sm" variant="ghost" className="h-7 px-2 text-destructive hover:text-destructive"
-                onClick={() => disconnect.mutate()}
-                disabled={disconnect.isPending}
+                onClick={() => setConfirmingDisconnect(true)}
                 data-testid={`btn-disconnect-${mailbox.id}`}>
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
@@ -234,19 +319,44 @@ function MailboxCard({ mailbox, showBackfill = false }: { mailbox: Mailbox; show
           </div>
         </div>
 
-        {/* Privacy mode + last sync */}
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
+        {/* Privacy mode + last sync + (Phase 2) watch / webhook freshness */}
+        <div className="flex items-center justify-between text-xs text-muted-foreground flex-wrap gap-y-1">
           <div className="flex items-center gap-1.5">
             <PMIcon className={`h-3 w-3 ${pm.color}`} />
             <span>{pm.label}</span>
           </div>
-          {mailbox.lastSyncAt && (
+          {(health?.lastSyncAt || mailbox.lastSyncAt) && (
             <div className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
-              <span>Synced {new Date(mailbox.lastSyncAt).toLocaleDateString()}</span>
+              <span>Synced {new Date(health?.lastSyncAt || mailbox.lastSyncAt!).toLocaleString()}</span>
             </div>
           )}
         </div>
+
+        {health && (
+          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border/30 text-[11px]">
+            <div className="space-y-0.5">
+              <div className="text-muted-foreground/70 uppercase tracking-wide text-[9px]">Watch expires</div>
+              <div className={`font-medium ${health.watchHoursRemaining != null && health.watchHoursRemaining < 24 ? "text-amber-400" : "text-foreground"}`}
+                data-testid={`text-watch-${mailbox.id}`}>
+                {health.watchHoursRemaining != null ? `${health.watchHoursRemaining}h` : "—"}
+              </div>
+            </div>
+            <div className="space-y-0.5">
+              <div className="text-muted-foreground/70 uppercase tracking-wide text-[9px]">Last push</div>
+              <div className={`font-medium ${health.lastWebhookMinAgo != null && health.lastWebhookMinAgo > 360 ? "text-amber-400" : "text-foreground"}`}
+                data-testid={`text-webhook-${mailbox.id}`}>
+                {formatRel(health.lastWebhookMinAgo)}
+              </div>
+            </div>
+            <div className="space-y-0.5">
+              <div className="text-muted-foreground/70 uppercase tracking-wide text-[9px]">Messages</div>
+              <div className="font-medium tabular-nums" data-testid={`text-msgcount-${mailbox.id}`}>
+                {health.messageCount.toLocaleString()}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Expanded configuration */}
         {expanded && (
@@ -277,12 +387,65 @@ function MailboxCard({ mailbox, showBackfill = false }: { mailbox: Mailbox; show
           </div>
         )}
 
-        {mailbox.syncErrorMessage && (
+        {(mailbox.syncErrorMessage || health?.syncErrorMessage) && (
           <Alert className="border-red-500/30 bg-red-500/5 py-2">
             <AlertTriangle className="h-3.5 w-3.5 text-red-400" />
-            <AlertDescription className="text-xs text-red-300">{mailbox.syncErrorMessage}</AlertDescription>
+            <AlertDescription className="text-xs text-red-300">{mailbox.syncErrorMessage || health?.syncErrorMessage}</AlertDescription>
           </Alert>
         )}
+      </CardContent>
+
+      {/* Phase 2: confirm-before-disconnect modal. Disconnect only revokes auth + stops sync;
+          the underlying email_messages rows are preserved (existing endpoint behavior). */}
+      <AlertDialog open={confirmingDisconnect} onOpenChange={setConfirmingDisconnect}>
+        <AlertDialogContent data-testid={`dialog-confirm-disconnect-${mailbox.id}`}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect {mailbox.emailAddress}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will revoke access tokens and stop new email from syncing into this account.
+              Your existing imported messages stay in the system and remain searchable. You can reconnect this Gmail
+              account later — it will land back on the same record.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid={`btn-cancel-disconnect-${mailbox.id}`}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => disconnect.mutate()}
+              disabled={disconnect.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid={`btn-confirm-disconnect-${mailbox.id}`}>
+              {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
+}
+
+// Multi-mailbox Phase 2: small color-key panel used at the top of the page.
+function HealthLegend() {
+  return (
+    <Card className="border border-border/40 bg-muted/10">
+      <CardContent className="p-3 space-y-2">
+        <div className="flex items-center gap-1.5 text-xs font-semibold">
+          <Info className="h-3.5 w-3.5 text-muted-foreground" />
+          What the status colors mean
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-muted-foreground">
+          <div className="flex items-start gap-2">
+            <span className="mt-1 w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+            <div><span className="text-foreground font-medium">Green:</span> mailbox is connected, sync is active, and Gmail is delivering live updates.</div>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-1 w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+            <div><span className="text-foreground font-medium">Amber:</span> connected but the Gmail watch is about to expire or live updates have gone quiet for several hours.</div>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-1 w-2 h-2 rounded-full bg-red-500 shrink-0" />
+            <div><span className="text-foreground font-medium">Red:</span> sync is paused or the account was disconnected — use Reconnect to re-authorize.</div>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
@@ -300,6 +463,19 @@ export default function MailboxSettingsPage() {
   const { data: teamMailboxes = [], isLoading: teamLoading } = useQuery<TeamMailbox[]>({
     queryKey: ["/api/team/mailboxes"],
   });
+
+  // Multi-mailbox Phase 2: pull live per-account health for status dots / freshness / unread.
+  // Single endpoint reuse — no new server work needed.
+  const { data: accountsHealth = [] } = useQuery<AccountHealth[]>({
+    queryKey: ["/api/gmail/accounts", "health"],
+    queryFn: async () => {
+      const res = await fetch("/api/gmail/accounts/health", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    refetchInterval: 30000,
+  });
+  const healthMap = new Map(accountsHealth.map((h) => [h.id, h] as const));
 
   const { data: warmStats } = useQuery<any>({
     queryKey: ["/api/relationships/graph/stats"],
@@ -342,9 +518,12 @@ export default function MailboxSettingsPage() {
           Mailbox Connections
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Connect your email accounts to build relationship intelligence and import historical context.
+          Connect one or more Gmail accounts to power the unified inbox and keep relationship intelligence fresh.
         </p>
       </div>
+
+      {/* Phase 2: color-key legend */}
+      <HealthLegend />
 
       {/* Relationship health summary */}
       {warmStats?.summary && (
@@ -377,7 +556,7 @@ export default function MailboxSettingsPage() {
             onClick={() => handleConnect(false)}
             data-testid="btn-connect-personal">
             {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-            Connect Gmail
+            {myPersonal.length > 0 ? "Connect another Gmail account" : "Connect Gmail"}
           </Button>
         </div>
 
@@ -397,7 +576,7 @@ export default function MailboxSettingsPage() {
           </Card>
         ) : (
           <div className="space-y-2">
-            {myPersonal.map(m => <MailboxCard key={m.id} mailbox={m} showBackfill />)}
+            {myPersonal.map(m => <MailboxCard key={m.id} mailbox={m} health={healthMap.get(m.id)} showBackfill />)}
           </div>
         )}
       </div>
@@ -420,22 +599,48 @@ export default function MailboxSettingsPage() {
           <p className="text-sm text-muted-foreground">No shared team mailboxes connected. Admins can connect shared inboxes.</p>
         ) : (
           <div className="space-y-2">
-            {teamShared.map(m => (
-              <div key={m.id} className="flex items-center justify-between py-2.5 px-4 rounded-lg border border-border/40 bg-muted/20"
-                data-testid={`team-mailbox-${m.id}`}>
-                <div className="flex items-center gap-2.5">
-                  <SiGmail className="h-4 w-4 text-red-400 shrink-0" />
-                  <div>
-                    <div className="text-sm font-medium">{m.emailAddress}</div>
-                    <div className="text-[11px] text-muted-foreground">Owner: {m.ownerName}</div>
+            {teamShared.map(m => {
+              // Phase 2: enrich team rows with the same health dot + freshness summary as
+              // personal cards. Disconnect/Reconnect remain owner-only (handled in MailboxCard).
+              const h = healthMap.get(m.id);
+              return (
+                <div key={m.id} className="flex items-center justify-between py-2.5 px-4 rounded-lg border border-border/40 bg-muted/20"
+                  data-testid={`team-mailbox-${m.id}`}>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="relative shrink-0">
+                      <SiGmail className="h-4 w-4 text-red-400" />
+                      {h && (
+                        <span
+                          title={`Sync status: ${h.status}`}
+                          data-testid={`status-dot-team-${m.id}`}
+                          className={`absolute -bottom-1 -right-1 w-2 h-2 rounded-full border border-background ${statusDotClass(h.status)}`}
+                        />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{m.displayName ? `${m.displayName} · ` : ""}{m.emailAddress}</div>
+                      <div className="text-[11px] text-muted-foreground truncate">
+                        Owner: {m.ownerName}
+                        {h && (
+                          <>
+                            <span className="mx-1.5">·</span>
+                            {h.unreadCount.toLocaleString()} unread
+                            <span className="mx-1.5">·</span>
+                            watch {h.watchHoursRemaining != null ? `${h.watchHoursRemaining}h` : "—"}
+                            <span className="mx-1.5">·</span>
+                            push {formatRel(h.lastWebhookMinAgo)}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {statusBadge(m.authStatus)}
+                    <Badge variant="outline" className="text-[10px] border-blue-500/30 text-blue-400">Shared</Badge>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {statusBadge(m.authStatus)}
-                  <Badge variant="outline" className="text-[10px] border-blue-500/30 text-blue-400">Shared</Badge>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
