@@ -591,6 +591,7 @@ export default function RoleCommandCenter() {
   const [localLayout, setLocalLayout] = useState<"expanded" | "compact" | null>(null);
   const [localWidgetOrder, setLocalWidgetOrder] = useState<string[] | null>(null);
   const orderSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const visibilitySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toast } = useToast();
 
   // ── Dashboard grid edit state ───────────────────────────────────────
@@ -634,14 +635,25 @@ export default function RoleCommandCenter() {
 
   const handleToggleWidget = useCallback((id: string) => {
     const current = localVisibility ?? config?.visibleWidgets ?? {};
-    const next = { ...current, [id]: !current[id] };
+    // Treat undefined as "currently visible" — same default as renderers below.
+    const isOn = current[id] !== false;
+    const next = { ...current, [id]: !isOn };
     setLocalVisibility(next);
-  }, [localVisibility, config]);
+    // Auto-save toggles with a short debounce so the user never has to hit a
+    // separate "Save Layout" button — matches the handleReorder behavior.
+    if (visibilitySaveTimer.current) clearTimeout(visibilitySaveTimer.current);
+    visibilitySaveTimer.current = setTimeout(() => {
+      saveMutation.mutate({ widgetVisibility: next });
+    }, 600);
+  }, [localVisibility, config, saveMutation]);
 
   const handleResetWidgets = useCallback(() => {
     setLocalVisibility(null);
     setLocalWidgetOrder(null);
-  }, []);
+    // Also persist the reset on the server so the next page load matches.
+    if (visibilitySaveTimer.current) clearTimeout(visibilitySaveTimer.current);
+    saveMutation.mutate({ widgetVisibility: {} });
+  }, [saveMutation]);
 
   const handleReorder = useCallback((newOrder: string[]) => {
     setLocalWidgetOrder(newOrder);
