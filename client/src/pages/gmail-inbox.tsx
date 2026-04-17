@@ -19,6 +19,7 @@ import {
   CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
   CheckCheck, ArrowLeft, ClipboardList, StickyNote, ArchiveX, Square, Filter, Eye,
   Sparkles, Code2, Type, Rows3, Rows2, Inbox as InboxIcon,
+  Maximize2, Minimize2,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import DOMPurify from "dompurify";
@@ -2574,6 +2575,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderDomainInput, setNewFolderDomainInput] = useState("");
   const [foldersExpanded, setFoldersExpanded] = useState(true);
+  // ── Focus Mode (premium full-reader experience) ────────────────────────
+  const [focusMode, setFocusMode] = useState<boolean>(() => {
+    try { return typeof window !== "undefined" && localStorage.getItem("inbox.focusMode") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("inbox.focusMode", focusMode ? "1" : "0"); } catch {}
+  }, [focusMode]);
   const [editingDomainFolderId, setEditingDomainFolderId] = useState<number | null>(null);
   const [addDomainInput, setAddDomainInput] = useState("");
   const [editingDraft, setEditingDraft] = useState<{ to: string; subject: string; body: string; draftId: string; threadId?: string } | null>(null);
@@ -3575,15 +3583,20 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             toggleInboxSelection(selectedThreadId);
           }
           break;
+        case "f":
+        case "F":
+          if (selectedThreadId) { e.preventDefault(); setFocusMode((v) => !v); }
+          break;
         case "Escape":
-          if (selectedInboxIds.size > 0) { e.preventDefault(); setSelectedInboxIds(new Set()); }
+          if (focusMode) { e.preventDefault(); setFocusMode(false); }
+          else if (selectedInboxIds.size > 0) { e.preventDefault(); setSelectedInboxIds(new Set()); }
           else if (selectedThreadId) { e.preventDefault(); handleBack(); }
           break;
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [tab, activeMessages, selectedThreadId, focusedMsg, canSend, selectedInboxIds]);
+  }, [tab, activeMessages, selectedThreadId, focusedMsg, canSend, selectedInboxIds, focusMode]);
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
@@ -3673,7 +3686,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
       <div className="flex flex-1 min-h-0">
         {/* ── LEFT NAV SIDEBAR ───────────────────────────────────────────── */}
-        <aside className="hidden md:flex flex-col w-56 flex-shrink-0 border-r border-border/50 bg-background">
+        <aside className={`hidden flex-col w-56 flex-shrink-0 border-r border-border/50 bg-background transition-[width,opacity] duration-300 ease-out ${focusMode ? "md:!hidden" : "md:flex"}`}>
           {/* Compose button — replaced by Read-only badge on shared view-only mailboxes (Phase 4) */}
           {canSend ? (
             <div className="px-3 pt-3 pb-2">
@@ -3972,8 +3985,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
         {/* ── CENTER PANEL: thread list ───────────────────────────────────── */}
         <div
-          className={`flex flex-col min-h-0 bg-background ${selectedThreadId ? "hidden md:flex flex-shrink-0" : "flex-1 md:flex-initial md:flex-shrink-0"}`}
-          style={{ width: listPanelWidth }}
+          className={`flex flex-col min-h-0 bg-background transition-[width,opacity] duration-300 ease-out ${focusMode ? "hidden" : selectedThreadId ? "hidden md:flex flex-shrink-0" : "flex-1 md:flex-initial md:flex-shrink-0"}`}
+          style={{ width: focusMode ? 0 : listPanelWidth }}
         >
 
           {/* Mobile-only tab switcher (replaces hidden sidebar on phones) */}
@@ -4783,11 +4796,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
         {/* ── RIGHT PANEL: thread view + CRM context ─────────────────────── */}
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
-        {selectedThreadId && tab !== "drafts" && tab !== "scheduled" && (
-          <div className="flex-1 flex flex-col min-h-0">
+        {selectedThreadId && tab !== "drafts" && tab !== "scheduled" && (() => {
+          // Smart Focus Mode hint heuristic — long body, big thread, or wide HTML
+          const totalBodyLen = selectedMessages.reduce((sum, m) => sum + (m.body?.length || 0), 0);
+          const focusRecommended = !focusMode && (totalBodyLen > 12000 || selectedMessages.length >= 3);
+          return (
+          <div className={`flex-1 flex flex-col min-h-0 transition-colors duration-300 ${focusMode ? "bg-gradient-to-b from-background via-background to-card/10" : ""}`}>
             {/* Thread header — premium hero card */}
-            <div className="flex-shrink-0 px-6 py-5 border-b border-border/30 bg-gradient-to-b from-card/40 via-card/20 to-transparent">
-              <div className="flex items-start gap-3">
+            <div className={`flex-shrink-0 border-b border-border/30 bg-gradient-to-b from-card/40 via-card/20 to-transparent transition-all duration-300 ${focusMode ? "px-6 py-6" : "px-6 py-5"}`}>
+              <div className={`flex items-start gap-3 transition-[max-width] duration-300 ${focusMode ? "max-w-5xl mx-auto w-full" : ""}`}>
                 <Button variant="ghost" size="icon" className="md:hidden h-8 w-8 -ml-2 mt-0.5" onClick={handleBack}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
@@ -4870,12 +4887,43 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       {archiveThreadMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <ArchiveX className="h-4 w-4" aria-hidden="true" />}
                     </motion.button>
                   )}
+                  {/* Focus Mode toggle — smart hint pulse when long content / multi-message */}
+                  <div className="relative">
+                    {focusRecommended && (
+                      <motion.span
+                        initial={{ opacity: 0, scale: 0.6 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="absolute -top-1 -right-1 z-10 h-2 w-2 rounded-full bg-primary shadow-[0_0_0_3px_hsl(var(--background))]"
+                        title="Focus Mode recommended for this email"
+                        data-testid="badge-focus-recommended"
+                      >
+                        <span className="absolute inset-0 rounded-full bg-primary animate-ping opacity-75" />
+                      </motion.span>
+                    )}
+                    <motion.button
+                      whileTap={{ scale: 0.92 }}
+                      whileHover={{ scale: 1.05 }}
+                      title={focusMode ? "Exit Focus Mode (Esc · F)" : focusRecommended ? "Focus Mode recommended (F)" : "Focus Mode (F)"}
+                      aria-label={focusMode ? "Exit Focus Mode" : "Enter Focus Mode"}
+                      aria-pressed={focusMode}
+                      data-testid="button-focus-mode"
+                      onClick={() => setFocusMode((v) => !v)}
+                      className={`p-2 rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none ${
+                        focusMode
+                          ? "text-primary bg-primary/10 hover:bg-primary/15"
+                          : "text-muted-foreground/40 hover:text-foreground hover:bg-muted/40"
+                      }`}
+                    >
+                      {focusMode ? <Minimize2 className="h-4 w-4" aria-hidden="true" /> : <Maximize2 className="h-4 w-4" aria-hidden="true" />}
+                    </motion.button>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Messages in thread — bottom padding so last message is not hidden under FAB */}
-            <div className="flex-1 overflow-y-auto pt-4 px-4 pb-36 md:pb-24 space-y-4">
+            <div className={`flex-1 overflow-y-auto pt-4 pb-36 md:pb-24 transition-[padding] duration-300 ${focusMode ? "px-4" : "px-4"}`}>
+            <div className={`space-y-4 transition-[max-width] duration-300 ${focusMode ? "max-w-5xl mx-auto w-full" : ""}`}>
               {threadQuery.isLoading && (
                 <div className="space-y-3">
                   {Array.from({ length: 3 }).map((_, i) => (
@@ -4969,33 +5017,39 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 );
               })}
             </div>
+            </div>
             {/* Sticky reply bar */}
             {canSend && focusedMsg && (
-              <div className="flex-shrink-0 border-t border-border/30 bg-card/20 px-4 py-2.5 flex items-center gap-2">
-                <button
-                  onClick={() => handleReply(focusedMsg)}
-                  data-testid="button-reply-bar"
-                  className="flex-1 flex items-center gap-2.5 px-3.5 py-2 rounded-full border border-border/40 bg-background/60 text-[13px] text-muted-foreground hover:border-primary/40 hover:text-foreground hover:bg-background transition-all text-left group"
-                >
-                  <Reply className="h-3.5 w-3.5 flex-shrink-0 group-hover:text-primary transition-colors" />
-                  <span>Reply to <span className="font-medium">{parseSenderName(focusedMsg.from)}</span>…</span>
-                </button>
-                <button
-                  onClick={() => handleReplyAll(focusedMsg)}
-                  data-testid="button-reply-all-bar"
-                  title="Reply All"
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-border/40 bg-background/60 text-[12px] text-muted-foreground hover:border-primary/40 hover:text-foreground hover:bg-background transition-all group flex-shrink-0"
-                >
-                  <ReplyAll className="h-3.5 w-3.5 group-hover:text-primary transition-colors" />
-                  <span className="hidden sm:inline">Reply All</span>
-                </button>
-                <span className="text-[10px] text-muted-foreground/35 font-mono hidden lg:block">r</span>
+              <div className="flex-shrink-0 border-t border-border/30 bg-card/20">
+                <div className={`px-4 py-2.5 flex items-center gap-2 transition-[max-width] duration-300 ${focusMode ? "max-w-5xl mx-auto w-full" : ""}`}>
+                  <button
+                    onClick={() => handleReply(focusedMsg)}
+                    data-testid="button-reply-bar"
+                    className="flex-1 flex items-center gap-2.5 px-3.5 py-2 rounded-full border border-border/40 bg-background/60 text-[13px] text-muted-foreground hover:border-primary/40 hover:text-foreground hover:bg-background transition-all text-left group"
+                  >
+                    <Reply className="h-3.5 w-3.5 flex-shrink-0 group-hover:text-primary transition-colors" />
+                    <span>Reply to <span className="font-medium">{parseSenderName(focusedMsg.from)}</span>…</span>
+                  </button>
+                  <button
+                    onClick={() => handleReplyAll(focusedMsg)}
+                    data-testid="button-reply-all-bar"
+                    title="Reply All"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-border/40 bg-background/60 text-[12px] text-muted-foreground hover:border-primary/40 hover:text-foreground hover:bg-background transition-all group flex-shrink-0"
+                  >
+                    <ReplyAll className="h-3.5 w-3.5 group-hover:text-primary transition-colors" />
+                    <span className="hidden sm:inline">Reply All</span>
+                  </button>
+                  <span className="text-[10px] text-muted-foreground/35 font-mono hidden lg:block">r</span>
+                </div>
               </div>
             )}
-            {/* CRM Context Panel */}
-            <CrmContextPanel key={selectedThreadId} threadId={selectedThreadId!} userPermissions={userPermissions} isAdminUser={isAdmin} returnPath={returnPath} hintSenderEmail={focusedMsg ? parseSenderEmail(focusedMsg.from) : undefined} hintSenderName={focusedMsg ? parseSenderName(focusedMsg.from) : undefined} />
+            {/* CRM Context Panel — hidden in Focus Mode for distraction-free reading */}
+            {!focusMode && (
+              <CrmContextPanel key={selectedThreadId} threadId={selectedThreadId!} userPermissions={userPermissions} isAdminUser={isAdmin} returnPath={returnPath} hintSenderEmail={focusedMsg ? parseSenderEmail(focusedMsg.from) : undefined} hintSenderName={focusedMsg ? parseSenderName(focusedMsg.from) : undefined} />
+            )}
           </div>
-        )}
+          );
+        })()}
 
         {/* Empty state when no message selected — premium */}
         {!selectedThreadId && tab !== "drafts" && tab !== "scheduled" && (
