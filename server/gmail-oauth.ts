@@ -218,14 +218,27 @@ export async function getGmailClient(userId: number, accountId?: number) {
       .limit(1);
     refreshToken = acct?.refreshToken ?? null;
 
-    // Generalized legacy migration aid: if email_accounts has no token but the
-    // legacy single-user system_settings key still holds one, adopt it once and
-    // backfill the per-user row so this branch never runs again. Safe for new
-    // users — they have nothing in system_settings, so this is a no-op.
-    if (!refreshToken) {
-      const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, "gmail_refresh_token"));
-      if (row?.value && acct) {
-        refreshToken = row.value;
+    // Legacy single-user migration aid: only adopt the legacy
+    // system_settings.gmail_refresh_token when system_settings.gmail_address
+    // matches THIS user's account email. That ensures the legacy token is only
+    // ever assigned back to its original owner, never to a different user who
+    // happens to be missing a token. After backfill the branch is dead.
+    if (!refreshToken && acct) {
+      const [acctRow] = await db
+        .select({ emailAddress: emailAccounts.emailAddress })
+        .from(emailAccounts)
+        .where(and(
+          eq(emailAccounts.userId, userId),
+          eq(emailAccounts.isShared, false),
+        ))
+        .orderBy(emailAccounts.id)
+        .limit(1);
+      const myEmail = (acctRow?.emailAddress || "").toLowerCase();
+      const [tokenRow] = await db.select().from(systemSettings).where(eq(systemSettings.key, "gmail_refresh_token"));
+      const [addrRow]  = await db.select().from(systemSettings).where(eq(systemSettings.key, "gmail_address"));
+      const legacyAddr = (addrRow?.value || "").toLowerCase();
+      if (tokenRow?.value && legacyAddr && myEmail && legacyAddr === myEmail) {
+        refreshToken = tokenRow.value;
         await db.update(emailAccounts)
           .set({ refreshToken, updatedAt: new Date() })
           .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isShared, false)));
@@ -264,12 +277,21 @@ export async function isGmailConnected(userId: number): Promise<{ connected: boo
 
     let hasToken = !!acct?.refreshToken;
 
-    // Generalized legacy migration aid: any user whose email_accounts row exists
-    // but has no token may still find one in legacy single-user system_settings.
-    // For new users (no row, no system_settings entry) this stays false.
+    // Legacy single-user migration aid (mirror of getGmailClient): only count
+    // the legacy system_settings token as "connected" when the legacy
+    // gmail_address matches THIS user's account email — never cross-assign.
     if (!hasToken && acct) {
-      const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, "gmail_refresh_token"));
-      hasToken = !!row?.value;
+      const [acctRow] = await db
+        .select({ emailAddress: emailAccounts.emailAddress })
+        .from(emailAccounts)
+        .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isShared, false)))
+        .orderBy(emailAccounts.id)
+        .limit(1);
+      const myEmail = (acctRow?.emailAddress || "").toLowerCase();
+      const [tokenRow] = await db.select().from(systemSettings).where(eq(systemSettings.key, "gmail_refresh_token"));
+      const [addrRow]  = await db.select().from(systemSettings).where(eq(systemSettings.key, "gmail_address"));
+      const legacyAddr = (addrRow?.value || "").toLowerCase();
+      hasToken = !!(tokenRow?.value && legacyAddr && myEmail && legacyAddr === myEmail);
     }
 
     if (!hasToken) return { connected: false, tokenValid: false, apiEnabled: true };

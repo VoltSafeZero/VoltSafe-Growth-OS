@@ -74,7 +74,11 @@ export async function syncEmailAccount(
   let gmailClient: any;
   try {
     const { getGmailClient } = await import("../gmail-oauth");
-    gmailClient = await getGmailClient(ownerUserId);
+    // CRITICAL: pass account.id so the client uses THIS account's token. Without
+    // accountId, getGmailClient resolves the owner's PERSONAL token, which would
+    // fetch the owner's personal mailbox while we tag the rows with this
+    // account's source_account_id — a cross-mailbox data leak for shared inboxes.
+    gmailClient = await getGmailClient(ownerUserId, account.id);
   } catch (err: any) {
     log(`[gmail-sync] account ${accountId} token error: ${err.message}`);
     await db.update(emailAccounts)

@@ -8841,9 +8841,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
   // ── Scheduled Emails ─────────────────────────────────────────────────────
   app.get("/api/gmail/scheduled", requireAuth, async (req, res) => {
-    const userId = (req.session as any).userId;
-    const acct = await getUserGmailAccount(userId);
-    if (!acct) return res.json([]);
+    // scheduled_emails is a workspace-global queue (no per-user scoping column).
+    // Match the POST gate: master_admin only, otherwise return [] silently so
+    // non-admin UIs don't error.
+    const [user] = await db.select().from(users).where(eq(users.id, req.session.userId!));
+    if (!user || user.globalRole !== "master_admin") return res.json([]);
     try {
       const emails = await db.select().from(scheduledEmails)
         .where(eq(scheduledEmails.status, "pending"))
@@ -8873,9 +8875,12 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   app.delete("/api/gmail/scheduled/:id", requireAuth, async (req, res) => {
-    const userId = (req.session as any).userId;
-    const acct = await getUserGmailAccount(userId);
-    if (!acct) return res.status(403).json({ message: "No Gmail account connected" });
+    // Same admin gate as POST/GET — scheduled_emails has no owner column so any
+    // non-admin caller could otherwise cancel another user's scheduled send.
+    const [user] = await db.select().from(users).where(eq(users.id, req.session.userId!));
+    if (!user || user.globalRole !== "master_admin") {
+      return res.status(403).json({ message: "Only workspace administrators can cancel scheduled emails." });
+    }
     try {
       await db.update(scheduledEmails)
         .set({ status: "cancelled" })
