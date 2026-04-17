@@ -25,15 +25,17 @@ import DOMPurify from "dompurify";
 import { motion, AnimatePresence } from "framer-motion";
 
 // ─── Avatar deterministic color palette ─────────────────────────────────────
+// Tightened palette — removed the lightest pastels (lime, amber) to keep
+// white initials at a comfortable contrast ratio across every variant.
 const AVATAR_GRADIENTS = [
-  "from-violet-500 to-fuchsia-500",
-  "from-blue-500 to-cyan-500",
-  "from-emerald-500 to-teal-500",
-  "from-amber-500 to-orange-500",
-  "from-rose-500 to-pink-500",
-  "from-indigo-500 to-purple-500",
-  "from-sky-500 to-blue-600",
-  "from-lime-500 to-green-600",
+  "from-violet-600 to-fuchsia-600",
+  "from-blue-600 to-cyan-600",
+  "from-emerald-600 to-teal-600",
+  "from-orange-600 to-rose-600",
+  "from-rose-600 to-pink-600",
+  "from-indigo-600 to-purple-600",
+  "from-sky-600 to-blue-700",
+  "from-teal-600 to-green-700",
 ];
 function avatarColor(seed: string): string {
   if (!seed) return AVATAR_GRADIENTS[0];
@@ -724,10 +726,16 @@ function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
     setIframeReady(true);
   };
 
-  if (!body) return <p className="text-muted-foreground text-sm italic">No content</p>;
+  const sanitized = useMemo(
+    () => (body && isHtml ? DOMPurify.sanitize(body, { USE_PROFILES: { html: true } }) : body || ""),
+    [body, isHtml],
+  );
+  const plainTextView = useMemo(
+    () => (body && isHtml ? htmlToPlainText(sanitized) : body || ""),
+    [sanitized, body, isHtml],
+  );
 
-  const sanitized = isHtml ? DOMPurify.sanitize(body, { USE_PROFILES: { html: true } }) : body;
-  const plainTextView = useMemo(() => (isHtml ? htmlToPlainText(sanitized) : body), [sanitized, body, isHtml]);
+  if (!body) return <p className="text-muted-foreground text-sm italic">No content</p>;
 
   const srcDoc = `<!DOCTYPE html>
 <html>
@@ -771,14 +779,17 @@ function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
     <button
       onClick={() => setMode(k)}
       data-testid={`reading-mode-${k}`}
-      className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-medium transition-all duration-150 ${
+      role="radio"
+      aria-checked={mode === k}
+      aria-label={`${label} reading mode`}
+      className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-medium transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
         mode === k
           ? "bg-primary/15 text-primary shadow-[inset_0_0_0_1px_rgba(20,184,166,0.25)]"
           : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/40"
       }`}
       title={`${label} view`}
     >
-      <Icon className="h-3 w-3" />
+      <Icon className="h-3 w-3" aria-hidden="true" />
       <span className="hidden sm:inline">{label}</span>
     </button>
   );
@@ -787,7 +798,12 @@ function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
     <div className="space-y-2.5">
       {/* Reading-mode segmented control — only shown when there is HTML to switch */}
       {isHtml && (
-        <div className="flex items-center justify-end gap-0.5 -mt-1 -mr-1" data-testid="reading-mode-toggle">
+        <div
+          className="flex items-center justify-end gap-0.5 -mt-1 -mr-1"
+          data-testid="reading-mode-toggle"
+          role="radiogroup"
+          aria-label="Reading mode"
+        >
           <ModeBtn k="beautiful" label="Beautiful" Icon={Sparkles} />
           <ModeBtn k="raw" label="Source" Icon={Code2} />
           <ModeBtn k="plain" label="Plain" Icon={Type} />
@@ -4541,38 +4557,45 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       whileHover={{ scale: 1.12 }}
                       transition={{ type: "spring", stiffness: 400, damping: 20 }}
                       title={starred ? "Remove priority" : "Mark as priority"}
+                      aria-label={starred ? "Remove priority" : "Mark as priority"}
+                      aria-pressed={starred}
+                      tabIndex={starred ? 0 : -1}
                       data-testid={`button-star-${msg.id}`}
                       onClick={(e) => { e.stopPropagation(); toggleStarMutation.mutate(msg.id); }}
-                      className={`p-1.5 rounded-md transition-colors ${
+                      className={`p-1.5 rounded-md transition-colors focus-visible:opacity-100 focus-visible:!text-amber-400 ${
                         starred
                           ? "text-amber-400 hover:text-amber-300"
                           : "text-transparent group-hover:text-muted-foreground/40 hover:!text-amber-400 hover:bg-muted/40"
                       }`}
                     >
-                      <Star className={`h-3.5 w-3.5 ${starred ? "fill-amber-400" : ""}`} />
+                      <Star className={`h-3.5 w-3.5 ${starred ? "fill-amber-400" : ""}`} aria-hidden="true" />
                     </motion.button>
                     {canSend && tab === "inbox" && (
                       <motion.button
                         whileTap={{ scale: 0.82 }}
                         whileHover={{ scale: 1.1 }}
                         title="Archive this thread"
+                        aria-label="Archive this thread"
+                        tabIndex={-1}
                         data-testid={`button-archive-row-${msg.id}`}
                         onClick={(e) => { e.stopPropagation(); archiveThreadMutation.mutate(msg.threadId); }}
-                        className="p-1.5 rounded-md transition-colors opacity-0 group-hover:opacity-100 text-muted-foreground/40 hover:text-foreground hover:bg-muted/40"
+                        className="p-1.5 rounded-md transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-muted-foreground/40 hover:text-foreground hover:bg-muted/40"
                       >
-                        <ArchiveX className="h-3.5 w-3.5" />
+                        <ArchiveX className="h-3.5 w-3.5" aria-hidden="true" />
                       </motion.button>
                     )}
                     {canSend && tab !== "sent" && (
                       <motion.button
                         whileTap={{ scale: 0.82 }}
                         whileHover={{ scale: 1.1 }}
-                        title="Reply"
+                        title="Open thread"
+                        aria-label="Open thread"
+                        tabIndex={-1}
                         data-testid={`button-reply-row-${msg.id}`}
-                        onClick={(e) => { e.stopPropagation(); handleSelectMessage(msg); setTimeout(() => handleReply(msg), 50); }}
-                        className="p-1.5 rounded-md transition-colors opacity-0 group-hover:opacity-100 text-muted-foreground/40 hover:text-primary hover:bg-primary/10"
+                        onClick={(e) => { e.stopPropagation(); handleSelectMessage(msg); }}
+                        className="p-1.5 rounded-md transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-muted-foreground/40 hover:text-primary hover:bg-primary/10"
                       >
-                        <Reply className="h-3.5 w-3.5" />
+                        <Reply className="h-3.5 w-3.5" aria-hidden="true" />
                       </motion.button>
                     )}
                     {canSend && tab !== "sent" && (
@@ -4580,6 +4603,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         whileTap={{ scale: 0.82 }}
                         whileHover={{ scale: 1.1 }}
                         title={blocked ? `Unblock @${domain}` : `Block @${domain}`}
+                        aria-label={blocked ? `Unblock @${domain}` : `Block @${domain}`}
+                        tabIndex={-1}
                         data-testid={`button-flag-${msg.id}`}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -4590,11 +4615,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             flagMutation.mutate(domain);
                           }
                         }}
-                        className={`p-1.5 rounded-md transition-colors opacity-0 group-hover:opacity-100 ${
+                        className={`p-1.5 rounded-md transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${
                           blocked ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10"
                         }`}
                       >
-                        {blocked ? <Trash2 className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />}
+                        {blocked ? <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /> : <Ban className="h-3.5 w-3.5" aria-hidden="true" />}
                       </motion.button>
                     )}
                   </div>
@@ -4671,15 +4696,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       whileHover={{ scale: 1.08 }}
                       transition={{ type: "spring", stiffness: 400, damping: 22 }}
                       title={isStarred(focusedMsg.labelIds) ? "Remove priority" : "Mark as priority (s)"}
+                      aria-label={isStarred(focusedMsg.labelIds) ? "Remove priority" : "Mark as priority"}
+                      aria-pressed={isStarred(focusedMsg.labelIds)}
                       data-testid="button-star-thread"
                       onClick={() => toggleStarMutation.mutate(focusedMsg.id)}
-                      className={`p-2 rounded-lg transition-colors ${
+                      className={`p-2 rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none ${
                         isStarred(focusedMsg.labelIds)
                           ? "text-amber-400 bg-amber-500/10 hover:bg-amber-500/15"
                           : "text-muted-foreground/40 hover:text-amber-400 hover:bg-muted/40"
                       }`}
                     >
-                      <Star className={`h-4 w-4 ${isStarred(focusedMsg.labelIds) ? "fill-amber-400" : ""}`} />
+                      <Star className={`h-4 w-4 ${isStarred(focusedMsg.labelIds) ? "fill-amber-400" : ""}`} aria-hidden="true" />
                     </motion.button>
                   )}
                   {canSend && focusedMsg && (
@@ -4687,11 +4714,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       whileTap={{ scale: 0.92 }}
                       whileHover={{ scale: 1.05 }}
                       title="Reply (r)"
+                      aria-label="Reply to this thread"
                       data-testid="button-reply-header"
                       onClick={() => handleReply(focusedMsg)}
-                      className="p-2 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors"
+                      className="p-2 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none"
                     >
-                      <Reply className="h-4 w-4" />
+                      <Reply className="h-4 w-4" aria-hidden="true" />
                     </motion.button>
                   )}
                   {canSend && selectedThreadId && tab === "inbox" && (
@@ -4699,12 +4727,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       whileTap={{ scale: 0.92 }}
                       whileHover={{ scale: 1.05 }}
                       title="Archive this thread"
+                      aria-label="Archive this thread"
                       data-testid="button-archive-thread"
                       onClick={() => archiveThreadMutation.mutate(selectedThreadId)}
                       disabled={archiveThreadMutation.isPending}
-                      className="p-2 rounded-lg text-muted-foreground/40 hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-40"
+                      className="p-2 rounded-lg text-muted-foreground/40 hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-primary/40 outline-none"
                     >
-                      {archiveThreadMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArchiveX className="h-4 w-4" />}
+                      {archiveThreadMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <ArchiveX className="h-4 w-4" aria-hidden="true" />}
                     </motion.button>
                   )}
                 </div>
