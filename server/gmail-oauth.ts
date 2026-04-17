@@ -110,11 +110,23 @@ export async function exchangeCodeForTokens(
       if (user?.name) displayNamePersonal = user.name;
     } catch {}
 
-    const [existing] = await db
-      .select({ id: emailAccounts.id })
-      .from(emailAccounts)
-      .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isShared, false)))
-      .limit(1);
+    // Multi-mailbox Phase 1: key personal accounts by (userId, emailAddress) so a single
+    // user can connect multiple personal Gmail addresses. Old behaviour upserted by userId
+    // alone, which silently overwrote your primary account when adding a second. If we have
+    // an emailAddress from Gmail profile, match on it; otherwise fall back to legacy lookup.
+    const [existing] = emailAddress
+      ? await db.select({ id: emailAccounts.id })
+          .from(emailAccounts)
+          .where(and(
+            eq(emailAccounts.userId, userId),
+            eq(emailAccounts.isShared, false),
+            eq(emailAccounts.emailAddress, emailAddress),
+          ))
+          .limit(1)
+      : await db.select({ id: emailAccounts.id })
+          .from(emailAccounts)
+          .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isShared, false)))
+          .limit(1);
 
     if (existing) {
       await db.update(emailAccounts)

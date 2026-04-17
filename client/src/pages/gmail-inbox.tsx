@@ -32,6 +32,9 @@ type MessageSummary = {
   to: string;
   subject: string;
   date: string;
+  // Multi-mailbox Phase 1: present when fetched in unified ("All Inboxes") mode so the
+  // row can render an account badge. Absent in single-account mode.
+  sourceAccountId?: number;
 };
 
 type ThreadMessage = {
@@ -2537,8 +2540,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     isShared: boolean; isOwner: boolean;
   };
 
-  // null = user's personal account (default); number = shared account id
-  const [activeAccountId, setActiveAccountId] = useState<number | null>(null);
+  // null = user's personal account (default); number = shared/specific account id; "all" = unified inbox.
+  // Multi-mailbox Phase 1: "all" sentinel triggers the unified view that pulls from every
+  // account the user can access (their own personal accounts + shared inboxes they have view perms on).
+  const [activeAccountId, setActiveAccountId] = useState<number | "all" | null>(null);
+  // Multi-mailbox Phase 1: when a message is opened from "All Inboxes", remember its source
+  // account id so per-thread reads/mutations target the right mailbox (instead of sending the
+  // literal "all" sentinel, which numeric-only routes coerce to NaN).
+  const [currentThreadAccountId, setCurrentThreadAccountId] = useState<number | null>(null);
+  // Save the user's preferred mailSource so we can restore it when they leave "All Inboxes".
+  const [savedMailSource, setSavedMailSource] = useState<"local" | "gmail" | "auto" | null>(null);
 
   const statusQuery = useQuery<{ connected: boolean; tokenValid: boolean; apiEnabled: boolean; hasCredentials: boolean }>({
     queryKey: ["/api/gmail/status"],
@@ -2561,10 +2572,36 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     refetchInterval: 30_000,
     retry: false,
   });
-  // Resolve which account is "active" — the selected shared account or the user's personal one
-  const connectedAccount = activeAccountId
-    ? (accountsQuery.data?.find((a) => a.id === activeAccountId) ?? accountsQuery.data?.[0] ?? null)
-    : (accountsQuery.data?.find((a) => a.isOwner) ?? accountsQuery.data?.[0] ?? null);
+  // Resolve which account is "active" — selected shared account, user's personal one, or
+  // (unified mode) fall back to the personal account for compose/send semantics.
+  const connectedAccount = activeAccountId === "all"
+    ? (accountsQuery.data?.find((a) => a.isOwner) ?? accountsQuery.data?.[0] ?? null)
+    : activeAccountId
+      ? (accountsQuery.data?.find((a) => a.id === activeAccountId) ?? accountsQuery.data?.[0] ?? null)
+      : (accountsQuery.data?.find((a) => a.isOwner) ?? accountsQuery.data?.[0] ?? null);
+
+  // Multi-mailbox Phase 1: per-account health (status dots + warnings in the sidebar).
+  // 30s refetch matches accountsQuery so they stay visually in sync.
+  type AccountHealth = {
+    id: number; emailAddress: string; displayName: string | null; isShared: boolean; isOwner: boolean;
+    authStatus: string; syncEnabled: boolean; lastSyncAt: string | null; watchExpirationAt: string | null;
+    lastWebhookAt: string | null; lastIncrementalSyncAt: string | null; incrementalEventCount: number;
+    syncErrorMessage: string | null; unreadCount: number; messageCount: number; lastMessageAt: string | null;
+    watchHoursRemaining: number | null; lastWebhookMinAgo: number | null; status: "green" | "amber" | "red";
+  };
+  const accountsHealthQuery = useQuery<AccountHealth[]>({
+    queryKey: ["/api/gmail/accounts", "health"],
+    queryFn: async () => {
+      const res = await fetch("/api/gmail/accounts/health", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    refetchInterval: 30_000,
+    retry: false,
+  });
+  const healthById = new Map<number, AccountHealth>(
+    (accountsHealthQuery.data ?? []).map((h) => [h.id, h] as const),
+  );
 
   // Shared accounts visible to this user — filtered by mail_team permissions.
   // Non-admins require an explicit view grant; no grant = no access.
@@ -2581,9 +2618,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     if (activeAccountId) params.set("asAccountId", String(activeAccountId));
   };
 
-  // canSend: account must be active AND user must have edit permission for shared inboxes
+  // canSend: account must be active AND user must have edit permission for shared inboxes.
+  // In "all" (unified) mode we route compose through the personal account, so permission
+  // logic mirrors the personal-account case (always allowed if active).
   const canSend = (() => {
     if (connectedAccount?.authStatus !== "active") return false;
+    if (activeAccountId === "all") return true;
     // Shared account: check mail_team edit permission
     if (activeAccountId && !connectedAccount?.isOwner) {
       if (isAdmin) return true;
@@ -2690,11 +2730,19 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     }
   };
 
+  // Multi-mailbox Phase 1: thread-scoped account id. In "All Inboxes" we resolve to the
+  // specific source account of the open message (avoids "all" → NaN coercion on routes that
+  // still parse asAccountId as a plain Number).
+  const threadAccountId: number | null =
+    activeAccountId === "all"
+      ? currentThreadAccountId
+      : (typeof activeAccountId === "number" ? activeAccountId : null);
+
   const threadQuery = useQuery<Thread>({
-    queryKey: ["/api/gmail/threads", selectedThreadId, activeAccountId, mailSource],
+    queryKey: ["/api/gmail/threads", selectedThreadId, threadAccountId, mailSource],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (activeAccountId) params.set("asAccountId", String(activeAccountId));
+      if (threadAccountId) params.set("asAccountId", String(threadAccountId));
       params.set("source", mailSource);
       const qs = params.toString() ? `?${params}` : "";
       const res = await fetch(`/api/gmail/threads/${selectedThreadId}${qs}`, { credentials: "include" });
@@ -3127,6 +3175,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const handleSelectMessage = (msg: MessageSummary) => {
     setSelectedMessageId(msg.id);
     setSelectedThreadId(msg.threadId);
+    // Multi-mailbox Phase 1: capture the source account so thread reads + mutations target
+    // the correct mailbox when we're in unified mode. Outside unified mode this is unused.
+    setCurrentThreadAccountId(msg.sourceAccountId ?? null);
 
     if (isUnread(msg.labelIds)) {
       // Optimistically remove UNREAD from both inbox query caches immediately
@@ -3140,12 +3191,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       setInboxExtra((prev) => prev.map((m) => m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
       setSentExtra((prev) => prev.map((m) => m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
 
-      // Fire-and-forget — tell Gmail to mark it read server-side
+      // Fire-and-forget — tell Gmail to mark it read server-side. In unified mode we send
+      // the message's specific sourceAccountId, since /mark-read parses asAccountId as Number.
+      const accId = msg.sourceAccountId ?? (typeof activeAccountId === "number" ? activeAccountId : null);
       fetch(`/api/gmail/messages/${msg.id}/mark-read`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(activeAccountId ? { asAccountId: activeAccountId } : {}),
+        body: JSON.stringify(accId ? { asAccountId: accId } : {}),
       }).catch(() => {/* silent — cache already updated */});
     }
   };
@@ -3356,16 +3409,56 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Inbox</span>
             </div>
 
+            {/* Multi-mailbox Phase 1: "All Inboxes" unified view — only show when user has
+                more than one accessible account, since 1-account users get nothing extra from it. */}
+            {((personalAccount ? 1 : 0) + sharedAccounts.length) > 1 && (
+              <button
+                onClick={() => {
+                  // Force local source for unified mode (live Gmail can't span accounts).
+                  // Save the user's prior choice so we can restore it when they leave.
+                  if (activeAccountId !== "all") setSavedMailSource(mailSource);
+                  setActiveAccountId("all");
+                  setMailSource("local");
+                  setTab("inbox");
+                  setSelectedMessageId(null);
+                  setSelectedThreadId(null);
+                  setCurrentThreadAccountId(null);
+                }}
+                data-testid="btn-account-all"
+                className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors ${activeAccountId === "all" ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+              >
+                <span className={`flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center ${activeAccountId === "all" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                  <Inbox className="h-3.5 w-3.5" />
+                </span>
+                <span className="flex-1 text-left text-[12px] font-medium truncate">All Inboxes</span>
+                <span className="text-[10px] text-muted-foreground/60">
+                  {(personalAccount ? 1 : 0) + sharedAccounts.length}
+                </span>
+              </button>
+            )}
+
             {/* Personal account row + subtabs when active */}
             {personalAccount ? (
               <>
                 <button
-                  onClick={() => { setActiveAccountId(null); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                  onClick={() => {
+                    // Restore previous mailSource if leaving "All Inboxes"
+                    if (activeAccountId === "all" && savedMailSource) { setMailSource(savedMailSource); setSavedMailSource(null); }
+                    setActiveAccountId(null); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); setCurrentThreadAccountId(null);
+                  }}
                   data-testid="btn-account-personal"
                   className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors ${activeAccountId === null ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
                 >
-                  <span className={`flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${activeAccountId === null ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                  <span className={`relative flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${activeAccountId === null ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
                     {(personalAccount.displayName || personalAccount.emailAddress)[0].toUpperCase()}
+                    {/* Multi-mailbox Phase 1: sync-status dot */}
+                    {(() => {
+                      const h = healthById.get(personalAccount.id);
+                      if (!h) return null;
+                      const cls = h.status === "green" ? "bg-emerald-500" : h.status === "amber" ? "bg-amber-500" : "bg-red-500";
+                      const tip = h.status === "red" ? (h.syncErrorMessage || "Sync disabled") : h.status === "amber" ? `Watch expires in ${h.watchHoursRemaining ?? "?"}h` : "Healthy";
+                      return <span title={tip} data-testid={`status-dot-${personalAccount.id}`} className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-1 ring-background ${cls}`} />;
+                    })()}
                   </span>
                   <span className="flex-1 text-left text-[12px] font-medium truncate">{personalAccount.emailAddress}</span>
                   {activeAccountId === null && inboxUnreadCount > 0 && (
@@ -3455,13 +3548,23 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   return (
                     <div key={acct.id}>
                       <button
-                        onClick={() => { setActiveAccountId(acct.id); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                        onClick={() => {
+                          if (activeAccountId === "all" && savedMailSource) { setMailSource(savedMailSource); setSavedMailSource(null); }
+                          setActiveAccountId(acct.id); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); setCurrentThreadAccountId(null);
+                        }}
                         data-testid={`btn-account-shared-${acct.id}`}
                         title={acct.emailAddress}
                         className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors ${isThisActive ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
                       >
-                        <span className={`flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${isThisActive ? "bg-teal-500 text-white" : "bg-teal-900/60 text-teal-300"}`}>
+                        <span className={`relative flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${isThisActive ? "bg-teal-500 text-white" : "bg-teal-900/60 text-teal-300"}`}>
                           {letter}
+                          {(() => {
+                            const h = healthById.get(acct.id);
+                            if (!h) return null;
+                            const cls = h.status === "green" ? "bg-emerald-500" : h.status === "amber" ? "bg-amber-500" : "bg-red-500";
+                            const tip = h.status === "red" ? (h.syncErrorMessage || "Sync disabled") : h.status === "amber" ? `Watch expires in ${h.watchHoursRemaining ?? "?"}h` : "Healthy";
+                            return <span title={tip} data-testid={`status-dot-${acct.id}`} className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-1 ring-background ${cls}`} />;
+                          })()}
                         </span>
                         <span className="flex-1 text-left text-[12px] font-medium truncate">{acct.emailAddress}</span>
                         {isThisActive && inboxUnreadCount > 0 && (
@@ -4224,6 +4327,23 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         {unread && (
                           <div className="w-[7px] h-[7px] rounded-full bg-primary flex-shrink-0" />
                         )}
+                        {/* Multi-mailbox Phase 1: account badge — only shown in unified ("All Inboxes") mode
+                            so users can tell which mailbox each row came from at a glance. */}
+                        {activeAccountId === "all" && msg.sourceAccountId != null && (() => {
+                          const acct = accountsQuery.data?.find((a) => a.id === msg.sourceAccountId);
+                          if (!acct) return null;
+                          const letter = (acct.displayName || acct.emailAddress)[0].toUpperCase();
+                          const colour = acct.isShared ? "bg-teal-500/20 text-teal-300 border-teal-500/30" : "bg-primary/20 text-primary border-primary/30";
+                          return (
+                            <span
+                              title={acct.emailAddress}
+                              data-testid={`badge-account-${msg.sourceAccountId}-${msg.id}`}
+                              className={`flex-shrink-0 h-4 px-1.5 rounded border text-[9px] font-bold leading-4 tabular-nums ${colour}`}
+                            >
+                              {letter}
+                            </span>
+                          );
+                        })()}
                         <span className={`text-[13px] leading-none truncate ${
                           unread ? "font-semibold text-foreground" : "font-medium text-foreground/55"
                         }`}>

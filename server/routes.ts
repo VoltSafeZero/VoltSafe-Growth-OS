@@ -7178,11 +7178,28 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   // accountId drives getGmailClient when set.
   async function resolveAccount(
     currentUserId: number,
-    asAccountId?: number,
+    asAccountId?: number | "all",
     isAdmin = false,
     mailTeamPerms: Record<string, { view: boolean; edit: boolean }> = {},
   ) {
-    if (asAccountId) {
+    // Multi-mailbox Phase 1: "all" sentinel resolves to every account the user can see,
+    // returning `accountIds` (plural) for IN(...) filtering downstream. Single-account paths
+    // (numeric asAccountId or default) are unchanged.
+    if (asAccountId === "all") {
+      const accountIds = await getAccessibleAccountIds(currentUserId, isAdmin, mailTeamPerms);
+      if (accountIds.length === 0) return null;
+      // Pick the user's own account as the "primary" for any code path that still needs a
+      // single accountId (e.g. live-Gmail fallback). The unified inbox uses local-mailbox
+      // exclusively, so this fallback is only hit if local returns 0 rows.
+      const primary = await getUserGmailAccount(currentUserId);
+      return {
+        userId: currentUserId,
+        accountId: primary?.id as number | undefined,
+        accountIds,
+        acct: primary as any,
+      };
+    }
+    if (asAccountId && typeof asAccountId === "number") {
       const [acct] = await db
         .select()
         .from(emailAccounts)
@@ -7240,7 +7257,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   // 'auto' tries local first; if local returns 0 rows, transparently falls back to Gmail.
   app.get("/api/gmail/messages", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
-    const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
+    // Multi-mailbox Phase 1: accept "all" sentinel for unified inbox in addition to numeric ids.
+    const rawAcc = req.query.asAccountId as string | undefined;
+    const asAccountId: number | "all" | undefined = rawAcc === "all" ? "all" : (rawAcc ? Number(rawAcc) : undefined);
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.json({ messages: [], nextPageToken: null });
@@ -7253,7 +7272,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       try {
         const { listLocalMessages } = await import("./services/local-mailbox");
         const local = await listLocalMessages({
-          resolved: { userId: resolved.userId, accountId: resolved.accountId },
+          resolved: {
+            userId: resolved.userId,
+            accountId: (resolved as any).accountIds ? undefined : resolved.accountId,
+            accountIds: (resolved as any).accountIds,
+          },
           q, limit: maxResults, pageToken: pageToken ?? null,
         });
         if (source === "local" || local.messages.length > 0) {
@@ -7279,7 +7302,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
   app.get("/api/gmail/threads", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
-    const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
+    const rawAcc = req.query.asAccountId as string | undefined;
+    const asAccountId: number | "all" | undefined = rawAcc === "all" ? "all" : (rawAcc ? Number(rawAcc) : undefined);
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.json([]);
@@ -7291,7 +7315,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       try {
         const { listLocalThreads } = await import("./services/local-mailbox");
         const local = await listLocalThreads({
-          resolved: { userId: resolved.userId, accountId: resolved.accountId },
+          resolved: {
+            userId: resolved.userId,
+            accountId: (resolved as any).accountIds ? undefined : resolved.accountId,
+            accountIds: (resolved as any).accountIds,
+          },
           q, limit: maxResults, pageToken: (req.query.pageToken as string) || null,
         });
         if (source === "local" || local.threads.length > 0) {
@@ -9148,6 +9176,81 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const { isAdmin, mailTeamPerms } = await getSessionUserAccess(req.session);
       const accounts = await getAccessibleAccounts(userId, isAdmin, mailTeamPerms);
       const annotated = accounts.map((a) => ({ ...a, isOwner: a.userId === userId && !a.isShared }));
+      res.json(annotated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Multi-mailbox Phase 1: per-account sync health summary, one row per accessible account.
+  // Cheap single SQL — used by the inbox sidebar to render status dots and by the mailbox-health
+  // page for the consolidated view. Read-only, additive, no live-sync side effects.
+  app.get("/api/gmail/accounts/health", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { isAdmin, mailTeamPerms } = await getSessionUserAccess(req.session);
+      const accountIds = await getAccessibleAccountIds(userId, isAdmin, mailTeamPerms);
+      if (accountIds.length === 0) return res.json([]);
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          a.id,
+          a.email_address,
+          a.display_name,
+          a.is_shared,
+          a.user_id,
+          a.auth_status,
+          a.sync_enabled,
+          a.last_sync_at,
+          a.watch_expiration_at,
+          a.last_webhook_at,
+          a.last_incremental_sync_at,
+          a.incremental_event_count,
+          a.sync_error_message,
+          (SELECT count(*)::int FROM email_messages m
+             WHERE m.source_account_id = a.id
+               AND m.label_ids LIKE '%"INBOX"%'
+               AND m.label_ids LIKE '%"UNREAD"%') AS unread_count,
+          (SELECT count(*)::int FROM email_messages m
+             WHERE m.source_account_id = a.id) AS message_count,
+          (SELECT max(sent_at) FROM email_messages m
+             WHERE m.source_account_id = a.id) AS last_message_at
+        FROM email_accounts a
+        WHERE a.id IN (${accountIds.join(",")})
+        ORDER BY a.is_shared ASC, a.id ASC
+      `));
+      const list = ((rows as any).rows ?? rows) as any[];
+      const now = Date.now();
+      const annotated = list.map((r) => {
+        const watchExp = r.watch_expiration_at ? new Date(r.watch_expiration_at).getTime() : null;
+        const lastWebhook = r.last_webhook_at ? new Date(r.last_webhook_at).getTime() : null;
+        const watchHoursRemaining = watchExp ? Math.round((watchExp - now) / 3_600_000) : null;
+        const lastWebhookMinAgo = lastWebhook ? Math.round((now - lastWebhook) / 60_000) : null;
+        // Status: green = healthy, amber = warning (watch < 24h or no webhook in 6h), red = revoked / disabled
+        let status: "green" | "amber" | "red" = "green";
+        if (r.auth_status !== "active" || !r.sync_enabled) status = "red";
+        else if ((watchHoursRemaining !== null && watchHoursRemaining < 24) || (lastWebhookMinAgo !== null && lastWebhookMinAgo > 360)) status = "amber";
+        return {
+          id: r.id,
+          emailAddress: r.email_address,
+          displayName: r.display_name,
+          isShared: r.is_shared,
+          isOwner: r.user_id === userId && !r.is_shared,
+          authStatus: r.auth_status,
+          syncEnabled: r.sync_enabled,
+          lastSyncAt: r.last_sync_at,
+          watchExpirationAt: r.watch_expiration_at,
+          lastWebhookAt: r.last_webhook_at,
+          lastIncrementalSyncAt: r.last_incremental_sync_at,
+          incrementalEventCount: r.incremental_event_count ?? 0,
+          syncErrorMessage: r.sync_error_message,
+          unreadCount: r.unread_count ?? 0,
+          messageCount: r.message_count ?? 0,
+          lastMessageAt: r.last_message_at,
+          watchHoursRemaining,
+          lastWebhookMinAgo,
+          status,
+        };
+      });
       res.json(annotated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

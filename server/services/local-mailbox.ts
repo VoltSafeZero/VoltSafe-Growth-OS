@@ -14,6 +14,9 @@ export type LocalMessageSummary = {
   to: string;
   subject: string;
   date: string;          // RFC date string
+  // Multi-mailbox Phase 1: present when caller is in unified mode so the UI can
+  // render an account badge per row. Always populated from email_messages.source_account_id.
+  sourceAccountId?: number;
 };
 
 export type LocalThreadStub = { id: string; snippet: string; historyId: string };
@@ -129,7 +132,11 @@ function buildQClauses(q: string): { where: string[]; freeText: string } {
   return { where, freeText: rest.trim() };
 }
 
-type Resolved = { userId: number; accountId?: number };
+// Multi-mailbox Phase 1: `accountIds` (plural) is the unified-inbox path used when the user
+// selects "All Inboxes" — it filters via IN (...) across every account they can access.
+// When neither `accountId` nor `accountIds` is set, the legacy "all of this user's own messages"
+// behaviour is preserved exactly for backward compatibility.
+type Resolved = { userId: number; accountId?: number; accountIds?: number[] };
 
 // ── Inbox / sent flat list ────────────────────────────────────────────────
 export async function listLocalMessages(p: {
@@ -142,8 +149,19 @@ export async function listLocalMessages(p: {
   const limit = Math.min(Math.max(Number(p.limit) || 50, 1), 100);
   const offset = p.pageToken ? Math.max(parseInt(p.pageToken, 10) || 0, 0) : 0;
 
-  const where: string[] = [`owner_user_id = ${Number(p.resolved.userId)}`];
-  if (p.resolved.accountId) where.push(`source_account_id = ${Number(p.resolved.accountId)}`);
+  // Multi-mailbox Phase 1 fix: in unified mode, authorization comes from the IN(...) list
+  // (already permission-vetted via getAccessibleAccountIds in resolveAccount). Hard-binding
+  // owner_user_id to the caller would silently drop shared-mailbox rows owned by other users.
+  const where: string[] = [];
+  if (p.resolved.accountIds && p.resolved.accountIds.length > 0) {
+    const ids = p.resolved.accountIds.map(n => Number(n)).filter(n => Number.isFinite(n));
+    if (ids.length === 0) return { messages: [], nextPageToken: null, tookMs: 0 };
+    where.push(`source_account_id IN (${ids.join(",")})`);
+  } else if (p.resolved.accountId) {
+    where.push(`source_account_id = ${Number(p.resolved.accountId)}`);
+  } else {
+    where.push(`owner_user_id = ${Number(p.resolved.userId)}`);
+  }
 
   const { where: qWhere, freeText } = buildQClauses(p.q || "");
   where.push(...qWhere);
@@ -157,7 +175,7 @@ export async function listLocalMessages(p: {
   const rowsRes = await db.execute(sql.raw(`
     SELECT
       gmail_message_id, gmail_thread_id, snippet, sent_at,
-      from_email, from_name, to_emails, subject, label_ids
+      from_email, from_name, to_emails, subject, label_ids, source_account_id
     FROM email_messages
     ${whereSql}
     ORDER BY sent_at DESC NULLS LAST, id DESC
@@ -179,6 +197,7 @@ export async function listLocalMessages(p: {
       to: parseToList(r.to_emails),
       subject: r.subject || "",
       date: sentAt ? sentAt.toUTCString() : "",
+      sourceAccountId: r.source_account_id != null ? Number(r.source_account_id) : undefined,
     };
   });
 
@@ -200,8 +219,17 @@ export async function listLocalThreads(p: {
   const limit = Math.min(Math.max(Number(p.limit) || 30, 1), 100);
   const offset = p.pageToken ? Math.max(parseInt(p.pageToken, 10) || 0, 0) : 0;
 
-  const where: string[] = [`owner_user_id = ${Number(p.resolved.userId)}`];
-  if (p.resolved.accountId) where.push(`source_account_id = ${Number(p.resolved.accountId)}`);
+  // Same fix as listLocalMessages — accountIds path is its own authorization boundary.
+  const where: string[] = [];
+  if (p.resolved.accountIds && p.resolved.accountIds.length > 0) {
+    const ids = p.resolved.accountIds.map(n => Number(n)).filter(n => Number.isFinite(n));
+    if (ids.length === 0) return { threads: [], nextPageToken: null, tookMs: 0 };
+    where.push(`source_account_id IN (${ids.join(",")})`);
+  } else if (p.resolved.accountId) {
+    where.push(`source_account_id = ${Number(p.resolved.accountId)}`);
+  } else {
+    where.push(`owner_user_id = ${Number(p.resolved.userId)}`);
+  }
   const { where: qWhere, freeText } = buildQClauses(p.q || "");
   where.push(...qWhere);
   if (freeText) {
