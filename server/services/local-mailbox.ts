@@ -183,7 +183,7 @@ export async function getLocalThread(p: { resolved: Resolved; threadId: string }
   const rowsRes = await db.execute(sql.raw(`
     SELECT
       gmail_message_id, gmail_thread_id, snippet, sent_at,
-      from_email, from_name, to_emails, cc_emails, subject, label_ids, body_text
+      from_email, from_name, to_emails, cc_emails, subject, label_ids, body_text, body_html
     FROM email_messages
     WHERE ${where.join(" AND ")}
     ORDER BY sent_at ASC NULLS LAST, id ASC
@@ -204,8 +204,9 @@ export async function getLocalThread(p: { resolved: Resolved; threadId: string }
       subject: r.subject || "",
       date: sentAt ? sentAt.toUTCString() : "",
       labelIds: parseLabelIds(r.label_ids),
-      body: r.body_text || r.snippet || "",
-      isHtml: false, // body_text is plain; UI gracefully handles non-html
+      // Prefer HTML when present (rich rendering), fall back to plain text, then snippet.
+      body: r.body_html || r.body_text || r.snippet || "",
+      isHtml: !!r.body_html,
     };
   });
   return { id: p.threadId, historyId: "", messages };

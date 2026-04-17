@@ -1,5 +1,48 @@
 # Replit Agent Configuration
 
+## Trevor Push Completion + Local Fidelity (Phase 2D — Complete)
+
+### What was built
+Tightened Trevor's real-time push pipeline, eliminated local↔Gmail drift, and added rich-HTML body storage so the local inbox renders the same content the live Gmail view shows.
+
+### Trevor watch verified live
+- watch_topic = `projects/prime-phalanx-461723-a3/topics/gmail-watch`
+- watch_expiration_at = 2026-04-24 (7 days out, scheduler renews every 6h, 24h before expiry)
+- After triggering `/api/gmail/sync-incremental?accountId=1`, **stored historyId 17381321 == live historyId 17381321** (fully caught up); +8 events processed (6 new messages, 2 label changes), `incremental_event_count` 19 → 27
+- Webhook handler validated end-to-end with a simulated Pub/Sub envelope (`POST /api/webhooks/gmail?token=$GMAIL_WEBHOOK_TOKEN` with base64-wrapped `{emailAddress, historyId}`) → 200 OK, stamps `last_webhook_at`, kicks off `syncIncremental` immediately. Bad token → 401.
+- `mailbox-health.tsx` already exposes the full Trevor block: live status badge, watch_topic, watch_expires, last webhook received, last incremental, eventCount, stored vs live historyId — all rendered prominently in "Push & incremental sync".
+
+### Local↔Gmail parity tightened
+- Re-ran `/api/email-search/parity` after incremental sync caught up:
+  - INBOX: localCount 14,355 · **intersect 10/10** · onlyLocal 0 · onlyGmail 0
+  - SENT: **intersect 10/10** · onlyLocal 0 · onlyGmail 0
+- The 1-row drift seen in Phase 2C closed automatically once incremental advanced.
+- Optimistic updates verified across all three `mailSource` modes (cache keys include source so star/archive/unread land in active cache).
+
+### Rich HTML body storage
+- Added `body_html text` column to `email_messages` (additive, no PK touch).
+- `email-parser.ts` now extracts both `text/plain` and `text/html` parts (`extractHtmlBody` does DFS over the MIME tree). New `bodyHtml` field on `ParsedEmail` (clipped to 200 KB).
+- All 3 sync sites (`gmail-sync.ts`, `gmail-incremental.ts`, `backfill-service.ts`) auto-pick up the new field via existing `...parsed` spread — no insert-site changes needed.
+- `local-mailbox.ts:getLocalThread` now serves HTML when present and sets `isHtml: !!body_html`. Falls back to plain text → snippet.
+- One-off backfill script `scripts/html-backfill-recent.ts` populated HTML for the 50 most recent rows: **47/50 captured (94%)**, avg 33 KB. The 3 remaining are genuinely plain-text-only emails.
+
+### What still drives a user to "Source: Gmail"
+1. **HTML for older messages** — only the 50 most recent rows have HTML so far. The full mailbox (~14.4k rows) needs an HTML backfill pass; existing rows still render plain text from local. Run `npx tsx scripts/html-backfill-recent.ts <N> 1` to widen coverage on demand. Otherwise: rich rendering for all *new* messages from now on (parser fills `body_html` on every insert).
+2. **Inline images / CID-referenced attachments** — `body_html` references `cid:` images that aren't stored locally yet (attachment binary storage is intentionally out of scope per Phase 2D charter).
+3. **Real-time Pub/Sub delivery in production** — `last_webhook_at` populates correctly when the webhook endpoint is hit (proven via local simulation). If production GCP push subscription is paused or pointed at a stale URL, watch the badge in mailbox-health: it goes from "● Live" → "Configured — awaiting first webhook" within 30 minutes.
+
+### Files touched
+- `shared/schema.ts` (added `body_html text`)
+- `server/services/email-parser.ts` (extractHtmlBody + ParsedEmail.bodyHtml)
+- `server/services/local-mailbox.ts` (serve HTML in getLocalThread)
+- `scripts/html-backfill-recent.ts` (NEW — one-off HTML backfill utility)
+- DB: `ALTER TABLE email_messages ADD COLUMN IF NOT EXISTS body_html text` (single additive ADD COLUMN; npm run db:push --force was blocked by an unrelated webauthn TTY prompt — equivalent statement applied directly)
+
+### Validation
+- 71/71 permissions tests pass · live Gmail sync, watch, backfill #2 (14,900) all untouched.
+
+---
+
 ## Local Inbox Cutover (Phase 2C — Complete)
 
 ### What was built

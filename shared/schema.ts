@@ -1037,6 +1037,7 @@ export const emailMessages = pgTable("email_messages", {
   allParticipants: text("all_participants"),
   sentAt: timestamp("sent_at"),
   bodyText: text("body_text"),
+  bodyHtml: text("body_html"),
   direction: text("direction").default("inbound"),
   fromDomain: text("from_domain"),
   hasAttachments: boolean("has_attachments").default(false),

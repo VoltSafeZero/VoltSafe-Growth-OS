@@ -29,6 +29,7 @@ export interface ParsedEmail {
   allParticipants: string;
   sentAt: Date | null;
   bodyText: string | null;
+  bodyHtml: string | null;
   direction: string;
   fromDomain: string | null;
   hasAttachments: boolean;
@@ -96,6 +97,20 @@ function extractTextBody(payload: any): string {
   return "";
 }
 
+function extractHtmlBody(payload: any): string {
+  if (!payload) return "";
+  if (payload.mimeType === "text/html" && payload.body?.data) {
+    return decodeBase64(payload.body.data);
+  }
+  if (payload.parts) {
+    for (const part of payload.parts) {
+      const html = extractHtmlBody(part);
+      if (html) return html;
+    }
+  }
+  return "";
+}
+
 export function parseGmailMessage(msg: any, myDomain: string): ParsedEmail {
   const headers: { name: string; value: string }[] = msg.payload?.headers || [];
   const fromRaw = getHeader(headers, "From");
@@ -142,6 +157,7 @@ export function parseGmailMessage(msg: any, myDomain: string): ParsedEmail {
   const sentAt = dateRaw ? new Date(dateRaw) : msg.internalDate ? new Date(Number(msg.internalDate)) : null;
 
   const bodyText = extractTextBody(msg.payload);
+  const bodyHtml = extractHtmlBody(msg.payload);
 
   const hasAttachments = (msg.payload?.parts || []).some(
     (p: any) => p.filename && p.filename.length > 0
@@ -161,6 +177,7 @@ export function parseGmailMessage(msg: any, myDomain: string): ParsedEmail {
     allParticipants: JSON.stringify(allParticipants),
     sentAt,
     bodyText: bodyText.slice(0, 4000) || null,
+    bodyHtml: bodyHtml.slice(0, 200000) || null,
     direction,
     fromDomain,
     hasAttachments,
