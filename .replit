@@ -38,6 +38,10 @@ args = "Start application"
 task = "workflow.run"
 args = "permissions"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "HTML backfill"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -57,6 +61,17 @@ args = "node tests/permissions.test.js"
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "HTML backfill"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx tsx scripts/html-backfill-all.ts"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [agent]
 integrations = ["javascript_openai_ai_integrations:2.0.0", "google-mail:1.0.0", "jira:1.0.0", "confluence:1.0.0"]
