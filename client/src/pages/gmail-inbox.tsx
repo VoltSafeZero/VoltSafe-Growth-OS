@@ -2609,11 +2609,76 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   useEffect(() => {
     try { localStorage.setItem("inbox.density", density); } catch {}
   }, [density]);
+  // Global density token system — applied to sidebar, list, and reader pane
+  // so the entire inbox reflows as one cohesive system when density changes.
   const densityClasses = useMemo(() => {
     const map = {
-      comfortable: { py: "py-3", senderText: "text-[13px]", subText: "text-[12px]", showSnippet: true,  signalsMt: "mt-1" },
-      compact:     { py: "py-2", senderText: "text-[12.5px]", subText: "text-[11.5px]", showSnippet: true,  signalsMt: "mt-0.5" },
-      ultra:       { py: "py-1.5", senderText: "text-[12px]", subText: "text-[11px]", showSnippet: false, signalsMt: "mt-0" },
+      comfortable: {
+        // List row (existing)
+        py: "py-3", senderText: "text-[13px]", subText: "text-[12px]", showSnippet: true, signalsMt: "mt-1",
+        // Sidebar
+        sidebarRowPy: "py-1.5", sidebarRowText: "text-[12px]",
+        sidebarSubtabPy: "py-1", sidebarSubtabText: "text-[12px]",
+        sidebarFolderPy: "py-1", sidebarFolderText: "text-[12px]",
+        sidebarSectionPt: "pt-3", sidebarSectionPb: "pb-0.5",
+        sidebarAvatar: "h-6 w-6", sidebarIcon: "h-3.5 w-3.5",
+        composeBtnH: "h-9", composeBtnText: "text-[13px]",
+        // Filter chips + search
+        chipsRootPad: "p-3", chipsRootGap: "space-y-2",
+        chipPy: "py-1", chipPx: "px-2.5", chipText: "text-[11px]",
+        searchH: "h-8",
+        // Reader header
+        readerHeaderPx: "px-6", readerHeaderPy: "py-5",
+        readerSubjectText: "text-[20px]", readerMetaMt: "mt-1.5",
+        // Reader thread + per-message card
+        readerThreadPx: "px-4", readerThreadPt: "pt-4", readerThreadGap: "space-y-4",
+        msgHeaderPx: "px-5", msgHeaderPy: "py-4",
+        msgBodyPx: "px-5", msgBodyPy: "py-4",
+        msgAvatar: "w-10 h-10", msgAvatarText: "text-[12.5px]",
+        msgSenderText: "text-[14.5px]",
+        // Reply bar
+        replyBarPx: "px-4", replyBarPy: "py-2.5",
+      },
+      compact: {
+        py: "py-2", senderText: "text-[12.5px]", subText: "text-[11.5px]", showSnippet: true, signalsMt: "mt-0.5",
+        sidebarRowPy: "py-1", sidebarRowText: "text-[11.5px]",
+        sidebarSubtabPy: "py-0.5", sidebarSubtabText: "text-[11.5px]",
+        sidebarFolderPy: "py-0.5", sidebarFolderText: "text-[11.5px]",
+        sidebarSectionPt: "pt-2", sidebarSectionPb: "pb-0.5",
+        sidebarAvatar: "h-5 w-5", sidebarIcon: "h-3 w-3",
+        composeBtnH: "h-8", composeBtnText: "text-[12.5px]",
+        chipsRootPad: "px-3 py-2", chipsRootGap: "space-y-1.5",
+        chipPy: "py-0.5", chipPx: "px-2", chipText: "text-[10.5px]",
+        searchH: "h-7",
+        readerHeaderPx: "px-5", readerHeaderPy: "py-3.5",
+        readerSubjectText: "text-[17px]", readerMetaMt: "mt-1",
+        readerThreadPx: "px-3", readerThreadPt: "pt-3", readerThreadGap: "space-y-3",
+        msgHeaderPx: "px-4", msgHeaderPy: "py-3",
+        msgBodyPx: "px-4", msgBodyPy: "py-3",
+        msgAvatar: "w-8 h-8", msgAvatarText: "text-[11px]",
+        msgSenderText: "text-[13.5px]",
+        replyBarPx: "px-3", replyBarPy: "py-2",
+      },
+      ultra: {
+        py: "py-1.5", senderText: "text-[12px]", subText: "text-[11px]", showSnippet: false, signalsMt: "mt-0",
+        sidebarRowPy: "py-0.5", sidebarRowText: "text-[11px]",
+        sidebarSubtabPy: "py-0.5", sidebarSubtabText: "text-[11px]",
+        sidebarFolderPy: "py-0.5", sidebarFolderText: "text-[11px]",
+        sidebarSectionPt: "pt-1.5", sidebarSectionPb: "pb-0",
+        sidebarAvatar: "h-5 w-5", sidebarIcon: "h-3 w-3",
+        composeBtnH: "h-7", composeBtnText: "text-[12px]",
+        chipsRootPad: "px-3 py-1.5", chipsRootGap: "space-y-1",
+        chipPy: "py-0.5", chipPx: "px-2", chipText: "text-[10px]",
+        searchH: "h-7",
+        readerHeaderPx: "px-4", readerHeaderPy: "py-2.5",
+        readerSubjectText: "text-[15px]", readerMetaMt: "mt-0.5",
+        readerThreadPx: "px-3", readerThreadPt: "pt-2", readerThreadGap: "space-y-2",
+        msgHeaderPx: "px-3.5", msgHeaderPy: "py-2.5",
+        msgBodyPx: "px-3.5", msgBodyPy: "py-2.5",
+        msgAvatar: "w-7 h-7", msgAvatarText: "text-[10px]",
+        msgSenderText: "text-[12.5px]",
+        replyBarPx: "px-3", replyBarPy: "py-1.5",
+      },
     };
     return map[density];
   }, [density]);
@@ -3856,7 +3921,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   setCurrentThreadAccountId(null);
                 }}
                 data-testid="btn-account-all"
-                className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors ${activeAccountId === "all" ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+                className={`w-full flex items-center gap-2.5 px-2 ${densityClasses.sidebarRowPy} rounded-md transition-colors ${activeAccountId === "all" ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
               >
                 <span className={`flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center ${activeAccountId === "all" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
                   <Inbox className="h-3.5 w-3.5" />
@@ -3878,7 +3943,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     setActiveAccountId(null); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); setCurrentThreadAccountId(null);
                   }}
                   data-testid="btn-account-personal"
-                  className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors ${activeAccountId === null ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+                  className={`w-full flex items-center gap-2.5 px-2 ${densityClasses.sidebarRowPy} rounded-md transition-colors ${activeAccountId === null ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
                 >
                   <span className={`relative flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${activeAccountId === null ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
                     {(personalAccount.displayName || personalAccount.emailAddress)[0].toUpperCase()}
@@ -3900,40 +3965,40 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 {activeAccountId === null && (
                   <div className="ml-3 pl-2 border-l border-border/40 space-y-0.5 mt-0.5 mb-1">
                     <button onClick={() => { setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-inbox"
-                      className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "inbox" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                      className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "inbox" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                       <Inbox className="h-3.5 w-3.5" /><span className="flex-1 text-left">Inbox</span>
                       {inboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{inboxUnreadCount}</span>}
                     </button>
                     <button onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-sent"
-                      className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                      className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                       <Send className="h-3.5 w-3.5" /><span className="flex-1 text-left">Sent</span>
                     </button>
                     {canSend && <>
                       <button onClick={() => { setTab("drafts"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-drafts"
-                        className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "drafts" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                        className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "drafts" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                         <FileText className="h-3.5 w-3.5" /><span className="flex-1 text-left">Drafts</span>
                         {(draftsQuery.data?.length ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "drafts" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{draftsQuery.data?.length}</span>}
                       </button>
                       <button onClick={() => { setTab("scheduled"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-scheduled"
-                        className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "scheduled" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                        className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "scheduled" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                         <CalendarClock className="h-3.5 w-3.5" /><span className="flex-1 text-left">Scheduled</span>
                         {(scheduledQuery.data?.length ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "scheduled" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{scheduledQuery.data?.length}</span>}
                       </button>
                     </>}
                     <button onClick={() => { setTab("other"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-other"
-                      className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "other" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                      className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "other" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                       <FolderX className="h-3.5 w-3.5" /><span className="flex-1 text-left">Other</span>
                       {inboxOther.length > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-muted text-muted-foreground">{inboxOther.length}</span>}
                     </button>
                     {((reviewStatsQuery.data?.needsReview ?? 0) > 0 || tab === "review") && (
                       <button onClick={() => { setTab("review"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-review"
-                        className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "review" ? "bg-amber-500/15 text-amber-400" : "text-amber-500/80 hover:bg-amber-500/10 hover:text-amber-400"}`}>
+                        className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "review" ? "bg-amber-500/15 text-amber-400" : "text-amber-500/80 hover:bg-amber-500/10 hover:text-amber-400"}`}>
                         <ShieldCheck className="h-3.5 w-3.5" /><span className="flex-1 text-left">CRM Review</span>
                         {(reviewStatsQuery.data?.needsReview ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "review" ? "bg-amber-500/30 text-amber-300" : "bg-amber-500/20 text-amber-400"}`}>{reviewStatsQuery.data!.needsReview}</span>}
                       </button>
                     )}
                     {/* Folders under personal */}
-                    <div className="pt-1.5 pb-0.5 flex items-center justify-between pr-1">
+                    <div className={`${densityClasses.sidebarSectionPt} pb-0.5 flex items-center justify-between pr-1`}>
                       <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Folders</span>
                       <button className="text-muted-foreground hover:text-foreground transition-colors rounded p-0.5 hover:bg-muted/60" onClick={() => setShowCreateFolder(true)} title="New folder" data-testid="button-new-folder">
                         <FolderPlus className="h-3 w-3" />
@@ -3944,7 +4009,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     {(foldersQuery.data || []).map((folder) => {
                       const isFolderActive = tab === "folder" && selectedFolderId === folder.id;
                       return (
-                        <div key={folder.id} className={`group flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer transition-colors text-[12px] font-medium ${isFolderActive ? "bg-primary/15 text-primary" : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"}`}
+                        <div key={folder.id} className={`group flex items-center gap-2 px-2 ${densityClasses.sidebarFolderPy} rounded-md cursor-pointer transition-colors ${densityClasses.sidebarFolderText} font-medium ${isFolderActive ? "bg-primary/15 text-primary" : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"}`}
                           onClick={() => { setTab("folder"); setSelectedFolderId(folder.id); setSelectedThreadId(null); setSelectedMessageId(null); }} data-testid={`folder-row-${folder.id}`}>
                           <Folder className={`h-3.5 w-3.5 flex-shrink-0 ${isFolderActive ? "text-primary" : "text-teal-500/70"}`} />
                           <span className="flex-1 truncate">{folder.name}</span>
@@ -3970,7 +4035,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             {/* ── TEAM INBOXES section ──────────────────────────────────── */}
             {sharedAccounts.length > 0 && (
               <>
-                <div className="pt-3 pb-0.5 px-1">
+                <div className={`${densityClasses.sidebarSectionPt} pb-0.5 px-1`}>
                   <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Team Inboxes</span>
                 </div>
                 {sharedAccounts.map((acct) => {
@@ -3985,7 +4050,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         }}
                         data-testid={`btn-account-shared-${acct.id}`}
                         title={acct.emailAddress}
-                        className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors ${isThisActive ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+                        className={`w-full flex items-center gap-2.5 px-2 ${densityClasses.sidebarRowPy} rounded-md transition-colors ${isThisActive ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
                       >
                         <span className={`relative flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${isThisActive ? "bg-teal-500 text-white" : "bg-teal-900/60 text-teal-300"}`}>
                           {letter}
@@ -4006,33 +4071,33 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       {isThisActive && (
                         <div className="ml-3 pl-2 border-l border-border/40 space-y-0.5 mt-0.5 mb-1">
                           <button onClick={() => { setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-inbox-${acct.id}`}
-                            className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "inbox" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                            className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "inbox" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                             <Inbox className="h-3.5 w-3.5" /><span className="flex-1 text-left">Inbox</span>
                             {inboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{inboxUnreadCount}</span>}
                           </button>
                           <button onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-sent-${acct.id}`}
-                            className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                            className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                             <Send className="h-3.5 w-3.5" /><span className="flex-1 text-left">Sent</span>
                           </button>
                           {canSend && <>
                             <button onClick={() => { setTab("drafts"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-drafts-${acct.id}`}
-                              className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "drafts" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                              className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "drafts" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                               <FileText className="h-3.5 w-3.5" /><span className="flex-1 text-left">Drafts</span>
                               {(draftsQuery.data?.length ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "drafts" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{draftsQuery.data?.length}</span>}
                             </button>
                             <button onClick={() => { setTab("scheduled"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-scheduled-${acct.id}`}
-                              className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "scheduled" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                              className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "scheduled" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                               <CalendarClock className="h-3.5 w-3.5" /><span className="flex-1 text-left">Scheduled</span>
                               {(scheduledQuery.data?.length ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "scheduled" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{scheduledQuery.data?.length}</span>}
                             </button>
                           </>}
                           <button onClick={() => { setTab("other"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-other-${acct.id}`}
-                            className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors ${tab === "other" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                            className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "other" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                             <FolderX className="h-3.5 w-3.5" /><span className="flex-1 text-left">Other</span>
                             {inboxOther.length > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-muted text-muted-foreground">{inboxOther.length}</span>}
                           </button>
                           {/* Folders under each team inbox */}
-                          <div className="pt-1.5 pb-0.5 flex items-center justify-between pr-1">
+                          <div className={`${densityClasses.sidebarSectionPt} pb-0.5 flex items-center justify-between pr-1`}>
                             <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Folders</span>
                             <button className="text-muted-foreground hover:text-foreground transition-colors rounded p-0.5 hover:bg-muted/60" onClick={() => setShowCreateFolder(true)} title="New folder" data-testid={`button-new-folder-${acct.id}`}>
                               <FolderPlus className="h-3 w-3" />
@@ -4043,7 +4108,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           {(foldersQuery.data || []).map((folder) => {
                             const isFolderActive = tab === "folder" && selectedFolderId === folder.id;
                             return (
-                              <div key={folder.id} className={`group flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer transition-colors text-[12px] font-medium ${isFolderActive ? "bg-primary/15 text-primary" : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"}`}
+                              <div key={folder.id} className={`group flex items-center gap-2 px-2 ${densityClasses.sidebarFolderPy} rounded-md cursor-pointer transition-colors ${densityClasses.sidebarFolderText} font-medium ${isFolderActive ? "bg-primary/15 text-primary" : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"}`}
                                 onClick={() => { setTab("folder"); setSelectedFolderId(folder.id); setSelectedThreadId(null); setSelectedMessageId(null); }} data-testid={`folder-row-${acct.id}-${folder.id}`}>
                                 <Folder className={`h-3.5 w-3.5 flex-shrink-0 ${isFolderActive ? "text-primary" : "text-teal-500/70"}`} />
                                 <span className="flex-1 truncate">{folder.name}</span>
@@ -4136,7 +4201,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           </div>
 
           {/* Category pills + Search */}
-          <div className="flex-shrink-0 p-3 space-y-2 border-b border-border/50">
+          <div className={`flex-shrink-0 ${densityClasses.chipsRootPad} ${densityClasses.chipsRootGap} border-b border-border/50`}>
             {tab === "inbox" && (
               <>
                 {/* Category pills — horizontally scrollable on mobile */}
@@ -4153,7 +4218,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       key={key}
                       onClick={() => setInboxCategory(key)}
                       data-testid={`inbox-category-${key}`}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
+                      className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-colors whitespace-nowrap ${
                         inboxCategory === key
                           ? key === "priority"
                             ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
@@ -4182,7 +4247,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       key={key}
                       onClick={() => setCrmFilter(key)}
                       data-testid={`crm-filter-${key}`}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors whitespace-nowrap ${
+                      className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-colors whitespace-nowrap ${
                         crmFilter === key
                           ? "bg-violet-500/20 text-violet-400 border border-violet-500/30"
                           : "bg-muted/30 text-muted-foreground/60 hover:bg-muted/60 hover:text-muted-foreground"
@@ -4228,7 +4293,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       key={key}
                       onClick={() => setCrmFilter(crmFilter === key ? "all" : key)}
                       data-testid={`triage-filter-${key}`}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors whitespace-nowrap ${
+                      className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-colors whitespace-nowrap ${
                         crmFilter === key
                           ? activeClass
                           : "bg-muted/30 text-muted-foreground/60 hover:bg-muted/60 hover:text-muted-foreground"
@@ -4254,7 +4319,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search emails..."
-                  className="pl-7 h-8 text-sm"
+                  className={`pl-7 ${densityClasses.searchH} text-sm`}
                   data-testid="input-email-search"
                 />
               </div>
@@ -4924,7 +4989,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           return (
           <div className={`flex-1 flex flex-col min-h-0 transition-colors duration-300 ${focusMode ? "bg-gradient-to-b from-background via-background to-card/10" : ""}`}>
             {/* Thread header — premium hero card */}
-            <div className={`flex-shrink-0 border-b border-border/30 bg-gradient-to-b from-card/40 via-card/20 to-transparent transition-all duration-300 ${focusMode ? "px-6 py-6" : "px-6 py-5"}`}>
+            <div className={`flex-shrink-0 border-b border-border/30 bg-gradient-to-b from-card/40 via-card/20 to-transparent transition-all duration-300 ${focusMode ? "px-6 py-6" : `${densityClasses.readerHeaderPx} ${densityClasses.readerHeaderPy}`}`}>
               <div className={`flex items-start gap-3 transition-[max-width] duration-300 ${focusMode ? "max-w-5xl mx-auto w-full" : ""}`}>
                 <Button variant="ghost" size="icon" className="md:hidden h-8 w-8 -ml-2 mt-0.5" onClick={handleBack}>
                   <ChevronLeft className="h-4 w-4" />
@@ -4938,13 +5003,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   ) : (
                     <>
                       <h1
-                        className="font-semibold text-[20px] leading-[1.25] tracking-[-0.012em] text-foreground"
+                        className={`font-semibold ${densityClasses.readerSubjectText} leading-[1.25] tracking-[-0.012em] text-foreground`}
                         data-testid="text-thread-subject"
                       >
                         {focusedMsg?.subject || "(no subject)"}
                       </h1>
                       {focusedMsg && (
-                        <p className="text-[12px] text-muted-foreground/65 mt-1.5 flex items-center gap-2 flex-wrap">
+                        <p className={`text-[12px] text-muted-foreground/65 ${densityClasses.readerMetaMt} flex items-center gap-2 flex-wrap`}>
                           <span className="tabular-nums font-medium">
                             {selectedMessages.length} message{selectedMessages.length !== 1 ? "s" : ""}
                           </span>
@@ -5043,8 +5108,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             </div>
 
             {/* Messages in thread — bottom padding so last message is not hidden under FAB */}
-            <div className={`flex-1 overflow-y-auto pt-4 pb-36 md:pb-24 transition-[padding] duration-300 ${focusMode ? "px-4" : "px-4"}`}>
-            <div className={`space-y-4 transition-[max-width] duration-300 ${focusMode ? "max-w-5xl mx-auto w-full" : ""}`}>
+            <div className={`flex-1 overflow-y-auto ${densityClasses.readerThreadPt} pb-36 md:pb-24 transition-[padding] duration-300 ${focusMode ? "px-4" : densityClasses.readerThreadPx}`}>
+            <div className={`${densityClasses.readerThreadGap} transition-[max-width] duration-300 ${focusMode ? "max-w-5xl mx-auto w-full" : ""}`}>
               {threadQuery.isLoading && (
                 <div className="space-y-3">
                   {Array.from({ length: 3 }).map((_, i) => (
@@ -5068,11 +5133,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     data-testid={`email-message-${msg.id}`}
                   >
                     {/* Message header — premium sender card */}
-                    <div className="bg-gradient-to-b from-card/55 to-card/15 px-5 py-4 border-b border-border/25">
+                    <div className={`bg-gradient-to-b from-card/55 to-card/15 ${densityClasses.msgHeaderPx} ${densityClasses.msgHeaderPy} border-b border-border/25`}>
                       <div className="flex items-start gap-3.5">
                         {/* Avatar — deterministic gradient */}
                         <div
-                          className={`w-10 h-10 rounded-full bg-gradient-to-br ${avatarColor(parseSenderEmail(msg.from))} text-white flex items-center justify-center text-[12.5px] font-bold flex-shrink-0 shadow-md ring-1 ring-black/5 select-none`}
+                          className={`${densityClasses.msgAvatar} rounded-full bg-gradient-to-br ${avatarColor(parseSenderEmail(msg.from))} text-white flex items-center justify-center ${densityClasses.msgAvatarText} font-bold flex-shrink-0 shadow-md ring-1 ring-black/5 select-none`}
                           data-testid={`avatar-sender-${msg.id}`}
                           title={parseSenderName(msg.from)}
                         >
@@ -5081,7 +5146,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         <div className="flex-1 min-w-0 pt-0.5">
                           <div className="flex items-baseline justify-between gap-2">
                             <p
-                              className="font-semibold text-[14.5px] text-foreground leading-tight tracking-[-0.005em] truncate"
+                              className={`font-semibold ${densityClasses.msgSenderText} text-foreground leading-tight tracking-[-0.005em] truncate`}
                               data-testid={`text-sender-${msg.id}`}
                             >
                               {parseSenderName(msg.from)}
@@ -5107,7 +5172,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       </div>
                     </div>
                     {/* Message body */}
-                    <div className="px-5 py-4 bg-background/30">
+                    <div className={`${densityClasses.msgBodyPx} ${densityClasses.msgBodyPy} bg-background/30`}>
                       <MessageBody body={msg.body} isHtml={msg.isHtml} />
                     </div>
                     {/* Attachment strip (Phase 2E) */}
@@ -5142,7 +5207,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             {/* Sticky reply bar */}
             {canSend && focusedMsg && (
               <div className="flex-shrink-0 border-t border-border/30 bg-card/20">
-                <div className={`px-4 py-2.5 flex items-center gap-2 transition-[max-width] duration-300 ${focusMode ? "max-w-5xl mx-auto w-full" : ""}`}>
+                <div className={`${densityClasses.replyBarPx} ${densityClasses.replyBarPy} flex items-center gap-2 transition-[max-width] duration-300 ${focusMode ? "max-w-5xl mx-auto w-full" : ""}`}>
                   <button
                     onClick={() => handleReply(focusedMsg)}
                     data-testid="button-reply-bar"
