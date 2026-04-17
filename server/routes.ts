@@ -7309,7 +7309,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   // Phase 2C: source=local|gmail|auto. Default 'gmail' preserves prior behavior.
-  // 'auto' tries local first; if local returns 0 rows, transparently falls back to Gmail.
+  // 'auto' (Apr 2026 fix): the previous "local if local has > 0 rows" rule made the
+  // user blind to recent-but-not-yet-synced emails — local could return a stale page
+  // and the Gmail fallback never fired. New rule: on the FIRST page (no pageToken),
+  // prefer Gmail (source of truth for freshness) and use local only when Gmail fails.
+  // For subsequent pages, route by token shape (digits = local offset; otherwise = Gmail).
   app.get("/api/gmail/messages", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     // Multi-mailbox Phase 1: accept "all" sentinel for unified inbox in addition to numeric ids.
@@ -7322,36 +7326,63 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const q = (req.query.q as string) || "";
     const maxResults = Math.min(Number(req.query.limit) || 50, 100);
     const pageToken = (req.query.pageToken as string) || undefined;
+    const isLocalPageToken = !!pageToken && /^\d+$/.test(pageToken);
 
-    if (source === "local" || source === "auto") {
+    const tryLocal = async () => {
+      const { listLocalMessages } = await import("./services/local-mailbox");
+      return listLocalMessages({
+        resolved: {
+          userId: resolved.userId,
+          accountId: (resolved as any).accountIds ? undefined : resolved.accountId,
+          accountIds: (resolved as any).accountIds,
+        },
+        q, limit: maxResults, pageToken: pageToken ?? null,
+      });
+    };
+    const sendLocal = (local: { messages: any[]; nextPageToken: string | null; tookMs: number }) => {
+      res.setHeader("X-Mail-Source", "local");
+      res.setHeader("X-Mail-Took-Ms", String(local.tookMs));
+      return res.json({ messages: local.messages, nextPageToken: local.nextPageToken });
+    };
+
+    // ── source=local: always local (explicit user opt-in for offline cache) ─────
+    if (source === "local") {
+      try { return sendLocal(await tryLocal()); }
+      catch (err: any) { return res.status(500).json({ message: "Local mailbox query failed", error: err.message }); }
+    }
+
+    // ── source=auto + paginating into deep history with a local token ──
+    if (source === "auto" && isLocalPageToken) {
       try {
-        const { listLocalMessages } = await import("./services/local-mailbox");
-        const local = await listLocalMessages({
-          resolved: {
-            userId: resolved.userId,
-            accountId: (resolved as any).accountIds ? undefined : resolved.accountId,
-            accountIds: (resolved as any).accountIds,
-          },
-          q, limit: maxResults, pageToken: pageToken ?? null,
-        });
-        if (source === "local" || local.messages.length > 0) {
-          res.setHeader("X-Mail-Source", "local");
-          res.setHeader("X-Mail-Took-Ms", String(local.tookMs));
-          return res.json({ messages: local.messages, nextPageToken: local.nextPageToken });
-        }
-        // auto + 0 rows → fallthrough to Gmail
+        const local = await tryLocal();
+        if (local.messages.length > 0) return sendLocal(local);
+        // empty local page → fall through to Gmail (no token, since shape mismatch)
       } catch (err: any) {
-        if (source === "local") return res.status(500).json({ message: "Local mailbox query failed", error: err.message });
-        // auto: log + fall through
-        console.warn("[mail-source=auto] local read failed, falling back to gmail:", err.message);
+        console.warn("[mail-source=auto] paginated local read failed, falling back to gmail:", err.message);
       }
     }
+
+    // ── Default path: Gmail (source=gmail OR source=auto first-page OR source=auto with gmail-token) ──
     try {
-      const { summaries, nextPageToken } = await getMessageSummaries(resolved.userId, maxResults, q, pageToken, resolved.accountId);
+      const { summaries, nextPageToken } = await getMessageSummaries(
+        resolved.userId, maxResults, q,
+        // strip a local-format token when handing to Gmail; Gmail would 400 on it.
+        isLocalPageToken ? undefined : pageToken,
+        resolved.accountId,
+      );
       res.setHeader("X-Mail-Source", "gmail");
-      res.json({ messages: summaries, nextPageToken });
+      return res.json({ messages: summaries, nextPageToken });
     } catch (err: any) {
-      res.status(503).json({ message: "Gmail not connected", error: err.message });
+      // ── source=auto Gmail failure: fall back to local so the user is never empty-handed ──
+      if (source === "auto") {
+        try {
+          console.error("[mail-source=auto] Gmail failed, serving local fallback:", err.message);
+          return sendLocal(await tryLocal());
+        } catch (lerr: any) {
+          console.error("[mail-source=auto] local fallback also failed:", lerr.message);
+        }
+      }
+      return res.status(503).json({ message: "Gmail not connected", error: err.message });
     }
   });
 
@@ -7366,33 +7397,55 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const q = (req.query.q as string) || "";
     const maxResults = Math.min(Number(req.query.limit) || 30, 100);
 
-    if (source === "local" || source === "auto") {
+    // Same auto-mode policy as /api/gmail/messages: Gmail-first on first page,
+    // local only as fallback. Threads list doesn't expose pagination tokens to
+    // the UI today, so this is simpler.
+    const pageTokenRaw = (req.query.pageToken as string) || null;
+    const isLocalPageToken = !!pageTokenRaw && /^\d+$/.test(pageTokenRaw);
+
+    const tryLocalThreads = async () => {
+      const { listLocalThreads } = await import("./services/local-mailbox");
+      return listLocalThreads({
+        resolved: {
+          userId: resolved.userId,
+          accountId: (resolved as any).accountIds ? undefined : resolved.accountId,
+          accountIds: (resolved as any).accountIds,
+        },
+        q, limit: maxResults, pageToken: pageTokenRaw,
+      });
+    };
+    const sendLocalThreads = (local: { threads: any[]; tookMs: number }) => {
+      res.setHeader("X-Mail-Source", "local");
+      res.setHeader("X-Mail-Took-Ms", String(local.tookMs));
+      return res.json(local.threads);
+    };
+
+    if (source === "local") {
+      try { return sendLocalThreads(await tryLocalThreads()); }
+      catch (err: any) { return res.status(500).json({ message: "Local thread query failed", error: err.message }); }
+    }
+    if (source === "auto" && isLocalPageToken) {
       try {
-        const { listLocalThreads } = await import("./services/local-mailbox");
-        const local = await listLocalThreads({
-          resolved: {
-            userId: resolved.userId,
-            accountId: (resolved as any).accountIds ? undefined : resolved.accountId,
-            accountIds: (resolved as any).accountIds,
-          },
-          q, limit: maxResults, pageToken: (req.query.pageToken as string) || null,
-        });
-        if (source === "local" || local.threads.length > 0) {
-          res.setHeader("X-Mail-Source", "local");
-          res.setHeader("X-Mail-Took-Ms", String(local.tookMs));
-          return res.json(local.threads);
-        }
+        const local = await tryLocalThreads();
+        if (local.threads.length > 0) return sendLocalThreads(local);
       } catch (err: any) {
-        if (source === "local") return res.status(500).json({ message: "Local thread query failed", error: err.message });
-        console.warn("[mail-source=auto] local threads failed, falling back to gmail:", err.message);
+        console.warn("[mail-source=auto] paginated local threads failed, falling back to gmail:", err.message);
       }
     }
     try {
       const threads = await listThreads(resolved.userId, q, maxResults, resolved.accountId);
       res.setHeader("X-Mail-Source", "gmail");
-      res.json(threads);
+      return res.json(threads);
     } catch (err: any) {
-      res.status(503).json({ message: "Gmail not connected", error: err.message });
+      if (source === "auto") {
+        try {
+          console.error("[mail-source=auto] Gmail threads failed, serving local fallback:", err.message);
+          return sendLocalThreads(await tryLocalThreads());
+        } catch (lerr: any) {
+          console.error("[mail-source=auto] local thread fallback also failed:", lerr.message);
+        }
+      }
+      return res.status(503).json({ message: "Gmail not connected", error: err.message });
     }
   });
 
@@ -7408,12 +7461,29 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       try {
         const { getLocalThread } = await import("./services/local-mailbox");
         const local = await getLocalThread({
-          resolved: { userId: resolved.userId, accountId: resolved.accountId },
+          // Pass accountIds when in unified mode so shared-mailbox threads owned by
+          // a different user are still found. getLocalThread itself no longer hard-
+          // binds owner_user_id when accountId/accountIds is set (Apr 2026 fix for
+          // team-inbox blank-body bug).
+          resolved: {
+            userId: resolved.userId,
+            accountId: (resolved as any).accountIds ? undefined : resolved.accountId,
+            accountIds: (resolved as any).accountIds,
+          },
           threadId: req.params.id,
         });
         if (local) {
-          res.setHeader("X-Mail-Source", "local");
-          return res.json(local);
+          // Phase fix Apr 2026: if local has the thread but every message has an
+          // empty body AND empty subject, the local row was synced with metadata-
+          // only — fall back to Gmail (auto mode) so the user sees real content.
+          const everyMsgEmpty = local.messages.length > 0 && local.messages.every(
+            (m: any) => !((m.body || "").trim()) && !((m.subject || "").trim())
+          );
+          if (source === "local" || !everyMsgEmpty) {
+            res.setHeader("X-Mail-Source", "local");
+            return res.json(local);
+          }
+          console.warn(`[mail-source=auto] local thread ${req.params.id} has empty bodies — falling back to Gmail`);
         }
         if (source === "local") return res.status(404).json({ message: "Thread not in local index" });
         // auto + miss → fall through to Gmail
@@ -8849,6 +8919,34 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         await gmail.users.messages.modify({ userId: "me", id, requestBody: { removeLabelIds: ["STARRED"] } });
       } else {
         await gmail.users.messages.modify({ userId: "me", id, requestBody: { addLabelIds: ["STARRED"] } });
+      }
+      // Apr 2026 fix: mirror the change to the local index so the next read
+      // (mailSource=auto/local) doesn't show the stale state and visually
+      // "un-toggle" the user's click. Best-effort — never block the response.
+      try {
+        const newStarred = !isStarred;
+        const accIdClause = resolved.accountId ? ` AND source_account_id = ${Number(resolved.accountId)}` : "";
+        const safeId = id.replace(/'/g, "''");
+        const r = await db.execute(sql.raw(
+          `SELECT id, label_ids FROM email_messages WHERE gmail_message_id = '${safeId}'${accIdClause} LIMIT 1`
+        ));
+        const row = ((r as any).rows ?? r)[0] as any;
+        if (row) {
+          let labels: string[] = [];
+          const raw = (row.label_ids || "").trim();
+          try {
+            if (raw.startsWith("[")) labels = JSON.parse(raw);
+            else if (raw) labels = raw.split(",").map((s: string) => s.trim()).filter(Boolean);
+          } catch { labels = []; }
+          const set = new Set(labels);
+          if (newStarred) set.add("STARRED"); else set.delete("STARRED");
+          const json = JSON.stringify([...set]).replace(/'/g, "''");
+          await db.execute(sql.raw(
+            `UPDATE email_messages SET label_ids = '${json}' WHERE id = ${Number(row.id)}`
+          ));
+        }
+      } catch (mirrorErr: any) {
+        console.error("[toggle-star] local-mirror failed (non-fatal):", mirrorErr.message);
       }
       res.json({ starred: !isStarred });
     } catch (err: any) {

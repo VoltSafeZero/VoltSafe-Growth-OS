@@ -263,12 +263,23 @@ export async function listLocalThreads(p: {
 }
 
 // ── Thread detail from local DB (returns null if no rows so caller can fallback) ───
+// Authorization model (Apr 2026 fix): mirror listLocalMessages — when the caller
+// has resolved a specific accountId or accountIds, that IS the auth boundary
+// (already permission-vetted upstream). Hard-binding owner_user_id alongside
+// silently dropped shared-mailbox threads owned by another user, which is
+// exactly what made team-inbox messages render blank.
 export async function getLocalThread(p: { resolved: Resolved; threadId: string }): Promise<LocalThreadDetail | null> {
-  const where: string[] = [
-    `owner_user_id = ${Number(p.resolved.userId)}`,
-    `gmail_thread_id = '${safe(p.threadId)}'`,
-  ];
-  if (p.resolved.accountId) where.push(`source_account_id = ${Number(p.resolved.accountId)}`);
+  const where: string[] = [`gmail_thread_id = '${safe(p.threadId)}'`];
+  if (p.resolved.accountIds && p.resolved.accountIds.length > 0) {
+    const ids = p.resolved.accountIds.map(n => Number(n)).filter(n => Number.isFinite(n));
+    if (ids.length === 0) return null;
+    where.push(`source_account_id IN (${ids.join(",")})`);
+  } else if (p.resolved.accountId) {
+    where.push(`source_account_id = ${Number(p.resolved.accountId)}`);
+  } else {
+    // Legacy fallback only when no accountId scope was resolved.
+    where.push(`owner_user_id = ${Number(p.resolved.userId)}`);
+  }
   const rowsRes = await db.execute(sql.raw(`
     SELECT
       id, gmail_message_id, gmail_thread_id, snippet, sent_at,
