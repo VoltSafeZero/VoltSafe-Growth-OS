@@ -1,5 +1,43 @@
 # Replit Agent Configuration
 
+## Mailbox Local Search (Phase 2B — Complete)
+
+### What was built
+Fast, local indexed search across `email_messages` (full mailbox history, ms-fast) — independent of Gmail's slow search API. Sits next to the live Gmail inbox view; does not replace it.
+
+### New files
+- `server/services/email-search.ts` — `ensureSearchIndexes()` (idempotent index DDL) + `searchEmails(params)` with FTS, trigram, composite indexes, ts_rank ordering, and ts_headline snippet highlighting (`<<…>>` markers).
+
+### Indexes added (all `CREATE INDEX IF NOT EXISTS` — pure additive, no Drizzle schema change)
+- `idx_email_owner_sent` (owner_user_id, sent_at DESC) — per-user inbox hot path
+- `idx_email_account_sent` (source_account_id, sent_at DESC) — per-mailbox hot path
+- `idx_email_thread`, `idx_email_from_domain`, `idx_email_direction_sent`
+- `pg_trgm` extension + `idx_email_participants_trgm`, `idx_email_subject_trgm` — fast ILIKE
+- `idx_email_fts` GIN on `to_tsvector('english', subject || from_name || from_email || snippet || body_text)` — full-text search
+
+### Routes (`server/routes.ts` ~9441)
+- `GET /api/email-search?q=&from=&to=&domain=&dateFrom=&dateTo=&label=&direction=&accountId=&scope=&limit=&offset=` — local DB search.
+  - `scope=mine` (default) restricts to caller's `owner_user_id`. `scope=all` is admin-only (master_admin/admin); silently downgraded to `mine` for non-admins.
+  - `direction` is whitelisted to `inbound|outbound` (anything else dropped).
+- `POST /api/email-search/reindex` — re-runs `ensureSearchIndexes()` (idempotent).
+
+### Startup
+`server/index.ts` runs `ensureSearchIndexes()` on boot (non-blocking, after Gmail watch renewal scheduler).
+
+### UI (`client/src/pages/gmail-inbox.tsx`)
+New `LocalSearchButton` next to refresh-inbox in the mail header opens a right-side Sheet with: full-text query, from/domain, direction, date range. Hits `/api/email-search`, renders ranked results with highlighted snippets (`<<…>>` → `<mark>`), shows `{total} matches · {tookMs}ms`, click row → opens that thread in inbox.
+
+### Validated on Trevor's mailbox (14,935 rows)
+- FTS `q=invoice` → 317 hits in **96ms**
+- domain=gmail.com → 166 hits in **1ms**
+- from=stripe → 20 hits in 22ms
+- bad direction `BAD;DROP` → silently dropped, no SQL error (14,935 baseline)
+- 71/71 permissions tests pass
+- live Gmail sync + backfill job #2 untouched (still progressing)
+
+### Phase 2A recap (still live)
+GCP Pub/Sub topic + IAM, secrets `GMAIL_PUBSUB_TOPIC` + `GMAIL_WEBHOOK_TOKEN`, watch on support@voltsafe.com 🟢; production webhook `https://image-linker-burgesstrevor76.replit.app/api/webhooks/gmail?token=…`; UI surface in `mailbox-health.tsx`.
+
 ## Global Layout Safety Rules (Established in UI Overlap Audit)
 
 ### Z-Index Layer System

@@ -9435,6 +9435,54 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // ── Phase 2B: Local indexed email search ───────────────────────────────────
+  // GET /api/email-search?q=&from=&to=&domain=&dateFrom=&dateTo=&label=&direction=&accountId=&scope=&limit=50&offset=0
+  // scope=mine (default) → restrict to req.session.userId's owned mailboxes; scope=all → admin/all
+  app.get("/api/email-search", requireAuth, async (req, res) => {
+    try {
+      const { searchEmails } = await import("./services/email-search");
+      const userId = (req.session as any).userId as number;
+      const globalRole = (req.session as any).globalRole as string | undefined;
+      const isAdminUser = globalRole === "master_admin" || globalRole === "admin";
+      // Authorization: scope=all is admin-only; everyone else is forced to scope=mine.
+      const requestedScope = (req.query.scope as string) || "mine";
+      const effectiveScope = isAdminUser && requestedScope === "all" ? "all" : "mine";
+      const accountId = req.query.accountId ? Number(req.query.accountId) : undefined;
+      // Whitelist direction to prevent SQL-string surprises and bad enums.
+      const dirRaw = (req.query.direction as string | undefined) || undefined;
+      const direction = dirRaw === "inbound" || dirRaw === "outbound" ? dirRaw : undefined;
+      const result = await searchEmails({
+        ownerUserId: effectiveScope === "mine" ? userId : null,
+        accountId: accountId ?? null,
+        q: req.query.q as string | undefined,
+        from: req.query.from as string | undefined,
+        to: req.query.to as string | undefined,
+        domain: req.query.domain as string | undefined,
+        dateFrom: req.query.dateFrom as string | undefined,
+        dateTo: req.query.dateTo as string | undefined,
+        label: req.query.label as string | undefined,
+        direction,
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+        offset: req.query.offset ? Number(req.query.offset) : undefined,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: "Search failed", error: err.message });
+    }
+  });
+
+  // POST /api/email-search/reindex — admin: rebuild/ensure indexes (idempotent)
+  app.post("/api/email-search/reindex", requireAuth, async (_req, res) => {
+    try {
+      const { ensureSearchIndexes } = await import("./services/email-search");
+      const t0 = Date.now();
+      await ensureSearchIndexes();
+      res.json({ ok: true, tookMs: Date.now() - t0 });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Email Filters (blocked domains → "Other") ───────────────────────────
   app.get("/api/email-filters", requireAuth, async (req, res) => {
     try {

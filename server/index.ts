@@ -185,6 +185,10 @@ app.use((req, res, next) => {
       // Phase 2A: Gmail watch renewal (no-op if GMAIL_PUBSUB_TOPIC unset)
       const { startWatchRenewalScheduler } = await import("./services/gmail-watch");
       startWatchRenewalScheduler();
+      // Phase 2B: ensure local search indexes exist (idempotent, non-blocking)
+      import("./services/email-search")
+        .then(({ ensureSearchIndexes }) => ensureSearchIndexes())
+        .catch((e) => console.error("[email-search] ensureSearchIndexes failed:", e?.message || e));
     },
   );
 })();

@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -2074,6 +2075,179 @@ function CrmContextPanel({
   );
 }
 
+// ── Phase 2B: Local indexed search (Sheet panel) ──────────────────────────
+type LocalSearchHit = {
+  id: number;
+  gmailMessageId: string;
+  gmailThreadId: string;
+  subject: string | null;
+  fromEmail: string | null;
+  fromName: string | null;
+  toEmails: string | null;
+  sentAt: string | null;
+  direction: string | null;
+  snippet: string | null;
+  rank: number | null;
+};
+
+function highlightSnippet(s: string | null) {
+  if (!s) return null;
+  const parts = s.split(/(<<.*?>>)/g);
+  return parts.map((p, i) =>
+    p.startsWith("<<") && p.endsWith(">>") ? (
+      <mark key={i} className="bg-yellow-500/30 text-foreground px-0.5 rounded-sm">
+        {p.slice(2, -2)}
+      </mark>
+    ) : (
+      <span key={i}>{p}</span>
+    )
+  );
+}
+
+function LocalSearchButton() {
+  const [, setLocation] = useLocation();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [from, setFrom] = useState("");
+  const [domain, setDomain] = useState("");
+  const [direction, setDirection] = useState<string>("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  if (from) params.set("from", from);
+  if (domain) params.set("domain", domain);
+  if (direction) params.set("direction", direction);
+  if (dateFrom) params.set("dateFrom", dateFrom);
+  if (dateTo) params.set("dateTo", dateTo);
+  params.set("limit", "50");
+
+  const search = useQuery<{ rows: LocalSearchHit[]; total: number; tookMs: number }>({
+    queryKey: ["/api/email-search", params.toString()],
+    queryFn: async () => {
+      const r = await fetch(`/api/email-search?${params.toString()}`, { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    enabled: submitted && (q.length > 0 || from.length > 0 || domain.length > 0 || direction.length > 0 || dateFrom.length > 0 || dateTo.length > 0),
+  });
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitted(true);
+  };
+
+  const onOpenThread = (threadId: string) => {
+    setOpen(false);
+    setLocation(`/gmail?thread=${encodeURIComponent(threadId)}`);
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <Button size="sm" variant="outline" className="gap-1.5 text-xs" data-testid="button-open-local-search">
+          <Search className="h-3.5 w-3.5" />
+          Search Mailbox
+        </Button>
+      </SheetTrigger>
+      <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2">
+            <Search className="h-4 w-4" /> Search Mailbox
+            <span className="text-[11px] font-normal text-muted-foreground/60">(local index — full history, ms-fast)</span>
+          </SheetTitle>
+        </SheetHeader>
+
+        <form onSubmit={onSubmit} className="grid grid-cols-2 gap-3 mt-4">
+          <div className="col-span-2">
+            <Label className="text-[11px] text-muted-foreground">Search text (subject, body, sender)</Label>
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="invoice, refund, etc." data-testid="input-local-search-q" autoFocus />
+          </div>
+          <div>
+            <Label className="text-[11px] text-muted-foreground">From (email or name)</Label>
+            <Input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="stripe" data-testid="input-local-search-from" />
+          </div>
+          <div>
+            <Label className="text-[11px] text-muted-foreground">Domain</Label>
+            <Input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="gmail.com" data-testid="input-local-search-domain" />
+          </div>
+          <div>
+            <Label className="text-[11px] text-muted-foreground">Direction</Label>
+            <Select value={direction || "any"} onValueChange={(v) => setDirection(v === "any" ? "" : v)}>
+              <SelectTrigger data-testid="select-local-search-direction"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any</SelectItem>
+                <SelectItem value="inbound">Inbound</SelectItem>
+                <SelectItem value="outbound">Outbound</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-[11px] text-muted-foreground">Date from</Label>
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} data-testid="input-local-search-date-from" />
+          </div>
+          <div>
+            <Label className="text-[11px] text-muted-foreground">Date to</Label>
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} data-testid="input-local-search-date-to" />
+          </div>
+          <div className="col-span-2 flex items-center gap-2">
+            <Button type="submit" size="sm" disabled={search.isFetching} data-testid="button-local-search-submit">
+              {search.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Search className="h-3.5 w-3.5 mr-1.5" />}
+              Search
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => { setQ(""); setFrom(""); setDomain(""); setDirection(""); setDateFrom(""); setDateTo(""); setSubmitted(false); }} data-testid="button-local-search-clear">
+              Clear
+            </Button>
+            {search.data && (
+              <span className="text-[11px] text-muted-foreground/70 ml-auto" data-testid="text-local-search-stats">
+                {search.data.total.toLocaleString()} match{search.data.total === 1 ? "" : "es"} · {search.data.tookMs}ms
+              </span>
+            )}
+          </div>
+        </form>
+
+        <div className="mt-4 space-y-1.5">
+          {search.error && (
+            <div className="text-xs text-red-400 p-3 border border-red-500/30 rounded-md" data-testid="text-local-search-error">
+              {(search.error as Error).message}
+            </div>
+          )}
+          {search.data?.rows.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => onOpenThread(r.gmailThreadId)}
+              className="w-full text-left p-2.5 rounded-md border border-border/30 hover:border-border/70 hover:bg-muted/20 transition-colors block"
+              data-testid={`row-local-search-${r.id}`}
+            >
+              <div className="flex items-baseline gap-2">
+                <span className="text-[12px] font-medium text-foreground/90 truncate flex-1">{r.subject || "(no subject)"}</span>
+                <span className="text-[10px] text-muted-foreground/60 flex-shrink-0">
+                  {r.sentAt ? new Date(r.sentAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : ""}
+                </span>
+              </div>
+              <div className="text-[11px] text-muted-foreground/70 truncate">
+                {r.direction === "outbound" ? "→ " : ""}{r.fromName || r.fromEmail}
+              </div>
+              {r.snippet && (
+                <div className="text-[11px] text-muted-foreground/60 mt-1 line-clamp-2">
+                  {highlightSnippet(r.snippet)}
+                </div>
+              )}
+            </button>
+          ))}
+          {submitted && search.data && search.data.rows.length === 0 && !search.isFetching && (
+            <div className="text-xs text-muted-foreground/60 text-center py-6" data-testid="text-local-search-empty">
+              No matches.
+            </div>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 type MailTeamPerms = Record<string, { view: boolean; edit: boolean }>;
 
 export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sales", userPermissions }: {
@@ -3078,6 +3252,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             {syncMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
             {syncMutation.isPending ? "Syncing..." : "Sync to CRM"}
           </Button>
+          <LocalSearchButton />
           <Button
             size="icon"
             variant="ghost"
