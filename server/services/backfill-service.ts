@@ -71,10 +71,11 @@ export async function runBackfillJob(opts: BackfillOptions): Promise<void> {
     log(`[backfill] job=${jobId} account=${account.emailAddress} query="${query}"`);
 
     // Check existing page token from DB (resumable)
-    const [jobRow] = await db.execute(sql.raw(
+    const jobRowRes = await db.execute(sql.raw(
       `SELECT last_page_token FROM backfill_jobs WHERE id = ${jobId}`
     )) as any;
-    let pageToken: string | undefined = (jobRow as any)?.last_page_token ?? undefined;
+    const jobRow = jobRowRes?.rows?.[0];
+    let pageToken: string | undefined = jobRow?.last_page_token ?? undefined;
 
     let processed = 0;
     let newMessages = 0;
