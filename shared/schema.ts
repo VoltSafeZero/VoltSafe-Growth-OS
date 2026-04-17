@@ -1469,6 +1469,13 @@ export const emailAccounts = pgTable("email_accounts", {
   lastHistoryId: text("last_history_id"),
   syncErrorMessage: text("sync_error_message"),
   disconnectedAt: timestamp("disconnected_at"),
+  // Phase 2A: Gmail push/watch + incremental sync state (all nullable, additive)
+  watchExpirationAt: timestamp("watch_expiration_at"),
+  watchHistoryId: text("watch_history_id"),
+  watchTopic: text("watch_topic"),
+  lastWebhookAt: timestamp("last_webhook_at"),
+  lastIncrementalSyncAt: timestamp("last_incremental_sync_at"),
+  incrementalEventCount: integer("incremental_event_count").default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
