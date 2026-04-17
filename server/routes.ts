@@ -9341,10 +9341,20 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         };
       }));
 
+      // Compute the public webhook URL from REPLIT_DOMAINS (use first if multiple)
+      const primaryDomain = (process.env.REPLIT_DOMAINS || "").split(",")[0].trim();
+      const webhookToken = (process.env.GMAIL_WEBHOOK_TOKEN || "").trim();
+      const webhookTokenSet = !!webhookToken;
+      const webhookUrl = primaryDomain && webhookTokenSet
+        ? `https://${primaryDomain}/api/webhooks/gmail?token=${encodeURIComponent(webhookToken)}`
+        : (primaryDomain ? `https://${primaryDomain}/api/webhooks/gmail?token=<GMAIL_WEBHOOK_TOKEN>` : null);
+
       res.json({
         userId,
         connectedMailboxes: out.length,
         pushConfigured: !!(process.env.GMAIL_PUBSUB_TOPIC || "").trim(),
+        webhookTokenSet,
+        webhookUrl,
         mailboxes: out,
       });
     } catch (err: any) {

@@ -39,7 +39,14 @@ type Mailbox = {
     hasSeed: boolean;
   };
 };
-type Health = { userId: number; connectedMailboxes: number; pushConfigured?: boolean; mailboxes: Mailbox[] };
+type Health = {
+  userId: number;
+  connectedMailboxes: number;
+  pushConfigured?: boolean;
+  webhookTokenSet?: boolean;
+  webhookUrl?: string | null;
+  mailboxes: Mailbox[];
+};
 
 function fmt(n: number | null | undefined) { return n == null ? "—" : Number(n).toLocaleString(); }
 function fmtDate(s: string | null | undefined) { if (!s) return "—"; try { const d = new Date(s); return `${format(d, "MMM d, yyyy h:mm a")}`; } catch { return s; } }
@@ -213,7 +220,22 @@ export default function MailboxHealthPage() {
 
               {/* Phase 2A: Push & Incremental Sync */}
               <div className="border-t pt-4 space-y-3">
-                <div className="text-sm font-semibold flex items-center gap-2"><Zap className="h-4 w-4" /> Push & incremental sync</div>
+                {(() => {
+                  const pushOk = !!data?.pushConfigured && !!data?.webhookTokenSet;
+                  const watchOk = mb.push?.watchStatus === "active" || mb.push?.watchStatus === "expiring_soon";
+                  const lastWh = mb.push?.lastWebhookAt ? new Date(mb.push.lastWebhookAt).getTime() : 0;
+                  const minsSince = lastWh ? (Date.now() - lastWh) / 60000 : Infinity;
+                  let badge: { label: string; cls: string } = { label: "Not configured", cls: "bg-red-600 text-white" };
+                  if (pushOk && watchOk && minsSince < 30) badge = { label: "● Live", cls: "bg-green-600 text-white" };
+                  else if (pushOk && watchOk) badge = { label: "Configured — awaiting first webhook", cls: "bg-amber-500 text-white" };
+                  else if (pushOk && !watchOk) badge = { label: "Configured — start the watch ↓", cls: "bg-amber-500 text-white" };
+                  return (
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-semibold flex items-center gap-2"><Zap className="h-4 w-4" /> Push & incremental sync</div>
+                      <span className={`text-xs px-2 py-1 rounded ${badge.cls}`} data-testid="badge-push-status">{badge.label}</span>
+                    </div>
+                  );
+                })()}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                   <KV k="Last historyId (stored)" v={mb.lastHistoryId ?? "—"} />
                   <KV k="Live historyId" v={mb.live?.historyIdLive ?? "—"} />
@@ -246,12 +268,24 @@ export default function MailboxHealthPage() {
                     </>
                   )}
                 </div>
+                {/* Webhook URL — always visible so it can be copied into Pub/Sub subscription */}
+                <div className="text-xs p-2 rounded border bg-muted/40 space-y-1">
+                  <div className="font-semibold flex items-center gap-2"><Radio className="h-3.5 w-3.5" /> Webhook endpoint (paste into Pub/Sub push subscription)</div>
+                  <div className="flex items-center gap-2">
+                    <code className="font-mono text-[11px] break-all flex-1 p-1 bg-background rounded border" data-testid="text-webhook-url">{data?.webhookUrl ?? "—"}</code>
+                    <Button size="sm" variant="outline" className="h-7" onClick={() => { if (data?.webhookUrl) { navigator.clipboard.writeText(data.webhookUrl); toast({ description: "Webhook URL copied" }); } }} data-testid="button-copy-webhook-url">Copy</Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div>GMAIL_PUBSUB_TOPIC: <span className={data?.pushConfigured ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>{data?.pushConfigured ? "set" : "not set"}</span></div>
+                    <div>GMAIL_WEBHOOK_TOKEN: <span className={data?.webhookTokenSet ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>{data?.webhookTokenSet ? "set" : "not set"}</span></div>
+                  </div>
+                </div>
                 {!mb.push?.configured && (
                   <div className="text-xs p-2 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 flex items-start gap-2">
                     <Radio className="h-4 w-4 shrink-0 mt-0.5" />
                     <div>
                       <div className="font-semibold">Real-time push not configured</div>
-                      <div>Set <code className="font-mono">GMAIL_PUBSUB_TOPIC</code> and <code className="font-mono">GMAIL_WEBHOOK_TOKEN</code> env vars (with a Google Cloud Pub/Sub topic + push subscription pointing at <code className="font-mono">/api/webhooks/gmail?token=…</code>) to enable sub-second sync. Until then, the system runs historyId-based incremental sync hourly — still much faster and more accurate than re-listing pages.</div>
+                      <div>Set <code className="font-mono">GMAIL_PUBSUB_TOPIC</code> and <code className="font-mono">GMAIL_WEBHOOK_TOKEN</code> env vars, then create a Google Cloud Pub/Sub topic + push subscription pointing at the webhook URL above. Until then, historyId-based incremental sync runs hourly.</div>
                     </div>
                   </div>
                 )}
