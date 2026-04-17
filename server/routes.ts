@@ -9236,11 +9236,93 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   // ── Email Sync + Association Routes ─────────────────────────────────────
   app.post("/api/gmail/sync", requireAuth, async (req, res) => {
     try {
-      const limit = Number(req.query.limit) || 50;
-      const result = await runGmailSync(limit);
+      // Accepts: ?pages=N (max pages to walk; default 1 = legacy shallow)
+      //          ?pageSize=100 (1..500)
+      //          ?since=YYYY-MM-DD (only fetch newer than)
+      //          ?refreshLabels=1 (re-pull label_ids for the latest 200 stored msgs)
+      //          ?deep=1 (shortcut for pages=200, refreshLabels=1)
+      const deep = req.query.deep === "1" || req.query.deep === "true";
+      const maxPages = deep ? 200 : Math.max(1, Math.min(500, Number(req.query.pages) || Number(req.query.maxPages) || 1));
+      const pageSize = Math.max(1, Math.min(500, Number(req.query.pageSize) || 100));
+      const refreshLabels = deep || req.query.refreshLabels === "1" || req.query.refreshLabels === "true";
+      const since = typeof req.query.since === "string" ? req.query.since : undefined;
+
+      const result = await runGmailSync({ maxPages, pageSize, refreshLabels, since });
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: "Sync failed", error: err.message });
+    }
+  });
+
+  // ── /api/gmail/health — true mailbox state (audit-grade) ─────────────────
+  app.get("/api/gmail/health", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const accounts = await db.select().from(emailAccounts).where(eq(emailAccounts.userId, userId));
+
+      const out = await Promise.all(accounts.map(async (a) => {
+        const stats = await db.execute(sql.raw(`
+          SELECT
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE label_ids ILIKE '%UNREAD%')::int AS unread,
+            COUNT(*) FILTER (WHERE label_ids ILIKE '%INBOX%')::int AS inbox,
+            COUNT(*) FILTER (WHERE label_ids ILIKE '%SENT%')::int AS sent,
+            MIN(sent_at) AS oldest_at,
+            MAX(sent_at) AS newest_at
+          FROM email_messages WHERE source_account_id = ${a.id}
+        `));
+        const s = ((stats as any).rows?.[0]) ?? {};
+        let liveProfile: any = null;
+        try {
+          const { getGmailClient } = await import("./gmail-oauth");
+          const c = await getGmailClient(a.userId, a.id);
+          const p = await c.users.getProfile({ userId: "me" });
+          liveProfile = {
+            emailAddress: p.data.emailAddress,
+            messagesTotalLive: p.data.messagesTotal ?? null,
+            threadsTotalLive: p.data.threadsTotal ?? null,
+            historyIdLive: p.data.historyId ?? null,
+          };
+        } catch (e: any) {
+          liveProfile = { error: e.message };
+        }
+        const lastJob = await db.execute(sql.raw(`
+          SELECT id, status, processed, total_estimate, error_message, created_at, completed_at
+          FROM backfill_jobs WHERE email_account_id = ${a.id}
+          ORDER BY created_at DESC LIMIT 1
+        `));
+        return {
+          id: a.id,
+          emailAddress: a.emailAddress,
+          authStatus: a.authStatus,
+          isShared: a.isShared,
+          syncEnabled: a.syncEnabled,
+          isActive: a.isActive,
+          hasRefreshToken: !!a.refreshToken,
+          hasAccessToken: !!a.accessToken,
+          lastSyncAt: a.lastSyncAt,
+          lastHistoryId: a.lastHistoryId,
+          syncErrorMessage: a.syncErrorMessage,
+          stored: {
+            total: Number(s.total ?? 0),
+            unread: Number(s.unread ?? 0),
+            inbox: Number(s.inbox ?? 0),
+            sent: Number(s.sent ?? 0),
+            oldestAt: s.oldest_at ?? null,
+            newestAt: s.newest_at ?? null,
+          },
+          live: liveProfile,
+          lastBackfillJob: ((lastJob as any).rows?.[0]) ?? null,
+        };
+      }));
+
+      res.json({
+        userId,
+        connectedMailboxes: out.length,
+        mailboxes: out,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

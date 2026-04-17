@@ -78,6 +78,7 @@ import AlertsDigestPage from "@/pages/alerts-digest";
 import ScoreFeedbackPage from "@/pages/score-feedback";
 import TerritoryRoutingPage from "@/pages/territory-routing";
 import MailboxSettingsPage from "@/pages/mailbox-settings";
+import MailboxHealthPage from "@/pages/mailbox-health";
 import HelpCenterPage from "@/pages/help-center";
 import { GlobalSearch } from "@/components/global-search";
 
@@ -302,6 +303,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/help">{() => wrap(<HelpCenterPage />)}</Route>
       <Route path="/settings">{() => wrap(<SettingsPage />)}</Route>
       <Route path="/settings/mailbox">{() => wrap(<MailboxSettingsPage />)}</Route>
+      <Route path="/settings/mailbox-health">{() => wrap(<MailboxHealthPage />)}</Route>
       <Route path="/search">{() => wrap(
         <div className="flex flex-col h-full min-h-0 overflow-y-auto bg-background">
           <div className="max-w-2xl w-full mx-auto px-4 py-8">
