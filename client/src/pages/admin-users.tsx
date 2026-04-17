@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
   Users, Plus, Search, ShieldCheck,
-  UserCheck, UserX, KeyRound, Edit2, X, Mail, Briefcase,
+  UserCheck, UserX, KeyRound, Edit2, X, Mail, Briefcase, Wrench, HeartHandshake,
   Clock, ChevronRight, AlertTriangle, CheckCircle2,
   UserCog, Crown, Eye, Lock, Unlock, Trash2, ShieldAlert,
   Building2, CalendarClock, Layers, Megaphone, Users2, BookOpen, LifeBuoy, FileText,
@@ -63,7 +63,9 @@ const GLOBAL_ROLES = [
   { value: "master_admin", label: "Master Admin", icon: Crown, color: "text-yellow-400", bg: "bg-yellow-500/10", border: "border-yellow-500/30" },
   { value: "admin", label: "Admin", icon: ShieldCheck, color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/30" },
   { value: "manager", label: "Manager", icon: UserCog, color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/30" },
+  { value: "engineer", label: "Engineer", icon: Wrench, color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/30" },
   { value: "sales", label: "Sales", icon: Briefcase, color: "text-green-400", bg: "bg-green-500/10", border: "border-green-500/30" },
+  { value: "customer_success", label: "Customer Success", icon: HeartHandshake, color: "text-pink-400", bg: "bg-pink-500/10", border: "border-pink-500/30" },
   { value: "analyst", label: "Analyst", icon: Eye, color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/30" },
   { value: "read_only", label: "Read Only", icon: Lock, color: "text-gray-400", bg: "bg-gray-500/10", border: "border-gray-500/30" },
 ];
