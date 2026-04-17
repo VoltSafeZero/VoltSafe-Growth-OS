@@ -18,9 +18,40 @@ import {
   Reply, ReplyAll, Pencil, User, Building2, Zap, Flame,
   CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
   CheckCheck, ArrowLeft, ClipboardList, StickyNote, ArchiveX, Square, Filter, Eye,
+  Sparkles, Code2, Type, Rows3, Rows2, Inbox as InboxIcon,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import DOMPurify from "dompurify";
+import { motion, AnimatePresence } from "framer-motion";
+
+// ─── Avatar deterministic color palette ─────────────────────────────────────
+const AVATAR_GRADIENTS = [
+  "from-violet-500 to-fuchsia-500",
+  "from-blue-500 to-cyan-500",
+  "from-emerald-500 to-teal-500",
+  "from-amber-500 to-orange-500",
+  "from-rose-500 to-pink-500",
+  "from-indigo-500 to-purple-500",
+  "from-sky-500 to-blue-600",
+  "from-lime-500 to-green-600",
+];
+function avatarColor(seed: string): string {
+  if (!seed) return AVATAR_GRADIENTS[0];
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
+  return AVATAR_GRADIENTS[Math.abs(h) % AVATAR_GRADIENTS.length];
+}
+
+// ─── HTML → plain text for the "Plain" reading mode ─────────────────────────
+function htmlToPlainText(html: string): string {
+  if (typeof document === "undefined") return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  const tmp = document.createElement("div");
+  tmp.innerHTML = html;
+  tmp.querySelectorAll("script, style").forEach((n) => n.remove());
+  tmp.querySelectorAll("br").forEach((b) => b.replaceWith("\n"));
+  tmp.querySelectorAll("p, div, li, tr, h1, h2, h3, h4, blockquote").forEach((b) => b.append("\n"));
+  return (tmp.textContent || "").replace(/[\t ]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
 
 type MessageSummary = {
   id: string;
@@ -677,53 +708,158 @@ function ComposeDialog({
   );
 }
 
+type ReadingMode = "beautiful" | "raw" | "plain";
+
 function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [mode, setMode] = useState<ReadingMode>("beautiful");
+  const [iframeReady, setIframeReady] = useState(false);
 
   const handleIframeLoad = () => {
     const iframe = iframeRef.current;
     if (iframe?.contentDocument?.body) {
       const h = iframe.contentDocument.documentElement.scrollHeight;
-      iframe.style.height = `${h + 16}px`;
+      iframe.style.height = `${h + 24}px`;
     }
+    setIframeReady(true);
   };
 
   if (!body) return <p className="text-muted-foreground text-sm italic">No content</p>;
 
-  if (isHtml) {
-    const clean = DOMPurify.sanitize(body, { USE_PROFILES: { html: true } });
-    const srcDoc = `<!DOCTYPE html>
+  const sanitized = isHtml ? DOMPurify.sanitize(body, { USE_PROFILES: { html: true } }) : body;
+  const plainTextView = useMemo(() => (isHtml ? htmlToPlainText(sanitized) : body), [sanitized, body, isHtml]);
+
+  const srcDoc = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  html, body { margin: 0; padding: 8px 12px; background: #ffffff; color: #1a1a1a;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-    font-size: 14px; line-height: 1.5; word-break: break-word; }
-  a { color: #0066cc; }
-  img { max-width: 100%; height: auto; }
-  pre { white-space: pre-wrap; word-break: break-word; }
-  blockquote { border-left: 3px solid #ccc; margin: 8px 0; padding-left: 12px; color: #555; }
+  html, body {
+    margin: 0;
+    padding: 24px 28px;
+    background: #ffffff;
+    color: #1a1a1a;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.65;
+    word-break: break-word;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  a { color: #0b6ed4; text-decoration: none; border-bottom: 1px solid rgba(11,110,212,0.25); transition: border-color .15s ease; }
+  a:hover { border-bottom-color: rgba(11,110,212,0.7); }
+  img { max-width: 100% !important; height: auto !important; border-radius: 4px; }
+  table { max-width: 100% !important; border-collapse: collapse; }
+  td, th { padding: 4px 6px; }
+  pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #f6f8fa; padding: 12px 14px; border-radius: 8px; font-size: 13px; }
+  blockquote { border-left: 3px solid #d0d7de; margin: 14px 0; padding: 4px 14px; color: #57606a; }
+  hr { border: none; border-top: 1px solid #d0d7de; margin: 18px 0; }
+  h1, h2, h3 { color: #0d1117; line-height: 1.3; margin: 18px 0 10px; }
+  h1 { font-size: 22px; } h2 { font-size: 19px; } h3 { font-size: 17px; }
+  p { margin: 8px 0; }
+  ul, ol { padding-left: 22px; }
+  button, .btn, input[type="button"], input[type="submit"] { border-radius: 6px !important; }
+  ::selection { background: rgba(11,110,212,0.15); }
 </style>
 </head>
-<body>${clean}</body>
+<body>${sanitized}</body>
 </html>`;
-    return (
-      <iframe
-        ref={iframeRef}
-        srcDoc={srcDoc}
-        sandbox="allow-same-origin allow-popups"
-        onLoad={handleIframeLoad}
-        title="Email content"
-        className="w-full border-0 rounded bg-white"
-        style={{ minHeight: 200 }}
-        data-testid="iframe-email-body"
-      />
-    );
-  }
 
-  return <pre className="text-sm whitespace-pre-wrap font-sans text-foreground">{body}</pre>;
+  const ModeBtn = ({ k, label, Icon }: { k: ReadingMode; label: string; Icon: any }) => (
+    <button
+      onClick={() => setMode(k)}
+      data-testid={`reading-mode-${k}`}
+      className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-medium transition-all duration-150 ${
+        mode === k
+          ? "bg-primary/15 text-primary shadow-[inset_0_0_0_1px_rgba(20,184,166,0.25)]"
+          : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/40"
+      }`}
+      title={`${label} view`}
+    >
+      <Icon className="h-3 w-3" />
+      <span className="hidden sm:inline">{label}</span>
+    </button>
+  );
+
+  return (
+    <div className="space-y-2.5">
+      {/* Reading-mode segmented control — only shown when there is HTML to switch */}
+      {isHtml && (
+        <div className="flex items-center justify-end gap-0.5 -mt-1 -mr-1" data-testid="reading-mode-toggle">
+          <ModeBtn k="beautiful" label="Beautiful" Icon={Sparkles} />
+          <ModeBtn k="raw" label="Source" Icon={Code2} />
+          <ModeBtn k="plain" label="Plain" Icon={Type} />
+        </div>
+      )}
+
+      <AnimatePresence mode="wait">
+        {mode === "beautiful" && isHtml && (
+          <motion.div
+            key="beautiful"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.18 }}
+            className="relative rounded-xl overflow-hidden bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] ring-1 ring-border/30"
+          >
+            {!iframeReady && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/60" />
+              </div>
+            )}
+            <iframe
+              ref={iframeRef}
+              srcDoc={srcDoc}
+              sandbox="allow-same-origin allow-popups"
+              onLoad={handleIframeLoad}
+              title="Email content"
+              className={`w-full border-0 bg-white transition-opacity duration-300 ${iframeReady ? "opacity-100" : "opacity-0"}`}
+              style={{ minHeight: 280 }}
+              data-testid="iframe-email-body"
+            />
+          </motion.div>
+        )}
+
+        {mode === "beautiful" && !isHtml && (
+          <motion.pre
+            key="beautiful-text"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="text-[14.5px] whitespace-pre-wrap font-sans text-foreground/90 leading-[1.65] tracking-[-0.005em]"
+            data-testid="text-email-body-plain"
+          >
+            {body}
+          </motion.pre>
+        )}
+
+        {mode === "raw" && (
+          <motion.pre
+            key="raw"
+            initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.18 }}
+            className="text-[11.5px] whitespace-pre-wrap font-mono text-foreground/85 leading-relaxed bg-muted/30 rounded-xl p-4 overflow-x-auto max-h-[600px] border border-border/40"
+            data-testid="text-email-body-raw"
+          >
+            <code>{body}</code>
+          </motion.pre>
+        )}
+
+        {mode === "plain" && (
+          <motion.pre
+            key="plain"
+            initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.18 }}
+            className="text-[14.5px] whitespace-pre-wrap font-sans text-foreground/85 leading-[1.65]"
+            data-testid="text-email-body-plain-mode"
+          >
+            {plainTextView}
+          </motion.pre>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 type ThreadRecord = {
@@ -4398,22 +4534,51 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     )}
                   </button>
 
-                  {/* Hover actions — absolutely positioned right side */}
-                  <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0">
-                    <button
+                  {/* Hover quick actions — absolutely positioned right side */}
+                  <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5 bg-gradient-to-l from-background via-background/95 to-transparent pl-4 pr-1 rounded-l-lg">
+                    <motion.button
+                      whileTap={{ scale: 0.82 }}
+                      whileHover={{ scale: 1.12 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 20 }}
                       title={starred ? "Remove priority" : "Mark as priority"}
                       data-testid={`button-star-${msg.id}`}
                       onClick={(e) => { e.stopPropagation(); toggleStarMutation.mutate(msg.id); }}
-                      className={`p-1.5 rounded-md transition-all ${
+                      className={`p-1.5 rounded-md transition-colors ${
                         starred
                           ? "text-amber-400 hover:text-amber-300"
-                          : "text-transparent group-hover:text-muted-foreground/35 hover:!text-amber-400"
+                          : "text-transparent group-hover:text-muted-foreground/40 hover:!text-amber-400 hover:bg-muted/40"
                       }`}
                     >
                       <Star className={`h-3.5 w-3.5 ${starred ? "fill-amber-400" : ""}`} />
-                    </button>
+                    </motion.button>
+                    {canSend && tab === "inbox" && (
+                      <motion.button
+                        whileTap={{ scale: 0.82 }}
+                        whileHover={{ scale: 1.1 }}
+                        title="Archive this thread"
+                        data-testid={`button-archive-row-${msg.id}`}
+                        onClick={(e) => { e.stopPropagation(); archiveThreadMutation.mutate(msg.threadId); }}
+                        className="p-1.5 rounded-md transition-colors opacity-0 group-hover:opacity-100 text-muted-foreground/40 hover:text-foreground hover:bg-muted/40"
+                      >
+                        <ArchiveX className="h-3.5 w-3.5" />
+                      </motion.button>
+                    )}
                     {canSend && tab !== "sent" && (
-                      <button
+                      <motion.button
+                        whileTap={{ scale: 0.82 }}
+                        whileHover={{ scale: 1.1 }}
+                        title="Reply"
+                        data-testid={`button-reply-row-${msg.id}`}
+                        onClick={(e) => { e.stopPropagation(); handleSelectMessage(msg); setTimeout(() => handleReply(msg), 50); }}
+                        className="p-1.5 rounded-md transition-colors opacity-0 group-hover:opacity-100 text-muted-foreground/40 hover:text-primary hover:bg-primary/10"
+                      >
+                        <Reply className="h-3.5 w-3.5" />
+                      </motion.button>
+                    )}
+                    {canSend && tab !== "sent" && (
+                      <motion.button
+                        whileTap={{ scale: 0.82 }}
+                        whileHover={{ scale: 1.1 }}
                         title={blocked ? `Unblock @${domain}` : `Block @${domain}`}
                         data-testid={`button-flag-${msg.id}`}
                         onClick={(e) => {
@@ -4425,12 +4590,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             flagMutation.mutate(domain);
                           }
                         }}
-                        className={`p-1.5 rounded-md transition-all opacity-0 group-hover:opacity-100 ${
-                          blocked ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/35 hover:text-destructive"
+                        className={`p-1.5 rounded-md transition-colors opacity-0 group-hover:opacity-100 ${
+                          blocked ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10"
                         }`}
                       >
                         {blocked ? <Trash2 className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />}
-                      </button>
+                      </motion.button>
                     )}
                   </div>
                 </div>
@@ -4461,42 +4626,89 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
         {selectedThreadId && tab !== "drafts" && tab !== "scheduled" && (
           <div className="flex-1 flex flex-col min-h-0">
-            {/* Thread header */}
-            <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 border-b border-border/30 bg-background/80 backdrop-blur-sm">
-              <Button variant="ghost" size="icon" className="md:hidden h-8 w-8" onClick={handleBack}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <div className="flex-1 min-w-0">
-                {threadQuery.isLoading ? (
-                  <Skeleton className="h-4 w-48" />
-                ) : (
-                  <h2 className="font-semibold text-[13px] truncate text-foreground/90">{focusedMsg?.subject || "(no subject)"}</h2>
-                )}
-                {focusedMsg && (
-                  <p className="text-[11px] text-muted-foreground/50 truncate">{selectedMessages.length} message{selectedMessages.length !== 1 ? "s" : ""}</p>
-                )}
+            {/* Thread header — premium hero card */}
+            <div className="flex-shrink-0 px-6 py-5 border-b border-border/30 bg-gradient-to-b from-card/40 via-card/20 to-transparent">
+              <div className="flex items-start gap-3">
+                <Button variant="ghost" size="icon" className="md:hidden h-8 w-8 -ml-2 mt-0.5" onClick={handleBack}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <div className="flex-1 min-w-0">
+                  {threadQuery.isLoading ? (
+                    <div className="space-y-2">
+                      <Skeleton className="h-6 w-2/3" />
+                      <Skeleton className="h-3 w-32" />
+                    </div>
+                  ) : (
+                    <>
+                      <h1
+                        className="font-semibold text-[20px] leading-[1.25] tracking-[-0.012em] text-foreground"
+                        data-testid="text-thread-subject"
+                      >
+                        {focusedMsg?.subject || "(no subject)"}
+                      </h1>
+                      {focusedMsg && (
+                        <p className="text-[12px] text-muted-foreground/65 mt-1.5 flex items-center gap-2 flex-wrap">
+                          <span className="tabular-nums font-medium">
+                            {selectedMessages.length} message{selectedMessages.length !== 1 ? "s" : ""}
+                          </span>
+                          {isStarred(focusedMsg.labelIds) && (
+                            <>
+                              <span className="opacity-30">·</span>
+                              <span className="inline-flex items-center gap-1 text-amber-400/90">
+                                <Star className="h-3 w-3 fill-amber-400" /> Starred
+                              </span>
+                            </>
+                          )}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {focusedMsg && (
+                    <motion.button
+                      whileTap={{ scale: 0.85 }}
+                      whileHover={{ scale: 1.08 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 22 }}
+                      title={isStarred(focusedMsg.labelIds) ? "Remove priority" : "Mark as priority (s)"}
+                      data-testid="button-star-thread"
+                      onClick={() => toggleStarMutation.mutate(focusedMsg.id)}
+                      className={`p-2 rounded-lg transition-colors ${
+                        isStarred(focusedMsg.labelIds)
+                          ? "text-amber-400 bg-amber-500/10 hover:bg-amber-500/15"
+                          : "text-muted-foreground/40 hover:text-amber-400 hover:bg-muted/40"
+                      }`}
+                    >
+                      <Star className={`h-4 w-4 ${isStarred(focusedMsg.labelIds) ? "fill-amber-400" : ""}`} />
+                    </motion.button>
+                  )}
+                  {canSend && focusedMsg && (
+                    <motion.button
+                      whileTap={{ scale: 0.92 }}
+                      whileHover={{ scale: 1.05 }}
+                      title="Reply (r)"
+                      data-testid="button-reply-header"
+                      onClick={() => handleReply(focusedMsg)}
+                      className="p-2 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors"
+                    >
+                      <Reply className="h-4 w-4" />
+                    </motion.button>
+                  )}
+                  {canSend && selectedThreadId && tab === "inbox" && (
+                    <motion.button
+                      whileTap={{ scale: 0.92 }}
+                      whileHover={{ scale: 1.05 }}
+                      title="Archive this thread"
+                      data-testid="button-archive-thread"
+                      onClick={() => archiveThreadMutation.mutate(selectedThreadId)}
+                      disabled={archiveThreadMutation.isPending}
+                      className="p-2 rounded-lg text-muted-foreground/40 hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-40"
+                    >
+                      {archiveThreadMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArchiveX className="h-4 w-4" />}
+                    </motion.button>
+                  )}
+                </div>
               </div>
-              {focusedMsg && (
-                <button
-                  title={isStarred(focusedMsg.labelIds) ? "Remove priority" : "Mark as priority (s)"}
-                  data-testid="button-star-thread"
-                  onClick={() => toggleStarMutation.mutate(focusedMsg.id)}
-                  className={`p-1.5 rounded-md transition-colors ${isStarred(focusedMsg.labelIds) ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/30 hover:text-amber-400"}`}
-                >
-                  <Star className={`h-4 w-4 ${isStarred(focusedMsg.labelIds) ? "fill-amber-400" : ""}`} />
-                </button>
-              )}
-              {canSend && selectedThreadId && tab === "inbox" && (
-                <button
-                  title="Archive this thread"
-                  data-testid="button-archive-thread"
-                  onClick={() => archiveThreadMutation.mutate(selectedThreadId)}
-                  disabled={archiveThreadMutation.isPending}
-                  className="p-1.5 rounded-md text-muted-foreground/30 hover:text-amber-400 transition-colors disabled:opacity-40"
-                >
-                  {archiveThreadMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArchiveX className="h-4 w-4" />}
-                </button>
-              )}
             </div>
 
             {/* Messages in thread — bottom padding so last message is not hidden under FAB */}
@@ -4523,23 +4735,42 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     }`}
                     data-testid={`email-message-${msg.id}`}
                   >
-                    {/* Message header */}
-                    <div className="bg-card/40 px-4 py-3 border-b border-border/25">
-                      <div className="flex items-start gap-3">
-                        {/* Avatar */}
-                        <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5">
+                    {/* Message header — premium sender card */}
+                    <div className="bg-gradient-to-b from-card/55 to-card/15 px-5 py-4 border-b border-border/25">
+                      <div className="flex items-start gap-3.5">
+                        {/* Avatar — deterministic gradient */}
+                        <div
+                          className={`w-10 h-10 rounded-full bg-gradient-to-br ${avatarColor(parseSenderEmail(msg.from))} text-white flex items-center justify-center text-[12.5px] font-bold flex-shrink-0 shadow-md ring-1 ring-black/5 select-none`}
+                          data-testid={`avatar-sender-${msg.id}`}
+                          title={parseSenderName(msg.from)}
+                        >
                           {initials || "?"}
                         </div>
-                        <div className="flex-1 min-w-0">
+                        <div className="flex-1 min-w-0 pt-0.5">
                           <div className="flex items-baseline justify-between gap-2">
-                            <p className="font-semibold text-sm text-foreground leading-tight">{parseSenderName(msg.from)}</p>
-                            <span className="text-[11px] text-muted-foreground/60 whitespace-nowrap flex-shrink-0 tabular-nums">
+                            <p
+                              className="font-semibold text-[14.5px] text-foreground leading-tight tracking-[-0.005em] truncate"
+                              data-testid={`text-sender-${msg.id}`}
+                            >
+                              {parseSenderName(msg.from)}
+                            </p>
+                            <span className="text-[11px] text-muted-foreground/60 whitespace-nowrap flex-shrink-0 tabular-nums font-medium">
                               {formatDate(msg.date, msg.internalDate)}
                             </span>
                           </div>
-                          <p className="text-[11px] text-muted-foreground/70 truncate mt-0.5">{msg.from}</p>
-                          <p className="text-[11px] text-muted-foreground/55 truncate">To: {msg.to}</p>
-                          {msg.cc && <p className="text-[11px] text-muted-foreground/55 truncate">Cc: {msg.cc}</p>}
+                          <p className="text-[11.5px] text-muted-foreground/65 truncate mt-0.5 font-mono">{parseSenderEmail(msg.from)}</p>
+                          <div className="text-[11px] text-muted-foreground/55 mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                            <span className="inline-flex items-baseline gap-1">
+                              <span className="text-muted-foreground/40 uppercase tracking-wider text-[9.5px] font-semibold">to</span>
+                              <span className="text-foreground/70 truncate max-w-[420px]">{msg.to}</span>
+                            </span>
+                            {msg.cc && (
+                              <span className="inline-flex items-baseline gap-1">
+                                <span className="text-muted-foreground/40 uppercase tracking-wider text-[9.5px] font-semibold">cc</span>
+                                <span className="text-foreground/70 truncate max-w-[300px]">{msg.cc}</span>
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -4603,17 +4834,26 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           </div>
         )}
 
-        {/* Empty state when no message selected */}
+        {/* Empty state when no message selected — premium */}
         {!selectedThreadId && tab !== "drafts" && tab !== "scheduled" && (
-          <div className="hidden md:flex flex-1 items-center justify-center text-muted-foreground">
-            <div className="text-center space-y-6">
-              <div>
-                <MailOpen className="h-10 w-10 mx-auto mb-3 opacity-15" />
-                <p className="text-sm text-muted-foreground/60">Select an email to read</p>
+          <div className="hidden md:flex flex-1 items-center justify-center text-muted-foreground bg-gradient-to-br from-background via-background to-card/20">
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, ease: "easeOut" }}
+              className="text-center space-y-7 max-w-sm"
+            >
+              <div className="relative">
+                <div className="absolute inset-0 -z-10 bg-gradient-to-br from-primary/5 via-violet-500/5 to-transparent rounded-full blur-3xl" />
+                <div className="relative inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-gradient-to-br from-primary/15 to-primary/5 ring-1 ring-primary/15">
+                  <InboxIcon className="h-7 w-7 text-primary/70" />
+                </div>
+                <p className="text-[15px] font-medium text-foreground/80 mt-4">Your inbox is ready</p>
+                <p className="text-[12.5px] text-muted-foreground/55 mt-1">Select a conversation to start reading.</p>
               </div>
-              <div className="space-y-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/35">Keyboard shortcuts</p>
-                <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 text-[11px] text-muted-foreground/50 text-left">
+              <div className="space-y-2.5 pt-1">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/40">Keyboard shortcuts</p>
+                <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-[11px] text-muted-foreground/55 text-left">
                   {[
                     ["j / ↓", "Next email"],
                     ["k / ↑", "Prev email"],
@@ -4623,13 +4863,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     ["Esc", "Deselect"],
                   ].map(([key, desc]) => (
                     <div key={key} className="flex items-center gap-2">
-                      <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-muted/60 border border-border/40 text-muted-foreground/70">{key}</kbd>
+                      <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded-md bg-muted/60 border border-border/40 text-muted-foreground/75 shadow-sm">{key}</kbd>
                       <span>{desc}</span>
                     </div>
                   ))}
                 </div>
               </div>
-            </div>
+            </motion.div>
           </div>
         )}
         </div>
