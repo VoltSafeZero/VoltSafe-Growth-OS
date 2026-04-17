@@ -63,7 +63,21 @@ async function expect(label, p, ...statuses) {
 }
 
 async function setup(client) {
-  // 1) Reset viewer password to known value (bcryptjs hash, salt rounds = 10).
+  // Snapshot the viewer's current password + permissions so teardown can
+  // restore them exactly. This keeps the test isolated and repeatable —
+  // the sibling `permissions` test suite (and any others that depend on
+  // viewer@voltsafe.com) sees no observable side-effects after we run.
+  const snap = await client.query(
+    `SELECT password, permissions FROM users WHERE email = $1 LIMIT 1`,
+    [VIEWER_EMAIL]
+  );
+  if (snap.rowCount === 0) throw new Error(`Viewer user ${VIEWER_EMAIL} not found`);
+  const original = {
+    password: snap.rows[0].password,
+    permissions: snap.rows[0].permissions,
+  };
+
+  // 1) Set viewer password to a known value (bcryptjs hash, salt rounds = 10).
   const hash = await bcrypt.hash(VIEWER_PWD, 10);
   await client.query(
     `UPDATE users SET password = $1, status = 'active', must_change_password = false WHERE email = $2`,
@@ -81,19 +95,16 @@ async function setup(client) {
        WHERE email = $2`,
     [JSON.stringify({ [String(ACCOUNT_ID)]: { view: true, edit: false } }), VIEWER_EMAIL]
   );
+
+  return original;
 }
 
-async function teardown(client) {
+async function teardown(client, original) {
+  if (!original) return;
+  // Restore exact pre-test state.
   await client.query(
-    `UPDATE users
-       SET permissions = jsonb_set(
-         COALESCE(permissions, '{}'::jsonb),
-         '{mail_team}',
-         '{}'::jsonb,
-         true
-       )
-       WHERE email = $1`,
-    [VIEWER_EMAIL]
+    `UPDATE users SET password = $1, permissions = $2 WHERE email = $3`,
+    [original.password, original.permissions, VIEWER_EMAIL]
   );
 }
 
