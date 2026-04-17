@@ -31,7 +31,7 @@ import { CFOCommandCenter } from "@/components/command-centers/cfo-center";
 import { CTOCommandCenter } from "@/components/command-centers/cto-center";
 import { CMOCommandCenter } from "@/components/command-centers/cmo-center";
 import { ActionWidgetsGrid, ACTION_WIDGET_MAP } from "@/components/command-centers/action-widgets";
-import { DashboardGrid, DashboardEditToolbar, generateDefaultLayouts, reconcileLayouts } from "@/components/command-centers/dashboard-grid";
+import { DashboardGrid, DashboardEditToolbar, generateDefaultLayouts, reconcileLayouts, type DashboardGridHandle } from "@/components/command-centers/dashboard-grid";
 import type { Layouts } from "react-grid-layout";
 import { format, formatDistanceToNow, isToday, isTomorrow } from "date-fns";
 import { Link } from "wouter";
@@ -598,6 +598,7 @@ export default function RoleCommandCenter() {
   const [editingLayout, setEditingLayout] = useState(false);
   const [draftLayouts, setDraftLayouts] = useState<Layouts | null>(null);
   const [resetSeed, setResetSeed] = useState(0); // bumps to force grid to re-read defaults
+  const gridHandleRef = useRef<DashboardGridHandle | null>(null);
 
   const profileQuery = useQuery<UserProfile>({ queryKey: ["/api/users/me/profile"] });
 
@@ -686,12 +687,16 @@ export default function RoleCommandCenter() {
   }, []);
 
   const handleSaveDashboard = useCallback(() => {
-    if (!draftLayouts) {
+    // Prefer the live grid layouts via the imperative ref (bypasses any
+    // dirty-flag race), fall back to draftLayouts for older code paths.
+    const live = gridHandleRef.current?.getLayouts();
+    const layoutsToSave = live ?? draftLayouts;
+    if (!layoutsToSave) {
       setEditingLayout(false);
       return;
     }
     saveMutation.mutate(
-      { dashboardLayouts: { [displayCenterType]: draftLayouts } } as any,
+      { dashboardLayouts: { [displayCenterType]: layoutsToSave } } as any,
       {
         onSuccess: () => {
           setEditingLayout(false);
@@ -823,7 +828,10 @@ export default function RoleCommandCenter() {
           {/* Dashboard grid edit toolbar */}
           <DashboardEditToolbar
             editing={editingLayout}
-            dirty={!!draftLayouts}
+            // Always allow Save while editing — even if no widget gesture has
+            // fired (e.g. a resize that didn't propagate), Save now reads the
+            // live grid layouts via gridHandleRef so nothing is lost.
+            dirty={editingLayout}
             saving={saveMutation.isPending || resetMutation.isPending}
             onEdit={handleEnterEditMode}
             onSave={handleSaveDashboard}
@@ -893,6 +901,7 @@ export default function RoleCommandCenter() {
         savedLayouts={effectiveSavedLayouts}
         editing={editingLayout}
         onLayoutsChange={setDraftLayouts}
+        gridHandleRef={gridHandleRef}
       />
 
       {/* ── Role-Specific Center Content ────────────────────────────────── */}

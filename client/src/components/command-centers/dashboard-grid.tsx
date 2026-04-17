@@ -232,16 +232,20 @@ export function DashboardEditToolbar({
 
 // ── DashboardGrid ─────────────────────────────────────────────────────────────
 
+export type DashboardGridHandle = { getLayouts: () => Layouts };
+
 export function DashboardGrid({
   visibleIds,
   savedLayouts,
   editing,
   onLayoutsChange,
+  gridHandleRef,
 }: {
   visibleIds: string[];
   savedLayouts: Layouts | undefined;
   editing: boolean;
   onLayoutsChange: (next: Layouts) => void;
+  gridHandleRef?: React.MutableRefObject<DashboardGridHandle | null>;
 }) {
   // Filter to widgets with a known component
   const renderableIds = useMemo(
@@ -274,21 +278,39 @@ export function DashboardGrid({
     }
   }, [savedLayouts, renderableIds]);
 
-  // Keep local layouts in sync on every RGL emit (also fires on mount/remeasure).
+  // Always keep a ref of the most recent layouts so the parent's Save button
+  // can read them even if the dirty-flag race never propagated draftLayouts.
+  const layoutsRef = useRef<Layouts>(layouts);
+  useEffect(() => { layoutsRef.current = layouts; }, [layouts]);
+  useEffect(() => {
+    if (gridHandleRef) {
+      gridHandleRef.current = { getLayouts: () => layoutsRef.current };
+      return () => { if (gridHandleRef) gridHandleRef.current = null; };
+    }
+  }, [gridHandleRef]);
+
+  // Track whether the user has actually interacted (drag or resize) since
+  // entering edit mode. RGL emits onLayoutChange on mount/breakpoint/remeasure
+  // too, and we don't want those to be treated as user edits.
+  const userTouchedRef = useRef(false);
+  useEffect(() => { if (!editing) userTouchedRef.current = false; }, [editing]);
+
+  // Update local layouts on every RGL emit. If the user has actively dragged
+  // or resized, also notify parent immediately with the *fresh* `all` arg
+  // (avoids the stale-state race the previous setLayouts(curr=>) had).
   const handleLayoutChange = useCallback((_current: any, all: Layouts) => {
     setLayouts(all);
-  }, []);
+    if (editing && userTouchedRef.current) {
+      onLayoutsChange(all);
+    }
+  }, [editing, onLayoutsChange]);
 
-  // Only mark "dirty" (notify parent → enables Save) on actual user gestures.
-  // RGL fires onLayoutChange on mount, breakpoint, and width re-measurement,
-  // which would falsely flag the layout as dirty the moment edit mode opens.
-  const emitChangeIfEditing = useCallback(() => {
+  const markUserTouched = useCallback(() => {
     if (!editing) return;
-    // Use the most recent layouts state captured by handleLayoutChange.
-    setLayouts(curr => {
-      onLayoutsChange(curr);
-      return curr;
-    });
+    userTouchedRef.current = true;
+    // Emit immediately with whatever layouts are current so Save is enabled
+    // even if RGL's next onLayoutChange arrives after the click.
+    onLayoutsChange(layoutsRef.current);
   }, [editing, onLayoutsChange]);
 
   // Measure container width — react-grid-layout v2 Responsive needs an explicit
@@ -335,8 +357,10 @@ export function DashboardGrid({
           preventCollision={false}
           useCSSTransforms
           onLayoutChange={handleLayoutChange as any}
-          onDragStop={emitChangeIfEditing as any}
-          onResizeStop={emitChangeIfEditing as any}
+          onDragStart={markUserTouched as any}
+          onResizeStart={markUserTouched as any}
+          onDragStop={markUserTouched as any}
+          onResizeStop={markUserTouched as any}
         >
           {renderableIds.map(id => (
             <div key={id} data-testid={`grid-item-${id}`}>
