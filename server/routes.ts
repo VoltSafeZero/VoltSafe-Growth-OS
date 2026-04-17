@@ -7236,17 +7236,41 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // Phase 2C: source=local|gmail|auto. Default 'gmail' preserves prior behavior.
+  // 'auto' tries local first; if local returns 0 rows, transparently falls back to Gmail.
   app.get("/api/gmail/messages", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.json({ messages: [], nextPageToken: null });
+    const source = ((req.query.source as string) || "gmail").toLowerCase();
+    const q = (req.query.q as string) || "";
+    const maxResults = Math.min(Number(req.query.limit) || 50, 100);
+    const pageToken = (req.query.pageToken as string) || undefined;
+
+    if (source === "local" || source === "auto") {
+      try {
+        const { listLocalMessages } = await import("./services/local-mailbox");
+        const local = await listLocalMessages({
+          resolved: { userId: resolved.userId, accountId: resolved.accountId },
+          q, limit: maxResults, pageToken: pageToken ?? null,
+        });
+        if (source === "local" || local.messages.length > 0) {
+          res.setHeader("X-Mail-Source", "local");
+          res.setHeader("X-Mail-Took-Ms", String(local.tookMs));
+          return res.json({ messages: local.messages, nextPageToken: local.nextPageToken });
+        }
+        // auto + 0 rows → fallthrough to Gmail
+      } catch (err: any) {
+        if (source === "local") return res.status(500).json({ message: "Local mailbox query failed", error: err.message });
+        // auto: log + fall through
+        console.warn("[mail-source=auto] local read failed, falling back to gmail:", err.message);
+      }
+    }
     try {
-      const q = (req.query.q as string) || "";
-      const maxResults = Math.min(Number(req.query.limit) || 50, 100);
-      const pageToken = (req.query.pageToken as string) || undefined;
       const { summaries, nextPageToken } = await getMessageSummaries(resolved.userId, maxResults, q, pageToken, resolved.accountId);
+      res.setHeader("X-Mail-Source", "gmail");
       res.json({ messages: summaries, nextPageToken });
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
@@ -7259,10 +7283,30 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.json([]);
+    const source = ((req.query.source as string) || "gmail").toLowerCase();
+    const q = (req.query.q as string) || "";
+    const maxResults = Math.min(Number(req.query.limit) || 30, 100);
+
+    if (source === "local" || source === "auto") {
+      try {
+        const { listLocalThreads } = await import("./services/local-mailbox");
+        const local = await listLocalThreads({
+          resolved: { userId: resolved.userId, accountId: resolved.accountId },
+          q, limit: maxResults, pageToken: (req.query.pageToken as string) || null,
+        });
+        if (source === "local" || local.threads.length > 0) {
+          res.setHeader("X-Mail-Source", "local");
+          res.setHeader("X-Mail-Took-Ms", String(local.tookMs));
+          return res.json(local.threads);
+        }
+      } catch (err: any) {
+        if (source === "local") return res.status(500).json({ message: "Local thread query failed", error: err.message });
+        console.warn("[mail-source=auto] local threads failed, falling back to gmail:", err.message);
+      }
+    }
     try {
-      const q = (req.query.q as string) || "";
-      const maxResults = Math.min(Number(req.query.limit) || 30, 100);
       const threads = await listThreads(resolved.userId, q, maxResults, resolved.accountId);
+      res.setHeader("X-Mail-Source", "gmail");
       res.json(threads);
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
@@ -7275,11 +7319,84 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
+    const source = ((req.query.source as string) || "gmail").toLowerCase();
+
+    if (source === "local" || source === "auto") {
+      try {
+        const { getLocalThread } = await import("./services/local-mailbox");
+        const local = await getLocalThread({
+          resolved: { userId: resolved.userId, accountId: resolved.accountId },
+          threadId: req.params.id,
+        });
+        if (local) {
+          res.setHeader("X-Mail-Source", "local");
+          return res.json(local);
+        }
+        if (source === "local") return res.status(404).json({ message: "Thread not in local index" });
+        // auto + miss → fall through to Gmail
+      } catch (err: any) {
+        if (source === "local") return res.status(500).json({ message: "Local thread fetch failed", error: err.message });
+        console.warn("[mail-source=auto] local thread fetch failed, falling back to gmail:", err.message);
+      }
+    }
     try {
       const thread = await getThread(resolved.userId, req.params.id, resolved.accountId);
+      res.setHeader("X-Mail-Source", "gmail");
       res.json(thread);
     } catch (err: any) {
       res.status(503).json({ message: "Gmail not connected", error: err.message });
+    }
+  });
+
+  // Phase 2C parity helper: compares local index vs live Gmail for the resolved mailbox.
+  // GET /api/email-search/parity?asAccountId=&label=INBOX|SENT&limit=10
+  app.get("/api/email-search/parity", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
+      const { isAdmin, mailTeamPerms } = await getSessionUserAccess(req.session);
+      const resolved = await resolveAccount(userId, asAccountId, isAdmin, mailTeamPerms);
+      if (!resolved) return res.status(403).json({ message: "No mailbox accessible" });
+      const labelRaw = ((req.query.label as string) || "INBOX").toUpperCase();
+      const label: "INBOX" | "SENT" = labelRaw === "SENT" ? "SENT" : "INBOX";
+      const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 50);
+      const { parityCheckLocal } = await import("./services/local-mailbox");
+      const local = await parityCheckLocal({
+        resolved: { userId: resolved.userId, accountId: resolved.accountId }, label, limit,
+      });
+      // Live Gmail counterpart for direct compare
+      let gmail: { count?: number; first: { id: string; subject: string; date: string }[]; tookMs: number; error?: string } = { first: [], tookMs: 0 };
+      const tg = Date.now();
+      try {
+        const { summaries } = await getMessageSummaries(resolved.userId, limit, `in:${label.toLowerCase()}`, undefined, resolved.accountId);
+        gmail = {
+          first: summaries.map(s => ({ id: s.id || "", subject: s.subject || "", date: s.date || "" })),
+          tookMs: Date.now() - tg,
+        };
+      } catch (e: any) {
+        gmail = { first: [], tookMs: Date.now() - tg, error: e.message };
+      }
+      // Cheap mismatch summary
+      const idsLocal = new Set(local.localFirst.map(r => r.id));
+      const idsGmail = new Set(gmail.first.map(r => r.id));
+      const onlyLocal = [...idsLocal].filter(x => !idsGmail.has(x)).length;
+      const onlyGmail = [...idsGmail].filter(x => !idsLocal.has(x)).length;
+      const intersect = [...idsLocal].filter(x => idsGmail.has(x)).length;
+      res.json({
+        mailbox: { ownerUserId: resolved.userId, accountId: resolved.accountId },
+        label,
+        local,
+        gmail,
+        compareFirstPage: {
+          intersect,
+          onlyLocal,
+          onlyGmail,
+          newestLocal: local.localFirst[0] || null,
+          newestGmail: gmail.first[0] || null,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: "Parity check failed", error: err.message });
     }
   });
 

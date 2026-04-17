@@ -1,0 +1,129 @@
+Phase 2C — Local Inbox Cutover
+
+Do not rebuild Phase 2A or 2B. They are already shipped. This task is only to execute the next highest-leverage step: switch inbox and thread-list reads from live Gmail to the local DB safely, without destabilizing current behavior.
+
+Goal
+Make the inbox feel fast by serving list views from email_messages in the local database, while preserving a safe fallback path to live Gmail for edge cases.
+
+What already exists
+- email_messages is populated and still growing via backfill
+- Search endpoint /api/email-search is already fast and working
+- Indexes already exist and are performing well:
+  - idx_email_owner_sent
+  - idx_email_account_sent
+  - idx_email_thread
+- Current inbox UI still reads from live Gmail endpoints
+- We do NOT want to break current Gmail behavior during cutover
+
+Build requirements
+
+1. Add safe source selection to inbox/thread APIs
+Update the relevant inbox list and thread list endpoints so they support:
+- source=local
+- source=gmail
+- source=auto
+
+Rules:
+- local = read from local DB only
+- gmail = existing live Gmail behavior
+- auto = prefer local DB for list views, but allow Gmail fallback when needed
+- Default behavior should remain safe. If you think defaulting to auto is stable after implementation, do it. If not, keep default as gmail and wire the UI toggle first.
+
+2. Local DB inbox list route
+Power the inbox list from email_messages for the local path.
+
+Requirements:
+- support mailbox/account filtering
+- support owner_user_id scoping exactly as current permissions expect
+- sort by sent_at DESC
+- support pagination
+- return shape should be as close as possible to the existing inbox UI response shape so the frontend does not need major rewrites
+- use the existing indexes efficiently
+- avoid N+1 queries
+
+3. Local DB thread list route
+Implement local thread grouping from email_messages.
+
+Requirements:
+- group by gmail_thread_id
+- each row should represent the most recent message in the thread
+- include enough metadata for current thread list rendering
+- support pagination and mailbox filters
+- preserve permission scoping
+
+Implementation preference:
+- use DISTINCT ON (gmail_thread_id) with ORDER BY gmail_thread_id, sent_at DESC
+or
+- use a lightweight thread summary query/view if that is cleaner
+
+Do not over-engineer this. The goal is fast and correct, not fancy.
+
+4. Thread detail / hydration behavior
+For source=local or source=auto:
+- list views should come from local DB
+- if a specific thread or message detail is incomplete locally, allow fallback hydration from Gmail only for that detail request
+- do not force live Gmail for the whole inbox just because one thread is imperfect
+
+5. UI integration
+Update the inbox UI with the smallest safe change possible.
+
+Requirements:
+- make the inbox list use source=auto or source=local for testing
+- if helpful, add a temporary dev-visible toggle or query param so we can compare:
+  - local
+  - gmail
+  - auto
+- do not redesign the UI
+- do not add the deferred team inbox sharing UI in this phase
+
+6. Parity verification
+Add a concise verification path to compare local vs live results.
+
+Need:
+- quick parity check for Trevor mailbox
+- quick parity check for support mailbox
+- compare newest message ordering
+- compare visible row counts for the first page
+- compare a few sample thread IDs and subjects
+- log or expose any obvious mismatch counts
+
+This can be a simple internal/dev endpoint or a small diagnostic helper. Keep it surgical.
+
+7. Performance checks
+After implementation, measure and report:
+- inbox list first-page latency for local vs gmail
+- thread list latency for local vs gmail
+- behavior with Trevor’s large mailbox
+- any known mismatch cases
+
+8. Guardrails
+Do NOT do these in this phase:
+- no attachment search / OCR / PDF extraction
+- no per-mailbox sharing UI
+- no major schema redesign unless absolutely necessary
+- no risky hard cutover without fallback
+- no breaking changes to auth/permissions
+
+Deliverables
+When finished, provide:
+1. exact routes changed
+2. exact frontend files changed
+3. how source=local/gmail/auto works
+4. parity results for Trevor + support
+5. measured latency results
+6. any caveats still remaining
+
+Implementation style
+- small, surgical edits
+- preserve current behavior where possible
+- optimize for speed + safe fallback
+- no giant refactor
+- no duplicate logic if existing Gmail route code can be wrapped cleanly
+
+Definition of done
+- inbox list can read from local DB
+- thread list can read from local DB
+- fallback to Gmail still exists for edge cases
+- UI can exercise local/auto path
+- parity is checked on Trevor + support
+- performance results are reported clearly

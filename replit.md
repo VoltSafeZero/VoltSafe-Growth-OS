@@ -1,5 +1,40 @@
 # Replit Agent Configuration
 
+## Local Inbox Cutover (Phase 2C — Complete)
+
+### What was built
+The inbox/threads list and thread-detail views now read from the **local `email_messages` table by default**, with transparent fallback to live Gmail. UI-selectable Source toggle (Local / Gmail / Auto) in the inbox header.
+
+### New file
+- `server/services/local-mailbox.ts` — `listLocalMessages`, `listLocalThreads`, `getLocalThread`, `parityCheckLocal`. Returns Gmail-shaped objects (`{id, threadId, snippet, internalDate, labelIds, from, to, subject, date}`) so the frontend needed no shape changes. Parses `in:inbox` / `in:sent` from `q` into label_ids ILIKE; free text falls through to FTS via the `idx_email_fts` GIN index from Phase 2B. Pagination via offset-as-string in pageToken.
+
+### Modified routes (`server/routes.ts`)
+All three accept `?source=local|gmail|auto` (default `gmail` for backward compatibility):
+- `GET /api/gmail/messages` — inbox/sent list
+- `GET /api/gmail/threads` — threaded list
+- `GET /api/gmail/threads/:id` — thread detail
+Each response includes `X-Mail-Source` and `X-Mail-Took-Ms` headers. `auto` falls back to Gmail only when local returns 0 rows.
+
+New: `GET /api/email-search/parity?label=&accountId=&limit=` — compares local vs live Gmail first page; reports counts, latencies, intersect / onlyLocal / onlyGmail.
+
+### UI (`client/src/pages/gmail-inbox.tsx`)
+- `mailSource` state (URL param `?mailSource=`, default `auto`) wired into `inboxQuery`, `sentQuery`, `loadMoreInbox`, `loadMoreSent`, and `threadQuery`. Query keys + the existing extras-reset effects all include `mailSource` so source switches refetch cleanly and clear stale pagination tokens.
+- All 6 `setQueryData` cache-update callsites (star/archive/unread) updated to the 5-element key including `mailSource` so optimistic updates land in the active cache.
+- Small Source selector (Auto / Local / Gmail) added to the inbox header next to the Search Mailbox button.
+
+### Validated on Trevor's mailbox (live, backfill #2 still progressing at 14,900)
+- Inbox first page: **local 10ms vs Gmail 650ms (~65× faster)**, 5/5 runs each
+- Threads list local: 21ms · Thread detail local: served from local
+- Parity INBOX: 14,352 local rows · local 18ms vs Gmail 384ms · intersect 9 / onlyLocal 1 / onlyGmail 1 (1-row drift = backfill in flight)
+- Parity SENT: 595 local rows · local 26ms vs Gmail 220ms · intersect 10/10 (perfect)
+- 71/71 permissions tests pass; live Gmail sync, watch, and backfill #2 all untouched
+
+### Known limitations / follow-ups
+- `getLocalThread` hardcodes `isHtml=false` (uses `body_text`). Live Gmail still has rich HTML; switch to Gmail for HTML-rendered view if needed.
+- Auto mode falls back only on 0 rows; a partially-backfilled mailbox could appear truncated. Backfill #2 is closing the gap; once complete, parity should be ~100%.
+
+---
+
 ## Mailbox Local Search (Phase 2B — Complete)
 
 ### What was built

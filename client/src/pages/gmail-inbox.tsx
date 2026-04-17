@@ -2258,6 +2258,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const mailTeamPerms: MailTeamPerms = (userPermissions?.mail_team ?? {}) as MailTeamPerms;
   const isAdmin = ["master_admin", "admin"].includes(currentUserRole);
   const { toast } = useToast();
+  // Phase 2C: source toggle. Reads ?mailSource=local|gmail|auto from URL; default 'auto'.
+  const [mailSource, setMailSource] = useState<"local" | "gmail" | "auto">(() => {
+    const v = new URLSearchParams(window.location.search).get("mailSource");
+    return v === "local" || v === "gmail" || v === "auto" ? v : "auto";
+  });
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
@@ -2517,7 +2522,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             ? [...m.labelIds.filter(l => l !== "STARRED"), "STARRED"]
             : m.labelIds.filter(l => l !== "STARRED") } : m
         ) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery], update);
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId, mailSource], update);
       setInboxExtra((prev) => prev.map((m) => m.id === msgId ? { ...m, labelIds: data.starred
         ? [...m.labelIds.filter(l => l !== "STARRED"), "STARRED"]
         : m.labelIds.filter(l => l !== "STARRED") } : m));
@@ -2589,11 +2594,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   })();
 
   const inboxQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
-    queryKey: ["/api/gmail/messages", "inbox", searchQuery, activeAccountId],
+    queryKey: ["/api/gmail/messages", "inbox", searchQuery, activeAccountId, mailSource],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", "50");
       params.set("q", searchQuery ? `in:inbox ${searchQuery}` : "in:inbox");
+      params.set("source", mailSource);
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
@@ -2602,11 +2608,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   });
 
   const sentQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
-    queryKey: ["/api/gmail/messages", "sent", searchQuery, activeAccountId],
+    queryKey: ["/api/gmail/messages", "sent", searchQuery, activeAccountId, mailSource],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", "50");
       params.set("q", searchQuery ? `in:sent ${searchQuery}` : "in:sent");
+      params.set("source", mailSource);
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
@@ -2623,21 +2630,21 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const prevInboxKey = useRef<string>("");
   const prevSentKey = useRef<string>("");
   useEffect(() => {
-    const key = `${searchQuery}|${activeAccountId ?? ""}`;
+    const key = `${searchQuery}|${activeAccountId ?? ""}|${mailSource}`;
     if (prevInboxKey.current === key) return;
     prevInboxKey.current = key;
     setInboxExtra([]);
     setInboxNextToken(inboxBaseToken);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inboxBaseToken, searchQuery, activeAccountId]);
+  }, [inboxBaseToken, searchQuery, activeAccountId, mailSource]);
   useEffect(() => {
-    const key = `sent|${activeAccountId ?? ""}`;
+    const key = `sent|${activeAccountId ?? ""}|${mailSource}`;
     if (prevSentKey.current === key) return;
     prevSentKey.current = key;
     setSentExtra([]);
     setSentNextToken(sentBaseToken);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sentBaseToken, activeAccountId]);
+  }, [sentBaseToken, activeAccountId, mailSource]);
 
   const loadMoreInbox = async () => {
     if (!inboxNextToken || loadingMoreInbox) return;
@@ -2647,6 +2654,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       params.set("limit", "50");
       params.set("q", searchQuery ? `in:inbox ${searchQuery}` : "in:inbox");
       params.set("pageToken", inboxNextToken);
+      params.set("source", mailSource);
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error();
@@ -2668,6 +2676,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       params.set("limit", "50");
       params.set("q", searchQuery ? `in:sent ${searchQuery}` : "in:sent");
       params.set("pageToken", sentNextToken);
+      params.set("source", mailSource);
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error();
@@ -2682,10 +2691,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   };
 
   const threadQuery = useQuery<Thread>({
-    queryKey: ["/api/gmail/threads", selectedThreadId, activeAccountId],
+    queryKey: ["/api/gmail/threads", selectedThreadId, activeAccountId, mailSource],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (activeAccountId) params.set("asAccountId", String(activeAccountId));
+      params.set("source", mailSource);
       const qs = params.toString() ? `?${params}` : "";
       const res = await fetch(`/api/gmail/threads/${selectedThreadId}${qs}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
@@ -2912,7 +2922,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               : m
           )
         } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], updateMsgs);
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId, mailSource], updateMsgs);
       setInboxExtra(prev => prev.map(m =>
         messageIds.includes(m.id)
           ? { ...m, labelIds: isRead ? m.labelIds.filter(l => l !== "UNREAD") : [...m.labelIds.filter(l => l !== "UNREAD"), "UNREAD"] }
@@ -2937,7 +2947,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onSuccess: ({ threadIds }) => {
       const removeArchived = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
         old ? { ...old, messages: old.messages.filter(m => !threadIds.includes(m.threadId)) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeArchived);
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId, mailSource], removeArchived);
       setInboxExtra(prev => prev.filter(m => !threadIds.includes(m.threadId)));
       if (selectedThreadId && threadIds.includes(selectedThreadId)) {
         setSelectedThreadId(null);
@@ -2978,7 +2988,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onSuccess: ({ threadId }) => {
       const removeArchived = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
         old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeArchived);
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId, mailSource], removeArchived);
       setInboxExtra(prev => prev.filter(m => m.threadId !== threadId));
       if (selectedThreadId === threadId) { setSelectedThreadId(null); setSelectedMessageId(null); }
       toast({ title: "Thread archived" });
@@ -3124,8 +3134,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         old ? { ...old, messages: old.messages.map((m) =>
           m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m
         ) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeUnread);
-      queryClient.setQueryData(["/api/gmail/messages", "sent", searchQuery, activeAccountId], removeUnread);
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId, mailSource], removeUnread);
+      queryClient.setQueryData(["/api/gmail/messages", "sent", searchQuery, activeAccountId, mailSource], removeUnread);
       // Also update the locally-stored extra pages
       setInboxExtra((prev) => prev.map((m) => m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
       setSentExtra((prev) => prev.map((m) => m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
@@ -3252,6 +3262,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             {syncMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
             {syncMutation.isPending ? "Syncing..." : "Sync to CRM"}
           </Button>
+          <Select value={mailSource} onValueChange={(v) => setMailSource(v as "local" | "gmail" | "auto")}>
+            <SelectTrigger className="h-8 w-[110px] text-[11px]" data-testid="select-mail-source">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Source: Auto</SelectItem>
+              <SelectItem value="local">Source: Local</SelectItem>
+              <SelectItem value="gmail">Source: Gmail</SelectItem>
+            </SelectContent>
+          </Select>
           <LocalSearchButton />
           <Button
             size="icon"
