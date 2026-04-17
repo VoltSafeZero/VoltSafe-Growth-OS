@@ -20,7 +20,12 @@ import {
   CheckCheck, ArrowLeft, ClipboardList, StickyNote, ArchiveX, Square, Filter, Eye,
   Sparkles, Code2, Type, Rows3, Rows2, Inbox as InboxIcon,
   Maximize2, Minimize2,
+  Command as CommandIcon, AlignJustify, Hash, AtSign, Folders, Zap as ZapIcon,
 } from "lucide-react";
+import {
+  CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandSeparator,
+} from "@/components/ui/command";
+import { useSnippets, SnippetInsertButton, SnippetsManagerDialog } from "@/components/inbox-snippets";
 import { useLocation } from "wouter";
 import DOMPurify from "dompurify";
 import { motion, AnimatePresence } from "framer-motion";
@@ -509,6 +514,16 @@ function ComposeDialog({
                 >
                   <Receipt className="h-4 w-4" />
                 </Button>
+              )}
+              {canSend && (
+                <SnippetInsertButton
+                  onInsert={(snippetBody) => {
+                    setBody((prev) => {
+                      const sep = prev && !prev.endsWith("\n") ? "\n\n" : "";
+                      return prev + sep + snippetBody;
+                    });
+                  }}
+                />
               )}
             </div>
             {canSend && (
@@ -2582,6 +2597,45 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   useEffect(() => {
     try { localStorage.setItem("inbox.focusMode", focusMode ? "1" : "0"); } catch {}
   }, [focusMode]);
+  // ── Density (Comfortable / Compact / Ultra) ────────────────────────────
+  type Density = "comfortable" | "compact" | "ultra";
+  const [density, setDensity] = useState<Density>(() => {
+    try {
+      const v = typeof window !== "undefined" ? localStorage.getItem("inbox.density") : null;
+      if (v === "compact" || v === "ultra" || v === "comfortable") return v as Density;
+    } catch {}
+    return "comfortable";
+  });
+  useEffect(() => {
+    try { localStorage.setItem("inbox.density", density); } catch {}
+  }, [density]);
+  const densityClasses = useMemo(() => {
+    const map = {
+      comfortable: { py: "py-3", senderText: "text-[13px]", subText: "text-[12px]", showSnippet: true,  signalsMt: "mt-1" },
+      compact:     { py: "py-2", senderText: "text-[12.5px]", subText: "text-[11.5px]", showSnippet: true,  signalsMt: "mt-0.5" },
+      ultra:       { py: "py-1.5", senderText: "text-[12px]", subText: "text-[11px]", showSnippet: false, signalsMt: "mt-0" },
+    };
+    return map[density];
+  }, [density]);
+  // ── Command Bar (Cmd+K) ────────────────────────────────────────────────
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  // ── Snippets Manager dialog ────────────────────────────────────────────
+  const [snippetsManagerOpen, setSnippetsManagerOpen] = useState(false);
+  const { snippets } = useSnippets();
+  // ── Compose seed (cmdk → contact / snippet → fresh compose) ────────────
+  const [composeInitial, setComposeInitial] = useState<{ to?: string; body?: string } | null>(null);
+  // ── Cmd+K / Ctrl+K listener — global, ignores typing context ──────────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const isMetaK = (e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K");
+      if (isMetaK) {
+        e.preventDefault();
+        setCmdkOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const [editingDomainFolderId, setEditingDomainFolderId] = useState<number | null>(null);
   const [addDomainInput, setAddDomainInput] = useState("");
   const [editingDraft, setEditingDraft] = useState<{ to: string; subject: string; body: string; draftId: string; threadId?: string } | null>(null);
@@ -3637,6 +3691,66 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             </SelectContent>
           </Select>
           <LocalSearchButton />
+          {/* Density toggle — Comfortable / Compact / Ultra */}
+          <div
+            className="hidden md:inline-flex items-center gap-0.5 p-0.5 rounded-md border border-border/50 bg-background/60"
+            role="radiogroup"
+            aria-label="List density"
+            data-testid="density-toggle"
+          >
+            {([
+              { key: "comfortable", icon: Rows3, label: "Comfortable" },
+              { key: "compact",     icon: Rows2, label: "Compact" },
+              { key: "ultra",       icon: AlignJustify, label: "Ultra compact" },
+            ] as const).map(({ key, icon: Icon, label }) => {
+              const active = density === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  title={label}
+                  data-testid={`button-density-${key}`}
+                  onClick={() => setDensity(key)}
+                  className={`h-6 w-7 inline-flex items-center justify-center rounded-[4px] transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none ${
+                    active
+                      ? "bg-primary/15 text-primary"
+                      : "text-muted-foreground/55 hover:text-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+              );
+            })}
+          </div>
+          {/* Snippets manager */}
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => setSnippetsManagerOpen(true)}
+            title="Snippets & templates"
+            aria-label="Open snippets manager"
+            data-testid="button-open-snippets-manager"
+            className="h-8 w-8 hidden md:inline-flex"
+          >
+            <StickyNote className="h-4 w-4" />
+          </Button>
+          {/* Cmd+K command bar trigger */}
+          <button
+            type="button"
+            onClick={() => setCmdkOpen(true)}
+            data-testid="button-open-cmdk"
+            title="Search & commands (⌘K)"
+            aria-label="Open command bar"
+            className="hidden md:inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-border/50 bg-background/60 text-[11px] text-muted-foreground/70 hover:text-foreground hover:border-border transition-colors"
+          >
+            <Search className="h-3.5 w-3.5" />
+            <span>Search</span>
+            <kbd className="ml-1 inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-muted/60 text-muted-foreground/70 text-[9.5px] font-mono">
+              <CommandIcon className="h-2.5 w-2.5" />K
+            </kbd>
+          </button>
           <Button
             size="icon"
             variant="ghost"
@@ -4633,7 +4747,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   <button
                     onClick={() => handleSelectMessage(msg)}
                     data-testid={`email-row-${msg.id}`}
-                    className="flex-1 text-left py-3 pr-14 min-w-0"
+                    className={`flex-1 text-left ${densityClasses.py} pr-14 min-w-0 transition-[padding] duration-200`}
                   >
                     {/* Row 1: sender + timestamp */}
                     <div className="flex items-center justify-between gap-2 mb-[3px]">
@@ -4658,7 +4772,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             </span>
                           );
                         })()}
-                        <span className={`text-[13px] leading-none truncate ${
+                        <span className={`${densityClasses.senderText} leading-none truncate ${
                           unread ? "font-semibold text-foreground" : "font-medium text-foreground/55"
                         }`}>
                           {senderName}
@@ -4671,17 +4785,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       </span>
                     </div>
                     {/* Row 2: subject — snippet (inline) */}
-                    <div className="text-[12px] leading-snug truncate">
+                    <div className={`${densityClasses.subText} leading-snug truncate`}>
                       <span className={unread ? "text-foreground/90 font-medium" : "text-muted-foreground/55"}>
                         {msg.subject || "(no subject)"}
                       </span>
-                      {msg.snippet && (
+                      {msg.snippet && densityClasses.showSnippet && (
                         <span className="text-muted-foreground/40"> — {msg.snippet}</span>
                       )}
                     </div>
                     {/* Row 3: signal badges + triage status (only when data present) */}
-                    {hasSignalRow && (
-                      <div className="flex items-center gap-1 mt-1 flex-wrap" data-testid={`thread-signals-${msg.threadId}`}>
+                    {hasSignalRow && density !== "ultra" && (
+                      <div className={`flex items-center gap-1 ${densityClasses.signalsMt} flex-wrap`} data-testid={`thread-signals-${msg.threadId}`}>
                         {threadSig && <InboxSignalBadge sig={threadSig} />}
                         {threadSig?.workflowState && threadSig.workflowState !== "none" && (
                           <WorkflowStateBadge state={threadSig.workflowState} />
@@ -5092,16 +5206,285 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         </div>
       </div>
 
+      {/* Snippets Manager dialog */}
+      <SnippetsManagerDialog open={snippetsManagerOpen} onClose={() => setSnippetsManagerOpen(false)} />
+
+      {/* Command Bar (⌘K) — search & commands */}
+      <CommandDialog open={cmdkOpen} onOpenChange={setCmdkOpen}>
+        <CommandInput placeholder="Search threads, contacts, mailboxes, snippets, commands…" data-testid="input-cmdk" />
+        <CommandList className="max-h-[60vh]">
+          <CommandEmpty>No results found.</CommandEmpty>
+
+          {/* Commands */}
+          <CommandGroup heading="Commands">
+            {canSend && (
+              <CommandItem
+                value="compose new email message"
+                onSelect={() => { setCmdkOpen(false); setReplyTo(null); setComposeOpen(true); }}
+                data-testid="cmdk-compose"
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                <span>Compose new email</span>
+                <kbd className="ml-auto text-[10px] text-muted-foreground/60 font-mono">C</kbd>
+              </CommandItem>
+            )}
+            <CommandItem
+              value="refresh inbox sync"
+              onSelect={() => {
+                setCmdkOpen(false);
+                queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
+                queryClient.invalidateQueries({ queryKey: ["/api/gmail/threads"] });
+              }}
+              data-testid="cmdk-refresh"
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              <span>Refresh inbox</span>
+            </CommandItem>
+            <CommandItem
+              value="sync to crm"
+              onSelect={() => { setCmdkOpen(false); syncMutation.mutate(); }}
+              data-testid="cmdk-sync-crm"
+            >
+              <Link2 className="mr-2 h-4 w-4" />
+              <span>Sync to CRM</span>
+            </CommandItem>
+            {selectedThreadId && (
+              <CommandItem
+                value="toggle focus mode reader"
+                onSelect={() => { setCmdkOpen(false); setFocusMode((v) => !v); }}
+                data-testid="cmdk-focus-mode"
+              >
+                {focusMode ? <Minimize2 className="mr-2 h-4 w-4" /> : <Maximize2 className="mr-2 h-4 w-4" />}
+                <span>{focusMode ? "Exit Focus Mode" : "Enter Focus Mode"}</span>
+                <kbd className="ml-auto text-[10px] text-muted-foreground/60 font-mono">F</kbd>
+              </CommandItem>
+            )}
+            <CommandItem
+              value="density comfortable comfy"
+              onSelect={() => { setCmdkOpen(false); setDensity("comfortable"); }}
+              data-testid="cmdk-density-comfortable"
+            >
+              <Rows3 className="mr-2 h-4 w-4" />
+              <span>Density: Comfortable</span>
+              {density === "comfortable" && <CheckCheck className="ml-auto h-3.5 w-3.5 text-primary" />}
+            </CommandItem>
+            <CommandItem
+              value="density compact"
+              onSelect={() => { setCmdkOpen(false); setDensity("compact"); }}
+              data-testid="cmdk-density-compact"
+            >
+              <Rows2 className="mr-2 h-4 w-4" />
+              <span>Density: Compact</span>
+              {density === "compact" && <CheckCheck className="ml-auto h-3.5 w-3.5 text-primary" />}
+            </CommandItem>
+            <CommandItem
+              value="density ultra dense"
+              onSelect={() => { setCmdkOpen(false); setDensity("ultra"); }}
+              data-testid="cmdk-density-ultra"
+            >
+              <AlignJustify className="mr-2 h-4 w-4" />
+              <span>Density: Ultra compact</span>
+              {density === "ultra" && <CheckCheck className="ml-auto h-3.5 w-3.5 text-primary" />}
+            </CommandItem>
+            <CommandItem
+              value="manage snippets templates"
+              onSelect={() => { setCmdkOpen(false); setSnippetsManagerOpen(true); }}
+              data-testid="cmdk-manage-snippets"
+            >
+              <StickyNote className="mr-2 h-4 w-4" />
+              <span>Manage snippets &amp; templates</span>
+            </CommandItem>
+          </CommandGroup>
+
+          <CommandSeparator />
+
+          {/* Filters / Tabs */}
+          <CommandGroup heading="Filters">
+            {([
+              { key: "inbox" as const,     label: "Inbox",     icon: Inbox },
+              { key: "sent" as const,      label: "Sent",      icon: Send },
+              { key: "drafts" as const,    label: "Drafts",    icon: FileText },
+              { key: "scheduled" as const, label: "Scheduled", icon: CalendarClock },
+              { key: "other" as const,     label: "Other",     icon: Newspaper },
+              { key: "review" as const,    label: "Review",    icon: ShieldCheck },
+            ]).map((t) => (
+              <CommandItem
+                key={t.key}
+                value={`go to ${t.label.toLowerCase()} folder`}
+                onSelect={() => { setCmdkOpen(false); setTab(t.key); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                data-testid={`cmdk-tab-${t.key}`}
+              >
+                <t.icon className="mr-2 h-4 w-4" />
+                <span>Go to {t.label}</span>
+                {tab === t.key && <CheckCheck className="ml-auto h-3.5 w-3.5 text-primary" />}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+
+          {/* Mailboxes */}
+          {(accountsQuery.data?.length ?? 0) > 0 && (
+            <>
+              <CommandSeparator />
+              <CommandGroup heading="Mailboxes">
+                {accountsQuery.data!.map((acct) => (
+                  <CommandItem
+                    key={acct.id}
+                    value={`mailbox ${acct.displayName ?? ""} ${acct.emailAddress}`}
+                    onSelect={() => {
+                      setCmdkOpen(false);
+                      setActiveAccountId(acct.id);
+                      setTab("inbox");
+                      setSelectedMessageId(null);
+                      setSelectedThreadId(null);
+                    }}
+                    data-testid={`cmdk-mailbox-${acct.id}`}
+                  >
+                    <AtSign className="mr-2 h-4 w-4" />
+                    <span className="truncate">{acct.displayName || acct.emailAddress}</span>
+                    {acct.isShared && <Badge variant="outline" className="ml-2 text-[9px] h-4">Shared</Badge>}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </>
+          )}
+
+          {/* Folders */}
+          {(foldersQuery.data?.length ?? 0) > 0 && (
+            <>
+              <CommandSeparator />
+              <CommandGroup heading="Folders">
+                {foldersQuery.data!.slice(0, 10).map((f) => (
+                  <CommandItem
+                    key={f.id}
+                    value={`folder ${f.name}`}
+                    onSelect={() => {
+                      setCmdkOpen(false);
+                      setTab("folder");
+                      setSelectedFolderId(f.id);
+                      setSelectedThreadId(null);
+                      setSelectedMessageId(null);
+                    }}
+                    data-testid={`cmdk-folder-${f.id}`}
+                  >
+                    <Folder className="mr-2 h-4 w-4" />
+                    <span className="truncate">{f.name}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </>
+          )}
+
+          {/* Threads — filtered against active list */}
+          {activeMessages.length > 0 && (
+            <>
+              <CommandSeparator />
+              <CommandGroup heading="Threads in current view">
+                {activeMessages.slice(0, 25).map((m) => (
+                  <CommandItem
+                    key={m.id}
+                    value={`${m.subject || "(no subject)"} ${parseSenderName(m.from)} ${parseSenderEmail(m.from)} ${m.snippet || ""}`}
+                    onSelect={() => { setCmdkOpen(false); handleSelectMessage(m); }}
+                    data-testid={`cmdk-thread-${m.id}`}
+                  >
+                    <Mail className="mr-2 h-4 w-4 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-[12.5px] font-medium truncate">{parseSenderName(m.from)}</span>
+                        <span className="text-[10px] text-muted-foreground/55 tabular-nums flex-shrink-0">{formatDate(m.date, m.internalDate)}</span>
+                      </div>
+                      <div className="text-[11px] text-muted-foreground/70 truncate">{m.subject || "(no subject)"}</div>
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </>
+          )}
+
+          {/* Contacts — derived from active messages, deduped */}
+          {(() => {
+            const seen = new Map<string, { name: string; email: string }>();
+            for (const m of activeMessages) {
+              const email = parseSenderEmail(m.from).toLowerCase();
+              if (email && !seen.has(email)) seen.set(email, { name: parseSenderName(m.from), email });
+              if (seen.size >= 12) break;
+            }
+            const contacts = Array.from(seen.values());
+            if (contacts.length === 0) return null;
+            return (
+              <>
+                <CommandSeparator />
+                <CommandGroup heading="Contacts">
+                  {contacts.map((c) => (
+                    <CommandItem
+                      key={c.email}
+                      value={`contact ${c.name} ${c.email}`}
+                      onSelect={() => {
+                        setCmdkOpen(false);
+                        if (canSend) {
+                          setReplyTo(null);
+                          setEditingDraft(null);
+                          setComposeInitial({ to: c.email });
+                          setComposeOpen(true);
+                        }
+                      }}
+                      data-testid={`cmdk-contact-${c.email}`}
+                    >
+                      <User className="mr-2 h-4 w-4" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12.5px] font-medium truncate">{c.name || c.email}</div>
+                        <div className="text-[11px] text-muted-foreground/65 truncate font-mono">{c.email}</div>
+                      </div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </>
+            );
+          })()}
+
+          {/* Snippets — quick-insert into compose */}
+          {snippets.length > 0 && (
+            <>
+              <CommandSeparator />
+              <CommandGroup heading="Snippets">
+                {snippets.map((s) => (
+                  <CommandItem
+                    key={s.id}
+                    value={`snippet ${s.name} ${s.body}`}
+                    onSelect={() => {
+                      setCmdkOpen(false);
+                      if (canSend) {
+                        setReplyTo(null);
+                        setEditingDraft(null);
+                        setComposeInitial({ body: s.body });
+                        setComposeOpen(true);
+                      }
+                    }}
+                    data-testid={`cmdk-snippet-${s.id}`}
+                  >
+                    <StickyNote className="mr-2 h-4 w-4" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12.5px] font-medium truncate">{s.name}</div>
+                      <div className="text-[11px] text-muted-foreground/65 truncate">{s.body.replace(/\s+/g, " ").slice(0, 70)}</div>
+                    </div>
+                    <span className="text-[9.5px] text-muted-foreground/45 ml-2">Insert into draft</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </>
+          )}
+        </CommandList>
+      </CommandDialog>
+
       {/* Compose / Reply dialog */}
       <ComposeDialog
         key={editingDraft?.draftId ?? (replyTo ? `reply-${replyTo.threadId}` : "compose")}
-        open={composeOpen || !!replyTo || !!editingDraft}
-        onClose={() => { setComposeOpen(false); setReplyTo(null); setEditingDraft(null); }}
+        open={composeOpen || !!replyTo || !!editingDraft || !!composeInitial}
+        onClose={() => { setComposeOpen(false); setReplyTo(null); setEditingDraft(null); setComposeInitial(null); }}
         canSend={canSend}
-        defaultTo={editingDraft?.to || replyTo?.to || ""}
+        defaultTo={editingDraft?.to || replyTo?.to || composeInitial?.to || ""}
         defaultCc={replyTo?.cc || ""}
         defaultSubject={editingDraft?.subject || replyTo?.subject || ""}
-        defaultBody={editingDraft?.body || ""}
+        defaultBody={editingDraft?.body || composeInitial?.body || ""}
         draftId={editingDraft?.draftId}
         threadId={editingDraft?.threadId || replyTo?.threadId}
         asAccountId={typeof activeAccountId === "number" ? activeAccountId : undefined}
