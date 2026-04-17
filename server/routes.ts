@@ -7480,10 +7480,25 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   // PATCH /api/gmail/thread-record/:threadId — upsert workflow state / snooze / follow-up / reply status
+  // Phase 4: this mutates per-thread mailbox-workflow state (snooze, replyStatus, etc).
+  // For threads we already have stored, enforce edit access on the owning mailbox so view-only
+  // teammates cannot snooze / mark / change reply status on someone else's shared mailbox.
+  // For brand-new thread records (no stored messages yet) the guard is skipped — there is no
+  // mailbox-owned state to protect at that point.
   app.patch("/api/gmail/thread-record/:threadId", requireAuth, async (req, res) => {
     const threadId = String(req.params.threadId);
     const { workflowState, snoozedUntil, followUpAt, replyStatus } = req.body;
     try {
+      // Phase 4 edit-access check (only when the thread is anchored to a known mailbox).
+      const [anchor] = await db
+        .select({ accId: emailMessages.sourceAccountId })
+        .from(emailMessages)
+        .where(eq(emailMessages.gmailThreadId, threadId))
+        .limit(1);
+      if (anchor?.accId) {
+        if (!(await requireAccountEditAccess(req, res, anchor.accId))) return;
+      }
+
       const existing = await db
         .select({ id: emailThreads.id })
         .from(emailThreads)
@@ -8671,6 +8686,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
+    // Phase 4: shared-mailbox view-only grants must NOT permit creating drafts.
+    if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
     try {
       const { to, subject, body, threadId, draftId } = req.body;
       if (!body) return res.status(400).json({ message: "body is required" });
@@ -8687,6 +8704,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
+    // Phase 4: deleting a draft is a mutation; require edit access.
+    if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
     try {
       await deleteDraft(resolved.userId, req.params.id, resolved.accountId);
       res.json({ success: true });
@@ -8747,6 +8766,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
+    // Phase 4: marking read mutates Gmail labels — require edit access.
+    if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
     try {
       await markMessageRead(resolved.userId, req.params.id, resolved.accountId);
       res.json({ success: true });
@@ -8761,6 +8782,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
+    // Phase 4: starring mutates Gmail labels — require edit access.
+    if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
     try {
       const gmail = await getGmailClient(resolved.userId, resolved.accountId);
       const { id } = req.params;
@@ -8793,6 +8816,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId ? Number(asAccountId) : undefined, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
+    // Phase 4: bulk mark-read mutates Gmail labels — require edit access.
+    if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
     try {
       const gmail = await getGmailClient(resolved.userId, resolved.accountId);
       let success = 0; let failed = 0;
@@ -8823,6 +8848,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId ? Number(asAccountId) : undefined, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
+    // Phase 4: bulk archive mutates Gmail labels — require edit access.
+    if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
     try {
       const gmail = await getGmailClient(resolved.userId, resolved.accountId);
       let success = 0; let failed = 0;
@@ -9088,6 +9115,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected. Connect your Gmail to send emails." });
+    // Phase 4: SENDING email is the highest-impact mutation — require edit access.
+    // View-only shared-mailbox grants cannot send under any circumstance.
+    if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
     try {
       const { to, subject, body, threadId, attachmentIds, cc, bcc, enableTracking } = req.body;
       if (!to || !body) {
@@ -9295,6 +9325,51 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const isOwner = acct.userId === userId;
     if (!isOwner && !isAdmin) { res.status(403).json({ message: "Owner or admin only" }); return null; }
     return { acct, isOwner, isAdmin, userId };
+  }
+
+  // Phase 4 helper: load mailbox + verify the session user has EDIT access.
+  // Edit access = owner OR master_admin/admin OR explicit
+  // users.permissions.mail_team[accountId].edit === true.
+  // View-only grants are NOT sufficient — those are read-only.
+  // Returns ctx when allowed, or sends 400/403/404 and returns null.
+  async function requireAccountEditAccess(req: any, res: any, accountId: number | undefined | null) {
+    const userId = (req.session as any).userId as number;
+    if (accountId == null || !Number.isFinite(accountId)) {
+      res.status(400).json({ message: "Valid accountId is required for this action" });
+      return null;
+    }
+    const [acct] = await db.select().from(emailAccounts).where(eq(emailAccounts.id, accountId)).limit(1);
+    if (!acct) { res.status(404).json({ message: "Mailbox not found" }); return null; }
+    if (!acct.isActive) { res.status(403).json({ message: "Mailbox is inactive" }); return null; }
+
+    const isOwner = acct.userId === userId;
+    if (isOwner) return { acct, isOwner: true, isAdmin: false, hasEditGrant: false, userId };
+
+    const role = String((req.session as any).globalRole || "");
+    const isAdmin = role === "master_admin" || role === "admin";
+    if (isAdmin) return { acct, isOwner: false, isAdmin: true, hasEditGrant: false, userId };
+
+    // Non-owner non-admin: must have explicit edit grant on this mailbox.
+    const [u] = await db.select({ permissions: users.permissions })
+      .from(users).where(eq(users.id, userId)).limit(1);
+    const mt = ((u?.permissions as any)?.mail_team ?? {}) as Record<string, { view?: boolean; edit?: boolean }>;
+    const hasEditGrant = mt[String(accountId)]?.edit === true;
+    if (!hasEditGrant) {
+      res.status(403).json({ message: "Edit access required for this mailbox. You have read-only access." });
+      return null;
+    }
+    return { acct, isOwner: false, isAdmin: false, hasEditGrant: true, userId };
+  }
+
+  // Phase 4 helper: admin-only guard for system-wide ops (e.g. global resync).
+  // Returns true when allowed, or sends 403 and returns false.
+  function requireAdminOnly(req: any, res: any) {
+    const role = String((req.session as any).globalRole || "");
+    if (role !== "master_admin" && role !== "admin") {
+      res.status(403).json({ message: "Admin only" });
+      return false;
+    }
+    return true;
   }
 
   // ── S2: Per-account on-demand resync ─────────────────────────────────────
@@ -9575,7 +9650,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   // ── Email Sync + Association Routes ─────────────────────────────────────
+  // Phase 4: system-wide sync trigger is admin-only (it walks every connected
+  // account). Per-account resync goes through /api/gmail/accounts/:id/resync
+  // which is owner-or-admin (Phase 3).
   app.post("/api/gmail/sync", requireAuth, async (req, res) => {
+    if (!requireAdminOnly(req, res)) return;
     try {
       // Accepts: ?pages=N (max pages to walk; default 1 = legacy shallow)
       //          ?pageSize=100 (1..500)
@@ -9704,9 +9783,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   // ── Phase 2A: incremental sync trigger ─────────────────────────────────────
+  // Phase 4: with explicit accountId → owner-or-admin; without accountId
+  // (runs across every account) → admin-only.
   app.post("/api/gmail/sync-incremental", requireAuth, async (req, res) => {
     try {
       const accountId = req.query.accountId ? Number(req.query.accountId) : undefined;
+      if (accountId) {
+        const ctx = await requireOwnerOrAdmin(req, res, accountId);
+        if (!ctx) return;
+      } else {
+        if (!requireAdminOnly(req, res)) return;
+      }
       const { syncIncremental, runIncrementalForAll } = await import("./services/gmail-incremental");
       const result = accountId ? [await syncIncremental(accountId)] : await runIncrementalForAll();
       res.json({ count: result.length, results: result });
@@ -9716,10 +9803,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   // ── Phase 2A: watch lifecycle ──────────────────────────────────────────────
+  // Phase 4: per-account sync-control ops require owner-or-admin (matches
+  // /sync-toggle and /resync semantics).
   app.post("/api/gmail/watch/start", requireAuth, async (req, res) => {
     try {
       const accountId = Number(req.query.accountId);
       if (!accountId) return res.status(400).json({ message: "accountId query required" });
+      const ctx = await requireOwnerOrAdmin(req, res, accountId);
+      if (!ctx) return;
       const { startWatch } = await import("./services/gmail-watch");
       res.json(await startWatch(accountId));
     } catch (err: any) {
@@ -9730,6 +9821,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     try {
       const accountId = Number(req.query.accountId);
       if (!accountId) return res.status(400).json({ message: "accountId query required" });
+      const ctx = await requireOwnerOrAdmin(req, res, accountId);
+      if (!ctx) return;
       const { stopWatch } = await import("./services/gmail-watch");
       res.json(await stopWatch(accountId));
     } catch (err: any) {

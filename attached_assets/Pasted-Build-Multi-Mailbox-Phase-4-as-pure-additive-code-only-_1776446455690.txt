@@ -1,0 +1,63 @@
+Build Multi-Mailbox Phase 4 as pure additive code only. No schema changes, no PK changes, no db:push, no migrations. Preserve all existing PKs exactly as serial integer.
+
+Goal:
+Close the permission leak so shared-mailbox users with view:true and edit:false cannot perform any write or mutation actions.
+
+Scope:
+Audit and harden all Gmail mutation routes so they require account edit access, not just view access.
+
+Requirements:
+1. Introduce a single reusable server-side guard:
+   - requireAccountEditAccess(accountId, currentUser)
+   - owner allowed
+   - master_admin allowed
+   - users.permissions.mail_team[accountId].edit === true allowed
+   - view-only must be blocked
+2. Apply this guard to every Gmail mutation/write endpoint, including any routes that:
+   - send email
+   - create/update/send drafts
+   - mark read/unread
+   - archive/unarchive
+   - delete/trash
+   - star/unstar
+   - label changes
+   - sync toggle
+   - reconnect/disconnect actions
+   - any other mailbox-specific mutation route already in the codebase
+3. Preserve existing read behavior:
+   - view access should still allow inbox/thread/message reads
+   - unified inbox reads should still work correctly
+4. Return consistent authorization errors:
+   - 403 for authenticated but insufficient permission
+   - clear error message saying edit access is required
+5. Do not rely on frontend hiding buttons. Permission enforcement must be server-side.
+6. Add targeted frontend polish where useful:
+   - hide or disable mutation controls for view-only users
+   - show a tooltip or note when access is read-only
+   - do not break owner/admin UX
+7. Reuse existing permission architecture only. No schema changes.
+
+Quality bar:
+- No schema changes
+- No PK changes
+- No auth regressions for owner/admin
+- No write access for view-only shared mailbox users
+- No regression to personal mailbox flows
+- No owner_user_id authorization mistakes
+- No NaN account-id issues
+
+Test matrix:
+1. owner can mutate own mailbox
+2. master_admin can mutate shared mailbox
+3. shared user with view:true edit:true can mutate
+4. shared user with view:true edit:false can read but gets 403 on every mutation
+5. unauthorized user cannot read or mutate
+6. unified inbox thread/detail still works for permitted users
+7. single-account user behavior unchanged
+
+At the end, report:
+- every route audited
+- every route changed
+- which routes remain read-only by design
+- exact permission model enforced
+- any known limitations

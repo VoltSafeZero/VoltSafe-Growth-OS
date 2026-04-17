@@ -384,6 +384,43 @@ Full 8-phase expansion of the Multi-Mailbox system covering per-user mailbox con
 
 **Test suite** `tests/relationship-intelligence.test.js`: 26 tests across 8 groups (personal mailbox, privacy mode, backfill, relationship graph, intelligence views, global search, team mailboxes, no-regression)
 
+### Phase 4 — Authorization Governance (Complete)
+Closes the "view-only must be read-only" enforcement gap on shared Gmail mailboxes. Zero schema changes — pure server-side guard logic plus frontend polish.
+
+**Permission model (existing fields, no migrations):**
+- `users.permissions.mail_team[String(accountId)] = { view: boolean, edit: boolean }`
+- Admins (`master_admin`, `admin`) have implicit full access
+- Owners (`email_accounts.user_id === session.userId`) have implicit full access
+- `edit` implies `view`; view-only grants are blocked from all mutations
+
+**Server helpers** (`server/routes.ts`):
+- `requireAccountEditAccess(req, res, accountId)` → 403 `"Edit access required for this mailbox. You have read-only access."` for view-only grants; passes for owner/admin/edit-grant
+- `requireAdminOnly(req, res)` → 403 `"Admin only"` for non-admins; gates system-wide ops
+
+**Edit guards on 8 Gmail mutation routes** (placed after `resolveAccount`):
+- `POST /api/gmail/drafts`
+- `DELETE /api/gmail/drafts/:id`
+- `POST /api/gmail/messages/:id/mark-read`
+- `POST /api/gmail/messages/:id/toggle-star`
+- `POST /api/gmail/bulk-mark-read`
+- `POST /api/gmail/bulk-archive`
+- `POST /api/gmail/send`
+- `PATCH /api/gmail/thread-record/:threadId` — guarded by mailbox lookup of any anchor message; brand-new thread metadata (no anchor yet) is permitted
+
+**Sync/watch guards:**
+- `POST /api/gmail/sync` → admin-only
+- `POST /api/gmail/sync-incremental` → owner-or-admin (with `accountId`); admin-only otherwise
+- `POST /api/gmail/watch/start|stop` → owner-or-admin
+
+**Frontend polish** (`client/src/pages/gmail-inbox.tsx`):
+- Compose button is replaced by a "Read-only" badge (with `Eye` icon) when `canSend` is false
+- Bulk mark-read/unread buttons gated by `canSend`
+- Reuses existing `canSend` derivation (isOwner || admin || mailTeamPerms[id]?.edit)
+
+**Smoke test (verified end-to-end with a temporarily seeded view-only grant):** all 8 mutation routes return 403 with the correct message; reads return 200; admin/owner sync gates fire correctly; admin path returns 200. Test fixtures restored after testing.
+
+**Deferred / out of scope:** thread-association mutation endpoints (`/api/gmail/thread-associations/*`) are CRM linkage operations that straddle CRM/mailbox policy boundaries — left under existing `requireAuth` until product policy is decided.
+
 ---
 
 ## Executive AI Copilot — Daily Decisions Engine (Complete — Feature 9)

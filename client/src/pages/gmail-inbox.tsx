@@ -17,7 +17,7 @@ import {
   FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronRight, Folder,
   Reply, ReplyAll, Pencil, User, Building2, Zap, Flame,
   CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
-  CheckCheck, ArrowLeft, ClipboardList, StickyNote, ArchiveX, Square, Filter,
+  CheckCheck, ArrowLeft, ClipboardList, StickyNote, ArchiveX, Square, Filter, Eye,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import DOMPurify from "dompurify";
@@ -3388,8 +3388,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       <div className="flex flex-1 min-h-0">
         {/* ── LEFT NAV SIDEBAR ───────────────────────────────────────────── */}
         <aside className="hidden md:flex flex-col w-56 flex-shrink-0 border-r border-border/50 bg-background">
-          {/* Compose button */}
-          {canSend && (
+          {/* Compose button — replaced by Read-only badge on shared view-only mailboxes (Phase 4) */}
+          {canSend ? (
             <div className="px-3 pt-3 pb-2">
               <button
                 onClick={() => { setReplyTo(null); setComposeOpen(true); }}
@@ -3399,6 +3399,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 <Pencil className="h-3.5 w-3.5" />
                 Compose
               </button>
+            </div>
+          ) : (
+            <div className="px-3 pt-3 pb-2">
+              <div
+                data-testid="badge-readonly-mailbox"
+                title="You have view-only access to this mailbox. Ask the owner or an admin for edit access to send, reply, archive, or mark messages."
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-muted/40 text-muted-foreground text-xs font-medium border border-border/60 cursor-help"
+              >
+                <Eye className="h-3.5 w-3.5" />
+                Read-only
+              </div>
             </div>
           )}
 
@@ -4157,26 +4168,30 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 <span className="text-[11px] font-semibold text-foreground/70 mr-0.5 tabular-nums shrink-0" data-testid="text-bulk-selected-count">
                   {selectedInboxIds.size} sel.
                 </span>
-                <button
-                  onClick={() => bulkMarkReadMutation.mutate({ markAs: "read" })}
-                  disabled={bulkMarkReadMutation.isPending || bulkArchiveMutation.isPending}
-                  data-testid="button-bulk-mark-read"
-                  title="Mark selected as read"
-                  className="flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg bg-primary/10 text-primary/80 hover:bg-primary/20 transition-colors disabled:opacity-50 min-h-[32px]"
-                >
-                  {bulkMarkReadMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MailOpen className="h-3.5 w-3.5" />}
-                  <span className="hidden sm:inline">Read</span>
-                </button>
-                <button
-                  onClick={() => bulkMarkReadMutation.mutate({ markAs: "unread" })}
-                  disabled={bulkMarkReadMutation.isPending || bulkArchiveMutation.isPending}
-                  data-testid="button-bulk-mark-unread"
-                  title="Mark selected as unread"
-                  className="flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg bg-muted/50 text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50 min-h-[32px]"
-                >
-                  <Mail className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Unread</span>
-                </button>
+                {canSend && (
+                  <>
+                    <button
+                      onClick={() => bulkMarkReadMutation.mutate({ markAs: "read" })}
+                      disabled={bulkMarkReadMutation.isPending || bulkArchiveMutation.isPending}
+                      data-testid="button-bulk-mark-read"
+                      title="Mark selected as read"
+                      className="flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg bg-primary/10 text-primary/80 hover:bg-primary/20 transition-colors disabled:opacity-50 min-h-[32px]"
+                    >
+                      {bulkMarkReadMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MailOpen className="h-3.5 w-3.5" />}
+                      <span className="hidden sm:inline">Read</span>
+                    </button>
+                    <button
+                      onClick={() => bulkMarkReadMutation.mutate({ markAs: "unread" })}
+                      disabled={bulkMarkReadMutation.isPending || bulkArchiveMutation.isPending}
+                      data-testid="button-bulk-mark-unread"
+                      title="Mark selected as unread"
+                      className="flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg bg-muted/50 text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50 min-h-[32px]"
+                    >
+                      <Mail className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Unread</span>
+                    </button>
+                  </>
+                )}
                 {canSend && (
                   <button
                     onClick={() => bulkArchiveMutation.mutate()}
