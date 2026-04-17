@@ -306,18 +306,10 @@ function GlobalSearch({ canEdit }: { canEdit: boolean }) {
       itemRefs.current[activeIndex]?.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
 
-  // ⌘K / Ctrl+K global shortcut
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        inputRef.current?.focus();
-        setOpen(true);
-      }
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, []);
+  // ⌘K is reserved for the unified Command Palette (App-level GlobalSearch
+  // off-inbox / inbox cmdk on /inbox). The header search bar is still
+  // clickable directly; no global shortcut is bound here to avoid overlay
+  // collisions.
 
   // Click outside to close
   useEffect(() => {

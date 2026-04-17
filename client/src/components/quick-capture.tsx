@@ -285,17 +285,9 @@ export function QuickCapture() {
     setOpen(true);
   }, []);
 
-  // Global keyboard shortcut: Cmd/Ctrl + K
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        handleOpen();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [handleOpen]);
+  // ⌘K is reserved for the unified Command Palette — Quick Capture is opened
+  // via the floating action button only. (Removed Cmd+K to prevent multi-overlay
+  // collision with the inbox command palette and header global search.)
 
   // Global event listener for programmatic open
   useEffect(() => {

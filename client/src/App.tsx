@@ -179,17 +179,23 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
   const perms = user.permissions ?? FULL_PERMISSIONS;
   const role = user.globalRole || "sales";
   const [searchOpen, setSearchOpen] = useState(false);
+  const [appLocation] = useLocation();
 
+  // ⌘K opens GlobalSearch app-wide, EXCEPT on the inbox page where the inbox
+  // command palette owns ⌘K. The inbox handler also calls
+  // stopImmediatePropagation in capture phase as a belt-and-suspenders guard.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setSearchOpen(v => !v);
-      }
+      if (!((e.metaKey || e.ctrlKey) && e.key === "k")) return;
+      // Route-based gate — skip on inbox routes so the inbox cmdk wins cleanly
+      const path = window.location.pathname || "";
+      if (path.startsWith("/inbox") || path.startsWith("/gmail")) return;
+      e.preventDefault();
+      setSearchOpen(v => !v);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [appLocation]);
 
   function wrap(children: React.ReactNode) {
     return (
