@@ -2624,17 +2624,24 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const { snippets } = useSnippets();
   // ── Compose seed (cmdk → contact / snippet → fresh compose) ────────────
   const [composeInitial, setComposeInitial] = useState<{ to?: string; body?: string } | null>(null);
-  // ── Cmd+K / Ctrl+K listener — global, ignores typing context ──────────
+  // ── Cmd+K / Ctrl+K listener ────────────────────────────────────────────
+  // Registered in CAPTURE phase + stopImmediatePropagation so the inbox
+  // palette is the *only* ⌘K target while this page is mounted (preempts
+  // GlobalSearch, QuickCapture, and the header local-search shortcuts).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const isMetaK = (e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K");
-      if (isMetaK) {
-        e.preventDefault();
-        setCmdkOpen((v) => !v);
-      }
+      if (!isMetaK) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setCmdkOpen((v) => !v);
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
   }, []);
   const [editingDomainFolderId, setEditingDomainFolderId] = useState<number | null>(null);
   const [addDomainInput, setAddDomainInput] = useState("");
