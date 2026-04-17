@@ -7124,10 +7124,20 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   // ── Gmail mailbox isolation helper (Phase 1) ─────────────────────────────
   // Returns the user's own active email_accounts record (first one found).
   async function getUserGmailAccount(userId: number) {
+    // Personal account = active, owned by this user, AND not flagged as a shared team
+    // inbox. Without the is_shared=false filter, a team inbox connected by this user
+    // (user_id=me, is_shared=true) could win the LIMIT 1 race and be returned as
+    // their "own" account — making the header & default-resolved routes show the
+    // wrong mailbox when activeAccountId is null on the client.
     const [acct] = await db
       .select()
       .from(emailAccounts)
-      .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isActive, true)))
+      .where(and(
+        eq(emailAccounts.userId, userId),
+        eq(emailAccounts.isActive, true),
+        eq(emailAccounts.isShared, false),
+      ))
+      .orderBy(emailAccounts.id)
       .limit(1);
     return acct ?? null;
   }
