@@ -326,7 +326,7 @@ async function runExpiredQuoteRule(_cfg: RuleConfig, _userId: number): Promise<a
     SELECT
       q.id, q.quote_number, q.total,
       q.account_id, a.name AS account_name,
-      COALESCE(q.owner_user_id, a.owner_user_id) AS owner_user_id,
+      q.owner_user_id AS owner_user_id,
       EXTRACT(EPOCH FROM (NOW() - q.valid_until)) / 86400 AS days_expired
     FROM quotes q
     LEFT JOIN accounts a ON a.id = q.account_id
