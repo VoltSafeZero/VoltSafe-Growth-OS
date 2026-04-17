@@ -711,20 +711,82 @@ function ComposeDialog({
 }
 
 type ReadingMode = "beautiful" | "raw" | "plain";
+type ZoomMode = "fit" | "actual";
 
 function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<ReadingMode>("beautiful");
+  const [zoom, setZoom] = useState<ZoomMode>("fit");
   const [iframeReady, setIframeReady] = useState(false);
+  const [scaleApplied, setScaleApplied] = useState(1);
+
+  // Re-fit content to the available pane width. Uses CSS transform: scale()
+  // on the body so wide newsletters/tables don't overflow horizontally and
+  // don't render at a giant zoomed-in size.
+  const fitContent = useCallback(() => {
+    const iframe = iframeRef.current;
+    const doc = iframe?.contentDocument;
+    if (!iframe || !doc?.body) return;
+    const body = doc.body;
+    // Reset any previous transform so we measure the natural content width.
+    body.style.transform = "";
+    body.style.transformOrigin = "0 0";
+    body.style.width = "";
+    const containerWidth = iframe.clientWidth || iframe.getBoundingClientRect().width || 0;
+    if (!containerWidth) return;
+    const contentWidth = Math.max(
+      body.scrollWidth,
+      doc.documentElement.scrollWidth,
+    );
+    let scale = 1;
+    if (zoom === "fit" && contentWidth > containerWidth + 2) {
+      // Cap the down-scale so text never becomes unreadable.
+      scale = Math.max(0.55, containerWidth / contentWidth);
+      body.style.width = `${contentWidth}px`;
+      body.style.transform = `scale(${scale})`;
+      body.style.transformOrigin = "0 0";
+    }
+    setScaleApplied(scale);
+    // After scale, the visual height is scrollHeight * scale.
+    const h = Math.ceil(body.scrollHeight * scale) + 8;
+    iframe.style.height = `${h}px`;
+  }, [zoom]);
 
   const handleIframeLoad = () => {
+    fitContent();
+    // Re-fit once images decode (their natural sizes may shift the layout).
     const iframe = iframeRef.current;
-    if (iframe?.contentDocument?.body) {
-      const h = iframe.contentDocument.documentElement.scrollHeight;
-      iframe.style.height = `${h + 24}px`;
+    const doc = iframe?.contentDocument;
+    if (doc) {
+      const imgs = Array.from(doc.images || []);
+      let pending = imgs.filter((i) => !i.complete).length;
+      if (pending > 0) {
+        imgs.forEach((img) => {
+          if (img.complete) return;
+          const done = () => { pending--; if (pending <= 0) fitContent(); };
+          img.addEventListener("load", done, { once: true });
+          img.addEventListener("error", done, { once: true });
+        });
+      }
+      // Belt-and-suspenders: re-fit shortly after for any late layout.
+      setTimeout(fitContent, 120);
+      setTimeout(fitContent, 400);
     }
     setIframeReady(true);
   };
+
+  // Re-fit when the surrounding pane is resized (split-pane drag, etc).
+  useEffect(() => {
+    const wrap = wrapperRef.current;
+    if (!wrap || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => fitContent());
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [fitContent]);
+
+  // When zoom mode flips, recompute.
+  useEffect(() => { fitContent(); }, [zoom, fitContent]);
 
   const sanitized = useMemo(
     () => (body && isHtml ? DOMPurify.sanitize(body, { USE_PROFILES: { html: true } }) : body || ""),
@@ -737,6 +799,9 @@ function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
 
   if (!body) return <p className="text-muted-foreground text-sm italic">No content</p>;
 
+  // CSS strategy: aggressively normalize hardcoded newsletter widths so
+  // images/tables/buttons fit the pane naturally — Spark/Apple Mail style.
+  // We also kill horizontal overflow at the html/body level as a final guard.
   const srcDoc = `<!DOCTYPE html>
 <html>
 <head>
@@ -745,30 +810,59 @@ function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
 <style>
   html, body {
     margin: 0;
-    padding: 24px 28px;
+    padding: 0;
     background: #ffffff;
     color: #1a1a1a;
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-    font-size: 15px;
-    line-height: 1.65;
-    word-break: break-word;
+    font-size: 14.5px;
+    line-height: 1.6;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    overflow-x: hidden;
   }
-  a { color: #0b6ed4; text-decoration: none; border-bottom: 1px solid rgba(11,110,212,0.25); transition: border-color .15s ease; }
-  a:hover { border-bottom-color: rgba(11,110,212,0.7); }
-  img { max-width: 100% !important; height: auto !important; border-radius: 4px; }
-  table { max-width: 100% !important; border-collapse: collapse; }
-  td, th { padding: 4px 6px; }
+  body { padding: 18px 20px; }
+  /* Normalize giant inline-styled newsletter widths */
+  body, body * { max-width: 100% !important; box-sizing: border-box; }
+  /* Tables: drop hardcoded widths, allow flexible layout */
+  table, table[width] { width: 100% !important; max-width: 100% !important; border-collapse: collapse; table-layout: auto !important; }
+  td, th { padding: 4px 6px; word-wrap: break-word; overflow-wrap: anywhere; }
+  td[width], th[width] { width: auto !important; }
+  /* Images: scale to pane, preserve aspect ratio, ignore hardcoded width/height attrs */
+  img, video { max-width: 100% !important; height: auto !important; border-radius: 4px; display: inline-block; }
+  img[width], img[height] { width: auto !important; height: auto !important; max-width: 100% !important; }
+  /* Buttons / CTA divs that newsletters often size to 600px */
+  a[role="button"], .btn, button, input[type="button"], input[type="submit"] {
+    border-radius: 6px !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+    display: inline-block;
+  }
+  /* Links */
+  a { color: #0b6ed4; text-decoration: none; border-bottom: 1px solid rgba(11,110,212,0.22); transition: border-color .15s ease; }
+  a:hover { border-bottom-color: rgba(11,110,212,0.6); }
+  /* Code & quotes */
   pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  pre { white-space: pre-wrap; word-break: break-word; background: #f6f8fa; padding: 12px 14px; border-radius: 8px; font-size: 13px; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #f6f8fa; padding: 12px 14px; border-radius: 8px; font-size: 13px; max-width: 100% !important; overflow-x: auto; }
   blockquote { border-left: 3px solid #d0d7de; margin: 14px 0; padding: 4px 14px; color: #57606a; }
   hr { border: none; border-top: 1px solid #d0d7de; margin: 18px 0; }
-  h1, h2, h3 { color: #0d1117; line-height: 1.3; margin: 18px 0 10px; }
-  h1 { font-size: 22px; } h2 { font-size: 19px; } h3 { font-size: 17px; }
-  p { margin: 8px 0; }
+  /* Heading scale — slightly tighter than newsletter defaults */
+  h1, h2, h3, h4 { color: #0d1117; line-height: 1.25; margin: 16px 0 8px; }
+  h1 { font-size: 20px; } h2 { font-size: 17px; } h3 { font-size: 15.5px; } h4 { font-size: 14.5px; }
+  p { margin: 6px 0; }
   ul, ol { padding-left: 22px; }
-  button, .btn, input[type="button"], input[type="submit"] { border-radius: 6px !important; }
+  /* Tame inline font-size attacks from promotional emails */
+  [style*="font-size: 60"], [style*="font-size:60"],
+  [style*="font-size: 50"], [style*="font-size:50"],
+  [style*="font-size: 48"], [style*="font-size:48"],
+  [style*="font-size: 40"], [style*="font-size:40"] { font-size: 22px !important; line-height: 1.25 !important; }
+  [style*="font-size: 36"], [style*="font-size:36"],
+  [style*="font-size: 32"], [style*="font-size:32"],
+  [style*="font-size: 30"], [style*="font-size:30"] { font-size: 19px !important; line-height: 1.3 !important; }
+  /* Common newsletter wrapper IDs/classes that have fixed pixel widths */
+  [width="600"], [width="640"], [width="700"], [width="800"] { width: 100% !important; max-width: 100% !important; }
+  /* Selection */
   ::selection { background: rgba(11,110,212,0.15); }
 </style>
 </head>
@@ -796,29 +890,69 @@ function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
 
   return (
     <div className="space-y-2.5">
-      {/* Reading-mode segmented control — only shown when there is HTML to switch */}
+      {/* Reading-mode + zoom controls — only when there's HTML to render */}
       {isHtml && (
-        <div
-          className="flex items-center justify-end gap-0.5 -mt-1 -mr-1"
-          data-testid="reading-mode-toggle"
-          role="radiogroup"
-          aria-label="Reading mode"
-        >
-          <ModeBtn k="beautiful" label="Beautiful" Icon={Sparkles} />
-          <ModeBtn k="raw" label="Source" Icon={Code2} />
-          <ModeBtn k="plain" label="Plain" Icon={Type} />
+        <div className="flex items-center justify-end gap-2 -mt-1 -mr-1">
+          {mode === "beautiful" && (
+            <div
+              className="flex items-center gap-0.5 rounded-md bg-muted/30 p-0.5"
+              data-testid="reader-zoom-toggle"
+              role="radiogroup"
+              aria-label="Reader zoom"
+            >
+              <button
+                onClick={() => setZoom("fit")}
+                role="radio"
+                aria-checked={zoom === "fit"}
+                aria-label="Fit to pane"
+                data-testid="reader-zoom-fit"
+                className={`px-2 py-0.5 rounded text-[10.5px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+                  zoom === "fit" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground/70 hover:text-foreground"
+                }`}
+                title={scaleApplied < 1 ? `Fit (${Math.round(scaleApplied * 100)}%)` : "Fit to pane"}
+              >
+                Fit{scaleApplied < 1 && zoom === "fit" ? ` ${Math.round(scaleApplied * 100)}%` : ""}
+              </button>
+              <button
+                onClick={() => setZoom("actual")}
+                role="radio"
+                aria-checked={zoom === "actual"}
+                aria-label="Actual size"
+                data-testid="reader-zoom-actual"
+                className={`px-2 py-0.5 rounded text-[10.5px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+                  zoom === "actual" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground/70 hover:text-foreground"
+                }`}
+                title="Actual size (may scroll horizontally)"
+              >
+                100%
+              </button>
+            </div>
+          )}
+          <div
+            className="flex items-center gap-0.5"
+            data-testid="reading-mode-toggle"
+            role="radiogroup"
+            aria-label="Reading mode"
+          >
+            <ModeBtn k="beautiful" label="Beautiful" Icon={Sparkles} />
+            <ModeBtn k="raw" label="Source" Icon={Code2} />
+            <ModeBtn k="plain" label="Plain" Icon={Type} />
+          </div>
         </div>
       )}
 
       <AnimatePresence mode="wait">
         {mode === "beautiful" && isHtml && (
           <motion.div
+            ref={wrapperRef}
             key="beautiful"
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.18 }}
-            className="relative rounded-xl overflow-hidden bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] ring-1 ring-border/30"
+            className={`relative rounded-xl bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] ring-1 ring-border/30 ${
+              zoom === "fit" ? "overflow-hidden" : "overflow-x-auto"
+            }`}
           >
             {!iframeReady && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-white">
@@ -832,7 +966,7 @@ function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
               onLoad={handleIframeLoad}
               title="Email content"
               className={`w-full border-0 bg-white transition-opacity duration-300 ${iframeReady ? "opacity-100" : "opacity-0"}`}
-              style={{ minHeight: 280 }}
+              style={{ minHeight: 240 }}
               data-testid="iframe-email-body"
             />
           </motion.div>
