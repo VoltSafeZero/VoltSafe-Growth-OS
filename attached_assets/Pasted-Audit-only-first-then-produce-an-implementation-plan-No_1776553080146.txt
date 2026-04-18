@@ -1,0 +1,85 @@
+Audit only first, then produce an implementation plan. No code changes yet. Read-only. Zero db:push. Zero schema changes. Ignore any DB prompts that would modify production schema.
+
+Goal:
+I want Cortex to evolve into a true voice-first founder copilot and executive assistant.
+
+Target outcome:
+I can speak to Cortex naturally and it can:
+- answer key business questions
+- search across CRM, inbox, tasks, notes, deals, contacts, and accounts
+- input or update data for me
+- create tasks, reminders, notes, comments, and records
+- summarize emails, threads, and accounts
+- recommend next actions
+- act on requests safely and reliably
+- function like a dedicated worker bee / executive assistant
+
+What I need from this audit:
+I want you to inspect the current codebase and tell me how close the existing voice assistant already is to this target, and exactly what is missing.
+
+Inspect in detail:
+- server/voice-assistant.ts
+- all routes and services used by the voice assistant
+- any OpenAI / speech-to-text / text-to-speech integrations
+- all tool/function-calling logic
+- permissions / auth / ownership checks
+- CRUD actions exposed through voice tools
+- anything that updates leads, accounts, contacts, tasks, tickets, notes, comments, calendar, reminders, deals, partnerships, or inbox records
+- any global search, command bar, or chat surfaces that could be reused
+- any logging, audit trail, confirmation, safety, or rollback behavior
+- any background automation that could be triggered by voice
+- any current weaknesses that would make this unsafe or flaky in production
+
+Questions to answer:
+1. Can the current voice assistant already act like a real executive assistant?
+2. What tasks can it reliably perform today?
+3. What tasks does it appear to support but probably would fail, be unsafe, or be too brittle?
+4. Is the current voice assistant architecture reusable as the main copilot engine for both voice and text?
+5. What are the biggest blockers to making this the primary Cortex copilot surface?
+6. What is the smallest high-leverage path to ship a production-credible version fast?
+
+I want a brutally honest report in this exact format:
+
+A. Executive Verdict
+- Is the current voice assistant:
+  - demo-level
+  - useful but limited
+  - strong internal tool
+  - real production copilot foundation
+- Give a blunt answer.
+
+B. What It Can Actually Do Today
+- List real supported actions, grouped by object type
+- Include evidence from specific files and functions
+
+C. What Looks Good But Is Brittle
+- List anything that appears agentic but is likely unreliable, incomplete, unsafe, or poorly integrated
+
+D. Safety / Trust Gaps
+- Identify missing confirmations, missing auditability, missing permission checks, missing safeguards, vague prompts, or risky actions
+
+E. Reuse Potential
+- Can this same engine be used for:
+  1. voice
+  2. typed chat
+  3. command bar / ask-anything
+- Explain the fastest reuse path
+
+F. Recommended Build Sequence
+- Give only the top 5 implementation steps
+- Order them by leverage and speed
+- Prefer additive work over rebuilds
+
+G. Ship Definition
+Define what “V1 shipped” should mean for a voice-first executive assistant in Cortex.
+This definition must be concrete and testable.
+
+H. Evidence
+Reference the exact files, routes, functions, and services used for each conclusion.
+
+Rules:
+- No code changes
+- No fake optimism
+- No giant rebuild recommendations unless absolutely necessary
+- Focus on fastest path to a production-credible founder copilot
+- Assume I want to speak to Cortex and have it actually do useful work for me, not just chat
