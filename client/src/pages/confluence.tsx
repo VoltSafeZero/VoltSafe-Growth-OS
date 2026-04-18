@@ -9,6 +9,7 @@ import {
   AlertTriangle, BookOpen, Plus, Pencil, ArrowLeft, FolderOpen
 } from "lucide-react";
 import { SiConfluence } from "react-icons/si";
+import { sanitizeRichText } from "@/lib/sanitize-html";
 
 const SITE_URL = "https://voltsafe.atlassian.net/wiki";
 
@@ -271,7 +272,12 @@ export default function ConfluencePage() {
                   {detail?.body?.view?.value ? (
                     <div
                       className="confluence-content max-w-none text-foreground"
-                      dangerouslySetInnerHTML={{ __html: detail.body.view.value }}
+                      // SECURITY: Confluence body HTML is fetched from a 3rd-party
+                      // API and rendered inline in the app DOM. Sanitise via
+                      // DOMPurify (forbid <script>/<style>/<iframe>/<form>/event
+                      // handlers/javascript: URIs; force <a> to noopener+noreferrer)
+                      // before injection. See client/src/lib/sanitize-html.ts.
+                      dangerouslySetInnerHTML={{ __html: sanitizeRichText(detail.body.view.value) }}
                     />
                   ) : (
                     <div className="text-center py-12">

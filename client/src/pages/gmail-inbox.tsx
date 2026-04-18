@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/command";
 import { useSnippets, SnippetInsertButton, SnippetsManagerDialog } from "@/components/inbox-snippets";
 import { useLocation } from "wouter";
-import DOMPurify from "dompurify";
+import { sanitizeEmailHtml, htmlToPlainText } from "@/lib/sanitize-html";
 import { motion, AnimatePresence } from "framer-motion";
 
 // ─── Avatar deterministic color palette ─────────────────────────────────────
@@ -50,16 +50,9 @@ function avatarColor(seed: string): string {
   return AVATAR_GRADIENTS[Math.abs(h) % AVATAR_GRADIENTS.length];
 }
 
-// ─── HTML → plain text for the "Plain" reading mode ─────────────────────────
-function htmlToPlainText(html: string): string {
-  if (typeof document === "undefined") return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-  const tmp = document.createElement("div");
-  tmp.innerHTML = html;
-  tmp.querySelectorAll("script, style").forEach((n) => n.remove());
-  tmp.querySelectorAll("br").forEach((b) => b.replaceWith("\n"));
-  tmp.querySelectorAll("p, div, li, tr, h1, h2, h3, h4, blockquote").forEach((b) => b.append("\n"));
-  return (tmp.textContent || "").replace(/[\t ]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-}
+// htmlToPlainText is imported from @/lib/sanitize-html — it uses DOMParser
+// (inert document, no script execution, no <img onerror> firing) instead of
+// the previous detached-div innerHTML approach.
 
 type MessageSummary = {
   id: string;
@@ -805,7 +798,7 @@ function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
   useEffect(() => { fitContent(); }, [zoom, fitContent]);
 
   const sanitized = useMemo(
-    () => (body && isHtml ? DOMPurify.sanitize(body, { USE_PROFILES: { html: true } }) : body || ""),
+    () => (body && isHtml ? sanitizeEmailHtml(body) : body || ""),
     [body, isHtml],
   );
   const plainTextView = useMemo(
@@ -978,7 +971,22 @@ function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
             <iframe
               ref={iframeRef}
               srcDoc={srcDoc}
-              sandbox="allow-same-origin allow-popups"
+              // Sandbox notes:
+              //  - NO `allow-scripts` → inline event handlers, javascript:
+              //    URIs, and <script> tags inside email HTML cannot execute.
+              //  - `allow-same-origin` is required so the parent can read
+              //    iframe.contentDocument for the auto-resize logic above
+              //    (handleIframeLoad). Safe in combination with the missing
+              //    allow-scripts: same-origin without scripts cannot read
+              //    parent storage/cookies on its own.
+              //  - `allow-popups` lets <a target="_blank"> work for links.
+              //  - `allow-popups-to-escape-sandbox` ensures spawned tabs are
+              //    NOT themselves sandboxed (otherwise the destination site
+              //    would render with no scripts and look broken).
+              sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+              // Don't leak the parent URL (or any Referer) to email tracking
+              // pixels / image hosts loaded by the iframe.
+              referrerPolicy="no-referrer"
               onLoad={handleIframeLoad}
               title="Email content"
               className={`w-full border-0 bg-white transition-opacity duration-300 ${iframeReady ? "opacity-100" : "opacity-0"}`}
