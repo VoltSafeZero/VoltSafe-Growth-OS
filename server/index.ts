@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import helmet from "helmet";
+import { csrfOriginGuard } from "./csrf";
 import { registerRoutes, registerJiraRoutes, registerConfluenceRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -99,6 +100,13 @@ app.use(
     },
   })
 );
+
+// ── CSRF: Origin/Referer host allowlist on state-changing requests ──────────
+// Mounted after session so we can be confident the request has been parsed
+// and any future logging middleware can still observe rejected attempts via
+// res.on("finish"). Webhooks (/api/webhooks/*) are exempt — they authenticate
+// via per-route signatures/tokens, not cookies. See server/csrf.ts.
+app.use(csrfOriginGuard);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
