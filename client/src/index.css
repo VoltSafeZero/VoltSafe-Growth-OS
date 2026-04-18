@@ -204,6 +204,69 @@
   html.demon .bg-primary:hover {
     box-shadow: 0 0 0 1px hsl(355 75% 50%), 0 6px 22px -8px hsl(355 80% 45% / 0.55);
   }
+
+  /* ─── Demon Mode — Pass 2 surgical tuning ─────────────────────────────────
+   * Only what's needed. Subtle, premium, readable. Never re-themes a component.
+   *
+   * (1) Inbox teal accents — the Cortex inbox uses hard-coded `bg-teal-500`,
+   *     `text-teal-300`, `border-teal-500/30`, etc. as its unread/shared-account
+   *     accent. In demon, harmonize these toward the cold-teal accent that's
+   *     already in our palette (HSL ~188°, lower lightness) so they read as
+   *     "cool/secondary" against the obsidian + blood — not bright vacation teal.
+   *     We keep the SEMANTIC of teal (still cool, still distinguishes shared
+   *     accounts and unread state) — we just dial it from beach to dusk.
+   *
+   * (2) Status pills — `tailwind.config.ts` exposes `bg-status-{online,away,busy,
+   *     offline}` as raw RGB. In demon, drop saturation a few stops so they don't
+   *     glow neon against near-black. Online stays green (semantic), busy stays
+   *     red (already on-theme), away stays amber, offline mutes further.
+   *
+   * (3) Toast surfaces — destructive variant already inherits `--destructive`
+   *     (correct demon red). Default toasts get a faint warm shadow so they
+   *     don't feel like a flat white card pasted on the breach.
+   *
+   * NOTE on charts & command palette: both are 100% token-driven (they read
+   * `--chart-*`, `--popover`, `--secondary`, `--accent`) so they already repaint
+   * correctly with Demon palette. Walked them — no override needed.
+   * ────────────────────────────────────────────────────────────────────────*/
+
+  /* (1) Inbox teal → demon cold-accent. Targets only the tones actually used. */
+  html.demon .bg-teal-500    { background-color: hsl(188 55% 32%) !important; }
+  html.demon .bg-teal-400    { background-color: hsl(188 55% 36%) !important; }
+  html.demon .bg-teal-900\/60{ background-color: hsl(188 35% 8% / 0.60) !important; }
+  html.demon .bg-teal-500\/20{ background-color: hsl(188 55% 32% / 0.18) !important; }
+
+  html.demon .text-teal-300  { color: hsl(188 60% 70%) !important; }
+  html.demon .text-teal-400  { color: hsl(188 60% 58%) !important; }
+  html.demon .text-teal-500\/70 { color: hsl(188 55% 42% / 0.75) !important; }
+
+  html.demon .border-teal-500\/30 { border-color: hsl(188 55% 32% / 0.32) !important; }
+
+  /* (2) Status pills — desaturated so they sit calmly on obsidian.
+   * The bg-status-* utilities are produced from tailwind.config.ts; we override
+   * the generated class names directly so we don't have to touch the config. */
+  html.demon .bg-status-online   { background-color: hsl(150 45% 38%) !important; }
+  html.demon .text-status-online { color: hsl(150 50% 55%) !important; }
+  html.demon .bg-status-away     { background-color: hsl(38 65% 42%) !important; }
+  html.demon .text-status-away   { color: hsl(38 75% 58%) !important; }
+  html.demon .bg-status-busy     { background-color: hsl(355 65% 45%) !important; }
+  html.demon .text-status-busy   { color: hsl(355 70% 60%) !important; }
+  html.demon .bg-status-offline  { background-color: hsl(220 8% 32%) !important; }
+  html.demon .text-status-offline{ color: hsl(220 8% 52%) !important; }
+
+  /* (3) Default toasts get a subtle warm shadow so they sit "in" the breach,
+   * not "on top of" it. Destructive toasts already use --destructive — don't
+   * re-style them, the default Radix path is already on-theme. */
+  html.demon [data-radix-toast-viewport] [data-state="open"]:not(.destructive) {
+    box-shadow:
+      0 1px 0 0 rgba(0, 0, 0, 0.5),
+      0 12px 40px -12px hsl(355 60% 18% / 0.55),
+      inset 0 0 0 1px hsl(355 25% 14%);
+  }
+  /* Destructive toasts in demon — small extra red bloom underneath, no recolor */
+  html.demon [data-radix-toast-viewport] .destructive {
+    box-shadow: 0 10px 36px -10px hsl(355 80% 45% / 0.55);
+  }
 }
 
 @layer base {
