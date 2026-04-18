@@ -1148,7 +1148,7 @@ export async function registerRoutes(
     res.send(toCsv(result.data as any, cols));
   });
 
-  app.get("/api/quotes/export", async (req, res) => {
+  app.get("/api/quotes/export", requireAuth, requirePermission("quoting", "view"), async (req, res) => {
     const { status } = req.query;
     const result = await storage.getQuotes({ status: status as string, page: 1, limit: 100000 });
     const cols: CsvColumn[] = [
@@ -1163,7 +1163,7 @@ export async function registerRoutes(
     res.send(toCsv(result.data as any, cols));
   });
 
-  app.get("/api/activities/export", async (req, res) => {
+  app.get("/api/activities/export", requireAuth, async (req, res) => {
     const { objectType, objectId } = req.query;
     if (!objectType || !objectId) return res.status(400).json({ message: "objectType and objectId required" });
     const data = await storage.getActivities(objectType as string, Number(objectId));
@@ -1175,7 +1175,7 @@ export async function registerRoutes(
     res.send(toCsv(data as any, cols));
   });
 
-  app.get("/api/tasks/export", async (req, res) => {
+  app.get("/api/tasks/export", requireAuth, async (req, res) => {
     const { owner, status, linkedObjectType, linkedObjectId } = req.query;
     const data = await storage.getTasks({
       owner: owner as string, status: status as string,
@@ -1192,7 +1192,7 @@ export async function registerRoutes(
     res.send(toCsv(data as any, cols));
   });
 
-  app.get("/api/comm-lists/export", async (_req, res) => {
+  app.get("/api/comm-lists/export", requireAuth, async (_req, res) => {
     const data = await storage.getCommunicationLists();
     const cols: CsvColumn[] = [
       { key: "name", header: "Name" }, { key: "source", header: "Source" },
@@ -1203,7 +1203,7 @@ export async function registerRoutes(
     res.send(toCsv(data as any, cols));
   });
 
-  app.get("/api/campaigns/export", async (req, res) => {
+  app.get("/api/campaigns/export", requireAuth, async (req, res) => {
     const { status } = req.query;
     const data = await storage.getCampaignDrafts({ status: status as string });
     const cols: CsvColumn[] = [
@@ -2860,7 +2860,7 @@ export async function registerRoutes(
     res.json(result);
   });
 
-  app.get("/api/quotes", async (req, res) => {
+  app.get("/api/quotes", requireAuth, requirePermission("quoting", "view"), async (req, res) => {
     const { status, accountId, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getQuotes({
       status: status as string | undefined,
@@ -2872,11 +2872,11 @@ export async function registerRoutes(
     }));
   });
 
-  app.get("/api/quotes/next-number", async (_req, res) => {
+  app.get("/api/quotes/next-number", requireAuth, requirePermission("quoting", "view"), async (_req, res) => {
     res.json({ quoteNumber: await storage.getNextQuoteNumber() });
   });
 
-  app.get("/api/quotes/:id", async (req, res) => {
+  app.get("/api/quotes/:id", requireAuth, requirePermission("quoting", "view"), async (req, res) => {
     const quote = await storage.getQuote(Number(req.params.id));
     if (!quote) return res.status(404).json({ message: "Quote not found" });
     const lineItems = await storage.getQuoteLineItems(quote.id);
@@ -3011,7 +3011,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/quotes/:id/print", async (req, res) => {
+  app.get("/api/quotes/:id/print", requireAuth, requirePermission("quoting", "view"), async (req, res) => {
     const quote = await storage.getQuote(Number(req.params.id));
     if (!quote) return res.status(404).send("Quote not found");
     const items = await storage.getQuoteLineItems(quote.id);
@@ -3058,7 +3058,7 @@ export async function registerRoutes(
     res.send(html);
   });
 
-  app.get("/api/quotes/:id/download/xlsx", async (req, res) => {
+  app.get("/api/quotes/:id/download/xlsx", requireAuth, requirePermission("quoting", "view"), async (req, res) => {
     const quote = await storage.getQuote(Number(req.params.id));
     if (!quote) return res.status(404).json({ message: "Quote not found" });
 
@@ -3109,7 +3109,7 @@ export async function registerRoutes(
     res.json(result);
   });
 
-  app.get("/api/quotes/:quoteId/line-items", async (req, res) => {
+  app.get("/api/quotes/:quoteId/line-items", requireAuth, requirePermission("quoting", "view"), async (req, res) => {
     res.json(await storage.getQuoteLineItems(Number(req.params.quoteId)));
   });
 
@@ -3126,7 +3126,7 @@ export async function registerRoutes(
     res.json({ message: "Deleted" });
   });
 
-  app.get("/api/quotes/:quoteId/services-estimates", async (req, res) => {
+  app.get("/api/quotes/:quoteId/services-estimates", requireAuth, requirePermission("quoting", "view"), async (req, res) => {
     res.json(await storage.getServicesEstimates(Number(req.params.quoteId)));
   });
 
@@ -4397,13 +4397,13 @@ export async function registerRoutes(
   });
 
   // ── Attachments ────────────────────────────────────────────────
-  app.get("/api/attachments", async (req, res) => {
+  app.get("/api/attachments", requireAuth, async (req, res) => {
     const { objectType, objectId } = req.query;
     if (!objectType || !objectId) return res.status(400).json({ message: "objectType and objectId required" });
     res.json(await storage.getAttachments(objectType as string, Number(objectId)));
   });
 
-  app.post("/api/attachments", (req, res, next) => {
+  app.post("/api/attachments", requireAuth, (req, res, next) => {
     upload.single("file")(req, res, (err) => {
       if (err) {
         return res.status(400).json({ message: err.message || "Upload failed" });
@@ -4435,13 +4435,19 @@ export async function registerRoutes(
         source: "upload",
         url: null,
       });
-      // Phase 6 — emit activity for notable document categories
+      // Phase 6 — emit activity for notable document categories.
+      // Uses parameterized sql`` (NOT sql.raw with string concat) so a malicious
+      // filename or title cannot break out of the SQL string.
       const NOTABLE_CATS = ["certification", "contract", "lab_report", "quote_proposal"];
       if (NOTABLE_CATS.includes(attachment.category || "")) {
-        const docLabel = (attachment.title || attachment.originalName || "document").replace(/'/g, "''");
+        const docLabel = attachment.title || attachment.originalName || "document";
         const catLabel = (attachment.category || "general").replace(/_/g, " ");
         const uid = req.session.userId ?? null;
-        db.execute(sql.raw(`INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at) VALUES ('${objectType}', ${Number(objectId)}, 'activity', 'Important document added', '${catLabel} uploaded: ${docLabel}', ${uid ?? "NULL"}, NOW())`)).catch(() => {});
+        const summary = `${catLabel} uploaded: ${docLabel}`;
+        db.execute(sql`
+          INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at)
+          VALUES (${objectType}, ${Number(objectId)}, 'activity', 'Important document added', ${summary}, ${uid}, NOW())
+        `).catch(() => {});
       }
       res.status(201).json(attachment);
     } catch (e) {
@@ -4467,12 +4473,15 @@ export async function registerRoutes(
       ...(notes !== undefined ? { notes } : {}),
       ...(tags !== undefined ? { tags: Array.isArray(tags) ? tags : tags.split(",").map((t: string) => t.trim()).filter(Boolean) } : {}),
     });
-    // Phase 6 — emit activity when category changes
+    // Phase 6 — emit activity when category changes.
+    // Parameterized — no sql.raw concat.
     if (category !== undefined && category !== oldCategory) {
       const uid = req.session.userId ?? null;
-      const oldCat = (oldCategory || "general").replace(/'/g, "''");
-      const newCat = String(category).replace(/'/g, "''");
-      db.execute(sql.raw(`INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at) VALUES ('${attachment.objectType}', ${attachment.objectId}, 'activity', 'Document category changed', 'Category changed from ${oldCat} to ${newCat}', ${uid ?? "NULL"}, NOW())`)).catch(() => {});
+      const summary = `Category changed from ${oldCategory || "general"} to ${String(category)}`;
+      db.execute(sql`
+        INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at)
+        VALUES (${attachment.objectType}, ${attachment.objectId}, 'activity', 'Document category changed', ${summary}, ${uid}, NOW())
+      `).catch(() => {});
     }
     res.json(updated);
   });
@@ -4520,13 +4529,17 @@ export async function registerRoutes(
         source: "link",
         url,
       });
-      // Phase 6 — emit activity for notable linked-document categories
+      // Phase 6 — emit activity for notable linked-document categories.
+      // SECURITY (F-08 follow-up): parameterise via drizzle sql`` template
+      // (binds values, never concatenates) to prevent SQLi via title/url.
       const NOTABLE_CATS_LINK = ["certification", "contract", "lab_report", "quote_proposal"];
       if (NOTABLE_CATS_LINK.includes(attachment.category || "")) {
-        const docLabel = (attachment.title || url || "link").replace(/'/g, "''");
+        const docLabel = attachment.title || url || "link";
         const catLabel = (attachment.category || "general").replace(/_/g, " ");
+        const summary = `${catLabel} link added: ${docLabel}`;
         const uid2 = req.session.userId ?? null;
-        db.execute(sql.raw(`INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at) VALUES ('${objectType}', ${Number(objectId)}, 'activity', 'Important document linked', '${catLabel} link added: ${docLabel}', ${uid2 ?? "NULL"}, NOW())`)).catch(() => {});
+        const objId = Number(objectId);
+        db.execute(sql`INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at) VALUES (${objectType}, ${objId}, 'activity', 'Important document linked', ${summary}, ${uid2}, NOW())`).catch(() => {});
       }
       res.status(201).json(attachment);
     } catch (e) {
@@ -4589,7 +4602,9 @@ export async function registerRoutes(
   });
 
   // ── Users List (simple, for dropdowns) ─────────────────────────
-  app.get("/api/users", async (_req, res) => {
+  // Auth-gated: returns id/name/email of all users so unauthenticated
+  // visitors cannot enumerate the team.
+  app.get("/api/users", requireAuth, async (_req, res) => {
     res.json(await storage.getUsers());
   });
 

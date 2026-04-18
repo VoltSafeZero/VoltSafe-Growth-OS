@@ -1612,3 +1612,26 @@ Added `task_board_views` table via `CREATE TABLE IF NOT EXISTS` matching the new
 - PATCH `/api/users/me/layout` with `{dashboardLayouts:{sales:{lg:[…]}}}` saves and persists ✓
 - POST `/api/users/me/layout/reset` with `{centerType:"sales"}` clears the key ✓
 - Vite/React bundle compiles cleanly (no runtime overlay) after fixing react-grid-layout type names (LayoutItem/ResponsiveLayouts) and removing the now-deprecated WidthProvider wrapper ✓
+
+---
+
+## Security hardening pass (2026-04-18)
+
+**Standing rule:** no schema changes, no `db:push`, no new tables — every fix is additive.
+
+### Fixed
+- **Auth gates added** to 13 unauthenticated endpoints in `server/routes.ts`: `/api/users`, `/api/attachments` GET+POST, `/api/quotes` (+`:id`, `/next-number`, `/:id/print`, `/:id/download/xlsx`, `/export`, `/:quoteId/line-items`, `/:quoteId/services-estimates`), `/api/activities|tasks|comm-lists|campaigns/export`. All return 401 to anonymous callers.
+- **SQL-injection fix**: two `sql.raw` activity inserts in `/api/attachments` POST/PATCH replaced with parameterised `sql\`\`` template literals — malicious filename/title can no longer break out.
+- **CVE patches** via `package.json` deps + overrides:
+  - axios `^1.14.0` → `^1.15.0`, dompurify → `^3.4.0`, lodash → `^4.18.0`, vite → `^7.3.2`
+  - follow-redirects pinned to `^1.16.0` via overrides (transitive)
+  - `overrides.axios` rewritten to `"$axios"` reference syntax to avoid `EOVERRIDE` conflict.
+- Final dep audit: critical=0, high=1 (drizzle-orm major bump, deferred), moderate=0.
+
+### Voice-assistant Build #2 follow-up fixes
+- `hasWriteIntent` regex in `server/voice-assistant.ts` (lines 1078, 1249) expanded to match create/schedule/remind/book/task/lead verbs so create_* tools are reachable.
+- `executeCreateCalendarEvent` in `server/voice-assistant-safety.ts:1119` now rejects past `start_time`.
+
+### Reports
+- `threat_model.md` — STRIDE summary, trust zones, top risks ranked.
+- `SECURITY_FINDINGS.md` — every finding with severity, status, file:line, and remediation; deferred items ledgered with rationale.

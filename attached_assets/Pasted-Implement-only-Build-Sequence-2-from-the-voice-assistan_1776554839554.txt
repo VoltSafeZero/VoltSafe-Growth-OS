@@ -1,0 +1,165 @@
+Implement only Build Sequence #2 from the voice-assistant roadmap.
+
+Critical rules:
+- No schema changes
+- Zero db:push
+- No migrations
+- No new tables
+- Pure additive code only
+- Reuse the existing voice assistant safety layer that was just shipped
+- Reuse the same permission, validation, confirmation, audit, and shared helper patterns already added in Build #1
+- Do not weaken or bypass any safety behavior
+- Keep both existing endpoints working:
+  - /api/voice-assistant/ask
+  - /api/voice-assistant/text
+
+Priority order inside this build:
+1. create_task
+2. create_note_or_comment
+3. create_lead
+4. create_calendar_event
+5. create_reminder only if a real reminder-capable system already exists
+
+Goal:
+Add the missing CREATE capabilities that make the assistant feel like a real executive assistant instead of just an updater.
+
+Target new capabilities:
+1. create_task
+2. create_reminder
+3. create_calendar_event
+4. create_lead
+5. create_note_or_comment using the nearest existing object/comment/note mechanism already in the codebase
+
+Important:
+Before implementing, inspect the actual existing tables, storage methods, route/service patterns, and required fields for:
+- tasks
+- reminders / notifications / whatever reminder-like object already exists
+- calendar events
+- leads
+- comments / notes / activities
+
+Do not invent parallel systems if equivalent existing systems already exist.
+
+Requirements
+
+A. Add create tools to the voice assistant tool catalog
+Add only the create tools that map cleanly onto existing systems already present in the codebase.
+
+Each tool must have:
+- clear input schema
+- minimal required fields
+- optional linking fields where supported
+- sensible defaults where safe
+- human-usable descriptions for the model
+
+B. Reuse the existing shared safety layer
+All newly added create actions must pass through the same shared safety pipeline from Build #1:
+- permission checks
+- validation
+- confirmation for risky actions if applicable
+- audit/activity logging
+- shared execution path for both voice and text endpoints
+
+C. Task creation
+Implement create_task using the real existing task model.
+
+Support at minimum:
+- title
+- due date / due datetime if supported
+- linked object type / linked object id if supported
+- owner / assignee if supported by existing model
+- notes / description if supported
+
+Behavior:
+- if linking is ambiguous, ask for clarification rather than guessing
+- if the requested linked object does not exist, do not silently create nonsense
+- return a clear assistant confirmation on success
+
+D. Reminder creation
+Implement create_reminder only if a true reminder-like object or workflow already exists.
+If the codebase does not have a first-class reminder entity, reuse the nearest existing supported mechanism (for example task/reminder scheduling, notifications, or other real reminder flow) rather than inventing a fake table or fake feature.
+
+Support natural assistant use cases like:
+- remind me Friday at 9am to send the quote
+- remind me tomorrow to follow up with Janet
+
+If true natural-language date parsing is not already present, add the smallest safe parser/helper needed without broad rebuild.
+
+E. Calendar event creation
+Implement create_calendar_event using the existing calendar event system already in the codebase.
+
+Support at minimum:
+- title
+- start
+- end
+- optional attendees if existing model supports them
+- optional linked object if supported
+- optional notes/description if supported
+
+Validation:
+- reject invalid time ranges
+- require minimum viable fields
+- do not assume timezone nonsense silently; use the app’s existing conventions
+
+F. Lead creation
+Implement create_lead using the real existing leads model.
+
+Support the smallest practical capture flow for founder voice use:
+- company / lead name
+- contact name if existing model supports it
+- email / phone if supported
+- stage/status if supported
+- notes/comment if supported
+- source if supported
+
+Important:
+- inspect which fields are actually required in the existing leads table/storage layer
+- use safe defaults for optional fields
+- do not fabricate unsupported fields
+- if there is already an existing helper/storage method for lead creation, use it
+
+G. Note / comment creation
+Implement the closest real object-level note/comment creation flow already supported by the app.
+
+Support use cases like:
+- add a note to Royal Vancouver saying they want a 60-day extension
+- log that I left Janet a voicemail
+- add a comment to ticket 42 saying electrician is reviewing it
+
+If both comments and notes exist, choose the existing mechanism that is already used broadly and auditable.
+
+H. Clarification behavior
+For create flows, do not guess when core data is missing or ambiguous.
+Examples:
+- “create a task for Janet” when multiple Janets exist
+- “create a reminder for Friday” with no reminder text
+- “create a lead for Harbourfront” when required fields are missing
+
+In those cases, the assistant should ask a short, direct clarification question.
+
+I. Output/report format
+After implementation, return exactly this:
+
+1. Files changed
+2. New tools added
+3. Which existing systems/models were reused for each tool
+4. What validations were added for each create flow
+5. What permissions were enforced for each create flow
+6. What gets audited/logged for each create flow
+7. Example successful voice/text flows for each new tool
+8. Example clarification-required flows
+9. Example denied-permission flow
+10. Limitations still remaining
+11. Exact manual QA steps I can run now
+
+Success definition
+This build is successful only if:
+- I can create a task through voice/text assistant
+- I can create a reminder through a real existing reminder-capable workflow
+- I can create a calendar event through the existing calendar system
+- I can create a lead through the existing lead system
+- I can add a note/comment through the existing note/comment system
+- all create actions use the shared safety layer from Build #1
+- ambiguous requests trigger clarification instead of bad guesses
+- no schema changes were made
+- both /ask and /text continue to work

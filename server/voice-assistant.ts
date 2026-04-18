@@ -568,6 +568,117 @@ const CRM_TOOLS = [
       },
     },
   },
+  // ── Build Sequence #2: CREATE tools ───────────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "create_task",
+      description: "Create a new task for the user or another teammate. Use this when the user says things like 'remind me to…', 'add a task to follow up on…', 'create a to-do for…'. If the task should be linked to a specific lead/account/ticket, set linked_object_type and linked_object_id (call find_lead/find_account first to get the ID). For dates, ALWAYS pass a full ISO 8601 datetime with timezone (e.g. '2026-04-19T14:30:00Z'). If a critical detail is missing (no title, ambiguous owner), ASK rather than guess.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Short task title (required)" },
+          description: { type: "string", description: "Optional longer description / notes" },
+          due_date: { type: "string", description: "Optional ISO 8601 datetime when the task is due" },
+          start_date: { type: "string", description: "Optional ISO 8601 datetime when work should start" },
+          reminder_at: { type: "string", description: "Optional ISO 8601 datetime to surface a reminder" },
+          priority: { type: "string", enum: ["low", "medium", "high", "urgent"], description: "Defaults to medium" },
+          status: { type: "string", enum: ["pending", "in_progress", "completed", "cancelled", "blocked"], description: "Defaults to pending" },
+          owner_user_id: { type: "number", description: "Optional teammate user ID to assign to. Defaults to the current user." },
+          linked_object_type: { type: "string", enum: ["lead", "account", "ticket", "contact", "opportunity", "project", "quote"], description: "Optional CRM object type to link this task to" },
+          linked_object_id: { type: "number", description: "Required if linked_object_type is set" },
+        },
+        required: ["title"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_reminder",
+      description: "Schedule a reminder for the user. Use this when the user says 'remind me Friday at 9am to…', 'remind me tomorrow to…', etc. This is implemented as a task with a reminder_at time. ALWAYS resolve the natural-language time to a full ISO 8601 datetime (with timezone) before calling — for example, if today is 2026-04-18 and the user says 'remind me Friday at 9am', pass '2026-04-24T09:00:00-07:00'. The remind_at must be in the future.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "What to remind the user about (required)" },
+          remind_at: { type: "string", description: "ISO 8601 datetime when the reminder should fire (required, must be in the future)" },
+          notes: { type: "string", description: "Optional extra context" },
+          linked_object_type: { type: "string", enum: ["lead", "account", "ticket", "contact", "opportunity", "project", "quote"], description: "Optional CRM object the reminder is about" },
+          linked_object_id: { type: "number", description: "Required if linked_object_type is set" },
+        },
+        required: ["text", "remind_at"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_lead",
+      description: "Create a brand-new marina lead in the CRM. Use this for 'add a new lead for X', 'create a lead for Royal Vancouver', etc. REQUIRED: company AND contact_name. If the user names a company but no contact, ASK for the contact name rather than guessing. Large deals (≥ $100k) trigger a confirmation prompt before insertion.",
+      parameters: {
+        type: "object",
+        properties: {
+          company: { type: "string", description: "Marina or company name (required)" },
+          contact_name: { type: "string", description: "Primary contact full name (required)" },
+          contact_email: { type: "string", description: "Optional contact email" },
+          contact_phone: { type: "string", description: "Optional contact phone" },
+          status: { type: "string", enum: ["new", "contacted", "qualified", "proposal", "negotiation", "closed_won", "closed_lost"], description: "Defaults to 'new'" },
+          segment: { type: "string", enum: ["enterprise", "mid_market", "small"], description: "Optional segment" },
+          deal_amount: { type: "number", description: "Optional deal amount in USD" },
+          source: { type: "string", description: "Optional acquisition source" },
+          next_step: { type: "string", description: "Optional next step description" },
+          notes: { type: "string", description: "Optional notes" },
+          city: { type: "string" },
+          state: { type: "string" },
+          country: { type: "string" },
+        },
+        required: ["company", "contact_name"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_note_or_comment",
+      description: "Add a structured note or a quick comment to any CRM object (lead, account, ticket, contact, opportunity, project). Use 'note' (default) for substantive observations that should persist with the record (e.g. 'they want a 60-day extension'). Use 'comment' for short conversational logs (e.g. 'left Janet a voicemail'). Always call find_lead/find_account first to get the object ID. NOTE: this is the create-mode CRM tool; the legacy add_comment tool stays available for back-compat but new code should prefer this.",
+      parameters: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["note", "comment"], description: "Defaults to 'note' if omitted" },
+          object_type: { type: "string", enum: ["lead", "account", "ticket", "contact", "opportunity", "project", "quote"] },
+          object_id: { type: "number" },
+          content: { type: "string", description: "The note/comment text (required)" },
+          is_pinned: { type: "boolean", description: "Notes only: pin to top of the record" },
+        },
+        required: ["object_type", "object_id", "content"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_calendar_event",
+      description: "Create a calendar event on the user's calendar. Use for 'schedule a call with…', 'book a meeting…', 'add to calendar…'. ALWAYS pass start_time as a full ISO 8601 datetime with timezone. Default duration is 30 minutes if end_time is omitted. Reject past times. If linking to a CRM object, pass linked_object_type + linked_object_id (call find_* first).",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Event title (required)" },
+          start_time: { type: "string", description: "ISO 8601 datetime when the event starts (required)" },
+          end_time: { type: "string", description: "ISO 8601 datetime when the event ends. Defaults to start_time + 30 min." },
+          all_day: { type: "boolean", description: "If true, treat as all-day; end_time becomes optional" },
+          description: { type: "string" },
+          location: { type: "string" },
+          meeting_url: { type: "string", description: "Optional video-conf URL" },
+          event_type: { type: "string", description: "Defaults to 'meeting'" },
+          invitees: { type: "array", items: { type: "string" }, description: "Optional list of attendee emails" },
+          time_zone: { type: "string", description: "Optional IANA timezone identifier" },
+          linked_object_type: { type: "string", enum: ["lead", "account", "ticket", "contact", "opportunity", "project", "quote"] },
+          linked_object_id: { type: "number" },
+        },
+        required: ["title", "start_time"],
+      },
+    },
+  },
 ];
 
 async function executeTool(toolName: string, args: any, userId: number, userName: string): Promise<string> {
@@ -813,6 +924,16 @@ WRITE OPERATIONS — When the user asks you to update, change, edit, move, or mo
 - If the user's request is ambiguous (multiple matches), list the options and ask which one they mean
 - For stage changes, use the exact values: new, contacted, qualified, proposal, negotiation, closed_won, closed_lost
 
+CREATE OPERATIONS — When the user asks you to create, add, schedule, remind, or capture something new:
+- create_task        — for "add a task", "to-do for X", "follow up on Y" (link to a lead/account/etc when natural)
+- create_reminder    — for "remind me Friday at 9am", "remind me tomorrow to call Janet" (resolve natural-language times to ISO 8601 with timezone before calling; today's date is supplied at runtime)
+- create_calendar_event — for "schedule a call", "book a meeting", "add to calendar" (always pass start_time as ISO 8601)
+- create_lead        — for "add a new lead for X" (REQUIRES company AND contact_name — if either is missing, ASK; deals ≥ $100k will require a confirmation)
+- create_note_or_comment — for "add a note to Royal Vancouver", "log that I left Janet a voicemail", "add a comment to ticket 42" (use kind="note" by default; "comment" for short conversational logs; ALWAYS find the object first to get its ID)
+- DO NOT GUESS. If the user is missing a critical detail (no title, ambiguous person, no time for a reminder, no contact name on a lead), ask a short direct question.
+- After creating, confirm exactly what was created and the new record ID.
+- For all linked_object_* fields, the linked record MUST already exist — find it first.
+
 Guidelines:
 - Use **markdown formatting** in your responses for clarity: bold for emphasis, bullet lists for multiple items, headers for sections, tables for structured data comparisons
 - Be concise and conversational — the user may be driving or multitasking
@@ -951,7 +1072,7 @@ export function registerVoiceAssistantRoutes(app: Express): void {
         });
       }
 
-      const hasWriteIntent = !confirmation.handled && /\b(update|change|edit|move|set|modify|mark|assign|close|resolve|reopen|log|note|comment|add\s+(a\s+)?(comment|note)|stage|switch|transition|reassign|escalate|promote|demote)\b/i.test(userTranscript);
+      const hasWriteIntent = !confirmation.handled && /\b(update|change|edit|move|set|modify|mark|assign|close|resolve|reopen|log|note|comment|add\s+(a\s+)?(comment|note|task|lead|reminder|note|event)|stage|switch|transition|reassign|escalate|promote|demote|create|add|new|schedule|book|remind|reminder|task|to[-\s]?do|todo|follow[-\s]?up|meeting|call|event|calendar|lead|deal)\b/i.test(userTranscript);
 
       if (hasWriteIntent) {
         let toolMessages = [...chatHistory];
@@ -1122,7 +1243,7 @@ export function registerVoiceAssistantRoutes(app: Express): void {
         return res.end();
       }
 
-      const hasWriteIntent = /\b(update|change|edit|move|set|modify|mark|assign|close|resolve|reopen|log|note|comment|add\s+(a\s+)?(comment|note)|stage|switch|transition|reassign|escalate|promote|demote)\b/i.test(message);
+      const hasWriteIntent = /\b(update|change|edit|move|set|modify|mark|assign|close|resolve|reopen|log|note|comment|add\s+(a\s+)?(comment|note|task|lead|reminder|note|event)|stage|switch|transition|reassign|escalate|promote|demote|create|add|new|schedule|book|remind|reminder|task|to[-\s]?do|todo|follow[-\s]?up|meeting|call|event|calendar|lead|deal)\b/i.test(message);
 
       if (hasWriteIntent) {
         let toolMessages = [...chatHistory];

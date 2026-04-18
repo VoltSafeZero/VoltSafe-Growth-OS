@@ -62,13 +62,19 @@ export async function userHasPermission(
 }
 
 // Tool → required permission section + level
+// Note: tools without an entry fall through to "ok" — that's correct for tools
+// whose corresponding routes have no requirePermission gate (tasks, notes,
+// calendar events). See routes.ts grep: those endpoints only use requireAuth.
 const TOOL_PERMISSIONS: Record<string, { section: string; level: "view" | "edit" }> = {
   find_lead:      { section: "crm",     level: "view" },
   find_account:   { section: "crm",     level: "view" },
   update_lead:    { section: "crm",     level: "edit" },
   update_account: { section: "crm",     level: "edit" },
   update_ticket:  { section: "support", level: "edit" },
-  // add_comment is resolved per-target inside requireToolPermission()
+  // create_lead mirrors the gate on POST /api/leads
+  create_lead:    { section: "crm",     level: "edit" },
+  // add_comment + create_note_or_comment are resolved per-target inside requireToolPermission()
+  // create_task, create_reminder, create_calendar_event have no app-level gate beyond auth.
 };
 
 async function requireToolPermission(
@@ -599,6 +605,19 @@ async function _executeToolSafelyImpl(
     return fallbackExecute(toolName, args, ctx.userId, ctx.userName);
   }
 
+  // 2.5. CREATE tools (Build Sequence #2) — handled directly here, not via fallback.
+  // Each handler does its own field validation, optional confirmation gate
+  // (large $ on create_lead), and audit logging.
+  if (CREATE_TOOLS.has(toolName)) {
+    switch (toolName) {
+      case "create_task":              return executeCreateTask(args, ctx);
+      case "create_reminder":          return executeCreateReminder(args, ctx);
+      case "create_lead":              return executeCreateLead(args, ctx);
+      case "create_note_or_comment":   return executeCreateNoteOrComment(args, ctx);
+      case "create_calendar_event":    return executeCreateCalendarEvent(args, ctx);
+    }
+  }
+
   // 3. add_comment: validate target type, then pass through (audit row created here too)
   if (toolName === "add_comment") {
     const t = String(args?.object_type || "").toLowerCase();
@@ -735,4 +754,442 @@ export async function handleConfirmationTurn(
     await clearPendingConfirmation(ctx.conversationId, "superseded by new instruction");
     return { handled: false } as const;
   });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Build Sequence #2: CREATE tools — additive only, no schema changes.
+// Reuses storage.createX, the same audit table, and the same pending-confirm
+// + per-conversation lock infrastructure already proven by Build #1.
+// ════════════════════════════════════════════════════════════════════════════
+
+const CREATE_TOOLS = new Set([
+  "create_task",
+  "create_reminder",
+  "create_lead",
+  "create_note_or_comment",
+  "create_calendar_event",
+]);
+
+// Linkable object types accepted across create_* tools.
+const LINKABLE_TYPES = new Set([
+  "lead", "account", "ticket", "contact", "opportunity", "project", "quote",
+]);
+const LINKABLE_TABLE: Record<string, string> = {
+  lead: "leads", account: "accounts", ticket: "tickets",
+  contact: "contacts", opportunity: "opportunities",
+  project: "projects", quote: "quotes",
+};
+
+const TASK_PRIORITY_ENUM = new Set(["low", "medium", "high", "urgent"]);
+const TASK_STATUS_ENUM   = new Set(["pending", "in_progress", "completed", "cancelled", "blocked"]);
+
+function parseISODate(input: any, label: string): { ok: true; date?: Date } | { ok: false; error: string } {
+  if (input === undefined || input === null || input === "") return { ok: true };
+  if (typeof input !== "string") return { ok: false, error: `${label} must be an ISO 8601 string` };
+  const d = new Date(input);
+  if (isNaN(d.getTime())) return { ok: false, error: `${label} is not a valid date: "${input}"` };
+  return { ok: true, date: d };
+}
+
+async function verifyObjectExists(type: string, id: number): Promise<boolean> {
+  const table = LINKABLE_TABLE[type];
+  if (!table || !Number.isInteger(id) || id <= 0) return false;
+  try {
+    const r = await db.execute(sql`SELECT 1 FROM ${sql.raw(table)} WHERE id = ${id} LIMIT 1`);
+    return r.rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function logAssistantCreate(opts: {
+  source: AssistantSource;
+  userId: number;
+  userName: string;
+  toolName: string;
+  objectType: string;
+  objectId: number;
+  summary: string;
+  payload: Record<string, any>;
+  transcriptSnippet?: string;
+}): Promise<void> {
+  try {
+    const summaryLine =
+      `[${opts.source}] ${opts.userName} (#${opts.userId}) ${opts.summary}.` +
+      (opts.transcriptSnippet ? ` Prompt: "${opts.transcriptSnippet.slice(0, 200)}${opts.transcriptSnippet.length > 200 ? "…" : ""}"` : "");
+    await storage.createActivity({
+      linkedObjectType: opts.objectType,
+      linkedObjectId: opts.objectId,
+      type: `assistant_${opts.toolName}`,
+      subject: `Assistant ${opts.toolName}`,
+      summary: summaryLine,
+      outcome: "success",
+      rawContent: JSON.stringify({ payload: opts.payload, source: opts.source }),
+      createdBy: opts.userId,
+    } as any);
+  } catch (e) {
+    console.error("[voice-safety] create-audit failed:", e);
+  }
+}
+
+// ──────────── create_task ──────────────────────────────────────────────────
+async function executeCreateTask(args: any, ctx: SafeExecContext): Promise<string> {
+  const title = String(args?.title || "").trim();
+  if (!title) return "I need a title to create a task. What should I call it?";
+
+  const due = parseISODate(args?.due_date, "due_date");
+  if (!due.ok) return `Validation failed: ${due.error}`;
+  const start = parseISODate(args?.start_date, "start_date");
+  if (!start.ok) return `Validation failed: ${start.error}`;
+  const remind = parseISODate(args?.reminder_at, "reminder_at");
+  if (!remind.ok) return `Validation failed: ${remind.error}`;
+
+  const priority = TASK_PRIORITY_ENUM.has(String(args?.priority || "").toLowerCase())
+    ? String(args.priority).toLowerCase() : "medium";
+  const status = TASK_STATUS_ENUM.has(String(args?.status || "").toLowerCase())
+    ? String(args.status).toLowerCase() : "pending";
+
+  const linkedType = args?.linked_object_type ? String(args.linked_object_type).toLowerCase() : null;
+  const linkedIdRaw = args?.linked_object_id;
+  const linkedId = (linkedIdRaw !== undefined && linkedIdRaw !== null && linkedIdRaw !== "") ? Number(linkedIdRaw) : null;
+  if (linkedType && !LINKABLE_TYPES.has(linkedType)) {
+    return `Validation failed: linked_object_type "${linkedType}" not supported. Valid: ${[...LINKABLE_TYPES].join(", ")}.`;
+  }
+  if ((linkedType && linkedId === null) || (linkedId !== null && (!Number.isInteger(linkedId) || linkedId <= 0))) {
+    return `Validation failed: linked_object_id must be a positive integer when linked_object_type is set.`;
+  }
+  if (linkedType && linkedId) {
+    const exists = await verifyObjectExists(linkedType, linkedId);
+    if (!exists) return `Cannot link to ${linkedType} #${linkedId} — no such record exists.`;
+  }
+
+  const ownerUserId = (args?.owner_user_id !== undefined && args.owner_user_id !== null) ? Number(args.owner_user_id) : ctx.userId;
+  if (!Number.isInteger(ownerUserId) || ownerUserId <= 0) {
+    return `Validation failed: owner_user_id must be a positive integer.`;
+  }
+
+  const description = args?.description ? String(args.description) : null;
+
+  let created: any;
+  try {
+    created = await storage.createTask({
+      title,
+      description: description as any,
+      dueDate: due.date as any,
+      startDate: start.date as any,
+      reminderAt: remind.date as any,
+      priority,
+      status,
+      ownerUserId,
+      createdByUserId: ctx.userId,
+      lastUpdatedByUserId: ctx.userId,
+      linkedObjectType: linkedType as any,
+      linkedObjectId: linkedId as any,
+      source: args?.source ? String(args.source) : "voice-assistant",
+      sortOrder: 0,
+    } as any);
+  } catch (e: any) {
+    console.error("[voice-safety] create_task failed:", e);
+    return `Error creating task: ${e?.message || "database error"}`;
+  }
+
+  await logAssistantCreate({
+    source: ctx.source, userId: ctx.userId, userName: ctx.userName,
+    toolName: "create_task",
+    objectType: linkedType || "task",
+    objectId: linkedId || created.id,
+    summary: `created task "${title}" (#${created.id})`,
+    payload: {
+      task_id: created.id, title, priority, status,
+      due_date: due.date?.toISOString(), reminder_at: remind.date?.toISOString(),
+      owner_user_id: ownerUserId,
+      linked: linkedType ? `${linkedType}#${linkedId}` : null,
+    },
+    transcriptSnippet: ctx.userMessage,
+  });
+
+  const dueStr = due.date ? `, due ${due.date.toISOString().slice(0, 16).replace("T", " ")} UTC` : "";
+  const linkStr = linkedType ? `, linked to ${linkedType} #${linkedId}` : "";
+  return `✓ Created task "${title}" (#${created.id})${dueStr}${linkStr}.`;
+}
+
+// ──────────── create_reminder (= create_task w/ reminderAt + source) ──────
+async function executeCreateReminder(args: any, ctx: SafeExecContext): Promise<string> {
+  const text = String(args?.text || args?.title || "").trim();
+  if (!text) return "What would you like me to remind you about?";
+
+  const when = parseISODate(args?.remind_at, "remind_at");
+  if (!when.ok) return `Validation failed: ${when.error}`;
+  if (!when.date) return `When should I remind you? Please give me a specific time (ISO 8601 like "${new Date(Date.now() + 3600_000).toISOString()}").`;
+  if (when.date.getTime() < Date.now() - 60_000) {
+    return `Validation failed: remind_at "${args.remind_at}" is in the past.`;
+  }
+
+  return executeCreateTask({
+    title: text,
+    description: args?.notes,
+    due_date: when.date.toISOString(),
+    reminder_at: when.date.toISOString(),
+    priority: "medium",
+    status: "pending",
+    linked_object_type: args?.linked_object_type,
+    linked_object_id: args?.linked_object_id,
+    owner_user_id: ctx.userId,
+    source: "reminder",
+  }, ctx);
+}
+
+// ──────────── create_lead ──────────────────────────────────────────────────
+async function executeCreateLead(args: any, ctx: SafeExecContext): Promise<string> {
+  const company = String(args?.company || "").trim();
+  if (!company) return "I need a company / marina name to create a lead. What's it called?";
+  const contactName = String(args?.contact_name || "").trim();
+  if (!contactName) return `I need a contact name to create the lead for "${company}". Who's the primary contact?`;
+
+  const status = String(args?.status || "new").toLowerCase();
+  if (!LEAD_STATUS_ENUM.has(status)) {
+    return `Validation failed: Invalid lead status "${status}". Allowed: ${[...LEAD_STATUS_ENUM].join(", ")}.`;
+  }
+  const segment = args?.segment ? String(args.segment).toLowerCase() : null;
+  if (segment && !LEAD_SEGMENT_ENUM.has(segment)) {
+    return `Validation failed: Invalid segment "${segment}". Allowed: ${[...LEAD_SEGMENT_ENUM].join(", ")}.`;
+  }
+
+  let dealAmount: number | null = null;
+  if (args?.deal_amount !== undefined && args?.deal_amount !== null && args?.deal_amount !== "") {
+    dealAmount = Number(args.deal_amount);
+    if (!Number.isFinite(dealAmount) || dealAmount < 0) {
+      return `Validation failed: deal_amount must be a non-negative number.`;
+    }
+  }
+
+  // Risk gate: large deal_amount on creation requires confirmation.
+  if (!ctx.preApproved && dealAmount !== null && dealAmount >= 100_000) {
+    const preview = [
+      `⚠ Confirmation required: about to create lead "${company}" with deal_amount $${dealAmount.toLocaleString()}.`,
+      `Contact: ${contactName}`,
+      `Status: ${status}`,
+      `Reply "yes" or "confirm" to apply, or "no" / "cancel" to abort.`,
+    ].join("\n");
+    await setPendingConfirmation(ctx.conversationId, {
+      toolName: "create_lead",
+      args,
+      sanitized: {},
+      preview,
+      expiresAt: Date.now() + CONFIRM_TTL_MS,
+      before: null,
+      beforeTable: "leads",
+      beforeId: 0,
+    });
+    return preview;
+  }
+
+  let created: any;
+  try {
+    created = await storage.createLead({
+      company,
+      contactName,
+      contactEmail: args?.contact_email ? String(args.contact_email).trim() : (undefined as any),
+      contactPhone: args?.contact_phone ? String(args.contact_phone).trim() : (undefined as any),
+      status,
+      segment: segment || (undefined as any),
+      dealAmount: dealAmount !== null ? dealAmount : (undefined as any),
+      notes: args?.notes ? String(args.notes) : (undefined as any),
+      source: args?.source ? String(args.source) : "voice-assistant",
+      nextStep: args?.next_step ? String(args.next_step) : (undefined as any),
+      city: args?.city ? String(args.city) : (undefined as any),
+      state: args?.state ? String(args.state) : (undefined as any),
+      country: args?.country ? String(args.country) : (undefined as any),
+      ownerUserId: ctx.userId,
+    } as any);
+  } catch (e: any) {
+    console.error("[voice-safety] create_lead failed:", e);
+    return `Error creating lead: ${e?.message || "database error"}`;
+  }
+
+  await logAssistantCreate({
+    source: ctx.source, userId: ctx.userId, userName: ctx.userName,
+    toolName: "create_lead",
+    objectType: "lead",
+    objectId: created.id,
+    summary: `created lead "${company}" (#${created.id}) — contact ${contactName}`,
+    payload: {
+      lead_id: created.id, company, contact_name: contactName,
+      status, segment, deal_amount: dealAmount,
+      contact_email: args?.contact_email || null,
+      contact_phone: args?.contact_phone || null,
+    },
+    transcriptSnippet: ctx.userMessage,
+  });
+  if (ctx.preApproved) {
+    await clearPendingConfirmation(ctx.conversationId, "applied after user confirmation");
+  }
+
+  const dealStr = dealAmount !== null ? `, deal $${dealAmount.toLocaleString()}` : "";
+  return `✓ Created lead "${company}" (#${created.id}), contact ${contactName}, status ${status}${dealStr}.`;
+}
+
+// ──────────── create_note_or_comment ───────────────────────────────────────
+async function executeCreateNoteOrComment(args: any, ctx: SafeExecContext): Promise<string> {
+  const kind = String(args?.kind || "note").toLowerCase();
+  if (kind !== "note" && kind !== "comment") {
+    return `Validation failed: kind must be "note" or "comment".`;
+  }
+  const objType = String(args?.object_type || "").toLowerCase();
+  if (!LINKABLE_TYPES.has(objType)) {
+    return `Validation failed: object_type must be one of ${[...LINKABLE_TYPES].join(", ")}.`;
+  }
+  const objId = Number(args?.object_id);
+  if (!Number.isInteger(objId) || objId <= 0) {
+    return `Validation failed: object_id must be a positive integer.`;
+  }
+  const content = String(args?.content || "").trim();
+  if (!content) return `What should the ${kind} say?`;
+
+  // Permission check per-target (mirrors add_comment behavior).
+  const section = objType === "ticket" ? "support" : "crm";
+  const perm = await userHasPermission(ctx.userId, section, "edit");
+  if (!perm.ok) {
+    await logAssistantDenial({
+      source: ctx.source, userId: ctx.userId, userName: ctx.userName,
+      toolName: "create_note_or_comment",
+      args, reason: perm.reason || "permission denied",
+      transcriptSnippet: ctx.userMessage,
+    });
+    return `Permission denied: ${perm.reason}`;
+  }
+
+  const exists = await verifyObjectExists(objType, objId);
+  if (!exists) return `Cannot add ${kind}: ${objType} #${objId} not found.`;
+
+  try {
+    if (kind === "comment") {
+      const c = await storage.createComment({
+        objectType: objType,
+        objectId: objId,
+        userId: ctx.userId,
+        userName: ctx.userName,
+        content,
+      } as any);
+      await logAssistantCreate({
+        source: ctx.source, userId: ctx.userId, userName: ctx.userName,
+        toolName: "create_comment",
+        objectType: objType, objectId: objId,
+        summary: `added comment (#${c.id}) to ${objType} #${objId}`,
+        payload: { comment_id: c.id, content },
+        transcriptSnippet: ctx.userMessage,
+      });
+      return `✓ Added comment to ${objType} #${objId}.`;
+    }
+    // kind === "note"
+    const n = await storage.createNote({
+      linkedObjectType: objType,
+      linkedObjectId: objId,
+      authorId: ctx.userId,
+      authorName: ctx.userName,
+      content,
+      isPinned: !!args?.is_pinned,
+    } as any);
+    await logAssistantCreate({
+      source: ctx.source, userId: ctx.userId, userName: ctx.userName,
+      toolName: "create_note",
+      objectType: objType, objectId: objId,
+      summary: `added note (#${n.id}) to ${objType} #${objId}`,
+      payload: { note_id: n.id, content, is_pinned: !!args?.is_pinned },
+      transcriptSnippet: ctx.userMessage,
+    });
+    return `✓ Added note to ${objType} #${objId}.`;
+  } catch (e: any) {
+    console.error("[voice-safety] create_note_or_comment failed:", e);
+    return `Error creating ${kind}: ${e?.message || "database error"}`;
+  }
+}
+
+// ──────────── create_calendar_event ────────────────────────────────────────
+async function executeCreateCalendarEvent(args: any, ctx: SafeExecContext): Promise<string> {
+  const title = String(args?.title || "").trim();
+  if (!title) return "What should I call the calendar event?";
+
+  const startP = parseISODate(args?.start_time, "start_time");
+  if (!startP.ok) return `Validation failed: ${startP.error}`;
+  if (!startP.date) return "When does the event start? Please give me an ISO 8601 datetime.";
+  if (startP.date.getTime() < Date.now() - 60_000) {
+    return `Validation failed: start_time "${args.start_time}" is in the past.`;
+  }
+  const endP = parseISODate(args?.end_time, "end_time");
+  if (!endP.ok) return `Validation failed: ${endP.error}`;
+
+  const allDay = !!args?.all_day;
+  let endDate = endP.date;
+  if (endDate && endDate.getTime() <= startP.date.getTime()) {
+    return `Validation failed: end_time must be after start_time.`;
+  }
+  // Default to a 30-minute meeting if no end given and not all-day.
+  if (!endDate && !allDay) endDate = new Date(startP.date.getTime() + 30 * 60_000);
+
+  const linkedType = args?.linked_object_type ? String(args.linked_object_type).toLowerCase() : null;
+  const linkedIdRaw = args?.linked_object_id;
+  const linkedId = (linkedIdRaw !== undefined && linkedIdRaw !== null && linkedIdRaw !== "") ? Number(linkedIdRaw) : null;
+  if (linkedType && !LINKABLE_TYPES.has(linkedType)) {
+    return `Validation failed: linked_object_type "${linkedType}" not supported.`;
+  }
+  if ((linkedType && linkedId === null) || (linkedId !== null && (!Number.isInteger(linkedId) || linkedId <= 0))) {
+    return `Validation failed: linked_object_id must be a positive integer when linked_object_type is set.`;
+  }
+  if (linkedType && linkedId) {
+    const ok = await verifyObjectExists(linkedType, linkedId);
+    if (!ok) return `Cannot link to ${linkedType} #${linkedId} — no such record.`;
+  }
+
+  let invitees: string[] | undefined;
+  if (Array.isArray(args?.invitees)) {
+    invitees = args.invitees
+      .map((x: any) => (typeof x === "string" ? x.trim() : ""))
+      .filter((x: string) => x && x.includes("@"));
+    if (invitees.length === 0) invitees = undefined;
+  }
+
+  let created: any;
+  try {
+    created = await storage.createCalendarEvent({
+      userId: ctx.userId,
+      title,
+      description: args?.description ? String(args.description) : (undefined as any),
+      eventType: args?.event_type ? String(args.event_type) : "meeting",
+      startTime: startP.date,
+      endTime: (endDate as any),
+      allDay,
+      location: args?.location ? String(args.location) : (undefined as any),
+      meetingUrl: args?.meeting_url ? String(args.meeting_url) : (undefined as any),
+      linkedObjectType: linkedType as any,
+      linkedObjectId: linkedId as any,
+      invitees: invitees as any,
+      timeZone: args?.time_zone ? String(args.time_zone) : (undefined as any),
+      status: "scheduled",
+    } as any);
+  } catch (e: any) {
+    console.error("[voice-safety] create_calendar_event failed:", e);
+    return `Error creating calendar event: ${e?.message || "database error"}`;
+  }
+
+  await logAssistantCreate({
+    source: ctx.source, userId: ctx.userId, userName: ctx.userName,
+    toolName: "create_calendar_event",
+    objectType: linkedType || "calendar_event",
+    objectId: linkedId || created.id,
+    summary: `created calendar event "${title}" (#${created.id}) starting ${startP.date.toISOString()}`,
+    payload: {
+      event_id: created.id, title,
+      start_time: startP.date.toISOString(),
+      end_time: endDate?.toISOString() || null,
+      all_day: allDay, invitees: invitees || null,
+      linked: linkedType ? `${linkedType}#${linkedId}` : null,
+    },
+    transcriptSnippet: ctx.userMessage,
+  });
+
+  const startStr = startP.date.toISOString().slice(0, 16).replace("T", " ");
+  const endStr = endDate && !allDay ? ` until ${endDate.toISOString().slice(11, 16)}` : (allDay ? " (all day)" : "");
+  const linkStr = linkedType ? `, linked to ${linkedType} #${linkedId}` : "";
+  return `✓ Created calendar event "${title}" (#${created.id}) starting ${startStr} UTC${endStr}${linkStr}.`;
 }
