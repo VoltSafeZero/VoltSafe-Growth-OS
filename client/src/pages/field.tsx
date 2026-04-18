@@ -114,7 +114,7 @@ export default function FieldPage() {
   const totalActions = overdueTasks.length + dueTodayTasks.length + hotItems.length + blockedInstalls.length;
 
   return (
-    <div className="min-h-screen bg-background" data-testid="field-page">
+    <div className="flex-1 w-full bg-background" data-testid="field-page">
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border/40 px-4 py-3">
         <div className="flex items-center justify-between">
           <div>

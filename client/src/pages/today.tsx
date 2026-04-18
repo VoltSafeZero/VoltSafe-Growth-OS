@@ -104,7 +104,7 @@ export default function TodayPage() {
   );
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 max-w-7xl mx-auto" data-testid="today-page">
+    <div className="p-4 sm:p-6 space-y-5 w-full" data-testid="today-page">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>

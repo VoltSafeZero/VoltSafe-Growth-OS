@@ -159,13 +159,20 @@ function AppShell({ children, user, onLogout }: { children: React.ReactNode; use
   const sidebarStyle = { "--sidebar-width": "16rem", "--sidebar-width-icon": "4rem" } as React.CSSProperties;
   return (
     <SidebarProvider style={sidebarStyle}>
-      <div className="flex min-h-screen w-full bg-background text-foreground overflow-hidden">
+      <div className="flex h-screen w-full bg-background text-foreground overflow-hidden">
         <div className="hidden md:flex">
           <AppSidebar userGlobalRole={user.globalRole || "sales"} userPermissions={user.permissions ?? FULL_PERMISSIONS} />
         </div>
-        <div className="flex flex-col flex-1 w-full overflow-hidden">
+        <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
           <Header user={user} onLogout={onLogout} />
-          <main className="flex-1 overflow-y-auto overflow-x-hidden relative scroll-smooth pb-44 md:pb-16">
+          {/*
+            Main is the single scroll container for the app.
+            - flex flex-col + min-h-0 give descendant pages a usable height context
+              so `flex-1`/`h-full` fill the viewport reliably and reflow on resize.
+            - pb-20 md:pb-0 is just enough mobile clearance for MobileNav; on
+              desktop we don't reserve dead space at the bottom anymore.
+          */}
+          <main className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden relative scroll-smooth pb-20 md:pb-0">
             {children}
           </main>
         </div>

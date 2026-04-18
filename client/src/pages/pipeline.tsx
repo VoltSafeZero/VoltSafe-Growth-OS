@@ -270,7 +270,7 @@ export default function PipelinePage({ canEdit = true }: { canEdit?: boolean }) 
   );
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 max-w-6xl mx-auto" data-testid="pipeline-page">
+    <div className="p-4 sm:p-6 space-y-5 w-full" data-testid="pipeline-page">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>

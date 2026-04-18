@@ -106,7 +106,7 @@ export default function FieldNearbyPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background" data-testid="field-nearby-page">
+    <div className="flex-1 w-full bg-background" data-testid="field-nearby-page">
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border/40 px-4 py-3">
         <div className="flex items-center gap-3">
           <Link href="/field">
