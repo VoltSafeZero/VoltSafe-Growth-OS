@@ -86,6 +86,30 @@ export function sanitizeRichText(html: string): string {
 }
 
 /**
+ * HTML-attribute / text-content escaper for the rare cases where the app must
+ * inject user-controlled values into a template-literal HTML string (e.g. a
+ * Leaflet popup's `bindPopup(htmlString)`, where the third-party library
+ * insists on an HTML string rather than a DOM node).
+ *
+ * Prefer building DOM nodes with document.createElement + textContent whenever
+ * possible — that path requires no escaping. Use escapeHtml only when a string
+ * sink is forced on you by the API.
+ *
+ * Escapes the five HTML-significant characters plus the forward slash (defends
+ * against premature tag-context exit on broken input).
+ */
+export function escapeHtml(input: unknown): string {
+  if (input === null || input === undefined) return "";
+  return String(input)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/\//g, "&#x2F;");
+}
+
+/**
  * Extract visible text from HTML without ever assigning innerHTML.
  *
  * DOMParser.parseFromString(..., "text/html") creates an inert document:

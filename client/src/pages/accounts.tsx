@@ -25,6 +25,7 @@ import { ExportButton } from "@/components/ui/export-button";
 import { NotesPanel } from "@/components/notes-panel";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { escapeHtml } from "@/lib/sanitize-html";
 import { CommentsFeed } from "@/components/comments-feed";
 import { AttachmentsSection } from "@/components/attachments-section";
 import { AssignUserSelect } from "@/components/assign-user-select";
@@ -842,12 +843,20 @@ function AccountsMapView({ accounts, onSelect }: { accounts: Account[]; onSelect
 
     accountsWithCoords.forEach((account) => {
       const marker = L.marker([account.latitude!, account.longitude!], { icon: defaultIcon }).addTo(map);
+      // SECURITY (F-06): account.name / city / stateProvince / country / leadStatus
+      // are user-controlled CRM strings. They MUST be HTML-escaped before being
+      // interpolated into a Leaflet popup's HTML string sink — otherwise a
+      // stored `<img onerror=…>` in any of those fields fires for every viewer.
+      const locationLine = [account.city, account.stateProvince, account.country].filter(Boolean).join(", ");
+      const slipsLine = account.slipCount
+        ? `<span style="font-size:11px">${escapeHtml(account.slipCount)} slips</span><br/>`
+        : "";
       marker.bindPopup(`
         <div style="min-width:180px">
-          <strong style="font-size:13px">${account.name}</strong><br/>
-          <span style="font-size:11px;color:#888">${[account.city, account.stateProvince, account.country].filter(Boolean).join(", ") || ""}</span><br/>
-          ${account.slipCount ? `<span style="font-size:11px">${account.slipCount} slips</span><br/>` : ""}
-          <span style="font-size:11px;color:#10b981">${getStageLabel(account.leadStatus)}</span>
+          <strong style="font-size:13px">${escapeHtml(account.name)}</strong><br/>
+          <span style="font-size:11px;color:#888">${escapeHtml(locationLine)}</span><br/>
+          ${slipsLine}
+          <span style="font-size:11px;color:#10b981">${escapeHtml(getStageLabel(account.leadStatus))}</span>
         </div>
       `);
       marker.on("click", () => onSelect(account));

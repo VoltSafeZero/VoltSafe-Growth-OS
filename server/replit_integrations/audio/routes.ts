@@ -1,7 +1,7 @@
 import express, { type Express, type Request, type Response } from "express";
 import { chatStorage } from "../chat/storage";
 import { openai, speechToText, ensureCompatibleFormat } from "./client";
-import { requireAuth } from "../../auth";
+import { requireAuth, getSessionUserId } from "../../auth";
 
 // Body parser with 50MB limit for audio payloads
 const audioBodyParser = express.json({ limit: "50mb" });
@@ -10,9 +10,18 @@ export function registerAudioRoutes(app: Express): void {
   // Send voice message and get streaming audio response
   // Auto-detects audio format and converts WebM/MP4/OGG to WAV
   // Uses gpt-4o-mini-transcribe for STT, gpt-audio for voice response
+  // SECURITY (F-01): verify conversation ownership before any read/write.
   app.post("/api/conversations/:id/voice", requireAuth, audioBodyParser, async (req: Request, res: Response) => {
     try {
-      const conversationId = parseInt(req.params.id);
+      const userId = getSessionUserId(req);
+      const conversationId = parseInt(req.params.id, 10);
+      if (!Number.isFinite(conversationId)) {
+        return res.status(400).json({ error: "Invalid conversation id" });
+      }
+      const owned = await chatStorage.getConversationForUser(conversationId, userId);
+      if (!owned) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
       const { audio, voice = "alloy" } = req.body;
 
       if (!audio) {

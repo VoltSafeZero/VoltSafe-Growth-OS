@@ -21,7 +21,7 @@ import { deriveScenarioFromCRM, generateScenarioActions, computeForecastVsActual
 import { createPlanCommitFromScenario, computeGapToPlan, generateGapClosureActions, autoCreateTasksFromActions, snapshotGapStatus } from "./services/revenue-operating-system";
 import { generateDailyBrief, getTodaysBrief, getAlerts, updateAlertStatus } from "./services/executive-copilot";
 import { db } from "./db";
-import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications } from "@shared/schema";
+import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications, activities } from "@shared/schema";
 import {
   insertLeadSchema, insertAccountSchema, insertContactSchema,
   insertOpportunitySchema, insertTicketSchema, insertQuoteSchema,
@@ -4564,10 +4564,24 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorized to delete this attachment" });
       }
     }
-    // Phase 6 — log removal activity before deleting the row
-    const docLabel = (attachment.title || attachment.originalName || attachment.fileName || "document").replace(/'/g, "''");
+    // Phase 6 — log removal activity before deleting the row.
+    // SECURITY (F-08): the previous implementation built this INSERT via
+    // sql.raw with manual single-quote escaping of `docLabel` — fragile (any
+    // future change that drops the .replace, or any new interpolated field
+    // that isn't escaped, becomes a SQL-injection sink). Use a parameterised
+    // drizzle insert against the typed `activities` table instead — drizzle
+    // emits real bound parameters, so no client-side escaping is needed and
+    // the column types are checked at compile time.
+    const docLabel = attachment.title || attachment.originalName || attachment.fileName || "document";
     const delUid = req.session.userId ?? null;
-    db.execute(sql.raw(`INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at) VALUES ('${attachment.objectType}', ${attachment.objectId}, 'activity', 'Document removed', 'Removed: ${docLabel}', ${delUid ?? "NULL"}, NOW())`)).catch(() => {});
+    db.insert(activities).values({
+      linkedObjectType: attachment.objectType,
+      linkedObjectId: attachment.objectId,
+      type: "activity",
+      subject: "Document removed",
+      summary: `Removed: ${docLabel}`,
+      createdBy: delUid,
+    }).then(() => {}).catch(() => {});
     const filePath = path.join(UPLOADS_DIR, path.basename(attachment.fileName));
     try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch {}
     await storage.deleteAttachment(attachment.id);
@@ -10234,9 +10248,34 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   // Receives push notifications from Google Pub/Sub when a watched mailbox changes.
   // Auth: shared secret in `?token=` query param matched against GMAIL_WEBHOOK_TOKEN.
   // (Pub/Sub subscription is configured with this URL+token.)
+  //
+  // SECURITY (F-05):
+  //   - Comparison is constant-time via crypto.timingSafeEqual to prevent the
+  //     remote-timing oracle that would otherwise allow byte-by-byte recovery.
+  //   - Bare timingSafeEqual throws on mismatched buffer length, which is
+  //     itself a (cheap) timing channel. We gate on `expected.length ===
+  //     provided.length` BEFORE the call so the throw path is never taken
+  //     for an honest comparison, and a length mismatch is treated as a
+  //     plain auth failure (early `ok = false`).
+  //   - Token still travels in the URL query string (Pub/Sub configures the
+  //     subscription with this URL); upstream proxy access logs (Cloudflare /
+  //     Replit edge) MAY retain it. Our own request logger only logs req.path,
+  //     not req.url, so we don't store it. Rotate GMAIL_WEBHOOK_TOKEN on a
+  //     schedule and treat it as a low-sensitivity secret accordingly.
   app.post("/api/webhooks/gmail", async (req, res) => {
     const expected = (process.env.GMAIL_WEBHOOK_TOKEN || "").trim();
-    if (!expected || req.query.token !== expected) {
+    const provided = typeof req.query.token === "string" ? req.query.token : "";
+    let ok = false;
+    if (expected && provided && expected.length === provided.length) {
+      try {
+        const a = Buffer.from(expected, "utf8");
+        const b = Buffer.from(provided, "utf8");
+        ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+      } catch {
+        ok = false;
+      }
+    }
+    if (!ok) {
       return res.status(401).json({ message: "unauthorized" });
     }
     // Always 200 quickly; Pub/Sub retries on non-2xx

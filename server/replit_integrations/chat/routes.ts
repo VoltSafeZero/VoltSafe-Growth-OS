@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import OpenAI from "openai";
 import { chatStorage } from "./storage";
-import { requireAuth } from "../../auth";
+import { requireAuth, getSessionUserId } from "../../auth";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -9,10 +9,13 @@ const openai = new OpenAI({
 });
 
 export function registerChatRoutes(app: Express): void {
-  // Get all conversations
+  // Get conversations belonging to the calling user only.
+  // SECURITY (F-01): chatStorage.getAllConversations() returns every user's
+  // chat history; routes MUST scope to the session user via …ForUser variants.
   app.get("/api/conversations", requireAuth, async (req: Request, res: Response) => {
     try {
-      const conversations = await chatStorage.getAllConversations();
+      const userId = getSessionUserId(req);
+      const conversations = await chatStorage.getConversationsForUser(userId);
       res.json(conversations);
     } catch (error) {
       console.error("Error fetching conversations:", error);
@@ -20,11 +23,15 @@ export function registerChatRoutes(app: Express): void {
     }
   });
 
-  // Get single conversation with messages
+  // Get a single conversation (and its messages) only if it belongs to the
+  // calling user. Returns 404 (not 403) on a non-owned id to avoid leaking
+  // existence of other users' conversation IDs.
   app.get("/api/conversations/:id", requireAuth, async (req: Request, res: Response) => {
     try {
-      const id = parseInt(req.params.id);
-      const conversation = await chatStorage.getConversation(id);
+      const userId = getSessionUserId(req);
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
+      const conversation = await chatStorage.getConversationForUser(id, userId);
       if (!conversation) {
         return res.status(404).json({ error: "Conversation not found" });
       }
@@ -36,11 +43,13 @@ export function registerChatRoutes(app: Express): void {
     }
   });
 
-  // Create new conversation
+  // Create new conversation, stamped with the session user's id so subsequent
+  // reads/deletes/messages can be ownership-checked.
   app.post("/api/conversations", requireAuth, async (req: Request, res: Response) => {
     try {
+      const userId = getSessionUserId(req);
       const { title } = req.body;
-      const conversation = await chatStorage.createConversation(title || "New Chat");
+      const conversation = await chatStorage.createConversation(title || "New Chat", userId);
       res.status(201).json(conversation);
     } catch (error) {
       console.error("Error creating conversation:", error);
@@ -48,11 +57,14 @@ export function registerChatRoutes(app: Express): void {
     }
   });
 
-  // Delete conversation
+  // Delete conversation — only if it belongs to the calling user.
   app.delete("/api/conversations/:id", requireAuth, async (req: Request, res: Response) => {
     try {
-      const id = parseInt(req.params.id);
-      await chatStorage.deleteConversation(id);
+      const userId = getSessionUserId(req);
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
+      const ok = await chatStorage.deleteConversationForUser(id, userId);
+      if (!ok) return res.status(404).json({ error: "Conversation not found" });
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting conversation:", error);
@@ -60,10 +72,16 @@ export function registerChatRoutes(app: Express): void {
     }
   });
 
-  // Send message and get AI response (streaming)
+  // Send message and get AI response (streaming).
+  // Ownership MUST be verified before any write — otherwise an attacker could
+  // append messages into another user's conversation and pollute their history.
   app.post("/api/conversations/:id/messages", requireAuth, async (req: Request, res: Response) => {
     try {
-      const conversationId = parseInt(req.params.id);
+      const userId = getSessionUserId(req);
+      const conversationId = parseInt(req.params.id, 10);
+      if (!Number.isFinite(conversationId)) return res.status(400).json({ error: "Invalid id" });
+      const owned = await chatStorage.getConversationForUser(conversationId, userId);
+      if (!owned) return res.status(404).json({ error: "Conversation not found" });
       const { content } = req.body;
 
       // Save user message
