@@ -90,68 +90,93 @@
    * .demon overrides selected tokens to repaint the surface and adds atmospherics.
    * ────────────────────────────────────────────────────────────────────────*/
   .demon {
-    /* Surfaces — obsidian with a whisper of maroon */
-    --background: 355 18% 4%;           /* near-black, faintly blood-warm */
-    --foreground: 20 8% 90%;            /* ashy bone */
-    --card: 355 22% 6%;                 /* blackened maroon */
-    --card-foreground: 20 8% 90%;
-    --popover: 355 25% 5%;
-    --popover-foreground: 20 8% 92%;
+    /* ── Pass 3 refinement: "haunted executive OS / dimensional breach behind glass"
+     * Palette philosophy:
+     *   - near-black void base with the faintest blue-black tilt (cooler, deeper)
+     *   - deep blood / dim crimson primary, never neon
+     *   - rich shadow-maroon for surfaces (carved blackened material)
+     *   - cold cyan reserved for "foreign electricity" contrast (focus, charts)
+     * Restraint over novelty — every value here is one tick away from black. */
 
-    /* Brand → toxic blood (was teal). Used for primary buttons, links, focus. */
-    --primary: 355 72% 42%;             /* muted blood — readable, not neon */
+    /* Surfaces — void with maroon depth, not literal red */
+    --background: 350 14% 3%;           /* deep void with a bare maroon tilt */
+    --foreground: 18 9% 89%;            /* warm ash */
+    --card: 352 22% 5%;                 /* blackened maroon, "carved" */
+    --card-foreground: 18 9% 90%;
+    --popover: 352 26% 4%;              /* deeper still — modals feel sunken */
+    --popover-foreground: 20 10% 92%;
+
+    /* Brand → deep blood. One step deeper than Pass 1; less muted-pink, more arterial. */
+    --primary: 355 70% 38%;
     --primary-foreground: 20 30% 96%;
 
-    /* Secondary surfaces — graphite with red undertone */
-    --secondary: 355 15% 10%;
-    --secondary-foreground: 20 8% 88%;
-    --muted: 355 12% 11%;
-    --muted-foreground: 15 8% 58%;
+    /* Secondary surfaces — graphite with red undertone, slightly cooler at base */
+    --secondary: 350 14% 8%;
+    --secondary-foreground: 18 9% 88%;
+    --muted: 350 11% 9%;
+    --muted-foreground: 15 8% 56%;
 
-    /* Accent → cold cyan/teal — sparing contrast against the blood */
-    --accent: 188 35% 14%;
-    --accent-foreground: 188 70% 78%;
+    /* Accent → cold cyan, kept dim. "Faint foreign electricity," per brief. */
+    --accent: 188 32% 11%;
+    --accent-foreground: 188 65% 76%;
 
-    /* Destructive — slightly hotter than primary so it still reads as "danger" */
+    /* Destructive — clearly hotter than primary so "danger" still reads */
     --destructive: 0 78% 48%;
     --destructive-foreground: 0 0% 98%;
 
-    /* Borders / inputs — dim blood vein */
-    --border: 355 25% 13%;
-    --input: 355 25% 13%;
-    --ring: 355 80% 48%;                /* red bloom on focus */
+    /* Borders / inputs — alive, vein-like, never generic gray */
+    --border: 352 28% 11%;
+    --input: 352 28% 11%;
+    --ring: 355 80% 46%;                /* tight ember focus */
 
-    /* Sidebar — deepest obsidian, almost void */
-    --sidebar-background: 355 25% 3%;
-    --sidebar-foreground: 20 8% 82%;
-    --sidebar-primary: 355 72% 48%;
+    /* Sidebar — deepest void, almost zero light */
+    --sidebar-background: 350 22% 2.5%;
+    --sidebar-foreground: 18 9% 80%;
+    --sidebar-primary: 355 70% 44%;
     --sidebar-primary-foreground: 20 30% 96%;
-    --sidebar-accent: 355 30% 8%;
-    --sidebar-accent-foreground: 20 8% 92%;
-    --sidebar-border: 355 28% 10%;
-    --sidebar-ring: 355 80% 50%;
+    --sidebar-accent: 352 30% 7%;
+    --sidebar-accent-foreground: 18 9% 92%;
+    --sidebar-border: 352 30% 9%;
+    --sidebar-ring: 355 80% 48%;
 
-    /* Hover/active wash — warmer red rather than neutral white */
-    --elevate-1: rgba(225, 40, 50, 0.06);
-    --elevate-2: rgba(225, 40, 50, 0.12);
+    /* Hover/active wash — warm ember, slightly more present so rows feel "energized" */
+    --elevate-1: rgba(225, 40, 50, 0.07);
+    --elevate-2: rgba(225, 40, 50, 0.14);
 
-    /* Charts — blood/teal duotone instead of cool blues */
+    /* Charts — blood/teal duotone with ember intermediates */
     --chart-1: 355 72% 50%;             /* blood */
-    --chart-2: 188 65% 48%;             /* cold teal */
+    --chart-2: 188 60% 46%;             /* cold teal — slightly desaturated */
     --chart-3: 15 70% 45%;              /* ember */
-    --chart-4: 355 30% 35%;             /* maroon shadow */
-    --chart-5: 188 25% 28%;             /* teal shadow */
+    --chart-4: 352 30% 32%;             /* maroon shadow */
+    --chart-5: 188 25% 26%;             /* teal shadow */
   }
 
   /* Atmospherics — applied to <body> when .demon is on <html>.
-   * Intentionally subtle: a low, off-center red bloom hugs the bottom of the
-   * viewport like an ambient breach. Pointer-events none, never interferes. */
+   * Five composited fixed layers, top→bottom in stack:
+   *   1. Vignette overlay — darkens viewport edges, focuses content
+   *   2. Bottom-left blood breach — primary ambient bloom, off-center
+   *   3. Top-right cold electricity — small cyan bloom for foreign-light depth
+   *   4. Bottom maroon underglow — wide warm rim
+   *   5. Procedural vein membrane — inline SVG, fractalNoise stretched horizontally,
+   *      blood-tinted, alpha-floor-lifted so it reads as sparse veins beneath glass
+   *      rather than uniform static. Roughly 9% effective opacity on screen.
+   * All fixed-attached, pointer-events none, never interferes with interaction. */
   html.demon body {
     background-color: hsl(var(--background));
     background-image:
-      radial-gradient(ellipse 70% 40% at 18% 110%, rgba(180, 25, 35, 0.10), transparent 70%),
-      radial-gradient(ellipse 60% 35% at 95% -5%, rgba(120, 20, 30, 0.08), transparent 70%),
-      radial-gradient(ellipse 100% 60% at 50% 120%, rgba(40, 0, 0, 0.25), transparent 80%);
+      /* (1) edge vignette */
+      radial-gradient(ellipse 130% 95% at 50% 50%, transparent 38%, rgba(0, 0, 0, 0.55) 100%),
+      /* (2) blood breach, bottom-left */
+      radial-gradient(ellipse 75% 45% at 12% 115%, hsl(355 70% 22% / 0.32), transparent 70%),
+      /* (3) cold electricity, top-right */
+      radial-gradient(ellipse 50% 30% at 96% -8%, hsl(188 40% 14% / 0.22), transparent 70%),
+      /* (4) maroon underglow, full bottom */
+      radial-gradient(ellipse 110% 55% at 50% 122%, rgba(45, 0, 5, 0.40), transparent 80%),
+      /* (5) procedural vein membrane (SVG fractalNoise, blood-tinted, horizontal stretch) */
+      url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 1200' preserveAspectRatio='xMidYMid slice'%3E%3Cdefs%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.006 0.035' numOctaves='2' seed='23'/%3E%3CfeColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.04 0 0 0 0 0.06 0 0 0 0.55 -0.18'/%3E%3C/filter%3E%3C/defs%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.45'/%3E%3C/svg%3E");
+    background-size: auto, auto, auto, auto, 1200px 1200px;
+    background-position: center, 0 0, 0 0, 0 0, center;
+    background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, no-repeat;
     background-attachment: fixed;
   }
 
@@ -173,12 +198,15 @@
     background: linear-gradient(180deg, hsl(355 60% 28%), hsl(355 70% 18%));
   }
 
-  /* Demon focus ring — soft red bloom on top of the standard ring color */
+  /* Demon focus ring — sharp, ember-lit. Tighter than Pass 1 (less wide bloom,
+   * more concentrated edge light). Reads as "alive/dangerous" per the brief
+   * without sacrificing readability of the focused element. */
   html.demon *:focus-visible {
     box-shadow:
       0 0 0 2px hsl(var(--background)),
-      0 0 0 4px hsl(var(--ring) / 0.7),
-      0 0 18px hsl(355 80% 45% / 0.35);
+      0 0 0 3px hsl(var(--ring) / 0.85),
+      0 0 0 4px hsl(355 90% 55% / 0.35),
+      0 0 14px hsl(355 85% 45% / 0.30);
   }
 
   /* Demon pulse — opt-in motion class for "selected/active" emphasis.
@@ -190,14 +218,42 @@
   }
   html.demon .demon-pulse { animation: demon-pulse 2.4s ease-in-out infinite; }
 
-  /* Card / panel surfaces in demon — slightly warmer ring to feel "alive" */
+  /* Card / panel surfaces in demon — "carved blackened material, internally
+   * backlit by red energy." Three-part shadow:
+   *   - Inset maroon ring (the vein-lit edge)
+   *   - Top-edge highlight (1px hairline of dim ember light at the card's top)
+   *   - Deep drop shadow with maroon undertone (carved depth) */
   html.demon .bg-card,
   html.demon [data-card],
   html.demon .demon-panel {
     box-shadow:
-      inset 0 0 0 1px hsl(355 25% 12%),
-      0 1px 0 0 rgba(0, 0, 0, 0.4),
-      0 12px 28px -18px rgba(120, 10, 20, 0.35);
+      inset 0 1px 0 0 hsl(355 50% 18% / 0.55),       /* top vein-light */
+      inset 0 0 0 1px hsl(352 28% 11%),               /* edge ring */
+      inset 0 -16px 40px -28px hsl(355 60% 22% / 0.45), /* internal red backlight */
+      0 1px 0 0 rgba(0, 0, 0, 0.5),
+      0 18px 38px -22px rgba(0, 0, 0, 0.7),
+      0 12px 32px -22px hsl(355 50% 18% / 0.45);
+  }
+
+  /* Popovers / dropdowns / dialogs — same material treatment but deeper
+   * (modals feel "sunken into the breach" rather than floating above). */
+  html.demon [role="dialog"],
+  html.demon [data-radix-popper-content-wrapper] > * {
+    box-shadow:
+      inset 0 1px 0 0 hsl(355 50% 18% / 0.55),
+      inset 0 0 0 1px hsl(352 28% 12%),
+      0 32px 64px -24px rgba(0, 0, 0, 0.85),
+      0 0 60px -10px hsl(355 60% 18% / 0.40);
+  }
+
+  /* Sidebar — "carved void." Subtle maroon vertical gradient + inner right-edge
+   * vein-light so the boundary with the main surface feels like a cut, not a line. */
+  html.demon [data-sidebar="sidebar"] {
+    background-image:
+      linear-gradient(180deg, hsl(352 30% 4%) 0%, hsl(350 22% 2.5%) 60%, hsl(350 22% 2%) 100%);
+    box-shadow:
+      inset -1px 0 0 0 hsl(352 35% 9%),
+      inset -2px 0 14px -6px hsl(355 60% 18% / 0.35);
   }
 
   /* Primary buttons in demon get a subtle red bloom underneath on hover */

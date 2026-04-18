@@ -1,0 +1,152 @@
+Refine Demon Mode using this visual direction:
+
+Demon Mode should no longer just be “dark mode with red accents.”
+It should feel like the UI has been overgrown by a living dimensional breach made of roots, veins, thorns, shadows, and red internal light.
+
+Visual reference summary from the provided images:
+- obsidian / near-black void base
+- blood-red internal glow, not bright neon red
+- organic root / vine / tendon / thorn geometry
+- cinematic darkness with pockets of glowing red depth
+- wet, hostile, dimensional atmosphere
+- asymmetrical, eerie, premium
+- not cheesy, not Halloween, not gamer RGB
+
+DESIGN TRANSLATION RULES
+
+1. Global mood
+The app should feel like it exists inside a living hostile environment:
+- dark void background
+- internal red illumination emerging from beneath surfaces
+- subtle organic tension in borders, glows, overlays, textures
+- premium and elegant, not messy
+
+2. Color system
+Use a more image-faithful palette:
+
+Base void:
+- near-black
+- blue-black obsidian
+- ashy charcoal
+
+Primary red energy:
+- deep blood red
+- dim crimson
+- internal lava-red glow
+- richer shadow-maroon tones
+
+Secondary accent:
+- minimal cold cyan/teal only where needed for contrast
+- should feel like faint foreign electricity, not main branding color
+
+Avoid:
+- flat red fills everywhere
+- bright UI red spam
+- pure black with no depth
+- Halloween orange
+
+3. Texture / atmosphere
+Introduce subtle environmental styling inspired by the images:
+- faint root/vein silhouettes in large background areas
+- dim organic branching patterns at very low opacity
+- soft red fog / bloom / ambient underside glow
+- occasional thorn-like framing accents in large empty hero regions
+- subtle vignette or depth falloff
+
+This must remain extremely subtle and premium.
+Think “haunted executive OS,” not illustration wallpaper pasted behind a dashboard.
+
+4. Surface treatment
+Cards, modals, sidebars, panels should feel like:
+- carved from blackened material
+- internally backlit by red energy
+- slightly vein-lit at edges
+- deeper shadow and inner glow treatment
+
+Use:
+- soft maroon inner rings
+- faint blood-red edge glows
+- layered depth
+- dark glass / obsidian feel
+
+5. Borders and separators
+Inspired by the thorn/root imagery:
+- borders should feel slightly alive, not generic gray lines
+- use low-contrast maroon/ashy borders
+- subtle red emphasis on active/selected states
+- separators should disappear into the environment unless needed
+
+6. Focus / interactive states
+Buttons, selected tabs, active rows, focused fields:
+- should feel “energized” by the breach
+- use restrained red bloom or dim ember edge-light
+- hover can slightly intensify internal glow
+- focus rings should feel sharp, dangerous, alive
+
+7. Optional ambient motif
+If it can be done tastefully:
+- add a very subtle demon-mode-only background layer using blurred root/vine silhouettes or procedural branching forms at extremely low opacity
+- keep it behind content
+- no big obvious decorative art in the main content area
+
+8. App shell specifics
+Apply this art direction to:
+- sidebar background
+- top navigation
+- dashboard cards
+- inbox surfaces
+- command palette
+- modals / dialogs
+- tables / rows
+- page backgrounds
+- empty states
+
+9. Demon Mode should feel like these images, translated into software
+Keywords:
+- root
+- thorn
+- vein
+- rupture
+- bleed
+- ember
+- void
+- obsidian
+- dimensional
+- hostile elegance
+
+It should NOT feel like:
+- generic red dark mode
+- cyberpunk
+- horror game HUD
+- Halloween
+- cartoon demon skin
+
+IMPLEMENTATION APPROACH
+
+Pass 1:
+- refine Demon Mode token palette to better match the provided references
+- deepen surface treatment
+- improve active/focus/hover glow language
+- add subtle background atmosphere to app shell
+
+Pass 2:
+- tune major high-traffic surfaces:
+  - inbox
+  - command center
+  - command palette
+  - cards / modals
+  - charts if needed
+
+Pass 3:
+- polish and reduce anything that feels too loud
+
+IMPORTANT
+Restraint matters more than novelty.
+Use the references as a mood board for lighting, material, texture, and energy — not as literal art to plaster onto the UI.
+
+Deliverables:
+1. updated Demon Mode token system
+2. app-shell/background atmospheric pass
+3. refined card/panel/interactions styling
+4. before/after screenshots on key screens
+5. note any areas where the effect was intentionally reduced to preserve readability
