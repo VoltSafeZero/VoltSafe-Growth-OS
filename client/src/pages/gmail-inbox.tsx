@@ -3638,27 +3638,30 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     // never attaches, breaking infinite scroll until the user manually switches tabs.
   }, [tab, isLoading, error]);
 
-  // ── Filter starvation auto-chain (Apr 2026) ──
-  // When the user picks a category/CRM filter and the first 50 raw messages yield very few
-  // matching rows, the sentinel may never enter the viewport (list is shorter than viewport).
-  // Auto-chain up to 5 additional pages to fill the screen. Resets when the active filter,
-  // category, mailbox, or search changes.
+  // ── Visible-list starvation auto-chain (Apr 2026, hardening pass 3) ──
+  // The IntersectionObserver only fires when the sentinel's intersection state CHANGES.
+  // If the visible list (after ALL filters — blocked-domains, category, CRM) is shorter than
+  // the viewport, the sentinel is intersecting on mount, fires ONCE, then never re-fires
+  // because its state never changes. This stranded the inbox at "10 messages" for users
+  // with heavy blocked-domain lists (LinkedIn etc.) who hadn't picked a category/CRM filter.
+  //
+  // Fix: auto-chain whenever the rendered list is starved (< 25 visible) AND more pages exist,
+  // regardless of WHY it's starved (blocked-domain stripping, category, CRM, or all three).
+  // Bounded to 10 chained pages (500 raw messages) per context to prevent runaway loops.
+  // The chain resets when tab/account/search/source/category/CRM changes (new context = new budget).
   const autoChainRef = useRef({ key: "", count: 0 });
   useEffect(() => {
-    if (tab !== "inbox") return;
+    if (tab !== "inbox" && tab !== "other") return;
     if (!hasMore || isLoadingMore) return;
-    const chainKey = `${activeAccountId ?? ""}|${searchQuery}|${mailSource}|${inboxCategory}|${crmFilter}`;
+    const chainKey = `${tab}|${activeAccountId ?? ""}|${searchQuery}|${mailSource}|${inboxCategory}|${crmFilter}`;
     if (autoChainRef.current.key !== chainKey) {
       autoChainRef.current = { key: chainKey, count: 0 };
     }
-    // Only auto-chain when filter is active AND visible result set is starved
-    const filterActive = inboxCategory !== "all" || crmFilter !== "all";
-    if (!filterActive) return;
     if (crmFilteredMessages.length >= 25) return;
-    if (autoChainRef.current.count >= 5) return; // bound: max 5 chained pages = 250 raw msgs
+    if (autoChainRef.current.count >= 10) return; // bound: max 10 chained pages = 500 raw msgs
     autoChainRef.current.count += 1;
     loadMore();
-  }, [tab, hasMore, isLoadingMore, inboxCategory, crmFilter, activeAccountId, searchQuery, crmFilteredMessages.length, loadMore]);
+  }, [tab, hasMore, isLoadingMore, inboxCategory, crmFilter, activeAccountId, searchQuery, mailSource, crmFilteredMessages.length, loadMore]);
 
   // Batch fetch signal + triage data for visible thread IDs
   const visibleThreadIds = useMemo(
