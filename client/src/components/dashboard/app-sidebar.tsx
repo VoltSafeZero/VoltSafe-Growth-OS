@@ -5,7 +5,7 @@ import {
   ClipboardList, Layers, ShieldCheck, Sun, Moon, GitBranch, MapPin,
   LayoutDashboard, Target, Share2, Brain, SlidersHorizontal, BarChart3,
   Megaphone, TrendingUp, Landmark, Truck, Factory, FlaskConical, Newspaper,
-  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, BellRing, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen, FlaskRound, Snowflake, Search, GraduationCap, HelpCircle,
+  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, BellRing, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen, FlaskRound, Snowflake, Search, GraduationCap, HelpCircle, Flame,
 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Link, useLocation } from "wouter";
@@ -224,7 +224,9 @@ export function AppSidebar({
   const [location, navigate] = useLocation();
   const [openSection, setOpenSection] = useState<string>(() => getActiveSectionId(location));
   const { theme, setTheme } = useTheme();
-  const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const isDemon = theme === "demon";
+  const isDark = !isDemon && (theme === "dark" || (theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches));
+  const isLight = !isDemon && !isDark;
 
   useEffect(() => {
     const active = getActiveSectionId(location);
@@ -363,26 +365,69 @@ export function AppSidebar({
 
         </nav>
 
-        {/* Theme toggle */}
+        {/* Theme toggle — 3-segment pill: Light / Dark / Demon.
+            Demon Mode lives alongside Light & Dark as a real Appearance option;
+            preference persists via the existing localStorage storageKey ("vite-ui-theme"). */}
         <div className="px-3 py-3 border-t border-border/40 mt-auto shrink-0">
-          <button
-            onClick={() => setTheme(isDark ? "light" : "dark")}
-            data-testid="button-theme-toggle"
-            className="w-full flex items-center justify-between px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-secondary/50 hover:text-foreground transition-colors"
+          <div
+            className="w-full flex items-center justify-between px-3 py-2 rounded-md text-sm text-muted-foreground"
+            data-testid="theme-toggle-row"
           >
             <span className="flex items-center gap-2.5">
-              {isDark ? <Moon className="w-3.5 h-3.5 shrink-0" /> : <Sun className="w-3.5 h-3.5 shrink-0" />}
-              <span>{isDark ? "Dark mode" : "Light mode"}</span>
+              {isDemon ? (
+                <Flame className="w-3.5 h-3.5 shrink-0 text-[hsl(355_75%_55%)]" />
+              ) : isDark ? (
+                <Moon className="w-3.5 h-3.5 shrink-0" />
+              ) : (
+                <Sun className="w-3.5 h-3.5 shrink-0" />
+              )}
+              <span>{isDemon ? "Demon mode" : isDark ? "Dark mode" : "Light mode"}</span>
             </span>
-            <span className="flex items-center gap-0.5 bg-secondary rounded-full p-0.5">
-              <span className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${!isDark ? "bg-background shadow text-foreground" : "text-muted-foreground"}`}>
+            <span
+              role="radiogroup"
+              aria-label="Appearance"
+              className="flex items-center gap-0.5 bg-secondary rounded-full p-0.5"
+            >
+              <button
+                role="radio"
+                aria-checked={isLight}
+                aria-label="Light mode"
+                onClick={() => setTheme("light")}
+                data-testid="button-theme-light"
+                className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${
+                  isLight ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
                 <Sun className="w-3 h-3" />
-              </span>
-              <span className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${isDark ? "bg-background shadow text-foreground" : "text-muted-foreground"}`}>
+              </button>
+              <button
+                role="radio"
+                aria-checked={isDark}
+                aria-label="Dark mode"
+                onClick={() => setTheme("dark")}
+                data-testid="button-theme-dark"
+                className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${
+                  isDark ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
                 <Moon className="w-3 h-3" />
-              </span>
+              </button>
+              <button
+                role="radio"
+                aria-checked={isDemon}
+                aria-label="Demon mode"
+                onClick={() => setTheme("demon")}
+                data-testid="button-theme-demon"
+                className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${
+                  isDemon
+                    ? "bg-[hsl(355_25%_4%)] text-[hsl(355_80%_60%)] shadow-[0_0_10px_-1px_hsl(355_80%_45%/0.7)]"
+                    : "text-muted-foreground hover:text-[hsl(355_70%_55%)]"
+                }`}
+              >
+                <Flame className="w-3 h-3" />
+              </button>
             </span>
-          </button>
+          </div>
         </div>
       </SidebarContent>
     </Sidebar>

@@ -1,0 +1,151 @@
+I want to add a third global appearance mode to VoltSafe.app called:
+
+DEMON MODE
+
+This should sit alongside the existing:
+- Light mode
+- Dark mode
+
+Goal:
+Create a full-app visual theme inspired by the “Upside Down” vibe from Stranger Things:
+dark, eerie, organic, cinematic, electric, hostile, premium, and immersive — but still usable as a professional software interface.
+
+This is not a joke theme.
+It should feel intentionally designed, high-end, and addictive to use.
+
+CORE CREATIVE DIRECTION
+
+Think:
+- blackened environment
+- deep charcoal / obsidian base
+- blood-red ambient glow
+- dim cyan/teal accents sparingly where needed
+- foggy, corrupted, haunted atmosphere
+- subtle vein/root/spore energy
+- dangerous but elegant
+- never tacky, never Halloween-party cheesy
+
+The UI should feel like:
+“the operating system survived a dimensional breach and became more powerful.”
+
+DESIGN RULES
+
+1. Keep it usable
+- contrast must remain readable
+- buttons, inputs, tables, cards, sidebars, dialogs, modals all still need to function cleanly
+- this is a premium software theme, not a novelty skin
+
+2. Demon Mode should have its own design system
+Define a full token set for:
+- background
+- panel background
+- elevated surfaces
+- text primary / text secondary
+- borders
+- hover states
+- active states
+- destructive states
+- success/warning colors
+- glows / shadows
+- focus rings
+
+3. Visual direction
+Base colors:
+- near-black
+- deep graphite
+- ashy charcoal
+- dark maroon / blood-red glows
+- muted toxic red highlights
+- sparse cold teal/cyan for contrast and navigation energy
+
+Avoid:
+- bright pure red everywhere
+- neon overload
+- cheesy horror gradients
+- illegible low-contrast mess
+
+4. Atmosphere
+Add subtle environmental styling where appropriate:
+- low-opacity red ambient glows
+- faint texture/noise
+- slight corrupted / organic / root-like visual accents
+- occasional soft bloom around important active controls
+- shadow treatment that feels deep and cinematic
+
+This should be subtle and premium.
+Do not litter the UI with gimmicks.
+
+5. Page-level behavior
+Demon Mode should apply consistently across:
+- app shell
+- sidebar
+- top nav
+- cards
+- forms
+- inbox
+- dashboards
+- modals
+- tables
+- charts
+- command palette
+- empty states
+- notifications
+- task panels
+- CRM pages
+
+6. Motion
+Optional but encouraged:
+- slightly more atmospheric transitions
+- subtle glow pulse on selected items
+- richer hover transitions
+- smooth panel emphasis
+Do not make anything distracting.
+
+7. Branding alignment
+Keep VoltSafe’s product identity intact.
+This should feel like a darker alternate reality version of VoltSafe Growth OS, not a different product.
+
+IMPLEMENTATION REQUIREMENTS
+
+1. Add “Demon Mode” as a real Appearance option in settings/theme switcher
+2. Persist the preference like existing light/dark mode
+3. Ensure theme class / data-theme strategy is scalable and maintainable
+4. Do not hack this page-by-page unless absolutely necessary
+5. Use shared theme tokens first, then page-specific adjustments only where needed
+
+DELIVERABLES
+
+1. Add Demon Mode theme tokens/system
+2. Apply Demon Mode across the app shell and core shared components
+3. Show me before/after screenshots on key screens:
+- inbox
+- dashboard
+- task page
+- modal/dialog
+- command palette
+4. Explain any areas that needed page-specific tuning
+
+IMPORTANT TONE CHECK
+
+This should feel like:
+- premium
+- cinematic
+- eerie
+- dimensional
+- corrupted
+- powerful
+
+It should NOT feel like:
+- a Halloween template
+- a gamer RGB mess
+- a joke
+- a broken dark mode
+
+If useful, create this in two passes:
+Pass 1:
+- global token/theme system
+- app shell
+- shared components
+
+Pass 2:
+- page-specific tuning for the inbox, dashboards, and high-traffic pages

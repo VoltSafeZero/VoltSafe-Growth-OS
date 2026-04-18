@@ -75,6 +75,135 @@
     --elevate-1: rgba(255, 255, 255, 0.04);
     --elevate-2: rgba(255, 255, 255, 0.08);
   }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+   * DEMON MODE — applied on top of .dark (root gets both classes)
+   * "The operating system survived a dimensional breach and became more powerful."
+   *
+   * Palette philosophy:
+   *   - obsidian / graphite base (near-black with a faint maroon undertone)
+   *   - blood-red ambient glow used sparingly as the primary accent
+   *   - cold cyan/teal for secondary energy and focus contrast
+   *   - never neon, never tacky — readable as a professional surface
+   *
+   * All existing `dark:` Tailwind utilities still resolve because .dark is also set.
+   * .demon overrides selected tokens to repaint the surface and adds atmospherics.
+   * ────────────────────────────────────────────────────────────────────────*/
+  .demon {
+    /* Surfaces — obsidian with a whisper of maroon */
+    --background: 355 18% 4%;           /* near-black, faintly blood-warm */
+    --foreground: 20 8% 90%;            /* ashy bone */
+    --card: 355 22% 6%;                 /* blackened maroon */
+    --card-foreground: 20 8% 90%;
+    --popover: 355 25% 5%;
+    --popover-foreground: 20 8% 92%;
+
+    /* Brand → toxic blood (was teal). Used for primary buttons, links, focus. */
+    --primary: 355 72% 42%;             /* muted blood — readable, not neon */
+    --primary-foreground: 20 30% 96%;
+
+    /* Secondary surfaces — graphite with red undertone */
+    --secondary: 355 15% 10%;
+    --secondary-foreground: 20 8% 88%;
+    --muted: 355 12% 11%;
+    --muted-foreground: 15 8% 58%;
+
+    /* Accent → cold cyan/teal — sparing contrast against the blood */
+    --accent: 188 35% 14%;
+    --accent-foreground: 188 70% 78%;
+
+    /* Destructive — slightly hotter than primary so it still reads as "danger" */
+    --destructive: 0 78% 48%;
+    --destructive-foreground: 0 0% 98%;
+
+    /* Borders / inputs — dim blood vein */
+    --border: 355 25% 13%;
+    --input: 355 25% 13%;
+    --ring: 355 80% 48%;                /* red bloom on focus */
+
+    /* Sidebar — deepest obsidian, almost void */
+    --sidebar-background: 355 25% 3%;
+    --sidebar-foreground: 20 8% 82%;
+    --sidebar-primary: 355 72% 48%;
+    --sidebar-primary-foreground: 20 30% 96%;
+    --sidebar-accent: 355 30% 8%;
+    --sidebar-accent-foreground: 20 8% 92%;
+    --sidebar-border: 355 28% 10%;
+    --sidebar-ring: 355 80% 50%;
+
+    /* Hover/active wash — warmer red rather than neutral white */
+    --elevate-1: rgba(225, 40, 50, 0.06);
+    --elevate-2: rgba(225, 40, 50, 0.12);
+
+    /* Charts — blood/teal duotone instead of cool blues */
+    --chart-1: 355 72% 50%;             /* blood */
+    --chart-2: 188 65% 48%;             /* cold teal */
+    --chart-3: 15 70% 45%;              /* ember */
+    --chart-4: 355 30% 35%;             /* maroon shadow */
+    --chart-5: 188 25% 28%;             /* teal shadow */
+  }
+
+  /* Atmospherics — applied to <body> when .demon is on <html>.
+   * Intentionally subtle: a low, off-center red bloom hugs the bottom of the
+   * viewport like an ambient breach. Pointer-events none, never interferes. */
+  html.demon body {
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(ellipse 70% 40% at 18% 110%, rgba(180, 25, 35, 0.10), transparent 70%),
+      radial-gradient(ellipse 60% 35% at 95% -5%, rgba(120, 20, 30, 0.08), transparent 70%),
+      radial-gradient(ellipse 100% 60% at 50% 120%, rgba(40, 0, 0, 0.25), transparent 80%);
+    background-attachment: fixed;
+  }
+
+  /* Demon selection — blood */
+  html.demon ::selection {
+    background-color: hsl(355 75% 38% / 0.55);
+    color: hsl(20 30% 96%);
+  }
+
+  /* Demon scrollbar — narrow, blood-tinted thumb on obsidian track */
+  html.demon ::-webkit-scrollbar { width: 10px; height: 10px; }
+  html.demon ::-webkit-scrollbar-track { background: hsl(355 25% 4%); }
+  html.demon ::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, hsl(355 40% 18%), hsl(355 50% 12%));
+    border-radius: 8px;
+    border: 2px solid hsl(355 25% 4%);
+  }
+  html.demon ::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, hsl(355 60% 28%), hsl(355 70% 18%));
+  }
+
+  /* Demon focus ring — soft red bloom on top of the standard ring color */
+  html.demon *:focus-visible {
+    box-shadow:
+      0 0 0 2px hsl(var(--background)),
+      0 0 0 4px hsl(var(--ring) / 0.7),
+      0 0 18px hsl(355 80% 45% / 0.35);
+  }
+
+  /* Demon pulse — opt-in motion class for "selected/active" emphasis.
+   * Use on a wrapper around important toggles or on the sentinel of the active
+   * row. Subtle (8% → 18% red glow), 2.4s loop. */
+  @keyframes demon-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 hsl(355 80% 45% / 0); }
+    50%      { box-shadow: 0 0 22px 2px hsl(355 80% 45% / 0.18); }
+  }
+  html.demon .demon-pulse { animation: demon-pulse 2.4s ease-in-out infinite; }
+
+  /* Card / panel surfaces in demon — slightly warmer ring to feel "alive" */
+  html.demon .bg-card,
+  html.demon [data-card],
+  html.demon .demon-panel {
+    box-shadow:
+      inset 0 0 0 1px hsl(355 25% 12%),
+      0 1px 0 0 rgba(0, 0, 0, 0.4),
+      0 12px 28px -18px rgba(120, 10, 20, 0.35);
+  }
+
+  /* Primary buttons in demon get a subtle red bloom underneath on hover */
+  html.demon .bg-primary:hover {
+    box-shadow: 0 0 0 1px hsl(355 75% 50%), 0 6px 22px -8px hsl(355 80% 45% / 0.55);
+  }
 }
 
 @layer base {
