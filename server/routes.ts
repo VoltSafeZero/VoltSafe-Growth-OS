@@ -42,6 +42,7 @@ import { z } from "zod";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import rateLimit from "express-rate-limit";
 import { requireAuth, requirePermission, seedUsers, hashPassword, verifyPassword, getSessionUserId, requireName } from "./auth";
 import { toCsv, setCsvHeaders, type CsvColumn } from "./csv-export";
 import {
@@ -90,6 +91,35 @@ import {
   getCalendarIntegrations,
   disconnectCalendarIntegration,
 } from "./calendar-sync";
+
+// ── Auth rate limiters ─────────────────────────────────────────────────────
+// Defense in depth against credential stuffing, password-reset spam, and
+// reset-token brute force. Counts only failed responses (skipSuccessfulRequests)
+// so legitimate users aren't accidentally locked out by repeated valid logins.
+const loginRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 min
+  max: 10,                  // 10 failed attempts per IP per 15 min
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { message: "Too many login attempts. Please wait 15 minutes and try again." },
+});
+
+const passwordResetRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,                   // 5 password-reset emails per IP per hour
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many password reset requests. Please wait an hour and try again." },
+});
+
+const resetTokenRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 min
+  max: 20,                  // 20 token-redemption attempts per IP per 15 min
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many reset attempts. Please wait 15 minutes and try again." },
+});
 
 const UPLOADS_DIR = path.resolve("uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -591,7 +621,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/auth/login", async (req, res) => {
+  app.post("/api/auth/login", loginRateLimiter, async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ message: "Email and password required" });
 
@@ -601,24 +631,45 @@ export async function registerRoutes(
     const valid = await verifyPassword(password, user.password);
     if (!valid) return res.status(401).json({ message: "Invalid email or password" });
 
+    // Block suspended/deactivated users at the door.
+    if (user.status === "suspended" || user.status === "deactivated") {
+      return res.status(403).json({ message: "Account is not active. Contact your administrator." });
+    }
+
     await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, user.id));
 
-    req.session.userId = user.id;
-    req.session.email = user.email;
-    req.session.role = user.role;
-    req.session.name = user.name;
-    req.session.mustChangePassword = user.mustChangePassword;
-    (req.session as any).globalRole = user.globalRole;
+    // Session fixation defense: regenerate the session ID before stamping the
+    // authenticated identity. Anyone holding the pre-login cookie can no longer
+    // ride it into the authenticated session.
+    req.session.regenerate((regenErr) => {
+      if (regenErr) {
+        console.error("[login] session.regenerate failed:", regenErr);
+        return res.status(500).json({ message: "Login failed" });
+      }
 
-    res.json({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      globalRole: user.globalRole,
-      status: user.status,
-      mustChangePassword: user.mustChangePassword,
-      permissions: user.permissions ?? { crm: "edit", partnerships: "edit", projects: "edit", communications: "edit", team_workload: "edit", knowledge: "edit", support: "edit", quoting: "edit", calendar: "edit", mail_team: {}, calendar_team: [] },
+      req.session.userId = user.id;
+      req.session.email = user.email;
+      req.session.role = user.role;
+      req.session.name = user.name;
+      req.session.mustChangePassword = user.mustChangePassword;
+      (req.session as any).globalRole = user.globalRole;
+
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error("[login] session.save failed:", saveErr);
+          return res.status(500).json({ message: "Login failed" });
+        }
+        res.json({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          globalRole: user.globalRole,
+          status: user.status,
+          mustChangePassword: user.mustChangePassword,
+          permissions: user.permissions ?? { crm: "edit", partnerships: "edit", projects: "edit", communications: "edit", team_workload: "edit", knowledge: "edit", support: "edit", quoting: "edit", calendar: "edit", mail_team: {}, calendar_team: [] },
+        });
+      });
     });
   });
 
@@ -774,7 +825,7 @@ export async function registerRoutes(
   });
 
   // POST /api/auth/forgot-password — generate token and send reset email
-  app.post("/api/auth/forgot-password", async (req, res) => {
+  app.post("/api/auth/forgot-password", passwordResetRateLimiter, async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ message: "Email required" });
 
@@ -818,7 +869,7 @@ export async function registerRoutes(
   });
 
   // POST /api/auth/reset-password-by-token — validate token, log user in, force pw change
-  app.post("/api/auth/reset-password-by-token", async (req, res) => {
+  app.post("/api/auth/reset-password-by-token", resetTokenRateLimiter, async (req, res) => {
     const { token } = req.body;
     if (!token) return res.status(400).json({ message: "Token required" });
 
@@ -828,23 +879,45 @@ export async function registerRoutes(
 
     if (!user) return res.status(400).json({ message: "This reset link has expired or is invalid. Please request a new one." });
 
+    // Don't let a leaked reset token re-activate a suspended account.
+    if (user.status === "suspended" || user.status === "deactivated") {
+      return res.status(403).json({ message: "Account is not active. Contact your administrator." });
+    }
+
     // Clear the token, mark password must be changed, create session
     await db.update(users)
       .set({ passwordResetToken: null, passwordResetExpires: null, mustChangePassword: true } as any)
       .where(eq(users.id, user.id));
 
-    req.session.userId = user.id;
-    req.session.mustChangePassword = true;
+    // Session fixation defense — regenerate before stamping identity
+    req.session.regenerate((regenErr) => {
+      if (regenErr) {
+        console.error("[reset-by-token] session.regenerate failed:", regenErr);
+        return res.status(500).json({ message: "Failed to start session" });
+      }
+      req.session.userId = user.id;
+      req.session.email = user.email;
+      req.session.name = user.name;
+      req.session.role = user.role;
+      req.session.mustChangePassword = true;
+      (req.session as any).globalRole = user.globalRole;
 
-    res.json({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      globalRole: user.globalRole,
-      status: user.status,
-      mustChangePassword: true,
-      permissions: user.permissions ?? {},
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error("[reset-by-token] session.save failed:", saveErr);
+          return res.status(500).json({ message: "Failed to start session" });
+        }
+        res.json({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          globalRole: user.globalRole,
+          status: user.status,
+          mustChangePassword: true,
+          permissions: user.permissions ?? {},
+        });
+      });
     });
   });
 
@@ -875,27 +948,47 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/webauthn/auth-verify", async (req, res) => {
+  app.post("/api/webauthn/auth-verify", loginRateLimiter, async (req, res) => {
     try {
       const result = await verifyAuthentication(req.body, req);
       if (!result.user) return res.status(401).json({ message: "Authentication failed" });
 
+      // Mirror password-login hardening: refuse to mint a session for accounts
+      // that an admin has disabled. (A leaked WebAuthn credential on a suspended
+      // account must not be a re-entry path.)
+      if (result.user.status === "suspended" || result.user.status === "deactivated") {
+        return res.status(403).json({ message: "Account is not active. Contact your administrator." });
+      }
+
       await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, result.user.id));
 
-      req.session.userId = result.user.id;
-      req.session.email = result.user.email;
-      req.session.role = result.user.role;
-      req.session.name = result.user.name;
-      req.session.mustChangePassword = result.user.mustChangePassword;
-      (req.session as any).globalRole = result.user.globalRole;
+      // Session fixation defense — same pattern as /api/auth/login.
+      req.session.regenerate((regenErr) => {
+        if (regenErr) {
+          console.error("[webauthn-verify] session.regenerate failed:", regenErr);
+          return res.status(500).json({ message: "Login failed" });
+        }
+        req.session.userId = result.user!.id;
+        req.session.email = result.user!.email;
+        req.session.role = result.user!.role;
+        req.session.name = result.user!.name;
+        req.session.mustChangePassword = result.user!.mustChangePassword;
+        (req.session as any).globalRole = result.user!.globalRole;
 
-      res.json({
-        id: result.user.id,
-        name: result.user.name,
-        email: result.user.email,
-        role: result.user.role,
-        globalRole: result.user.globalRole,
-        mustChangePassword: result.user.mustChangePassword,
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error("[webauthn-verify] session.save failed:", saveErr);
+            return res.status(500).json({ message: "Login failed" });
+          }
+          res.json({
+            id: result.user!.id,
+            name: result.user!.name,
+            email: result.user!.email,
+            role: result.user!.role,
+            globalRole: result.user!.globalRole,
+            mustChangePassword: result.user!.mustChangePassword,
+          });
+        });
       });
     } catch (e: any) {
       res.status(401).json({ message: e.message });
@@ -4441,12 +4534,20 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/attachments/file/:fileName", async (req, res) => {
+  // SECURITY: this route streams uploaded files from /uploads. It is reachable
+  // by file name only (no DB lookup), so we MUST gate it at the auth layer at a
+  // minimum — anonymous filename guessing must not return user-uploaded content.
+  // Note: /api/attachments is already wrapped in app.use("/api/attachments", requireAuth)
+  // above, but we add an explicit requireAuth here as belt-and-suspenders in case
+  // the prefix middleware is ever reordered, and add an explicit Cache-Control
+  // header so the file can't be served from a shared/intermediary cache.
+  app.get("/api/attachments/file/:fileName", requireAuth, async (req, res) => {
     const fileName = path.basename(req.params.fileName);
     const filePath = path.join(UPLOADS_DIR, fileName);
     const resolved = path.resolve(filePath);
     if (!resolved.startsWith(UPLOADS_DIR)) return res.status(403).json({ message: "Forbidden" });
     if (!fs.existsSync(resolved)) return res.status(404).json({ message: "File not found" });
+    res.setHeader("Cache-Control", "private, no-store");
     res.sendFile(resolved);
   });
 
@@ -10205,7 +10306,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   // POST /api/email-search/reindex — admin: rebuild/ensure indexes (idempotent)
-  app.post("/api/email-search/reindex", requireAuth, async (_req, res) => {
+  app.post("/api/email-search/reindex", requireAuth, (req, res, next) => {
+    const role = String((req.session as any).globalRole || "");
+    if (role !== "master_admin" && role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    next();
+  }, async (_req, res) => {
     try {
       const { ensureSearchIndexes } = await import("./services/email-search");
       const t0 = Date.now();

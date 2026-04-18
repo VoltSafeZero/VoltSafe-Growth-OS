@@ -4,8 +4,13 @@ import { db } from "./db";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
+// bcrypt cost factor — 12 strikes a reasonable balance between security and
+// login latency on Replit's compute. Old hashes generated at cost=10 still
+// verify correctly; this only affects newly generated hashes.
+const BCRYPT_COST = 12;
+
 export async function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, 10);
+  return bcrypt.hash(password, BCRYPT_COST);
 }
 
 /**
@@ -75,6 +80,23 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
   if (req.session.mustChangePassword && req.path !== "/api/auth/change-password" && req.path !== "/api/auth/me" && req.path !== "/api/auth/logout") {
     return res.status(403).json({ message: "Password change required", mustChangePassword: true });
+  }
+  next();
+}
+
+/**
+ * Canonical admin guard — checks globalRole stamped onto the session at login.
+ * Use as: app.get("/api/admin/foo", requireAuth, requireAdmin, handler)
+ * Routes already using locally-defined requireAdmin in routes.ts continue to work
+ * (those use the same session.globalRole check); this export gives us a single source.
+ */
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.session?.userId) {
+    return res.status(401).json({ message: "Not authenticated" });
+  }
+  const role = String((req.session as any).globalRole || "");
+  if (role !== "master_admin" && role !== "admin") {
+    return res.status(403).json({ message: "Admin access required" });
   }
   next();
 }

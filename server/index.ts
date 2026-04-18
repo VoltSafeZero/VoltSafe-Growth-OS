@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
+import helmet from "helmet";
 import { registerRoutes, registerJiraRoutes, registerConfluenceRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -23,6 +24,20 @@ declare module "http" {
     rawBody: unknown;
   }
 }
+
+// ── Security headers (helmet) ────────────────────────────────────────────────
+// CSP intentionally disabled here — the existing app embeds inline scripts via
+// Vite in dev and the email/HTML preview surfaces inject sanitized HTML; tightening
+// CSP requires a coordinated nonce/hash rollout. Other helmet defaults are safe.
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "same-site" },
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+    hsts: process.env.NODE_ENV === "production" ? { maxAge: 31536000, includeSubDomains: true } : false,
+  })
+);
 
 app.get("/health", (_req, res) => {
   res.status(200).json({ status: "ok" });
@@ -50,12 +65,32 @@ const pgStore = new PgStore({
 
 const isProduction = process.env.NODE_ENV === "production";
 
+// SESSION_SECRET enforcement — refuse to start in production without a real secret.
+// In development we still allow a deterministic fallback so local dev doesn't break,
+// but log a loud warning so it's obvious.
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (isProduction && (!SESSION_SECRET || SESSION_SECRET.length < 32)) {
+  console.error(
+    "[startup] FATAL: SESSION_SECRET env var is missing or too short (<32 chars). " +
+    "Refusing to start in production with a fallback secret — all session cookies would be forgeable."
+  );
+  process.exit(1);
+}
+const effectiveSessionSecret = SESSION_SECRET || "dev-only-fallback-NOT-FOR-PRODUCTION-change-me";
+if (!isProduction && !SESSION_SECRET) {
+  console.warn("[startup] WARNING: using dev-only fallback SESSION_SECRET. Set SESSION_SECRET for any non-local environment.");
+}
+
 app.use(
   session({
     store: pgStore,
-    secret: process.env.SESSION_SECRET || "voltsafe-cms-secret-key-change-me",
+    secret: effectiveSessionSecret,
     resave: false,
     saveUninitialized: false,
+    // NOTE: cookie name intentionally left as the express-session default
+    // ("connect.sid"). Renaming it offers only marginal fingerprinting
+    // benefit and would break the existing test suite (11 test files match
+    // /connect\.sid=/ on Set-Cookie). Documented in SECURITY_FINDINGS.md.
     cookie: {
       secure: isProduction,
       httpOnly: true,
@@ -76,25 +111,62 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
+// Routes whose response bodies must NEVER be logged (PII / credentials / tokens).
+// Anything matching these prefixes will log status + duration only.
+const SENSITIVE_LOG_PREFIXES = [
+  "/api/auth",
+  "/api/admin",
+  "/api/users",
+  "/api/webauthn",
+  // Use the parent /api/gmail prefix so newly-added Gmail endpoints
+  // (e.g. /api/gmail/health, /api/gmail/profile) are covered by default.
+  "/api/gmail",
+  "/api/email-search",
+  "/api/email-accounts",
+  "/api/email-associations",
+  "/api/attachments",
+  "/api/contacts",
+  "/api/leads",
+  "/api/accounts",
+  "/api/opportunities",
+  "/api/tickets",
+  "/api/quotes",
+  "/api/mail-folders",
+  "/api/messages",
+  "/api/notes",
+  "/api/calendar",
+];
+
+function isSensitivePath(p: string): boolean {
+  for (const pref of SENSITIVE_LOG_PREFIXES) {
+    if (p === pref || p.startsWith(pref + "/")) return true;
+  }
+  return false;
+}
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
+  const sensitive = isSensitivePath(path);
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
+  if (!sensitive) {
+    const originalResJson = res.json;
+    res.json = function (bodyJson, ...args) {
+      capturedJsonResponse = bodyJson;
+      return originalResJson.apply(res, [bodyJson, ...args]);
+    };
+  }
 
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      if (!sensitive && capturedJsonResponse) {
+        // Cap body excerpt to avoid massive log lines and accidental PII spillover.
+        const excerpt = JSON.stringify(capturedJsonResponse).slice(0, 500);
+        logLine += ` :: ${excerpt}`;
       }
-
       log(logLine);
     }
   });
