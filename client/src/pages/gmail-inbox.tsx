@@ -3106,8 +3106,18 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sentBaseToken, activeAccountId, mailSource]);
 
+  // Pagination request-epoch guard (Apr 2026, hardening pass 2). When the user switches mailbox,
+  // search query, or source while a loadMore is in flight, the in-flight response would otherwise
+  // be appended to the NEW context (leaking old-mailbox rows). We bump the epoch on every reset
+  // and drop late responses whose epoch no longer matches.
+  const inboxEpochRef = useRef(0);
+  const sentEpochRef = useRef(0);
+  useEffect(() => { inboxEpochRef.current += 1; }, [activeAccountId, searchQuery, mailSource]);
+  useEffect(() => { sentEpochRef.current += 1; }, [activeAccountId, searchQuery, mailSource]);
+
   const loadMoreInbox = async () => {
     if (!inboxNextToken || loadingMoreInbox) return;
+    const requestEpoch = inboxEpochRef.current;
     setLoadingMoreInbox(true);
     try {
       const params = new URLSearchParams();
@@ -3119,7 +3129,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error();
       const data: { messages: MessageSummary[]; nextPageToken: string | null } = await res.json();
-      setInboxExtra((prev) => [...prev, ...data.messages]);
+      // Drop the response if the user changed mailbox/search/source mid-flight
+      if (inboxEpochRef.current !== requestEpoch) return;
+      // Dedup against what's already loaded (base page + extras) — local/gmail overlap can echo ids
+      setInboxExtra((prev) => {
+        const known = new Set<string>([
+          ...(inboxQuery.data?.messages || []).map((m) => m.id),
+          ...prev.map((m) => m.id),
+        ]);
+        const fresh = data.messages.filter((m) => !known.has(m.id));
+        return [...prev, ...fresh];
+      });
       setInboxNextToken(data.nextPageToken);
     } catch {
       toast({ title: "Failed to load more", variant: "destructive" });
@@ -3130,6 +3150,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
   const loadMoreSent = async () => {
     if (!sentNextToken || loadingMoreSent) return;
+    const requestEpoch = sentEpochRef.current;
     setLoadingMoreSent(true);
     try {
       const params = new URLSearchParams();
@@ -3141,7 +3162,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error();
       const data: { messages: MessageSummary[]; nextPageToken: string | null } = await res.json();
-      setSentExtra((prev) => [...prev, ...data.messages]);
+      if (sentEpochRef.current !== requestEpoch) return;
+      setSentExtra((prev) => {
+        const known = new Set<string>([
+          ...(sentQuery.data?.messages || []).map((m) => m.id),
+          ...prev.map((m) => m.id),
+        ]);
+        const fresh = data.messages.filter((m) => !known.has(m.id));
+        return [...prev, ...fresh];
+      });
       setSentNextToken(data.nextPageToken);
     } catch {
       toast({ title: "Failed to load more", variant: "destructive" });
@@ -3512,8 +3541,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     }
   };
 
-  const allInboxMessages = [...(inboxQuery.data?.messages || []), ...inboxExtra];
-  const allSentMessages = [...(sentQuery.data?.messages || []), ...sentExtra];
+  // Pagination dedup: when local & gmail sources overlap, or refetch races with a loadMore append,
+  // the same message id can appear twice. Keep the FIRST occurrence (newer page wins because base
+  // page is always rendered before extras) and drop duplicates so React keys stay unique and the
+  // user never sees a row twice.
+  const dedupById = (msgs: MessageSummary[]): MessageSummary[] => {
+    const seen = new Set<string>();
+    const out: MessageSummary[] = [];
+    for (const m of msgs) {
+      if (seen.has(m.id)) continue;
+      seen.add(m.id);
+      out.push(m);
+    }
+    return out;
+  };
+  const allInboxMessages = dedupById([...(inboxQuery.data?.messages || []), ...inboxExtra]);
+  const allSentMessages = dedupById([...(sentQuery.data?.messages || []), ...sentExtra]);
 
   const inboxMain = canSend
     ? allInboxMessages.filter((m) => !blockedDomains.has(parseSenderDomain(m.from)))
@@ -3550,22 +3593,72 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
   const isLoading = tab === "other" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : sentQuery.isLoading;
   const error = tab === "other" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : sentQuery.error;
-  const hasMore = tab === "inbox" ? !!inboxNextToken : tab === "sent" ? !!sentNextToken : false;
-  const isLoadingMore = tab === "inbox" ? loadingMoreInbox : tab === "sent" ? loadingMoreSent : false;
-  const loadMore = tab === "inbox" ? loadMoreInbox : loadMoreSent;
+  // "Other" tab is a derived slice of the same inboxQuery — it must paginate too,
+  // otherwise users land on Other and see only blocked-domain rows from the first 50.
+  const hasMore =
+    (tab === "inbox" || tab === "other") ? !!inboxNextToken :
+    tab === "sent" ? !!sentNextToken :
+    false;
+  const isLoadingMore =
+    (tab === "inbox" || tab === "other") ? loadingMoreInbox :
+    tab === "sent" ? loadingMoreSent :
+    false;
+  const loadMore = (tab === "inbox" || tab === "other") ? loadMoreInbox : loadMoreSent;
 
-  // Infinite scroll: fire loadMore automatically when the sentinel div scrolls into view
+  // ── Infinite scroll — stable observer (Apr 2026 fix for "hard stop after first batch") ──
+  // Previous version listed `loadMore` (a fresh function every render) in deps, which tore the
+  // observer down and rebuilt it on every render. Intersection events landing in the teardown
+  // window were silently lost. We now attach the observer ONCE per scroll-container lifetime
+  // and read current values via refs inside the callback. rootMargin prefetches ~600px ahead so
+  // the next batch is in flight before the user reaches the literal bottom.
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadMoreRef = useRef(loadMore);
+  const hasMoreRef = useRef(hasMore);
+  const isLoadingMoreRef = useRef(isLoadingMore);
+  useEffect(() => { loadMoreRef.current = loadMore; }, [loadMore]);
+  useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
+  useEffect(() => { isLoadingMoreRef.current = isLoadingMore; }, [isLoadingMore]);
+
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
     const observer = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting && hasMore && !isLoadingMore) loadMore(); },
-      { threshold: 0.1 }
+      (entries) => {
+        if (entries[0].isIntersecting && hasMoreRef.current && !isLoadingMoreRef.current) {
+          loadMoreRef.current();
+        }
+      },
+      { rootMargin: "600px 0px", threshold: 0 }
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasMore, isLoadingMore, loadMore]);
+    // Re-attach when the sentinel element mounts/unmounts. The sentinel is gated by
+    // `!isLoading && !error`, so we MUST include those in deps — otherwise on first
+    // render `sentinelRef.current` is null (sentinel not yet in DOM) and the observer
+    // never attaches, breaking infinite scroll until the user manually switches tabs.
+  }, [tab, isLoading, error]);
+
+  // ── Filter starvation auto-chain (Apr 2026) ──
+  // When the user picks a category/CRM filter and the first 50 raw messages yield very few
+  // matching rows, the sentinel may never enter the viewport (list is shorter than viewport).
+  // Auto-chain up to 5 additional pages to fill the screen. Resets when the active filter,
+  // category, mailbox, or search changes.
+  const autoChainRef = useRef({ key: "", count: 0 });
+  useEffect(() => {
+    if (tab !== "inbox") return;
+    if (!hasMore || isLoadingMore) return;
+    const chainKey = `${activeAccountId ?? ""}|${searchQuery}|${mailSource}|${inboxCategory}|${crmFilter}`;
+    if (autoChainRef.current.key !== chainKey) {
+      autoChainRef.current = { key: chainKey, count: 0 };
+    }
+    // Only auto-chain when filter is active AND visible result set is starved
+    const filterActive = inboxCategory !== "all" || crmFilter !== "all";
+    if (!filterActive) return;
+    if (crmFilteredMessages.length >= 25) return;
+    if (autoChainRef.current.count >= 5) return; // bound: max 5 chained pages = 250 raw msgs
+    autoChainRef.current.count += 1;
+    loadMore();
+  }, [tab, hasMore, isLoadingMore, inboxCategory, crmFilter, activeAccountId, searchQuery, crmFilteredMessages.length, loadMore]);
 
   // Batch fetch signal + triage data for visible thread IDs
   const visibleThreadIds = useMemo(
@@ -4996,10 +5089,31 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               );
             })}
 
-            {/* Infinite scroll sentinel — becomes visible at the bottom, triggers auto-load */}
+            {/* Infinite scroll sentinel — becomes visible at the bottom (with 600px prefetch),
+                triggers auto-load. Always rendered for tabs that paginate so the IntersectionObserver
+                stays attached. Adds an "all caught up" terminal state and an inline count so users
+                always know whether more is coming. */}
             {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && !isLoading && !error && (
-              <div ref={sentinelRef} className="py-4 flex justify-center" data-testid="infinite-scroll-sentinel">
-                {isLoadingMore && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+              <div ref={sentinelRef} className="py-5 flex flex-col items-center justify-center gap-1.5 text-[11px]" data-testid="infinite-scroll-sentinel">
+                {isLoadingMore ? (
+                  <span className="inline-flex items-center gap-2 text-muted-foreground/70" data-testid="status-loading-more">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Loading more messages…
+                  </span>
+                ) : hasMore ? (
+                  <button
+                    onClick={() => loadMore()}
+                    data-testid="button-load-more"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] text-muted-foreground/70 hover:text-foreground hover:bg-muted/40 transition-colors"
+                  >
+                    Load more
+                  </button>
+                ) : crmFilteredMessages && crmFilteredMessages.length > 0 ? (
+                  <span className="inline-flex items-center gap-1.5 text-muted-foreground/45 tabular-nums" data-testid="status-all-caught-up">
+                    <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
+                    You're all caught up · {crmFilteredMessages.length} message{crmFilteredMessages.length !== 1 ? "s" : ""}
+                  </span>
+                ) : null}
               </div>
             )}
           </div>
