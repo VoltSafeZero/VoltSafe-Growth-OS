@@ -177,7 +177,7 @@ function AppShell({ children, user, onLogout }: { children: React.ReactNode; use
           </main>
         </div>
       </div>
-      <MobileNav />
+      <MobileNav userGlobalRole={user.globalRole || "sales"} />
     </SidebarProvider>
   );
 }

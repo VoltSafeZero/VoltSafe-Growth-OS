@@ -64,6 +64,7 @@ const allNavGroups = [
     label: "Support & Admin",
     items: [
       { title: "Tickets", url: "/support/tickets", icon: ClipboardList },
+      { title: "Users", url: "/admin/users", icon: ShieldCheck, adminOnly: true },
       { title: "Integrations", url: "/admin/integrations", icon: Zap },
       { title: "Settings", url: "/settings", icon: Settings },
     ],
@@ -80,11 +81,20 @@ const RIGHT_NAV = [
   { title: "Log", url: null, icon: Plus },
 ];
 
-export function MobileNav() {
+export function MobileNav({ userGlobalRole = "sales" }: { userGlobalRole?: string } = {}) {
   const isMobile = useIsMobile();
   const [location, navigate] = useLocation();
   const [showMore, setShowMore] = useState(false);
   const [showQuickLog, setShowQuickLog] = useState(false);
+  const isAdmin = ["master_admin", "admin"].includes(userGlobalRole);
+
+  // Filter admin-only items so non-admins never see (or can navigate to) restricted routes.
+  const visibleNavGroups = allNavGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item: any) => !item.adminOnly || isAdmin),
+    }))
+    .filter((group) => group.items.length > 0);
 
   if (!isMobile) return null;
 
@@ -121,7 +131,7 @@ export function MobileNav() {
             </button>
           </div>
           <div className="pb-6">
-            {allNavGroups.map((group) => (
+            {visibleNavGroups.map((group) => (
               <div key={group.label} className="mt-3">
                 <div className="px-4 py-1">
                   <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
