@@ -4213,24 +4213,29 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     { key: "people",      label: "People",      icon: <Users className="h-3 w-3" />,     count: peopleCount },
                     { key: "newsletters", label: "Newsletters", icon: <Newspaper className="h-3 w-3" />, count: newslettersCount },
                     { key: "updates",     label: "Updates",     icon: <Bell className="h-3 w-3" />,      count: updatesCount },
-                  ] as { key: InboxCategory; label: string; icon: React.ReactNode; count: number }[]).map(({ key, label, icon, count }) => (
-                    <button
+                  ] as { key: InboxCategory; label: string; icon: React.ReactNode; count: number }[]).map(({ key, label, icon, count }) => {
+                    const active = inboxCategory === key;
+                    return (
+                    <motion.button
                       key={key}
+                      whileTap={{ scale: 0.95 }}
+                      whileHover={{ scale: 1.04 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 22 }}
                       onClick={() => setInboxCategory(key)}
                       data-testid={`inbox-category-${key}`}
                       className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-colors whitespace-nowrap ${
-                        inboxCategory === key
+                        active
                           ? key === "priority"
-                            ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                            : "bg-primary/15 text-primary border border-primary/30"
-                          : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+                            ? "bg-amber-500/15 text-amber-300 ring-1 ring-inset ring-amber-400/40 shadow-[0_0_12px_-2px_rgba(251,191,36,0.35)]"
+                            : "bg-primary/12 text-primary ring-1 ring-inset ring-primary/40 shadow-[0_0_12px_-2px_rgba(20,184,166,0.35)]"
+                          : "bg-muted/40 text-muted-foreground/85 hover:bg-muted/70 hover:text-foreground ring-1 ring-inset ring-transparent"
                       }`}
                     >
                       {icon}
                       {label}
-                      {count > 0 && <span className="ml-0.5 opacity-70">{count}</span>}
-                    </button>
-                  ))}
+                      {count > 0 && <span className={`ml-0.5 tabular-nums ${active ? "opacity-90" : "opacity-60"}`}>{count}</span>}
+                    </motion.button>
+                  );})}
                   </div>
                 </div>
                 {/* CRM fast filters — horizontally scrollable on mobile */}
@@ -4242,24 +4247,29 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     { key: "starred",     label: "Starred",       icon: <Star className="h-3 w-3" />,         count: null },
                     { key: "needs-reply", label: "Needs Reply",   icon: <Reply className="h-3 w-3" />,        count: null },
                     { key: "follow-up",   label: "Follow Up",     icon: <ClipboardList className="h-3 w-3" />, count: null },
-                  ] as { key: CrmInboxFilter; label: string; icon: React.ReactNode; count: number | null }[]).map(({ key, label, icon, count }) => (
-                    <button
+                  ] as { key: CrmInboxFilter; label: string; icon: React.ReactNode; count: number | null }[]).map(({ key, label, icon, count }) => {
+                    const active = crmFilter === key;
+                    return (
+                    <motion.button
                       key={key}
+                      whileTap={{ scale: 0.95 }}
+                      whileHover={{ scale: 1.04 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 22 }}
                       onClick={() => setCrmFilter(key)}
                       data-testid={`crm-filter-${key}`}
                       className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-colors whitespace-nowrap ${
-                        crmFilter === key
-                          ? "bg-violet-500/20 text-violet-400 border border-violet-500/30"
-                          : "bg-muted/30 text-muted-foreground/60 hover:bg-muted/60 hover:text-muted-foreground"
+                        active
+                          ? "bg-violet-500/15 text-violet-300 ring-1 ring-inset ring-violet-400/40 shadow-[0_0_12px_-2px_rgba(167,139,250,0.35)]"
+                          : "bg-muted/25 text-muted-foreground/65 hover:bg-muted/55 hover:text-foreground/85 ring-1 ring-inset ring-transparent"
                       }`}
                     >
                       {icon}
                       {label}
                       {count !== null && count > 0 && (
-                        <span className="ml-0.5 text-[10px] opacity-80">{count}</span>
+                        <span className={`ml-0.5 text-[10px] tabular-nums ${active ? "opacity-90" : "opacity-70"}`}>{count}</span>
                       )}
-                    </button>
-                  ))}
+                    </motion.button>
+                  );})}
                   </div>
                 </div>
 
@@ -4288,26 +4298,31 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       count: triageSummary.unlinked,
                       activeClass: "bg-slate-500/20 text-slate-300 border border-slate-500/30",
                     },
-                  ] as { key: CrmInboxFilter; label: string; icon: React.ReactNode; count: number; activeClass: string }[]).map(({ key, label, icon, count, activeClass }) => (
-                    <button
+                  ] as { key: CrmInboxFilter; label: string; icon: React.ReactNode; count: number; activeClass: string }[]).map(({ key, label, icon, count, activeClass }) => {
+                    const active = crmFilter === key;
+                    return (
+                    <motion.button
                       key={key}
-                      onClick={() => setCrmFilter(crmFilter === key ? "all" : key)}
+                      whileTap={{ scale: 0.95 }}
+                      whileHover={{ scale: 1.04 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 22 }}
+                      onClick={() => setCrmFilter(active ? "all" : key)}
                       data-testid={`triage-filter-${key}`}
-                      className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-colors whitespace-nowrap ${
-                        crmFilter === key
-                          ? activeClass
-                          : "bg-muted/30 text-muted-foreground/60 hover:bg-muted/60 hover:text-muted-foreground"
+                      className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-colors whitespace-nowrap ring-1 ring-inset ${
+                        active
+                          ? `${activeClass.replace('border ', 'ring-')} shadow-[0_0_12px_-2px_currentColor]`
+                          : "bg-muted/25 text-muted-foreground/65 hover:bg-muted/55 hover:text-foreground/85 ring-transparent"
                       }`}
                     >
                       {icon}
                       {label}
                       {count > 0 && (
-                        <span className={`ml-0.5 text-[10px] px-1 py-0 rounded-full font-semibold ${
-                          crmFilter === key ? "opacity-90" : "bg-muted/60 opacity-80"
+                        <span className={`ml-0.5 text-[10px] px-1 py-0 rounded-full font-semibold tabular-nums ${
+                          active ? "opacity-90" : "bg-muted/60 opacity-80"
                         }`}>{count}</span>
                       )}
-                    </button>
-                  ))}
+                    </motion.button>
+                  );})}
                   </div>
                 </div>
               </>
@@ -4791,12 +4806,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               return (
                 <div
                   key={msg.id}
-                  className={`relative group flex items-stretch transition-colors border-b border-border/20 ${
+                  className={`relative group flex items-stretch transition-all duration-150 border-b border-border/20 ${
                     isBulkChecked
                       ? "bg-primary/10 border-l-[3px] border-l-primary/60"
                       : isSelected
-                        ? "bg-primary/8 border-l-[3px] border-l-primary"
-                        : "border-l-[3px] border-l-transparent hover:bg-muted/25"
+                        ? "bg-primary/8 border-l-[3px] border-l-primary shadow-[inset_0_1px_0_0_rgba(20,184,166,0.08)]"
+                        : "border-l-[3px] border-l-transparent hover:bg-muted/35 hover:border-l-primary/15"
                   }`}
                 >
                   {/* Checkbox — visible on hover or when any selection active */}
@@ -4825,7 +4840,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     <div className="flex items-center justify-between gap-2 mb-[3px]">
                       <div className="flex items-center gap-1.5 min-w-0">
                         {unread && (
-                          <div className="w-[7px] h-[7px] rounded-full bg-primary flex-shrink-0" />
+                          <div
+                            className="w-2 h-2 rounded-full bg-primary flex-shrink-0 shadow-[0_0_8px_0_rgba(20,184,166,0.55)]"
+                            aria-label="Unread"
+                            data-testid={`dot-unread-${msg.id}`}
+                          />
                         )}
                         {/* Multi-mailbox Phase 1: account badge — only shown in unified ("All Inboxes") mode
                             so users can tell which mailbox each row came from at a glance. */}
@@ -4845,7 +4864,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           );
                         })()}
                         <span className={`${densityClasses.senderText} leading-none truncate ${
-                          unread ? "font-semibold text-foreground" : "font-medium text-foreground/55"
+                          unread
+                            ? "font-semibold text-foreground tracking-[-0.01em]"
+                            : "font-medium text-muted-foreground/75"
                         }`}>
                           {senderName}
                         </span>
@@ -4883,8 +4904,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     )}
                   </button>
 
-                  {/* Hover quick actions — absolutely positioned right side */}
-                  <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5 bg-gradient-to-l from-background via-background/95 to-transparent pl-4 pr-1 rounded-l-lg">
+                  {/* Hover quick actions — slide+fade in on hover, backdrop-blur for legibility over dense rows */}
+                  <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 pl-5 pr-1 rounded-l-lg
+                                   opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0
+                                   focus-within:opacity-100 focus-within:translate-x-0
+                                   transition-all duration-150 ease-out
+                                   bg-gradient-to-l from-background via-background/92 to-background/0
+                                   backdrop-blur-[2px]">
+                    {/* Star is always visible if starred (even outside hover) — handled via wrapper opacity override */}
                     <motion.button
                       whileTap={{ scale: 0.82 }}
                       whileHover={{ scale: 1.12 }}
@@ -4895,13 +4922,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       tabIndex={starred ? 0 : -1}
                       data-testid={`button-star-${msg.id}`}
                       onClick={(e) => { e.stopPropagation(); toggleStarMutation.mutate(msg.id); }}
-                      className={`p-1.5 rounded-md transition-colors focus-visible:opacity-100 focus-visible:!text-amber-400 ${
+                      className={`p-1.5 rounded-md transition-colors focus-visible:!text-amber-400 ${
                         starred
                           ? "text-amber-400 hover:text-amber-300"
-                          : "text-transparent group-hover:text-muted-foreground/40 hover:!text-amber-400 hover:bg-muted/40"
+                          : "text-muted-foreground/40 hover:!text-amber-400 hover:bg-amber-500/10"
                       }`}
                     >
-                      <Star className={`h-3.5 w-3.5 ${starred ? "fill-amber-400" : ""}`} aria-hidden="true" />
+                      <motion.span
+                        key={starred ? "starred" : "unstarred"}
+                        initial={{ scale: 0.55, rotate: starred ? -55 : 55 }}
+                        animate={{ scale: 1, rotate: 0 }}
+                        transition={{ type: "spring", stiffness: 520, damping: 14 }}
+                        className="inline-flex"
+                        aria-hidden="true"
+                      >
+                        <Star className={`h-3.5 w-3.5 ${starred ? "fill-amber-400 drop-shadow-[0_0_4px_rgba(251,191,36,0.45)]" : ""}`} aria-hidden="true" />
+                      </motion.span>
                     </motion.button>
                     {canSend && tab === "inbox" && (
                       <motion.button
@@ -5027,25 +5063,37 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   )}
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
-                  {focusedMsg && (
-                    <motion.button
-                      whileTap={{ scale: 0.85 }}
-                      whileHover={{ scale: 1.08 }}
-                      transition={{ type: "spring", stiffness: 400, damping: 22 }}
-                      title={isStarred(focusedMsg.labelIds) ? "Remove priority" : "Mark as priority (s)"}
-                      aria-label={isStarred(focusedMsg.labelIds) ? "Remove priority" : "Mark as priority"}
-                      aria-pressed={isStarred(focusedMsg.labelIds)}
-                      data-testid="button-star-thread"
-                      onClick={() => toggleStarMutation.mutate(focusedMsg.id)}
-                      className={`p-2 rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none ${
-                        isStarred(focusedMsg.labelIds)
-                          ? "text-amber-400 bg-amber-500/10 hover:bg-amber-500/15"
-                          : "text-muted-foreground/40 hover:text-amber-400 hover:bg-muted/40"
-                      }`}
-                    >
-                      <Star className={`h-4 w-4 ${isStarred(focusedMsg.labelIds) ? "fill-amber-400" : ""}`} aria-hidden="true" />
-                    </motion.button>
-                  )}
+                  {focusedMsg && (() => {
+                    const headerStarred = isStarred(focusedMsg.labelIds);
+                    return (
+                      <motion.button
+                        whileTap={{ scale: 0.85 }}
+                        whileHover={{ scale: 1.08 }}
+                        transition={{ type: "spring", stiffness: 400, damping: 22 }}
+                        title={headerStarred ? "Remove priority" : "Mark as priority (s)"}
+                        aria-label={headerStarred ? "Remove priority" : "Mark as priority"}
+                        aria-pressed={headerStarred}
+                        data-testid="button-star-thread"
+                        onClick={() => toggleStarMutation.mutate(focusedMsg.id)}
+                        className={`p-2 rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none ${
+                          headerStarred
+                            ? "text-amber-400 bg-amber-500/10 hover:bg-amber-500/15 shadow-[0_0_0_1px_rgba(251,191,36,0.18)]"
+                            : "text-muted-foreground/40 hover:text-amber-400 hover:bg-muted/40"
+                        }`}
+                      >
+                        <motion.span
+                          key={headerStarred ? "starred" : "unstarred"}
+                          initial={{ scale: 0.55, rotate: headerStarred ? -55 : 55 }}
+                          animate={{ scale: 1, rotate: 0 }}
+                          transition={{ type: "spring", stiffness: 520, damping: 14 }}
+                          className="inline-flex"
+                          aria-hidden="true"
+                        >
+                          <Star className={`h-4 w-4 ${headerStarred ? "fill-amber-400 drop-shadow-[0_0_5px_rgba(251,191,36,0.5)]" : ""}`} aria-hidden="true" />
+                        </motion.span>
+                      </motion.button>
+                    );
+                  })()}
                   {canSend && focusedMsg && (
                     <motion.button
                       whileTap={{ scale: 0.92 }}
