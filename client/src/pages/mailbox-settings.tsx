@@ -429,7 +429,28 @@ function SharedMailboxRow({ mailbox, health, canManage, isOwner }: {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const needsReconnect = !!health && (health.status === "red" || health.authStatus !== "active");
+  // Reconnect kicks the same shared-inbox OAuth flow as initial connect.
+  // Google still enforces the human identity check at consent time, so
+  // surfacing this to anyone with `canManage` (owner OR master admin) is safe.
+  const reconnect = async () => {
+    try {
+      const res = await apiRequest("GET", "/api/my/mailbox/connect?shared=1");
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        toast({ title: "Reconnect failed", description: "No OAuth URL returned.", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Reconnect failed", description: e.message, variant: "destructive" });
+    }
+  };
+
+  // Treat any non-active auth_status as needing reconnect even if the health
+  // probe hasn't reported yet (e.g. account just flipped to expired).
+  const needsReconnect =
+    mailbox.authStatus !== "active" ||
+    (!!health && (health.status === "red" || health.authStatus !== "active"));
 
   return (
     <>
@@ -466,10 +487,10 @@ function SharedMailboxRow({ mailbox, health, canManage, isOwner }: {
           {statusBadge(mailbox.authStatus)}
           <Badge variant="outline" className="text-[10px] border-blue-500/30 text-blue-400">Shared</Badge>
           {isOwner && <Badge variant="outline" className="text-[10px] border-teal-500/30 text-teal-300">You own</Badge>}
-          {canManage && needsReconnect && isOwner && (
+          {canManage && needsReconnect && (
             <Button size="sm" variant="outline"
               className="h-7 px-2 text-xs gap-1 border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
-              onClick={() => { window.location.href = "/api/auth/gmail/connect"; }}
+              onClick={reconnect}
               data-testid={`btn-reconnect-team-${mailbox.id}`}>
               <RotateCcw className="h-3 w-3" /> Reconnect
             </Button>
@@ -494,6 +515,14 @@ function SharedMailboxRow({ mailbox, health, canManage, isOwner }: {
                     ? <><Pause className="h-3.5 w-3.5 mr-2" /> Pause sync</>
                     : <><Play className="h-3.5 w-3.5 mr-2" /> Resume sync</>}
                 </DropdownMenuItem>
+                {needsReconnect && (
+                  <DropdownMenuItem
+                    onSelect={reconnect}
+                    className="text-amber-400 focus:text-amber-300"
+                    data-testid={`menu-reconnect-team-${mailbox.id}`}>
+                    <RotateCcw className="h-3.5 w-3.5 mr-2" /> Reconnect mailbox
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onSelect={() => setConfirmDisconnect(true)}
