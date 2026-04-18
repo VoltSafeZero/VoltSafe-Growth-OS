@@ -1,0 +1,158 @@
+I want you to perform a full audit of my current Cortex intelligence layer so I can determine how thin or advanced it really is.
+
+Context:
+Cortex is my internal app for founder ops / CRM / outreach / inbox / tasks / dashboards / workflow support. I need you to determine whether Cortex is just a collection of tools and data screens, or whether it already functions as a real founder copilot with a meaningful intelligence layer.
+
+Your job:
+Do a deep product + code audit of the existing app and give me a brutally honest report.
+
+What I want you to evaluate:
+
+1. Natural-language intelligence layer
+Check whether Cortex already has anything like:
+- global command bar
+- ask-anything interface
+- AI assistant panel
+- semantic search
+- prompt-to-action workflows
+- natural-language querying over CRM, inbox, tasks, notes, accounts, contacts, and pipeline
+
+I want to know:
+- what exists now
+- what is fake / shallow / hardcoded
+- what is missing
+- what would need to be added to make it actually useful
+
+2. Cross-object reasoning
+Check whether Cortex can currently reason across multiple objects and data sources at once, for example:
+- accounts + contacts + emails + tasks + notes + deal stage
+- marina size + last contact date + proposal status + follow-up status
+- inbox thread + CRM history + reminders + account health
+
+I want to know whether the app can currently answer questions like:
+- Which warm leads are overdue for follow-up?
+- Which marina contacts have gone quiet after receiving a proposal?
+- Which accounts are most likely to close next?
+- Which deals are stalled and why?
+
+Be precise:
+- If this capability exists, show exactly where and how
+- If it does not, say so clearly
+
+3. Actionability
+Check whether Cortex can take action from intelligence, not just display information.
+
+Examples:
+- draft email from context
+- create follow-up task automatically
+- move pipeline stage
+- generate meeting brief
+- summarize an account
+- recommend next best action
+- turn inbox/email signals into CRM actions
+
+I want a real assessment of whether Cortex is:
+- read-only intelligence
+- assisted workflow
+- semi-agentic
+- true copilot
+
+4. Founder-copilot readiness
+Evaluate whether Cortex currently behaves like a founder copilot that knows:
+- marinas
+- contacts
+- pipeline
+- proposals
+- certifications
+- funding programs
+- next follow-ups
+
+Important:
+Do not assume this exists just because data tables or pages exist.
+I want you to inspect actual logic, routes, services, prompts, UI entry points, and connected workflows.
+
+5. Intelligence thickness score
+At the end, score the current Cortex intelligence layer in each category from 0 to 5:
+
+- Memory / context awareness
+- Search / retrieval
+- Cross-object reasoning
+- Recommendations
+- Automation / action-taking
+- Natural language interface
+- Founder usefulness
+- Copilot readiness
+
+Then give an overall score out of 100.
+
+Scoring guidance:
+0 = nonexistent
+1 = barely there / cosmetic
+2 = thin / fragmented
+3 = useful but limited
+4 = strong
+5 = excellent / deeply integrated
+
+6. Gap analysis
+Tell me the difference between:
+- what Cortex is today
+- what it would need to become a real founder copilot
+
+I want the smallest high-leverage upgrades, not a fantasy rebuild.
+
+7. Output format
+Give me the result in this exact structure:
+
+A. Executive Summary
+A blunt answer on whether Cortex currently has a thin, medium, or strong intelligence layer.
+
+B. What Exists Today
+List the actual features, services, routes, UI surfaces, and workflows that already contribute to intelligence.
+
+C. What Is Superficial or Fragmented
+Call out anything that looks intelligent but is actually just dashboards, filters, or disconnected features.
+
+D. What Is Missing
+List the highest-value missing pieces.
+
+E. Scorecard
+A table with each category and score.
+
+F. Recommended Next 3 Builds
+Only the 3 highest-leverage next steps.
+
+G. Evidence
+Reference specific files, components, routes, and logic so I can verify the findings.
+
+Rules:
+- Be direct and critical
+- Do not flatter
+- Do not invent features
+- Do not recommend a giant rebuild unless absolutely necessary
+- Prefer additive improvements over replacement
+- Assume I want the fastest path to a real founder copilot
+
+Also:
+If helpful, create a simple matrix that classifies Cortex as one of these:
+- System of record
+- Workflow tool
+- Insight tool
+- Assisted operator
+- Founder copilot
+
+Before concluding, inspect:
+- routes
+- backend services
+- search logic
+- dashboard logic
+- CRM entities
+- inbox/email sync features
+- task/reminder/notification logic
+- any AI/prompt related code
+- command bar or global search behavior
+- any suggestion/recommendation engines
+- any next-best-action or engagement scoring logic
+
+Final instruction:
+I do not want code changes yet.
+I only want the audit, diagnosis, scorecard, and the 3 best next builds.
