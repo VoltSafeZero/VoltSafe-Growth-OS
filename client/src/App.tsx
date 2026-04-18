@@ -81,6 +81,7 @@ import MailboxSettingsPage from "@/pages/mailbox-settings";
 import MailboxHealthPage from "@/pages/mailbox-health";
 import HelpCenterPage from "@/pages/help-center";
 import { GlobalSearch } from "@/components/global-search";
+import { DemonAtmospherics } from "@/components/demon-atmospherics";
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -159,7 +160,15 @@ function AppShell({ children, user, onLogout }: { children: React.ReactNode; use
   const sidebarStyle = { "--sidebar-width": "16rem", "--sidebar-width-icon": "4rem" } as React.CSSProperties;
   return (
     <SidebarProvider style={sidebarStyle}>
-      <div className="flex h-screen w-full bg-background text-foreground overflow-hidden">
+      {/*
+        DemonAtmospherics renders fixed-position SVG environmental layers
+        (vines, thorns, cracks) BEHIND the app shell when a demon theme is
+        active. Returns null for light/dark — zero cost when not in a demon
+        theme. The shell wrapper below is forced transparent under demon
+        themes via index.css so these layers are actually visible.
+      */}
+      <DemonAtmospherics />
+      <div data-app-shell="root" className="flex h-screen w-full bg-background text-foreground overflow-hidden">
         <div className="hidden md:flex">
           <AppSidebar userGlobalRole={user.globalRole || "sales"} userPermissions={user.permissions ?? FULL_PERMISSIONS} />
         </div>

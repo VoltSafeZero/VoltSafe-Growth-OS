@@ -473,6 +473,112 @@
    * `dark:text-zinc-*` and `dark:border-*-800`. So we don't need overrides for
    * the dark-prefixed variants — only the bare light-side classes above. */
 
+  /* ─────────────────────────────────────────────────────────────────────────
+   * DEMON ENVIRONMENT — let the atmospherics layer be visible
+   *
+   * The AppShell paints `bg-background` solid on its root wrapper, which would
+   * otherwise occlude the fixed-position DemonAtmospherics SVG layers mounted
+   * behind it. Under demon themes we make the shell wrapper transparent and
+   * lift its content above the atmospherics via z-index. The `bg-background`
+   * tokens themselves are unchanged — only the AppShell wrapper rule changes.
+   *
+   * Page-level `bg-background` / `bg-card` surfaces still paint normally on
+   * top of the atmospherics — which is exactly what we want: dense data
+   * tables stay readable, while empty regions / margins / sidebars / oversized
+   * panels expose the environment beneath.
+   * ────────────────────────────────────────────────────────────────────────*/
+  html.demon [data-app-shell="root"],
+  html.demon-light [data-app-shell="root"] {
+    background-color: transparent !important;
+    position: relative;
+    z-index: 10;
+  }
+
+  /* Keep the SidebarProvider's outer wrapper from painting opaque either —
+   * shadcn's sidebar primitive sometimes adds a wrapping element with the
+   * background token applied. */
+  html.demon [data-sidebar="wrapper"],
+  html.demon-light [data-sidebar="wrapper"] {
+    background-color: transparent !important;
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+   * SIDEBAR INTERNAL VINE TEXTURE
+   *
+   * The sidebar gets its own internal art layer — a smaller, denser vine
+   * silhouette that lives inside the sidebar surface. The sidebar's own
+   * `--sidebar-background` color still paints, but a subtle SVG vine pattern
+   * is overlaid via ::after at low opacity. Pointer-events:none so it never
+   * eats clicks on nav items.
+   * ────────────────────────────────────────────────────────────────────────*/
+  html.demon [data-sidebar="sidebar"],
+  html.demon-light [data-sidebar="sidebar"] {
+    position: relative;
+    isolation: isolate;
+  }
+  html.demon [data-sidebar="sidebar"]::after,
+  html.demon-light [data-sidebar="sidebar"]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-repeat: no-repeat;
+    background-position: bottom center;
+    background-size: 100% auto;
+  }
+  html.demon [data-sidebar="sidebar"]::after {
+    /* Demon Dark sidebar vines — blood-tinted, screen-blend, climbing upward */
+    background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 280 800' preserveAspectRatio='xMidYMax slice'%3E%3Cg fill='none' stroke='%23a01828' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M -10 820 C 30 700 50 580 80 460 S 120 240 150 80' stroke-width='2.5' opacity='0.55'/%3E%3Cpath d='M 50 820 C 80 720 110 620 140 520 S 180 320 200 160' stroke-width='1.8' opacity='0.45'/%3E%3Cpath d='M 290 820 C 250 700 230 580 200 460 S 160 240 130 80' stroke-width='2.5' opacity='0.55'/%3E%3Cpath d='M 230 820 C 200 720 170 620 140 520 S 100 320 80 160' stroke-width='1.8' opacity='0.45'/%3E%3Cpath d='M 80 460 C 110 420 150 410 180 420' stroke-width='1' opacity='0.5'/%3E%3Cpath d='M 200 460 C 170 420 130 410 100 420' stroke-width='1' opacity='0.5'/%3E%3Cpath d='M 140 520 C 130 480 130 440 140 400' stroke-width='0.8' opacity='0.4'/%3E%3C/g%3E%3C/svg%3E");
+    opacity: 0.32;
+    mix-blend-mode: screen;
+  }
+  html.demon-light [data-sidebar="sidebar"]::after {
+    /* Demon Light sidebar vines — dark graphite, multiply-blend, visible
+     * beneath the pale sidebar substrate as faint root structure */
+    background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 280 800' preserveAspectRatio='xMidYMax slice'%3E%3Cg fill='none' stroke='%232a1820' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M -10 820 C 30 700 50 580 80 460 S 120 240 150 80' stroke-width='2.5' opacity='0.55'/%3E%3Cpath d='M 50 820 C 80 720 110 620 140 520 S 180 320 200 160' stroke-width='1.8' opacity='0.45'/%3E%3Cpath d='M 290 820 C 250 700 230 580 200 460 S 160 240 130 80' stroke-width='2.5' opacity='0.55'/%3E%3Cpath d='M 230 820 C 200 720 170 620 140 520 S 100 320 80 160' stroke-width='1.8' opacity='0.45'/%3E%3Cpath d='M 80 460 C 110 420 150 410 180 420' stroke-width='1' opacity='0.5'/%3E%3Cpath d='M 200 460 C 170 420 130 410 100 420' stroke-width='1' opacity='0.5'/%3E%3Cpath d='M 140 520 C 130 480 130 440 140 400' stroke-width='0.8' opacity='0.4'/%3E%3C/g%3E%3C/svg%3E");
+    opacity: 0.28;
+    mix-blend-mode: multiply;
+  }
+  /* Lift sidebar inner content above the ::after vine layer */
+  html.demon [data-sidebar="sidebar"] > *,
+  html.demon-light [data-sidebar="sidebar"] > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+   * EMPTY-STATE / OVERSIZED REGION VINE ACCENT (opt-in)
+   *
+   * Pages that want extra environmental presence in an empty state or large
+   * blank canvas can add the `demon-environ` className to a wrapper. It paints
+   * a heavier vine silhouette via ::before, anchored bottom-left, only when
+   * a demon theme is active. Zero cost in light/dark.
+   * ────────────────────────────────────────────────────────────────────────*/
+  .demon-environ { position: relative; isolation: isolate; }
+  html.demon .demon-environ::before,
+  html.demon-light .demon-environ::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-repeat: no-repeat;
+    background-position: bottom left;
+    background-size: 60% auto;
+  }
+  html.demon .demon-environ::before {
+    background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 500' preserveAspectRatio='xMinYMax slice'%3E%3Cg fill='none' stroke='%23a01828' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M -20 510 C 60 400 110 300 170 200 S 280 40 360 -20' stroke-width='3.5' opacity='0.6'/%3E%3Cpath d='M 60 520 C 130 420 200 320 260 220 S 380 60 470 0' stroke-width='2.5' opacity='0.5'/%3E%3Cpath d='M 170 200 C 220 160 280 150 340 160' stroke-width='1.5' opacity='0.55'/%3E%3Cpath d='M 260 220 C 310 180 380 175 440 190' stroke-width='1.2' opacity='0.45'/%3E%3C/g%3E%3C/svg%3E");
+    opacity: 0.4;
+    mix-blend-mode: screen;
+  }
+  html.demon-light .demon-environ::before {
+    background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 500' preserveAspectRatio='xMinYMax slice'%3E%3Cg fill='none' stroke='%232a1820' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M -20 510 C 60 400 110 300 170 200 S 280 40 360 -20' stroke-width='3.5' opacity='0.6'/%3E%3Cpath d='M 60 520 C 130 420 200 320 260 220 S 380 60 470 0' stroke-width='2.5' opacity='0.5'/%3E%3Cpath d='M 170 200 C 220 160 280 150 340 160' stroke-width='1.5' opacity='0.55'/%3E%3Cpath d='M 260 220 C 310 180 380 175 440 190' stroke-width='1.2' opacity='0.45'/%3E%3C/g%3E%3C/svg%3E");
+    opacity: 0.30;
+    mix-blend-mode: multiply;
+  }
+  .demon-environ > * { position: relative; z-index: 1; }
+
   /* Card / panel surfaces in demon — "carved blackened material, internally
    * backlit by red energy." Three-part shadow:
    *   - Inset maroon ring (the vein-lit edge)

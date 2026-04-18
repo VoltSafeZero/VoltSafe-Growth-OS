@@ -1,0 +1,109 @@
+This is not acceptable yet.
+
+You built a tokenized red/black theme, but you did NOT build the actual environmental art direction I asked for.
+
+The problem:
+Demon Dark and Demon Light still read like themed UI chrome.
+They do NOT read like the app exists inside a living dimensional breach.
+
+I want this corrected.
+
+New direction:
+Stop treating Demon themes as only color-token work.
+Add actual environmental background layers inspired by the reference images:
+- roots
+- vines
+- thorn silhouettes
+- rupture membranes
+- organic branching structures
+- blood-red internal glow
+- layered foreground/background depth
+
+This must still be premium and readable, but it needs to LOOK like an environment, not just tinted software.
+
+IMPLEMENTATION REQUIREMENTS
+
+1. Build actual background art layers for Demon Dark and Demon Light
+Use layered CSS backgrounds and/or app-shell pseudo-elements, not page-by-page hacks.
+
+Add dedicated background layers such as:
+- rear atmospheric glow layer
+- mid organic root/vine silhouette layer
+- subtle thorn/membrane framing layer
+- vignette/depth layer
+
+2. Demon Dark
+Should feel like:
+- obsidian void
+- red-lit roots/vines
+- thorned dimensional rupture
+- hostile organic darkness
+
+Use the provided reference images directly as mood anchors.
+If needed, derive abstracted assets/textures from them.
+
+3. Demon Light
+Should feel like:
+- pale haunted membrane
+- translucent ghost-glass shell
+- faint visible roots/vines beneath the surface
+- spectral dimensional residue
+
+Not regular light mode.
+Not generic frosted glass.
+It still needs visible environmental structure.
+
+4. Important visual rule
+The vine/root/thorn language must be actually visible.
+Not “maybe noticeable if you squint.”
+Not just a faint blur blob.
+
+I want real dimensional texture visible in:
+- page backgrounds
+- app shell edges
+- sidebar environment
+- empty-state regions
+- large content canvases
+
+5. But keep it usable
+Do NOT plaster detailed art behind dense data tables.
+Do NOT destroy readability.
+Use the strongest environmental layers in:
+- app shell
+- sidebars
+- empty states
+- large panel backdrops
+- margins/edges
+- oversized background regions
+
+Use lighter/subtler treatment behind dense content cards.
+
+6. Technical approach
+Prefer:
+- html.demon / html.demon-light scoped pseudo-elements
+- fixed or absolute background layers behind app content
+- masked SVG / PNG / WEBP textures
+- opacity-controlled layering
+- blend modes carefully, only if they remain readable
+- pointer-events: none
+- zero interaction impact
+
+7. I want an actual art pass now
+This is no longer just “theme tuning.”
+This is “environment pass.”
+
+DELIVERABLES
+1. Add visible environmental vine/root/thorn layers to Demon Dark
+2. Add visible haunted translucent vine/root layers to Demon Light
+3. Keep readability intact
+4. Show before/after screenshots of:
+- command center
+- inbox
+- dashboard
+- sidebar
+- empty state screen
+
+IMPORTANT
+The current result is too timid and too abstract.
+It needs to visibly feel like the reference images.
+Right now it does not.
