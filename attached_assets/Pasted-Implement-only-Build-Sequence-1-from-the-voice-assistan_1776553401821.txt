@@ -1,0 +1,115 @@
+Implement only Build Sequence #1 from the voice-assistant audit.
+
+Critical rules:
+- No schema changes
+- Zero db:push
+- No migrations
+- No new tables
+- No destructive refactors
+- Additive code changes only
+- Reuse existing permission / auth / activity / logging systems already in the codebase
+- If an activity/audit system already exists, use it instead of inventing a new one
+- If a confirmation state can be stored in existing conversation/message records, do that instead of adding schema
+- Keep the existing voice assistant working
+- Keep the existing text endpoint working
+- Do not touch unrelated product areas
+
+Goal:
+Turn the existing voice assistant from “strong internal tool” into a production-credible write assistant by locking down writes.
+
+Scope: only these improvements
+1. Permission checks on every write tool
+2. Confirmation step before risky/destructive writes
+3. Audit logging / activity trail for every voice/text assistant write
+4. Server-side enum/value validation for write fields
+5. Remove duplicated write-safety logic between /api/voice-assistant/ask and /api/voice-assistant/text by extracting shared helper(s) if needed
+
+Current known write tools:
+- update_lead
+- update_account
+- update_ticket
+- add_comment
+(and any other actual write paths you find in server/voice-assistant.ts)
+
+Required behavior
+
+A. Permission enforcement
+Before any write executes, verify the authenticated user has permission to edit that object.
+Reuse the same permission/ownership logic already used elsewhere in the app.
+Do not invent a parallel ACL system if one already exists.
+
+If permission fails:
+- do not mutate
+- return a clear assistant response explaining lack of permission
+- log the denied attempt if the app already has a suitable logging/activity mechanism
+
+B. Confirmation gate for risky writes
+Add a confirmation workflow for risky mutations, including at minimum:
+- lead/account/ticket status changes to closed_won / closed_lost / resolved / cancelled / equivalent destructive terminal states
+- large numeric changes if applicable (for example amount/value changes above a sensible threshold if such fields exist in current allowed updates)
+- any write you judge risky enough based on current field set
+
+Behavior:
+- first turn should NOT mutate
+- assistant should respond with a structured preview of the pending change
+- require a second explicit confirmation from the user like “yes”, “confirm”, “do it”
+- only then execute the write
+
+Important:
+- implement this without schema changes
+- prefer storing pending action state in existing conversation/message context if possible
+- make it work for both voice and text endpoints using the same logic
+
+C. Audit trail
+Every successful assistant-triggered write must create an audit/activity trail using existing systems already present in the codebase.
+Capture as much of the following as existing systems allow:
+- user id
+- source = voice-assistant or voice-assistant-text
+- target object type
+- target object id
+- action name
+- changed fields
+- before/after values if the existing system supports it
+- timestamp
+- transcript/message snippet if possible without creating schema changes
+
+If no generic audit system exists but activities/comments/logging already exist, use the nearest existing mechanism consistently.
+
+D. Server-side validation
+Do not rely only on tool schema descriptions.
+Validate write values server-side before executing SQL.
+Examples:
+- enum/status values must be valid
+- field types must match expected types
+- reject unknown/invalid values with a clear assistant response
+- keep existing allowed-fields whitelist intact
+
+E. Shared safety layer
+If the current /ask and /text endpoints duplicate write-safety logic, extract reusable helper(s) so both paths use the exact same permission, validation, confirmation, and audit behavior.
+
+Implementation process
+1. First inspect the existing permission/auth/activity infrastructure actually present in the codebase
+2. Then implement only the smallest additive changes needed
+3. Then test the voice and text assistant flows
+4. Then provide a report in this format:
+
+Output format:
+1. Files changed
+2. What permission system was reused
+3. What activity/audit mechanism was reused
+4. What risky actions now require confirmation
+5. What validations were added
+6. Example successful flow
+7. Example denied-permission flow
+8. Example confirmation-required flow
+9. Any limitations still remaining
+10. Exact manual QA steps I can run right now
+
+Success definition
+V1 for this task is successful if:
+- unauthorized users cannot mutate objects through voice/text assistant
+- risky writes require explicit confirmation
+- successful writes leave an audit/activity trail using existing systems
+- invalid enum/type values are rejected server-side
+- both /api/voice-assistant/ask and /api/voice-assistant/text use the same safety behavior
+- no schema changes were made

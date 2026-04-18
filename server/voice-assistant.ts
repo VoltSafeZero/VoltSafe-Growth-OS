@@ -6,6 +6,13 @@ import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { requireAuth } from "./auth";
 import knowledgeBase from "../docs/ai-knowledge-base.json";
+import {
+  executeToolSafely,
+  handleConfirmationTurn,
+  isLLMVisibleRole,
+  type SafeExecContext,
+  type AssistantSource,
+} from "./voice-assistant-safety";
 
 const audioBodyParser = express.json({ limit: "50mb" });
 
@@ -893,6 +900,12 @@ export function registerVoiceAssistantRoutes(app: Express): void {
       const userRow = await db.execute(sql`SELECT name FROM users WHERE id = ${userId}`);
       const userName = (userRow.rows[0] as any)?.name || "Unknown User";
 
+      const safetyCtx: SafeExecContext = {
+        userId, userName, conversationId,
+        source: "voice-assistant" as AssistantSource,
+        userMessage: userTranscript,
+      };
+
       const contextData = await gatherContext(userTranscript);
       const crmStats = await getCRMStats();
 
@@ -901,7 +914,10 @@ export function registerVoiceAssistantRoutes(app: Express): void {
         { role: "system", content: `${SYSTEM_PROMPT}\n\nCurrent user: ${userName} (ID: ${userId})\n\n${crmStats}` },
       ];
 
+      // Only feed real user/assistant turns to the LLM. Pending-confirmation
+      // marker rows are internal state and OpenAI rejects unknown roles.
       for (const m of existingMessages.slice(-10)) {
+        if (!isLLMVisibleRole(m.role)) continue;
         chatHistory.push({
           role: m.role as "user" | "assistant",
           content: m.content,
@@ -922,8 +938,20 @@ export function registerVoiceAssistantRoutes(app: Express): void {
       res.write(`data: ${JSON.stringify({ type: "user_transcript", data: userTranscript })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: "conversation_id", data: conversationId })}\n\n`);
 
-      const hasWriteIntent = /\b(update|change|edit|move|set|modify|mark|assign|close|resolve|reopen|log|note|comment|add\s+(a\s+)?(comment|note)|stage|switch|transition|reassign|escalate|promote|demote)\b/i.test(userTranscript);
+      // Confirmation gate: if the user just said "yes/confirm/no/cancel" in
+      // response to a previously-issued PENDING_CONFIRM, handle it directly
+      // without re-running the LLM tool loop.
+      const confirmation = await handleConfirmationTurn(userTranscript, safetyCtx, executeTool);
       let toolContext = "";
+      if (confirmation.handled) {
+        toolContext = `\n${confirmation.result}`;
+        chatHistory.push({
+          role: "system",
+          content: `User responded to a pending confirmation. Result:\n${confirmation.result}\n\nNow confirm to the user what happened in a natural, conversational way.`,
+        });
+      }
+
+      const hasWriteIntent = !confirmation.handled && /\b(update|change|edit|move|set|modify|mark|assign|close|resolve|reopen|log|note|comment|add\s+(a\s+)?(comment|note)|stage|switch|transition|reassign|escalate|promote|demote)\b/i.test(userTranscript);
 
       if (hasWriteIntent) {
         let toolMessages = [...chatHistory];
@@ -952,7 +980,7 @@ export function registerVoiceAssistantRoutes(app: Express): void {
                 toolMessages.push({ role: "tool", tool_call_id: toolCall.id, content: "Error: Invalid tool arguments." } as any);
                 continue;
               }
-              const toolResult = await executeTool(toolCall.function.name, args, userId, userName);
+              const toolResult = await executeToolSafely(toolCall.function.name, args, safetyCtx, executeTool);
               toolMessages.push({
                 role: "tool",
                 tool_call_id: toolCall.id,
@@ -1037,6 +1065,12 @@ export function registerVoiceAssistantRoutes(app: Express): void {
 
       await chatStorage.createMessage(conversationId, "user", message);
 
+      const safetyCtx: SafeExecContext = {
+        userId, userName, conversationId,
+        source: "voice-assistant-text" as AssistantSource,
+        userMessage: message,
+      };
+
       const contextData = await gatherContext(message);
       const crmStats = await getCRMStats();
 
@@ -1046,6 +1080,7 @@ export function registerVoiceAssistantRoutes(app: Express): void {
       ];
 
       for (const m of existingMessages.slice(-10)) {
+        if (!isLLMVisibleRole(m.role)) continue;
         chatHistory.push({
           role: m.role as "user" | "assistant",
           content: m.content,
@@ -1065,9 +1100,29 @@ export function registerVoiceAssistantRoutes(app: Express): void {
 
       res.write(`data: ${JSON.stringify({ type: "conversation_id", data: conversationId })}\n\n`);
 
-      const hasWriteIntent = /\b(update|change|edit|move|set|modify|mark|assign|close|resolve|reopen|log|note|comment|add\s+(a\s+)?(comment|note)|stage|switch|transition|reassign|escalate|promote|demote)\b/i.test(message);
-
+      // Confirmation gate: short-circuit if user is replying to a pending action.
+      const confirmation = await handleConfirmationTurn(message, safetyCtx, executeTool);
       let fullResponse = "";
+
+      if (confirmation.handled) {
+        res.write(`data: ${JSON.stringify({ type: "tool_action", data: confirmation.result })}\n\n`);
+        chatHistory.push({
+          role: "system",
+          content: `User responded to a pending confirmation. Result:\n${confirmation.result}\n\nNow confirm to the user what happened in a natural, conversational way.`,
+        });
+        const summary = await openai.chat.completions.create({
+          model: "gpt-5-nano",
+          messages: chatHistory,
+          max_completion_tokens: 1024,
+        });
+        fullResponse = summary.choices[0]?.message?.content || confirmation.result;
+        res.write(`data: ${JSON.stringify({ type: "text", data: fullResponse })}\n\n`);
+        await chatStorage.createMessage(conversationId, "assistant", fullResponse);
+        res.write(`data: ${JSON.stringify({ type: "done", transcript: fullResponse })}\n\n`);
+        return res.end();
+      }
+
+      const hasWriteIntent = /\b(update|change|edit|move|set|modify|mark|assign|close|resolve|reopen|log|note|comment|add\s+(a\s+)?(comment|note)|stage|switch|transition|reassign|escalate|promote|demote)\b/i.test(message);
 
       if (hasWriteIntent) {
         let toolMessages = [...chatHistory];
@@ -1098,7 +1153,7 @@ export function registerVoiceAssistantRoutes(app: Express): void {
                 toolMessages.push({ role: "tool", tool_call_id: toolCall.id, content: "Error: Invalid tool arguments." } as any);
                 continue;
               }
-              const toolResult = await executeTool(toolCall.function.name, args, userId, userName);
+              const toolResult = await executeToolSafely(toolCall.function.name, args, safetyCtx, executeTool);
               toolMessages.push({
                 role: "tool",
                 tool_call_id: toolCall.id,
