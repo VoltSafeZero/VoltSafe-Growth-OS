@@ -1,0 +1,197 @@
+I want to evolve Demon Mode into two distinct variants:
+
+1. Demon Dark
+2. Demon Light (transparent / ghosted / glass-like)
+
+This is a design/system task, not a joke skin.
+
+Goal:
+Create two polished “dimensional breach” viewing modes:
+- Demon Dark = obsidian, blood-lit, hostile, cinematic
+- Demon Light = pale, ghosted, translucent, eerie, haunted-glass version of the same world
+
+These should feel like two sides of the same universe, not two unrelated themes.
+
+CORE CREATIVE DIRECTION
+
+Demon Dark:
+- blackened void
+- deep maroon / blood-red internal glow
+- obsidian surfaces
+- thorn / root / rupture / vein undertones
+- premium, dangerous, dimensional
+
+Demon Light:
+- translucent ash / fog / pale membrane / spectral glass
+- desaturated bone / mist / smoky quartz / ghost-gray surfaces
+- subtle red underglow still present, but buried beneath a pale shell
+- cool ghost-cyan accents allowed sparingly
+- feels like “the Upside Down seen through a haunted frosted pane”
+
+Demon Light should NOT be normal light mode with red accents.
+It should feel:
+- eerie
+- transparent
+- spectral
+- premium
+- dimensional
+- softly corrupted
+
+HIGH-LEVEL PRODUCT REQUIREMENT
+
+Add a proper theme family structure:
+
+Appearance modes:
+- Light
+- Dark
+- Demon Dark
+- Demon Light
+
+The two Demon themes should share a common visual language, but each should have its own token set.
+
+DESIGN SYSTEM REQUIREMENTS
+
+1. Shared Demon identity
+Both Demon variants should share:
+- the same emotional language
+- the same “dimensional breach” design DNA
+- similar focus/hover glow behavior
+- the same premium atmospheric quality
+
+2. Demon Dark tokens
+Refine/keep:
+- near-black / blue-black / maroon-black backgrounds
+- blood-red energy
+- restrained teal for contrast
+- inner glow / edge light / obsidian material feel
+
+3. Demon Light tokens
+Create a full pale/spectral token system:
+- translucent fog-white / ash-gray / smoky bone / pale silver
+- soft blood-red beneath surfaces, not dominant
+- faint root/vein energy at ultra-low opacity
+- subtle glassmorphism / blurred pane treatment where appropriate
+- cool shadow depth, not sunny brightness
+- preserve readability and professionalism
+
+4. Surface behavior
+For Demon Light especially:
+- cards/panels should feel like translucent haunted glass
+- layered depth
+- pale shell with faint red energy underneath
+- soft internal shadowing
+- restrained blur
+- avoid generic macOS frosted-glass cliché
+
+5. Atmosphere
+Both Demon variants may use subtle environmental styling:
+- low-opacity ambient breach glow
+- organic vein/root silhouettes
+- dimensional depth falloff
+- cinematic vignettes
+
+But:
+- keep it subtle
+- keep content readable
+- never let the theme overpower usability
+
+6. Component coverage
+Apply across:
+- app shell
+- sidebar
+- top nav
+- inbox
+- dashboards
+- cards
+- tables
+- forms
+- command palette
+- dialogs/modals
+- toasts
+- charts
+- empty states
+
+7. UX / settings behavior
+Add clear theme choices in the appearance/theme switcher:
+- Light
+- Dark
+- Demon Dark
+- Demon Light
+
+Persist preference like the current theme system.
+
+IMPLEMENTATION STRATEGY
+
+Do this in phases:
+
+Phase 1 — Theme architecture
+- refactor theme provider/settings so 4 modes are supported cleanly
+- no hacks
+- no page-specific branching unless unavoidable
+
+Phase 2 — Demon Dark cleanup
+- ensure current Demon Dark remains strong, restrained, and premium
+
+Phase 3 — Demon Light system
+- build the pale transparent ghosted variant
+- create dedicated tokens for:
+  - background
+  - surfaces
+  - cards
+  - text
+  - borders
+  - muted text
+  - hover
+  - active
+  - focus
+  - destructive
+  - charts
+  - scrollbars
+  - selection
+  - shadows / glows
+
+Phase 4 — High-traffic page tuning
+- inbox
+- command center
+- dashboard cards
+- command palette
+- dialogs
+- charts
+
+ART DIRECTION CHECK
+
+Demon Dark should feel like:
+- obsidian breach
+- blood-lit machinery
+- hostile elegance
+
+Demon Light should feel like:
+- haunted glass
+- spectral ash membrane
+- pale dimensional residue
+- eerie executive software from an alternate reality
+
+Demon Light should NOT feel like:
+- regular light mode
+- soft pastel theme
+- generic glassmorphism
+- “cute ghost”
+- washed-out low-contrast nonsense
+
+DELIVERABLES
+
+1. Theme architecture updated for 4 appearance modes
+2. Demon Dark preserved/refined
+3. Demon Light created
+4. Before/after screenshots of:
+- inbox
+- dashboard
+- modal
+- command palette
+- charts
+5. Note any screens that needed special tuning
+
+IMPORTANT
+Restraint over gimmicks.
+Make both Demon themes feel premium, cinematic, and intentional.
+This should feel like a serious product theme family, not a novelty add-on.

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 
-type Theme = "dark" | "light" | "system" | "demon";
+type Theme = "dark" | "light" | "system" | "demon" | "demon-light";
 
 type ThemeProviderProps = {
   children: React.ReactNode;
@@ -32,7 +32,7 @@ export function ThemeProvider({
 
   useEffect(() => {
     const root = window.document.documentElement;
-    root.classList.remove("light", "dark", "demon");
+    root.classList.remove("light", "dark", "demon", "demon-light");
 
     if (theme === "system") {
       const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
@@ -43,12 +43,23 @@ export function ThemeProvider({
       return;
     }
 
-    // Demon Mode is "dark + demon" — keep .dark so every existing `dark:` Tailwind
+    // Demon Dark — "dark + demon" — keep .dark so every existing `dark:` Tailwind
     // utility still resolves, then layer the demon palette + atmospherics on top
-    // via the .demon scope. This avoids a per-page rewrite of every dark: variant.
+    // via the .demon scope. Avoids a per-page rewrite of every dark: variant.
     if (theme === "demon") {
       root.classList.add("dark");
       root.classList.add("demon");
+      return;
+    }
+
+    // Demon Light — "the breach seen through haunted translucent glass."
+    // Self-contained pale token system (no .dark, no .demon). Shares emotional
+    // language with Demon Dark via parallel atmospherics scoped to .demon-light.
+    // We deliberately do NOT add .light because Tailwind `dark:` utilities should
+    // resolve to their default branch and `light:` is not in use; this keeps
+    // shadcn components reading from the demon-light token overrides cleanly.
+    if (theme === "demon-light") {
+      root.classList.add("demon-light");
       return;
     }
 

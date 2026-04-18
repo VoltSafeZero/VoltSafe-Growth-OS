@@ -5,7 +5,7 @@ import {
   ClipboardList, Layers, ShieldCheck, Sun, Moon, GitBranch, MapPin,
   LayoutDashboard, Target, Share2, Brain, SlidersHorizontal, BarChart3,
   Megaphone, TrendingUp, Landmark, Truck, Factory, FlaskConical, Newspaper,
-  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, BellRing, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen, FlaskRound, Snowflake, Search, GraduationCap, HelpCircle, Flame,
+  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, BellRing, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen, FlaskRound, Snowflake, Search, GraduationCap, HelpCircle, Flame, Ghost,
 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Link, useLocation } from "wouter";
@@ -225,8 +225,10 @@ export function AppSidebar({
   const [openSection, setOpenSection] = useState<string>(() => getActiveSectionId(location));
   const { theme, setTheme } = useTheme();
   const isDemon = theme === "demon";
-  const isDark = !isDemon && (theme === "dark" || (theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches));
-  const isLight = !isDemon && !isDark;
+  const isDemonLight = theme === "demon-light";
+  const isAnyDemon = isDemon || isDemonLight;
+  const isDark = !isAnyDemon && (theme === "dark" || (theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches));
+  const isLight = !isAnyDemon && !isDark;
 
   useEffect(() => {
     const active = getActiveSectionId(location);
@@ -365,28 +367,32 @@ export function AppSidebar({
 
         </nav>
 
-        {/* Theme toggle — 3-segment pill: Light / Dark / Demon.
-            Demon Mode lives alongside Light & Dark as a real Appearance option;
-            preference persists via the existing localStorage storageKey ("vite-ui-theme"). */}
+        {/* Theme toggle — 4-segment pill: Light / Dark / Demon Dark / Demon Light.
+            Demon Dark = the breach itself. Demon Light = the breach seen through
+            haunted translucent glass. Both persist via localStorage ("vite-ui-theme"). */}
         <div className="px-3 py-3 border-t border-border/40 mt-auto shrink-0">
           <div
-            className="w-full flex items-center justify-between px-3 py-2 rounded-md text-sm text-muted-foreground"
+            className="w-full flex items-center justify-between px-3 py-2 rounded-md text-sm text-muted-foreground gap-2"
             data-testid="theme-toggle-row"
           >
-            <span className="flex items-center gap-2.5">
+            <span className="flex items-center gap-2.5 min-w-0">
               {isDemon ? (
                 <Flame className="w-3.5 h-3.5 shrink-0 text-[hsl(355_75%_55%)]" />
+              ) : isDemonLight ? (
+                <Ghost className="w-3.5 h-3.5 shrink-0 text-[hsl(355_55%_42%)]" />
               ) : isDark ? (
                 <Moon className="w-3.5 h-3.5 shrink-0" />
               ) : (
                 <Sun className="w-3.5 h-3.5 shrink-0" />
               )}
-              <span>{isDemon ? "Demon mode" : isDark ? "Dark mode" : "Light mode"}</span>
+              <span className="truncate">
+                {isDemon ? "Demon Dark" : isDemonLight ? "Demon Light" : isDark ? "Dark mode" : "Light mode"}
+              </span>
             </span>
             <span
               role="radiogroup"
               aria-label="Appearance"
-              className="flex items-center gap-0.5 bg-secondary rounded-full p-0.5"
+              className="flex items-center gap-0.5 bg-secondary rounded-full p-0.5 shrink-0"
             >
               <button
                 role="radio"
@@ -415,7 +421,7 @@ export function AppSidebar({
               <button
                 role="radio"
                 aria-checked={isDemon}
-                aria-label="Demon mode"
+                aria-label="Demon Dark mode"
                 onClick={() => setTheme("demon")}
                 data-testid="button-theme-demon"
                 className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${
@@ -425,6 +431,20 @@ export function AppSidebar({
                 }`}
               >
                 <Flame className="w-3 h-3" />
+              </button>
+              <button
+                role="radio"
+                aria-checked={isDemonLight}
+                aria-label="Demon Light mode"
+                onClick={() => setTheme("demon-light")}
+                data-testid="button-theme-demon-light"
+                className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${
+                  isDemonLight
+                    ? "bg-[hsl(350_18%_97%)] text-[hsl(355_55%_42%)] shadow-[0_0_8px_-1px_hsl(355_55%_55%/0.55)]"
+                    : "text-muted-foreground hover:text-[hsl(355_55%_50%)]"
+                }`}
+              >
+                <Ghost className="w-3 h-3" />
               </button>
             </span>
           </div>
