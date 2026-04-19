@@ -466,7 +466,7 @@ async function findAccountByName(name: string): Promise<string> {
   ).join("\n");
 }
 
-const CRM_TOOLS = [
+export const CRM_TOOLS = [
   {
     type: "function" as const,
     function: {

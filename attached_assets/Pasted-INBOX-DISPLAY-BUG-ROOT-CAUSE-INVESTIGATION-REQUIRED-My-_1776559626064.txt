@@ -1,0 +1,56 @@
+INBOX DISPLAY BUG — ROOT CAUSE INVESTIGATION REQUIRED
+
+My inbox shows "You're all caught up · 9 messages" but Gmail has more emails.
+Based on the UI, I can see:
+- Drafts folder shows 30 (Gmail sync IS working)
+- "Unlinked 14" chip exists (system knows about more emails)
+- "Source: Auto" is active (app may be filtering by smart category)
+- "You're all caught up" phrasing suggests the app thinks the load is complete
+
+I need you to investigate and fix the following — in this exact order:
+
+STEP 1 — COUNT REALITY
+Run these queries and report back raw numbers:
+- Total emails in Gmail inbox for trevor@voltsafe.com (via API)
+- Total emails in local DB for this account
+- Total emails returned by the current inbox query (before any frontend filter)
+- Total emails rendered in UI
+Report all 4 numbers before touching any code.
+
+STEP 2 — AUDIT THE DEFAULT INBOX QUERY
+Find the server-side query that powers the main inbox view.
+- Does it have a hardcoded LIMIT clause? If so, what is it?
+- Does it apply any default WHERE conditions (e.g. is_important, is_linked, category != 'other')?
+- Is "Source: Auto" mapping to a filtered subset rather than raw inbox?
+Show me the exact query before and after any change.
+
+STEP 3 — CHECK SYNC SCOPE
+- When was the last email synced for trevor@voltsafe.com?
+- Is the sync pulling full inbox history or only recent/incremental?
+- Is there a backfill job that was never run or failed silently?
+- Check sync logs for any errors or truncation.
+
+STEP 4 — CHECK PAGINATION
+- Does the inbox API response include a next_page_token or cursor?
+- If yes, is the frontend ever requesting page 2?
+- Is there an IntersectionObserver or scroll sentinel, and is it firing?
+- What is the container overflow/height — can it actually scroll?
+
+STEP 5 — FIX AND VERIFY
+Once root cause is confirmed:
+- Fix the query, sync, or pagination issue
+- Re-run the 4 counts from Step 1
+- Confirm UI now shows correct total
+- Add a visible debug indicator (even temporary) showing: Gmail total / Synced / Filtered / Displayed
+
+DO NOT:
+- Guess and change code without confirming the counts first
+- Mark this fixed until all 4 numbers match
+- Remove the "Unlinked 14" data — that's evidence, don't hide it
+
+RETURN FORMAT:
+Root cause: [one sentence]
+Files changed: [list]
+Before counts: Gmail / DB / Query / UI
+After counts: Gmail / DB / Query / UI
+Remaining gaps: [if any]

@@ -23,6 +23,16 @@ import { eq } from "drizzle-orm";
 import { users } from "@shared/schema";
 import { storage } from "./storage";
 import { chatStorage } from "./replit_integrations/chat/storage";
+import {
+  requireAccessibleLinkedObject,
+  parseTzAwareISODate,
+  idempotencyKey,
+  claimIdempotency,
+  reserveInflight,
+  recordIdempotency,
+  checkAndConsumeRateLimit,
+  safeAuditWrite,
+} from "./voice-assistant-create-guards";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Permission check (mirrors server/auth.ts:requirePermission, function form)
@@ -482,18 +492,22 @@ async function logAssistantDenial(opts: {
       opts.toolName === "update_ticket" ? "ticket" :
       opts.toolName === "add_comment" ? String(opts.args?.object_type || "unknown") :
       "unknown";
-    const objectId = Number(
+    const extractedId = Number(
       opts.args?.lead_id ?? opts.args?.account_id ?? opts.args?.ticket_id ?? opts.args?.object_id ?? 0,
     );
-    if (!objectId) return; // can't link an activity without a target id
+    // Always audit denials. If we can't extract a target id (e.g. create_lead
+    // before the lead exists, or a generic rate-limit denial), link the audit
+    // row to the requesting user instead of silently dropping the record.
+    const finalType = extractedId ? objectType : "assistant";
+    const finalId = extractedId || opts.userId;
     await storage.createActivity({
-      linkedObjectType: objectType,
-      linkedObjectId: objectId,
-      type: `assistant_${opts.toolName}_denied`,
+      linkedObjectType: finalType,
+      linkedObjectId: finalId,
+      type: `assistant_denial`,
       subject: `Assistant write denied`,
       summary: `[${opts.source}] ${opts.userName} (#${opts.userId}) blocked from ${opts.toolName}: ${opts.reason}`,
       outcome: "denied",
-      rawContent: JSON.stringify({ args: opts.args, reason: opts.reason, prompt: opts.transcriptSnippet }),
+      rawContent: JSON.stringify({ tool: opts.toolName, args: opts.args, reason: opts.reason, prompt: opts.transcriptSnippet }),
       createdBy: opts.userId,
     } as any);
   } catch (e) {
@@ -605,17 +619,59 @@ async function _executeToolSafelyImpl(
     return fallbackExecute(toolName, args, ctx.userId, ctx.userName);
   }
 
-  // 2.5. CREATE tools (Build Sequence #2) — handled directly here, not via fallback.
-  // Each handler does its own field validation, optional confirmation gate
-  // (large $ on create_lead), and audit logging.
+  // 2.5. CREATE tools (Build Sequence #2) — wrapped with rate-limit +
+  // idempotency at the single dispatch chokepoint so create_reminder (which
+  // delegates to create_task internally) inherits the same guarantees.
   if (CREATE_TOOLS.has(toolName)) {
-    switch (toolName) {
-      case "create_task":              return executeCreateTask(args, ctx);
-      case "create_reminder":          return executeCreateReminder(args, ctx);
-      case "create_lead":              return executeCreateLead(args, ctx);
-      case "create_note_or_comment":   return executeCreateNoteOrComment(args, ctx);
-      case "create_calendar_event":    return executeCreateCalendarEvent(args, ctx);
+    // Rate limit (per-(userId,tool) + per-userId global). preApproved bypasses
+    // because the user already paid one bucket-slot when they originally
+    // submitted the action that's now being confirmed.
+    if (!ctx.preApproved) {
+      const rl = checkAndConsumeRateLimit(ctx.userId, toolName);
+      if (!rl.ok) {
+        await logAssistantDenial({
+          source: ctx.source, userId: ctx.userId, userName: ctx.userName,
+          toolName, args, reason: rl.reason,
+          transcriptSnippet: ctx.userMessage,
+        });
+        return rl.reason;
+      }
     }
+
+    // Idempotency: dedupe identical (userId, tool, args) within a 60s TTL,
+    // and serialize concurrent duplicates so only one create row is written.
+    // preApproved skips because the confirm-flow IS a deliberate re-execution.
+    const idemKey = ctx.preApproved
+      ? null
+      : idempotencyKey(ctx.userId, toolName, args, args?.idempotency_key);
+    if (idemKey) {
+      const claim = await claimIdempotency(idemKey);
+      if (!claim.ok) return claim.cached;
+    }
+
+    const dispatch = (): Promise<string> => {
+      switch (toolName) {
+        case "create_task":              return executeCreateTask(args, ctx);
+        case "create_reminder":          return executeCreateReminder(args, ctx);
+        case "create_lead":              return executeCreateLead(args, ctx);
+        case "create_note_or_comment":   return executeCreateNoteOrComment(args, ctx);
+        case "create_calendar_event":    return executeCreateCalendarEvent(args, ctx);
+        default: return Promise.resolve(`Unknown create tool: ${toolName}`);
+      }
+    };
+
+    if (idemKey) {
+      const p = dispatch();
+      reserveInflight(idemKey, p);
+      const result = await p;
+      // Only cache successful (✓) or confirmation-gated (⚠) responses; failed
+      // validations are fine to retry immediately.
+      if (result.startsWith("✓") || result.startsWith("⚠")) {
+        recordIdempotency(idemKey, result);
+      }
+      return result;
+    }
+    return dispatch();
   }
 
   // 3. add_comment: validate target type, then pass through (audit row created here too)
@@ -791,17 +847,12 @@ function parseISODate(input: any, label: string): { ok: true; date?: Date } | { 
   return { ok: true, date: d };
 }
 
-async function verifyObjectExists(type: string, id: number): Promise<boolean> {
-  const table = LINKABLE_TABLE[type];
-  if (!table || !Number.isInteger(id) || id <= 0) return false;
-  try {
-    const r = await db.execute(sql`SELECT 1 FROM ${sql.raw(table)} WHERE id = ${id} LIMIT 1`);
-    return r.rows.length > 0;
-  } catch {
-    return false;
-  }
-}
+// (verifyObjectExists removed — replaced by requireAccessibleLinkedObject from
+// voice-assistant-create-guards.ts, which combines existence + per-section
+// permission visibility into one uniform-error check.)
 
+// Now delegates to safeAuditWrite — DB insert with file fallback so a
+// transient audit-table failure can never blow up a successful create.
 async function logAssistantCreate(opts: {
   source: AssistantSource;
   userId: number;
@@ -813,23 +864,7 @@ async function logAssistantCreate(opts: {
   payload: Record<string, any>;
   transcriptSnippet?: string;
 }): Promise<void> {
-  try {
-    const summaryLine =
-      `[${opts.source}] ${opts.userName} (#${opts.userId}) ${opts.summary}.` +
-      (opts.transcriptSnippet ? ` Prompt: "${opts.transcriptSnippet.slice(0, 200)}${opts.transcriptSnippet.length > 200 ? "…" : ""}"` : "");
-    await storage.createActivity({
-      linkedObjectType: opts.objectType,
-      linkedObjectId: opts.objectId,
-      type: `assistant_${opts.toolName}`,
-      subject: `Assistant ${opts.toolName}`,
-      summary: summaryLine,
-      outcome: "success",
-      rawContent: JSON.stringify({ payload: opts.payload, source: opts.source }),
-      createdBy: opts.userId,
-    } as any);
-  } catch (e) {
-    console.error("[voice-safety] create-audit failed:", e);
-  }
+  await safeAuditWrite({ ...opts, source: String(opts.source) });
 }
 
 // ──────────── create_task ──────────────────────────────────────────────────
@@ -837,11 +872,12 @@ async function executeCreateTask(args: any, ctx: SafeExecContext): Promise<strin
   const title = String(args?.title || "").trim();
   if (!title) return "I need a title to create a task. What should I call it?";
 
-  const due = parseISODate(args?.due_date, "due_date");
+  const tz = args?.time_zone ? String(args.time_zone) : null;
+  const due = parseTzAwareISODate(args?.due_date, "due_date", tz);
   if (!due.ok) return `Validation failed: ${due.error}`;
-  const start = parseISODate(args?.start_date, "start_date");
+  const start = parseTzAwareISODate(args?.start_date, "start_date", tz);
   if (!start.ok) return `Validation failed: ${start.error}`;
-  const remind = parseISODate(args?.reminder_at, "reminder_at");
+  const remind = parseTzAwareISODate(args?.reminder_at, "reminder_at", tz);
   if (!remind.ok) return `Validation failed: ${remind.error}`;
 
   const priority = TASK_PRIORITY_ENUM.has(String(args?.priority || "").toLowerCase())
@@ -859,8 +895,8 @@ async function executeCreateTask(args: any, ctx: SafeExecContext): Promise<strin
     return `Validation failed: linked_object_id must be a positive integer when linked_object_type is set.`;
   }
   if (linkedType && linkedId) {
-    const exists = await verifyObjectExists(linkedType, linkedId);
-    if (!exists) return `Cannot link to ${linkedType} #${linkedId} — no such record exists.`;
+    const access = await requireAccessibleLinkedObject(ctx.userId, linkedType, linkedId);
+    if (!access.ok) return access.reason;
   }
 
   const ownerUserId = (args?.owner_user_id !== undefined && args.owner_user_id !== null) ? Number(args.owner_user_id) : ctx.userId;
@@ -918,7 +954,8 @@ async function executeCreateReminder(args: any, ctx: SafeExecContext): Promise<s
   const text = String(args?.text || args?.title || "").trim();
   if (!text) return "What would you like me to remind you about?";
 
-  const when = parseISODate(args?.remind_at, "remind_at");
+  const tz = args?.time_zone ? String(args.time_zone) : null;
+  const when = parseTzAwareISODate(args?.remind_at, "remind_at", tz);
   if (!when.ok) return `Validation failed: ${when.error}`;
   if (!when.date) return `When should I remind you? Please give me a specific time (ISO 8601 like "${new Date(Date.now() + 3600_000).toISOString()}").`;
   if (when.date.getTime() < Date.now() - 60_000) {
@@ -1059,8 +1096,8 @@ async function executeCreateNoteOrComment(args: any, ctx: SafeExecContext): Prom
     return `Permission denied: ${perm.reason}`;
   }
 
-  const exists = await verifyObjectExists(objType, objId);
-  if (!exists) return `Cannot add ${kind}: ${objType} #${objId} not found.`;
+  const access = await requireAccessibleLinkedObject(ctx.userId, objType, objId);
+  if (!access.ok) return `Cannot add ${kind}: ${access.reason}`;
 
   try {
     if (kind === "comment") {
@@ -1110,13 +1147,14 @@ async function executeCreateCalendarEvent(args: any, ctx: SafeExecContext): Prom
   const title = String(args?.title || "").trim();
   if (!title) return "What should I call the calendar event?";
 
-  const startP = parseISODate(args?.start_time, "start_time");
+  const tz = args?.time_zone ? String(args.time_zone) : null;
+  const startP = parseTzAwareISODate(args?.start_time, "start_time", tz);
   if (!startP.ok) return `Validation failed: ${startP.error}`;
   if (!startP.date) return "When does the event start? Please give me an ISO 8601 datetime.";
   if (startP.date.getTime() < Date.now() - 60_000) {
     return `Validation failed: start_time "${args.start_time}" is in the past.`;
   }
-  const endP = parseISODate(args?.end_time, "end_time");
+  const endP = parseTzAwareISODate(args?.end_time, "end_time", tz);
   if (!endP.ok) return `Validation failed: ${endP.error}`;
 
   const allDay = !!args?.all_day;
@@ -1137,8 +1175,8 @@ async function executeCreateCalendarEvent(args: any, ctx: SafeExecContext): Prom
     return `Validation failed: linked_object_id must be a positive integer when linked_object_type is set.`;
   }
   if (linkedType && linkedId) {
-    const ok = await verifyObjectExists(linkedType, linkedId);
-    if (!ok) return `Cannot link to ${linkedType} #${linkedId} — no such record.`;
+    const access = await requireAccessibleLinkedObject(ctx.userId, linkedType, linkedId);
+    if (!access.ok) return access.reason;
   }
 
   let invitees: string[] | undefined;

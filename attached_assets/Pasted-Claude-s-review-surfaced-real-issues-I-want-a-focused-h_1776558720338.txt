@@ -1,0 +1,99 @@
+Claude’s review surfaced real issues. I want a focused hardening pass on the create-tool system before adding more tools.
+
+Do not add new features. Do not do a broad refactor first. Fix the highest-risk gaps in priority order and verify them with real tests.
+
+Priority order:
+1. per-object visibility enforcement
+2. idempotency for all create endpoints/tools
+3. rate limiting
+4. low-permission integration test coverage
+5. timezone normalization for reminder/calendar inputs
+6. LLM tool-selection test harness
+7. only after that: assess registry refactor / audit-path improvements
+
+What I want implemented:
+
+1) Per-object visibility checks
+- For every linked_object existence validation, verify both:
+  - object exists
+  - requesting user is allowed to access/link that object
+- Do not leak existence of unauthorized objects
+- Error should be the same for not-found vs unauthorized where appropriate
+- Apply this consistently across create_task, create_note_or_comment, create_calendar_event, and any other linked create tools
+
+2) Idempotency
+- Add idempotency protection for all create actions exposed through the voice assistant
+- Prevent duplicate task/reminder/lead/note/comment/calendar creation on retry or double-submit
+- Use a production-safe design (request id / idempotency key / dedupe window)
+- Verify concurrent duplicate submissions only create one record
+
+3) Rate limiting
+- Add per-user rate limiting for create tools
+- Include a sensible limit per tool and a global limit
+- Fail safely with clear logging
+- Add tests for rate-limit enforcement
+
+4) Permission / low-permission test coverage
+- Seed a real low-permission user in test/dev
+- Run end-to-end integration coverage for denied create paths
+- Verify denied actions do not create records
+- Verify denials are audited/logged correctly
+
+5) Timezone normalization
+- Normalize all reminder/calendar date-time handling
+- Store UTC consistently
+- Be explicit about how user timezone is determined
+- Add tests covering timezone-sensitive inputs and edge cases
+
+6) LLM tool-selection harness
+- Build a test harness for messy real-world prompts
+- Include:
+  - clear prompts
+  - ambiguous prompts
+  - malformed prompts
+  - adversarial prompts
+  - prompts that should clarify instead of creating
+- Verify correct tool selection, correct extraction, and safe fallback behavior
+
+7) Transaction / audit safety
+- Review create + audit flow
+- Verify behavior when audit write fails
+- Either make create+audit transactional or clearly handle partial failure safely
+- Add tests for this
+
+Deliverables:
+Return the report in this exact format:
+
+Create Tool Hardening Report
+
+1. Risks fixed
+- bullet list
+
+2. Files changed
+- file path + exact purpose
+
+3. Tests added / run
+- include real counts
+- include low-permission test results
+- include duplicate-submit / idempotency results
+- include tool-selection harness results
+
+4. Exact changes made
+- per-object visibility
+- idempotency
+- rate limiting
+- timezone handling
+- audit/transaction handling
+- tool-selection harness
+
+5. Remaining gaps
+- what still needs work and why
+
+6. Recommended next step
+- single highest-ROI next move after this hardening pass
+
+Rules:
+- No fake claims
+- If a test fixture or seeded user did not exist before, create it and run it for real
+- No broad architecture rewrite unless required to fix a concrete issue
+- Prefer surgical, production-safe fixes first

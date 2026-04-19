@@ -17,6 +17,13 @@ import { db } from "../server/db";
 import { sql } from "drizzle-orm";
 import { executeToolSafely, handleConfirmationTurn, type SafeExecContext } from "../server/voice-assistant-safety";
 import { chatStorage } from "../server/replit_integrations/chat/storage";
+import {
+  _resetIdempotencyForTest,
+  _resetRateLimitsForTest,
+  parseTzAwareISODate,
+  safeAuditWrite,
+  getAuditFallbackCount,
+} from "../server/voice-assistant-create-guards";
 
 const fallbackExecute = async () => "fallbackExecute should not be called for create_*";
 
@@ -80,8 +87,9 @@ async function main() {
     check("invalid ISO due_date → validation", /Validation failed.*due_date/.test(badDate), badDate.slice(0, 80));
 
     const badLink = await executeToolSafely("create_task", { title: "x", linked_object_type: "lead", linked_object_id: 999999999 }, ctxFor(conv, "x"), fallbackExecute);
-    check("nonexistent linked object → reject", /Cannot link to lead/.test(badLink), badLink.slice(0, 80));
+    check("nonexistent linked object → uniform reject", /Cannot link to lead.*no such record or you don't have access/.test(badLink), badLink.slice(0, 80));
   }
+  _resetIdempotencyForTest(); _resetRateLimitsForTest();
 
   // ────────────────────────────────────────────────────────────────────────
   console.log("\n[2] create_reminder");
@@ -188,7 +196,7 @@ async function main() {
     const badId = await executeToolSafely("create_note_or_comment", {
       object_type: "account", object_id: 999999999, content: "x",
     }, ctxFor(conv, "x"), fallbackExecute);
-    check("nonexistent object_id → reject", /not found/i.test(badId), badId.slice(0, 80));
+    check("nonexistent object_id → uniform reject", /no such record or you don't have access/.test(badId), badId.slice(0, 80));
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -238,6 +246,219 @@ async function main() {
       check("low-perm user → create_lead denied", /Permission denied/.test(denied), denied.slice(0, 80));
       const r = await db.execute(sql`SELECT COUNT(*)::int AS n FROM activities WHERE type='assistant_denial' AND created_by=${low.id} AND created_at >= ${t0}`);
       check("denial audited", Number((r.rows[0] as any).n) >= 1);
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  console.log("\n[7] per-object visibility (low-perm user blocked from seeing/linking)");
+  {
+    _resetIdempotencyForTest(); _resetRateLimitsForTest();
+    const low = await getLowPermUser();
+    const acctId = await findExistingAccountId();
+    if (!low || !acctId) {
+      console.log("  ⚠ low-perm user or account missing — skipping visibility test");
+    } else {
+      const conv = await newConv(low.id, "smoke-vis");
+      const blocked = await executeToolSafely("create_task", {
+        title: "Should not link", linked_object_type: "account", linked_object_id: acctId,
+      }, ctxFor(conv, "task on account", low.id, low.name), fallbackExecute);
+      check(
+        "low-perm user can't link to account that exists",
+        /no such record or you don't have access/.test(blocked),
+        blocked.slice(0, 80),
+      );
+      check(
+        "error is identical to not-found (no enumeration leak)",
+        blocked.includes(`Cannot link to account #${acctId}`),
+        blocked.slice(0, 80),
+      );
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  console.log("\n[8] idempotency (60s TTL, dedupe + concurrent dedupe)");
+  {
+    _resetIdempotencyForTest(); _resetRateLimitsForTest();
+    const conv = await newConv(trevor.id, "smoke-idem");
+    const args = {
+      title: `Idem test ${Date.now()}`,
+      due_date: new Date(Date.now() + 86400_000).toISOString(),
+      idempotency_key: `idem-${Date.now()}`,
+    };
+    const beforeAudit = await countAuditFor("create_task", t0);
+    const r1 = await executeToolSafely("create_task", args, ctxFor(conv, "x"), fallbackExecute);
+    const r2 = await executeToolSafely("create_task", args, ctxFor(conv, "x"), fallbackExecute);
+    check("first call returns ✓", r1.startsWith("✓"), r1.slice(0, 80));
+    check("second identical call returns SAME response", r1 === r2, `r1≠r2`);
+    const afterAudit = await countAuditFor("create_task", t0);
+    check("only ONE row inserted (audit count +1)", afterAudit === beforeAudit + 1, `+${afterAudit - beforeAudit}`);
+
+    // Verify exactly one task row by extracting #id from the response
+    const idMatch = /#(\d+)/.exec(r1);
+    if (idMatch) {
+      const dups = await db.execute(sql`SELECT COUNT(*)::int AS n FROM tasks WHERE title = ${args.title}`);
+      check("exactly one tasks row by title", Number((dups.rows[0] as any).n) === 1, `count=${(dups.rows[0] as any).n}`);
+    }
+
+    // Concurrent submission — fire 5 in parallel with same args
+    _resetIdempotencyForTest();
+    const conv2 = await newConv(trevor.id, "smoke-idem-concurrent");
+    const args2 = {
+      title: `Concurrent idem ${Date.now()}`,
+      due_date: new Date(Date.now() + 86400_000).toISOString(),
+    };
+    const beforeC = await countAuditFor("create_task", t0);
+    const results = await Promise.all(Array.from({ length: 5 }, () =>
+      executeToolSafely("create_task", args2, ctxFor(conv2, "x"), fallbackExecute)));
+    const successCount = results.filter((r) => r.startsWith("✓")).length;
+    check("all 5 concurrent calls return ✓", successCount === 5, `${successCount}/5`);
+    const allSame = results.every((r) => r === results[0]);
+    check("all 5 responses identical (one canonical result)", allSame, allSame ? "yes" : "no");
+    const afterC = await countAuditFor("create_task", t0);
+    check("only ONE row inserted across 5 concurrent (audit +1)", afterC === beforeC + 1, `+${afterC - beforeC}`);
+    const dups2 = await db.execute(sql`SELECT COUNT(*)::int AS n FROM tasks WHERE title = ${args2.title}`);
+    check("exactly one tasks row by title (concurrent)", Number((dups2.rows[0] as any).n) === 1, `count=${(dups2.rows[0] as any).n}`);
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  console.log("\n[9] rate limiting (10/min/tool, 30/min/user)");
+  {
+    _resetIdempotencyForTest(); _resetRateLimitsForTest();
+    const conv = await newConv(trevor.id, "smoke-rate");
+    let limited = 0, ok = 0;
+    for (let i = 0; i < 12; i++) {
+      const r = await executeToolSafely("create_task", {
+        title: `Rate test ${i} ${Date.now()}`,
+        due_date: new Date(Date.now() + 86400_000).toISOString(),
+      }, ctxFor(conv, "x"), fallbackExecute);
+      if (/Rate limit hit for create_task/.test(r)) limited++;
+      else if (r.startsWith("✓")) ok++;
+    }
+    check("first 10 succeed under per-tool limit", ok === 10, `ok=${ok}`);
+    check("11th+ get rate-limited", limited >= 2, `limited=${limited}`);
+    const denials = await db.execute(sql`SELECT COUNT(*)::int AS n FROM activities WHERE type='assistant_denial' AND summary LIKE '%Rate limit hit%' AND created_at >= ${t0}`);
+    check("rate-limit denial audited", Number((denials.rows[0] as any).n) >= 1, `n=${(denials.rows[0] as any).n}`);
+
+    // Global per-user cap: 30 across all create tools. Use 4 tools × 10 each
+    // (well under per-tool cap), plus 5 extras of a 5th tool to push past 30.
+    _resetRateLimitsForTest();
+    let globalLimited = 0, globalOk = 0;
+    const fireOf = async (tool: string, n: number) => {
+      for (let i = 0; i < n; i++) {
+        const args = tool === "create_task"
+          ? { title: `g_${tool}_${i}_${Date.now()}`, due_date: new Date(Date.now() + 86400_000 + i).toISOString() }
+          : tool === "create_reminder"
+          ? { text: `g_${tool}_${i}_${Date.now()}`, remind_at: new Date(Date.now() + 3600_000 + i).toISOString() }
+          : tool === "create_calendar_event"
+          ? { title: `g_${tool}_${i}_${Date.now()}`, start_time: new Date(Date.now() + 7200_000 + i * 1000).toISOString() }
+          : { kind: "comment", object_type: "account", object_id: 10, content: `g_${tool}_${i}_${Date.now()}` };
+        const r = await executeToolSafely(tool, args, ctxFor(conv, "x"), fallbackExecute);
+        if (/Rate limit hit for create actions/.test(r)) globalLimited++;
+        else if (r.startsWith("✓")) globalOk++;
+      }
+    };
+    await fireOf("create_task", 10);
+    await fireOf("create_reminder", 10);
+    await fireOf("create_calendar_event", 10);  // total 30 ok
+    await fireOf("create_note_or_comment", 5);  // these should ALL hit the 30/min global cap
+    check("global cap fires after 30/min across tools", globalLimited >= 5, `globalLimited=${globalLimited}, ok=${globalOk}`);
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  console.log("\n[10] timezone normalization");
+  {
+    _resetIdempotencyForTest(); _resetRateLimitsForTest();
+
+    // Pure parseTzAwareISODate unit checks
+    const r1 = parseTzAwareISODate("2026-05-01T15:00:00Z", "x");
+    check("Z-suffixed ISO accepted", r1.ok && r1.date?.toISOString() === "2026-05-01T15:00:00.000Z");
+    const r2 = parseTzAwareISODate("2026-05-01T15:00:00-07:00", "x");
+    check("offset-suffixed ISO accepted", r2.ok && r2.date?.toISOString() === "2026-05-01T22:00:00.000Z");
+    const r3 = parseTzAwareISODate("2026-05-01T15:00:00", "x");
+    check("TZ-naive ISO REJECTED without time_zone arg", !r3.ok && /missing a timezone/.test((r3 as any).error));
+    const r4 = parseTzAwareISODate("2026-05-01T15:00:00", "x", "America/Los_Angeles");
+    check("TZ-naive + time_zone=LA → interpreted as PT (=22:00 UTC during DST)",
+      r4.ok && r4.date?.toISOString() === "2026-05-01T22:00:00.000Z",
+      r4.ok ? r4.date?.toISOString() : "");
+    const r5 = parseTzAwareISODate("2026-05-01T15:00:00", "x", "Not/A_Zone");
+    check("invalid IANA zone REJECTED", !r5.ok && /not a valid IANA timezone/.test((r5 as any).error));
+
+    // End-to-end through the create handler
+    const conv = await newConv(trevor.id, "smoke-tz");
+    const naiveReject = await executeToolSafely("create_task", {
+      title: `TZ test ${Date.now()}`,
+      due_date: "2026-05-01T15:00:00",
+    }, ctxFor(conv, "x"), fallbackExecute);
+    check("create_task rejects TZ-naive due_date", /missing a timezone/.test(naiveReject), naiveReject.slice(0, 80));
+
+    _resetIdempotencyForTest();
+    const naiveAccept = await executeToolSafely("create_task", {
+      title: `TZ accept ${Date.now()}`,
+      due_date: "2026-05-01T15:00:00",
+      time_zone: "America/Los_Angeles",
+    }, ctxFor(conv, "x"), fallbackExecute);
+    check("create_task accepts TZ-naive + time_zone arg", naiveAccept.startsWith("✓"), naiveAccept.slice(0, 80));
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  console.log("\n[11] audit-write safety (file fallback when DB insert throws)");
+  {
+    const before = getAuditFallbackCount();
+    // Trigger an audit write that the DB cannot accept: invalid linkedObjectType
+    // would still pass storage; instead force failure by passing a bad payload
+    // type that JSON.stringify cannot handle (BigInt). We bypass through a
+    // direct safeAuditWrite call (the wired layer in handlers is identical).
+    // Force DB failure with an objectId that overflows int4 (linked_object_id type).
+    const r = await safeAuditWrite({
+      source: "smoke-test",
+      userId: trevor.id, userName: trevor.name,
+      toolName: "create_task",
+      objectType: "lead", objectId: 99_999_999_999, // > 2^31
+      summary: "smoke audit fallback test",
+      payload: { detail: "intentional DB failure to exercise file fallback" },
+    });
+    check("safeAuditWrite returns ok via file fallback when DB fails", r.ok && r.via === "file", `via=${r.via}`);
+    check("fallback counter incremented", getAuditFallbackCount() === before + 1, `before=${before} after=${getAuditFallbackCount()}`);
+    // Confirm the file actually has the line
+    const fs = await import("fs");
+    const path = await import("path");
+    const fp = path.join(process.cwd(), "logs", "assistant-audit-fallback.log");
+    const exists = fs.existsSync(fp);
+    check("fallback log file written", exists);
+    if (exists) {
+      const tail = fs.readFileSync(fp, "utf8").trim().split("\n").slice(-1)[0];
+      check("fallback file line contains DB error", /value.*out of range|integer/i.test(tail), tail.slice(0, 100));
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  console.log("\n[12] low-permission integration (denied + audited + no row)");
+  {
+    _resetIdempotencyForTest(); _resetRateLimitsForTest();
+    const low = await getLowPermUser();
+    if (!low) {
+      console.log("  ⚠ low-perm user still missing — run scripts/seed-low-perm-user.ts");
+    } else {
+      const conv = await newConv(low.id, "smoke-deny-2");
+      const tag = `LowPerm Marina ${Date.now()}`;
+      const denied = await executeToolSafely("create_lead",
+        { company: tag, contact_name: "Should Not Insert" },
+        ctxFor(conv, "add lead", low.id, low.name), fallbackExecute);
+      check("low-perm create_lead → Permission denied", /Permission denied/.test(denied), denied.slice(0, 80));
+      const r = await db.execute(sql`SELECT COUNT(*)::int AS n FROM leads WHERE company = ${tag}`);
+      check("denied lead NOT inserted", Number((r.rows[0] as any).n) === 0, `count=${(r.rows[0] as any).n}`);
+      const a = await db.execute(sql`SELECT COUNT(*)::int AS n FROM activities WHERE type='assistant_denial' AND created_by=${low.id} AND created_at >= ${t0}`);
+      check("denial audited to activities", Number((a.rows[0] as any).n) >= 1, `n=${(a.rows[0] as any).n}`);
+
+      // Note on a CRM object — also requires crm.edit
+      const acctId = await findExistingAccountId();
+      if (acctId) {
+        const deniedNote = await executeToolSafely("create_note_or_comment",
+          { kind: "note", object_type: "account", object_id: acctId, content: "x" },
+          ctxFor(conv, "add note", low.id, low.name), fallbackExecute);
+        check("low-perm create_note_or_comment → Permission denied or visibility-blocked",
+          /Permission denied|no such record or you don't have access/.test(deniedNote), deniedNote.slice(0, 80));
+      }
     }
   }
 
