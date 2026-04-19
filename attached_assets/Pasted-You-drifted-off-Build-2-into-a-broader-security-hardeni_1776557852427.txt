@@ -1,0 +1,61 @@
+You drifted off Build #2 into a broader security hardening pass. Keep those security fixes, but now return to the actual assigned task and finish/verify Build Sequence #2 only.
+
+Critical rules:
+- No schema changes
+- Zero db:push
+- No migrations
+- No new tables
+- Pure additive code only
+- Do not continue broad security work unless it directly blocks Build #2
+- Do not pivot to unrelated hardening
+- Focus only on the voice-assistant create capabilities
+
+Goal:
+I need a clean, explicit answer on whether Build #2 is actually fully shipped and verified.
+
+Build #2 scope:
+1. create_task
+2. create_note_or_comment
+3. create_lead
+4. create_calendar_event
+5. create_reminder only if a real reminder-capable system already exists
+
+Your job now:
+A. Verify which of those 5 create tools are actually implemented end-to-end
+B. If any are incomplete, finish only those missing pieces
+C. Then run focused verification for each implemented create flow
+D. Then return the report in the exact required format below
+
+Verification requirements:
+For each create tool, verify:
+- tool exists in the voice assistant tool catalog
+- dispatch path exists
+- shared safety layer is used
+- permissions are enforced
+- validation exists
+- audit/activity logging exists
+- both /api/voice-assistant/ask and /api/voice-assistant/text can use it
+- at least one successful flow works
+- at least one clarification-required or invalid-input flow is handled correctly
+
+If create_reminder was not implemented because no true reminder-capable system exists, say that clearly and explain exactly what existing system was inspected and why it was rejected.
+
+Return exactly this format:
+
+1. Files changed
+2. New tools added
+3. Which existing systems/models were reused for each tool
+4. What validations were added for each create flow
+5. What permissions were enforced for each create flow
+6. What gets audited/logged for each create flow
+7. Example successful voice/text flows for each new tool
+8. Example clarification-required flows
+9. Example denied-permission flow
+10. Limitations still remaining
+11. Exact manual QA steps I can run now
+
+Important:
+- Do not summarize the earlier security work except where directly relevant to Build #2
+- Be explicit about what is fully shipped vs not shipped
+- No vague wording like “follow-ups still in place”
+- I want the truth, not optimism
