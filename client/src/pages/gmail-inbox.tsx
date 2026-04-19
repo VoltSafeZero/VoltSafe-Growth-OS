@@ -3114,18 +3114,32 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sentBaseToken, activeAccountId, mailSource]);
 
-  // Pagination request-epoch guard (Apr 2026, hardening pass 2). When the user switches mailbox,
-  // search query, or source while a loadMore is in flight, the in-flight response would otherwise
-  // be appended to the NEW context (leaking old-mailbox rows). We bump the epoch on every reset
-  // and drop late responses whose epoch no longer matches.
+  // Pagination request-epoch guard (Apr 2026, hardening pass 2 + pass 4 expanded context). When
+  // the user switches mailbox, search query, source, OR tab/category/CRM filter while a loadMore
+  // is in flight, the in-flight response would otherwise be appended to the NEW context (leaking
+  // old-mailbox rows OR causing autoChain budget reset to fire against stale extras). We bump
+  // the epoch on every context change and drop late responses whose epoch no longer matches.
+  // Tab is included even though inbox/other share data, because a tab change can race with reset.
   const inboxEpochRef = useRef(0);
   const sentEpochRef = useRef(0);
-  useEffect(() => { inboxEpochRef.current += 1; }, [activeAccountId, searchQuery, mailSource]);
-  useEffect(() => { sentEpochRef.current += 1; }, [activeAccountId, searchQuery, mailSource]);
+  useEffect(() => { inboxEpochRef.current += 1; }, [activeAccountId, searchQuery, mailSource, tab, inboxCategory, crmFilter]);
+  useEffect(() => { sentEpochRef.current += 1; }, [activeAccountId, searchQuery, mailSource, tab]);
+
+  // Inbox debug instrumentation — opt-in via `localStorage.inbox_debug=1`. Logs every fetch's
+  // full context, raw vs visible count, drop-on-stale-epoch, and auto-chain decisions. Stripped
+  // from production via the localStorage gate; safe to leave in code.
+  const dbg = (label: string, payload: Record<string, unknown>) => {
+    if (typeof window !== "undefined" && window.localStorage?.getItem("inbox_debug") === "1") {
+      // eslint-disable-next-line no-console
+      console.log(`[inbox] ${label}`, payload);
+    }
+  };
 
   const loadMoreInbox = async () => {
     if (!inboxNextToken || loadingMoreInbox) return;
     const requestEpoch = inboxEpochRef.current;
+    const ctxKey = `acct=${activeAccountId ?? ""}|src=${mailSource}|tab=${tab}|q=${searchQuery}|cat=${inboxCategory}|crm=${crmFilter}`;
+    dbg("loadMoreInbox:fire", { ctx: ctxKey, epoch: requestEpoch, token: inboxNextToken });
     setLoadingMoreInbox(true);
     try {
       const params = new URLSearchParams();
@@ -3137,20 +3151,36 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error();
       const data: { messages: MessageSummary[]; nextPageToken: string | null } = await res.json();
-      // Drop the response if the user changed mailbox/search/source mid-flight
-      if (inboxEpochRef.current !== requestEpoch) return;
+      // Drop the response if the user changed mailbox/search/source/tab/category/crmFilter mid-flight.
+      // CRITICAL: malformed pagination state (missing nextPageToken on a successful response with
+      // rows) is treated as "more may exist" — we never set hasMore=false on ambiguous responses.
+      if (inboxEpochRef.current !== requestEpoch) {
+        dbg("loadMoreInbox:dropped-stale-epoch", { ctx: ctxKey, requestEpoch, currentEpoch: inboxEpochRef.current });
+        return;
+      }
       // Dedup against what's already loaded (base page + extras) — local/gmail overlap can echo ids
+      let freshCount = 0;
       setInboxExtra((prev) => {
         const known = new Set<string>([
           ...(inboxQuery.data?.messages || []).map((m) => m.id),
           ...prev.map((m) => m.id),
         ]);
         const fresh = data.messages.filter((m) => !known.has(m.id));
+        freshCount = fresh.length;
         return [...prev, ...fresh];
       });
-      setInboxNextToken(data.nextPageToken);
-    } catch {
-      toast({ title: "Failed to load more", variant: "destructive" });
+      // Token-update hardening: trust the response only when it explicitly says exhaustion
+      // (nextPageToken === null) OR hands us a new token (string). If the field is missing
+      // entirely (undefined) AND we received rows, treat as ambiguous and preserve the prior
+      // token so "all caught up" cannot appear from a malformed payload.
+      const ambiguous = data.nextPageToken === undefined && data.messages.length > 0;
+      if (!ambiguous) setInboxNextToken(data.nextPageToken ?? null);
+      dbg("loadMoreInbox:done", { ctx: ctxKey, raw: data.messages.length, fresh: freshCount, nextToken: data.nextPageToken, ambiguous });
+    } catch (err: any) {
+      // Error path: NEVER clear inboxNextToken — preserves hasMore=true so "all caught up" cannot
+      // appear. Surface a retry toast; existing rows stay rendered (shadcn toast pattern).
+      dbg("loadMoreInbox:error", { ctx: ctxKey, error: err?.message ?? String(err) });
+      toast({ title: "Failed to load more — tap Load more to retry", variant: "destructive" });
     } finally {
       setLoadingMoreInbox(false);
     }
@@ -3159,6 +3189,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const loadMoreSent = async () => {
     if (!sentNextToken || loadingMoreSent) return;
     const requestEpoch = sentEpochRef.current;
+    const ctxKey = `acct=${activeAccountId ?? ""}|src=${mailSource}|tab=sent|q=${searchQuery}`;
+    dbg("loadMoreSent:fire", { ctx: ctxKey, epoch: requestEpoch, token: sentNextToken });
     setLoadingMoreSent(true);
     try {
       const params = new URLSearchParams();
@@ -3170,18 +3202,27 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error();
       const data: { messages: MessageSummary[]; nextPageToken: string | null } = await res.json();
-      if (sentEpochRef.current !== requestEpoch) return;
+      if (sentEpochRef.current !== requestEpoch) {
+        dbg("loadMoreSent:dropped-stale-epoch", { ctx: ctxKey, requestEpoch, currentEpoch: sentEpochRef.current });
+        return;
+      }
+      let freshCount = 0;
       setSentExtra((prev) => {
         const known = new Set<string>([
           ...(sentQuery.data?.messages || []).map((m) => m.id),
           ...prev.map((m) => m.id),
         ]);
         const fresh = data.messages.filter((m) => !known.has(m.id));
+        freshCount = fresh.length;
         return [...prev, ...fresh];
       });
-      setSentNextToken(data.nextPageToken);
-    } catch {
-      toast({ title: "Failed to load more", variant: "destructive" });
+      // Same ambiguous-token guard as inbox path.
+      const ambiguous = data.nextPageToken === undefined && data.messages.length > 0;
+      if (!ambiguous) setSentNextToken(data.nextPageToken ?? null);
+      dbg("loadMoreSent:done", { ctx: ctxKey, raw: data.messages.length, fresh: freshCount, nextToken: data.nextPageToken, ambiguous });
+    } catch (err: any) {
+      dbg("loadMoreSent:error", { ctx: ctxKey, error: err?.message ?? String(err) });
+      toast({ title: "Failed to load more — tap Load more to retry", variant: "destructive" });
     } finally {
       setLoadingMoreSent(false);
     }
@@ -3655,21 +3696,47 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   //
   // Fix: auto-chain whenever the rendered list is starved (< 25 visible) AND more pages exist,
   // regardless of WHY it's starved (blocked-domain stripping, category, CRM, or all three).
-  // Bounded to 10 chained pages (500 raw messages) per context to prevent runaway loops.
-  // The chain resets when tab/account/search/source/category/CRM changes (new context = new budget).
+  // Bounded to 25 chained pages (1,250 raw messages) per context to prevent runaway loops.
+  // Cap raised from 10 → 25 (Apr 2026 hardening pass 4) because heavy-spam mailboxes (~1k+ msgs
+  // with aggressive blocked-domain lists) routinely exhausted the 10-page budget before the
+  // viewport filled, leaving the user with a starved list and no auto-resume. The chain resets
+  // when tab/account/search/source/category/CRM changes (new context = new budget). When the
+  // budget is exhausted but `hasMore` stays true, the sentinel renders an explicit "Load more"
+  // button so the user has a manual escape hatch — never silently stops with rows missing.
   const autoChainRef = useRef({ key: "", count: 0 });
+  // Use STATE (not ref) so the "more available" CTA re-renders the moment the budget is exhausted.
+  const [autoChainExhaustedKey, setAutoChainExhaustedKey] = useState<string | null>(null);
+  // Compute the inbox chain key once; reused by the auto-chain effect AND the
+  // unconditional context-clear effect below, so a context switch ALWAYS wipes the
+  // exhaustion flag — even when the auto-chain effect short-circuits (e.g. tab=sent).
+  const inboxChainKey = `inbox-or-other|${activeAccountId ?? ""}|${searchQuery}|${mailSource}|${inboxCategory}|${crmFilter}`;
+  useEffect(() => {
+    // Unconditional clear on any inbox-context change — never gated by hasMore/isLoading
+    // so stale exhaustion can't bleed across mailbox/source/tab switches.
+    setAutoChainExhaustedKey((prev) => (prev !== null && prev !== inboxChainKey ? null : prev));
+  }, [inboxChainKey]);
   useEffect(() => {
     if (tab !== "inbox" && tab !== "other") return;
     if (!hasMore || isLoadingMore) return;
-    const chainKey = `${tab}|${activeAccountId ?? ""}|${searchQuery}|${mailSource}|${inboxCategory}|${crmFilter}`;
-    if (autoChainRef.current.key !== chainKey) {
-      autoChainRef.current = { key: chainKey, count: 0 };
+    if (autoChainRef.current.key !== inboxChainKey) {
+      autoChainRef.current = { key: inboxChainKey, count: 0 };
     }
     if (crmFilteredMessages.length >= 25) return;
-    if (autoChainRef.current.count >= 10) return; // bound: max 10 chained pages = 500 raw msgs
+    if (autoChainRef.current.count >= 25) {
+      if (autoChainExhaustedKey !== inboxChainKey) setAutoChainExhaustedKey(inboxChainKey);
+      dbg("autoChain:exhausted", { ctx: inboxChainKey, visible: crmFilteredMessages.length, count: autoChainRef.current.count });
+      return;
+    }
     autoChainRef.current.count += 1;
+    dbg("autoChain:fire", { ctx: inboxChainKey, iter: autoChainRef.current.count, visible: crmFilteredMessages.length });
     loadMore();
-  }, [tab, hasMore, isLoadingMore, inboxCategory, crmFilter, activeAccountId, searchQuery, mailSource, crmFilteredMessages.length, loadMore]);
+  }, [tab, hasMore, isLoadingMore, inboxChainKey, crmFilteredMessages.length, loadMore, autoChainExhaustedKey]);
+  // Strictly scope: only render the "more available" CTA when (a) we exhausted THIS chain key,
+  // (b) we're on a tab where auto-chain even applies, and (c) hasMore is still true.
+  const autoChainExhausted =
+    autoChainExhaustedKey === inboxChainKey &&
+    (tab === "inbox" || tab === "other") &&
+    hasMore;
 
   // Batch fetch signal + triage data for visible thread IDs
   const visibleThreadIds = useMemo(
@@ -5117,13 +5184,38 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     data-testid="button-load-more"
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] text-muted-foreground/70 hover:text-foreground hover:bg-muted/40 transition-colors"
                   >
-                    Load more
+                    {autoChainExhausted
+                      ? `Load more — showing ${crmFilteredMessages.length} of more available`
+                      : "Load more"}
                   </button>
                 ) : crmFilteredMessages && crmFilteredMessages.length > 0 ? (
-                  <span className="inline-flex items-center gap-1.5 text-muted-foreground/45 tabular-nums" data-testid="status-all-caught-up">
-                    <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
-                    You're all caught up · {crmFilteredMessages.length} message{crmFilteredMessages.length !== 1 ? "s" : ""}
-                  </span>
+                  // Backfill-aware "all caught up". When source=local and the local store has fewer
+                  // messages than Gmail reports for the mailbox, true exhaustion of the local cursor
+                  // is NOT user exhaustion — it's a backfill gap. Surface the gap with a switch hint.
+                  (() => {
+                    const liveTotal = (profileQuery.data as any)?.messagesTotal ?? null;
+                    const localShortfall = mailSource === "local" && typeof liveTotal === "number" && liveTotal > crmFilteredMessages.length + 50;
+                    if (localShortfall) {
+                      return (
+                        <span className="inline-flex flex-col items-center gap-1 text-amber-600 dark:text-amber-400 tabular-nums" data-testid="status-backfill-incomplete">
+                          <span>Local store: {crmFilteredMessages.length.toLocaleString()} · Gmail has ~{Number(liveTotal).toLocaleString()}</span>
+                          <button
+                            onClick={() => setMailSource("gmail")}
+                            data-testid="button-switch-to-gmail"
+                            className="text-[10px] underline-offset-2 hover:underline"
+                          >
+                            Switch to live Gmail to see the rest
+                          </button>
+                        </span>
+                      );
+                    }
+                    return (
+                      <span className="inline-flex items-center gap-1.5 text-muted-foreground/45 tabular-nums" data-testid="status-all-caught-up">
+                        <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
+                        You're all caught up · {crmFilteredMessages.length} message{crmFilteredMessages.length !== 1 ? "s" : ""}
+                      </span>
+                    );
+                  })()
                 ) : null}
               </div>
             )}

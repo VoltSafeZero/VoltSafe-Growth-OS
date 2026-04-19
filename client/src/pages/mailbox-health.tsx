@@ -174,6 +174,46 @@ export default function MailboxHealthPage() {
                   )}
                   {mb.isShared && <Badge variant="secondary">Shared</Badge>}
                   {!mb.syncEnabled && <Badge variant="outline">Sync disabled</Badge>}
+                  {/* Backfill status — derived from lastBackfillJob + coverage so the user always
+                      sees historical-import state at a glance. Computed entirely from existing
+                      /api/gmail/health payload; no schema change. */}
+                  {(() => {
+                    const job = mb.lastBackfillJob;
+                    const cov = coverage;
+                    let label = "Not started";
+                    let cls = "bg-muted text-muted-foreground border";
+                    if (job?.status === "running" || job?.status === "pending") {
+                      // "Stalled" sub-state: a "running" job whose updated_at is > 30min old —
+                      // worker likely crashed mid-job. Surface it so the user knows to retry.
+                      const updatedMs = job.updated_at ? Date.parse(job.updated_at) : (job.created_at ? Date.parse(job.created_at) : 0);
+                      const stale = updatedMs && (Date.now() - updatedMs) > 30 * 60 * 1000;
+                      label = stale
+                        ? `Backfill: stalled${typeof job.processed === "number" ? ` · ${Number(job.processed).toLocaleString()} so far` : ""}`
+                        : `Backfill: in progress${typeof job.processed === "number" ? ` · ${Number(job.processed).toLocaleString()} so far` : ""}`;
+                      cls = stale ? "bg-amber-600 text-white" : "bg-blue-600 text-white";
+                    } else if (job?.status === "failed") {
+                      label = "Backfill: failed — see details";
+                      cls = "bg-red-600 text-white";
+                    } else if (job?.status === "completed") {
+                      // Trust the worker's "completed" verdict regardless of live-coverage gap
+                      // (live total can momentarily exceed stored if Gmail received new mail
+                      // after the backfill window closed — that's incremental sync's job).
+                      if (cov != null && cov < 95) {
+                        label = `Backfill: complete (${cov}% of live)`;
+                        cls = "bg-amber-500 text-white";
+                      } else {
+                        label = "Backfill: complete";
+                        cls = "bg-emerald-600 text-white";
+                      }
+                    } else if (cov != null && cov >= 95) {
+                      label = "Backfill: complete";
+                      cls = "bg-emerald-600 text-white";
+                    } else if (cov != null && cov > 0) {
+                      label = `Backfill: partial (${cov}%)`;
+                      cls = "bg-amber-500 text-white";
+                    }
+                    return <span className={`text-[11px] px-2 py-0.5 rounded ${cls}`} data-testid={`badge-backfill-${mb.id}`}>{label}</span>;
+                  })()}
                 </CardTitle>
                 <div className="text-xs text-muted-foreground flex items-center gap-1">
                   <Clock className="h-3 w-3" /> Last sync: {fmtDate(mb.lastSyncAt)} {rel(mb.lastSyncAt)}

@@ -1,0 +1,155 @@
+This mailbox-connections view adds important context.
+
+Facts from the UI:
+- Primary mailbox trevor@voltsafe.com is Active
+- 440 unread
+- 1,066 messages
+- recent sync timestamp exists
+- team mailboxes are also connected
+- primary mailbox shows Last push = —
+So this is NOT primarily a connection problem. It is almost certainly an inbox pagination/rendering/state bug, possibly combined with push freshness gaps.
+
+Also: I want visibility into historical backfill status for my mailbox, including prior years of mail already imported vs still pending.
+
+Do not touch schema.
+Do not run db:push.
+No migrations.
+UI + API query/pagination/state only unless you are reading existing backfill state.
+No package changes.
+
+We need a permanent fix for ALL current and future users across:
+- private mailboxes
+- shared/team mailboxes
+- mailbox switching
+- source switching
+- tab/filter/search changes
+
+New requirements based on mailbox connection context:
+
+1) Treat mailbox context as a strict pagination boundary
+Context key must include at minimum:
+- activeAccountId
+- mailbox ownership/scope (private/shared/team)
+- selected source
+- selected tab
+- search query
+- active filters
+- view mode if applicable
+Late responses from any old context must be discarded.
+
+2) Never trust visible list size as exhaustion
+The mailbox has 1,066 messages and 440 unread. If inbox shows 4–10 and says “all caught up,” the UI is wrong unless backend explicitly returns exhaustion.
+Only true exhaustion:
+- nextPageToken === null
+or
+- hasMore === false from API
+
+3) Add starvation auto-fetch
+If current rendered rows are too few to fill viewport OR visible rows < threshold and backend still has more, auto-fetch additional pages.
+This must work for:
+- blocked-domain filtered inbox
+- private mailbox
+- shared/team mailbox
+- search results
+- Other tab
+- unread / category / CRM filters
+
+4) Add hard reset on mailbox/source switch
+When switching between:
+- trevor@voltsafe.com
+- sales@voltsafe.com
+- support@voltsafe.com
+or switching source/tab/filter/search,
+fully reset:
+- rows
+- cursor
+- nextPageToken
+- hasMore
+- page count
+- auto-chain count
+- all-caught-up state
+- pending request state
+No stale carryover.
+
+5) Error state must not masquerade as completion
+If fetch fails or returns malformed pagination state:
+- show retry
+- keep previous rows
+- do NOT show “all caught up”
+
+6) Temporary instrumentation
+Log for every fetch:
+- full context key
+- mailbox id/email
+- ownership/scope
+- tab/source/filter/search state
+- rows returned raw
+- rows visible after client filtering
+- nextPageToken
+- hasMore
+- chain iteration
+- why auto-fetch fired
+- why loading stopped
+- whether response was dropped due to stale epoch
+
+7) Verify against the real connected mailbox data
+Use the live mailbox state shown in the connections page as sanity check:
+- trevor mailbox should not stop after a tiny visible set when 1,066 messages exist
+- support/sales mailbox switching must not leak or stall
+- “all caught up” must only appear on true exhaustion
+
+8) Inspect push freshness separately
+Because Last push = — on the primary mailbox:
+- verify whether private mailbox watch/webhook freshness is updating correctly
+- confirm this is independent from pagination
+- if push is stale, report it separately as a freshness issue, not as the cause of pagination stopping on existing mail
+
+9) Add backfill status visibility for historical mail
+I want to know the status of prior-years backfill for my mailbox.
+
+Please do all of the following using existing tables/state only:
+- identify the existing backfill job/state model for Gmail history import
+- determine whether backfill is:
+  - not started
+  - in progress
+  - paused/stalled
+  - completed
+  - partially completed
+- report the exact progress for trevor@voltsafe.com:
+  - total messages currently imported
+  - earliest imported message date currently in DB
+  - latest imported message date
+  - whether import coverage is continuous or has gaps
+  - backfill cursor / page token / job status if tracked
+  - last successful backfill run time
+  - last attempted backfill run time
+  - any error state or retry loop if tracked
+  - whether the system is only doing incremental sync after a certain point instead of true historical backfill
+
+10) Add a simple UI status surface for backfill
+Without schema changes, add a compact status block to mailbox health/connections or the most relevant existing admin/mailbox page showing:
+- Backfill status: Not started / In progress / Paused / Complete / Partial
+- Imported messages count
+- Earliest imported email date
+- Latest imported email date
+- Last backfill activity time
+- Any active blocker/error if known
+
+11) Backfill proof
+For trevor@voltsafe.com, provide evidence:
+- imported count
+- date coverage range
+- whether prior years are actually present
+- whether backfill is still progressing
+- if stalled, exact stall point and why
+
+12) Clean up
+After proof, remove temporary debug logs, but keep any useful permanent mailbox/backfill status UI.
+
+Deliverables:
+A) exact root cause in current inbox code
+B) exact files/lines changed
+C) proof results for private + shared/team mailboxes
+D) whether Last push = — is a separate bug
+E) exact backfill status for trevor@voltsafe.com
+F) confirmation the fix is now shared pagination logic for all users/mailboxes
