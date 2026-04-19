@@ -39,11 +39,52 @@ const LINKABLE_TABLE: Record<string, string> = {
 
 // Maps a linkable object type to the permission section that gates it.
 // Mirrors the section conventions used elsewhere in voice-assistant-safety.ts.
+// Extended to cover every objectType that attachments may be linked to so the
+// attachment ACL helper (requireSectionView) can resolve a section for any
+// row it is asked about. Unknown types default to "crm" (most restrictive
+// existing section) — see attachmentSectionFor() below.
 const LINKABLE_SECTION: Record<string, string> = {
   lead: "crm", account: "crm", contact: "crm",
   opportunity: "crm", quote: "crm", project: "crm",
+  partnership: "crm",
+  install_workflow: "crm", deployment: "crm",
+  purchase_order: "crm", customer_success: "crm",
+  general: "crm",
   ticket: "support",
 };
+
+/**
+ * Returns the permission section that gates a given attachment objectType.
+ * Defaults to "crm" for any unknown/legacy type so the gate fails closed
+ * (a low-perm user must have crm:view at minimum to read any attachment).
+ */
+export function attachmentSectionFor(objectType: string): string {
+  return LINKABLE_SECTION[String(objectType || "").toLowerCase()] || "crm";
+}
+
+/**
+ * Cheap section-only permission check (no row existence lookup).
+ * Used by attachment access checks where the row is already loaded.
+ */
+export async function requireSectionView(
+  userId: number,
+  section: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  try {
+    const u = await getUserPermView(userId);
+    if (!u) return { ok: false, reason: "user not found" };
+    if (u.globalRole === "admin" || u.globalRole === "master_admin") return { ok: true };
+    const perms = (u.permissions as Record<string, string>) || {};
+    const lvl = PERMISSION_LEVELS[perms[section] ?? "none"] ?? 0;
+    if (lvl < PERMISSION_LEVELS.view) {
+      return { ok: false, reason: `insufficient permissions: requires view on ${section}` };
+    }
+    return { ok: true };
+  } catch (e) {
+    console.error("[create-guards] requireSectionView error:", e);
+    return { ok: false, reason: "permission check failed" };
+  }
+}
 
 async function getUserPermView(userId: number) {
   const [u] = await db

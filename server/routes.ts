@@ -44,6 +44,7 @@ import fs from "fs";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
 import { requireAuth, requirePermission, seedUsers, hashPassword, verifyPassword, getSessionUserId, requireName } from "./auth";
+import { attachmentSectionFor, requireSectionView } from "./voice-assistant-create-guards";
 import { toCsv, setCsvHeaders, type CsvColumn } from "./csv-export";
 import {
   getRegistrationOptions, verifyRegistration,
@@ -4397,9 +4398,17 @@ export async function registerRoutes(
   });
 
   // ── Attachments ────────────────────────────────────────────────
+  // SECURITY (F-09): listing attachments by (objectType, objectId) leaks
+  // file metadata (originalName, uploaderName, fileName) for any object the
+  // requester can see numerically — even if they have no permission on that
+  // section. Gate by the section that owns the linked object before listing.
   app.get("/api/attachments", requireAuth, async (req, res) => {
     const { objectType, objectId } = req.query;
     if (!objectType || !objectId) return res.status(400).json({ message: "objectType and objectId required" });
+    const userId = (req.session as any).userId as number;
+    const section = attachmentSectionFor(String(objectType));
+    const gate = await requireSectionView(userId, section);
+    if (!gate.ok) return res.status(403).json({ message: "Not authorized to view attachments for this object" });
     res.json(await storage.getAttachments(objectType as string, Number(objectId)));
   });
 
@@ -4487,9 +4496,24 @@ export async function registerRoutes(
   });
 
   // ── Document Hub endpoints ────────────────────────────────────────────────
+  // SECURITY (F-09 follow-up): the Document Hub list endpoint is the same
+  // class of cross-record metadata IDOR as /api/attachments — without an ACL
+  // any authenticated user can enumerate every uploaded file's metadata
+  // (originalName, uploaderName, fileName, linked object_type/object_id,
+  // notes, tags) regardless of section permission. Gate by the section that
+  // owns the requested objectType filter; for the unfiltered Hub view, fall
+  // back to requiring crm:view (11/12 attachment object types map to crm —
+  // any user with no CRM access would only see ticket attachments anyway,
+  // and they should be looking at /api/tickets/:id/attachments for those).
   app.get("/api/documents", requireAuth, async (req, res) => {
     try {
       const { category, objectType, search, limit, offset } = req.query;
+      const userId = (req.session as any).userId as number;
+      const section = objectType
+        ? attachmentSectionFor(String(objectType))
+        : "crm";
+      const gate = await requireSectionView(userId, section);
+      if (!gate.ok) return res.status(403).json({ message: "Not authorized to view documents" });
       const result = await storage.getAllDocuments({
         category: category as string,
         objectType: objectType as string,
@@ -4547,19 +4571,57 @@ export async function registerRoutes(
     }
   });
 
-  // SECURITY: this route streams uploaded files from /uploads. It is reachable
-  // by file name only (no DB lookup), so we MUST gate it at the auth layer at a
-  // minimum — anonymous filename guessing must not return user-uploaded content.
-  // Note: /api/attachments is already wrapped in app.use("/api/attachments", requireAuth)
-  // above, but we add an explicit requireAuth here as belt-and-suspenders in case
-  // the prefix middleware is ever reordered, and add an explicit Cache-Control
-  // header so the file can't be served from a shared/intermediary cache.
+  // SECURITY (F-09): this route streams uploaded files from /uploads.
+  // Hardening summary:
+  //   1. requireAuth — anonymous file fetches are always rejected.
+  //   2. path.basename + UPLOADS_DIR resolve check — defends against path
+  //      traversal (../../etc/passwd style payloads).
+  //   3. Per-attachment ACL — look the file up in the attachments table,
+  //      confirm it exists, and require that the requester is admin OR has
+  //      at least `view` permission on the section that gates the linked
+  //      object type. Note: an "uploader override" (allow original uploader
+  //      regardless of current section permission) was deliberately rejected
+  //      during F-09 review: it would re-introduce stale access for users
+  //      whose CRM/support permission was later revoked, defeating the
+  //      revocation flow. Admin remains the only override.
+  //   4. Cache-Control: private, no-store — keeps the body out of any shared
+  //      proxy / browser disk cache, in case a logged-out user reuses the
+  //      device.
   app.get("/api/attachments/file/:fileName", requireAuth, async (req, res) => {
     const fileName = path.basename(req.params.fileName);
     const filePath = path.join(UPLOADS_DIR, fileName);
     const resolved = path.resolve(filePath);
     if (!resolved.startsWith(UPLOADS_DIR)) return res.status(403).json({ message: "Forbidden" });
-    if (!fs.existsSync(resolved)) return res.status(404).json({ message: "File not found" });
+
+    // Per-attachment ACL — uniform 404 for both "no such file" and "no access"
+    // so an authenticated user can't enumerate filenames they shouldn't see.
+    const userId = (req.session as any).userId as number;
+    const role = String((req.session as any).globalRole || "");
+    const isAdmin = role === "master_admin" || role === "admin";
+    const opaque404 = { message: "File not found" };
+
+    let row: any = null;
+    try {
+      const r = await db.execute(sql`SELECT id, object_type, object_id, uploaded_by FROM attachments WHERE file_name = ${fileName} LIMIT 1`);
+      row = r.rows?.[0] || null;
+    } catch (e) {
+      console.error("[attachments/file] lookup error:", e);
+      return res.status(500).json({ message: "Lookup failed" });
+    }
+    if (!row && !isAdmin) {
+      // No DB record AND not admin → opaque 404. Admin still gets to fetch
+      // legacy/orphaned files (covered by file-existence check below).
+      return res.status(404).json(opaque404);
+    }
+    if (row && !isAdmin) {
+      // Per F-09 review: NO uploader override — revoked uploaders must lose
+      // access alongside everyone else. Admin is the only bypass.
+      const section = attachmentSectionFor(String(row.object_type || ""));
+      const gate = await requireSectionView(userId, section);
+      if (!gate.ok) return res.status(404).json(opaque404);
+    }
+
+    if (!fs.existsSync(resolved)) return res.status(404).json(opaque404);
     res.setHeader("Cache-Control", "private, no-store");
     res.sendFile(resolved);
   });
@@ -12235,7 +12297,10 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── GET /api/projects/:id/attachments ────────────────────────────────────────
-  app.get("/api/projects/:id/attachments", requireAuth, async (req, res) => {
+  // SECURITY (F-09 follow-up): list/download were authenticated-only IDOR.
+  // Match the existing POST/DELETE convention which already uses
+  // requirePermission("projects","edit") — read paths now require "projects:view".
+  app.get("/api/projects/:id/attachments", requirePermission("projects", "view"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
@@ -12265,7 +12330,8 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── GET /api/projects/:id/attachments/:aid/download ──────────────────────────
-  app.get("/api/projects/:id/attachments/:aid/download", requireAuth, async (req, res) => {
+  // SECURITY (F-09 follow-up): same IDOR fix as the list route above.
+  app.get("/api/projects/:id/attachments/:aid/download", requirePermission("projects", "view"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const aid = parseInt(req.params.aid);
@@ -12274,6 +12340,7 @@ export function registerConfluenceRoutes(app: Express) {
       const att = ((rows as any).rows ?? [])[0];
       if (!att) return res.status(404).json({ message: "Attachment not found" });
       if (!fs.existsSync(att.file_path)) return res.status(404).json({ message: "File not found on disk" });
+      res.setHeader("Cache-Control", "private, no-store");
       res.setHeader("Content-Disposition", `attachment; filename="${att.original_name}"`);
       res.setHeader("Content-Type", att.mime_type ?? "application/octet-stream");
       res.sendFile(path.resolve(att.file_path));
@@ -12562,6 +12629,16 @@ export function registerConfluenceRoutes(app: Express) {
       const q = ((req.query.q as string) || "").trim();
       if (q.length < 2) return res.json({ results: [] });
 
+      // SECURITY (F-09 follow-up): the `document` UNION branch reads from the
+      // attachments table and exposes file titles, original names, categories,
+      // notes and tags. Including it for users who lack crm:view leaks the same
+      // cross-record metadata that /api/documents and /api/attachments list now
+      // gate. Compute access here so we can omit the branch entirely instead of
+      // post-filtering (which would still incur the DB read).
+      const searchUserId = (req.session as any).userId as number;
+      const docGate = await requireSectionView(searchUserId, "crm");
+      const includeDocs = docGate.ok;
+
       // Sanitize for sql.raw ILIKE: escape single quotes (SQL injection prevention)
       // and backslashes (PostgreSQL ILIKE escape character).
       // We use sql.raw() instead of the sql`` tagged template because Drizzle's
@@ -12637,7 +12714,7 @@ export function registerConfluenceRoutes(app: Express) {
         (SELECT 'note' as type, n.id::text, SUBSTRING(n.content, 1, 90) as label,
                 n.linked_object_type as sub, NULL as sub2, n.linked_object_id::text as linked_id
          FROM notes n WHERE n.content ILIKE '${term}' LIMIT 4)
-        UNION ALL
+        ${includeDocs ? `UNION ALL
         (SELECT 'document' as type, a.id::text,
                 COALESCE(NULLIF(a.title,''), a.original_name, a.url, 'Untitled') as label,
                 a.category as sub,
@@ -12651,7 +12728,7 @@ export function registerConfluenceRoutes(app: Express) {
             OR COALESCE(a.notes, '') ILIKE '${term}'
             OR COALESCE(a.category, '') ILIKE '${term}'
             OR array_to_string(COALESCE(a.tags, '{}'), ' ') ILIKE '${term}'
-         LIMIT 4)
+         LIMIT 4)` : ''}
         LIMIT 28
       `));
       res.json({ results: result.rows });
