@@ -43,14 +43,22 @@ const LINKABLE_TABLE: Record<string, string> = {
 // attachment ACL helper (requireSectionView) can resolve a section for any
 // row it is asked about. Unknown types default to "crm" (most restrictive
 // existing section) — see attachmentSectionFor() below.
+// Round-2 review #3 (BOLA cross-section): keep this map in lock-step with the
+// actual prefix-gates registered in server/routes.ts (see app.use("/api/...")
+// + requirePermission(...)). A user without `projects:view` must NOT be able
+// to read project attachments / project task exports just because they have
+// `crm:view`.
 const LINKABLE_SECTION: Record<string, string> = {
   lead: "crm", account: "crm", contact: "crm",
-  opportunity: "crm", quote: "crm", project: "crm",
-  partnership: "crm",
+  opportunity: "crm", general: "crm",
   install_workflow: "crm", deployment: "crm",
   purchase_order: "crm", customer_success: "crm",
-  general: "crm",
+  project: "projects",
+  quote: "quoting",
+  partnership: "partnerships", ecosystem: "partnerships",
   ticket: "support",
+  asset: "knowledge",
+  campaign: "communications", comm_list: "communications",
 };
 
 /**
@@ -60,6 +68,16 @@ const LINKABLE_SECTION: Record<string, string> = {
  */
 export function attachmentSectionFor(objectType: string): string {
   return LINKABLE_SECTION[String(objectType || "").toLowerCase()] || "crm";
+}
+
+/**
+ * Strict variant for export endpoints. Returns null for unknown objectTypes
+ * so the caller can fail closed with a 400 instead of silently defaulting to
+ * "crm" (which would otherwise let any crm:view user export arbitrary
+ * objectTypes that route to other sections).
+ */
+export function exportSectionFor(objectType: string): string | null {
+  return LINKABLE_SECTION[String(objectType || "").toLowerCase()] ?? null;
 }
 
 /**

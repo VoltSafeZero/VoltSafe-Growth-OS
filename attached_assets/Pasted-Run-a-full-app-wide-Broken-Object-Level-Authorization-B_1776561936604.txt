@@ -1,0 +1,121 @@
+Run a full app-wide Broken Object Level Authorization (BOLA / IDOR) sweep and fix every same-shape access-control issue beyond the attachment/document paths already patched.
+
+CONTEXT
+We already fixed these paths:
+- GET /api/attachments?objectType&objectId
+- GET /api/attachments/file/:fileName
+- GET /api/documents
+- GET /api/projects/:id/attachments (+ /download)
+- GET /api/search document branch
+
+Now assume there are more endpoints with the same disease:
+- requireAuth-only protection on object-backed routes
+- permission checks after data fetch
+- list endpoints with missing scoping
+- search/export/download/profile/admin routes with weak or missing ACL checks
+
+RULES
+- No schema changes
+- No db:push
+- No package upgrades in this pass
+- No destructive refactors
+- Additive / surgical changes only
+- Reuse existing auth / permission model
+- Centralize guards wherever possible
+- Preserve existing app behavior for authorized users
+
+STEP 1 — ENUMERATE ROUTES
+Inventory every API route and group by resource family:
+- users
+- accounts
+- projects
+- CRM (leads, contacts, companies, deals)
+- notes / comments / activities
+- tasks
+- documents / uploads / exports / PDFs
+- search
+- settings / profile / admin
+- integrations / sync / webhooks
+
+For every route, record:
+- method + path
+- resource type
+- current middleware
+- whether it returns one object, a list, or a file
+- whether authorization is enforced before query execution
+- whether object ownership / tenant scope / section permission is checked
+
+STEP 2 — FIND HIGH-RISK ROUTES
+Prioritize routes matching any of these:
+- `requireAuth` only
+- `:id` or similar object identifiers in path/query
+- broad list endpoints
+- file/export/download endpoints
+- global search branches
+- routes returning user/account data
+- admin-ish reads protected only in UI
+- SQL branches that do not conditionally exclude unauthorized resources
+
+STEP 3 — CENTRALIZE AUTHORIZATION
+Extend the reusable guard layer instead of hand-patching each route.
+Create/extend helpers with this shape as appropriate:
+- requireResourceView(...)
+- requireResourceEdit(...)
+- requireOwnedOrPermitted(...)
+- notFoundOnDeny(...)
+- scopedListFilter(...)
+- canAccessSearchBranch(...)
+
+Goal:
+one consistent authorization pattern for object reads, list reads, edits, deletes, downloads, and search branches.
+
+STEP 4 — PATCH EVERYTHING FOUND
+Fix every confirmed BOLA / IDOR issue discovered in Step 2.
+Key rule:
+authorization must happen before data leaves the server, and ideally before the DB query when practical.
+
+Specifically inspect and fix:
+1. GET-by-id routes
+2. PATCH/DELETE-by-id routes
+3. list/index endpoints
+4. search branches
+5. exports / downloads / PDFs / attachments / generated files
+6. user/profile/account routes
+7. admin/support/internal routes
+8. integration data endpoints that expose synced records
+
+STEP 5 — TEST LIKE AN ADULT
+Create or extend an end-to-end security smoke suite covering:
+- unauth blocked
+- low-permission blocked
+- wrong-owner blocked
+- wrong-account / wrong-tenant blocked
+- revoked-access user blocked
+- admin allowed where intended
+- authorized viewer allowed
+- authorized editor allowed
+- list endpoints scoped correctly
+- search excludes unauthorized objects
+- downloads/exports blocked when unauthorized
+- opaque 404 used where that is the established security pattern
+
+Do not just test happy paths. Denial-path coverage is required.
+
+STEP 6 — REPORT
+Create `SECURITY_BOLA_SWEEP.md` with:
+- every route family audited
+- findings by severity
+- exact routes fixed
+- centralized helpers added/extended
+- tests added
+- residual medium/low risks
+- exact next recommended hardening step after this pass
+
+DELIVERABLE FORMAT
+At the end, report:
+1. Files changed
+2. Route families audited
+3. Vulnerabilities fixed
+4. Test counts/results
+5. Remaining medium/low risks
+6. Exact next best hardening step

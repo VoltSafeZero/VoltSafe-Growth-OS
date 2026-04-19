@@ -44,7 +44,7 @@ import fs from "fs";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
 import { requireAuth, requirePermission, seedUsers, hashPassword, verifyPassword, getSessionUserId, requireName } from "./auth";
-import { attachmentSectionFor, requireSectionView } from "./voice-assistant-create-guards";
+import { attachmentSectionFor, exportSectionFor, requireSectionView } from "./voice-assistant-create-guards";
 import { toCsv, setCsvHeaders, type CsvColumn } from "./csv-export";
 import {
   getRegistrationOptions, verifyRegistration,
@@ -1038,6 +1038,11 @@ export async function registerRoutes(
   app.use("/api/projects", requireAuth, requirePermission("projects", "view"));
   app.use("/api/assets", requireAuth, requirePermission("knowledge", "view"));
   app.use("/api/asset-folders", requireAuth, requirePermission("knowledge", "view"));
+  // BOLA sweep: install-workflows and procurement objects link to CRM accounts/opportunities,
+  // contain financial data (POs, supplier contacts), and were previously requireAuth-only.
+  // Gate the entire prefix at section "view" level; per-route edit guards remain belt-and-suspenders.
+  app.use("/api/install-workflows", requireAuth, requirePermission("crm", "view"));
+  app.use("/api/procurement", requireAuth, requirePermission("crm", "view"));
   // Partnerships section — view permission required for all reads
   app.use("/api/partnerships", requireAuth, requirePermission("partnerships", "view"));
   app.use("/api/ecosystem", requireAuth, requirePermission("partnerships", "view"));
@@ -1167,6 +1172,19 @@ export async function registerRoutes(
   app.get("/api/activities/export", requireAuth, async (req, res) => {
     const { objectType, objectId } = req.query;
     if (!objectType || !objectId) return res.status(400).json({ message: "objectType and objectId required" });
+    // BOLA fix: activities export was previously requireAuth-only and would dump
+    // every activity for any (objectType, objectId) pair to any logged-in user.
+    // Reuse the attachment-section mapper to gate the export by the same section
+    // permission that controls reading the parent object itself.
+    const userId = getSessionUserId(req);
+    // Round-2 review #3: use the strict mapper that returns null for unknown
+    // objectTypes so the gate fails closed (400) instead of silently defaulting
+    // to "crm" — otherwise a crm:view-only user could export project/quote/
+    // partnership activities they shouldn't see.
+    const section = exportSectionFor(String(objectType));
+    if (!section) return res.status(400).json({ message: "Unknown objectType" });
+    const gate = await requireSectionView(userId, section);
+    if (!gate.ok) return res.status(403).json({ message: "Not authorized to export activities for this object" });
     const data = await storage.getActivities(objectType as string, Number(objectId));
     const cols: CsvColumn[] = [
       { key: "type", header: "Type" }, { key: "summary", header: "Summary" },
@@ -1178,8 +1196,40 @@ export async function registerRoutes(
 
   app.get("/api/tasks/export", requireAuth, async (req, res) => {
     const { owner, status, linkedObjectType, linkedObjectId } = req.query;
+    // BOLA fix: when a linkedObjectType is supplied, gate the export by the section
+    // that owns that object type. When unfiltered, scope the export to the calling
+    // user's own tasks so an unprivileged user cannot bulk-dump every task in the org.
+    const userId = getSessionUserId(req);
+    const role = String((req.session as any).globalRole || "");
+    const isAdmin = role === "master_admin" || role === "admin";
+    // BOLA hardening (Round 2 review #2): storage.getTasks only applies the
+    // (linkedObjectType, linkedObjectId) filter when BOTH are present, so a partial
+    // filter (`?linkedObjectType=account` with no linkedObjectId) would pass the
+    // section gate but return tasks unfiltered. Reject the partial shape outright.
+    if (linkedObjectType && (!linkedObjectId || !Number.isFinite(Number(linkedObjectId)))) {
+      return res.status(400).json({ message: "linkedObjectId is required when linkedObjectType is supplied" });
+    }
+    if (linkedObjectType) {
+      // Round-2 review #3: strict mapper, fail closed on unknown objectType.
+      const section = exportSectionFor(String(linkedObjectType));
+      if (!section) return res.status(400).json({ message: "Unknown linkedObjectType" });
+      const gate = await requireSectionView(userId, section);
+      if (!gate.ok) return res.status(403).json({ message: "Not authorized to export tasks for this object" });
+    }
+    // For non-admins: ALWAYS force ownerUserId = session.userId regardless of what
+    // the client supplies. There is no legitimate "export another user's tasks"
+    // path for a non-admin — admins can pass an explicit numeric `owner` to scope.
+    let effectiveOwnerUserId: number | undefined;
+    if (isAdmin) {
+      effectiveOwnerUserId = owner ? Number(owner) : undefined;
+    } else {
+      effectiveOwnerUserId = userId;
+    }
+    if (effectiveOwnerUserId !== undefined && !Number.isFinite(effectiveOwnerUserId)) {
+      return res.status(400).json({ message: "Invalid owner" });
+    }
     const data = await storage.getTasks({
-      owner: owner as string, status: status as string,
+      ownerUserId: effectiveOwnerUserId, status: status as string,
       linkedObjectType: linkedObjectType as string,
       linkedObjectId: linkedObjectId ? Number(linkedObjectId) : undefined,
     });
@@ -3422,32 +3472,105 @@ export async function registerRoutes(
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
-  app.get("/api/activities", async (req, res) => {
+  app.get("/api/activities", requireAuth, async (req, res) => {
     const { objectType, objectId } = req.query;
     if (!objectType || !objectId) return res.status(400).json({ message: "objectType and objectId required" });
+    // BOLA hardening (Round-3 review): mirror /api/activities/export — gate the
+    // read by the section that owns the parent objectType, fail closed on
+    // unknown objectTypes. Previously this route was un-gated and could dump
+    // activities for any (objectType, objectId) pair to any logged-in user.
+    const userId = getSessionUserId(req);
+    const section = exportSectionFor(String(objectType));
+    if (!section) return res.status(400).json({ message: "Unknown objectType" });
+    const gate = await requireSectionView(userId, section);
+    if (!gate.ok) return res.status(403).json({ message: "Not authorized to read activities for this object" });
     res.json(await storage.getActivities(objectType as string, Number(objectId)));
   });
 
-  app.post("/api/activities", async (req, res) => {
-    const parsed = insertActivitySchema.safeParse(req.body);
+  app.post("/api/activities", requireAuth, async (req, res) => {
+    // BOLA hardening (Round-3 review #2 + #4): the persisted schema field is
+    // `linkedObjectType` (see shared/schema.ts L420-423), not `objectType`.
+    // Normalize a legacy `objectType`/`objectId` alias up front so the section
+    // gate runs against the real key. linkedObjectType is REQUIRED on the
+    // table (notNull), so an authorization failure here is also a schema
+    // failure — but we still gate explicitly to fail closed on unknown types
+    // before the insert is attempted.
+    const userId = getSessionUserId(req);
+    const role = String((req.session as any).globalRole || "");
+    const isAdmin = role === "master_admin" || role === "admin";
+    const body: any = { ...req.body };
+    if (!body.linkedObjectType && body.objectType) body.linkedObjectType = body.objectType;
+    if (!body.linkedObjectId && body.objectId) body.linkedObjectId = body.objectId;
+    delete body.objectType; delete body.objectId;
+    if (!body.linkedObjectType) return res.status(400).json({ message: "linkedObjectType required" });
+    const section = exportSectionFor(String(body.linkedObjectType));
+    if (!section) return res.status(400).json({ message: "Unknown linkedObjectType" });
+    const gate = await requireSectionView(userId, section);
+    if (!gate.ok) return res.status(403).json({ message: "Not authorized to create activities for this object" });
+    if (!isAdmin) {
+      // Non-admins cannot impersonate another user's activity authorship —
+      // strip every known authorship/owner field from the payload.
+      delete body.createdBy; delete body.createdByUserId;
+      delete body.userId; delete body.ownerUserId;
+    }
+    const parsed = insertActivitySchema.safeParse(body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createActivity(parsed.data));
   });
 
-  app.get("/api/tasks", async (req, res) => {
+  app.get("/api/tasks", requireAuth, async (req, res) => {
     const { ownerUserId, status, linkedObjectType, linkedObjectId } = req.query;
+    // BOLA hardening (Round-3 review): mirror /api/tasks/export — same partial-
+    // filter rejection, same cross-section gating via exportSectionFor, same
+    // non-admin self-scope. Previously this route was un-gated and a low-perm
+    // user could pull org-wide tasks (or another user's tasks via ownerUserId).
+    const userId = getSessionUserId(req);
+    const role = String((req.session as any).globalRole || "");
+    const isAdmin = role === "master_admin" || role === "admin";
+    if (linkedObjectType && (!linkedObjectId || !Number.isFinite(Number(linkedObjectId)))) {
+      return res.status(400).json({ message: "linkedObjectId is required when linkedObjectType is supplied" });
+    }
+    if (linkedObjectType) {
+      const section = exportSectionFor(String(linkedObjectType));
+      if (!section) return res.status(400).json({ message: "Unknown linkedObjectType" });
+      const gate = await requireSectionView(userId, section);
+      if (!gate.ok) return res.status(403).json({ message: "Not authorized to read tasks for this object" });
+    }
+    let effectiveOwnerUserId: number | undefined;
+    if (isAdmin) {
+      effectiveOwnerUserId = ownerUserId ? Number(ownerUserId) : undefined;
+    } else {
+      effectiveOwnerUserId = userId;
+    }
+    if (effectiveOwnerUserId !== undefined && !Number.isFinite(effectiveOwnerUserId)) {
+      return res.status(400).json({ message: "Invalid ownerUserId" });
+    }
     res.json(await storage.getTasks({
-      ownerUserId: ownerUserId ? Number(ownerUserId) : undefined,
+      ownerUserId: effectiveOwnerUserId,
       status: status as string | undefined,
       linkedObjectType: linkedObjectType as string | undefined,
       linkedObjectId: linkedObjectId ? Number(linkedObjectId) : undefined,
     }));
   });
 
-  app.post("/api/tasks", async (req, res) => {
-    const body = { ...req.body };
+  app.post("/api/tasks", requireAuth, async (req, res) => {
+    // BOLA hardening (Round-3 review #2): gate writes by linkedObjectType
+    // section, force ownerUserId to session for non-admins so a low-perm
+    // user cannot create tasks owned by other users (or unowned org-wide
+    // tasks). createdByUserId was already forced; ownerUserId now is too.
+    const userId = getSessionUserId(req);
+    const role = String((req.session as any).globalRole || "");
+    const isAdmin = role === "master_admin" || role === "admin";
+    const body: any = { ...req.body };
     if (body.dueDate && typeof body.dueDate === "string") body.dueDate = new Date(body.dueDate);
-    body.createdByUserId = req.session.userId;
+    if (body.linkedObjectType) {
+      const section = exportSectionFor(String(body.linkedObjectType));
+      if (!section) return res.status(400).json({ message: "Unknown linkedObjectType" });
+      const gate = await requireSectionView(userId, section);
+      if (!gate.ok) return res.status(403).json({ message: "Not authorized to create tasks for this object" });
+    }
+    body.createdByUserId = userId;
+    if (!isAdmin) body.ownerUserId = userId;
     const parsed = insertTaskSchema.safeParse(body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createTask(parsed.data));
@@ -3479,18 +3602,36 @@ export async function registerRoutes(
   });
 
   app.put("/api/tasks/:id", requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const userId = getSessionUserId(req);
+    // BOLA fix: previously any authenticated user could PUT any task by id (no ownership
+    // or section check). Allow when the user is the owner, the creator, or holds admin role.
+    // Tasks attached to CRM/projects/etc. are otherwise edited via section-gated routes.
+    const existing = await storage.getTask(id);
+    if (!existing) return res.status(404).json({ message: "Task not found" });
+    const role = String((req.session as any).globalRole || "");
+    const isAdmin = role === "master_admin" || role === "admin";
+    const isOwner = existing.ownerUserId === userId || existing.createdByUserId === userId;
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({ message: "You do not have permission to edit this task" });
+    }
     const body = { ...req.body };
+    // Whitelist out ownership fields so a non-admin cannot reassign or hijack a task.
+    if (!isAdmin) {
+      delete body.ownerUserId; delete body.owner_user_id;
+      delete body.createdByUserId; delete body.created_by_user_id;
+    }
     if (body.dueDate && typeof body.dueDate === "string") body.dueDate = new Date(body.dueDate);
     if (body.reminderAt && typeof body.reminderAt === "string") body.reminderAt = new Date(body.reminderAt);
     if (body.snoozedUntil && typeof body.snoozedUntil === "string") body.snoozedUntil = new Date(body.snoozedUntil);
     if (body.snoozedUntil === null) body.snoozedUntil = null;
-    const result = await storage.updateTask(Number(req.params.id), body);
+    const result = await storage.updateTask(id, body);
     if (!result) return res.status(404).json({ message: "Task not found" });
     res.json(result);
   });
 
   // ── Tasks Hub — rich read with joins, views, grouping ──────────────────
-  app.get("/api/tasks/hub", async (req, res) => {
+  app.get("/api/tasks/hub", requireAuth, async (req, res) => {
     try {
       const userId = getSessionUserId(req);
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
@@ -3508,7 +3649,11 @@ export async function registerRoutes(
           whereClause = `t.owner_user_id = ${userId} AND t.status NOT IN ('done','completed') AND (t.snoozed_until IS NULL OR t.snoozed_until <= NOW())`;
           break;
         case "team":
-          whereClause = `t.status NOT IN ('done','completed') AND (t.snoozed_until IS NULL OR t.snoozed_until <= NOW())`;
+          // BOLA hardening (Round-3 review #2): the "team" view previously
+          // returned org-wide rows to ANY authenticated user. Non-admins are
+          // now self-scoped (effectively equivalent to "my" until a real
+          // team_workload:view permission is wired up at the section layer).
+          whereClause = `${isAdminUser ? "" : `t.owner_user_id = ${userId} AND `}t.status NOT IN ('done','completed') AND (t.snoozed_until IS NULL OR t.snoozed_until <= NOW())`;
           break;
         case "today":
           whereClause = `t.status NOT IN ('done','completed') AND t.due_date >= '${todayStart.toISOString()}' AND t.due_date <= '${todayEnd.toISOString()}' ${isAdminUser ? "" : `AND t.owner_user_id = ${userId}`}`;
@@ -3586,7 +3731,7 @@ export async function registerRoutes(
       const countsRes = await db.execute(sql.raw(`
         SELECT
           COUNT(*) FILTER (WHERE owner_user_id = ${userId} AND status NOT IN ('done','completed') AND (snoozed_until IS NULL OR snoozed_until <= NOW()))::int AS my_count,
-          COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND (snoozed_until IS NULL OR snoozed_until <= NOW()))::int AS team_count,
+          COUNT(*) FILTER (WHERE ${isAdminUser ? "" : `owner_user_id = ${userId} AND `}status NOT IN ('done','completed') AND (snoozed_until IS NULL OR snoozed_until <= NOW()))::int AS team_count,
           COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date >= '${todayStart.toISOString()}' AND due_date <= '${todayEnd.toISOString()}' ${isAdminUser ? "" : `AND owner_user_id = ${userId}`})::int AS today_count,
           COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date < '${todayStart.toISOString()}' ${isAdminUser ? "" : `AND owner_user_id = ${userId}`})::int AS overdue_count,
           COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date > '${todayEnd.toISOString()}' AND due_date <= '${sevenDaysOut.toISOString()}' ${isAdminUser ? "" : `AND owner_user_id = ${userId}`})::int AS upcoming_count
@@ -12615,6 +12760,11 @@ export function registerConfluenceRoutes(app: Express) {
       const id = Number(req.params.id);
       const existing = await storage.getNoteById(id);
       if (!existing) return res.status(404).json({ message: "Note not found" });
+      // BOLA fix: pin/unpin is a write operation on someone else's note —
+      // restrict to author or admin (same gate as PUT/DELETE above).
+      if (!noteOwnerOrAdmin(req.session, existing.authorId ?? null)) {
+        return res.status(403).json({ message: "You do not have permission to pin this note" });
+      }
       const newPinned = !existing.isPinned;
       await db.execute(sql`UPDATE notes SET is_pinned = ${newPinned}, updated_at = NOW() WHERE id = ${id}`);
       res.json({ ok: true, isPinned: newPinned });
@@ -12830,7 +12980,23 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.put("/api/saved-views/:id", requireAuth, async (req, res) => {
     try {
-      const view = await storage.updateSavedView(Number(req.params.id), req.body);
+      const id = Number(req.params.id);
+      const userId = getSessionUserId(req);
+      // BOLA fix: previously any authenticated user could PUT any saved-view by id
+      // (no ownership check). Match the DELETE convention: load row, allow only when
+      // user is the owner OR the view is shared. Strip user_id from updates so a
+      // co-editor cannot reassign ownership.
+      const [existing] = await db.execute(sql`SELECT user_id, is_shared FROM saved_views WHERE id = ${id} LIMIT 1`).then(r => (r as any).rows ?? []);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      const role = String((req.session as any).globalRole || "");
+      const isAdmin = role === "master_admin" || role === "admin";
+      const isOwner = existing.user_id === userId;
+      const isSharedEditable = !!existing.is_shared;
+      if (!isAdmin && !isOwner && !isSharedEditable) {
+        return res.status(403).json({ message: "Cannot modify another user's saved view" });
+      }
+      const { userId: _u, user_id: _uid, id: _i, ...safeUpdates } = req.body ?? {};
+      const view = await storage.updateSavedView(id, safeUpdates);
       if (!view) return res.status(404).json({ message: "Not found" });
       res.json(view);
     } catch (err: any) {
