@@ -846,11 +846,11 @@ export default function RoleCommandCenter() {
                 <SlidersHorizontal className="h-3.5 w-3.5" /> Widgets
               </Button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-80">
+            <SheetContent side="right" className="w-80 flex flex-col">
               <SheetHeader>
                 <SheetTitle>Widget Settings</SheetTitle>
               </SheetHeader>
-              <div className="mt-4">
+              <div className="mt-4 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
                 <WidgetVisibilityPanel
                   widgets={config.widgets}
                   visible={visible}
