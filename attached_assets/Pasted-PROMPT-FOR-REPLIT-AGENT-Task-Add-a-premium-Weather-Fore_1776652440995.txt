@@ -1,0 +1,45 @@
+PROMPT FOR REPLIT AGENT
+Task: Add a premium Weather Forecast widget to the VoltSafe CMS app, available to all users from the widget library/dashboard.
+Requirements
+Functionality
+	1.	Default behavior: detect user’s location via browser Geolocation API, fallback to IP-based geolocation if denied, fallback to a default city (let me configure this) if both fail.
+	2.	Users can search and add additional locations (autocomplete city search).
+	3.	Users can save multiple locations, reorder them (drag-to-reorder), and remove them. Persist per-user in the existing DB.
+	4.	Display: current conditions (temp, feels-like, condition icon, high/low, humidity, wind, UV index, precipitation chance), hourly forecast (next 24h, horizontal scroll), and 7-day forecast.
+	5.	Unit toggle: °F/°C and mph/kph. Persist user preference.
+	6.	Auto-refresh every 15 minutes while widget is visible; manual refresh button.
+	7.	Graceful loading states (skeleton UI, not spinners) and error states with retry.
+Weather data source — use Open-Meteo
+	•	No API key required, free for commercial use, high reliability.
+	•	Forecast endpoint: https://api.open-meteo.com/v1/forecast
+	•	Geocoding endpoint: https://geocoding-api.open-meteo.com/v1/search
+	•	If you recommend a different provider, explain why before switching.
+UI/UX — premium standard
+	•	Follow the existing VoltSafe CMS design system (tokens, typography, spacing, dark/light mode). Inspect the codebase first and match it — do not introduce a new design language.
+	•	Widget should feel native to the app: same border radius, shadows, motion curves as existing widgets.
+	•	Subtle ambient gradient background that shifts based on current condition + time of day (dawn/day/dusk/night variants for clear, cloudy, rain, snow, storm).
+	•	Smooth micro-interactions: temperature number animates on update, hourly strip has momentum scroll, location switcher uses a clean transition (not a hard swap).
+	•	Weather icons: use Lucide React icons if already in the project, otherwise install lucide-react. Do not use emoji as primary icons.
+	•	Fully responsive: works in the dashboard grid at small, medium, and large widget sizes. Gracefully hides lower-priority data at smaller sizes.
+	•	Accessibility: proper ARIA labels, keyboard navigation for location list and search, sufficient color contrast in both themes, prefers-reduced-motion respected.
+Integration with VoltSafe CMS
+	•	Register the widget in the existing widget registry/library so any user can add it from wherever widgets are added in the app.
+	•	Use existing auth context for per-user settings persistence.
+	•	Use the existing data-fetching pattern (React Query, SWR, or whatever is already in use — do not add a new one).
+	•	Use the existing component primitives (Button, Card, Input, etc.) — do not create parallel versions.
+Process I want you to follow
+	1.	Before writing code, inspect the repo and report back:
+	•	Framework + styling system (Tailwind? CSS modules?)
+	•	Widget registration pattern (how existing widgets are declared and rendered)
+	•	Auth/user context shape
+	•	DB/ORM in use (Prisma? Drizzle?) and how per-user preferences are currently stored
+	•	Data-fetching library already in use
+	2.	Propose the file structure and the 2–3 key decisions (e.g., where settings live, schema changes). Wait for my confirmation.
+	3.	Implement in this order, committing after each: (a) backend/schema + API routes, (b) widget component + hooks, (c) location search + settings UI, (d) widget registry integration, (e) polish pass.
+	4.	After implementation, run the app, verify the widget appears in the library, can be added, detects location, searches locations, and persists settings across reload. Report any issues with specifics, not “should work.”
+Constraints
+	•	Do not add dependencies beyond what’s needed. If you add one, justify it in one line.
+	•	Do not refactor unrelated code.
+	•	Do not add paid APIs, analytics, or tracking.
+	•	If you hit ambiguity, ask one focused question rather than guessing across multiple decisions.
+Start with step 1 (repo inspection + report). Do not write widget code until I confirm the findings.
