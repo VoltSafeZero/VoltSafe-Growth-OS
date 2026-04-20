@@ -9,6 +9,12 @@ export {
   WEATHER_TEMP_UNITS,
   WEATHER_WIND_UNITS,
   WEATHER_DEFAULT_PREFS,
+  WEATHER_PREFS_MAX_BYTES,
+  weatherPrefsSchema,
+  weatherLocationSchema,
+  weatherUnitsSchema,
+  weatherTempUnitSchema,
+  weatherWindUnitSchema,
 } from "@shared/weather-types";
 
 export const HARDCODED_FALLBACK_CITY = {
