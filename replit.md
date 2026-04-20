@@ -1635,3 +1635,18 @@ Added `task_board_views` table via `CREATE TABLE IF NOT EXISTS` matching the new
 ### Reports
 - `threat_model.md` — STRIDE summary, trust zones, top risks ranked.
 - `SECURITY_FINDINGS.md` — every finding with severity, status, file:line, and remediation; deferred items ledgered with rationale.
+
+## Weather Forecast Widget (Apr 2026)
+**Scope (Option C, additive only — no schema changes, no migrations, no package edits).**
+
+Per-user opt-in dashboard widget showing current conditions, 24-hour hourly strip, and 7-day forecast for one or more saved locations. Uses Open-Meteo (no API key, no SDK).
+
+**Schema reuse**: prefs persist at `users.permissions.weather` (existing JSONB column). Single source of truth in `shared/weather-types.ts` (Zod `weatherPrefsSchema` + derived TS).
+
+**Server**: `PATCH /api/users/me/layout` extended to accept a `weather` payload — strict Zod validation, ~8KB byte cap, atomic single-key merge via `jsonb_set(coalesce(permissions,'{}'::jsonb),'{weather}',$1::jsonb,true)` so sibling permission keys (e.g. `mail_team`) are preserved and there's no read-modify-write race.
+
+**Client** (`client/src/components/widgets/weather/`): 13 files — types, WMO→lucide icon map, condition×time-of-day gradient bg, prefs hook (parse-on-read + serialized mutation queue + optimistic overlay), geolocation→IP→fallback resolver, Open-Meteo forecast hook (15min cache + auto-refresh), debounced+abortable geocoding, skeleton (CLS-safe), current/hourly/7-day blocks, locations dialog (search, drag-reorder, dedup, max 10), main widget. Reduced-motion respected; ARIA labels on temp/location/hourly/7-day; keyboard-accessible Select.
+
+**Wiring**: `weather: WeatherWidget` registered in `ACTION_WIDGET_MAP` (`action-widgets.tsx`); size hint `{w:4,h:11,minW:3,minH:7}` in `dashboard-grid.tsx`; `weather` widget def added to `NEW_WIDGETS` in `dashboard-config.ts` with `defaultVisible:false, isNew:true` and appended to all 7 center arrays (ceo/cfo/cto/cmo/sales/cs/default) so every user sees the toggle in their visibility panel — defaulted off until they enable it.
+
+**Default fallback city** when geolocation and IP-based detection both fail: Vancouver, BC (`HARDCODED_FALLBACK_CITY` in `client/src/components/widgets/weather/weather-types.ts`). User-overridable via `permissions.weather.defaultCityFallback`.

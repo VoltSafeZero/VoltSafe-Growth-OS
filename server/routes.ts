@@ -83,6 +83,7 @@ import {
   calendarConnections, calendarEvents, tasks,
   digestConfigs, digestRuns,
 } from "@shared/schema";
+import { weatherPrefsSchema, WEATHER_PREFS_MAX_BYTES } from "@shared/weather-types";
 import {
   getCalendarAuthUrl,
   exchangeCalendarCode,
@@ -728,7 +729,7 @@ export async function registerRoutes(
   // PATCH /api/users/me/layout — persist layout preferences
   app.patch("/api/users/me/layout", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId as number;
-    const { preferredLayout, widgetVisibility, defaultCommandCenter, widgetOrder, dashboardLayouts } = req.body;
+    const { preferredLayout, widgetVisibility, defaultCommandCenter, widgetOrder, dashboardLayouts, weather } = req.body;
 
     const VALID_LAYOUTS = ["expanded", "compact"];
     const VALID_CENTERS = ["ceo", "cfo", "cto", "cmo", "sales", "cs", "default", null];
@@ -749,6 +750,21 @@ export async function registerRoutes(
       return res.status(400).json({ message: "dashboardLayouts must be an object" });
     }
 
+    // Weather widget per-user prefs — strict shape, validated before any merge into
+    // users.permissions (which also holds role/access data; we never accept arbitrary keys).
+    let weatherJsonForMerge: string | undefined;
+    if (weather !== undefined) {
+      const parsed = weatherPrefsSchema.safeParse(weather);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid weather payload", errors: parsed.error.issues });
+      }
+      const serialized = JSON.stringify(parsed.data);
+      if (Buffer.byteLength(serialized, "utf8") > WEATHER_PREFS_MAX_BYTES) {
+        return res.status(400).json({ message: "weather payload too large" });
+      }
+      weatherJsonForMerge = serialized;
+    }
+
     const update: Record<string, any> = {};
     if (preferredLayout !== undefined) update.preferredLayout = preferredLayout;
     if (widgetVisibility !== undefined) update.widgetVisibility = widgetVisibility;
@@ -765,6 +781,12 @@ export async function registerRoutes(
       const merged = { ...(existing?.dl as Record<string,any> ?? {}), ...dashboardLayouts };
       update.dashboardLayouts = merged;
     }
+    // Persist weather prefs atomically: jsonb_set on the existing JSONB so siblings
+    // (mail_team, calendar_team, role grants, etc.) are preserved by construction
+    // and there's no read-modify-write race between concurrent requests.
+    if (weatherJsonForMerge !== undefined) {
+      update.permissions = sql`jsonb_set(coalesce(${users.permissions}, '{}'::jsonb), '{weather}', ${weatherJsonForMerge}::jsonb, true)`;
+    }
     if (Object.keys(update).length === 0) return res.status(400).json({ message: "No fields to update" });
 
     const [updated] = await db.update(users).set(update).where(eq(users.id, userId)).returning({
@@ -772,6 +794,7 @@ export async function registerRoutes(
       widgetVisibility: users.widgetVisibility,
       dashboardLayouts: users.dashboardLayouts,
       defaultCommandCenter: users.defaultCommandCenter,
+      permissions: users.permissions,
     });
     res.json(updated);
   });

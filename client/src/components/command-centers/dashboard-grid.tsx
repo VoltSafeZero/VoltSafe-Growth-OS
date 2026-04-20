@@ -36,6 +36,7 @@ const WIDGET_SIZE_HINTS: Record<string, WidgetSizeHint> = {
   deal_velocity:          { w: 6, h: 9,  minW: 3, minH: 6 },
   unresponded_leads:      { w: 4, h: 8,  minW: 3, minH: 6 },
   renewal_countdown:      { w: 4, h: 9,  minW: 3, minH: 6 },
+  weather:                { w: 4, h: 11, minW: 3, minH: 7 },
 };
 
 const DEFAULT_HINT: WidgetSizeHint = { w: 4, h: 8, minW: 3, minH: 6 };

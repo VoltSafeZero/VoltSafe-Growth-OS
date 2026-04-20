@@ -15,6 +15,7 @@ import {
   ArrowRight, Circle,
 } from "lucide-react";
 import { format, formatDistanceToNow, isToday } from "date-fns";
+import { WeatherWidget } from "@/components/widgets/weather";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1096,6 +1097,7 @@ export const ACTION_WIDGET_MAP: Record<string, React.ComponentType<WidgetProps>>
   todays_meetings:        TodaysMeetingsWidget,
   my_inbox:               MyInboxWidget,
   team_inboxes:           TeamInboxesWidget,
+  weather:                WeatherWidget,
 };
 
 // ── Drag-and-drop hook (native HTML5 DnD) ────────────────────────────────────

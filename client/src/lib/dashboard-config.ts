@@ -198,6 +198,12 @@ const NEW_WIDGETS: Record<string, WidgetDef> = {
     defaultVisible: true, category: "team", isNew: true,
     visibility: { managerOnly: true },
   },
+  weather: {
+    id: "weather", label: "Weather Forecast",
+    description: "Current conditions, hourly and 7-day forecast for your saved locations",
+    defaultVisible: false, category: "action", isNew: true,
+    // No permKey — every user can opt in.
+  },
 };
 
 // Classic widgets referenced by id inside each center array.
@@ -262,6 +268,7 @@ const UNIVERSAL_EXTRAS: WidgetDef[] = [
   { ...NEW_WIDGETS.my_waiting_on,         defaultVisible: false },
   { ...NEW_WIDGETS.inbox_priority_radar,  defaultVisible: false },
   { ...NEW_WIDGETS.quick_create_launcher, defaultVisible: false },
+  { ...NEW_WIDGETS.weather,               defaultVisible: false },
 ];
 
 export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {
@@ -291,6 +298,7 @@ export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {
     { ...NEW_WIDGETS.todays_meetings,        defaultVisible: false },
     { ...NEW_WIDGETS.my_waiting_on,          defaultVisible: false },
     { ...NEW_WIDGETS.team_load_balancer,     defaultVisible: false },
+    { ...NEW_WIDGETS.weather,                defaultVisible: false },
   ],
   cfo: [
     { id: "mrr_overview",         label: "MRR Overview",             description: "Current, contracted and deployed MRR",   defaultVisible: true,  category: "classic" },
@@ -314,6 +322,7 @@ export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {
     { ...NEW_WIDGETS.todays_meetings,        defaultVisible: false },
     { ...NEW_WIDGETS.my_waiting_on,          defaultVisible: false },
     { ...NEW_WIDGETS.inbox_priority_radar,   defaultVisible: false },
+    { ...NEW_WIDGETS.weather,                defaultVisible: false },
   ],
   cto: [
     { id: "cert_blockers",        label: "Certification Blockers",   description: "Engineering cert issues",                defaultVisible: true,  category: "classic" },
@@ -335,6 +344,7 @@ export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {
     { ...NEW_WIDGETS.todays_meetings,        defaultVisible: false },
     { ...NEW_WIDGETS.my_waiting_on,          defaultVisible: false },
     { ...NEW_WIDGETS.inbox_priority_radar,   defaultVisible: false },
+    { ...NEW_WIDGETS.weather,                defaultVisible: false },
   ],
   cmo: [
     { id: "lead_volume",          label: "Lead Volume",              description: "New leads and MQL trend",                defaultVisible: true,  category: "classic" },
@@ -357,6 +367,7 @@ export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {
     { ...NEW_WIDGETS.todays_meetings,        defaultVisible: false },
     { ...NEW_WIDGETS.inbox_priority_radar,   defaultVisible: false },
     { ...NEW_WIDGETS.my_waiting_on,          defaultVisible: false },
+    { ...NEW_WIDGETS.weather,                defaultVisible: false },
   ],
   sales: [
     { id: "overdue_tasks",        label: "Overdue Tasks",            description: "Tasks past their due date",              defaultVisible: true,  category: "classic" },
@@ -391,6 +402,7 @@ export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {
     { ...NEW_WIDGETS.renewal_countdown,      defaultVisible: false },
     { ...NEW_WIDGETS.cash_pulse,             defaultVisible: false },
     { ...NEW_WIDGETS.deployment_pulse,       defaultVisible: false },
+    { ...NEW_WIDGETS.weather,                defaultVisible: false },
   ],
   cs: [
     { id: "health_scores",        label: "Account Health",           description: "CS health scores and risk signals",      defaultVisible: true,  category: "classic" },
@@ -411,6 +423,7 @@ export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {
     { ...NEW_WIDGETS.todays_meetings,        defaultVisible: false },
     { ...NEW_WIDGETS.top_performers,         defaultVisible: false },
     { ...NEW_WIDGETS.team_load_balancer,     defaultVisible: false },
+    { ...NEW_WIDGETS.weather,                defaultVisible: false },
   ],
   default: [
     { id: "overdue_tasks",        label: "Overdue Tasks",            description: "Tasks past their due date",              defaultVisible: true,  category: "classic" },
