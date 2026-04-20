@@ -16,6 +16,14 @@ import {
 } from "lucide-react";
 import { format, formatDistanceToNow, isToday } from "date-fns";
 import { WeatherWidget } from "@/components/widgets/weather";
+import {
+  ExecutiveSnapshotWidget,
+  PipelineHealthWidget,
+  CertBlockersWidget,
+  DeploymentBlockersWidget,
+  CloseLikelihoodDealsWidget,
+  KeyAccountsActionWidget,
+} from "@/components/widgets/role-cards";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1098,6 +1106,14 @@ export const ACTION_WIDGET_MAP: Record<string, React.ComponentType<WidgetProps>>
   my_inbox:               MyInboxWidget,
   team_inboxes:           TeamInboxesWidget,
   weather:                WeatherWidget,
+  // Role-card widgets (migrated from CEOCommandCenter / CTOCommandCenter so they
+  // participate in the draggable grid like every other widget).
+  summary_bullets:        ExecutiveSnapshotWidget,
+  pipeline_health:        PipelineHealthWidget,
+  cert_blockers:          CertBlockersWidget,
+  deployment_blockers:    DeploymentBlockersWidget,
+  close_opps_score:       CloseLikelihoodDealsWidget,
+  key_accounts:           KeyAccountsActionWidget,
 };
 
 // ── Drag-and-drop hook (native HTML5 DnD) ────────────────────────────────────

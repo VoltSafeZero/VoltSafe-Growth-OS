@@ -1650,3 +1650,23 @@ Per-user opt-in dashboard widget showing current conditions, 24-hour hourly stri
 **Wiring**: `weather: WeatherWidget` registered in `ACTION_WIDGET_MAP` (`action-widgets.tsx`); size hint `{w:4,h:11,minW:3,minH:7}` in `dashboard-grid.tsx`; `weather` widget def added to `NEW_WIDGETS` in `dashboard-config.ts` with `defaultVisible:false, isNew:true` and appended to all 7 center arrays (ceo/cfo/cto/cmo/sales/cs/default) so every user sees the toggle in their visibility panel — defaulted off until they enable it.
 
 **Default fallback city** when geolocation and IP-based detection both fail: Vancouver, BC (`HARDCODED_FALLBACK_CITY` in `client/src/components/widgets/weather/weather-types.ts`). User-overridable via `permissions.weather.defaultCityFallback`.
+
+## Role-card widget migration into draggable grid (Apr 2026)
+**Scope (additive only — no schema changes, no migrations, no package edits).**
+
+Six widgets that historically rendered as a static block underneath the draggable `DashboardGrid` (and so could not be reordered or hidden by drag-and-drop) were migrated into the grid system:
+
+| Widget id | Title | Source | New file |
+|---|---|---|---|
+| `summary_bullets` | Executive Snapshot | `ceo-center.tsx` | `client/src/components/widgets/role-cards/executive-snapshot.tsx` |
+| `pipeline_health` | Pipeline Health | `ceo-center.tsx` | `client/src/components/widgets/role-cards/pipeline-health.tsx` |
+| `cert_blockers` | Certification Blockers | `ceo-center.tsx` + `cto-center.tsx` | `client/src/components/widgets/role-cards/cert-blockers.tsx` |
+| `deployment_blockers` | Deployment Blockers | `ceo-center.tsx` + `cto-center.tsx` | `client/src/components/widgets/role-cards/deployment-blockers.tsx` |
+| `close_opps_score` | Close-Likelihood Deals | `ceo-center.tsx` | `client/src/components/widgets/role-cards/close-likelihood-deals.tsx` |
+| `key_accounts` | Key Accounts Needing Action | `ceo-center.tsx` | `client/src/components/widgets/role-cards/key-accounts-action.tsx` |
+
+Each component is self-contained: it fetches its own data through React Query (queryKeys `/api/executive/kpis`, `/api/executive/risk-alerts`, `/api/pipeline/forecast`, `/api/cs/dashboard`, `/api/projects/cert-summary`, `/api/deployments/dashboard`, plus `useCommandCenterWidgets`). Shared queryKeys are deduplicated by React Query's cache, so registering the same widget multiple times across role centers does not multiply network traffic. Shared layout primitives (`RoleWidgetCard`, `RoleRow`, `fmt$`) live in `client/src/components/widgets/role-cards/role-card-helpers.tsx`; the directory's `index.ts` is a barrel export.
+
+**Wiring**: each widget id is registered in `ACTION_WIDGET_MAP` (`action-widgets.tsx`) and given a size hint in `dashboard-grid.tsx` (mostly `w:6, h:8–10`). The widget-visibility keys already existed in `dashboard-config.ts` (`CLASSIC_WIDGETS` + per-role `WIDGET_DEFS`), so no config changes were needed — visibility, ordering, and gating just work.
+
+**Duplicate removal**: the conditional render blocks for these 6 widgets were stripped from `ceo-center.tsx` (all 6) and `cto-center.tsx` (`cert_blockers`, `deployment_blockers`) so they now appear exclusively inside the draggable grid. Other role-center widgets (`revenue_at_risk`, `churn_score`, `install_workflows`, `procurement_blocked`, etc.) were left in place.

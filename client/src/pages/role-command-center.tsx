@@ -309,19 +309,7 @@ function SalesCommandCenter({ visible, compact }: { visible: Record<string, bool
         />
       )}
 
-      {visible.close_opps_score && (
-        <ScoreListWidget
-          title="Close-Likelihood Deals"
-          icon={TrendingUp}
-          items={scoreWidgets?.closeOpps ?? []}
-          objectType="opportunity"
-          accentColor="text-emerald-400"
-          link="/pipeline"
-          compact={compact}
-          isLoading={scoreWidgetsLoading}
-          emptyMessage="No open opportunities to score"
-        />
-      )}
+      {/* close_opps_score migrated to draggable grid (ACTION_WIDGET_MAP) */}
 
       {visible.quote_urgency_score && (
         <ScoreListWidget
