@@ -3,7 +3,57 @@
 import { google } from "googleapis";
 import { db } from "./db";
 import { systemSettings, emailAccounts, users } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
+
+// Auto-backfill on new mailbox connect.
+// - Default: 2024-01-01 → today for any newly connected user mailbox.
+// - Special override: trevor/sales/support @voltsafe.com get 2020-01-01 → today
+//   (per ops policy — these mailboxes need the longer history).
+// Only fires the first time an account row is INSERTED. Reconnects that go
+// through the UPDATE path are not re-enqueued.
+const SPECIAL_2020_ADDRESSES = new Set([
+  "trevor@voltsafe.com",
+  "sales@voltsafe.com",
+  "support@voltsafe.com",
+]);
+
+async function autoEnqueueBackfillForNewAccount(opts: {
+  accountId: number;
+  userId: number;
+  emailAddress: string | null;
+}): Promise<void> {
+  const { accountId, userId, emailAddress } = opts;
+  try {
+    const dateFrom = emailAddress && SPECIAL_2020_ADDRESSES.has(emailAddress.toLowerCase())
+      ? "2020-01-01"
+      : "2024-01-01";
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Idempotency: don't double-enqueue if a pending/running job already exists.
+    const existing = await db.execute(sql.raw(
+      `SELECT id FROM backfill_jobs WHERE email_account_id = ${accountId} AND status IN ('pending','running') LIMIT 1`
+    ));
+    if ((existing as any).rows?.length) return;
+
+    const inserted = await db.execute(sql.raw(`
+      INSERT INTO backfill_jobs (user_id, email_account_id, status, date_from, date_to)
+      VALUES (${userId}, ${accountId}, 'pending', '${dateFrom}', '${today}')
+      RETURNING id
+    `));
+    const jobId = Number((inserted as any).rows?.[0]?.id);
+    if (!jobId) return;
+
+    console.log(`[auto-backfill] enqueued job ${jobId} for account ${accountId} (${emailAddress ?? "?"}) ${dateFrom}→${today}`);
+
+    // Fire-and-forget. The backfill service updates job status as it runs.
+    const { runBackfillJob } = await import("./services/backfill-service");
+    runBackfillJob({ jobId, accountId, userId, dateFrom, dateTo: today })
+      .catch(err => console.error(`[auto-backfill] job ${jobId} error:`, err));
+  } catch (err) {
+    // Never block the OAuth callback on backfill enqueue failures.
+    console.error("[auto-backfill] enqueue failed:", err);
+  }
+}
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -88,7 +138,7 @@ export async function exchangeCodeForTokens(
         })
         .where(eq(emailAccounts.id, existing.id));
     } else {
-      await db.insert(emailAccounts).values({
+      const [inserted] = await db.insert(emailAccounts).values({
         workspaceId: 1,
         userId, // connected-by user id (admin)
         provider: "gmail",
@@ -100,7 +150,14 @@ export async function exchangeCodeForTokens(
         refreshToken: tokens.refresh_token,
         accessToken: tokens.access_token || null,
         syncEnabled: true,
-      });
+      }).returning({ id: emailAccounts.id });
+      if (inserted?.id) {
+        await autoEnqueueBackfillForNewAccount({
+          accountId: inserted.id,
+          userId,
+          emailAddress: emailAddress || null,
+        });
+      }
     }
   } else {
     // Personal account: upsert by userId (original behaviour)
@@ -143,7 +200,7 @@ export async function exchangeCodeForTokens(
         })
         .where(eq(emailAccounts.id, existing.id));
     } else {
-      await db.insert(emailAccounts)
+      const inserted = await db.insert(emailAccounts)
         .values({
           workspaceId: 1,
           userId,
@@ -157,7 +214,16 @@ export async function exchangeCodeForTokens(
           accessToken: tokens.access_token || null,
           syncEnabled: true,
         })
-        .onConflictDoNothing();
+        .onConflictDoNothing()
+        .returning({ id: emailAccounts.id });
+      const newId = inserted?.[0]?.id;
+      if (newId) {
+        await autoEnqueueBackfillForNewAccount({
+          accountId: newId,
+          userId,
+          emailAddress: emailAddress || null,
+        });
+      }
     }
 
     // Legacy compat: also mirror tokens into system_settings under the original

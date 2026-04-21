@@ -6,7 +6,14 @@ import { parseGmailMessage } from "./email-parser";
 import { insertAttachmentsForMessage } from "./email-attachments";
 import { runAssociationEngine } from "./association-engine";
 import { routeEmailToFolders } from "./email-folder-router";
-import { log } from "../index";
+// Local logger. Avoids importing from ../index (which boots the entire express
+// server) so this service can be used from one-shot tsx scripts as well as
+// from within the running app. Output format mirrors the express log() helper
+// closely enough for grep-friendliness.
+const log = (message: string, _source = "backfill") => {
+  const t = new Date().toLocaleTimeString("en-US", { hour12: true });
+  console.log(`${t} [${_source}] ${message}`);
+};
 
 type BackfillOptions = {
   jobId: number;

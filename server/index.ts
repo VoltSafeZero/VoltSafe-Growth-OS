@@ -269,6 +269,56 @@ app.use((req, res, next) => {
       import("./services/email-search")
         .then(({ ensureSearchIndexes }) => ensureSearchIndexes())
         .catch((e) => console.error("[email-search] ensureSearchIndexes failed:", e?.message || e));
+
+      // Backfill resumer (additive, idempotent, non-blocking).
+      // Picks up any backfill_jobs left in 'pending' state, plus any 'running'
+      // jobs that have not been touched in the last 5 minutes (zombie recovery
+      // after a restart or a script that died mid-job). Runs them serially so
+      // we don't hammer the Gmail API quota with parallel large backfills.
+      (async () => {
+        try {
+          const { db } = await import("./db");
+          const { sql: sqlTag } = await import("drizzle-orm");
+          // Reset stale running jobs to pending so they can be picked up below.
+          await db.execute(sqlTag.raw(`
+            UPDATE backfill_jobs
+            SET status = 'pending', updated_at = NOW()
+            WHERE status = 'running'
+              AND updated_at < NOW() - INTERVAL '5 minutes'
+          `));
+          const pending = await db.execute(sqlTag.raw(`
+            SELECT id, user_id, email_account_id,
+                   to_char(date_from,'YYYY-MM-DD') AS date_from,
+                   to_char(date_to,'YYYY-MM-DD')   AS date_to
+            FROM backfill_jobs
+            WHERE status = 'pending'
+            ORDER BY id ASC
+          `));
+          const rows = ((pending as any).rows ?? []) as Array<{
+            id: number; user_id: number; email_account_id: number;
+            date_from: string | null; date_to: string | null;
+          }>;
+          if (rows.length === 0) return;
+          log(`[backfill-resumer] resuming ${rows.length} pending job(s)`);
+          const { runBackfillJob } = await import("./services/backfill-service");
+          // Serial loop so jobs don't compete for Gmail quota.
+          for (const r of rows) {
+            try {
+              await runBackfillJob({
+                jobId: r.id,
+                accountId: r.email_account_id,
+                userId: r.user_id,
+                dateFrom: r.date_from ?? undefined,
+                dateTo: r.date_to ?? undefined,
+              });
+            } catch (e: any) {
+              console.error(`[backfill-resumer] job ${r.id} crashed:`, e?.message || e);
+            }
+          }
+        } catch (e: any) {
+          console.error("[backfill-resumer] startup error:", e?.message || e);
+        }
+      })();
     },
   );
 })();
