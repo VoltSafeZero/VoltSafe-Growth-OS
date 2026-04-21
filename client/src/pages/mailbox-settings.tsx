@@ -404,6 +404,7 @@ function SharedMailboxRow({ mailbox, health, canManage, isOwner }: {
   const qc = useQueryClient();
   const [showAccess, setShowAccess] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["/api/team/mailboxes"] });
@@ -420,6 +421,18 @@ function SharedMailboxRow({ mailbox, health, canManage, isOwner }: {
     },
     onError: (e: any) => { toast({ title: "Error", description: e.message, variant: "destructive" }); setConfirmDisconnect(false); },
   });
+  const removeMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", `/api/gmail/accounts/${mailbox.id}`),
+    onSuccess: () => {
+      toast({ title: "Mailbox removed", description: "It no longer appears in the team list. Historical messages were preserved." });
+      setConfirmRemove(false);
+      invalidate();
+    },
+    onError: (e: any) => { toast({ title: "Couldn't remove", description: e.message, variant: "destructive" }); setConfirmRemove(false); },
+  });
+  // Hard-remove is only offered after the mailbox has been disconnected, so an
+  // active mailbox can never be wiped from the list by a single accidental click.
+  const isDisconnected = mailbox.authStatus !== "active" || !mailbox.syncEnabled;
   const syncToggleMutation = useMutation({
     mutationFn: (enabled: boolean) => apiRequest("POST", `/api/gmail/accounts/${mailbox.id}/sync-toggle`, { enabled }),
     onSuccess: (_d, enabled) => {
@@ -530,6 +543,14 @@ function SharedMailboxRow({ mailbox, health, canManage, isOwner }: {
                   data-testid={`menu-disconnect-team-${mailbox.id}`}>
                   <Trash2 className="h-3.5 w-3.5 mr-2" /> Disconnect mailbox…
                 </DropdownMenuItem>
+                {isDisconnected && (
+                  <DropdownMenuItem
+                    onSelect={() => setConfirmRemove(true)}
+                    className="text-destructive focus:text-destructive"
+                    data-testid={`menu-remove-team-${mailbox.id}`}>
+                    <Trash2 className="h-3.5 w-3.5 mr-2" /> Remove from list…
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -568,6 +589,36 @@ function SharedMailboxRow({ mailbox, health, canManage, isOwner }: {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               data-testid={`btn-confirm-disconnect-team-${mailbox.id}`}>
               {disconnectMutation.isPending ? "Disconnecting…" : "Disconnect"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
+        <AlertDialogContent data-testid={`dialog-confirm-remove-team-${mailbox.id}`}>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-destructive" />
+              Remove {mailbox.emailAddress} from the list?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes the mailbox entry so it no longer appears under Team Mailboxes.
+              <br /><br />
+              <strong>What is preserved:</strong> emails and threads already imported from this mailbox stay in the system and remain searchable.
+              <br />
+              <strong>What is removed:</strong> the mailbox row itself and any backfill jobs tied to it.
+              <br /><br />
+              If you ever want this address back later, you can connect it again via "Connect another Gmail account".
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid={`btn-cancel-remove-team-${mailbox.id}`}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => removeMutation.mutate()}
+              disabled={removeMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid={`btn-confirm-remove-team-${mailbox.id}`}>
+              {removeMutation.isPending ? "Removing…" : "Remove from list"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

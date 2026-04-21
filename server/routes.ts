@@ -10070,6 +10070,32 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // ── Hard remove (post-disconnect) ────────────────────────────────────────
+  // Permanently deletes the email_accounts row so it disappears from the
+  // team mailbox list. Refuses unless the mailbox is already disconnected
+  // (auth_status='revoked' OR disconnected_at is set), so an actively syncing
+  // mailbox cannot be wiped by accident. Historical email_messages and
+  // email_threads have no FK to email_accounts, so they are preserved;
+  // backfill_jobs has ON DELETE CASCADE so any job rows for this account
+  // are cleaned up automatically.
+  app.delete("/api/gmail/accounts/:id", requireAuth, async (req, res) => {
+    try {
+      const accountId = Number(req.params.id);
+      const ctx = await requireOwnerOrAdmin(req, res, accountId);
+      if (!ctx) return;
+      const [acct] = await db.select().from(emailAccounts).where(eq(emailAccounts.id, accountId)).limit(1);
+      if (!acct) return res.status(404).json({ message: "Mailbox not found" });
+      const isDisconnected = acct.authStatus === "revoked" || acct.disconnectedAt != null || acct.syncEnabled === false;
+      if (!isDisconnected) {
+        return res.status(409).json({ message: "Disconnect this mailbox first, then you can remove it from the list." });
+      }
+      await db.delete(emailAccounts).where(eq(emailAccounts.id, accountId));
+      res.json({ removed: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Phase 3: Sync toggle (pause/resume) ──────────────────────────────────
   // Owner or admin only. Pausing leaves auth intact and preserves all history;
   // resuming flips sync_enabled back on so the next watch tick will catch up.
