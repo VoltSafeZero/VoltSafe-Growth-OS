@@ -2571,10 +2571,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const mailTeamPerms: MailTeamPerms = (userPermissions?.mail_team ?? {}) as MailTeamPerms;
   const isAdmin = ["master_admin", "admin"].includes(currentUserRole);
   const { toast } = useToast();
-  // Phase 2C: source toggle. Reads ?mailSource=local|gmail|auto from URL; default 'auto'.
+  // Phase 2C: source toggle. Reads ?mailSource=local|gmail|auto from URL; default 'local'.
+  // Default flipped to "local" globally so every user (current + future) sees the full
+  // synced history with continuous scroll instead of just Gmail's live INBOX label slice.
+  // The URL param still wins, and the user can switch via the Source dropdown for that session.
   const [mailSource, setMailSource] = useState<"local" | "gmail" | "auto">(() => {
     const v = new URLSearchParams(window.location.search).get("mailSource");
-    return v === "local" || v === "gmail" || v === "auto" ? v : "auto";
+    return v === "local" || v === "gmail" || v === "auto" ? v : "local";
   });
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -3073,6 +3076,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       if (!res.ok) throw new Error((await res.json()).message);
       return res.json();
     },
+    // Auto-refresh every 60s so newly-arrived mail surfaces without a manual reload.
+    // Only polls while the tab is in the foreground (default react-query behavior).
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 
   const sentQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
@@ -3088,6 +3095,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       return res.json();
     },
     enabled: tab === "sent",
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 
   const inboxBaseToken = inboxQuery.data?.nextPageToken ?? null;
