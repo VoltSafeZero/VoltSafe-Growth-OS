@@ -64,14 +64,16 @@ export function ActionWidgetShell({
       className={`border border-border/50 bg-card/80 relative group/widget transition-all ${isDragging ? "opacity-40 scale-[0.98] ring-2 ring-primary/30" : ""}`}
       data-testid={`widget-${id}`}
     >
-      <div
-        {...dragProps}
-        className="absolute top-3 right-3 opacity-0 group-hover/widget:opacity-100 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground transition-all z-10 touch-none"
-        data-testid={`drag-handle-${id}`}
-        title="Drag to reorder"
-      >
-        <GripVertical className="h-4 w-4" />
-      </div>
+      {dragProps && (
+        <div
+          {...dragProps}
+          className="absolute top-3 right-3 opacity-0 group-hover/widget:opacity-100 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground transition-all z-10 touch-none"
+          data-testid={`drag-handle-${id}`}
+          title="Drag to reorder"
+        >
+          <GripVertical className="h-4 w-4" />
+        </div>
+      )}
       <CardHeader className={`${compact ? "pb-1 pt-3 px-4" : "pb-2 pt-4 px-4"} pr-10`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
