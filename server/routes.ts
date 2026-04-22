@@ -3645,9 +3645,14 @@ export async function registerRoutes(
       delete body.createdByUserId; delete body.created_by_user_id;
     }
     if (body.dueDate && typeof body.dueDate === "string") body.dueDate = new Date(body.dueDate);
+    if (body.startDate && typeof body.startDate === "string") body.startDate = new Date(body.startDate);
     if (body.reminderAt && typeof body.reminderAt === "string") body.reminderAt = new Date(body.reminderAt);
     if (body.snoozedUntil && typeof body.snoozedUntil === "string") body.snoozedUntil = new Date(body.snoozedUntil);
     if (body.snoozedUntil === null) body.snoozedUntil = null;
+    // Server-side guard: if both dates are provided, end (dueDate) must not precede start.
+    if (body.startDate instanceof Date && body.dueDate instanceof Date && body.dueDate < body.startDate) {
+      return res.status(400).json({ message: "End date can't be before start date." });
+    }
     const result = await storage.updateTask(id, body);
     if (!result) return res.status(404).json({ message: "Task not found" });
     res.json(result);

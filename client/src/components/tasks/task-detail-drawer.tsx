@@ -505,26 +505,53 @@ function LabelsButton({ task, taskLabels, allLabels, onChanged }: any) {
 }
 
 function DueDateButton({ task, onChanged }: any) {
-  const [val, setVal] = useState(task.due_date ? String(task.due_date).slice(0, 10) : "");
+  const [startVal, setStartVal] = useState(task.start_date ? String(task.start_date).slice(0, 10) : "");
+  const [dueVal, setDueVal] = useState(task.due_date ? String(task.due_date).slice(0, 10) : "");
+  const rangeInvalid = !!startVal && !!dueVal && startVal > dueVal;
   return (
     <ActionPopover icon={<CalendarIcon className="h-3.5 w-3.5" />} label="Dates" testId="button-action-dates">
       {(close) => (
-        <div className="space-y-2">
-          <label className="text-xs font-semibold text-muted-foreground">Due date</label>
-          <Input
-            type="date"
-            value={val}
-            onChange={(e) => setVal(e.target.value)}
-            data-testid="input-due-date"
-          />
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">Start date</label>
+            <Input
+              type="date"
+              value={startVal}
+              onChange={(e) => setStartVal(e.target.value)}
+              data-testid="input-start-date"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">End date</label>
+            <Input
+              type="date"
+              value={dueVal}
+              onChange={(e) => setDueVal(e.target.value)}
+              data-testid="input-due-date"
+            />
+          </div>
+          {rangeInvalid && (
+            <p className="text-xs text-destructive" data-testid="text-date-range-error">
+              End date can't be before start date.
+            </p>
+          )}
           <div className="flex gap-1">
-            <Button size="sm" className="flex-1" onClick={async () => {
-              await apiRequest("PATCH", `/api/tasks/${task.id}`, { dueDate: val || null });
-              onChanged(); close();
-            }} data-testid="button-save-due-date">Save</Button>
+            <Button
+              size="sm"
+              className="flex-1"
+              disabled={rangeInvalid}
+              onClick={async () => {
+                await apiRequest("PATCH", `/api/tasks/${task.id}`, {
+                  startDate: startVal || null,
+                  dueDate: dueVal || null,
+                });
+                onChanged(); close();
+              }}
+              data-testid="button-save-due-date"
+            >Save</Button>
             <Button size="sm" variant="ghost" onClick={async () => {
-              await apiRequest("PATCH", `/api/tasks/${task.id}`, { dueDate: null });
-              setVal(""); onChanged(); close();
+              await apiRequest("PATCH", `/api/tasks/${task.id}`, { startDate: null, dueDate: null });
+              setStartVal(""); setDueVal(""); onChanged(); close();
             }}>Clear</Button>
           </div>
         </div>
