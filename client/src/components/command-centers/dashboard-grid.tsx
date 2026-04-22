@@ -341,6 +341,18 @@ export function DashboardGrid({
 
   if (renderableIds.length === 0) return null;
 
+  // Hard-lock every layout item when not editing. RGL honors per-item
+  // `static: true` independently of grid-level isDraggable/isResizable, so
+  // this guarantees nothing can be dragged or resized outside edit mode.
+  const lockedLayouts: Layouts = editing
+    ? layouts
+    : (Object.fromEntries(
+        Object.entries(layouts).map(([bp, items]) => [
+          bp,
+          (items as LayoutItem[]).map(it => ({ ...it, static: true })),
+        ]),
+      ) as Layouts);
+
   return (
     <div
       ref={containerRef}
@@ -351,7 +363,7 @@ export function DashboardGrid({
       {width > 0 && (
         <ResponsiveGridLayout
           className="layout"
-          layouts={layouts as any}
+          layouts={lockedLayouts as any}
           width={width}
           breakpoints={BREAKPOINTS}
           cols={COLS}
