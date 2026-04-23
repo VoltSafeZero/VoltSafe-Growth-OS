@@ -102,6 +102,25 @@ function formatMiles(km: number): string {
   return `${Math.round(miles)}mi`;
 }
 
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+const RADIUS_OPTIONS = [
+  { value: "any", label: "Any distance" },
+  { value: "5", label: "Within 5 km" },
+  { value: "10", label: "Within 10 km" },
+  { value: "25", label: "Within 25 km" },
+  { value: "50", label: "Within 50 km" },
+  { value: "100", label: "Within 100 km" },
+  { value: "250", label: "Within 250 km" },
+];
+
 function boundsToRadius(map: L.Map): number {
   const bounds = map.getBounds();
   const center = bounds.getCenter();
@@ -149,12 +168,15 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
   const [locating, setLocating] = useState(false);
   const [selectedLead, setSelectedLead] = useState<NearbyLead | null>(null);
   const [stageFilter, setStageFilter] = useState("all");
+  const [radiusFilter, setRadiusFilter] = useState<string>("any");
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [marinas, setMarinas] = useState<NearbyLead[]>([]);
   const [loading, setLoading] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.LayerGroup | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
+  const radiusCircleRef = useRef<L.Circle | null>(null);
   const fetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const initialZoomRef = useRef(initialLoc.zoom);
@@ -190,8 +212,9 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
     }, 400);
   }, [fetchMarinas]);
 
-  const centerOnCoords = useCallback((lat: number, lng: number) => {
+  const centerOnCoords = useCallback((lat: number, lng: number, isUserGps = false) => {
     saveLocation(lat, lng, 14);
+    if (isUserGps) setUserLocation({ lat, lng });
     const map = mapInstanceRef.current;
     if (map) {
       map.invalidateSize();
@@ -233,7 +256,10 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
       }
     };
     const watchId = navigator.geolocation.watchPosition(
-      (pos) => finish(pos.coords.latitude, pos.coords.longitude),
+      (pos) => {
+        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        finish(pos.coords.latitude, pos.coords.longitude);
+      },
       () => finish(),
       { enableHighAccuracy: false, maximumAge: 60000, timeout: 5000 }
     );
@@ -252,7 +278,15 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
     }
   };
 
-  const filteredMarinas = marinas.filter(l => stageFilter === "all" || l.status === stageFilter);
+  const radiusKm = radiusFilter === "any" ? null : Number(radiusFilter);
+  const filteredMarinas = marinas.filter(l => {
+    if (stageFilter !== "all" && l.status !== stageFilter) return false;
+    if (radiusKm != null && userLocation) {
+      const d = haversineKm(userLocation.lat, userLocation.lng, l.marina_lat, l.marina_lng);
+      if (d > radiusKm) return false;
+    }
+    return true;
+  });
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -284,6 +318,28 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
       fetchMarinas(mapCenter.lat, mapCenter.lng, radius);
     }
   }, [mapCenter, debouncedFetchFromBounds, fetchMarinas]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    if (radiusCircleRef.current) {
+      map.removeLayer(radiusCircleRef.current);
+      radiusCircleRef.current = null;
+    }
+    if (radiusKm != null && userLocation) {
+      const circle = L.circle([userLocation.lat, userLocation.lng], {
+        radius: radiusKm * 1000,
+        color: "#22c55e",
+        weight: 1.5,
+        opacity: 0.7,
+        fillColor: "#22c55e",
+        fillOpacity: 0.06,
+        interactive: false,
+      }).addTo(map);
+      radiusCircleRef.current = circle;
+      try { map.fitBounds(circle.getBounds(), { padding: [24, 24], animate: true }); } catch {}
+    }
+  }, [radiusKm, userLocation]);
 
   useEffect(() => {
     if (!mapInstanceRef.current || !markersRef.current) return;
@@ -400,10 +456,26 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
             ))}
           </SelectContent>
         </Select>
+        <Select value={radiusFilter} onValueChange={(v) => {
+          setRadiusFilter(v);
+          if (v !== "any" && !userLocation) requestLocation();
+        }}>
+          <SelectTrigger className="w-[150px] h-8 text-xs" data-testid="select-radius-filter">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {RADIUS_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button variant="outline" size="sm" className="h-8 text-xs" onClick={requestLocation} disabled={locating} data-testid="button-refresh-location">
           {locating ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Locate className="mr-1 h-3 w-3" />}
           <span className="hidden sm:inline">My Location</span>
         </Button>
+        {radiusKm != null && !userLocation && !locating && (
+          <span className="text-xs text-amber-400">Tap "My Location" to enable radius</span>
+        )}
         {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
         {!loading && filteredMarinas.length > 0 && (
           <Badge variant="outline" className="text-xs">{filteredMarinas.length} marinas in view</Badge>
