@@ -6,6 +6,23 @@ import { requirePermission } from "./auth";
 const BOARD_COLUMNS = ["backlog", "todo", "in_progress", "blocked", "done"] as const;
 type BoardColumn = (typeof BOARD_COLUMNS)[number];
 
+// Workspace-wide custom columns (lives in system_settings as a JSON blob under
+// key='task_columns'). When unset, falls back to the built-in 5. Kept here as a
+// tiny helper so the board endpoint groups by whatever the admin configured.
+async function loadCustomColumnValues(): Promise<string[]> {
+  try {
+    const r: any = await db.execute(sql`SELECT value FROM system_settings WHERE key = 'task_columns' LIMIT 1`);
+    const row = r.rows?.[0];
+    if (!row) return [...BOARD_COLUMNS];
+    const parsed = JSON.parse(row.value);
+    if (Array.isArray(parsed?.columns) && parsed.columns.length > 0) {
+      return parsed.columns.map((c: any) => String(c.value));
+    }
+  } catch { /* fall through */ }
+  return [...BOARD_COLUMNS];
+}
+const SLUG_RE = /^[a-z0-9_]{1,32}$/;
+
 function uid(req: Request): number | null {
   const u = (req.session as any)?.userId;
   return typeof u === "number" ? u : null;
@@ -288,17 +305,22 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       `));
 
       const tasks: any[] = (rows as any).rows ?? [];
-      const grouped: Record<BoardColumn, any[]> = {
-        backlog: [], todo: [], in_progress: [], blocked: [], done: [],
-      };
+      // Use the workspace's currently configured columns so custom columns
+      // appear on the board. Anything pointing at an unknown column gets
+      // dropped into "backlog" (the guaranteed fallback).
+      const colValues = await loadCustomColumnValues();
+      const colSet = new Set(colValues);
+      const fallback = colSet.has("backlog") ? "backlog" : colValues[0];
+      const grouped: Record<string, any[]> = {};
+      for (const v of colValues) grouped[v] = [];
       for (const t of tasks) {
-        let col = (t.boardColumn || "todo") as BoardColumn;
-        if (!BOARD_COLUMNS.includes(col)) col = "todo";
-        // Auto-blocked override: if task has open dependencies, force blocked
-        if (col !== "done" && t.openDependencies > 0) col = "blocked";
+        let col = String(t.boardColumn || fallback);
+        if (!colSet.has(col)) col = fallback;
+        // Auto-blocked override only applies when "blocked" is still a column
+        if (col !== "done" && t.openDependencies > 0 && colSet.has("blocked")) col = "blocked";
         grouped[col].push(t);
       }
-      res.json({ columns: BOARD_COLUMNS, grouped, total: tasks.length });
+      res.json({ columns: colValues, grouped, total: tasks.length });
     } catch (err: any) {
       console.error("[tasks/board]", err.message);
       res.status(500).json({ message: err.message });
@@ -311,7 +333,13 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       const id = Number(req.params.id);
       const userId = uid(req);
       const { boardColumn, sortOrder } = req.body || {};
-      if (!BOARD_COLUMNS.includes(boardColumn)) return res.status(400).json({ message: "Invalid column" });
+      if (typeof boardColumn !== "string" || !SLUG_RE.test(boardColumn)) {
+        return res.status(400).json({ message: "Invalid column" });
+      }
+      const allowedCols = await loadCustomColumnValues();
+      if (!allowedCols.includes(boardColumn)) {
+        return res.status(400).json({ message: "Unknown column" });
+      }
 
       const cur: any = await db.execute(sql`SELECT board_column, status FROM tasks WHERE id = ${id} LIMIT 1`);
       const prev = cur.rows?.[0];

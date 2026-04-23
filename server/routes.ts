@@ -21,7 +21,7 @@ import { deriveScenarioFromCRM, generateScenarioActions, computeForecastVsActual
 import { createPlanCommitFromScenario, computeGapToPlan, generateGapClosureActions, autoCreateTasksFromActions, snapshotGapStatus } from "./services/revenue-operating-system";
 import { generateDailyBrief, getTodaysBrief, getAlerts, updateAlertStatus } from "./services/executive-copilot";
 import { db } from "./db";
-import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications, activities } from "@shared/schema";
+import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications, activities, tasks } from "@shared/schema";
 import {
   insertLeadSchema, insertAccountSchema, insertContactSchema,
   insertOpportunitySchema, insertTicketSchema, insertQuoteSchema,
@@ -3539,6 +3539,87 @@ export async function registerRoutes(
     const parsed = insertActivitySchema.safeParse(body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createActivity(parsed.data));
+  });
+
+  // ── Workspace-wide custom task board columns ──────────────────────────────
+  // Stored as a single JSON row in system_settings (key='task_columns'). When
+  // unset, callers receive the built-in defaults. Admins can rename/reorder/
+  // add/delete columns; deleting a column moves any tasks in it back to
+  // "backlog" so no task is orphaned. No schema change — purely additive.
+  const DEFAULT_TASK_COLUMNS = [
+    { value: "backlog",     label: "Backlog",     color: "slate"   },
+    { value: "todo",        label: "To do",       color: "blue"    },
+    { value: "in_progress", label: "In progress", color: "violet"  },
+    { value: "blocked",     label: "Blocked",     color: "amber"   },
+    { value: "done",        label: "Done",        color: "emerald" },
+  ];
+  const ALLOWED_COLUMN_COLORS = new Set([
+    "slate","blue","violet","amber","emerald","rose","teal","red","orange","cyan","pink","lime",
+  ]);
+  async function readTaskColumns(): Promise<Array<{ value: string; label: string; color: string }>> {
+    const row = await db.select().from(systemSettings).where(eq(systemSettings.key, "task_columns")).limit(1);
+    if (!row.length) return DEFAULT_TASK_COLUMNS;
+    try {
+      const parsed = JSON.parse(row[0].value);
+      if (Array.isArray(parsed?.columns) && parsed.columns.length > 0) return parsed.columns;
+    } catch { /* fall through to defaults */ }
+    return DEFAULT_TASK_COLUMNS;
+  }
+
+  app.get("/api/task-columns", requireAuth, async (_req, res) => {
+    try {
+      res.json(await readTaskColumns());
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Failed to load columns" });
+    }
+  });
+
+  app.put("/api/admin/task-columns", requireAuth, requireAdmin, async (req, res) => {
+    const incoming = Array.isArray(req.body?.columns) ? req.body.columns : null;
+    if (!incoming || incoming.length === 0) {
+      return res.status(400).json({ message: "At least one column is required" });
+    }
+    if (incoming.length > 12) {
+      return res.status(400).json({ message: "Maximum 12 columns allowed" });
+    }
+    const slugRe = /^[a-z0-9_]{1,32}$/;
+    const seen = new Set<string>();
+    const cleaned: Array<{ value: string; label: string; color: string }> = [];
+    for (const raw of incoming) {
+      const value = String(raw?.value || "").trim().toLowerCase();
+      const label = String(raw?.label || "").trim();
+      const color = String(raw?.color || "slate").trim().toLowerCase();
+      if (!slugRe.test(value)) {
+        return res.status(400).json({ message: `Invalid column id "${value}" (use lowercase letters, numbers, underscore)` });
+      }
+      if (!label) return res.status(400).json({ message: `Column "${value}" needs a label` });
+      if (label.length > 40) return res.status(400).json({ message: `Label too long: "${label}"` });
+      if (seen.has(value)) return res.status(400).json({ message: `Duplicate column id "${value}"` });
+      seen.add(value);
+      cleaned.push({ value, label, color: ALLOWED_COLUMN_COLORS.has(color) ? color : "slate" });
+    }
+    if (!seen.has("backlog")) {
+      return res.status(400).json({ message: "A column with id 'backlog' is required (it's the fallback when other columns are deleted)" });
+    }
+    // Diff against previous to find deletions
+    const previous = await readTaskColumns();
+    const removedValues = previous.map(c => c.value).filter(v => !seen.has(v));
+    let movedCount = 0;
+    if (removedValues.length > 0) {
+      const result = await db
+        .update(tasks)
+        .set({ boardColumn: "backlog" })
+        .where(inArray(tasks.boardColumn, removedValues))
+        .returning({ id: tasks.id });
+      movedCount = result.length;
+    }
+    // Upsert the JSON blob
+    const payload = JSON.stringify({ columns: cleaned });
+    await db
+      .insert(systemSettings)
+      .values({ key: "task_columns", value: payload })
+      .onConflictDoUpdate({ target: systemSettings.key, set: { value: payload, updatedAt: new Date() } });
+    res.json({ columns: cleaned, removed: removedValues, movedTaskCount: movedCount });
   });
 
   app.get("/api/tasks", requireAuth, async (req, res) => {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useTaskColumns } from "@/hooks/use-task-columns";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,14 +31,6 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   onTaskChanged?: () => void;
 };
-
-const COLUMN_OPTIONS = [
-  { value: "backlog", label: "Backlog" },
-  { value: "todo", label: "To do" },
-  { value: "in_progress", label: "In progress" },
-  { value: "blocked", label: "Blocked" },
-  { value: "done", label: "Done" },
-];
 
 const PRIORITY_OPTIONS = ["low", "medium", "high", "urgent"];
 
@@ -70,6 +63,7 @@ export function TaskDetailDrawer({ taskId, onOpenChange, onTaskChanged }: Props)
   const open = taskId != null;
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { columns: taskColumns } = useTaskColumns();
 
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/tasks", taskId, "full"],
@@ -208,7 +202,7 @@ export function TaskDetailDrawer({ taskId, onOpenChange, onTaskChanged }: Props)
                 <Chip
                   icon={<MoveRight className="h-3.5 w-3.5" />}
                   label="Column"
-                  value={COLUMN_OPTIONS.find(c => c.value === t.board_column)?.label || "—"}
+                  value={taskColumns.find(c => c.value === t.board_column)?.label || "—"}
                   testId="chip-column"
                 />
                 <Chip
@@ -607,12 +601,13 @@ function AssigneeButton({ task, users, onChanged }: any) {
 }
 
 function MoveButton({ task, onChanged }: any) {
+  const { columns: taskColumns } = useTaskColumns();
   return (
     <ActionPopover icon={<MoveRight className="h-3.5 w-3.5" />} label="Move" testId="button-action-move">
       {(close) => (
         <div className="space-y-1">
           <div className="text-xs font-semibold text-muted-foreground mb-1">Move to column</div>
-          {COLUMN_OPTIONS.map(c => (
+          {taskColumns.map(c => (
             <button
               key={c.value}
               className={`w-full flex items-center justify-between text-xs px-2 py-1.5 rounded hover:bg-muted ${task.board_column === c.value ? "bg-muted font-medium" : ""}`}

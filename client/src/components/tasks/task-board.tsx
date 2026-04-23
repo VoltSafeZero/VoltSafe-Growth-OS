@@ -19,18 +19,12 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   CalendarDays, ListChecks, MessageSquare, Lock, User as UserIcon, Check,
-  Search, Filter, Bookmark, BookmarkPlus, Save, Trash2, X, ChevronDown,
+  Search, Filter, Bookmark, BookmarkPlus, Save, Trash2, X, ChevronDown, Settings,
 } from "lucide-react";
 import { format, isToday, isPast } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
-
-const COLUMN_DEFS = [
-  { value: "backlog", label: "Backlog", color: "border-slate-300 dark:border-slate-700" },
-  { value: "todo", label: "To do", color: "border-blue-300 dark:border-blue-800" },
-  { value: "in_progress", label: "In progress", color: "border-violet-300 dark:border-violet-800" },
-  { value: "blocked", label: "Blocked", color: "border-amber-300 dark:border-amber-800" },
-  { value: "done", label: "Done", color: "border-emerald-300 dark:border-emerald-800" },
-] as const;
+import { useTaskColumns, columnBorderClass } from "@/hooks/use-task-columns";
+import { ManageColumnsDialog } from "@/components/tasks/manage-columns-dialog";
 
 const PRIORITY_DOT: Record<string, string> = {
   urgent: "bg-red-500",
@@ -74,10 +68,15 @@ export function TaskBoard({ view, onOpenTask }: Props) {
   const [newViewName, setNewViewName] = useState("");
   const [newViewDefault, setNewViewDefault] = useState(false);
 
-  const { data: me } = useQuery<{ id: number }>({
+  const { data: me } = useQuery<{ id: number; globalRole?: string }>({
     queryKey: ["/api/auth/me"],
     queryFn: () => fetch("/api/auth/me", { credentials: "include" }).then(r => r.json()),
   });
+  const isAdmin = me?.globalRole === "master_admin" || me?.globalRole === "admin";
+
+  // Workspace-wide custom columns (admin-managed via "Manage columns" dialog)
+  const { columns: columnDefs } = useTaskColumns();
+  const [manageOpen, setManageOpen] = useState(false);
 
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/tasks/board", view],
@@ -110,11 +109,17 @@ export function TaskBoard({ view, onOpenTask }: Props) {
     }
   }, [savedViews, activeViewId]);
 
-  const grouped = data?.grouped || { backlog: [], todo: [], in_progress: [], blocked: [], done: [] };
+  const grouped: Record<string, any[]> = useMemo(() => {
+    const base: Record<string, any[]> = {};
+    for (const c of columnDefs) base[c.value] = [];
+    if (data?.grouped) for (const k of Object.keys(data.grouped)) base[k] = data.grouped[k];
+    return base;
+  }, [data?.grouped, columnDefs]);
 
   // Apply filters client-side
   const filteredGrouped = useMemo(() => {
-    const out: Record<string, any[]> = { backlog: [], todo: [], in_progress: [], blocked: [], done: [] };
+    const out: Record<string, any[]> = {};
+    for (const c of columnDefs) out[c.value] = [];
     const q = (filters.search || "").trim().toLowerCase();
     const labelSet = new Set(filters.labelIds || []);
     for (const col of Object.keys(grouped)) {
@@ -370,12 +375,26 @@ export function TaskBoard({ view, onOpenTask }: Props) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {isAdmin && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs gap-1 ml-auto"
+            onClick={() => setManageOpen(true)}
+            data-testid="button-manage-columns"
+            title="Add, rename, reorder, or delete board columns (admin)"
+          >
+            <Settings className="h-3 w-3" />
+            Manage columns
+          </Button>
+        )}
       </div>
 
       {/* Board */}
       {isLoading ? (
         <div className="flex gap-3 overflow-x-auto pb-4">
-          {COLUMN_DEFS.map(c => (
+          {columnDefs.map(c => (
             <div key={c.value} className="w-72 flex-shrink-0 space-y-2">
               <Skeleton className="h-8 w-full" />
               <Skeleton className="h-24 w-full" />
@@ -385,13 +404,13 @@ export function TaskBoard({ view, onOpenTask }: Props) {
         </div>
       ) : (
         <div className="flex gap-3 overflow-x-auto pb-4" data-testid="board-container">
-          {COLUMN_DEFS.map(col => {
+          {columnDefs.map(col => {
             const cards: any[] = filteredGrouped[col.value] || [];
             const isOver = dragOverCol === col.value;
             return (
               <div
                 key={col.value}
-                className={`w-72 flex-shrink-0 flex flex-col rounded-lg border-2 ${col.color} bg-muted/40 transition-colors ${isOver ? "bg-muted/80 ring-2 ring-primary" : ""}`}
+                className={`w-72 flex-shrink-0 flex flex-col rounded-lg border-2 ${columnBorderClass(col.color)} bg-muted/40 transition-colors ${isOver ? "bg-muted/80 ring-2 ring-primary" : ""}`}
                 onDragOver={(e) => { e.preventDefault(); setDragOverCol(col.value); }}
                 onDragLeave={() => setDragOverCol(null)}
                 onDrop={() => handleDrop(col.value)}
@@ -464,6 +483,10 @@ export function TaskBoard({ view, onOpenTask }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {isAdmin && (
+        <ManageColumnsDialog open={manageOpen} onOpenChange={setManageOpen} />
+      )}
     </div>
   );
 }
