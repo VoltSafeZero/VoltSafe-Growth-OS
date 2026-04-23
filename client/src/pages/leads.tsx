@@ -108,9 +108,9 @@ function getStageLabel(value: string) {
   return PIPELINE_STAGES.find(s => s.value === value)?.label || value;
 }
 
-export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
+export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: { canEdit?: boolean; lockedStatus?: string; pageTitle?: string }) {
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(lockedStatus ?? "all");
   const [countryFilter, setCountryFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
   const [view, setView] = useState<"list" | "pipeline" | "map">("list");
@@ -358,9 +358,11 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Opportunities</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">{pageTitle ?? "Leads"}</h1>
             <p className="text-muted-foreground mt-1 text-sm">
-              {totalCount > 0 ? `${totalCount.toLocaleString()} leads` : "Manage your sales pipeline"}
+              {lockedStatus === "converted"
+                ? (totalCount > 0 ? `${totalCount.toLocaleString()} won` : "Leads promoted to organizations")
+                : (totalCount > 0 ? `${totalCount.toLocaleString()} leads` : "Manage your sales pipeline")}
               {(() => { const pv = allLeads.reduce((s, l) => s + (l.dealAmount || 0), 0); return pv > 0 ? ` · $${pv.toLocaleString()} pipeline` : ""; })()}
             </p>
           </div>
@@ -445,17 +447,19 @@ export default function LeadsPage({ canEdit = true }: { canEdit?: boolean }) {
             data-testid="input-search-leads"
           />
         </div>
-        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); }}>
-          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-status-filter">
-            <SelectValue placeholder="Stage" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Stages</SelectItem>
-            {PIPELINE_STAGES.map(s => (
-              <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {!lockedStatus && (
+          <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); }}>
+            <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-status-filter">
+              <SelectValue placeholder="Stage" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Stages</SelectItem>
+              {PIPELINE_STAGES.map(s => (
+                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         <Select value={countryFilter} onValueChange={(v) => { setCountryFilter(v); setStateFilter("all"); }}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-40" data-testid="select-country-filter">
             <SelectValue placeholder="Country" />

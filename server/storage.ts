@@ -86,6 +86,8 @@ export interface IStorage {
   deleteLead(id: number): Promise<boolean>;
   getLeadStates(): Promise<string[]>;
   importMarinasAsLeads(): Promise<number>;
+  ensureAccountForLead(leadId: number): Promise<void>;
+  backfillAccountsForLeads(): Promise<number>;
 
   getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; page?: number; limit?: number }): Promise<{ data: Account[]; total: number; page: number; totalPages: number }>;
   getAccount(id: number): Promise<Account | undefined>;
@@ -539,7 +541,70 @@ export class DatabaseStorage implements IStorage {
 
   async createLead(data: InsertLead) {
     const result = await db.insert(leads).values(data).returning();
-    return result[0];
+    const lead = result[0];
+    // Auto-shadow every lead as an Organization so all marinas appear in /accounts
+    try { await this.ensureAccountForLead(lead.id); } catch (e) {
+      console.error("[ensureAccountForLead] failed for lead", lead.id, e);
+    }
+    return lead;
+  }
+
+  async ensureAccountForLead(leadId: number): Promise<void> {
+    const [existing] = await db.select().from(accounts).where(eq(accounts.convertedFromLeadId, leadId)).limit(1);
+    if (existing) return;
+    const [lead] = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
+    if (!lead) return;
+    const slipMatch = lead.slips ? String(lead.slips).match(/\d+/) : null;
+    const slipCount = slipMatch ? parseInt(slipMatch[0], 10) : null;
+    await db.insert(accounts).values({
+      name: lead.company,
+      segment: (lead.segment as any) || "marina",
+      orgType: "marina_prospect",
+      notes: lead.notes ?? undefined,
+      tags: lead.tags ?? undefined,
+      city: lead.city ?? undefined,
+      stateProvince: lead.state ?? undefined,
+      country: lead.country ?? undefined,
+      streetAddress: lead.streetAddress ?? undefined,
+      postalZip: lead.zipCode ?? undefined,
+      slipCount: slipCount ?? undefined,
+      convertedFromLeadId: lead.id,
+      assignedToUserId: lead.ownerUserId ?? undefined,
+      leadSource: lead.source ?? undefined,
+      leadStatus: "new",
+      priority: "medium",
+    } as any);
+  }
+
+  async backfillAccountsForLeads(): Promise<number> {
+    const result = await db.execute(sql`
+      INSERT INTO accounts (
+        name, segment, org_type, notes, tags,
+        city, state_province, country, street_address, postal_zip,
+        slip_count, converted_from_lead_id, assigned_to_user_id,
+        lead_source, lead_status, priority
+      )
+      SELECT
+        l.company,
+        COALESCE(NULLIF(l.segment, ''), 'marina'),
+        'marina_prospect',
+        l.notes,
+        l.tags,
+        l.city,
+        l.state,
+        l.country,
+        l.street_address,
+        l.zip_code,
+        NULLIF(REGEXP_REPLACE(COALESCE(l.slips, ''), '[^0-9]', '', 'g'), '')::int,
+        l.id,
+        l.owner_user_id,
+        l.source,
+        'new',
+        'medium'
+      FROM leads l
+      WHERE NOT EXISTS (SELECT 1 FROM accounts a WHERE a.converted_from_lead_id = l.id)
+    `);
+    return Number((result as any).rowCount || 0);
   }
 
   async updateLead(id: number, data: Partial<InsertLead>) {

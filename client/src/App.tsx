@@ -249,7 +249,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       {/* ── Sidebar alias routes — each nav item gets a unique URL so active   */}
       {/* ── state never leaks across sections (no shared paths between items). */}
       <Route path="/execution/forecast">{() => guard("crm", <PipelinePage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
-      <Route path="/revenue/deals">{() => guard("crm", <LeadsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
+      <Route path="/revenue/deals">{() => guard("crm", <LeadsPage canEdit={isAdmin(role) || perms.crm === "edit"} lockedStatus="converted" pageTitle="Accounts Won" />)}</Route>
       <Route path="/intelligence/briefs">{() => wrap(<TodayPage />)}</Route>
       <Route path="/intelligence/signals">{() => wrap(<ActivityFeedPage />)}</Route>
       <Route path="/intelligence/rel-intelligence">{() => wrap(<RelationshipIntelligencePage />)}</Route>

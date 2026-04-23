@@ -8,6 +8,14 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startHourlySyncScheduler } from "./services/gmail-sync";
 import { startHelpCenterRefreshScheduler } from "./services/help-center-refresh";
+import { storage } from "./storage";
+
+// Mirror every lead/marina into Organizations on boot (idempotent, fire-and-forget)
+setTimeout(() => {
+  storage.backfillAccountsForLeads()
+    .then((n) => { if (n > 0) console.log(`[startup] backfilled ${n} marina organizations from leads`); })
+    .catch((e) => console.error("[startup] backfillAccountsForLeads failed:", e?.message || e));
+}, 5000);
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);

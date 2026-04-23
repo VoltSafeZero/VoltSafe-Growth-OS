@@ -1432,7 +1432,19 @@ export async function registerRoutes(
 
   app.post("/api/leads/import-marinas", requirePermission("crm", "edit"), async (_req, res) => {
     const count = await storage.importMarinasAsLeads();
-    res.json({ imported: count, message: `Imported ${count} marinas as leads` });
+    // Mirror every imported marina into Organizations so they all appear in /accounts
+    const shadowed = await storage.backfillAccountsForLeads();
+    res.json({ imported: count, organizationsCreated: shadowed, message: `Imported ${count} marinas as leads (${shadowed} new organizations)` });
+  });
+
+  // Admin backfill — mirror every existing lead/marina into Organizations
+  app.post("/api/admin/backfill-marina-orgs", requirePermission("crm", "edit"), async (_req, res) => {
+    try {
+      const created = await storage.backfillAccountsForLeads();
+      res.json({ created, message: `Created ${created} shadow organizations from leads` });
+    } catch (e: any) {
+      res.status(500).json({ message: e?.message || "Backfill failed" });
+    }
   });
 
   app.get("/api/leads", async (req, res) => {
@@ -1718,7 +1730,7 @@ export async function registerRoutes(
         }
       } else {
         const accountName = (fieldOverrides.name as string)?.trim() || lead.company;
-        account = await storage.createAccount({
+        const accountPayload: any = {
           name: accountName,
           segment: (fieldOverrides.segment ?? lead.segment) as any || "marina",
           notes: (fieldOverrides.notes ?? lead.notes) as any,
@@ -1736,7 +1748,15 @@ export async function registerRoutes(
           originalSource: (lead as any).original_source ?? (lead as any).originalSource ?? (lead as any).source ?? null,
           acquisitionChannel: (lead as any).acquisition_channel ?? (lead as any).acquisitionChannel ?? null,
           sourceCapturedAt: (lead as any).source_captured_at ?? (lead as any).sourceCapturedAt ?? (lead as any).created_at ?? null,
-        } as any);
+        };
+        // Reuse the auto-shadow Organization (created when this lead was made) to avoid duplicates
+        const [shadow] = await db.select().from(accounts).where(eq(accounts.convertedFromLeadId, lead.id)).limit(1);
+        if (shadow) {
+          const [updated] = await db.update(accounts).set({ ...accountPayload, updatedAt: new Date() } as any).where(eq(accounts.id, shadow.id)).returning();
+          account = updated;
+        } else {
+          account = await storage.createAccount(accountPayload);
+        }
       }
 
       // ── Resolve contact ──────────────────────────────────────────────────────
