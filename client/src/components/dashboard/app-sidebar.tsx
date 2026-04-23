@@ -82,7 +82,7 @@ const sections: NavSection[] = [
     permKey: "crm",
     items: [
       { title: "Revenue Hub", url: "/revenue", icon: BarChart3, permKey: "crm" },
-      { title: "Opportunities", url: "/opportunities", icon: Sparkles, permKey: "crm" },
+      { title: "Leads", url: "/opportunities", icon: Sparkles, permKey: "crm" },
       { title: "Pipeline", url: "/pipeline", icon: GitBranch, permKey: "crm" },
       { title: "Deals", url: "/revenue/deals", icon: Target, permKey: "crm" },
       { title: "Data Quality", url: "/data-quality", icon: ShieldCheck, permKey: "crm" },

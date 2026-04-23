@@ -31,7 +31,7 @@ const allNavGroups = [
   {
     label: "Revenue Engine",
     items: [
-      { title: "Opportunities", url: "/opportunities", icon: UserPlus },
+      { title: "Leads", url: "/opportunities", icon: UserPlus },
       { title: "Pipeline", url: "/pipeline", icon: Target },
       { title: "Quotes", url: "/quotes", icon: FileText },
     ],
