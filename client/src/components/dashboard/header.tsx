@@ -950,6 +950,12 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
   }, [mobileSearchOpen]);
 
   const handleQuickCreate = (item: typeof quickCreateItems[0]) => {
+    // The contact dialog is mounted globally and listens for this event,
+    // so we don't need to navigate first — open it in place.
+    if (item.event === "open-create-contact") {
+      window.dispatchEvent(new Event(item.event));
+      return;
+    }
     navigate(item.url);
     setTimeout(() => window.dispatchEvent(new Event(item.event)), 100);
   };

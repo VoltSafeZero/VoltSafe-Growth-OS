@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Camera, Upload, Link2, Sparkles, Loader2, RotateCcw, ImagePlus } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Camera, Upload, Link2, Sparkles, Loader2, RotateCcw, ImagePlus, Building2, ChevronsUpDown, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -57,6 +60,23 @@ export function CreateContactDialog({
 
   const [saving, setSaving] = useState(false);
 
+  // Organization picker (only shown when no accountId was injected by the caller)
+  const [pickedAccountId, setPickedAccountId] = useState<number | null>(accountId);
+  const [pickedAccountName, setPickedAccountName] = useState<string>("");
+  const [orgPickerOpen, setOrgPickerOpen] = useState(false);
+  const [orgSearch, setOrgSearch] = useState("");
+
+  const { data: orgResults } = useQuery<any>({
+    queryKey: ["/api/accounts", { search: orgSearch }],
+    queryFn: async () => {
+      const r = await fetch(`/api/accounts?search=${encodeURIComponent(orgSearch)}&limit=20`, { credentials: "include" });
+      if (!r.ok) return { data: [] };
+      return r.json();
+    },
+    enabled: open && !accountId && orgPickerOpen,
+  });
+  const orgList: any[] = useMemo(() => orgResults?.data || orgResults || [], [orgResults]);
+
   // Reset everything when the dialog closes
   useEffect(() => {
     if (!open) {
@@ -65,8 +85,15 @@ export function CreateContactDialog({
       setCardPreview(null); setScanning(false);
       setUrl(""); setFetchingUrl(false);
       setSaving(false);
+      setPickedAccountId(accountId);
+      setPickedAccountName("");
+      setOrgSearch("");
+    } else {
+      setPickedAccountId(accountId);
     }
-  }, [open]);
+  }, [open, accountId]);
+
+  const effectiveAccountId = accountId ?? pickedAccountId;
 
   const applyExtracted = (e: ExtractedContact) => {
     const fullName =
@@ -130,18 +157,32 @@ export function CreateContactDialog({
     }
   };
 
-  const canSave = name.trim().length > 0 && !!accountId && !saving;
+  const needsOrgPicker = !accountId;
+  const canSave = name.trim().length > 0 && (!!effectiveAccountId || (needsOrgPicker && pickedAccountName.trim().length > 0)) && !saving;
 
   const handleSave = async () => {
-    if (!accountId) {
-      toast({ title: "Pick an organization first", description: "Open this from an organization, lead, or opportunity.", variant: "destructive" });
-      return;
-    }
     if (!name.trim()) return;
     setSaving(true);
     try {
+      let finalAccountId = effectiveAccountId;
+      // If user typed a brand new org name (didn't pick one), create it on the fly
+      if (!finalAccountId && needsOrgPicker && pickedAccountName.trim()) {
+        const accRes = await apiRequest("POST", "/api/accounts", {
+          name: pickedAccountName.trim(),
+          segment: "marina",
+          leadStatus: "new",
+          priority: "medium",
+        });
+        const acc = await accRes.json();
+        finalAccountId = acc.id;
+      }
+      if (!finalAccountId) {
+        toast({ title: "Pick or name an organization", variant: "destructive" });
+        setSaving(false);
+        return;
+      }
       const res = await apiRequest("POST", "/api/contacts", {
-        accountId,
+        accountId: finalAccountId,
         name: name.trim(),
         title: title.trim() || null,
         email: email.trim() || null,
@@ -313,8 +354,66 @@ export function CreateContactDialog({
             </div>
           </div>
 
-          {!accountId && (
-            <p className="text-[11px] text-amber-500">Open this from an organization or lead so we know where to file the contact.</p>
+          {needsOrgPicker && (
+            <div className="space-y-1">
+              <Label className="text-xs">Organization *</Label>
+              <Popover open={orgPickerOpen} onOpenChange={setOrgPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between font-normal"
+                    data-testid="button-pick-org"
+                  >
+                    <span className="flex items-center gap-2 truncate">
+                      <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                      {pickedAccountName || (effectiveAccountId ? "Selected" : "Choose or type new…")}
+                    </span>
+                    <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder="Search or type a new organization name…"
+                      value={orgSearch}
+                      onValueChange={setOrgSearch}
+                      data-testid="input-org-search"
+                    />
+                    <CommandList>
+                      <CommandEmpty>
+                        <div className="py-2 text-xs text-muted-foreground">Type a name and tap "Create new"</div>
+                      </CommandEmpty>
+                      <CommandGroup heading="Existing">
+                        {orgList.slice(0, 12).map((o: any) => (
+                          <CommandItem
+                            key={o.id}
+                            value={String(o.id)}
+                            onSelect={() => { setPickedAccountId(o.id); setPickedAccountName(o.name); setOrgPickerOpen(false); }}
+                            data-testid={`option-org-${o.id}`}
+                          >
+                            <Building2 className="h-3 w-3 mr-2 text-muted-foreground" />
+                            <span className="truncate">{o.name}</span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                      {orgSearch.trim() && (
+                        <CommandGroup heading="Or">
+                          <CommandItem
+                            value={`__new__${orgSearch}`}
+                            onSelect={() => { setPickedAccountId(null); setPickedAccountName(orgSearch.trim()); setOrgPickerOpen(false); }}
+                            data-testid="option-org-create-new"
+                          >
+                            <Plus className="h-3 w-3 mr-2" /> Create new "{orgSearch.trim()}"
+                          </CommandItem>
+                        </CommandGroup>
+                      )}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
           )}
 
           <div className="flex justify-end gap-2 pt-1">

@@ -10,6 +10,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/dashboard/app-sidebar";
 import { Header } from "@/components/dashboard/header";
 import { MobileNav } from "@/components/dashboard/mobile-nav";
+import { GlobalCreateContact } from "@/components/contacts/global-create-contact";
 
 import Dashboard from "@/pages/dashboard";
 import CommandCenter from "@/pages/command-center";
@@ -187,6 +188,7 @@ function AppShell({ children, user, onLogout }: { children: React.ReactNode; use
         </div>
       </div>
       <MobileNav userGlobalRole={user.globalRole || "sales"} />
+      <GlobalCreateContact />
     </SidebarProvider>
   );
 }
