@@ -27,6 +27,7 @@ import {
   type CenterType, type UserProfile, type WidgetDef,
 } from "@/lib/dashboard-config";
 import { CEOCommandCenter } from "@/components/command-centers/ceo-center";
+import { MarinasDayPlannerDialog } from "@/components/marinas-day-planner-dialog";
 import { CFOCommandCenter } from "@/components/command-centers/cfo-center";
 import { CTOCommandCenter } from "@/components/command-centers/cto-center";
 import { CMOCommandCenter } from "@/components/command-centers/cmo-center";
@@ -737,15 +738,39 @@ export default function RoleCommandCenter() {
   const h = new Date().getHours();
   const greet = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
 
+  // Plan My Travel Day
+  const [plannerOpen, setPlannerOpen] = useState(false);
+  const [plannerLocation, setPlannerLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const openPlanner = useCallback(() => {
+    setPlannerOpen(true);
+    if (!plannerLocation && typeof navigator !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setPlannerLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => {},
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 }
+      );
+    }
+  }, [plannerLocation]);
+
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6" data-testid="role-command-center">
 
       {/* ── Header ────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-foreground" data-testid="rcc-greeting">
-            {greet}, {profile.name?.split(" ")[0] ?? "there"}
-          </h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-xl font-bold text-foreground" data-testid="rcc-greeting">
+              {greet}, {profile.name?.split(" ")[0] ?? "there"}
+            </h1>
+            <Button
+              size="sm"
+              onClick={openPlanner}
+              className="gap-1.5 h-8 text-xs bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 text-primary-foreground shadow-md"
+              data-testid="rcc-plan-travel-day"
+            >
+              <Sparkles className="h-3.5 w-3.5" /> Plan My Travel Day
+            </Button>
+          </div>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             <p className="text-sm text-muted-foreground">{config.centerLabel}</p>
             {previewCenterType && (
@@ -911,6 +936,12 @@ export default function RoleCommandCenter() {
       {displayCenterType === "cs" && (
         <CSCommandCenter visible={visible} compact={compact} />
       )}
+
+      <MarinasDayPlannerDialog
+        open={plannerOpen}
+        onOpenChange={setPlannerOpen}
+        userLocation={plannerLocation}
+      />
     </div>
   );
 }

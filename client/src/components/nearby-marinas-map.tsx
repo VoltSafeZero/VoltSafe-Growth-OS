@@ -591,7 +591,7 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
           }}
           data-testid="button-plan-day"
         >
-          <Sparkles className="h-3 w-3" /> Plan my day
+          <Sparkles className="h-3 w-3" /> Plan My Travel Day
         </Button>
         {radiusKm != null && !userLocation && !locating && (
           <span className="text-xs text-amber-400">Tap "My Location" to enable radius</span>
@@ -650,7 +650,7 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
             className="sm:hidden absolute bottom-4 right-3 z-[500] flex items-center gap-1.5 px-4 h-11 rounded-full bg-gradient-to-br from-primary to-primary/80 text-primary-foreground font-medium text-sm shadow-xl shadow-primary/30 active:scale-95 transition"
             data-testid="button-plan-day-mobile"
           >
-            <Sparkles className="h-4 w-4" /> Plan my day
+            <Sparkles className="h-4 w-4" /> Plan My Travel Day
           </button>
 
           {/* Bottom-left list opener pill (mobile only) */}
