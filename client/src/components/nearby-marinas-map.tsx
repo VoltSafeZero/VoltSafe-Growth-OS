@@ -9,7 +9,8 @@ import {
 } from "lucide-react";
 import AddressAutocomplete from "@/components/address-autocomplete";
 import { MarinasDayPlannerDialog } from "@/components/marinas-day-planner-dialog";
-import { Sparkles } from "lucide-react";
+import { Sparkles, SlidersHorizontal, List, X } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -175,6 +176,8 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
   const [marinas, setMarinas] = useState<NearbyLead[]>([]);
   const [loading, setLoading] = useState(false);
   const [plannerOpen, setPlannerOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [mobileListOpen, setMobileListOpen] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.LayerGroup | null>(null);
@@ -440,13 +443,115 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
     window.open(url, "_blank", "noopener");
   };
 
+  const renderListItem = (lead: NearbyLead) => (
+    <div
+      key={lead.id}
+      className={`group p-3 rounded-xl border cursor-pointer transition-all ${
+        selectedLead?.id === lead.id
+          ? "border-primary/60 bg-gradient-to-br from-primary/10 to-primary/[0.02] shadow-sm shadow-primary/10"
+          : "border-border/40 bg-card/40 hover:border-primary/30 hover:bg-card/70"
+      }`}
+      onClick={() => {
+        setSelectedLead(lead);
+        setMobileListOpen(false);
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.setView([lead.marina_lat, lead.marina_lng], 15, { animate: true });
+        }
+      }}
+      data-testid={`nearby-lead-${lead.id}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold truncate tracking-tight">{lead.company}</p>
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <span className="text-[11px] text-muted-foreground">{formatMiles(lead.distance_km)} away</span>
+            <Badge
+              variant="outline"
+              className="text-[10px] px-1.5 py-0 h-4 font-medium"
+              style={{ borderColor: STAGE_COLORS[lead.status] + "60", color: STAGE_COLORS[lead.status], backgroundColor: STAGE_COLORS[lead.status] + "10" }}
+            >
+              {STAGE_LABELS[lead.status] || lead.status}
+            </Badge>
+          </div>
+        </div>
+        <button
+          onClick={(e) => handleListDirections(lead, e)}
+          className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-primary/10 text-primary transition-all hover:bg-primary/20 hover:scale-105 active:scale-95"
+          data-testid={`directions-${lead.id}`}
+          title="Get Directions"
+        >
+          <Navigation className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {(lead.city || lead.state) && (
+        <p className="text-[11px] text-muted-foreground mt-1.5 flex items-center gap-1 truncate">
+          <MapPin className="h-3 w-3 shrink-0" />
+          {[lead.city, lead.state].filter(Boolean).join(", ")}
+        </p>
+      )}
+      <div className="flex items-center gap-3 mt-1 flex-wrap">
+        {lead.slips && lead.slips !== "-" && (
+          <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+            <Anchor className="h-3 w-3" /> {lead.slips} slips
+          </span>
+        )}
+        {lead.deal_amount != null && lead.deal_amount > 0 && (
+          <span className="text-[11px] text-emerald-400 font-semibold">
+            ${Number(lead.deal_amount).toLocaleString()}
+            {lead.deal_probability != null && <span className="text-muted-foreground font-normal ml-0.5">· {lead.deal_probability}%</span>}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
+  const filterControls = (
+    <div className="space-y-3">
+      <div>
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-medium">Search</p>
+        <AddressAutocomplete onSelect={handleAddressSelect} className="w-full" testId="input-leads-map-address-search" />
+      </div>
+      <div>
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-medium">Stage</p>
+        <Select value={stageFilter} onValueChange={setStageFilter}>
+          <SelectTrigger className="w-full h-9 text-sm" data-testid="select-stage-filter-mobile">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Stages</SelectItem>
+            {Object.entries(STAGE_LABELS).map(([val, label]) => (
+              <SelectItem key={val} value={val}>{label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-medium">Radius</p>
+        <Select value={radiusFilter} onValueChange={(v) => {
+          setRadiusFilter(v);
+          if (v !== "any" && !userLocation) requestLocation();
+        }}>
+          <SelectTrigger className="w-full h-9 text-sm" data-testid="select-radius-filter-mobile">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {RADIUS_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="flex flex-col h-[calc(100vh-220px)]">
-      <div className="flex items-center gap-2 px-1 pb-3 flex-wrap">
+    <div className="relative flex flex-col h-[calc(100dvh-150px)] sm:h-[calc(100vh-220px)] -mx-3 sm:mx-0" data-testid="nearby-marinas-map">
+      {/* Desktop top toolbar */}
+      <div className="hidden sm:flex items-center gap-2 px-1 pb-3 flex-wrap">
         <AddressAutocomplete
           onSelect={handleAddressSelect}
           className="flex-1 min-w-[180px] max-w-xs"
-          testId="input-leads-map-address-search"
+          testId="input-leads-map-address-search-desktop"
         />
         <Select value={stageFilter} onValueChange={setStageFilter}>
           <SelectTrigger className="w-[140px] h-8 text-xs" data-testid="select-stage-filter">
@@ -474,7 +579,7 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
         </Select>
         <Button variant="outline" size="sm" className="h-8 text-xs" onClick={requestLocation} disabled={locating} data-testid="button-refresh-location">
           {locating ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Locate className="mr-1 h-3 w-3" />}
-          <span className="hidden sm:inline">My Location</span>
+          My Location
         </Button>
         <Button
           variant="outline"
@@ -497,94 +602,165 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
         )}
       </div>
 
-      <div className="flex flex-1 gap-3 min-h-0">
+      <div className="flex flex-1 sm:gap-3 min-h-0 relative">
+        {/* Map */}
         <div className="flex-1 relative min-w-0">
-          <div ref={mapRef} className="absolute inset-0 rounded-xl border border-border/50 overflow-hidden z-0" data-testid="map-container" />
+          <div
+            ref={mapRef}
+            className="absolute inset-0 sm:rounded-2xl sm:border sm:border-border/50 overflow-hidden z-0 sm:shadow-xl sm:shadow-black/20"
+            data-testid="map-container"
+          />
+
+          {/* Mobile glass toolbar overlay */}
+          <div className="sm:hidden absolute top-3 left-3 right-3 z-[500] flex items-center gap-2">
+            <div className="flex-1 min-w-0 backdrop-blur-xl bg-background/75 border border-white/10 rounded-2xl shadow-lg shadow-black/30 px-1 py-1">
+              <AddressAutocomplete onSelect={handleAddressSelect} className="w-full" testId="input-leads-map-address-search" />
+            </div>
+            <button
+              onClick={() => setFiltersOpen(true)}
+              className="relative w-11 h-11 flex items-center justify-center rounded-2xl backdrop-blur-xl bg-background/75 border border-white/10 shadow-lg shadow-black/30 active:scale-95 transition"
+              data-testid="button-mobile-filters"
+              aria-label="Filters"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              {(stageFilter !== "all" || radiusFilter !== "any") && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-primary" />
+              )}
+            </button>
+          </div>
+
+          {/* Right-side stacked floating buttons (both mobile and desktop) */}
+          <div className="absolute top-20 sm:top-3 right-3 z-[500] flex flex-col gap-2">
+            <button
+              onClick={requestLocation}
+              className="w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center rounded-2xl sm:rounded-xl backdrop-blur-xl bg-background/85 border border-white/10 text-foreground shadow-lg shadow-black/30 active:scale-95 transition"
+              title="Center on my location"
+              data-testid="button-map-locate-leads"
+            >
+              {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Locate className="h-4 w-4" />}
+            </button>
+          </div>
+
+          {/* Bottom-right floating Plan my day (mobile only — desktop has it in toolbar) */}
           <button
-            onClick={requestLocation}
-            className="absolute top-2 right-2 z-[1000] w-9 h-9 flex items-center justify-center rounded-lg bg-[hsl(222,47%,14%)] border border-[hsl(217,33%,25%)] text-[hsl(210,40%,90%)] shadow-lg cursor-pointer"
-            title="Center on my location"
-            data-testid="button-map-locate-leads"
+            onClick={() => {
+              if (!userLocation) requestLocation();
+              setPlannerOpen(true);
+            }}
+            className="sm:hidden absolute bottom-4 right-3 z-[500] flex items-center gap-1.5 px-4 h-11 rounded-full bg-gradient-to-br from-primary to-primary/80 text-primary-foreground font-medium text-sm shadow-xl shadow-primary/30 active:scale-95 transition"
+            data-testid="button-plan-day-mobile"
           >
-            {locating ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Locate className="h-4 w-4" />
-            )}
+            <Sparkles className="h-4 w-4" /> Plan my day
           </button>
+
+          {/* Bottom-left list opener pill (mobile only) */}
+          <button
+            onClick={() => setMobileListOpen(true)}
+            className="sm:hidden absolute bottom-4 left-3 z-[500] flex items-center gap-1.5 px-3.5 h-11 rounded-full backdrop-blur-xl bg-background/85 border border-white/10 text-foreground text-sm font-medium shadow-xl shadow-black/30 active:scale-95 transition"
+            data-testid="button-mobile-list"
+          >
+            <List className="h-4 w-4" />
+            {loading ? "…" : filteredMarinas.length}
+          </button>
+
+          {/* Loading shimmer (mobile) */}
+          {loading && (
+            <div className="sm:hidden absolute top-20 left-1/2 -translate-x-1/2 z-[500] backdrop-blur-xl bg-background/85 border border-white/10 rounded-full px-3 py-1.5 text-[11px] flex items-center gap-1.5 shadow-lg">
+              <Loader2 className="h-3 w-3 animate-spin" /> Loading marinas…
+            </div>
+          )}
+
+          {/* Empty state overlay */}
+          {!loading && filteredMarinas.length === 0 && (
+            <div className="sm:hidden absolute top-1/2 left-4 right-4 -translate-y-1/2 z-[400] text-center backdrop-blur-xl bg-background/80 border border-white/10 rounded-2xl p-5 shadow-xl pointer-events-none">
+              <Anchor className="h-7 w-7 text-muted-foreground mx-auto mb-2" />
+              <p className="text-sm font-medium">No marinas in view</p>
+              <p className="text-xs text-muted-foreground mt-1">Zoom out or search an address</p>
+            </div>
+          )}
         </div>
 
-        <div className="w-72 lg:w-80 flex-shrink-0 overflow-y-auto space-y-1.5 pr-1">
+        {/* Desktop side list */}
+        <div className="hidden sm:flex flex-col w-72 lg:w-80 flex-shrink-0 overflow-y-auto space-y-1.5 pr-1">
           {loading && marinas.length === 0 ? (
-            Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-lg" />)
+            Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)
           ) : filteredMarinas.length === 0 ? (
-            <div className="text-center py-8">
+            <div className="text-center py-12 px-4">
               <Anchor className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">No marinas in view</p>
               <p className="text-xs text-muted-foreground mt-1">Zoom out or search an address</p>
             </div>
           ) : (
-            filteredMarinas.map((lead) => (
-              <div
-                key={lead.id}
-                className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                  selectedLead?.id === lead.id
-                    ? "border-primary/50 bg-primary/5"
-                    : "border-border/30 bg-card/50 hover:border-primary/30"
-                }`}
-                onClick={() => {
-                  setSelectedLead(lead);
-                  if (mapInstanceRef.current) {
-                    mapInstanceRef.current.setView([lead.marina_lat, lead.marina_lng], 15, { animate: true });
-                  }
-                }}
-                data-testid={`nearby-lead-${lead.id}`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">{lead.company}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-muted-foreground">{formatMiles(lead.distance_km)} away</span>
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] px-1 py-0"
-                        style={{ borderColor: STAGE_COLORS[lead.status] + "40", color: STAGE_COLORS[lead.status] }}
-                      >
-                        {STAGE_LABELS[lead.status] || lead.status}
-                      </Badge>
-                    </div>
-                  </div>
-                  <button
-                    onClick={(e) => handleListDirections(lead, e)}
-                    className="shrink-0 p-1.5 rounded-md bg-primary/10 transition-colors hover-elevate"
-                    data-testid={`directions-${lead.id}`}
-                    title="Get Directions"
-                  >
-                    <Navigation className="h-4 w-4 text-primary" />
-                  </button>
-                </div>
-                {(lead.city || lead.state) && (
-                  <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                    <MapPin className="h-3 w-3 shrink-0" />
-                    {[lead.city, lead.state].filter(Boolean).join(", ")}
-                  </p>
-                )}
-                {lead.slips && lead.slips !== "-" && (
-                  <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-                    <Anchor className="h-3 w-3 shrink-0" /> {lead.slips} slips
-                  </p>
-                )}
-                {lead.deal_amount != null && lead.deal_amount > 0 && (
-                  <p className="text-xs text-emerald-400 font-medium mt-0.5">
-                    ${Number(lead.deal_amount).toLocaleString()}
-                    {lead.deal_probability != null && <span className="text-muted-foreground font-normal"> ({lead.deal_probability}%)</span>}
-                  </p>
-                )}
-              </div>
-            ))
+            filteredMarinas.map(renderListItem)
           )}
         </div>
       </div>
+
+      {/* Mobile filters sheet */}
+      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <SheetContent side="left" className="w-[88vw] max-w-sm p-5 sm:hidden">
+          <SheetHeader className="mb-4">
+            <SheetTitle className="flex items-center gap-2">
+              <SlidersHorizontal className="h-4 w-4" /> Filters
+            </SheetTitle>
+          </SheetHeader>
+          {filterControls}
+          <div className="mt-5 space-y-2">
+            <Button
+              onClick={() => { requestLocation(); }}
+              variant="outline"
+              className="w-full gap-2"
+              disabled={locating}
+              data-testid="button-mobile-locate"
+            >
+              {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Locate className="h-4 w-4" />}
+              {userLocation ? "Re-center on me" : "Use my location"}
+            </Button>
+            <Button
+              onClick={() => { setStageFilter("all"); setRadiusFilter("any"); }}
+              variant="ghost"
+              className="w-full text-xs text-muted-foreground"
+            >
+              Reset filters
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Mobile bottom-sheet list */}
+      <Sheet open={mobileListOpen} onOpenChange={setMobileListOpen}>
+        <SheetContent side="bottom" className="h-[78vh] rounded-t-3xl p-0 sm:hidden flex flex-col">
+          <div className="flex-shrink-0 px-4 pt-3 pb-2">
+            <div className="mx-auto w-10 h-1 rounded-full bg-border/80 mb-3" />
+            <div className="flex items-center justify-between gap-2">
+              <SheetTitle className="text-base flex items-center gap-2">
+                <Anchor className="h-4 w-4 text-primary" />
+                {filteredMarinas.length} marinas
+              </SheetTitle>
+              <button
+                onClick={() => setMobileListOpen(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-muted/60 active:scale-95 transition"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-1.5">
+            {loading && marinas.length === 0 ? (
+              Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)
+            ) : filteredMarinas.length === 0 ? (
+              <div className="text-center py-12">
+                <Anchor className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">No marinas in view</p>
+              </div>
+            ) : (
+              filteredMarinas.map(renderListItem)
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
       <MarinasDayPlannerDialog
         open={plannerOpen}
         onOpenChange={setPlannerOpen}
