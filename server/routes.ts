@@ -2779,6 +2779,121 @@ export async function registerRoutes(
     res.json({ message: "Deleted" });
   });
 
+  // ── Contact extraction (business cards & web links) ─────────────────────────
+  // Used by the rich Create Contact dialog so users can add contacts from a
+  // photographed/uploaded business card or a public profile URL (LinkedIn, etc.).
+  const contactExtractSchema = {
+    type: "object",
+    properties: {
+      firstName: { type: ["string", "null"] },
+      lastName: { type: ["string", "null"] },
+      name: { type: ["string", "null"] },
+      title: { type: ["string", "null"] },
+      email: { type: ["string", "null"] },
+      phone: { type: ["string", "null"] },
+      linkedinUrl: { type: ["string", "null"] },
+      company: { type: ["string", "null"] },
+      website: { type: ["string", "null"] },
+      address: { type: ["string", "null"] },
+      notes: { type: ["string", "null"] },
+    },
+  } as const;
+
+  async function callContactExtractor(messages: any[]) {
+    const { default: OpenAI } = await import("openai");
+    const oai = new OpenAI({
+      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+    });
+    const completion = await oai.chat.completions.create({
+      model: "gpt-5.1",
+      response_format: { type: "json_object" },
+      messages,
+    });
+    const raw = completion.choices?.[0]?.message?.content || "{}";
+    try { return JSON.parse(raw); } catch { return {}; }
+  }
+
+  app.post("/api/contacts/extract-from-image",
+    requirePermission("crm", "edit"),
+    assetUpload.single("file"),
+    async (req, res) => {
+      try {
+        const file = (req as any).file as Express.Multer.File | undefined;
+        if (!file || !file.buffer) return res.status(400).json({ message: "No image uploaded" });
+        if (!file.mimetype.startsWith("image/")) return res.status(400).json({ message: "File must be an image" });
+        const dataUrl = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+        const extracted = await callContactExtractor([
+          {
+            role: "system",
+            content:
+              "You extract contact information from business card photos. Return ONLY a JSON object with these fields (use null when unknown): firstName, lastName, name (full name), title, email, phone, linkedinUrl, company, website, address, notes. Normalize phone numbers to international format when possible.",
+          },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Extract the contact details from this business card image." },
+              { type: "image_url", image_url: { url: dataUrl } },
+            ] as any,
+          },
+        ]);
+        res.json({ extracted });
+      } catch (e: any) {
+        console.error("[extract-from-image] failed:", e?.message || e);
+        res.status(500).json({ message: e?.message || "Failed to read business card" });
+      }
+    }
+  );
+
+  app.post("/api/contacts/extract-from-url",
+    requirePermission("crm", "edit"),
+    async (req, res) => {
+      try {
+        const url = String(req.body?.url || "").trim();
+        if (!/^https?:\/\//i.test(url)) return res.status(400).json({ message: "Please paste a full URL (https://...)" });
+        let pageText = "";
+        try {
+          const r = await fetch(url, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (compatible; VoltSafeContactBot/1.0)",
+              "Accept": "text/html,application/xhtml+xml",
+            },
+            redirect: "follow",
+          });
+          const html = await r.text();
+          // Strip scripts/styles, then collapse tags to plain text. Keep first ~12k chars.
+          pageText = html
+            .replace(/<script[\s\S]*?<\/script>/gi, " ")
+            .replace(/<style[\s\S]*?<\/style>/gi, " ")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 12000);
+        } catch (e: any) {
+          return res.status(400).json({ message: `Couldn't fetch that URL: ${e?.message || e}` });
+        }
+        if (!pageText) return res.status(400).json({ message: "That page didn't return any readable content (LinkedIn often blocks bots — try a public website or business card photo instead)." });
+        const extracted = await callContactExtractor([
+          {
+            role: "system",
+            content:
+              "You extract contact information from a public webpage (LinkedIn profile, company team page, personal site, etc.). Return ONLY a JSON object with these fields (use null when unknown): firstName, lastName, name (full name), title, email, phone, linkedinUrl, company, website, address, notes. If the URL itself is a LinkedIn profile, copy it into linkedinUrl. Put a 1-sentence professional summary in notes when one is available.",
+          },
+          {
+            role: "user",
+            content: `Source URL: ${url}\n\nPage text:\n${pageText}`,
+          },
+        ]);
+        if (!extracted.linkedinUrl && /linkedin\.com\/in\//i.test(url)) extracted.linkedinUrl = url;
+        if (!extracted.website && !/linkedin\.com/i.test(url)) extracted.website = url;
+        res.json({ extracted });
+      } catch (e: any) {
+        console.error("[extract-from-url] failed:", e?.message || e);
+        res.status(500).json({ message: e?.message || "Failed to read URL" });
+      }
+    }
+  );
+
   app.get("/api/opportunities", async (req, res) => {
     const { accountId, stage, ownerId, forecastCategory, search, page, limit } = req.query;
     res.json(await storage.getOpportunities({

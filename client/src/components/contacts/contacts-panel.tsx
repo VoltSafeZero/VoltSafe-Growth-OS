@@ -9,6 +9,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Plus, X, Mail, Phone, Briefcase, StickyNote, Pencil, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ContactAvatar } from "./contact-avatar";
+import { CreateContactDialog } from "./create-contact-dialog";
 
 export type EntityType = "opportunity" | "account" | "lead";
 
@@ -229,10 +230,8 @@ function AddContactPopover({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newEmail, setNewEmail] = useState("");
-  const [newTitle, setNewTitle] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [resolvedAccountId, setResolvedAccountId] = useState<number | null>(null);
   const { toast } = useToast();
 
   const { data: contacts = [] } = useQuery<any[]>({
@@ -255,58 +254,44 @@ function AddContactPopover({
     onError: () => toast({ title: "Could not link contact", variant: "destructive" }),
   });
 
-  const createAndLink = async () => {
-    if (!newName.trim()) return;
-    setCreating(true);
+  const openCreateDialog = async () => {
+    let primaryAccountId = entityType === "account" ? entityId : null;
+    if (!primaryAccountId) {
+      try {
+        const parentPath = entityType === "opportunity" ? "opportunities" : "leads";
+        const r = await fetch(`/api/${parentPath}/${entityId}`, { credentials: "include" }).then(x => x.json());
+        primaryAccountId = r?.accountId ?? r?.account_id ?? null;
+      } catch {}
+    }
+    if (!primaryAccountId) {
+      toast({ title: "Can't create contact here", description: "Open the related organization first.", variant: "destructive" });
+      return;
+    }
+    setResolvedAccountId(primaryAccountId);
+    setOpen(false);
+    setCreateOpen(true);
+  };
+
+  const onContactCreated = async (created: any) => {
     try {
-      // For accounts, we have an entity-level account id we can use as the
-      // primary home. For opportunities/leads we'd need the related accountId,
-      // so we ask the user to create the contact from the account page first
-      // unless they're on an account.
-      let primaryAccountId = entityType === "account" ? entityId : null;
-      if (!primaryAccountId) {
-        // Try to derive the account id from the parent record.
-        try {
-          const parentPath = entityType === "opportunity" ? "opportunities" : "leads";
-          const r = await fetch(`/api/${parentPath}/${entityId}`, { credentials: "include" }).then(x => x.json());
-          primaryAccountId = r?.accountId ?? r?.account_id ?? null;
-        } catch {}
-      }
-      if (!primaryAccountId) {
-        toast({ title: "Can't create contact here", description: "Open the related account/marina to create a brand new contact.", variant: "destructive" });
-        return;
-      }
-      const created = await apiRequest("POST", "/api/contacts", {
-        accountId: primaryAccountId,
-        name: newName.trim(),
-        email: newEmail.trim() || null,
-        title: newTitle.trim() || null,
-      }).then((r: any) => r.json());
-      if (entityType === "account" && created.accountId === entityId) {
-        // Already linked via primary; just refresh.
-        onAdded();
-      } else {
+      if (!(entityType === "account" && created.accountId === entityId)) {
         await apiRequest("POST", base, { contactId: created.id });
       }
-      setOpen(false);
-      setNewName(""); setNewEmail(""); setNewTitle("");
-      onAdded();
     } catch (e: any) {
-      toast({ title: "Couldn't create contact", description: e.message, variant: "destructive" });
-    } finally {
-      setCreating(false);
+      toast({ title: "Created, but couldn't link", description: e.message, variant: "destructive" });
     }
+    onAdded();
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button size="sm" variant="outline" className="h-7 text-xs gap-1" data-testid={`button-add-contact-${entityType}`}>
-          <Plus className="h-3.5 w-3.5" /> Add contact
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-80 p-0" align="end">
-        {!creating ? (
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1" data-testid={`button-add-contact-${entityType}`}>
+            <Plus className="h-3.5 w-3.5" /> Add contact
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-80 p-0" align="end">
           <Command shouldFilter={false}>
             <CommandInput placeholder="Search contacts…" value={search} onValueChange={setSearch} data-testid="input-search-contact" />
             <CommandList>
@@ -327,27 +312,21 @@ function AddContactPopover({
                 ))}
               </CommandGroup>
               <CommandGroup heading="Or">
-                <CommandItem onSelect={() => setCreating(true)} data-testid="option-create-new-contact">
+                <CommandItem onSelect={() => openCreateDialog()} data-testid="option-create-new-contact">
                   <Plus className="h-3 w-3 mr-2" /> Create new contact
                 </CommandItem>
               </CommandGroup>
             </CommandList>
           </Command>
-        ) : (
-          <div className="p-3 space-y-2">
-            <div className="text-xs font-semibold mb-1">New contact</div>
-            <Input placeholder="Full name *" value={newName} onChange={e => setNewName(e.target.value)} className="h-8 text-xs" data-testid="input-new-name" />
-            <Input placeholder="Email" value={newEmail} onChange={e => setNewEmail(e.target.value)} className="h-8 text-xs" data-testid="input-new-email" />
-            <Input placeholder="Job title" value={newTitle} onChange={e => setNewTitle(e.target.value)} className="h-8 text-xs" data-testid="input-new-title" />
-            <div className="flex gap-1.5 justify-end pt-1">
-              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setCreating(false)}>Back</Button>
-              <Button size="sm" className="h-7 text-xs" onClick={createAndLink} disabled={!newName.trim()} data-testid="button-create-link-contact">
-                Create &amp; link
-              </Button>
-            </div>
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
+        </PopoverContent>
+      </Popover>
+
+      <CreateContactDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        accountId={resolvedAccountId}
+        onCreated={onContactCreated}
+      />
+    </>
   );
 }
