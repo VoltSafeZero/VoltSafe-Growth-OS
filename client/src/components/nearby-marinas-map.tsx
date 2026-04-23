@@ -8,6 +8,8 @@ import {
   Locate, Loader2
 } from "lucide-react";
 import AddressAutocomplete from "@/components/address-autocomplete";
+import { MarinasDayPlannerDialog } from "@/components/marinas-day-planner-dialog";
+import { Sparkles } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -172,6 +174,7 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [marinas, setMarinas] = useState<NearbyLead[]>([]);
   const [loading, setLoading] = useState(false);
+  const [plannerOpen, setPlannerOpen] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.LayerGroup | null>(null);
@@ -473,6 +476,18 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
           {locating ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Locate className="mr-1 h-3 w-3" />}
           <span className="hidden sm:inline">My Location</span>
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs gap-1 border-primary/40 text-primary hover:bg-primary/10"
+          onClick={() => {
+            if (!userLocation) requestLocation();
+            setPlannerOpen(true);
+          }}
+          data-testid="button-plan-day"
+        >
+          <Sparkles className="h-3 w-3" /> Plan my day
+        </Button>
         {radiusKm != null && !userLocation && !locating && (
           <span className="text-xs text-amber-400">Tap "My Location" to enable radius</span>
         )}
@@ -570,6 +585,12 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
           )}
         </div>
       </div>
+      <MarinasDayPlannerDialog
+        open={plannerOpen}
+        onOpenChange={setPlannerOpen}
+        userLocation={userLocation}
+        defaultStageFilter={stageFilter}
+      />
     </div>
   );
 }
