@@ -407,6 +407,7 @@ export function VoiceAssistant() {
 
       <div
         className="fixed top-0 right-0 z-[70] h-full w-full sm:w-[440px] bg-background border-l border-border/50 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300"
+        style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
         data-testid="panel-voice-assistant"
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-border/50 bg-card/90 backdrop-blur-md">

@@ -74,7 +74,7 @@ const allNavGroups = [
 // 2 tabs left of center, 2 tabs right of center
 const LEFT_NAV = [
   { title: "Home", url: "/", icon: Home, exactMatch: true },
-  { title: "Accounts", url: "/accounts", icon: Building2 },
+  { title: "Leads", url: "/opportunities", icon: Building2 },
 ];
 const RIGHT_NAV = [
   { title: "Pipeline", url: "/pipeline", icon: Target },
