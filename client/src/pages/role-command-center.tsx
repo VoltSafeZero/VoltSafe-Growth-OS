@@ -715,6 +715,20 @@ export default function RoleCommandCenter() {
     saveMutation.mutate({ defaultCommandCenter: ct });
   };
 
+  // Plan My Travel Day (declared before any early returns to keep hook order stable)
+  const [plannerOpen, setPlannerOpen] = useState(false);
+  const [plannerLocation, setPlannerLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const openPlanner = useCallback(() => {
+    setPlannerOpen(true);
+    if (!plannerLocation && typeof navigator !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setPlannerLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => {},
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 }
+      );
+    }
+  }, [plannerLocation]);
+
   if (profileQuery.isLoading) {
     return (
       <div className="p-4 sm:p-6 space-y-4" data-testid="role-command-center-loading">
@@ -737,20 +751,6 @@ export default function RoleCommandCenter() {
   // greeting
   const h = new Date().getHours();
   const greet = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
-
-  // Plan My Travel Day
-  const [plannerOpen, setPlannerOpen] = useState(false);
-  const [plannerLocation, setPlannerLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const openPlanner = useCallback(() => {
-    setPlannerOpen(true);
-    if (!plannerLocation && typeof navigator !== "undefined" && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setPlannerLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => {},
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 }
-      );
-    }
-  }, [plannerLocation]);
 
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6" data-testid="role-command-center">
