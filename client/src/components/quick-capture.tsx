@@ -120,7 +120,8 @@ function ContactForm({ onClose }: { onClose: () => void }) {
         const accRes = await apiRequest("POST", "/api/accounts", {
           name: company.trim(), segment: "marina", leadStatus: "new", priority: "medium",
         });
-        accountId = accRes.id;
+        const acc = await accRes.json();
+        accountId = acc.id;
       } else {
         throw new Error("Company name is required");
       }
