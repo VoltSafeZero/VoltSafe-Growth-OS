@@ -250,6 +250,7 @@ export const contacts = pgTable("contacts", {
   relationshipStrength: text("relationship_strength"),
   isPrimary: boolean("is_primary").default(false),
   notes: text("notes"),
+  avatarUrl: text("avatar_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1449,6 +1450,33 @@ export const opportunityContacts = pgTable("opportunity_contacts", {
 export const insertOpportunityContactSchema = createInsertSchema(opportunityContacts).omit({ id: true, createdAt: true });
 export type OpportunityContact = typeof opportunityContacts.$inferSelect;
 export type InsertOpportunityContact = z.infer<typeof insertOpportunityContactSchema>;
+
+// Many-to-many: contacts ↔ accounts (orgs / marinas / associations).
+// `contacts.account_id` remains the primary/home account; this table lets
+// the same person be linked to additional accounts as well.
+export const accountContacts = pgTable("account_contacts", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id").notNull(),
+  contactId: integer("contact_id").notNull(),
+  role: text("role"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export const insertAccountContactSchema = createInsertSchema(accountContacts).omit({ id: true, createdAt: true });
+export type AccountContact = typeof accountContacts.$inferSelect;
+export type InsertAccountContact = z.infer<typeof insertAccountContactSchema>;
+
+// Many-to-many: contacts ↔ leads (alongside the existing single
+// converted_contact_id / referrer_contact_id columns, which are preserved).
+export const leadContacts = pgTable("lead_contacts", {
+  id: serial("id").primaryKey(),
+  leadId: integer("lead_id").notNull(),
+  contactId: integer("contact_id").notNull(),
+  role: text("role"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export const insertLeadContactSchema = createInsertSchema(leadContacts).omit({ id: true, createdAt: true });
+export type LeadContact = typeof leadContacts.$inferSelect;
+export type InsertLeadContact = z.infer<typeof insertLeadContactSchema>;
 
 export const migrationMap = pgTable("migration_map", {
   id: serial("id").primaryKey(),

@@ -18,6 +18,9 @@ import { Link } from "wouter";
 import { TimelineTab } from "@/components/timeline-tab";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
 import { SuggestedActionsCard } from "@/components/suggested-actions-card";
+import { ContactAvatar } from "@/components/contacts/contact-avatar";
+import { useRef } from "react";
+import { Camera, Trash2 } from "lucide-react";
 
 const STAGE_LABEL: Record<string, string> = {
   inbound_new: "New", qualified: "Qualified", discovery: "Discovery",
@@ -144,6 +147,38 @@ export default function ContactProfilePage() {
   );
 
   const { contact, opportunities, emails, meetings, notes, tasks, activities, suggestedAction } = data;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { toast } = useToast();
+  const uploadAvatarMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`/api/contacts/${id}/avatar`, {
+        method: "POST", credentials: "include", body: fd,
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Upload failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", id, "profile"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      refetch();
+      toast({ title: "Photo updated" });
+    },
+    onError: (e: any) => toast({ title: "Upload failed", description: e.message, variant: "destructive" }),
+  });
+
+  const removeAvatarMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", `/api/contacts/${id}/avatar`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", id, "profile"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      refetch();
+      toast({ title: "Photo removed" });
+    },
+    onError: (e: any) => toast({ title: "Remove failed", description: e.message, variant: "destructive" }),
+  });
   const openTasks = tasks.filter((t: any) => t.status !== "done");
   const overdueTasks = openTasks.filter((t: any) => t.due_date && isPast(new Date(t.due_date)));
   const initials = (contact.name || "?").split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
@@ -162,10 +197,42 @@ export default function ContactProfilePage() {
       <Card className="border-border/50">
         <CardContent className="p-5">
           <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-shrink-0">
-              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-xl font-bold text-primary">
-                {initials}
-              </div>
+            <div className="flex-shrink-0 group relative">
+              <ContactAvatar name={contact.name} avatarUrl={contact.avatar_url} size="xl" />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                data-testid="input-avatar-file"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) uploadAvatarMutation.mutate(f);
+                  e.target.value = "";
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadAvatarMutation.isPending}
+                className="absolute inset-0 rounded-2xl bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white"
+                data-testid="button-upload-avatar"
+                title="Upload photo"
+              >
+                <Camera className="h-5 w-5" />
+              </button>
+              {contact.avatar_url && (
+                <button
+                  type="button"
+                  onClick={() => removeAvatarMutation.mutate()}
+                  disabled={removeAvatarMutation.isPending}
+                  className="absolute -top-1 -right-1 h-6 w-6 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow"
+                  data-testid="button-remove-avatar"
+                  title="Remove photo"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-start gap-2 mb-1">

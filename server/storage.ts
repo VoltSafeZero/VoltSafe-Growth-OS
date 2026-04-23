@@ -8,6 +8,9 @@ import {
   partnerships, ecosystemOrganizations, ecosystemPeople,
   ecosystemRelationships, ecosystemEvents, ecosystemRegions,
   projects, notes, tags, recordTags, savedViews, opportunityContacts,
+  accountContacts, leadContacts,
+  type AccountContact, type InsertAccountContact,
+  type LeadContact, type InsertLeadContact,
   type Metric, type Sale, type ChartData, type Marina,
   type Lead, type InsertLead,
   type Account, type InsertAccount,
@@ -253,6 +256,19 @@ export interface IStorage {
   getOpportunityContacts(opportunityId: number): Promise<(OpportunityContact & { contact: any })[]>;
   addOpportunityContact(data: InsertOpportunityContact): Promise<OpportunityContact>;
   removeOpportunityContact(opportunityId: number, contactId: number): Promise<boolean>;
+
+  // Account Contacts (many-to-many; supplements contacts.account_id)
+  getAccountContacts(accountId: number): Promise<(AccountContact & { contact: any })[]>;
+  addAccountContact(data: InsertAccountContact): Promise<AccountContact>;
+  updateAccountContactRole(accountId: number, contactId: number, role: string | null): Promise<boolean>;
+  removeAccountContact(accountId: number, contactId: number): Promise<boolean>;
+  getAccountsForContact(contactId: number): Promise<{ accountId: number; role: string | null; accountName: string }[]>;
+
+  // Lead Contacts (many-to-many)
+  getLeadContacts(leadId: number): Promise<(LeadContact & { contact: any })[]>;
+  addLeadContact(data: InsertLeadContact): Promise<LeadContact>;
+  updateLeadContactRole(leadId: number, contactId: number, role: string | null): Promise<boolean>;
+  removeLeadContact(leadId: number, contactId: number): Promise<boolean>;
 
   // Automation Rules
   getAutomationRules(opts?: { enabled?: boolean; scope?: string; limit?: number; offset?: number }): Promise<AutomationRule[]>;
@@ -1372,6 +1388,109 @@ export class DatabaseStorage implements IStorage {
   async removeOpportunityContact(opportunityId: number, contactId: number): Promise<boolean> {
     const [r] = await db.delete(opportunityContacts)
       .where(and(eq(opportunityContacts.opportunityId, opportunityId), eq(opportunityContacts.contactId, contactId)))
+      .returning();
+    return !!r;
+  }
+
+  // ─── Account Contacts (many-to-many) ────────────────────────────────────
+  // Returns BOTH the contact's primary account link (contacts.account_id) and
+  // any extra links from the join table, so callers see the full picture.
+  async getAccountContacts(accountId: number): Promise<(AccountContact & { contact: any })[]> {
+    const joinRows = await db.select().from(accountContacts).where(eq(accountContacts.accountId, accountId));
+    const primaryRows = await db.select().from(contacts).where(eq(contacts.accountId, accountId));
+    const joinIds = new Set(joinRows.map(r => r.contactId));
+    const extraIds = joinRows.map(r => r.contactId).filter(id => !primaryRows.some(p => p.id === id));
+    let extras: any[] = [];
+    if (extraIds.length > 0) {
+      extras = await db.select().from(contacts).where(sql`${contacts.id} = ANY(${extraIds})`);
+    }
+    const allContacts = [...primaryRows, ...extras];
+    const contactMap = new Map(allContacts.map(c => [c.id, c]));
+    // Synthesize "primary" rows (id=0 sentinel) for contacts whose home account is this one.
+    const out: (AccountContact & { contact: any })[] = [];
+    for (const c of primaryRows) {
+      const join = joinRows.find(j => j.contactId === c.id);
+      out.push({
+        id: join?.id ?? 0,
+        accountId,
+        contactId: c.id,
+        role: join?.role ?? (c.title || null),
+        createdAt: join?.createdAt ?? c.createdAt,
+        contact: c,
+      });
+    }
+    for (const j of joinRows) {
+      if (joinIds.has(j.contactId) && !primaryRows.some(p => p.id === j.contactId)) {
+        out.push({ ...j, contact: contactMap.get(j.contactId) });
+      }
+    }
+    return out;
+  }
+
+  async addAccountContact(data: InsertAccountContact): Promise<AccountContact> {
+    const [r] = await db.insert(accountContacts).values(data).onConflictDoNothing().returning();
+    if (r) return r;
+    // already exists — return the existing row
+    const [existing] = await db.select().from(accountContacts)
+      .where(and(eq(accountContacts.accountId, data.accountId), eq(accountContacts.contactId, data.contactId)));
+    return existing;
+  }
+
+  async updateAccountContactRole(accountId: number, contactId: number, role: string | null): Promise<boolean> {
+    const [r] = await db.update(accountContacts)
+      .set({ role })
+      .where(and(eq(accountContacts.accountId, accountId), eq(accountContacts.contactId, contactId)))
+      .returning();
+    return !!r;
+  }
+
+  async removeAccountContact(accountId: number, contactId: number): Promise<boolean> {
+    const [r] = await db.delete(accountContacts)
+      .where(and(eq(accountContacts.accountId, accountId), eq(accountContacts.contactId, contactId)))
+      .returning();
+    return !!r;
+  }
+
+  async getAccountsForContact(contactId: number): Promise<{ accountId: number; role: string | null; accountName: string }[]> {
+    const rows: any = await db.execute(sql`
+      SELECT ac.account_id AS "accountId", ac.role AS "role", a.name AS "accountName"
+      FROM account_contacts ac
+      JOIN accounts a ON a.id = ac.account_id
+      WHERE ac.contact_id = ${contactId}
+      ORDER BY a.name ASC
+    `);
+    return rows.rows ?? rows;
+  }
+
+  // ─── Lead Contacts (many-to-many) ───────────────────────────────────────
+  async getLeadContacts(leadId: number): Promise<(LeadContact & { contact: any })[]> {
+    const rows = await db.select().from(leadContacts).where(eq(leadContacts.leadId, leadId));
+    if (rows.length === 0) return [];
+    const ids = rows.map(r => r.contactId);
+    const contactRows = await db.select().from(contacts).where(sql`${contacts.id} = ANY(${ids})`);
+    const map = new Map(contactRows.map(c => [c.id, c]));
+    return rows.map(r => ({ ...r, contact: map.get(r.contactId) }));
+  }
+
+  async addLeadContact(data: InsertLeadContact): Promise<LeadContact> {
+    const [r] = await db.insert(leadContacts).values(data).onConflictDoNothing().returning();
+    if (r) return r;
+    const [existing] = await db.select().from(leadContacts)
+      .where(and(eq(leadContacts.leadId, data.leadId), eq(leadContacts.contactId, data.contactId)));
+    return existing;
+  }
+
+  async updateLeadContactRole(leadId: number, contactId: number, role: string | null): Promise<boolean> {
+    const [r] = await db.update(leadContacts)
+      .set({ role })
+      .where(and(eq(leadContacts.leadId, leadId), eq(leadContacts.contactId, contactId)))
+      .returning();
+    return !!r;
+  }
+
+  async removeLeadContact(leadId: number, contactId: number): Promise<boolean> {
+    const [r] = await db.delete(leadContacts)
+      .where(and(eq(leadContacts.leadId, leadId), eq(leadContacts.contactId, contactId)))
       .returning();
     return !!r;
   }

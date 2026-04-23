@@ -19,6 +19,7 @@ import {
   CheckCircle2, AlertCircle, Link2, UserCheck, Shuffle, ClipboardList, Archive,
 } from "lucide-react";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
+import { ContactsPanel } from "@/components/contacts/contacts-panel";
 import { ScoreBadge } from "@/components/scores/score-badge";
 import { useLeadScores } from "@/hooks/use-scores";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
@@ -1431,6 +1432,10 @@ function LeadDetailDialog({
         </DialogHeader>
 
         <RecordSummaryBar objectType="lead" objectId={lead.id} compact />
+
+        <div className="mt-3">
+          <ContactsPanel entityType="lead" entityId={lead.id} emptyText="No contacts linked yet." />
+        </div>
 
         {editing ? (
           <EditLeadForm lead={lead} onSubmit={(d) => updateMutation.mutate(d)} onCancel={() => setEditing(false)} isPending={updateMutation.isPending} />

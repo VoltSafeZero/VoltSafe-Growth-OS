@@ -18,6 +18,7 @@ import { formatDistanceToNow, format, isPast } from "date-fns";
 import { Link } from "wouter";
 import { TimelineTab } from "@/components/timeline-tab";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
+import { ContactsPanel } from "@/components/contacts/contacts-panel";
 import { SuggestedActionsCard } from "@/components/suggested-actions-card";
 
 const STAGE_LABEL: Record<string, string> = {
@@ -428,24 +429,7 @@ export default function OpportunityProfilePage() {
         <div className="space-y-4">
           {/* Contacts */}
           <SectionCard title="Stakeholders" icon={Users} count={contacts.length}>
-            {contacts.length === 0 ? <EmptyRow text="No contacts linked to this deal" /> : (
-              <div className="space-y-1.5">
-                {contacts.map((c: any) => (
-                  <Link key={c.id} href={`/contacts/${c.id}`}>
-                    <div className="flex items-center gap-2.5 py-2 border-b border-border/20 last:border-0 cursor-pointer hover:bg-muted/20 -mx-1 px-1 rounded"
-                      data-testid={`contact-link-${c.id}`}>
-                      <div className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center text-xs font-bold flex-shrink-0">
-                        {(c.name || "?")[0].toUpperCase()}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate">{c.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{c.opp_role || c.title || c.role_type || "—"}</p>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
+            <ContactsPanel entityType="opportunity" entityId={opp.id} emptyText="No contacts linked to this deal yet." />
           </SectionCard>
 
           {/* Tasks */}

@@ -19,6 +19,7 @@ import { Link } from "wouter";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
 import { SuggestedActionsCard } from "@/components/suggested-actions-card";
 import { TimelineTab } from "@/components/timeline-tab";
+import { ContactsPanel } from "@/components/contacts/contacts-panel";
 
 const STAGE_LABEL: Record<string, string> = {
   inbound_new: "New", qualified: "Qualified", discovery: "Discovery",
@@ -396,25 +397,7 @@ export default function AccountProfilePage() {
         <div className="space-y-4">
           {/* Contacts */}
           <SectionCard title="Contacts" icon={Users} count={contacts.length}>
-            {contacts.length === 0 ? <EmptyRow text="No contacts on record" /> : (
-              <div className="space-y-1.5">
-                {contacts.map((c: any) => (
-                  <Link key={c.id} href={`/contacts/${c.id}`}>
-                    <div className="flex items-center gap-2.5 py-2 border-b border-border/20 last:border-0 cursor-pointer hover:bg-muted/20 -mx-1 px-1 rounded"
-                      data-testid={`contact-link-${c.id}`}>
-                      <div className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center text-xs font-bold flex-shrink-0">
-                        {(c.name || "?")[0].toUpperCase()}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate">{c.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{c.title || c.role_type || c.email || "—"}</p>
-                      </div>
-                      {c.is_primary && <Badge variant="outline" className="text-[10px] h-4 px-1 flex-shrink-0">Primary</Badge>}
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
+            <ContactsPanel entityType="account" entityId={account.id} emptyText="No contacts on record yet." />
           </SectionCard>
 
           {/* Opportunities */}

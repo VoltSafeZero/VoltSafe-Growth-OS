@@ -13414,6 +13414,139 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // ─── Account ↔ Contact links (many-to-many) ─────────────────────────────
+  app.get("/api/accounts/:id/contacts", requireAuth, async (req, res) => {
+    try { res.json(await storage.getAccountContacts(Number(req.params.id))); }
+    catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+  app.post("/api/accounts/:id/contacts", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const { contactId, role } = req.body || {};
+      if (!contactId || isNaN(Number(contactId))) return res.status(400).json({ message: "contactId required" });
+      const ac = await storage.addAccountContact({ accountId: Number(req.params.id), contactId: Number(contactId), role: role ?? null });
+      res.status(201).json(ac);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+  app.patch("/api/accounts/:id/contacts/:contactId", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const ok = await storage.updateAccountContactRole(Number(req.params.id), Number(req.params.contactId), req.body?.role ?? null);
+      if (!ok) return res.status(404).json({ message: "Not found" });
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+  app.delete("/api/accounts/:id/contacts/:contactId", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const ok = await storage.removeAccountContact(Number(req.params.id), Number(req.params.contactId));
+      if (!ok) return res.status(404).json({ message: "Not found" });
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ─── Lead ↔ Contact links (many-to-many) ────────────────────────────────
+  app.get("/api/leads/:id/contacts", requireAuth, async (req, res) => {
+    try { res.json(await storage.getLeadContacts(Number(req.params.id))); }
+    catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+  app.post("/api/leads/:id/contacts", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const { contactId, role } = req.body || {};
+      if (!contactId || isNaN(Number(contactId))) return res.status(400).json({ message: "contactId required" });
+      const lc = await storage.addLeadContact({ leadId: Number(req.params.id), contactId: Number(contactId), role: role ?? null });
+      res.status(201).json(lc);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+  app.patch("/api/leads/:id/contacts/:contactId", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const ok = await storage.updateLeadContactRole(Number(req.params.id), Number(req.params.contactId), req.body?.role ?? null);
+      if (!ok) return res.status(404).json({ message: "Not found" });
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+  app.delete("/api/leads/:id/contacts/:contactId", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const ok = await storage.removeLeadContact(Number(req.params.id), Number(req.params.contactId));
+      if (!ok) return res.status(404).json({ message: "Not found" });
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ─── Contact avatar upload / serve ──────────────────────────────────────
+  // Avatars are stored in /uploads with a contact-avatar- prefix so the file
+  // server endpoint can recognise them and skip the attachments-table ACL
+  // (avatars aren't tracked there) while still requiring CRM view permission.
+  const avatarUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
+      filename: (_req, file, cb) => {
+        const ext = path.extname(file.originalname || "").toLowerCase().replace(/[^.\w]/g, "").slice(0, 8);
+        cb(null, `contact-avatar-${crypto.randomUUID()}${ext}`);
+      },
+    }),
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype.startsWith("image/")) cb(null, true);
+      else cb(new Error("Only image files are allowed"));
+    },
+  });
+
+  app.post("/api/contacts/:id/avatar", requirePermission("crm", "edit"), avatarUpload.single("file"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      const contact = await storage.getContact(id);
+      if (!contact) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(404).json({ message: "Contact not found" });
+      }
+      // Delete the previous avatar file if present (best-effort).
+      const prev = (contact as any).avatarUrl as string | null | undefined;
+      if (prev) {
+        const prevName = path.basename(prev);
+        if (prevName.startsWith("contact-avatar-")) {
+          try { fs.unlinkSync(path.join(UPLOADS_DIR, prevName)); } catch {}
+        }
+      }
+      const avatarUrl = `/api/contact-avatars/${req.file.filename}`;
+      const updated = await storage.updateContact(id, { avatarUrl } as any);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/contacts/:id/avatar", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const contact = await storage.getContact(id);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+      const prev = (contact as any).avatarUrl as string | null | undefined;
+      if (prev) {
+        const prevName = path.basename(prev);
+        if (prevName.startsWith("contact-avatar-")) {
+          try { fs.unlinkSync(path.join(UPLOADS_DIR, prevName)); } catch {}
+        }
+      }
+      const updated = await storage.updateContact(id, { avatarUrl: null } as any);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Avatar file server — auth-gated, but no per-file ACL beyond CRM view, since
+  // avatars are not sensitive documents and any user with CRM view can already
+  // see contact details (which is where the avatar URL appears).
+  app.get("/api/contact-avatars/:fileName", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+    const fileName = path.basename(req.params.fileName);
+    if (!fileName.startsWith("contact-avatar-")) return res.status(404).json({ message: "Not found" });
+    const filePath = path.join(UPLOADS_DIR, fileName);
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(UPLOADS_DIR)) return res.status(403).json({ message: "Forbidden" });
+    if (!fs.existsSync(resolved)) return res.status(404).json({ message: "Not found" });
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.sendFile(resolved);
+  });
+
   // ─── Mail Folders ────────────────────────────────────────────────────────
 
   app.get("/api/mail-folders", requireAuth, async (req, res) => {
