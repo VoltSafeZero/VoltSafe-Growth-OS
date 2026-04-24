@@ -5,12 +5,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Navigation, MapPin, Anchor,
-  Locate, Loader2
+  Locate, Loader2, ArrowUpDown
 } from "lucide-react";
 import AddressAutocomplete from "@/components/address-autocomplete";
 import { MarinasDayPlannerDialog } from "@/components/marinas-day-planner-dialog";
 import { Sparkles, SlidersHorizontal, List, X } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useToast } from "@/hooks/use-toast";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -124,6 +125,32 @@ const RADIUS_OPTIONS = [
   { value: "250", label: "Within 250 km" },
 ];
 
+const SLIPS_OPTIONS = [
+  { value: "any", label: "Any slips" },
+  { value: "1", label: "1+ slips" },
+  { value: "25", label: "25+ slips" },
+  { value: "50", label: "50+ slips" },
+  { value: "100", label: "100+ slips" },
+  { value: "200", label: "200+ slips" },
+  { value: "500", label: "500+ slips" },
+  { value: "1000", label: "1000+ slips" },
+];
+
+const SORT_OPTIONS = [
+  { value: "distance", label: "Sort: Distance" },
+  { value: "name", label: "Sort: Name (A→Z)" },
+  { value: "slips_desc", label: "Sort: Slips (high→low)" },
+  { value: "slips_asc", label: "Sort: Slips (low→high)" },
+  { value: "deal_desc", label: "Sort: Deal $ (high→low)" },
+  { value: "stage", label: "Sort: Stage" },
+];
+
+function parseSlipsCount(s: string | null): number {
+  if (!s) return 0;
+  const m = String(s).match(/\d+/);
+  return m ? parseInt(m[0], 10) : 0;
+}
+
 function boundsToRadius(map: L.Map): number {
   const bounds = map.getBounds();
   const center = bounds.getCenter();
@@ -195,8 +222,11 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number }>({ lat: initialLoc.lat, lng: initialLoc.lng });
   const [locating, setLocating] = useState(false);
   const [selectedLead, setSelectedLead] = useState<NearbyLead | null>(null);
+  const { toast } = useToast();
   const [stageFilter, setStageFilter] = useState("all");
   const [radiusFilter, setRadiusFilter] = useState<string>("any");
+  const [slipsFilter, setSlipsFilter] = useState<string>("any");
+  const [sortBy, setSortBy] = useState<string>("distance");
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [marinas, setMarinas] = useState<NearbyLead[]>([]);
   const [loading, setLoading] = useState(false);
@@ -313,14 +343,34 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
   };
 
   const radiusKm = radiusFilter === "any" ? null : Number(radiusFilter);
-  const filteredMarinas = marinas.filter(l => {
-    if (stageFilter !== "all" && l.status !== stageFilter) return false;
-    if (radiusKm != null && userLocation) {
-      const d = haversineKm(userLocation.lat, userLocation.lng, l.marina_lat, l.marina_lng);
-      if (d > radiusKm) return false;
-    }
-    return true;
-  });
+  const minSlips = slipsFilter === "any" ? 0 : Number(slipsFilter);
+  const filteredMarinas = marinas
+    .filter(l => {
+      if (stageFilter !== "all" && l.status !== stageFilter) return false;
+      if (radiusKm != null && userLocation) {
+        const d = haversineKm(userLocation.lat, userLocation.lng, l.marina_lat, l.marina_lng);
+        if (d > radiusKm) return false;
+      }
+      if (minSlips > 0 && parseSlipsCount(l.slips) < minSlips) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      switch (sortBy) {
+        case "name":
+          return (a.company || "").localeCompare(b.company || "");
+        case "slips_desc":
+          return parseSlipsCount(b.slips) - parseSlipsCount(a.slips);
+        case "slips_asc":
+          return parseSlipsCount(a.slips) - parseSlipsCount(b.slips);
+        case "deal_desc":
+          return (Number(b.deal_amount) || 0) - (Number(a.deal_amount) || 0);
+        case "stage":
+          return (a.status || "").localeCompare(b.status || "");
+        case "distance":
+        default:
+          return (a.distance_km || 0) - (b.distance_km || 0);
+      }
+    });
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -584,6 +634,32 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
           </SelectContent>
         </Select>
       </div>
+      <div>
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-medium">Min slips</p>
+        <Select value={slipsFilter} onValueChange={setSlipsFilter}>
+          <SelectTrigger className="w-full h-9 text-sm" data-testid="select-slips-filter-mobile">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SLIPS_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-medium">Sort by</p>
+        <Select value={sortBy} onValueChange={setSortBy}>
+          <SelectTrigger className="w-full h-9 text-sm" data-testid="select-sort-mobile">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 
@@ -616,6 +692,27 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
           </SelectTrigger>
           <SelectContent>
             {RADIUS_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={slipsFilter} onValueChange={setSlipsFilter}>
+          <SelectTrigger className="w-[130px] h-8 text-xs" data-testid="select-slips-filter">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SLIPS_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={sortBy} onValueChange={setSortBy}>
+          <SelectTrigger className="w-[180px] h-8 text-xs" data-testid="select-sort">
+            <ArrowUpDown className="h-3 w-3 mr-1 text-muted-foreground" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_OPTIONS.map(o => (
               <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
             ))}
           </SelectContent>
@@ -667,7 +764,7 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
               aria-label="Filters"
             >
               <SlidersHorizontal className="h-4 w-4" />
-              {(stageFilter !== "all" || radiusFilter !== "any") && (
+              {(stageFilter !== "all" || radiusFilter !== "any" || slipsFilter !== "any" || sortBy !== "distance") && (
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-primary" />
               )}
             </button>
