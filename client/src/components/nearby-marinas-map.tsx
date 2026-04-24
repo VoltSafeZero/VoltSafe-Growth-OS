@@ -12,6 +12,7 @@ import { MarinasDayPlannerDialog } from "@/components/marinas-day-planner-dialog
 import { Sparkles, SlidersHorizontal, List, X } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -43,13 +44,18 @@ type NearbyLead = {
 };
 
 const STAGE_COLORS: Record<string, string> = {
-  new: "#64748b",
-  contacted: "#3b82f6",
-  meeting_scheduled: "#a855f7",
-  qualified: "#06b6d4",
-  proposal_sent: "#f59e0b",
-  negotiation: "#f97316",
+  // Gray — fresh / unworked
+  new: "#9ca3af",
+  // Yellow — early outreach
+  contacted: "#eab308",
+  meeting_scheduled: "#eab308",
+  // Blue — active opportunity
+  qualified: "#3b82f6",
+  proposal_sent: "#3b82f6",
+  negotiation: "#3b82f6",
+  // Green — won
   converted: "#22c55e",
+  // Red — lost
   lost: "#ef4444",
 };
 
@@ -223,6 +229,7 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
   const [locating, setLocating] = useState(false);
   const [selectedLead, setSelectedLead] = useState<NearbyLead | null>(null);
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [stageFilter, setStageFilter] = useState("all");
   const [radiusFilter, setRadiusFilter] = useState<string>("any");
   const [slipsFilter, setSlipsFilter] = useState<string>("any");
@@ -474,9 +481,20 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
       const popupEl = document.createElement("div");
       popupEl.style.cssText = "min-width: 190px; font-family: Inter, sans-serif;";
 
-      const titleEl = document.createElement("div");
-      titleEl.style.cssText = "font-weight: 600; font-size: 13px; margin-bottom: 3px;";
+      // Marina name → opens the lead detail page (in-app navigation, no full reload)
+      const titleEl = document.createElement("a");
+      titleEl.href = `/opportunities/${lead.id}`;
+      titleEl.setAttribute("data-testid", `link-popup-marina-${lead.id}`);
+      titleEl.style.cssText = "display: block; font-weight: 600; font-size: 13px; margin-bottom: 3px; color: #0d9488; text-decoration: none; cursor: pointer;";
       titleEl.textContent = lead.company;
+      titleEl.addEventListener("mouseenter", () => { titleEl.style.textDecoration = "underline"; });
+      titleEl.addEventListener("mouseleave", () => { titleEl.style.textDecoration = "none"; });
+      titleEl.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        marker.closePopup();
+        navigate(`/opportunities/${lead.id}`);
+      });
       popupEl.appendChild(titleEl);
 
       const distEl = document.createElement("div");
