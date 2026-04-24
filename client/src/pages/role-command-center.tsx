@@ -29,7 +29,6 @@ import {
 import { CEOCommandCenter } from "@/components/command-centers/ceo-center";
 import { MarinasDayPlannerDialog } from "@/components/marinas-day-planner-dialog";
 import { TravelPlannerDialog } from "@/components/travel/travel-planner-dialog";
-import { TravelCalendarWidget } from "@/components/travel/travel-calendar-widget";
 import { LeadsMissionControlWidget } from "@/components/leads/leads-mission-control-widget";
 import { CFOCommandCenter } from "@/components/command-centers/cfo-center";
 import { CTOCommandCenter } from "@/components/command-centers/cto-center";
@@ -921,8 +920,7 @@ export default function RoleCommandCenter() {
         }}
       />
 
-      {/* ── Travel Calendar (always visible to all users) ───────────── */}
-      <TravelCalendarWidget onOpenPlanner={openPlannerForTrip} />
+      {/* Travel Calendar is now a draggable grid widget — see ACTION_WIDGET_MAP */}
 
       {/* ── Dashboard Grid (drag + resize) ────────────────────────────── */}
       <DashboardGrid

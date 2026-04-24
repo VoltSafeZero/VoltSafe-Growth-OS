@@ -204,6 +204,12 @@ const NEW_WIDGETS: Record<string, WidgetDef> = {
     defaultVisible: false, category: "action", isNew: true,
     // No permKey — every user can opt in.
   },
+  travel_calendar: {
+    id: "travel_calendar", label: "Travel Calendar",
+    description: "Upcoming trips, drafts, and quick access to the trip planner",
+    defaultVisible: true, category: "action", isNew: true,
+    // No permKey — every user gets their own travel calendar.
+  },
 };
 
 // Classic widgets referenced by id inside each center array.
@@ -263,6 +269,7 @@ function applyClassicRule(w: WidgetDef): WidgetDef {
 
 // Widgets that make sense for every user regardless of role/department.
 const UNIVERSAL_EXTRAS: WidgetDef[] = [
+  { ...NEW_WIDGETS.travel_calendar,       defaultVisible: true  },
   { ...NEW_WIDGETS.my_inbox,              defaultVisible: true  },
   { ...NEW_WIDGETS.todays_meetings,       defaultVisible: false },
   { ...NEW_WIDGETS.my_waiting_on,         defaultVisible: false },

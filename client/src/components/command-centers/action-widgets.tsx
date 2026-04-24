@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { format, formatDistanceToNow, isToday } from "date-fns";
 import { WeatherWidget } from "@/components/widgets/weather";
+import { TravelCalendarWidget as _TravelCalendarWidget } from "@/components/travel/travel-calendar-widget";
 import {
   ExecutiveSnapshotWidget,
   PipelineHealthWidget,
@@ -1084,7 +1085,15 @@ export type WidgetProps = {
   dragProps?: React.HTMLAttributes<HTMLDivElement>;
 };
 
+// Travel Calendar — wrapped to fit the draggable grid contract.
+// The underlying TravelCalendarWidget is self-contained when no onOpenPlanner prop
+// is passed (it manages its own dialog state).
+export function TravelCalendarGridWidget(_props: WidgetProps) {
+  return <_TravelCalendarWidget />;
+}
+
 export const ACTION_WIDGET_MAP: Record<string, React.ComponentType<WidgetProps>> = {
+  travel_calendar:        TravelCalendarGridWidget,
   today_critical_actions: TodayCriticalActionsWidget,
   inbox_priority_radar:   InboxPriorityRadarWidget,
   cert_watchtower:        CertWatchtowerWidget,
