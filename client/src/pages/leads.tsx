@@ -113,7 +113,11 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
   const [statusFilter, setStatusFilter] = useState(lockedStatus ?? "all");
   const [countryFilter, setCountryFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
-  const [view, setView] = useState<"list" | "pipeline" | "map">("list");
+  const [view, setView] = useState<"list" | "pipeline" | "map">(() => {
+    if (typeof window === "undefined") return "list";
+    const v = new URLSearchParams(window.location.search).get("view");
+    return v === "map" || v === "pipeline" ? v : "list";
+  });
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [selectedOrg, setSelectedOrg] = useState<Account | null>(null);

@@ -30,6 +30,7 @@ import { CEOCommandCenter } from "@/components/command-centers/ceo-center";
 import { MarinasDayPlannerDialog } from "@/components/marinas-day-planner-dialog";
 import { TravelPlannerDialog } from "@/components/travel/travel-planner-dialog";
 import { TravelCalendarWidget } from "@/components/travel/travel-calendar-widget";
+import { LeadsMissionControlWidget } from "@/components/leads/leads-mission-control-widget";
 import { CFOCommandCenter } from "@/components/command-centers/cfo-center";
 import { CTOCommandCenter } from "@/components/command-centers/cto-center";
 import { CMOCommandCenter } from "@/components/command-centers/cmo-center";
@@ -911,6 +912,14 @@ export default function RoleCommandCenter() {
           </Sheet>
         </div>
       </div>
+
+      {/* ── Leads widget (nearby + quick map / planner access) ───────── */}
+      <LeadsMissionControlWidget
+        onPlanDay={(loc) => {
+          if (loc) setPlannerLocation(loc);
+          setMarinaDayOpen(true);
+        }}
+      />
 
       {/* ── Travel Calendar (always visible to all users) ───────────── */}
       <TravelCalendarWidget onOpenPlanner={openPlannerForTrip} />
