@@ -28,6 +28,8 @@ import {
 } from "@/lib/dashboard-config";
 import { CEOCommandCenter } from "@/components/command-centers/ceo-center";
 import { MarinasDayPlannerDialog } from "@/components/marinas-day-planner-dialog";
+import { TravelPlannerDialog } from "@/components/travel/travel-planner-dialog";
+import { TravelCalendarWidget } from "@/components/travel/travel-calendar-widget";
 import { CFOCommandCenter } from "@/components/command-centers/cfo-center";
 import { CTOCommandCenter } from "@/components/command-centers/cto-center";
 import { CMOCommandCenter } from "@/components/command-centers/cmo-center";
@@ -715,19 +717,22 @@ export default function RoleCommandCenter() {
     saveMutation.mutate({ defaultCommandCenter: ct });
   };
 
-  // Plan My Travel Day (declared before any early returns to keep hook order stable)
-  const [plannerOpen, setPlannerOpen] = useState(false);
-  const [plannerLocation, setPlannerLocation] = useState<{ lat: number; lng: number } | null>(null);
+  // Plan My Travel Day → opens the multi-trip Travel Planner.
+  // (declared before any early returns to keep hook order stable)
+  const [travelPlannerOpen, setTravelPlannerOpen] = useState(false);
+  const [travelPlannerEditId, setTravelPlannerEditId] = useState<string | null>(null);
   const openPlanner = useCallback(() => {
-    setPlannerOpen(true);
-    if (!plannerLocation && typeof navigator !== "undefined" && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setPlannerLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => {},
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 }
-      );
-    }
-  }, [plannerLocation]);
+    setTravelPlannerEditId(null);
+    setTravelPlannerOpen(true);
+  }, []);
+  const openPlannerForTrip = useCallback((tripId: string | null) => {
+    setTravelPlannerEditId(tripId);
+    setTravelPlannerOpen(true);
+  }, []);
+
+  // Legacy marina day-routing tool (still available from the map page)
+  const [marinaDayOpen, setMarinaDayOpen] = useState(false);
+  const [plannerLocation, setPlannerLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   if (profileQuery.isLoading) {
     return (
@@ -907,6 +912,9 @@ export default function RoleCommandCenter() {
         </div>
       </div>
 
+      {/* ── Travel Calendar (always visible to all users) ───────────── */}
+      <TravelCalendarWidget onOpenPlanner={openPlannerForTrip} />
+
       {/* ── Dashboard Grid (drag + resize) ────────────────────────────── */}
       <DashboardGrid
         key={`grid-${displayCenterType}-${resetSeed}`}
@@ -937,9 +945,14 @@ export default function RoleCommandCenter() {
         <CSCommandCenter visible={visible} compact={compact} />
       )}
 
+      <TravelPlannerDialog
+        open={travelPlannerOpen}
+        onOpenChange={setTravelPlannerOpen}
+        initialTripId={travelPlannerEditId}
+      />
       <MarinasDayPlannerDialog
-        open={plannerOpen}
-        onOpenChange={setPlannerOpen}
+        open={marinaDayOpen}
+        onOpenChange={setMarinaDayOpen}
         userLocation={plannerLocation}
       />
     </div>
