@@ -132,8 +132,33 @@ function boundsToRadius(map: L.Map): number {
   return Math.ceil(Math.min(radiusKm, 500));
 }
 
-function createMarkerIcon(status: string) {
+function createMarkerIcon(status: string, selected = false) {
   const color = STAGE_COLORS[status] || "#64748b";
+  if (selected) {
+    return L.divIcon({
+      className: "custom-marker selected",
+      html: `<div style="
+        position: relative; width: 22px; height: 22px;
+      ">
+        <div style="
+          position: absolute; inset: 0; border-radius: 50%;
+          background: ${color}; border: 3px solid #fbbf24;
+          box-shadow: 0 0 0 2px rgba(251,191,36,0.35), 0 2px 8px rgba(0,0,0,0.4);
+        "></div>
+        <div style="
+          position: absolute; top: -6px; right: -6px;
+          width: 14px; height: 14px; border-radius: 50%;
+          background: #fbbf24; color: #111827;
+          font-size: 10px; font-weight: 700;
+          display: flex; align-items: center; justify-content: center;
+          border: 2px solid white;
+        ">✓</div>
+      </div>`,
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+      popupAnchor: [0, -12],
+    });
+  }
   return L.divIcon({
     className: "custom-marker",
     html: `<div style="
@@ -178,6 +203,9 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
   const [plannerOpen, setPlannerOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [mobileListOpen, setMobileListOpen] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<number>>(new Set());
+  const [preselectedForPlanner, setPreselectedForPlanner] = useState<NearbyLead[] | null>(null);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.LayerGroup | null>(null);
@@ -354,8 +382,9 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
     if (!filteredMarinas.length) return;
 
     filteredMarinas.forEach((lead) => {
+      const isSelected = selectedLeadIds.has(lead.id);
       const marker = L.marker([lead.marina_lat, lead.marina_lng], {
-        icon: createMarkerIcon(lead.status),
+        icon: createMarkerIcon(lead.status, isSelected),
       });
 
       marker.bindTooltip(lead.company, {
@@ -363,6 +392,20 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
         offset: [0, -8],
         className: "marina-tooltip",
       });
+
+      // In selection mode, taps toggle selection instead of opening the popup.
+      if (selectionMode) {
+        marker.on("click", (e) => {
+          (e as any).originalEvent?.stopPropagation?.();
+          setSelectedLeadIds(prev => {
+            const next = new Set(prev);
+            if (next.has(lead.id)) next.delete(lead.id); else next.add(lead.id);
+            return next;
+          });
+        });
+        marker.addTo(markersRef.current!);
+        return;
+      }
 
       const addr = lead.marina_address || [lead.street_address, lead.city, lead.state].filter(Boolean).join(", ");
 
@@ -427,7 +470,7 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
       marker.bindPopup(popupEl, { maxWidth: 260 });
       marker.addTo(markersRef.current!);
     });
-  }, [filteredMarinas]);
+  }, [filteredMarinas, selectionMode, selectedLeadIds]);
 
   const handleListDirections = async (lead: NearbyLead, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -587,7 +630,8 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
           className="h-8 text-xs gap-1 border-primary/40 text-primary hover:bg-primary/10"
           onClick={() => {
             if (!userLocation) requestLocation();
-            setPlannerOpen(true);
+            setSelectedLeadIds(new Set());
+            setSelectionMode(true);
           }}
           data-testid="button-plan-day"
         >
@@ -642,16 +686,84 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
           </div>
 
           {/* Bottom-right floating Plan my day (mobile only — desktop has it in toolbar) */}
-          <button
-            onClick={() => {
-              if (!userLocation) requestLocation();
-              setPlannerOpen(true);
-            }}
-            className="sm:hidden absolute bottom-4 right-3 z-[500] flex items-center gap-1.5 px-4 h-11 rounded-full bg-gradient-to-br from-primary to-primary/80 text-primary-foreground font-medium text-sm shadow-xl shadow-primary/30 active:scale-95 transition"
-            data-testid="button-plan-day-mobile"
-          >
-            <Sparkles className="h-4 w-4" /> Plan My Travel Day
-          </button>
+          {!selectionMode && (
+            <button
+              onClick={() => {
+                if (!userLocation) requestLocation();
+                setSelectedLeadIds(new Set());
+                setSelectionMode(true);
+              }}
+              className="sm:hidden absolute bottom-4 right-3 z-[500] flex items-center gap-1.5 px-4 h-11 rounded-full bg-gradient-to-br from-primary to-primary/80 text-primary-foreground font-medium text-sm shadow-xl shadow-primary/30 active:scale-95 transition"
+              data-testid="button-plan-day-mobile"
+            >
+              <Sparkles className="h-4 w-4" /> Plan My Travel Day
+            </button>
+          )}
+
+          {/* Selection mode: top banner + bottom action bar */}
+          {selectionMode && (
+            <>
+              <div className="absolute top-16 sm:top-3 left-3 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-[600] backdrop-blur-xl bg-primary/95 text-primary-foreground rounded-2xl px-4 py-2.5 shadow-xl flex items-center gap-2 max-w-md" data-testid="banner-selection-mode">
+                <Sparkles className="h-4 w-4 flex-shrink-0" />
+                <p className="text-xs sm:text-sm font-medium flex-1 truncate">
+                  Tap marinas on the map to add them to your route
+                </p>
+              </div>
+              <div className="absolute bottom-4 left-3 right-3 z-[600] flex items-center gap-2 backdrop-blur-xl bg-background/95 border border-primary/30 rounded-2xl px-3 py-2.5 shadow-2xl">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold" data-testid="text-selection-count">
+                    {selectedLeadIds.size} {selectedLeadIds.size === 1 ? "marina" : "marinas"} selected
+                  </p>
+                  {selectedLeadIds.size === 0 && (
+                    <p className="text-[11px] text-muted-foreground">Or skip to auto-pick by radius</p>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 px-2 text-xs"
+                  onClick={() => { setSelectionMode(false); setSelectedLeadIds(new Set()); }}
+                  data-testid="button-cancel-selection"
+                >
+                  Cancel
+                </Button>
+                {selectedLeadIds.size === 0 ? (
+                  <Button
+                    size="sm"
+                    className="h-9 gap-1.5"
+                    onClick={() => {
+                      setPreselectedForPlanner(null);
+                      setSelectionMode(false);
+                      setPlannerOpen(true);
+                    }}
+                    data-testid="button-skip-to-auto"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" /> Auto-pick
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    className="h-9 gap-1.5"
+                    onClick={() => {
+                      // Look up against the full marinas set (not filtered) so filter
+                      // changes after toggling can't drop a previously-picked marina.
+                      const chosen = marinas.filter(m => selectedLeadIds.has(m.id));
+                      if (!chosen.length) {
+                        toast({ title: "Selected marinas are no longer in view", description: "Pan back or pick again.", variant: "destructive" });
+                        return;
+                      }
+                      setPreselectedForPlanner(chosen);
+                      setSelectionMode(false);
+                      setPlannerOpen(true);
+                    }}
+                    data-testid="button-confirm-selection"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" /> Plan with {selectedLeadIds.size}
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
 
           {/* Bottom-left list opener pill (mobile only) */}
           <button
@@ -763,9 +875,16 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
 
       <MarinasDayPlannerDialog
         open={plannerOpen}
-        onOpenChange={setPlannerOpen}
+        onOpenChange={(o) => {
+          setPlannerOpen(o);
+          if (!o) {
+            setPreselectedForPlanner(null);
+            setSelectedLeadIds(new Set());
+          }
+        }}
         userLocation={userLocation}
         defaultStageFilter={stageFilter}
+        preselectedLeads={preselectedForPlanner as any}
       />
     </div>
   );
