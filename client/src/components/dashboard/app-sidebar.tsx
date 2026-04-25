@@ -6,6 +6,7 @@ import {
   LayoutDashboard, Target, Share2, Brain, SlidersHorizontal, BarChart3,
   Megaphone, TrendingUp, Landmark, Truck, Factory, FlaskConical, Newspaper,
   Circle, StickyNote, CheckSquare, RefreshCcw, Bell, BellRing, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen, FlaskRound, Snowflake, Search, GraduationCap, HelpCircle, Flame, Ghost,
+  Briefcase, MoreHorizontal,
 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Link, useLocation } from "wouter";
@@ -36,6 +37,10 @@ type NavSection = {
   permKey?: keyof Pick<UserPermissions, "crm" | "partnerships" | "projects" | "communications" | "team_workload" | "knowledge" | "support" | "quoting" | "calendar">;
 };
 
+// Sidebar grouping rules (intentional, keep this in mind when adding pages):
+//   • 5 day-to-day groups + Channels + a tucked-away "More" + Admin at bottom.
+//   • If a page is touched < weekly, it lives under "More" — not its own section.
+//   • All URLs are preserved exactly as routed in App.tsx — this file is grouping only.
 const sections: NavSection[] = [
   {
     id: "today",
@@ -44,68 +49,75 @@ const sections: NavSection[] = [
     url: "/today",
   },
 
-  // ── Growth OS ─────────────────────────────────────────────────────────────
-  { id: "divider-growth", label: "GROWTH OS", isDivider: true },
-
+  // ── Daily work — the 5 things you touch every day ─────────────────────────
   {
-    id: "command-center",
-    label: "Command Center",
-    icon: LayoutDashboard,
+    id: "work",
+    label: "Work",
+    icon: Briefcase,
     items: [
       { title: "Mission Control", url: "/", icon: LayoutDashboard, exactMatch: true },
-      { title: "Daily Execution", url: "/execution/daily", icon: PlayCircle },
-      { title: "Tasks Hub", url: "/execution/tasks", icon: CheckSquare },
+      { title: "Inbox", url: "/gmail", icon: Mail },
+      { title: "Calendar", url: "/execution/calendar", icon: CalendarClock, permKey: "calendar" },
+      { title: "Tasks", url: "/execution/tasks", icon: CheckSquare },
       { title: "Activity Feed", url: "/activity", icon: BarChart3 },
-      { title: "Executive Dashboard", url: "/executive-dashboard", icon: Trophy, permKey: "crm" },
-      { title: "Reports", url: "/relationships", icon: TrendingUp },
-      { title: "Forecasting", url: "/execution/forecast", icon: GitBranch },
-      { title: "Source Attribution", url: "/analytics/source-attribution", icon: TrendingUp, permKey: "crm" },
     ],
   },
 
+  // ── The sales motion (everything tied to a deal) ──────────────────────────
   {
-    id: "relationships",
-    label: "Relationships",
-    icon: Users,
+    id: "pipeline",
+    label: "Pipeline",
+    icon: Target,
     permKey: "crm",
     items: [
+      { title: "Leads", url: "/opportunities", icon: Sparkles, permKey: "crm" },
+      { title: "Pipeline", url: "/pipeline", icon: GitBranch, permKey: "crm" },
+      { title: "Accounts", url: "/accounts", icon: Building2, permKey: "crm" },
       { title: "Contacts", url: "/contacts", icon: Contact, permKey: "crm" },
-      { title: "Organizations", url: "/accounts", icon: Building2, permKey: "crm" },
+      { title: "Quotes", url: "/quotes", icon: FileText, permKey: "quoting" },
+      { title: "Renewals", url: "/renewals", icon: RefreshCcw },
+      { title: "Accounts Won", url: "/revenue/deals", icon: Trophy, permKey: "crm" },
       { title: "Notes", url: "/notes", icon: StickyNote },
     ],
   },
 
+  // ── Post-sale execution and back office ───────────────────────────────────
   {
-    id: "revenue",
-    label: "Revenue Engine",
-    icon: Target,
-    permKey: "crm",
+    id: "operations",
+    label: "Operations",
+    icon: SlidersHorizontal,
     items: [
-      { title: "Revenue Hub", url: "/revenue", icon: BarChart3, permKey: "crm", exactMatch: true },
-      { title: "Leads", url: "/opportunities", icon: Sparkles, permKey: "crm" },
-      { title: "Pipeline", url: "/pipeline", icon: GitBranch, permKey: "crm" },
-      { title: "Accounts Won", url: "/revenue/deals", icon: Target, permKey: "crm" },
-      { title: "Data Quality", url: "/data-quality", icon: ShieldCheck, permKey: "crm" },
       { title: "Install Workflows", url: "/install-workflows", icon: Layers, permKey: "crm" },
-      { title: "Renewals", url: "/renewals", icon: RefreshCcw },
-      { title: "Quotes", url: "/quotes", icon: FileText, permKey: "quoting" },
-    ],
-  },
-
-  {
-    id: "procurement",
-    label: "Procurement & Mfg",
-    icon: Package,
-    permKey: "crm",
-    items: [
       { title: "Procurement", url: "/procurement", icon: Package, permKey: "crm" },
       { title: "Deployments", url: "/deployments", icon: Layers, permKey: "crm" },
+      { title: "Projects", url: "/execution/projects", icon: Layers, permKey: "projects" },
+      { title: "Communications", url: "/execution/communications", icon: Megaphone, permKey: "communications" },
+      { title: "Documents", url: "/documents", icon: BookOpen },
+      { title: "Assets", url: "/knowledge/assets", icon: FolderOpen, permKey: "knowledge" },
     ],
   },
 
+  // ── Analytics, AI assistance, geo intelligence ────────────────────────────
+  {
+    id: "insights",
+    label: "Insights",
+    icon: Brain,
+    items: [
+      { title: "Executive Dashboard", url: "/executive-dashboard", icon: Trophy, permKey: "crm" },
+      { title: "Reports", url: "/relationships", icon: TrendingUp },
+      { title: "Forecasting", url: "/execution/forecast", icon: GitBranch },
+      { title: "Source Attribution", url: "/analytics/source-attribution", icon: TrendingUp, permKey: "crm" },
+      { title: "Executive Copilot", url: "/executive-copilot", icon: Brain },
+      { title: "Meeting Briefs", url: "/intelligence/briefs", icon: Sparkles },
+      { title: "Signals & Alerts", url: "/intelligence/signals", icon: Bell },
+      { title: "Territory & Geo", url: "/geography", icon: Globe, permKey: "crm" },
+    ],
+  },
+
+  // ── Partnership channels (kept together as a single ecosystem view) ───────
   {
     id: "channels",
-    label: "Growth Channels",
+    label: "Channels",
     icon: Share2,
     permKey: "partnerships",
     items: [
@@ -119,67 +131,32 @@ const sections: NavSection[] = [
     ],
   },
 
+  // ── Power-user / occasional tools — collapsed by default ──────────────────
   {
-    id: "intelligence",
-    label: "Intelligence",
-    icon: Brain,
+    id: "more",
+    label: "More",
+    icon: MoreHorizontal,
     items: [
-      { title: "Executive Copilot", url: "/executive-copilot", icon: Brain },
-      { title: "Inbox", url: "/gmail", icon: Mail },
-      { title: "Calendar", url: "/execution/calendar", icon: CalendarClock, permKey: "calendar" },
-      { title: "Meeting Briefs", url: "/intelligence/briefs", icon: Sparkles },
-      { title: "Signals & Alerts", url: "/intelligence/signals", icon: Bell },
-      { title: "Digest & Alerts", url: "/alerts-digest", icon: BellRing },
-      { title: "Score Feedback", url: "/scores/feedback", icon: Target },
-      { title: "Rel. Intelligence", url: "/intelligence/rel-intelligence", icon: BarChart3 },
-      { title: "Territory & Geo", url: "/geography", icon: Globe, permKey: "crm" },
-      { title: "Territory Routing", url: "/routing", icon: MapPin },
-      { title: "Revenue Simulator", url: "/revenue-sim", icon: FlaskRound },
+      { title: "Daily Execution", url: "/execution/daily", icon: PlayCircle },
+      { title: "Revenue Hub", url: "/revenue", icon: BarChart3, permKey: "crm", exactMatch: true },
       { title: "Revenue Ops", url: "/revenue-ops", icon: Target },
-    ],
-  },
-
-  {
-    id: "operations",
-    label: "Operations",
-    icon: SlidersHorizontal,
-    items: [
-      { title: "Projects", url: "/execution/projects", icon: Layers, permKey: "projects" },
-      { title: "Communications", url: "/execution/communications", icon: Megaphone, permKey: "communications" },
-      { title: "Document Hub", url: "/documents", icon: BookOpen },
-      { title: "Assets", url: "/knowledge/assets", icon: FolderOpen, permKey: "knowledge" },
+      { title: "Revenue Simulator", url: "/revenue-sim", icon: FlaskRound },
+      { title: "Rel. Intelligence", url: "/intelligence/rel-intelligence", icon: BarChart3 },
+      { title: "Score Feedback", url: "/scores/feedback", icon: Target },
+      { title: "Digest & Alerts", url: "/alerts-digest", icon: BellRing },
+      { title: "Territory Routing", url: "/routing", icon: MapPin },
+      { title: "Data Quality", url: "/data-quality", icon: ShieldCheck, permKey: "crm" },
       { title: "Price Lists", url: "/price-lists", icon: Tags, permKey: "quoting" },
       { title: "Task Rules", url: "/automation/tasks", icon: Zap },
       { title: "Automations", url: "/automations", icon: Zap },
+      { title: "Help", url: "/help", icon: HelpCircle },
+      { title: "Support Tickets", url: "/support/tickets", icon: ClipboardList, permKey: "support" },
+      { title: "Winter Support", url: "/winter", icon: Snowflake, permKey: "support" },
     ],
   },
 
-  // ── Tools ─────────────────────────────────────────────────────────────────
-  { id: "divider-tools", label: "TOOLS", isDivider: true },
-
-  {
-    id: "help",
-    label: "Help Center",
-    icon: BookOpen,
-    url: "/help",
-    items: [
-      { title: "Quick Start Guide", url: "/help", icon: Zap },
-      { title: "Operations Manual", url: "/help", icon: BookOpen },
-      { title: "Training Handbook", url: "/help", icon: GraduationCap },
-      { title: "FAQ & Glossary", url: "/help", icon: HelpCircle },
-    ],
-  },
-
-  {
-    id: "support",
-    label: "Support",
-    icon: LifeBuoy,
-    permKey: "support",
-    items: [
-      { title: "Tickets", url: "/support/tickets", icon: ClipboardList },
-      { title: "Winter Support", url: "/winter", icon: Snowflake },
-    ],
-  },
+  // ── Admin (gated, lives at the bottom) ────────────────────────────────────
+  { id: "divider-admin", label: "ADMIN", isDivider: true, adminOnly: true },
   {
     id: "admin",
     label: "Admin",
@@ -196,7 +173,7 @@ const sections: NavSection[] = [
 ];
 
 function getActiveSectionId(location: string): string {
-  if (location === "/") return "command-center";
+  if (location === "/") return "work";
   for (const section of sections) {
     if (section.isDivider) continue;
     if (section.url && location === section.url) return section.id;
