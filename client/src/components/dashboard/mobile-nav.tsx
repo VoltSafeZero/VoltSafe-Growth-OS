@@ -5,68 +5,100 @@ import {
   Mail, CalendarClock, Megaphone, FolderOpen, Tags, Zap, Settings,
   X, Users2, ClipboardList, Layers, LayoutDashboard, LayoutGrid,
   Target, Share2, Brain, SlidersHorizontal, Truck, Landmark, Factory,
-  FlaskConical, Newspaper, Circle, ShieldCheck,
+  FlaskConical, Newspaper, Circle, ShieldCheck, GitBranch, RefreshCcw,
+  Trophy, StickyNote, Sparkles, BookOpen, Globe, BarChart3, TrendingUp,
+  CheckSquare, Package, HelpCircle,
   Zap as ZapIcon, Smartphone, Plus, MapPin, ChevronRight,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { QuickLogModal } from "@/components/mobile/quick-log-modal";
 
+// Mobile menu groupings mirror the desktop sidebar (app-sidebar.tsx).
+// Keep these two files in lockstep when adding new pages.
 const allNavGroups = [
   {
-    label: "Command Center",
+    label: "Today",
     items: [
-      { title: "Dashboard", url: "/", icon: Home },
+      { title: "Today", url: "/today", icon: Sparkles },
       { title: "Field Mode", url: "/field", icon: Smartphone },
       { title: "Nearby", url: "/field/nearby", icon: MapPin },
     ],
   },
   {
-    label: "Relationships",
+    label: "Work",
     items: [
-      { title: "Organizations", url: "/accounts", icon: Building2 },
-      { title: "Contacts", url: "/contacts", icon: Contact },
-      { title: "Tasks", url: "/execution/team-workload", icon: Users2 },
+      { title: "Mission Control", url: "/", icon: LayoutDashboard },
+      { title: "Inbox", url: "/gmail", icon: Mail },
+      { title: "Calendar", url: "/execution/calendar", icon: CalendarClock },
+      { title: "Tasks", url: "/execution/tasks", icon: CheckSquare },
+      { title: "Activity", url: "/activity", icon: BarChart3 },
     ],
   },
   {
-    label: "Revenue Engine",
+    label: "Pipeline",
     items: [
-      { title: "Leads", url: "/opportunities", icon: UserPlus },
-      { title: "Pipeline", url: "/pipeline", icon: Target },
+      { title: "Leads", url: "/opportunities", icon: Sparkles },
+      { title: "Pipeline", url: "/pipeline", icon: GitBranch },
+      { title: "Accounts", url: "/accounts", icon: Building2 },
+      { title: "Contacts", url: "/contacts", icon: Contact },
       { title: "Quotes", url: "/quotes", icon: FileText },
+      { title: "Renewals", url: "/renewals", icon: RefreshCcw },
+      { title: "Won", url: "/revenue/deals", icon: Trophy },
+      { title: "Notes", url: "/notes", icon: StickyNote },
     ],
   },
   {
     label: "Operations",
     items: [
-      { title: "Deployments", url: "/deployments", icon: Truck },
       { title: "Install Workflows", url: "/install-workflows", icon: Layers },
+      { title: "Procurement", url: "/procurement", icon: Package },
+      { title: "Deployments", url: "/deployments", icon: Truck },
       { title: "Projects", url: "/execution/projects", icon: Layers },
+      { title: "Communications", url: "/execution/communications", icon: Megaphone },
+      { title: "Documents", url: "/documents", icon: BookOpen },
+      { title: "Assets", url: "/knowledge/assets", icon: FolderOpen },
     ],
   },
   {
-    label: "Intelligence",
+    label: "Insights",
     items: [
-      { title: "Inbox", url: "/gmail", icon: Mail },
-      { title: "Calendar", url: "/execution/calendar", icon: CalendarClock },
-      { title: "Rel. Intelligence", url: "/intelligence/rel-intelligence", icon: SlidersHorizontal },
+      { title: "Exec Dashboard", url: "/executive-dashboard", icon: Trophy },
+      { title: "Reports", url: "/relationships", icon: TrendingUp },
+      { title: "Forecasting", url: "/execution/forecast", icon: GitBranch },
+      { title: "Copilot", url: "/executive-copilot", icon: Brain },
+      { title: "Briefs", url: "/intelligence/briefs", icon: Sparkles },
+      { title: "Signals", url: "/intelligence/signals", icon: SlidersHorizontal },
+      { title: "Territory", url: "/geography", icon: Globe },
     ],
   },
   {
-    label: "Growth Channels",
+    label: "Channels",
     items: [
-      { title: "Partnerships", url: "/strategy/partnerships/industry-associations", icon: Users2 },
+      { title: "Industry", url: "/strategy/partnerships/industry-associations", icon: Users2 },
       { title: "Dealers", url: "/strategy/partnerships/channel-commercial", icon: Truck },
+      { title: "Alliances", url: "/strategy/partnerships/manufacturing", icon: Factory },
+      { title: "Investors", url: "/strategy/partnerships/innovation-research", icon: FlaskConical },
       { title: "Govt & Grants", url: "/strategy/partnerships/government-public", icon: Landmark },
+      { title: "Referrals", url: "/strategy/partnerships/other", icon: Circle },
+      { title: "Media", url: "/strategy/partnerships/media-tradeshows", icon: Newspaper },
     ],
   },
   {
-    label: "Support & Admin",
+    label: "More",
     items: [
+      { title: "Help", url: "/help", icon: HelpCircle },
       { title: "Tickets", url: "/support/tickets", icon: ClipboardList },
-      { title: "Users", url: "/admin/users", icon: ShieldCheck, adminOnly: true },
-      { title: "Integrations", url: "/admin/integrations", icon: Zap },
+      { title: "Price Lists", url: "/price-lists", icon: Tags },
+      { title: "Automations", url: "/automations", icon: Zap },
       { title: "Settings", url: "/settings", icon: Settings },
+    ],
+  },
+  {
+    label: "Admin",
+    items: [
+      { title: "Users", url: "/admin/users", icon: ShieldCheck, adminOnly: true },
+      { title: "Integrations", url: "/admin/integrations", icon: Zap, adminOnly: true },
+      { title: "Mailboxes", url: "/settings/mailbox", icon: Mail, adminOnly: true },
     ],
   },
 ];

@@ -774,7 +774,9 @@ export default function RoleCommandCenter() {
               className="gap-1.5 h-8 text-xs bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 text-primary-foreground shadow-md"
               data-testid="rcc-plan-travel-day"
             >
-              <Sparkles className="h-3.5 w-3.5" /> Plan My Travel Day
+              <Sparkles className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Plan My Travel Day</span>
+              <span className="sm:hidden">Plan Day</span>
             </Button>
           </div>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -791,7 +793,7 @@ export default function RoleCommandCenter() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           {/* Primary: Edit Layout / Save / Cancel / Reset Positions
               (component swaps its own contents based on `editing`). */}
           <DashboardEditToolbar
@@ -867,7 +869,7 @@ export default function RoleCommandCenter() {
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 w-8 p-0"
+                className="h-9 w-9 sm:h-8 sm:w-8 p-0"
                 aria-label="More dashboard options"
                 data-testid="rcc-more-menu"
               >
