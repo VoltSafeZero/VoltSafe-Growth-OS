@@ -9,13 +9,14 @@ import {
 } from "@/components/ui/sheet";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   LayoutDashboard, RefreshCw, ChevronDown,
   Eye, EyeOff, RotateCcw, Maximize2, Minimize2, SlidersHorizontal,
   AlertTriangle, CheckSquare, TrendingUp, Building2, Mail,
   ChevronRight, Zap, CalendarDays, ShieldAlert, ArrowRight, Route, MapPin, Navigation,
-  Sparkles,
+  Sparkles, MoreHorizontal, Check,
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -790,60 +791,9 @@ export default function RoleCommandCenter() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Layout toggle */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 text-xs h-8"
-            onClick={() => setLocalLayout(l => l === "compact" || (l === null && layoutMode === "compact") ? "expanded" : "compact")}
-            data-testid="rcc-layout-toggle"
-          >
-            {compact ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
-            {compact ? "Expanded" : "Compact"}
-          </Button>
-
-          {/* My Layout / Role Default toggle */}
-          <div className="flex items-center rounded-md border border-border/50 overflow-hidden h-8">
-            <button
-              className={`px-3 text-xs h-full transition-colors ${!useRoleDefault ? "bg-primary text-primary-foreground" : "hover:bg-muted/50 text-muted-foreground"}`}
-              onClick={() => setUseRoleDefault(false)}
-              data-testid="rcc-my-layout-btn"
-            >
-              My Layout
-            </button>
-            <button
-              className={`px-3 text-xs h-full border-l border-border/50 transition-colors ${useRoleDefault ? "bg-primary text-primary-foreground" : "hover:bg-muted/50 text-muted-foreground"}`}
-              onClick={() => { setUseRoleDefault(true); setLocalVisibility(null); }}
-              data-testid="rcc-role-default-btn"
-            >
-              Role Default
-            </button>
-          </div>
-
-          {/* Admin preview dropdown */}
-          {isAdmin && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" data-testid="rcc-preview-dropdown">
-                  <LayoutDashboard className="h-3.5 w-3.5" />
-                  Preview <ChevronDown className="h-3 w-3" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setPreviewCenterType(null)} data-testid="preview-my-role">
-                  My Role ({baseConfig?.centerLabel})
-                </DropdownMenuItem>
-                {ALL_CENTER_TYPES.map(ct => (
-                  <DropdownMenuItem key={ct.value} onClick={() => setPreviewCenterType(ct.value)} data-testid={`preview-${ct.value}`}>
-                    {ct.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
-          {/* Dashboard grid edit toolbar */}
+        <div className="flex items-center gap-2">
+          {/* Primary: Edit Layout / Save / Cancel / Reset Positions
+              (component swaps its own contents based on `editing`). */}
           <DashboardEditToolbar
             editing={editingLayout}
             // Always allow Save while editing — even if no widget gesture has
@@ -857,7 +807,7 @@ export default function RoleCommandCenter() {
             onReset={handleResetDashboard}
           />
 
-          {/* Widget settings */}
+          {/* Primary: Widgets sheet trigger */}
           <Sheet>
             <SheetTrigger asChild>
               <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" data-testid="rcc-settings-btn">
@@ -909,6 +859,73 @@ export default function RoleCommandCenter() {
               </div>
             </SheetContent>
           </Sheet>
+
+          {/* Secondary controls — tucked behind a kebab so the header stays calm.
+              Holds: density toggle, layout source, admin "preview as role". */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0"
+                aria-label="More dashboard options"
+                data-testid="rcc-more-menu"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>Density</DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => setLocalLayout(l => l === "compact" || (l === null && layoutMode === "compact") ? "expanded" : "compact")}
+                data-testid="rcc-layout-toggle"
+              >
+                {compact ? <Maximize2 className="mr-2 h-4 w-4" /> : <Minimize2 className="mr-2 h-4 w-4" />}
+                Switch to {compact ? "expanded" : "compact"}
+              </DropdownMenuItem>
+
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Layout source</DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => setUseRoleDefault(false)}
+                data-testid="rcc-my-layout-btn"
+              >
+                {!useRoleDefault ? <Check className="mr-2 h-4 w-4" /> : <span className="mr-2 h-4 w-4 inline-block" />}
+                My Layout
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => { setUseRoleDefault(true); setLocalVisibility(null); }}
+                data-testid="rcc-role-default-btn"
+              >
+                {useRoleDefault ? <Check className="mr-2 h-4 w-4" /> : <span className="mr-2 h-4 w-4 inline-block" />}
+                Role Default
+              </DropdownMenuItem>
+
+              {isAdmin && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Preview as role</DropdownMenuLabel>
+                  <DropdownMenuItem
+                    onClick={() => setPreviewCenterType(null)}
+                    data-testid="preview-my-role"
+                  >
+                    {!previewCenterType ? <Check className="mr-2 h-4 w-4" /> : <span className="mr-2 h-4 w-4 inline-block" />}
+                    My Role ({baseConfig?.centerLabel})
+                  </DropdownMenuItem>
+                  {ALL_CENTER_TYPES.map(ct => (
+                    <DropdownMenuItem
+                      key={ct.value}
+                      onClick={() => setPreviewCenterType(ct.value)}
+                      data-testid={`preview-${ct.value}`}
+                    >
+                      {previewCenterType === ct.value ? <Check className="mr-2 h-4 w-4" /> : <span className="mr-2 h-4 w-4 inline-block" />}
+                      {ct.label}
+                    </DropdownMenuItem>
+                  ))}
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
