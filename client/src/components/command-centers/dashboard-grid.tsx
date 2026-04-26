@@ -38,6 +38,7 @@ const WIDGET_SIZE_HINTS: Record<string, WidgetSizeHint> = {
   renewal_countdown:      { w: 4, h: 9,  minW: 3, minH: 6 },
   weather:                { w: 4, h: 11, minW: 3, minH: 7 },
   travel_calendar:        { w: 12, h: 9, minW: 4, minH: 6 },
+  leads_nearby:           { w: 6,  h: 9, minW: 3, minH: 6 },
   // Role-card widgets migrated from per-role center components.
   summary_bullets:        { w: 6, h: 8,  minW: 3, minH: 6 },
   pipeline_health:        { w: 6, h: 9,  minW: 3, minH: 6 },

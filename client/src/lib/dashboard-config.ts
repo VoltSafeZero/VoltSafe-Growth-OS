@@ -210,6 +210,14 @@ const NEW_WIDGETS: Record<string, WidgetDef> = {
     defaultVisible: true, category: "action", isNew: true,
     // No permKey — every user gets their own travel calendar.
   },
+  leads_nearby: {
+    id: "leads_nearby", label: "Leads Nearby",
+    description: "The closest 5 marinas to your current location with quick access to the map and travel-day planner",
+    defaultVisible: true, category: "action", isNew: true,
+    // No permKey — every user can see prospect marinas near them. Geolocation
+    // is requested by the widget itself; users without permission are simply
+    // shown a "use my location" prompt.
+  },
 };
 
 // Classic widgets referenced by id inside each center array.
@@ -269,6 +277,7 @@ function applyClassicRule(w: WidgetDef): WidgetDef {
 
 // Widgets that make sense for every user regardless of role/department.
 const UNIVERSAL_EXTRAS: WidgetDef[] = [
+  { ...NEW_WIDGETS.leads_nearby,          defaultVisible: true  },
   { ...NEW_WIDGETS.travel_calendar,       defaultVisible: true  },
   { ...NEW_WIDGETS.my_inbox,              defaultVisible: true  },
   { ...NEW_WIDGETS.todays_meetings,       defaultVisible: false },
@@ -291,6 +300,7 @@ export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {
     { id: "cert_blockers",        label: "Certification Blockers",   description: "Engineering cert issues blocking deals", defaultVisible: false, category: "classic" },
     { id: "deployment_blockers",  label: "Deployment Blockers",      description: "Installs and rollout blocked",           defaultVisible: false, category: "classic" },
     { id: "key_accounts",         label: "Key Accounts Needing Action", description: "High-value accounts with signals",    defaultVisible: true,  category: "classic" },
+    { ...NEW_WIDGETS.leads_nearby,           defaultVisible: true  },
     { ...NEW_WIDGETS.today_critical_actions, defaultVisible: true  },
     { ...NEW_WIDGETS.cash_pulse,             defaultVisible: true  },
     { ...NEW_WIDGETS.board_pack_readiness,   defaultVisible: false },
@@ -318,6 +328,7 @@ export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {
     { id: "churn_risk_financial", label: "Churn Risk / Revenue",     description: "Top churn risks with ARR exposure",      defaultVisible: false, category: "classic" },
     { id: "billing_anomalies",    label: "Billing Anomalies",        description: "Inactive lines or missing billing start",defaultVisible: true,  category: "classic" },
     { id: "forecast_pressure",    label: "Forecast Pressure",        description: "Pipeline vs target gap",                 defaultVisible: true,  category: "classic" },
+    { ...NEW_WIDGETS.leads_nearby,           defaultVisible: true  },
     { ...NEW_WIDGETS.cash_pulse,             defaultVisible: true  },
     { ...NEW_WIDGETS.board_pack_readiness,   defaultVisible: false },
     { ...NEW_WIDGETS.forecast_gap,           defaultVisible: false },
@@ -341,6 +352,7 @@ export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {
     { id: "install_workflows",    label: "Install Workflows at Risk", description: "Workflows missing steps or overdue",    defaultVisible: true,  category: "classic" },
     { id: "procurement_blocked",  label: "Procurement Blocked",      description: "Hardware batches stuck in procurement",  defaultVisible: false, category: "classic" },
     { id: "critical_tasks",       label: "Critical Tasks",           description: "High-priority overdue tasks",            defaultVisible: true,  category: "classic" },
+    { ...NEW_WIDGETS.leads_nearby,           defaultVisible: true  },
     { ...NEW_WIDGETS.cert_watchtower,        defaultVisible: true  },
     { ...NEW_WIDGETS.deployment_pulse,       defaultVisible: true  },
     { ...NEW_WIDGETS.cert_status_summary,    defaultVisible: false },
@@ -363,6 +375,7 @@ export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {
     { id: "territory_whitespace", label: "Territory Whitespace",     description: "Uncovered regions and opportunity gaps", defaultVisible: false, category: "classic" },
     { id: "pipeline_by_source",   label: "Pipeline by Source",       description: "Quotes and deals created per channel",   defaultVisible: false, category: "classic" },
     { id: "conversion_by_source", label: "Conversion by Source",     description: "Lead-to-deal conversion rate by channel",defaultVisible: false, category: "classic" },
+    { ...NEW_WIDGETS.leads_nearby,           defaultVisible: true  },
     { ...NEW_WIDGETS.unresponded_leads,      defaultVisible: true  },
     { ...NEW_WIDGETS.recent_wins,            defaultVisible: true  },
     { ...NEW_WIDGETS.pipeline_funnel,        defaultVisible: true  },
@@ -390,6 +403,7 @@ export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {
     { id: "inbox_followups",      label: "Inbox Follow-ups",         description: "Emails needing responses",               defaultVisible: false, category: "classic" },
     { id: "week_priorities",      label: "This Week",                description: "Tasks and meetings due this week",       defaultVisible: false, category: "classic" },
     { id: "nearby_routes",        label: "Nearby Routes",            description: "High-priority stops near your location", defaultVisible: false, category: "classic" },
+    { ...NEW_WIDGETS.leads_nearby,           defaultVisible: true  },
     { ...NEW_WIDGETS.today_critical_actions, defaultVisible: true  },
     { ...NEW_WIDGETS.inbox_priority_radar,   defaultVisible: true  },
     { ...NEW_WIDGETS.todays_meetings,        defaultVisible: true  },
@@ -421,6 +435,7 @@ export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {
     { id: "renewal_exposure",     label: "Renewal Exposure",         description: "Upcoming renewals and at-risk accounts", defaultVisible: false, category: "classic" },
     { id: "overdue_tasks",        label: "Overdue Tasks",            description: "CS tasks past due",                      defaultVisible: false, category: "classic" },
     { id: "accounts_at_risk",     label: "Accounts at Risk",         description: "Accounts flagged for risk",              defaultVisible: true,  category: "classic" },
+    { ...NEW_WIDGETS.leads_nearby,           defaultVisible: true  },
     { ...NEW_WIDGETS.my_waiting_on,          defaultVisible: true  },
     { ...NEW_WIDGETS.renewal_countdown,      defaultVisible: true  },
     { ...NEW_WIDGETS.inbox_priority_radar,   defaultVisible: true  },

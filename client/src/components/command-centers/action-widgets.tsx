@@ -17,6 +17,7 @@ import {
 import { format, formatDistanceToNow, isToday } from "date-fns";
 import { WeatherWidget } from "@/components/widgets/weather";
 import { TravelCalendarWidget as _TravelCalendarWidget } from "@/components/travel/travel-calendar-widget";
+import { LeadsMissionControlWidget as _LeadsMissionControlWidget } from "@/components/leads/leads-mission-control-widget";
 import {
   ExecutiveSnapshotWidget,
   PipelineHealthWidget,
@@ -1092,8 +1093,17 @@ export function TravelCalendarGridWidget(_props: WidgetProps) {
   return <_TravelCalendarWidget />;
 }
 
+// Leads Nearby — same self-contained pattern. The underlying widget mounts its
+// own MarinasDayPlannerDialog when no onPlanDay prop is supplied, so it can
+// participate in the draggable grid like every other widget instead of being
+// pinned to the top of the role command center page.
+export function LeadsNearbyGridWidget(_props: WidgetProps) {
+  return <_LeadsMissionControlWidget />;
+}
+
 export const ACTION_WIDGET_MAP: Record<string, React.ComponentType<WidgetProps>> = {
   travel_calendar:        TravelCalendarGridWidget,
+  leads_nearby:           LeadsNearbyGridWidget,
   today_critical_actions: TodayCriticalActionsWidget,
   inbox_priority_radar:   InboxPriorityRadarWidget,
   cert_watchtower:        CertWatchtowerWidget,

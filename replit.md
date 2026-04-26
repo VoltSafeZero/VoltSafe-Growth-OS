@@ -1,5 +1,56 @@
 # Replit Agent Configuration
 
+## Leads Nearby — Migrated to Draggable Dashboard Widget (Complete, 2026-04-26)
+
+### Goal
+Move "Leads Nearby" off the hard-coded slot at the top of `/role-command-center`
+and into the same draggable + resizable grid that already hosts the other action
+widgets (Travel Calendar, Today's Critical Actions, Inbox Priority Radar, …).
+Users now reorder, resize, hide, or restore it like every other widget.
+
+### What changed (UI only, zero schema/db work)
+- `client/src/components/leads/leads-mission-control-widget.tsx`
+  - `onPlanDay` is now optional. When omitted (the new grid-mounted path), the
+    widget mounts its **own** `MarinasDayPlannerDialog` and manages internal
+    `internalPlannerOpen` / `internalPlannerLoc` state (mirrors the
+    self-contained pattern Travel Calendar already uses).
+  - Wrapped JSX in a fragment so the inline dialog can sit beside the card.
+- `client/src/components/command-centers/action-widgets.tsx`
+  - New `LeadsNearbyGridWidget` wrapper (matches `WidgetProps` contract).
+  - Registered under `leads_nearby` in `ACTION_WIDGET_MAP`.
+- `client/src/components/command-centers/dashboard-grid.tsx`
+  - Size hint added: `leads_nearby: { w: 6, h: 9, minW: 3, minH: 6 }`.
+- `client/src/lib/dashboard-config.ts`
+  - New `NEW_WIDGETS.leads_nearby` entry (`isNew: true`, `defaultVisible: true`,
+    `category: "action"`, no `permKey` — geolocation gating happens inside the
+    widget itself via the "use my location" CTA).
+  - Inserted as the **first** entry of `UNIVERSAL_EXTRAS` (powers the `default`
+    center) and the first new-widgets-section entry of every explicit role
+    array (`ceo / cfo / cto / cmo / sales / cs`). Because `widgetOrder` is built
+    from `widgets.filter(w => w.isNew)`, this places it top-left in every fresh
+    dashboard, matching its prior pinned-to-top prominence.
+- `client/src/pages/role-command-center.tsx`
+  - Removed the static `<LeadsMissionControlWidget>` block that lived above the
+    dashboard grid.
+  - Removed the now-orphaned `LeadsMissionControlWidget` and
+    `MarinasDayPlannerDialog` imports.
+  - Removed the orphaned `marinaDayOpen` / `plannerLocation` state and the
+    `<MarinasDayPlannerDialog>` instance that fed it.
+
+### Validation
+- `Start application` workflow restarts cleanly with no compile errors.
+- Architect (`evaluate_task` + git diff) returned PASS on every functional
+  check (self-contained pattern, registration, size hint, cleanup, untouched
+  `nearby-marinas-map.tsx` keeps its own dialog usage).
+
+### What was NOT changed (per standing project rules)
+- No schema changes, no `db:push`, no migrations, no ID column edits.
+- `client/src/components/marinas-day-planner-dialog.tsx` itself untouched —
+  still imported and used by `client/src/components/nearby-marinas-map.tsx`.
+- Per-user saved layouts: existing users keep their saved positions; the new
+  `leads_nearby` id auto-appends to their grid via the standard
+  `reconcileLayouts` path with the size hint above.
+
 ## Nav Config Consolidation — Single Source of Truth (Complete, 2026-04-26)
 
 ### Goal

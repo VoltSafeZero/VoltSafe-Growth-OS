@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Anchor, MapPin, Sparkles, Map as MapIcon, ChevronRight, Loader2, Locate } from "lucide-react";
+import { MarinasDayPlannerDialog } from "@/components/marinas-day-planner-dialog";
 
 const STAGE_COLORS: Record<string, string> = {
   new: "#9ca3af",
@@ -67,20 +68,40 @@ function getSavedLocation(): { lat: number; lng: number } | null {
 }
 
 interface Props {
-  /** Called when "Plan My Travel Day" is clicked. Map page also has its own selection-mode planner. */
-  onPlanDay: (loc: { lat: number; lng: number } | null) => void;
+  /**
+   * Called when "Plan My Travel Day" is clicked. When omitted, the widget
+   * manages its own MarinasDayPlannerDialog so it can drop into the draggable
+   * dashboard grid as a self-contained widget — same pattern Travel Calendar
+   * uses (see TravelCalendarGridWidget). The map page still passes its own
+   * handler to integrate with selection-mode planning.
+   */
+  onPlanDay?: (loc: { lat: number; lng: number } | null) => void;
 }
 
 /**
  * Compact "nearby leads" widget for Mission Control / role-command-center.
  * Shows the closest 5 marinas and quick actions to open the full map view or kick off the day planner.
  */
-export function LeadsMissionControlWidget({ onPlanDay }: Props) {
+export function LeadsMissionControlWidget({ onPlanDay }: Props = {}) {
   const [, navigate] = useLocation();
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(() => getSavedLocation());
   const [locating, setLocating] = useState(false);
   const [leads, setLeads] = useState<NearbyLead[]>([]);
   const [loading, setLoading] = useState(false);
+  // Self-contained day-planner dialog state — only used when no onPlanDay
+  // callback was provided (i.e. when this widget is dropped into the
+  // draggable grid instead of the legacy hard-coded slot in role-command-center).
+  const [internalPlannerOpen, setInternalPlannerOpen] = useState(false);
+  const [internalPlannerLoc, setInternalPlannerLoc] = useState<{ lat: number; lng: number } | null>(null);
+
+  const handlePlanDayClick = () => {
+    if (onPlanDay) {
+      onPlanDay(location);
+      return;
+    }
+    setInternalPlannerLoc(location);
+    setInternalPlannerOpen(true);
+  };
 
   // Try to grab a precise location once on mount (silent — falls back to saved location).
   useEffect(() => {
@@ -118,6 +139,7 @@ export function LeadsMissionControlWidget({ onPlanDay }: Props) {
   }, [location]);
 
   return (
+    <>
     <Card className="border border-border/50 bg-card/80" data-testid="widget-leads-mission-control">
       <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between space-y-0">
         <div className="flex items-center gap-2">
@@ -142,7 +164,7 @@ export function LeadsMissionControlWidget({ onPlanDay }: Props) {
           <Button
             size="sm"
             className="h-7 text-xs gap-1 border-primary/40 text-primary-foreground bg-gradient-to-br from-primary to-primary/80"
-            onClick={() => onPlanDay(location)}
+            onClick={handlePlanDayClick}
             data-testid="button-leads-widget-plan-day"
           >
             <Sparkles className="h-3 w-3" /> Plan My Travel Day
@@ -234,5 +256,15 @@ export function LeadsMissionControlWidget({ onPlanDay }: Props) {
         )}
       </CardContent>
     </Card>
+    {/* Self-contained planner dialog — only mounts when no parent handler took
+        over (i.e. when the widget runs inside the draggable grid). */}
+    {!onPlanDay && (
+      <MarinasDayPlannerDialog
+        open={internalPlannerOpen}
+        onOpenChange={setInternalPlannerOpen}
+        userLocation={internalPlannerLoc}
+      />
+    )}
+    </>
   );
 }

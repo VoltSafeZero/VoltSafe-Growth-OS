@@ -28,9 +28,7 @@ import {
   type CenterType, type UserProfile, type WidgetDef,
 } from "@/lib/dashboard-config";
 import { CEOCommandCenter } from "@/components/command-centers/ceo-center";
-import { MarinasDayPlannerDialog } from "@/components/marinas-day-planner-dialog";
 import { TravelPlannerDialog } from "@/components/travel/travel-planner-dialog";
-import { LeadsMissionControlWidget } from "@/components/leads/leads-mission-control-widget";
 import { CFOCommandCenter } from "@/components/command-centers/cfo-center";
 import { CTOCommandCenter } from "@/components/command-centers/cto-center";
 import { CMOCommandCenter } from "@/components/command-centers/cmo-center";
@@ -731,9 +729,8 @@ export default function RoleCommandCenter() {
     setTravelPlannerOpen(true);
   }, []);
 
-  // Legacy marina day-routing tool (still available from the map page)
-  const [marinaDayOpen, setMarinaDayOpen] = useState(false);
-  const [plannerLocation, setPlannerLocation] = useState<{ lat: number; lng: number } | null>(null);
+  // Marina day-routing dialog now lives inside the LeadsNearbyGridWidget itself
+  // (and remains available from the nearby-marinas map page).
 
   if (profileQuery.isLoading) {
     return (
@@ -931,15 +928,7 @@ export default function RoleCommandCenter() {
         </div>
       </div>
 
-      {/* ── Leads widget (nearby + quick map / planner access) ───────── */}
-      <LeadsMissionControlWidget
-        onPlanDay={(loc) => {
-          if (loc) setPlannerLocation(loc);
-          setMarinaDayOpen(true);
-        }}
-      />
-
-      {/* Travel Calendar is now a draggable grid widget — see ACTION_WIDGET_MAP */}
+      {/* Travel Calendar and Leads Nearby are draggable grid widgets — see ACTION_WIDGET_MAP */}
 
       {/* ── Dashboard Grid (drag + resize) ────────────────────────────── */}
       <DashboardGrid
@@ -975,11 +964,6 @@ export default function RoleCommandCenter() {
         open={travelPlannerOpen}
         onOpenChange={setTravelPlannerOpen}
         initialTripId={travelPlannerEditId}
-      />
-      <MarinasDayPlannerDialog
-        open={marinaDayOpen}
-        onOpenChange={setMarinaDayOpen}
-        userLocation={plannerLocation}
       />
     </div>
   );
