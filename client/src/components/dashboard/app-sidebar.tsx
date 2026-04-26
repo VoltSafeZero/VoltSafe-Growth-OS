@@ -1,176 +1,22 @@
 import { useState, useEffect, useMemo } from "react";
-import {
-  Home, Users, LifeBuoy, Settings2, Building2, Contact, FileText, Mail,
-  CalendarClock, FolderOpen, Tags, Zap, Settings, ChevronRight, Users2,
-  ClipboardList, Layers, ShieldCheck, Sun, Moon, GitBranch, MapPin,
-  LayoutDashboard, Target, Share2, Brain, SlidersHorizontal, BarChart3,
-  Megaphone, TrendingUp, Landmark, Truck, Factory, FlaskConical, Newspaper,
-  Circle, StickyNote, CheckSquare, RefreshCcw, Bell, BellRing, Sparkles, PlayCircle, Trophy, Package, Globe, BookOpen, FlaskRound, Snowflake, Search, GraduationCap, HelpCircle, Flame, Ghost,
-  Briefcase, MoreHorizontal,
-} from "lucide-react";
+import { ChevronRight, Sun, Moon, Flame, Ghost } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Link, useLocation } from "wouter";
 import voltSafeVIcon from "@assets/Screenshot_2026-04-15_at_7.26.57_PM_1776306420926.png";
 import { Sidebar, SidebarContent, SidebarHeader } from "@/components/ui/sidebar";
 import type { UserPermissions } from "@/App";
+import {
+  getDesktopSections,
+  type DesktopNavSection as NavSection,
+  type DesktopNavItem as NavItem,
+} from "@/lib/nav-config";
 
 type AccessLevel = "none" | "view" | "edit";
 
-type NavItem = {
-  title: string;
-  url: string;
-  icon: React.ElementType;
-  adminOnly?: boolean;
-  exactMatch?: boolean;
-  badge?: string;
-  permKey?: keyof Pick<UserPermissions, "crm" | "partnerships" | "projects" | "communications" | "team_workload" | "knowledge" | "support" | "quoting" | "calendar">;
-};
-
-type NavSection = {
-  id: string;
-  label: string;
-  icon?: React.ElementType;
-  url?: string;
-  items?: NavItem[];
-  adminOnly?: boolean;
-  isDivider?: boolean;
-  permKey?: keyof Pick<UserPermissions, "crm" | "partnerships" | "projects" | "communications" | "team_workload" | "knowledge" | "support" | "quoting" | "calendar">;
-};
-
-// Sidebar grouping rules (intentional, keep this in mind when adding pages):
-//   • 5 day-to-day groups + Channels + a tucked-away "More" + Admin at bottom.
-//   • If a page is touched < weekly, it lives under "More" — not its own section.
-//   • All URLs are preserved exactly as routed in App.tsx — this file is grouping only.
-const sections: NavSection[] = [
-  {
-    id: "today",
-    label: "Today",
-    icon: Sun,
-    url: "/today",
-  },
-
-  // ── Daily work — the 5 things you touch every day ─────────────────────────
-  {
-    id: "work",
-    label: "Work",
-    icon: Briefcase,
-    items: [
-      { title: "Mission Control", url: "/", icon: LayoutDashboard, exactMatch: true },
-      { title: "Inbox", url: "/gmail", icon: Mail },
-      { title: "Calendar", url: "/execution/calendar", icon: CalendarClock, permKey: "calendar" },
-      { title: "Tasks", url: "/execution/tasks", icon: CheckSquare },
-      { title: "Activity Feed", url: "/activity", icon: BarChart3 },
-    ],
-  },
-
-  // ── The sales motion (everything tied to a deal) ──────────────────────────
-  {
-    id: "pipeline",
-    label: "Pipeline",
-    icon: Target,
-    permKey: "crm",
-    items: [
-      { title: "Leads", url: "/opportunities", icon: Sparkles, permKey: "crm" },
-      { title: "Pipeline", url: "/pipeline", icon: GitBranch, permKey: "crm" },
-      { title: "Accounts", url: "/accounts", icon: Building2, permKey: "crm" },
-      { title: "Contacts", url: "/contacts", icon: Contact, permKey: "crm" },
-      { title: "Quotes", url: "/quotes", icon: FileText, permKey: "quoting" },
-      { title: "Renewals", url: "/renewals", icon: RefreshCcw },
-      { title: "Accounts Won", url: "/revenue/deals", icon: Trophy, permKey: "crm" },
-      { title: "Notes", url: "/notes", icon: StickyNote },
-    ],
-  },
-
-  // ── Post-sale execution and back office ───────────────────────────────────
-  {
-    id: "operations",
-    label: "Operations",
-    icon: SlidersHorizontal,
-    items: [
-      { title: "Install Workflows", url: "/install-workflows", icon: Layers, permKey: "crm" },
-      { title: "Procurement", url: "/procurement", icon: Package, permKey: "crm" },
-      { title: "Deployments", url: "/deployments", icon: Layers, permKey: "crm" },
-      { title: "Projects", url: "/execution/projects", icon: Layers, permKey: "projects" },
-      { title: "Communications", url: "/execution/communications", icon: Megaphone, permKey: "communications" },
-      { title: "Documents", url: "/documents", icon: BookOpen },
-      { title: "Assets", url: "/knowledge/assets", icon: FolderOpen, permKey: "knowledge" },
-    ],
-  },
-
-  // ── Analytics, AI assistance, geo intelligence ────────────────────────────
-  {
-    id: "insights",
-    label: "Insights",
-    icon: Brain,
-    items: [
-      { title: "Executive Dashboard", url: "/executive-dashboard", icon: Trophy, permKey: "crm" },
-      { title: "Reports", url: "/relationships", icon: TrendingUp },
-      { title: "Forecasting", url: "/execution/forecast", icon: GitBranch },
-      { title: "Source Attribution", url: "/analytics/source-attribution", icon: TrendingUp, permKey: "crm" },
-      { title: "Executive Copilot", url: "/executive-copilot", icon: Brain },
-      { title: "Meeting Briefs", url: "/intelligence/briefs", icon: Sparkles },
-      { title: "Signals & Alerts", url: "/intelligence/signals", icon: Bell },
-      { title: "Territory & Geo", url: "/geography", icon: Globe, permKey: "crm" },
-    ],
-  },
-
-  // ── Partnership channels (kept together as a single ecosystem view) ───────
-  {
-    id: "channels",
-    label: "Channels",
-    icon: Share2,
-    permKey: "partnerships",
-    items: [
-      { title: "Industry Partnerships", url: "/strategy/partnerships/industry-associations", icon: Users2 },
-      { title: "Dealers / Resellers", url: "/strategy/partnerships/channel-commercial", icon: Truck },
-      { title: "Strategic Alliances", url: "/strategy/partnerships/manufacturing", icon: Factory },
-      { title: "Investors", url: "/strategy/partnerships/innovation-research", icon: FlaskConical },
-      { title: "Govt & Grants", url: "/strategy/partnerships/government-public", icon: Landmark },
-      { title: "Referrals", url: "/strategy/partnerships/other", icon: Circle },
-      { title: "Media & Tradeshows", url: "/strategy/partnerships/media-tradeshows", icon: Newspaper },
-    ],
-  },
-
-  // ── Power-user / occasional tools — collapsed by default ──────────────────
-  {
-    id: "more",
-    label: "More",
-    icon: MoreHorizontal,
-    items: [
-      { title: "Daily Execution", url: "/execution/daily", icon: PlayCircle },
-      { title: "Revenue Hub", url: "/revenue", icon: BarChart3, permKey: "crm", exactMatch: true },
-      { title: "Revenue Ops", url: "/revenue-ops", icon: Target },
-      { title: "Revenue Simulator", url: "/revenue-sim", icon: FlaskRound },
-      { title: "Rel. Intelligence", url: "/intelligence/rel-intelligence", icon: BarChart3 },
-      { title: "Score Feedback", url: "/scores/feedback", icon: Target },
-      { title: "Digest & Alerts", url: "/alerts-digest", icon: BellRing },
-      { title: "Territory Routing", url: "/routing", icon: MapPin },
-      { title: "Data Quality", url: "/data-quality", icon: ShieldCheck, permKey: "crm" },
-      { title: "Price Lists", url: "/price-lists", icon: Tags, permKey: "quoting" },
-      { title: "Task Rules", url: "/automation/tasks", icon: Zap },
-      { title: "Automations", url: "/automations", icon: Zap },
-      { title: "Help", url: "/help", icon: HelpCircle },
-      { title: "Support Tickets", url: "/support/tickets", icon: ClipboardList, permKey: "support" },
-      { title: "Winter Support", url: "/winter", icon: Snowflake, permKey: "support" },
-    ],
-  },
-
-  // ── Admin (gated, lives at the bottom) ────────────────────────────────────
-  { id: "divider-admin", label: "ADMIN", isDivider: true, adminOnly: true },
-  {
-    id: "admin",
-    label: "Admin",
-    icon: Settings2,
-    adminOnly: true,
-    items: [
-      { title: "Users", url: "/admin/users", icon: ShieldCheck },
-      { title: "Integrations", url: "/admin/integrations", icon: Zap },
-      { title: "My Mailboxes", url: "/settings/mailbox", icon: Mail },
-      { title: "Global Search", url: "/search", icon: Search },
-      { title: "Settings", url: "/settings", icon: Settings, exactMatch: true },
-    ],
-  },
-];
+// Sidebar groupings live in client/src/lib/nav-config.ts — single source of
+// truth shared with mobile-nav.tsx. Edit there to add or move items; both
+// surfaces stay in sync automatically.
+const sections: NavSection[] = getDesktopSections();
 
 function getActiveSectionId(location: string): string {
   if (location === "/") return "work";

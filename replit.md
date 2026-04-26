@@ -1,5 +1,29 @@
 # Replit Agent Configuration
 
+## Nav Config Consolidation — Single Source of Truth (Complete, 2026-04-26)
+
+### Goal
+Eliminate the maintenance hazard of two parallel nav arrays (one in `app-sidebar.tsx`, one in `mobile-nav.tsx`) that the previous reconciliation had to manually keep in lockstep. Move both into a shared config so future edits happen in exactly one place.
+
+### What changed
+- **New file** `client/src/lib/nav-config.ts` (~285 lines): exports `NAV_CONFIG` (full schema) + two projection helpers `getDesktopSections()` and `getMobileNavGroups()`. Schema supports:
+  - `label: string | { desktop, mobile }` for surface-specific naming (e.g. `Accounts Won` desktop / `Won` mobile).
+  - `showOn: ["desktop"] | ["mobile"]` for platform-only entries (Field Mode + Nearby on mobile, ADMIN divider on desktop).
+  - `permKey`, `adminOnly`, `exactMatch`, `badge` carried through to both projections.
+- `client/src/components/dashboard/app-sidebar.tsx`: trimmed lucide imports to (ChevronRight, Sun, Moon, Flame, Ghost) used only by the theme pill; replaced inline 130-line `sections` array with `const sections = getDesktopSections()`. Render logic unchanged.
+- `client/src/components/dashboard/mobile-nav.tsx`: trimmed lucide imports to (Home, Building2, Target, Plus, LayoutGrid, X) used only by the bottom bar + sheet chrome; replaced inline 100-line `allNavGroups` array with `const allNavGroups = getMobileNavGroups()`. Render logic unchanged.
+
+### Validation
+- `npx tsc --noEmit` — zero errors in `nav-config.ts`, `app-sidebar.tsx`, `mobile-nav.tsx`. Pre-existing TS errors in `server/voice-assistant*.ts` are unrelated and untouched.
+- `Start application` workflow restarted clean; login screen renders, browser console has no JS errors.
+
+### What was NOT changed
+- `shared/schema.ts` — untouched. Zero `db:push`. Zero schema changes.
+- No backend routes, no APIs, no permission logic. The `canSeeSection`/`canSeeItem` filters in app-sidebar.tsx and the `adminOnly` filter in mobile-nav.tsx still own runtime gating.
+- No nav routes added or removed — the projection helpers produce exactly the entries the prior reconciliation defined.
+
+---
+
 ## Mobile Nav Drift Reconciliation (Complete, 2026-04-26)
 
 ### Goal

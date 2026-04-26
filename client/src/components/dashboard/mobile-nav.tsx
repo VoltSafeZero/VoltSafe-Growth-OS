@@ -1,121 +1,14 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import {
-  Home, Users, LifeBuoy, Settings2, Building2, Contact, UserPlus, FileText,
-  Mail, CalendarClock, Megaphone, FolderOpen, Tags, Zap, Settings,
-  X, Users2, ClipboardList, Layers, LayoutDashboard, LayoutGrid,
-  Target, Share2, Brain, SlidersHorizontal, Truck, Landmark, Factory,
-  FlaskConical, Newspaper, Circle, ShieldCheck, GitBranch, RefreshCcw,
-  Trophy, StickyNote, Sparkles, BookOpen, Globe, BarChart3, TrendingUp,
-  CheckSquare, Package, HelpCircle,
-  Zap as ZapIcon, Smartphone, Plus, MapPin, ChevronRight,
-  PlayCircle, FlaskRound, BellRing, Snowflake, Search,
-} from "lucide-react";
+import { Home, Building2, Target, Plus, LayoutGrid, X } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { QuickLogModal } from "@/components/mobile/quick-log-modal";
+import { getMobileNavGroups } from "@/lib/nav-config";
 
-// Mobile menu groupings mirror the desktop sidebar (app-sidebar.tsx).
-// Keep these two files in lockstep when adding new pages.
-const allNavGroups = [
-  {
-    label: "Today",
-    items: [
-      { title: "Today", url: "/today", icon: Sparkles },
-      { title: "Field Mode", url: "/field", icon: Smartphone },
-      { title: "Nearby", url: "/field/nearby", icon: MapPin },
-    ],
-  },
-  {
-    label: "Work",
-    items: [
-      { title: "Mission Control", url: "/", icon: LayoutDashboard },
-      { title: "Inbox", url: "/gmail", icon: Mail },
-      { title: "Calendar", url: "/execution/calendar", icon: CalendarClock },
-      { title: "Tasks", url: "/execution/tasks", icon: CheckSquare },
-      { title: "Activity", url: "/activity", icon: BarChart3 },
-    ],
-  },
-  {
-    label: "Pipeline",
-    items: [
-      { title: "Leads", url: "/opportunities", icon: Sparkles },
-      { title: "Pipeline", url: "/pipeline", icon: GitBranch },
-      { title: "Accounts", url: "/accounts", icon: Building2 },
-      { title: "Contacts", url: "/contacts", icon: Contact },
-      { title: "Quotes", url: "/quotes", icon: FileText },
-      { title: "Renewals", url: "/renewals", icon: RefreshCcw },
-      { title: "Won", url: "/revenue/deals", icon: Trophy },
-      { title: "Notes", url: "/notes", icon: StickyNote },
-    ],
-  },
-  {
-    label: "Operations",
-    items: [
-      { title: "Install Workflows", url: "/install-workflows", icon: Layers },
-      { title: "Procurement", url: "/procurement", icon: Package },
-      { title: "Deployments", url: "/deployments", icon: Truck },
-      { title: "Projects", url: "/execution/projects", icon: Layers },
-      { title: "Communications", url: "/execution/communications", icon: Megaphone },
-      { title: "Documents", url: "/documents", icon: BookOpen },
-      { title: "Assets", url: "/knowledge/assets", icon: FolderOpen },
-    ],
-  },
-  {
-    label: "Insights",
-    items: [
-      { title: "Exec Dashboard", url: "/executive-dashboard", icon: Trophy },
-      { title: "Reports", url: "/relationships", icon: TrendingUp },
-      { title: "Forecasting", url: "/execution/forecast", icon: GitBranch },
-      { title: "Source Attribution", url: "/analytics/source-attribution", icon: TrendingUp },
-      { title: "Copilot", url: "/executive-copilot", icon: Brain },
-      { title: "Briefs", url: "/intelligence/briefs", icon: Sparkles },
-      { title: "Signals", url: "/intelligence/signals", icon: SlidersHorizontal },
-      { title: "Territory", url: "/geography", icon: Globe },
-    ],
-  },
-  {
-    label: "Channels",
-    items: [
-      { title: "Industry", url: "/strategy/partnerships/industry-associations", icon: Users2 },
-      { title: "Dealers", url: "/strategy/partnerships/channel-commercial", icon: Truck },
-      { title: "Alliances", url: "/strategy/partnerships/manufacturing", icon: Factory },
-      { title: "Investors", url: "/strategy/partnerships/innovation-research", icon: FlaskConical },
-      { title: "Govt & Grants", url: "/strategy/partnerships/government-public", icon: Landmark },
-      { title: "Referrals", url: "/strategy/partnerships/other", icon: Circle },
-      { title: "Media", url: "/strategy/partnerships/media-tradeshows", icon: Newspaper },
-    ],
-  },
-  {
-    label: "More",
-    items: [
-      { title: "Daily Execution", url: "/execution/daily", icon: PlayCircle },
-      { title: "Revenue Hub", url: "/revenue", icon: BarChart3 },
-      { title: "Revenue Ops", url: "/revenue-ops", icon: Target },
-      { title: "Revenue Simulator", url: "/revenue-sim", icon: FlaskRound },
-      { title: "Rel. Intelligence", url: "/intelligence/rel-intelligence", icon: BarChart3 },
-      { title: "Score Feedback", url: "/scores/feedback", icon: Target },
-      { title: "Digest & Alerts", url: "/alerts-digest", icon: BellRing },
-      { title: "Territory Routing", url: "/routing", icon: MapPin },
-      { title: "Data Quality", url: "/data-quality", icon: ShieldCheck },
-      { title: "Price Lists", url: "/price-lists", icon: Tags },
-      { title: "Task Rules", url: "/automation/tasks", icon: Zap },
-      { title: "Automations", url: "/automations", icon: Zap },
-      { title: "Help", url: "/help", icon: HelpCircle },
-      { title: "Tickets", url: "/support/tickets", icon: ClipboardList },
-      { title: "Winter Support", url: "/winter", icon: Snowflake },
-    ],
-  },
-  {
-    label: "Admin",
-    items: [
-      { title: "Users", url: "/admin/users", icon: ShieldCheck, adminOnly: true },
-      { title: "Integrations", url: "/admin/integrations", icon: Zap, adminOnly: true },
-      { title: "Mailboxes", url: "/settings/mailbox", icon: Mail, adminOnly: true },
-      { title: "Global Search", url: "/search", icon: Search, adminOnly: true },
-      { title: "Settings", url: "/settings", icon: Settings, adminOnly: true },
-    ],
-  },
-];
+// Mobile menu groupings mirror the desktop sidebar via the shared
+// nav config in client/src/lib/nav-config.ts. Edit there to change
+// either surface; both stay in sync automatically.
+const allNavGroups = getMobileNavGroups();
 
 // 2 tabs left of center, 2 tabs right of center
 const LEFT_NAV = [
