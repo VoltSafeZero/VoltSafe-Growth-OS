@@ -2571,13 +2571,26 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const mailTeamPerms: MailTeamPerms = (userPermissions?.mail_team ?? {}) as MailTeamPerms;
   const isAdmin = ["master_admin", "admin"].includes(currentUserRole);
   const { toast } = useToast();
-  // Phase 2C: source toggle. Reads ?mailSource=local|gmail|auto from URL; default 'local'.
-  // Default flipped to "local" globally so every user (current + future) sees the full
-  // synced history with continuous scroll instead of just Gmail's live INBOX label slice.
-  // The URL param still wins, and the user can switch via the Source dropdown for that session.
+  // Mail source resolution order (per-user, per-device):
+  //   1. ?mailSource= URL param (one-off override, wins for that session)
+  //   2. localStorage "voltsafe.mailSource" (user's saved preference, set in
+  //      Settings → My Mailboxes → Mail preferences)
+  //   3. Default "gmail" — the live Gmail view is the canonical experience.
+  // The in-page Source dropdown was removed in favor of the Settings selector
+  // so the inbox toolbar stays focused on actions, not preferences. Programmatic
+  // switches inside this component (e.g. forced "local" for All Inboxes, or the
+  // "Switch to live Gmail" backfill CTA) are transient and intentionally do
+  // NOT persist back to localStorage.
   const [mailSource, setMailSource] = useState<"local" | "gmail" | "auto">(() => {
-    const v = new URLSearchParams(window.location.search).get("mailSource");
-    return v === "local" || v === "gmail" || v === "auto" ? v : "local";
+    const urlValue = new URLSearchParams(window.location.search).get("mailSource");
+    if (urlValue === "local" || urlValue === "gmail" || urlValue === "auto") return urlValue;
+    try {
+      const stored = window.localStorage.getItem("voltsafe.mailSource");
+      if (stored === "local" || stored === "gmail" || stored === "auto") return stored;
+    } catch {
+      // localStorage may be unavailable (private mode, SSR, etc.) — fall through to default.
+    }
+    return "gmail";
   });
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -3932,16 +3945,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             {syncMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
             {syncMutation.isPending ? "Syncing..." : "Sync to CRM"}
           </Button>
-          <Select value={mailSource} onValueChange={(v) => setMailSource(v as "local" | "gmail" | "auto")}>
-            <SelectTrigger className="h-8 w-[110px] text-[11px]" data-testid="select-mail-source">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">Source: Auto</SelectItem>
-              <SelectItem value="local">Source: Local</SelectItem>
-              <SelectItem value="gmail">Source: Gmail</SelectItem>
-            </SelectContent>
-          </Select>
+          {/* Source selector lives in Settings → My Mailboxes → Mail preferences.
+              Default is "gmail"; users can override via the Settings page or a
+              ?mailSource= URL param for one-off debugging. */}
           <LocalSearchButton />
           {/* Density toggle — Comfortable / Compact / Ultra */}
           <div

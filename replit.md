@@ -1780,3 +1780,10 @@ Each component is self-contained: it fetches its own data through React Query (q
 **Wiring**: each widget id is registered in `ACTION_WIDGET_MAP` (`action-widgets.tsx`) and given a size hint in `dashboard-grid.tsx` (mostly `w:6, h:8–10`). The widget-visibility keys already existed in `dashboard-config.ts` (`CLASSIC_WIDGETS` + per-role `WIDGET_DEFS`), so no config changes were needed — visibility, ordering, and gating just work.
 
 **Duplicate removal**: the conditional render blocks for these 6 widgets were stripped from `ceo-center.tsx` (all 6) and `cto-center.tsx` (`cert_blockers`, `deployment_blockers`) so they now appear exclusively inside the draggable grid. Other role-center widgets (`revenue_at_risk`, `churn_score`, `install_workflows`, `procurement_blocked`, etc.) were left in place.
+
+## Mail source default + settings consolidation (Apr 2026)
+**Scope (UI / localStorage only — zero schema changes, zero `db:push`, zero backend.)**
+
+The inbox `mailSource` selector (Auto / Local / Gmail) was removed from the in-page toolbar in `client/src/pages/gmail-inbox.tsx` and the global default was flipped from `"local"` to **`"gmail"`** so every user (current + future) lands on the live Gmail view by default. The state initializer at line ~2587 now resolves in this order: `?mailSource=` URL param → `localStorage["voltsafe.mailSource"]` → `"gmail"`.
+
+A new **Mail preferences** card was added to `client/src/pages/mailbox-settings.tsx` (component `MailPreferencesCard`, defined just above `HealthLegend`, rendered right after the page header). It writes the selection to `localStorage["voltsafe.mailSource"]` and shows a toast confirming the change applies on next inbox open. Programmatic, transient `setMailSource` calls inside the inbox (forced `"local"` for the All Inboxes unified view; "Switch to live Gmail" backfill CTA) are intentionally left untouched and do **not** persist back to localStorage — they are mode switches, not preferences.

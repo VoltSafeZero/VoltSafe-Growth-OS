@@ -834,6 +834,92 @@ function MailboxCard({ mailbox, health, showBackfill = false }: {
   );
 }
 
+// Mail preferences card — replaces the in-page Source dropdown that used to
+// live in the inbox toolbar. Persisted to localStorage under
+// "voltsafe.mailSource"; the inbox reads this on next open. Per-device, not
+// per-account, so it stays a pure client-side preference (no schema changes).
+function MailPreferencesCard() {
+  const STORAGE_KEY = "voltsafe.mailSource";
+  type SourcePref = "gmail" | "local" | "auto";
+  const { toast } = useToast();
+  const [source, setSource] = useState<SourcePref>(() => {
+    try {
+      const v = window.localStorage.getItem(STORAGE_KEY);
+      if (v === "gmail" || v === "local" || v === "auto") return v;
+    } catch {
+      // localStorage unavailable — fall through to default.
+    }
+    return "gmail";
+  });
+
+  const labelFor: Record<SourcePref, string> = {
+    gmail: "Gmail (default)",
+    local: "Local",
+    auto:  "Auto",
+  };
+
+  const handleChange = (next: SourcePref) => {
+    if (next === source) return;
+    setSource(next);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      // Best-effort persistence; selection still applies for the rest of this tab.
+    }
+    toast({
+      title: `Inbox source set to ${labelFor[next]}`,
+      description: "This applies the next time you open the inbox.",
+    });
+  };
+
+  const description: Record<SourcePref, string> = {
+    gmail: "Live from Gmail. Always shows the freshest state, capped to Gmail's INBOX label window.",
+    local: "From the local synced store. Continuous scroll across full history; may lag the live mailbox by a sync cycle.",
+    auto:  "Picks the best available source per request — usually live Gmail, falling back to local when offline or rate-limited.",
+  };
+
+  return (
+    <Card className="border border-border/40" data-testid="card-mail-preferences">
+      <CardHeader className="py-2.5 px-4 border-b border-border/30">
+        <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <Mail className="h-3.5 w-3.5" />
+          Mail preferences
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <Label htmlFor="mail-source-select" className="text-sm font-medium">
+              Inbox source
+            </Label>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Default for everyone is <span className="text-foreground font-medium">Gmail</span>.
+              Changes apply the next time you open the inbox.
+            </p>
+          </div>
+          <Select value={source} onValueChange={(v) => handleChange(v as SourcePref)}>
+            <SelectTrigger
+              id="mail-source-select"
+              className="h-8 w-[140px] text-xs shrink-0"
+              data-testid="select-mail-source-pref"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="gmail" data-testid="opt-mail-source-gmail">Gmail (default)</SelectItem>
+              <SelectItem value="local" data-testid="opt-mail-source-local">Local</SelectItem>
+              <SelectItem value="auto" data-testid="opt-mail-source-auto">Auto</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="text-[11px] text-muted-foreground leading-relaxed bg-muted/20 border border-border/30 rounded px-3 py-2" data-testid="text-mail-source-description">
+          {description[source]}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // Multi-mailbox Phase 2: small color-key panel used at the top of the page.
 function HealthLegend() {
   return (
@@ -950,6 +1036,10 @@ export default function MailboxSettingsPage() {
           Connect one or more Gmail accounts to power the unified inbox and keep relationship intelligence fresh.
         </p>
       </div>
+
+      {/* Mail preferences — controls that used to live in the inbox toolbar.
+          Persisted to localStorage so the inbox picks them up on next open. */}
+      <MailPreferencesCard />
 
       {/* Phase 2: color-key legend */}
       <HealthLegend />
