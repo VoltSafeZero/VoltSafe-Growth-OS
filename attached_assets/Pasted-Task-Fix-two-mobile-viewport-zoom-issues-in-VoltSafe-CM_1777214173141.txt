@@ -1,0 +1,52 @@
+Task: Fix two mobile viewport/zoom issues in VoltSafe CMS. Pure client-side, no schema, no DB.
+Problem 1 — Pages load too zoomed-in on mobile
+When I open the app on my phone, content is often rendered at a zoom level that requires me to manually pinch-zoom out to see the full layout. The viewport isn't fitting the screen on initial render.
+Likely root cause to investigate first: the <meta name="viewport"> tag in index.html (or wherever the HTML shell is defined for this Vite app). The most common culprits are:
+
+Missing viewport meta tag entirely
+width= set to a fixed pixel value instead of device-width
+Missing or incorrect initial-scale=1
+A <meta> tag with user-scalable=no or maximum-scale=1 that's preventing proper fitting
+
+Before editing, report what you find: show me the current viewport meta tag (or confirm it's missing). Then propose the fix.
+The expected correct tag for a responsive web app is:
+html<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+Do not add user-scalable=no or maximum-scale=1 — I want zoom to remain available (see Problem 2).
+Secondary causes to also check if the viewport tag is already correct:
+
+Any top-level container with a hardcoded min-width in pixels (e.g., min-width: 1280px) that forces horizontal overflow on narrow screens — common in dashboards designed desktop-first.
+Tables, grids, or the react-grid-layout dashboard with fixed pixel widths that overflow the viewport on mobile.
+Any global CSS setting html or body to a fixed width.
+
+If you find any of these, list them before changing anything. Some may be intentional for the desktop dashboard grid and need a mobile-specific override rather than a global change.
+Problem 2 — Double-tap to reset zoom
+When I do pinch-zoom in on mobile (which I want to keep being able to do), I want a double-tap on the screen to snap the zoom back to the default fit-to-screen view.
+Important context: native mobile browsers already implement double-tap-to-zoom behavior that toggles between zoomed and fit views on most content. Before writing custom JS, check whether the issue is just that Problem 1's broken initial viewport is making the native behavior feel wrong. If the viewport is fixed correctly, the browser's built-in double-tap may already do what I want.
+If after fixing Problem 1 the native double-tap still doesn't reliably reset zoom, then add a small, targeted JS handler:
+
+Listen for double-tap (two touchend events within ~300ms at roughly the same coordinates).
+On double-tap, programmatically reset the visual viewport zoom. Note: there is no standard cross-browser API to force a zoom reset on iOS Safari from JS — it's a known platform limitation. The most reliable approach is to briefly toggle the viewport meta tag's maximum-scale to 1 and back, which forces the browser to snap to fit. Do this only if needed.
+Do not interfere with double-tap on interactive elements (buttons, links, inputs, the dashboard grid drag handles). Scope the listener to ignore taps on button, a, input, textarea, [role="button"], and elements inside .react-grid-item.
+Respect prefers-reduced-motion.
+
+Process
+
+Inspect first, report back:
+
+Current <meta name="viewport"> tag contents (or confirm missing).
+Any hardcoded min-width / fixed pixel widths on top-level containers, html, body, or main layout wrappers.
+Whether the dashboard grid has mobile-specific breakpoints already configured (react-grid-layout supports xxs/xs/sm cols — confirm they're set).
+
+
+Propose the fix for Problem 1 based on findings, and tell me whether Problem 2 needs custom JS or if fixing Problem 1 is likely sufficient on its own.
+Wait for my confirmation before editing.
+After I confirm, implement, then test on a mobile viewport (Chrome DevTools device emulation is fine for verification, but tell me what device width you tested at).
+
+Constraints
+
+Do not disable zoom (user-scalable=no, maximum-scale=1 as a permanent setting). I want to retain pinch-zoom.
+Do not refactor unrelated layout code.
+Do not touch the desktop layout — any width/overflow fixes for mobile must be scoped via media queries or Tailwind responsive prefixes (sm:, md:), not applied globally.
+Standard standing rules apply: no schema changes, no db:push, no DB touched, no new packages unless justified in one line.
+
+Start with step 1 (inspect + report). Do not edit until I confirm.
