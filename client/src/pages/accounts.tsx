@@ -18,6 +18,7 @@ import {
   ArrowUpDown, MapPin, Globe, Zap, Star, AlertTriangle, Calendar,
   Settings2, Wrench, Shield, Wifi, LinkIcon, List, LayoutGrid, Map, FolderPlus, ArrowRightLeft, ExternalLink,
   ChevronDown, ChevronRight, Clock, Bookmark, X as XIcon, UserCheck, ClipboardList,
+  Briefcase, LifeBuoy, History as HistoryIcon, MessageSquare, FileText,
 } from "lucide-react";
 import type { SavedView } from "@shared/schema";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
@@ -894,6 +895,51 @@ function extractDomainFromWebsite(website: string | null | undefined): string {
   return d;
 }
 
+function CollapsibleSection({ title, icon: Icon, count, defaultOpen = true, testId, children }: {
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  count?: number | string;
+  defaultOpen?: boolean;
+  testId?: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-lg border border-border/50 bg-card/30" data-testid={testId}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between p-3 text-left hover-elevate active-elevate-2 rounded-lg"
+        data-testid={testId ? `button-toggle-${testId}` : undefined}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {open ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+          <Icon className="h-3.5 w-3.5 text-primary shrink-0" />
+          <span className="text-sm font-medium truncate">{title}</span>
+          {count !== undefined && count !== 0 && count !== "" && (
+            <span className="text-xs text-muted-foreground">· {count}</span>
+          )}
+        </div>
+      </button>
+      {open && <div className="px-3 pb-3 pt-1">{children}</div>}
+    </div>
+  );
+}
+
+function SectionHeader({ icon: Icon, title, count }: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  count?: number | string;
+}) {
+  return (
+    <div className="flex items-center gap-2 mb-3">
+      <Icon className="h-3.5 w-3.5 text-primary" />
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</h3>
+      {count !== undefined && count !== "" && <span className="text-xs text-muted-foreground">· {count}</span>}
+    </div>
+  );
+}
+
 export function AccountDetailDialog({ account: initialAccount, onClose, canEdit = true, onOpenLead }: { account: Account; onClose: () => void; canEdit?: boolean; onOpenLead?: (leadId: number) => void }) {
   const { toast } = useToast();
   const [addContactOpen, setAddContactOpen] = useState(false);
@@ -1071,19 +1117,26 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
           </div>
         </DialogHeader>
 
-        <Tabs defaultValue="details" className="mt-4">
-          <TabsList className="flex-wrap h-auto">
-            <TabsTrigger value="details" data-testid="tab-details">Details</TabsTrigger>
-            <TabsTrigger value="contacts" data-testid="tab-contacts">Contacts ({contactsData?.length || 0})</TabsTrigger>
-            <TabsTrigger value="opportunities" data-testid="tab-opportunities">Deals ({oppsData?.data?.length || 0})</TabsTrigger>
-            <TabsTrigger value="tickets" data-testid="tab-tickets">Tickets ({ticketsData?.data?.length || 0})</TabsTrigger>
-            <TabsTrigger value="infrastructure" data-testid="tab-infrastructure">Infrastructure</TabsTrigger>
-            <TabsTrigger value="emails" data-testid="tab-emails">Emails</TabsTrigger>
-            <TabsTrigger value="notes" data-testid="tab-notes">Notes</TabsTrigger>
-            <TabsTrigger value="timeline" data-testid="tab-timeline">Timeline</TabsTrigger>
+        <Tabs defaultValue="overview" className="mt-4">
+          <TabsList className="grid grid-cols-3 w-full">
+            <TabsTrigger value="overview" data-testid="tab-overview" className="gap-1.5">
+              <Building2 className="h-3.5 w-3.5" />
+              <span className="truncate">Overview</span>
+            </TabsTrigger>
+            <TabsTrigger value="people" data-testid="tab-people" className="gap-1.5">
+              <Users className="h-3.5 w-3.5" />
+              <span className="truncate">
+                <span className="hidden sm:inline">People &amp; Pipeline</span>
+                <span className="sm:hidden">People</span>
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="activity" data-testid="tab-activity" className="gap-1.5">
+              <HistoryIcon className="h-3.5 w-3.5" />
+              <span className="truncate">Activity</span>
+            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="details" className="space-y-4 mt-4">
+          <TabsContent value="overview" className="space-y-4 mt-4">
             {editMode ? (
               <EditAccountForm account={account} onSubmit={(d) => updateAccountMutation.mutate(d)} onCancel={() => setEditMode(false)} isPending={updateAccountMutation.isPending} />
             ) : (
@@ -1322,6 +1375,19 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
                   </div>
                 )}
 
+                <CollapsibleSection title="Infrastructure profile" icon={Zap} defaultOpen={false} testId="section-infrastructure">
+                  <InfrastructureProfileTab
+                    profile={infraProfile}
+                    onSave={(data) => updateInfraMutation.mutate(data)}
+                    isPending={updateInfraMutation.isPending}
+                    canEdit={canEdit}
+                  />
+                </CollapsibleSection>
+
+                <CollapsibleSection title="Note feed" icon={MessageSquare} defaultOpen={false} testId="section-note-feed">
+                  <NotesPanel linkedObjectType="account" linkedObjectId={account.id} />
+                </CollapsibleSection>
+
                 <div className="border-t border-border/50 pt-4">
                   <AttachmentsSection objectType="account" objectId={account.id} />
                 </div>
@@ -1333,104 +1399,100 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
             )}
           </TabsContent>
 
-          <TabsContent value="contacts" className="mt-4">
-            <div className="flex justify-end mb-3">
-              <Dialog open={addContactOpen} onOpenChange={setAddContactOpen}>
-                {canEdit && (
-                  <DialogTrigger asChild>
-                    <Button size="sm" variant="outline" data-testid="button-add-contact"><Plus className="mr-1 h-3 w-3" /> Add Contact</Button>
-                  </DialogTrigger>
-                )}
-                <DialogContent className="max-w-md">
-                  <DialogHeader><DialogTitle>Add Contact</DialogTitle></DialogHeader>
-                  <CreateContactForm onSubmit={(d) => createContactMutation.mutate(d)} isPending={createContactMutation.isPending} />
-                </DialogContent>
-              </Dialog>
-            </div>
-            <div className="space-y-2">
-              {contactsData?.map((contact) => (
-                <div key={contact.id} className="flex items-center justify-between p-3 rounded-lg border border-border/50" data-testid={`row-contact-${contact.id}`}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold">
-                      {contact.name.charAt(0)}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium">{contact.name}</p>
-                        {contact.isPrimary && <Badge variant="outline" className="text-[10px] px-1 py-0 bg-primary/10 text-primary border-primary/20">Primary</Badge>}
+          <TabsContent value="people" className="space-y-6 mt-4">
+            <section>
+              <SectionHeader icon={Users} title="Contacts" count={contactsData?.length || 0} />
+              <div className="flex justify-end mb-3 -mt-1">
+                <Dialog open={addContactOpen} onOpenChange={setAddContactOpen}>
+                  {canEdit && (
+                    <DialogTrigger asChild>
+                      <Button size="sm" variant="outline" data-testid="button-add-contact"><Plus className="mr-1 h-3 w-3" /> Add Contact</Button>
+                    </DialogTrigger>
+                  )}
+                  <DialogContent className="max-w-md">
+                    <DialogHeader><DialogTitle>Add Contact</DialogTitle></DialogHeader>
+                    <CreateContactForm onSubmit={(d) => createContactMutation.mutate(d)} isPending={createContactMutation.isPending} />
+                  </DialogContent>
+                </Dialog>
+              </div>
+              <div className="space-y-2">
+                {contactsData?.map((contact) => (
+                  <div key={contact.id} className="flex items-center justify-between p-3 rounded-lg border border-border/50" data-testid={`row-contact-${contact.id}`}>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0">
+                        {contact.name.charAt(0)}
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        {contact.title || contact.persona || contact.roleType || "—"}
-                        {contact.relationshipStrength && <span className="ml-2">· {contact.relationshipStrength}</span>}
-                      </p>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium truncate">{contact.name}</p>
+                          {contact.isPrimary && <Badge variant="outline" className="text-[10px] px-1 py-0 bg-primary/10 text-primary border-primary/20 shrink-0">Primary</Badge>}
+                        </div>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {contact.title || contact.persona || contact.roleType || "—"}
+                          {contact.relationshipStrength && <span className="ml-2">· {contact.relationshipStrength}</span>}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground shrink-0">
+                      {contact.email && <span className="hidden md:flex items-center gap-1"><Mail className="h-3 w-3" /> {contact.email}</span>}
+                      {contact.phone && <span className="hidden md:flex items-center gap-1"><Phone className="h-3 w-3" /> {contact.phone}</span>}
+                      {contact.linkedinUrl && <a href={contact.linkedinUrl} target="_blank" rel="noreferrer" className="hover:text-primary"><LinkIcon className="h-3 w-3" /></a>}
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                    {contact.email && <span className="flex items-center gap-1 hidden sm:flex"><Mail className="h-3 w-3" /> {contact.email}</span>}
-                    {contact.phone && <span className="flex items-center gap-1 hidden sm:flex"><Phone className="h-3 w-3" /> {contact.phone}</span>}
-                    {contact.linkedinUrl && <a href={contact.linkedinUrl} target="_blank" rel="noreferrer" className="hover:text-primary"><LinkIcon className="h-3 w-3" /></a>}
+                ))}
+                {(!contactsData || contactsData.length === 0) && (
+                  <p className="text-center text-sm text-muted-foreground py-4">No contacts yet</p>
+                )}
+              </div>
+            </section>
+
+            <section>
+              <SectionHeader icon={Briefcase} title="Deals" count={oppsData?.data?.length || 0} />
+              <div className="space-y-2">
+                {oppsData?.data?.map((opp) => (
+                  <div key={opp.id} className="flex items-center justify-between p-3 rounded-lg border border-border/50" data-testid={`row-opp-${opp.id}`}>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{opp.title}</p>
+                      <p className="text-xs text-muted-foreground">Stage: {opp.stage}</p>
+                    </div>
+                    <span className="text-sm font-medium shrink-0">${opp.valueTotal?.toLocaleString() || "0"}</span>
                   </div>
-                </div>
-              ))}
-              {(!contactsData || contactsData.length === 0) && (
-                <p className="text-center text-sm text-muted-foreground py-4">No contacts yet</p>
-              )}
-            </div>
-          </TabsContent>
+                ))}
+                {(!oppsData?.data || oppsData.data.length === 0) && (
+                  <p className="text-center text-sm text-muted-foreground py-4">No deals yet</p>
+                )}
+              </div>
+            </section>
 
-          <TabsContent value="opportunities" className="mt-4">
-            <div className="space-y-2">
-              {oppsData?.data?.map((opp) => (
-                <div key={opp.id} className="flex items-center justify-between p-3 rounded-lg border border-border/50" data-testid={`row-opp-${opp.id}`}>
-                  <div>
-                    <p className="text-sm font-medium">{opp.title}</p>
-                    <p className="text-xs text-muted-foreground">Stage: {opp.stage}</p>
+            <section>
+              <SectionHeader icon={LifeBuoy} title="Tickets" count={ticketsData?.data?.length || 0} />
+              <div className="space-y-2">
+                {ticketsData?.data?.map((ticket) => (
+                  <div key={ticket.id} className="flex items-center justify-between p-3 rounded-lg border border-border/50" data-testid={`row-ticket-${ticket.id}`}>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{ticket.subject}</p>
+                      <p className="text-xs text-muted-foreground">{ticket.category} · {ticket.severity}</p>
+                    </div>
+                    <Badge variant="outline" className="shrink-0">{ticket.status}</Badge>
                   </div>
-                  <span className="text-sm font-medium">${opp.valueTotal?.toLocaleString() || "0"}</span>
-                </div>
-              ))}
-              {(!oppsData?.data || oppsData.data.length === 0) && (
-                <p className="text-center text-sm text-muted-foreground py-4">No opportunities yet</p>
-              )}
-            </div>
+                ))}
+                {(!ticketsData?.data || ticketsData.data.length === 0) && (
+                  <p className="text-center text-sm text-muted-foreground py-4">No tickets yet</p>
+                )}
+              </div>
+            </section>
           </TabsContent>
 
-          <TabsContent value="tickets" className="mt-4">
-            <div className="space-y-2">
-              {ticketsData?.data?.map((ticket) => (
-                <div key={ticket.id} className="flex items-center justify-between p-3 rounded-lg border border-border/50" data-testid={`row-ticket-${ticket.id}`}>
-                  <div>
-                    <p className="text-sm font-medium">{ticket.subject}</p>
-                    <p className="text-xs text-muted-foreground">{ticket.category} · {ticket.severity}</p>
-                  </div>
-                  <Badge variant="outline">{ticket.status}</Badge>
-                </div>
-              ))}
-              {(!ticketsData?.data || ticketsData.data.length === 0) && (
-                <p className="text-center text-sm text-muted-foreground py-4">No tickets yet</p>
-              )}
-            </div>
-          </TabsContent>
+          <TabsContent value="activity" className="space-y-6 mt-4">
+            <section>
+              <SectionHeader icon={Mail} title="Emails" />
+              <EmailsTab objectType="account" objectId={account.id} />
+            </section>
 
-          <TabsContent value="infrastructure" className="mt-4">
-            <InfrastructureProfileTab
-              profile={infraProfile}
-              onSave={(data) => updateInfraMutation.mutate(data)}
-              isPending={updateInfraMutation.isPending}
-              canEdit={canEdit}
-            />
-          </TabsContent>
-
-          <TabsContent value="emails" className="mt-4">
-            <EmailsTab objectType="account" objectId={account.id} />
-          </TabsContent>
-
-          <TabsContent value="notes" className="mt-4">
-            <NotesPanel linkedObjectType="account" linkedObjectId={account.id} />
-          </TabsContent>
-
-          <TabsContent value="timeline" className="mt-4">
-            <TimelineTab objectType="account" objectId={account.id} />
+            <section>
+              <SectionHeader icon={HistoryIcon} title="Timeline" />
+              <TimelineTab objectType="account" objectId={account.id} />
+            </section>
           </TabsContent>
         </Tabs>
       </DialogContent>

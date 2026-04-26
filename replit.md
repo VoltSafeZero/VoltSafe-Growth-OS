@@ -1,5 +1,61 @@
 # Replit Agent Configuration
 
+## UX Declutter Phase 5 — Account Detail Dialog Consolidation (Complete)
+
+### Goal
+Collapse the AccountDetailDialog from 8 overflowing tabs into 3 logical groups so desktop fits one row and mobile becomes scannable. Pure UI graduation — no schema, no API, no data flow changes.
+
+### Source of design
+Mockup `artifacts/mockup-sandbox/src/components/mockups/account-detail-redesign/Consolidated.tsx` (variant approved by user via "Graduate it!"). Live preview at `/__mockup/preview/account-detail-redesign/Consolidated`.
+
+### Tab mapping (old → new)
+| Old (8 tabs)                                        | New (3 tabs)                |
+|-----------------------------------------------------|------------------------------|
+| Details, Notes (NotesPanel), Infrastructure         | **Overview**                 |
+| Contacts, Deals, Tickets                            | **People & Pipeline**        |
+| Emails, Timeline                                    | **Activity**                 |
+
+### File touched
+`client/src/pages/accounts.tsx` only — surgical edit of `AccountDetailDialog` component (lines ~946-1500).
+
+### What changed
+1. Added 4 lucide imports: `Briefcase`, `LifeBuoy`, `History as HistoryIcon`, `MessageSquare`, `FileText`.
+2. Added two presentational helpers above `AccountDetailDialog` (lines ~901-944):
+   - `CollapsibleSection({ title, icon, count, defaultOpen, testId, children })` — bordered card with chevron-button header that toggles `useState(defaultOpen)` open state.
+   - `SectionHeader({ icon, title, count })` — small uppercase tracking label used inside People & Activity tab bodies.
+3. Replaced the 8-trigger `<TabsList className="flex-wrap h-auto">` with a `grid grid-cols-3 w-full` 3-trigger list. The People tab label says "People & Pipeline" on `sm+` screens, "People" on mobile.
+4. Renamed `defaultValue="details"` → `defaultValue="overview"`. Tab `data-testid` values: `tab-overview`, `tab-people`, `tab-activity`.
+5. **Overview** body = the entire previous Details body (edit-mode toggle, Address, profile field grid, Expansion / Red Flags / Next Action callouts, Notes text, Assigned-to + CreateActionItem, full Source Lead expansion block with conversionHistory) PLUS two new collapsibles inserted just above the Attachments/Comments footer:
+   - `CollapsibleSection title="Infrastructure profile" defaultOpen={false}` wrapping the existing `InfrastructureProfileTab`.
+   - `CollapsibleSection title="Note feed" defaultOpen={false}` wrapping the existing `NotesPanel`.
+   Attachments + Comments still render full-width at the bottom.
+6. **People & Pipeline** body = three stacked `<section>` blocks each headed by `SectionHeader`:
+   - Contacts (with the existing Add Contact `Dialog` wired to `addContactOpen`, count badge, `canEdit` gate intact).
+   - Deals (existing opps list, count badge).
+   - Tickets (existing tickets list, count badge).
+7. **Activity** body = two stacked sections: Emails (`EmailsTab`) + Timeline (`TimelineTab`).
+
+### Functional preservation (verified by architect review)
+All handlers and components survived intact: `EditAccountForm`, `InfrastructureProfileTab`, `EmailsTab`, `TimelineTab`, `NotesPanel`, `AssignUserSelect`, `CreateActionItem`, `AttachmentsSection`, `CommentsFeed`, `CreateContactForm`, source-lead expansion + `conversionHistory`, edit-mode toggle, folder dialog, all data-testids, `canEdit` permission gating on Edit / Add Contact / InfrastructureProfileTab.
+
+### Validation
+- `npx tsc --noEmit` — zero errors in `accounts.tsx`.
+- Architect code review (evaluate_task with includeGitDiff): **PASS**, no severe regressions, no security issues.
+- Vite HMR picked up edit; `Start application` workflow running.
+- Pre-existing test workflow failures (mail-permissions, mailbox-switching, permissions, tracking-multi-proof, tracking-proof) are race-condition ECONNREFUSED:5000 unrelated to this change — left untouched.
+
+### What was NOT changed
+- `shared/schema.ts` — untouched.
+- No `db:push` invoked. Zero schema changes.
+- No backend route changes.
+- No package.json changes.
+- Mockup sandbox files (`artifacts/mockup-sandbox/.../account-detail-redesign/*`) and canvas iframe shapes (`drawer-current-account`, `drawer-redesign-account`) left in place pending user decision on cleanup.
+
+### Phase status (UX Declutter overall)
+Phase 1 ✓ · Phase 2 ✓ · Phase 3 (no-op) ✓ · Phase 4 ✓ · **Phase 5 ✓** — UX Declutter campaign complete.
+
+---
+
 ## Attachment Metadata + Search Filters (Phase 2E — Complete)
 
 ### Goal
