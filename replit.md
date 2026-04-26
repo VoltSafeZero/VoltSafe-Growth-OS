@@ -1,5 +1,35 @@
 # Replit Agent Configuration
 
+## Mobile Nav Drift Reconciliation (Complete, 2026-04-26)
+
+### Goal
+Bring `client/src/components/dashboard/mobile-nav.tsx` back into lockstep with `client/src/components/dashboard/app-sidebar.tsx` after they had drifted. The lockstep comment at the top of mobile-nav.tsx already declared this contract.
+
+### Coverage gaps closed
+- **Insights**: added `Source Attribution` → `/analytics/source-attribution` (4th item, matches desktop order). Now 8 items, parity with desktop.
+- **More**: expanded from 5 → 15 items to match desktop. Added `Daily Execution`, `Revenue Hub`, `Revenue Ops`, `Revenue Simulator`, `Rel. Intelligence`, `Score Feedback`, `Digest & Alerts`, `Territory Routing`, `Data Quality`, `Task Rules`, `Winter Support`. `Settings` removed from More (moved to Admin).
+- **Admin**: expanded from 3 → 5 items. Added `Global Search` → `/search` and `Settings` → `/settings`. All admin items have `adminOnly: true`.
+
+### Imports added (lucide-react)
+`PlayCircle, FlaskRound, BellRing, Snowflake, Search` — appended to existing import block. No removals.
+
+### Intentional differences preserved (NOT changed)
+- Mobile uses shortened labels for thumb-readable bottom-sheet (`Activity`, `Won`, `Exec Dashboard`, `Copilot`, `Briefs`, `Signals`, `Territory`, `Industry`, `Dealers`, `Alliances`, `Media`, `Tickets`, `Mailboxes`).
+- Mobile `Today` group has 3 items (Today, Field Mode, Nearby) for phone-first field flows; desktop `Today` is single link.
+- Mobile bottom bar = 4 quick tabs (Home, Leads, Pipeline, Log) + center Menu button → opens the All Sections sheet.
+
+### Validation
+- `npx tsc --noEmit` — zero errors in `mobile-nav.tsx`. Pre-existing TS errors in `dashboard-grid.tsx`, `header.tsx`, `automations.tsx`, etc. are unrelated and untouched.
+- All 13 newly-referenced URLs verified present in `client/src/App.tsx`.
+- Vite HMR picked up edit; `Start application` workflow running.
+
+### What was NOT changed
+- `shared/schema.ts` — untouched. Zero `db:push`. Zero schema changes.
+- `app-sidebar.tsx` — untouched (mobile pulled up to desktop's coverage, not the reverse).
+- No backend routes or APIs.
+
+---
+
 ## UX Declutter Phase 5 — Account Detail Dialog Consolidation (Complete)
 
 ### Goal

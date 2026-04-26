@@ -9,6 +9,7 @@ import {
   Trophy, StickyNote, Sparkles, BookOpen, Globe, BarChart3, TrendingUp,
   CheckSquare, Package, HelpCircle,
   Zap as ZapIcon, Smartphone, Plus, MapPin, ChevronRight,
+  PlayCircle, FlaskRound, BellRing, Snowflake, Search,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { QuickLogModal } from "@/components/mobile/quick-log-modal";
@@ -65,6 +66,7 @@ const allNavGroups = [
       { title: "Exec Dashboard", url: "/executive-dashboard", icon: Trophy },
       { title: "Reports", url: "/relationships", icon: TrendingUp },
       { title: "Forecasting", url: "/execution/forecast", icon: GitBranch },
+      { title: "Source Attribution", url: "/analytics/source-attribution", icon: TrendingUp },
       { title: "Copilot", url: "/executive-copilot", icon: Brain },
       { title: "Briefs", url: "/intelligence/briefs", icon: Sparkles },
       { title: "Signals", url: "/intelligence/signals", icon: SlidersHorizontal },
@@ -86,11 +88,21 @@ const allNavGroups = [
   {
     label: "More",
     items: [
+      { title: "Daily Execution", url: "/execution/daily", icon: PlayCircle },
+      { title: "Revenue Hub", url: "/revenue", icon: BarChart3 },
+      { title: "Revenue Ops", url: "/revenue-ops", icon: Target },
+      { title: "Revenue Simulator", url: "/revenue-sim", icon: FlaskRound },
+      { title: "Rel. Intelligence", url: "/intelligence/rel-intelligence", icon: BarChart3 },
+      { title: "Score Feedback", url: "/scores/feedback", icon: Target },
+      { title: "Digest & Alerts", url: "/alerts-digest", icon: BellRing },
+      { title: "Territory Routing", url: "/routing", icon: MapPin },
+      { title: "Data Quality", url: "/data-quality", icon: ShieldCheck },
+      { title: "Price Lists", url: "/price-lists", icon: Tags },
+      { title: "Task Rules", url: "/automation/tasks", icon: Zap },
+      { title: "Automations", url: "/automations", icon: Zap },
       { title: "Help", url: "/help", icon: HelpCircle },
       { title: "Tickets", url: "/support/tickets", icon: ClipboardList },
-      { title: "Price Lists", url: "/price-lists", icon: Tags },
-      { title: "Automations", url: "/automations", icon: Zap },
-      { title: "Settings", url: "/settings", icon: Settings },
+      { title: "Winter Support", url: "/winter", icon: Snowflake },
     ],
   },
   {
@@ -99,6 +111,8 @@ const allNavGroups = [
       { title: "Users", url: "/admin/users", icon: ShieldCheck, adminOnly: true },
       { title: "Integrations", url: "/admin/integrations", icon: Zap, adminOnly: true },
       { title: "Mailboxes", url: "/settings/mailbox", icon: Mail, adminOnly: true },
+      { title: "Global Search", url: "/search", icon: Search, adminOnly: true },
+      { title: "Settings", url: "/settings", icon: Settings, adminOnly: true },
     ],
   },
 ];
