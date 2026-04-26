@@ -1,5 +1,43 @@
 # Replit Agent Configuration
 
+## GMAIL Inbox "Stuck at ~17 messages" — Load More Resumes Auto-Chain (Complete, 2026-04-26)
+
+### Goal
+Fix Trevor's report: "I see less than 20 messages in my GMAIL inbox and scrolling
+down loads no more." The inbox is dominated by blocked-domain senders
+(LinkedIn, newsletters, etc.); after the auto-chain budget exhausted at 25
+pages × 50 raw = 1,250 messages, only ~17 passed the blocked-domain filter.
+Each subsequent manual "Load more" click then fetched only ONE more page (50
+raw, ~0–1 visible), so the inbox felt frozen.
+
+### What changed (UI only — `client/src/pages/gmail-inbox.tsx`)
+- Manual "Load more" click in the auto-chain-exhausted state now **resets the
+  chain** (`autoChainRef.current.count = 0` + `setAutoChainExhaustedKey(null)`)
+  and then fires `loadMore()`. The auto-chain effect re-engages and pulls
+  another batch of pages until either the visible target is filled or
+  `hasMore` becomes false. One click ≈ another 25-page chain instead of one
+  page.
+- New CTA copy in the exhausted state shows three meaningful counts:
+  `{visible} shown · {scanned} scanned · {N} in Other` so the user understands
+  why visible count lags the mailbox total — most messages are in the "Other"
+  tab (blocked-domain senders) or buried deeper.
+- Fixed a typo in the prior CTA template
+  (`Load more — showing X of more available` had a missing variable between
+  "of" and "more").
+
+### What was NOT changed
+- Zero schema changes, zero `db:push`, zero migrations.
+- `MarinasDayPlannerDialog` (unrelated), `getMessageSummaries`, `/api/gmail/messages`,
+  blocked-domain rules, and the local/gmail/auto source policy all untouched.
+- Existing "all caught up" terminal state and local-shortfall "Switch to live
+  Gmail" hint preserved verbatim.
+
+### Validation
+- App restarts cleanly, Vite hot-reloaded the change with no errors.
+- Architect review (`evaluate_task` + git diff) returned PASS on:
+  click-handler mechanics, autoChain re-fire, hooks-rules safety, variable
+  scope, preserved fallback paths, and CTA layout.
+
 ## Leads Nearby — Migrated to Draggable Dashboard Widget (Complete, 2026-04-26)
 
 ### Goal

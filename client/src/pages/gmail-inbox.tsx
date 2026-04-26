@@ -5195,13 +5195,35 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   </span>
                 ) : hasMore ? (
                   <button
-                    onClick={() => loadMore()}
+                    onClick={() => {
+                      // When auto-chain has exhausted its budget but the user explicitly asks
+                      // for more, reset the chain so it RESUMES for another batch of pages
+                      // instead of stopping after a single 50-message fetch. This is the only
+                      // way users with heavy blocked-domain stripping (LinkedIn, newsletters,
+                      // etc.) can keep paginating — otherwise each click fetches one page that
+                      // is mostly blocked, visible count doesn't grow, and the inbox feels stuck.
+                      if (autoChainExhausted) {
+                        autoChainRef.current = { key: inboxChainKey, count: 0 };
+                        setAutoChainExhaustedKey(null);
+                      }
+                      loadMore();
+                    }}
                     data-testid="button-load-more"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] text-muted-foreground/70 hover:text-foreground hover:bg-muted/40 transition-colors"
+                    className="inline-flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-full text-[11px] text-muted-foreground/70 hover:text-foreground hover:bg-muted/40 transition-colors"
                   >
-                    {autoChainExhausted
-                      ? `Load more — showing ${crmFilteredMessages.length} of more available`
-                      : "Load more"}
+                    {autoChainExhausted ? (
+                      <>
+                        <span>Load more older messages</span>
+                        <span className="text-[10px] text-muted-foreground/50 tabular-nums">
+                          {crmFilteredMessages.length.toLocaleString()} shown · {allInboxMessages.length.toLocaleString()} scanned
+                          {(tab === "inbox" || tab === "other") && inboxOther.length > 0
+                            ? ` · ${inboxOther.length.toLocaleString()} in Other`
+                            : ""}
+                        </span>
+                      </>
+                    ) : (
+                      "Load more"
+                    )}
                   </button>
                 ) : crmFilteredMessages && crmFilteredMessages.length > 0 ? (
                   // Backfill-aware "all caught up". When source=local and the local store has fewer
