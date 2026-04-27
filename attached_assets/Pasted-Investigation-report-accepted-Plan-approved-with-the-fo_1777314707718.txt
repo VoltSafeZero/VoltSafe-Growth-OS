@@ -1,0 +1,67 @@
+Investigation report accepted. Plan approved with the following adjustments and answers to your seven open questions.
+Architectural adjustment
+Delete the source=gmail | local | auto URL parameter entirely in this PR. Do not keep source=gmail and source=auto as "escape hatches" — leaving unreachable code paths is technical debt that won't get cleaned up later.
+If there's a legitimate debugging scenario that requires querying live Gmail directly (bypassing the local DB), implement it as a separate explicit endpoint (e.g., POST /api/admin/gmail/probe for admins only). Don't leave dead branches on the main inbox endpoint.
+If you have a specific reason to keep the escape hatch that I'm not seeing, articulate it before implementing — but the default is full removal.
+Answers to open questions
+1. Scope — apply unified-source treatment to all tabs that currently use mailSource. Inspect which tabs use it and report. If Sent and Drafts read from email_messages (which they likely do per the schema), they get the same treatment in this PR. If any tab reads from a fundamentally different source, flag it and I'll decide whether it's in or out of scope.
+2. PubSub diagnostic — required Phase 1 deliverable, not optional. Specifically:
+
+Trigger a test email to trevor@voltsafe.com from a different account.
+Verify the webhook fires within ~30 seconds.
+If it doesn't, diagnose: is the watch still active? Is GMAIL_PUBSUB_TOPIC correctly pointing at the new GCP project? Is the webhook URL reachable from outside?
+Report findings. Fix if obvious; flag for separate ticket if non-trivial.
+Regardless of push state, implement the 15-second foreground polling fallback so the unified inbox does not depend solely on push.
+
+3. Deep history — soft cap with explicit opt-in for further. 5,000 rows per session, then a "Load older history" affordance that the user clicks to opt into another 5K chunk. Honest about cost, doesn't surprise users with rate-limited experiences, doesn't auto-backfill 10 years of history because someone's mouse wheel got stuck.
+4. Pre-existing bulk-mark-read and bulk-archive bugs — fix in this PR. Both 1-line additions per your estimate. The unified inbox makes the visual flash much more obvious, so these bugs essentially become regressions if not fixed.
+5. New-user default — auto 90-day backfill on OAuth completion, with visible progress. Kick it off on first OAuth completion. Show a small progress indicator (Importing your last 90 days of email... 1,247 of ~5,000). Make it abortable from the UI. Don't make it silent — a silent backfill on a fresh connection makes users think the product is broken when they see an empty inbox and watch disk usage spike.
+6. Virtualization — Phase 2. Don't introduce @tanstack/react-virtual in this PR. Add a Phase 2 trigger condition in the project notes: "virtualize if user-reported scroll lag accumulates OR any user's inbox crosses 10K visible rows."
+7. Multi-account — preserve existing "all" sentinel behavior. No changes to multi-account handling. Don't break what works.
+Two additions to the plan
+A. Admin recovery endpoint. Add an admin-only diagnostic + recovery endpoint that can:
+
+Inspect a user's sync state (last_webhook_at, pending mutation queue depth, count of backfilled rows, last full sync time).
+Trigger a fresh backfill for a user.
+Force a full re-sync from Gmail if local state has drifted.
+
+This is operator-facing, not user-facing. Without it, the only recovery option for a user in a bad state is direct SQL access. Build it now while the architecture is fresh.
+B. Update MIGRATION_RECOVERY.md (or equivalent project notes) with findings. Specifically:
+
+Document the resolved state of GMAIL_PUBSUB_TOPIC (confirmed working / found broken / fixed).
+Note the unified-inbox architecture as the canonical mail-reading path.
+Note the 90-day default backfill behavior on new connections.
+
+Process
+
+Acknowledge these adjustments and confirm the plan is now scoped correctly.
+Implement in this commit order, committing after each:
+
+Commit 1: Keyset pagination in local-mailbox.ts (with one-deploy backwards-compat for old numeric tokens). Live test that pagination works at depth (page 100+) without performance degradation.
+Commit 2: fetchOlderFromGmail helper + auto-overflow in /api/gmail/messages. Live test: verify a scroll-past-cache scenario backfills correctly.
+Commit 3: Inline local mirror for bulk-mark-read and bulk-archive. Live test: verify mutations don't briefly flash old state.
+Commit 4: UI changes — remove mailSource, remove toggle CTAs, collapse React Query keys, add quiet "synced N min ago" line. Test the unified inbox end-to-end.
+Commit 5: PubSub diagnostic + 15s polling fallback + push-health probe. Test via fresh email delivery.
+Commit 6: "X new messages" top-of-list pill.
+Commit 7: Auto 90-day backfill on new OAuth completion + visible progress UI.
+Commit 8: Admin recovery endpoint + project notes update.
+
+
+After each commit:
+
+Report what changed and what was tested in the .dev environment.
+Wait for me to verify the commit in .dev myself before proceeding to the next.
+If .dev reveals an issue I describe, do not patch forward; revert the last commit cleanly and re-plan.
+Aggressive checkpointing: ensure a Replit checkpoint exists after each commit so rollback is one-click.
+
+
+If any commit reveals an unexpected issue or scope expansion, stop and report before proceeding.
+
+Constraints
+
+Standing rules apply: no schema changes, no db:push, no destructive DB ops, no package edits without justification.
+The keyset pagination tokens must be backwards-compatible with the existing numeric tokens for one deploy cycle (graceful upgrade for any in-flight clients).
+Test each commit against the actual database before declaring it ready. Manual SQL verification of row counts, indexes used (via EXPLAIN), and edge cases (empty result sets, exactly limit results, slightly fewer than limit results).
+If last_webhook_at is genuinely broken and would require non-trivial fix work, flag it and propose a separate ticket — do not let push-fixing block the unified inbox.
+
+Begin with acknowledgment of these adjustments + confirmation of scope. Then run the PubSub diagnostic before any code changes. Stop after the diagnostic and wait for my green light on Commit 1.
