@@ -34,8 +34,7 @@ import { CFOCommandCenter } from "@/components/command-centers/cfo-center";
 import { CTOCommandCenter } from "@/components/command-centers/cto-center";
 import { CMOCommandCenter } from "@/components/command-centers/cmo-center";
 import { ActionWidgetsGrid, ACTION_WIDGET_MAP } from "@/components/command-centers/action-widgets";
-import { DashboardGrid, DashboardEditToolbar, generateDefaultLayouts, reconcileLayouts, type DashboardGridHandle } from "@/components/command-centers/dashboard-grid";
-import type { Layouts } from "react-grid-layout";
+import { DashboardGrid, DashboardEditToolbar, generateDefaultLayouts, reconcileLayouts, type DashboardGridHandle, type Layouts } from "@/components/command-centers/dashboard-grid";
 import { format, formatDistanceToNow, isToday, isTomorrow } from "date-fns";
 import { Link } from "wouter";
 

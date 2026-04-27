@@ -101,7 +101,7 @@ function nextOpenRow(layouts: Layout[]): number {
 }
 
 /** Merge a saved layout with the current visible widgets, adding missing ones gracefully. */
-function reconcileLayout(saved: Layout[] | undefined, visibleIds: string[], cols: number): Layout[] {
+function reconcileLayout(saved: readonly Layout[] | undefined, visibleIds: string[], cols: number): Layout[] {
   const savedMap = new Map<string, Layout>();
   (saved ?? []).forEach(l => { if (l && l.i) savedMap.set(l.i, l); });
 
@@ -323,6 +323,14 @@ export function DashboardGrid({
     onLayoutsChange(layoutsRef.current);
   }, [editing, onLayoutsChange]);
 
+  // RGL v2 config objects. Memoize so the grid doesn't see a new reference
+  // every render (its internal useMemo deps would churn otherwise).
+  const dragCfg = useMemo(
+    () => ({ enabled: editing, handle: ".widget-drag-handle" }),
+    [editing],
+  );
+  const resizeCfg = useMemo(() => ({ enabled: editing }), [editing]);
+
   // Measure container width — react-grid-layout v2 Responsive needs an explicit
   // `width` prop (the legacy WidthProvider HOC was removed in v2).
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -343,17 +351,22 @@ export function DashboardGrid({
 
   if (renderableIds.length === 0) return null;
 
-  // Hard-lock every layout item when not editing. RGL honors per-item
-  // `static: true` independently of grid-level isDraggable/isResizable, so
-  // this guarantees nothing can be dragged or resized outside edit mode.
-  const lockedLayouts: Layouts = editing
-    ? layouts
-    : (Object.fromEntries(
-        Object.entries(layouts).map(([bp, items]) => [
-          bp,
-          (items as LayoutItem[]).map(it => ({ ...it, static: true })),
-        ]),
-      ) as Layouts);
+  // Lock layout items when not editing. CRITICAL: we must always *strip* a
+  // pre-existing `static` flag before deciding whether to re-apply it, because
+  // RGL v2 echoes the layout we feed in (incl. `static: true`) back through
+  // onLayoutChange — which we store in state. Without this strip, the very
+  // first non-edit render bakes `static: true` into state forever, and the
+  // user can no longer drag or resize after toggling into edit mode (even
+  // though grid-level drag is enabled, per-item `static: true` overrides it).
+  const lockedLayouts: Layouts = Object.fromEntries(
+    Object.entries(layouts).map(([bp, items]) => [
+      bp,
+      (items as readonly LayoutItem[]).map((it) => {
+        const { static: _omitStatic, ...rest } = it;
+        return editing ? rest : { ...rest, static: true };
+      }),
+    ]),
+  ) as Layouts;
 
   return (
     <div
@@ -372,12 +385,17 @@ export function DashboardGrid({
           rowHeight={ROW_HEIGHT}
           margin={[16, 16]}
           containerPadding={[0, 0]}
-          isDraggable={editing}
-          isResizable={editing}
-          draggableHandle=".widget-drag-handle"
-          compactType="vertical"
-          preventCollision={false}
-          useCSSTransforms
+          // RGL v2 replaced the flat `isDraggable / isResizable /
+          // draggableHandle` props with composable config objects. The flat
+          // props are silently ignored, which is why drag/resize previously
+          // appeared frozen (defaults are enabled=true with no handle, so
+          // without this migration the body would have been draggable but the
+          // sticky per-item `static: true` was overriding everything).
+          dragConfig={dragCfg}
+          resizeConfig={resizeCfg}
+          // compactType="vertical", preventCollision=false, and CSS-transform
+          // positioning are all v2 defaults (verticalCompactor + transformStrategy);
+          // explicit props would be ignored, so they're omitted.
           onLayoutChange={handleLayoutChange as any}
           onDragStart={markUserTouched as any}
           onResizeStart={markUserTouched as any}

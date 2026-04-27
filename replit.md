@@ -1907,6 +1907,18 @@ Added `task_board_views` table via `CREATE TABLE IF NOT EXISTS` matching the new
 - POST `/api/users/me/layout/reset` with `{centerType:"sales"}` clears the key ✓
 - Vite/React bundle compiles cleanly (no runtime overlay) after fixing react-grid-layout type names (LayoutItem/ResponsiveLayouts) and removing the now-deprecated WidthProvider wrapper ✓
 
+### Drag/resize regression fix (2026-04-27)
+- **Symptom**: In Edit Layout mode the drag handle rendered but widgets could not be dragged or resized.
+- **Root causes**:
+  1. The installed `react-grid-layout@^2.2.3` is the v2 API rewrite. The v1 props (`isDraggable`, `isResizable`, `draggableHandle`, `compactType`, `preventCollision`, `useCSSTransforms`) are silently ignored — v2 reads `dragConfig`/`resizeConfig`/`compactor`/`positionStrategy` instead.
+  2. The non-edit branch baked `static: true` onto every layout item, the grid echoed those items back through `onLayoutChange`, and we stored them in state. Re-entering edit mode kept `static: true` per item, which v2 honors over the grid-level enable flag — so drag/resize stayed locked.
+- **Fix in `client/src/components/command-centers/dashboard-grid.tsx`**:
+  - `dragConfig={{ enabled: editing, handle: ".widget-drag-handle" }}` and `resizeConfig={{ enabled: editing }}`, both memoized.
+  - `lockedLayouts` now always strips a pre-existing `static` flag before deciding whether to re-apply it, so transitioning non-edit → edit fully releases the items.
+  - Dropped the dead v1 props; `verticalCompactor` + `transformStrategy` are v2 defaults so the behavior is preserved.
+- Type drift cleaned up at the same time: `reconcileLayout(saved: readonly Layout[] | undefined, …)` matches v2's `ResponsiveLayouts.lg: readonly LayoutItem[]`; `role-command-center.tsx` now imports `Layouts` from our local re-export instead of the (no-longer-exported) symbol on the package itself.
+- `npx tsc --noEmit` reports zero errors in either touched file.
+
 ---
 
 ## Security hardening pass (2026-04-18)
