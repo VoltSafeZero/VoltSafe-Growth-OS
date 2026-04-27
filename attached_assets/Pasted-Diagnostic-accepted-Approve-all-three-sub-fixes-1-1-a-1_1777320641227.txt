@@ -1,0 +1,27 @@
+Diagnostic accepted. Approve all three sub-fixes (1.1.a + 1.1.b + 1.1.c) as a single amendment commit, with one addition.
+Bundled addition — fix the misleading footer-count copy in the same commit. This is what made the bug feel worse than it was: "Local store: 50 · Gmail has ~111,460" reads as "the local archive has only 50 rows," when it actually means "currently loaded 50 of [the actually-large number]." Three-line change to align both footer labels with the data source they're actually reading from.
+Specific copy changes:
+
+Line 5322 (current): Local store: {crmFilteredMessages.length} · Gmail has ~{liveTotal}
+→ Replace with: Showing {crmFilteredMessages.length} of {localTotal} local · Gmail has ~{liveTotal}
+Line 5337 (current): Live Gmail INBOX: {crmFilteredMessages.length} · Local archive: {localInboxArchive}
+→ Replace with: Showing {crmFilteredMessages.length} of {liveTotal} live · Local archive: {localInboxArchive}
+
+Where localTotal reads from the same source as localInboxArchive (the healthById.get(...).inboxCount count query). If that count isn't already plumbed into the local-mode branch, plumb it; it's a single read of an existing computed value.
+If the implementation reveals a wrinkle in plumbing the count to the local-mode footer, flag it and propose; do not silently use a different metric.
+Process:
+
+Implement 1.1.a (regex tighten), 1.1.b (effect split for inbox AND sent tabs), 1.1.c (token prefix sentinel), and the footer-copy fix as a single amendment commit. Title it "Commit 1.1: pagination toggle hardening + cosmetic fix."
+Live test in the same harness style as Commit 1, plus add explicit toggle scenarios:
+
+Toggle live→local with a Gmail token cached, scroll, verify pagination works.
+Toggle local→live with a local token cached, scroll, verify pagination works.
+Repeat for sent tab.
+Verify the new footer text appears correctly in both modes with accurate counts.
+
+
+Make a Replit checkpoint.
+Stop. Report what changed, what was tested, exact verification steps you ran. Wait for me to verify in .dev myself before proceeding to Commit 2.
+
+Constraints unchanged: standing rules apply, no schema changes, no patch-forward. If 1.1.c's prefix sentinel causes any unexpected regression in legacy token handling, flag it and propose a tighter scope rather than leaving the regression in.
+Begin.

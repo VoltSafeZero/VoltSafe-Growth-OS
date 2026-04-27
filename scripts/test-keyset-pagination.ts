@@ -76,10 +76,51 @@ async function run() {
   // Malformed → cursor stays null → first page → first row should match p1.
   ok("malformed token falls back to first page", bad.messages[0].id === p1.messages[0].id);
 
+  // ─── Commit 1.1 hardening: cross-mode token leak protection ───
+  console.log("\n─── Commit 1.1: token sentinel + cross-mode leak guard ───");
+
+  // 1.1.c sentinel: every modern token MUST carry the "L1:" prefix so the
+  // route handler can classify by origin instead of guessing by digit-shape.
+  // (Threads sentinel asserted in the listLocalThreads section below, after
+  //  tp1 is declared — keeping cause+assertion close.)
+  ok("modern token carries 'L1:' sentinel prefix", p1.nextPageToken!.startsWith("L1:"), `got=${p1.nextPageToken?.slice(0, 6)}…`);
+  ok("legacy bridge also emits prefixed token", legacy.nextPageToken!.startsWith("L1:"), `got=${legacy.nextPageToken?.slice(0, 6)}…`);
+
+  // In-flight backwards compat: a Commit 1 token (bare "eyJ..." with no
+  // prefix) issued before this deploy must still decode for one upgrade cycle.
+  const bareToken = p1.nextPageToken!.slice("L1:".length); // strip prefix to simulate a Commit 1 client's stored token
+  const inFlight = await listLocalMessages({ resolved: RESOLVED, limit: 25, pageToken: bareToken });
+  ok("in-flight bare 'eyJ...' token still paginates correctly", inFlight.messages.length === 25);
+  const p2Ids = new Set(p2.messages.map(m => m.id));
+  const inFlightFirst = inFlight.messages[0]?.id;
+  ok("in-flight bare token returns SAME page-2 rows as prefixed token", p2Ids.has(inFlightFirst), `got first=${inFlightFirst}`);
+  ok("in-flight response upgrades client to prefixed token", inFlight.nextPageToken!.startsWith("L1:"));
+
+  // 1.1.a hazard: a Gmail-style 20-digit numeric token MUST NOT be treated as
+  // a legacy OFFSET. Pre-1.1, this would parseInt → 1.6e19 → PG bigint
+  // overflow → 500. Now: rejected by the strict regex, falls through to
+  // first-page fallback (cursor stays null).
+  const gmailShapedToken = "16417647030909273476"; // real Gmail token shape — 20 digits
+  const leak = await listLocalMessages({ resolved: RESOLVED, limit: 25, pageToken: gmailShapedToken });
+  ok("Gmail-shaped 20-digit token does NOT crash with bigint overflow", leak.messages.length === 25);
+  ok("Gmail-shaped token falls back to first page (no OFFSET applied)", leak.messages[0].id === p1.messages[0].id, `expected first id=${p1.messages[0].id}, got=${leak.messages[0].id}`);
+
+  // Boundary test: 6-digit numeric (1,000,000) is the legitimate cap. 7-digit
+  // (10,000,000) must be rejected. Trevor's mailbox has 55K rows so OFFSET 1M
+  // returns empty — but it must not crash, and a 7-digit value must fall to
+  // first page rather than running OFFSET 10000000.
+  const sevenDigit = await listLocalMessages({ resolved: RESOLVED, limit: 25, pageToken: "9999999" });
+  ok("7-digit numeric (over the legacy cap) falls back to first page", sevenDigit.messages[0]?.id === p1.messages[0].id);
+
   console.log("\n─── listLocalThreads ───");
   const tp1 = await listLocalThreads({ resolved: RESOLVED, limit: 25 });
   ok("threads first page returns 25", tp1.threads.length === 25);
   ok("threads first page emits a token", typeof tp1.nextPageToken === "string" && tp1.nextPageToken.length > 10);
+  // Commit 1.1 sentinel on threads as well.
+  ok("threads modern token carries 'L1:' sentinel", tp1.nextPageToken!.startsWith("L1:"), `got=${tp1.nextPageToken?.slice(0, 6)}…`);
+  // Commit 1.1 hardening: Gmail-shaped 20-digit token must not crash threads either.
+  const tLeak = await listLocalThreads({ resolved: RESOLVED, limit: 25, pageToken: "16417647030909273476" });
+  ok("threads: Gmail-shaped token does NOT crash, falls to first page", tLeak.threads.length === 25 && tLeak.threads[0].id === tp1.threads[0].id);
   ok("threads first page returns in < 1s", tp1.tookMs < 1000, `${tp1.tookMs}ms (inner DISTINCT ON aggregates 55K rows; this is the upper bound, not per-page cost)`);
 
   const tp2 = await listLocalThreads({ resolved: RESOLVED, limit: 25, pageToken: tp1.nextPageToken });

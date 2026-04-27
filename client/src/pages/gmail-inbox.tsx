@@ -3177,26 +3177,51 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const inboxBaseToken = inboxQuery.data?.nextPageToken ?? null;
   const sentBaseToken = sentQuery.data?.nextPageToken ?? null;
 
-  // Only reset extras when the search query or active account changes, NOT on background refetches.
-  // Using a ref-tracked "reset key" prevents wipeout of already-loaded pages on refetch.
-  const prevInboxKey = useRef<string>("");
-  const prevSentKey = useRef<string>("");
+  // Pagination state hygiene (Commit 1.1 split — fixes stale-token leak on mode toggle).
+  //
+  // Previous version conflated two concerns into a single effect with deps
+  // [inboxBaseToken, searchQuery, activeAccountId, mailSource] guarded by a
+  // prevKey early-return. That early-return was needed to avoid wiping
+  // accumulated extras on background refetches — but it ALSO blocked the
+  // "adopt the new base token after a context-change refetch" path:
+  //
+  //   1. User toggles mailSource gmail→local.
+  //   2. Effect fires (mailSource changed). Key differs → resets extras +
+  //      sets nextToken = inboxBaseToken (still the OLD gmail token, OR null
+  //      because TanStack v5 cleared data for the new query key).
+  //   3. New local fetch lands. inboxBaseToken updates to a fresh local token.
+  //   4. Effect fires (inboxBaseToken changed) but key is unchanged → early
+  //      return. nextToken NEVER adopts the new local token. hasMore stays
+  //      false (or worse, stays at the stale gmail token → 500/503 on
+  //      subsequent loadMore).
+  //
+  // Fix: split into two effects with disjoint responsibilities.
+  //   * Effect A (context-change reset): clears extras + nulls nextToken when
+  //     the user changes search/account/mailSource. Does NOT depend on
+  //     baseToken, so background refetches don't trip it.
+  //   * Effect B (base-token adoption): when nextToken is null (fresh slate)
+  //     and baseToken arrives, adopt baseToken as the cursor. When nextToken
+  //     is non-null (mid-pagination), leave it alone — preserves the user's
+  //     scroll position across background refetches.
   useEffect(() => {
-    const key = `${searchQuery}|${activeAccountId ?? ""}|${mailSource}`;
-    if (prevInboxKey.current === key) return;
-    prevInboxKey.current = key;
     setInboxExtra([]);
-    setInboxNextToken(inboxBaseToken);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inboxBaseToken, searchQuery, activeAccountId, mailSource]);
+    setInboxNextToken(null);
+  }, [searchQuery, activeAccountId, mailSource]);
   useEffect(() => {
-    const key = `sent|${activeAccountId ?? ""}|${mailSource}`;
-    if (prevSentKey.current === key) return;
-    prevSentKey.current = key;
+    setInboxNextToken((prev) => prev ?? inboxBaseToken);
+  }, [inboxBaseToken]);
+  // Sent reset deps must mirror the sent base query's filter axes. Sent's q is
+  // `in:sent ± searchQuery`, so a search change while on inbox would otherwise
+  // leave a stale sentNextToken that survives the switch back to sent — Effect
+  // D's `prev ?? base` adopt is gated on prev being null and would not refresh
+  // it. Including searchQuery here keeps sent symmetric with inbox.
+  useEffect(() => {
     setSentExtra([]);
-    setSentNextToken(sentBaseToken);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sentBaseToken, activeAccountId, mailSource]);
+    setSentNextToken(null);
+  }, [searchQuery, activeAccountId, mailSource]);
+  useEffect(() => {
+    setSentNextToken((prev) => prev ?? sentBaseToken);
+  }, [sentBaseToken]);
 
   // Pagination request-epoch guard (Apr 2026, hardening pass 2 + pass 4 expanded context). When
   // the user switches mailbox, search query, source, OR tab/category/CRM filter while a loadMore
@@ -5319,7 +5344,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     if (localShortfall) {
                       return (
                         <span className="inline-flex flex-col items-center gap-1 text-amber-600 dark:text-amber-400 tabular-nums" data-testid="status-backfill-incomplete">
-                          <span>Local store: {crmFilteredMessages.length.toLocaleString()} · Gmail has ~{Number(liveTotal).toLocaleString()}</span>
+                          {/* Commit 1.1 copy fix: previous "Local store: 50" misread as "the local archive has 50 rows".
+                              Now "Showing X of Y local" — X = currently rendered, Y = healthById INBOX count. */}
+                          <span>Showing {crmFilteredMessages.length.toLocaleString()} of {localInboxArchive.toLocaleString()} local · Gmail has ~{Number(liveTotal).toLocaleString()}</span>
                           <button
                             onClick={() => setMailSource("gmail")}
                             data-testid="button-switch-to-gmail"
@@ -5333,8 +5360,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     if (archiveShortfall) {
                       return (
                         <span className="inline-flex flex-col items-center gap-1 text-amber-600 dark:text-amber-400 tabular-nums" data-testid="status-archive-available">
+                          {/* Commit 1.1 copy fix: aligned with the local-mode footer above —
+                              "Showing X of Y live" reads cleanly when paired with the archive count. */}
                           <span>
-                            Live Gmail INBOX: {crmFilteredMessages.length.toLocaleString()} · Local archive: {localInboxArchive.toLocaleString()}
+                            Showing {crmFilteredMessages.length.toLocaleString()} of {Number(liveTotal ?? crmFilteredMessages.length).toLocaleString()} live · Local archive: {localInboxArchive.toLocaleString()}
                           </span>
                           <button
                             onClick={() => {

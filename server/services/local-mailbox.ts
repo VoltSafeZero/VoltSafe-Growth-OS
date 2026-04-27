@@ -10,23 +10,35 @@
 //   page is a single index range scan via idx_email_account_sent /
 //   idx_email_owner_sent.
 //
-//   Token format (modern):  base64url(JSON({ s: ISO|null, i: number }))
-//                           where s = sent_at, i = email_messages.id (numeric pk).
-//                           For thread pagination the cursor uses {s, t: thread_id}.
+//   Token format (modern, after Commit 1.1):
+//                "L1:" + base64url(JSON({ s: ISO|null, i: number }))
+//                where s = sent_at, i = email_messages.id (numeric pk).
+//                For thread pagination the cursor uses {s, t: thread_id}.
+//                The "L1:" sentinel lets the route classify token origin
+//                deterministically instead of guessing by digit-shape — see
+//                Commit 1.1 amendment for the cross-mode hazard this fixes.
 //
-//   Backwards compatibility: any in-flight client still holding a numeric
-//   token (the legacy OFFSET format) gets ONE more page served via the old
-//   path, but the response carries a modern keyset token so subsequent pages
-//   use the fast path. After ~1 deploy cycle no clients should still be
-//   carrying numeric tokens.
+//   Backwards compatibility (decode-only):
+//   * Bare base64url ("eyJ..." starting with the JSON `{` byte) — in-flight
+//     tokens issued by Commit 1 before the prefix was added. Recognised for
+//     one upgrade cycle; subsequent pages emit a prefixed token.
+//   * Small numeric tokens (≤ 6 digits, ≤ 1,000,000) — pre-Commit-1 OFFSET
+//     bridge. Real legacy offsets in our largest mailbox topped out around
+//     ~110K. The cap rules out Gmail's 16+ digit page tokens, which would
+//     otherwise be silently treated as a giant OFFSET and crash with
+//     `bigint out of range` if leaked into local-mode (Commit 1.1 fix).
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 
 // ── Cursor codec ──────────────────────────────────────────────────────────
 // We use base64url so the token is URL/path-safe with no escaping concerns
 // when the frontend dumps it into a query string or a React Query cache key.
+// The "L1:" sentinel is added by encodeLocalToken so the route handler can
+// distinguish local-issued tokens from Gmail-issued ones without guessing.
 type MsgCursor = { s: string | null; i: number };
 type ThreadCursor = { s: string | null; t: string };
+
+export const LOCAL_TOKEN_PREFIX = "L1:";
 
 function b64urlEncode(obj: unknown): string {
   return Buffer.from(JSON.stringify(obj), "utf8")
@@ -47,8 +59,35 @@ function b64urlDecode<T = unknown>(token: string): T | null {
   }
 }
 
+function encodeLocalToken(obj: unknown): string {
+  return LOCAL_TOKEN_PREFIX + b64urlEncode(obj);
+}
+
+// Accept three local-token shapes: prefixed (new), bare b64url-of-JSON (Commit 1
+// in-flight), and rejection of anything else. Returns null on malformed input —
+// callers fall through to first-page, never crash.
+function decodeLocalToken<T = unknown>(token: string): T | null {
+  if (token.startsWith(LOCAL_TOKEN_PREFIX)) {
+    return b64urlDecode<T>(token.slice(LOCAL_TOKEN_PREFIX.length));
+  }
+  // In-flight bare tokens: b64url of JSON object always starts with "eyJ"
+  // (the b64url of `{`). This narrow check rejects Gmail-shape tokens
+  // (pure digits) without false positives on real local tokens.
+  if (token.startsWith("eyJ")) {
+    return b64urlDecode<T>(token);
+  }
+  return null;
+}
+
+// Strict: ≤ 6 digits AND ≤ 1,000,000. Real pre-Commit-1 OFFSET tokens topped
+// out around 110K (largest mailbox). Gmail page tokens are pure digits but
+// always ≥ 16 digits, so this regex deterministically excludes them. A leaked
+// Gmail token in local-mode now falls through to the malformed-token path
+// (first-page fallback) instead of crashing with bigint-out-of-range.
 function isLegacyNumericToken(token: string): boolean {
-  return /^\d+$/.test(token);
+  if (!/^\d{1,6}$/.test(token)) return false;
+  const n = parseInt(token, 10);
+  return Number.isFinite(n) && n >= 0 && n <= 1_000_000;
 }
 
 // Build the WHERE-fragment that implements (sent_at DESC NULLS LAST, id DESC)
@@ -240,20 +279,21 @@ export async function listLocalMessages(p: {
   const t0 = Date.now();
   const limit = Math.min(Math.max(Number(p.limit) || 50, 1), 100);
 
-  // Token decoding: distinguish three states.
-  //   1. No token        → first page, no cursor.
-  //   2. Modern token    → base64url JSON {s, i}; use keyset.
-  //   3. Legacy numeric  → in-flight client from before this deploy. Serve
-  //                        ONE more page via the old OFFSET path so they
-  //                        don't get a broken jump, but emit a modern keyset
-  //                        token so subsequent pages use the fast path.
+  // Token decoding: four cases (Commit 1.1 hardening).
+  //   1. No token            → first page, no cursor.
+  //   2. Prefixed "L1:eyJ…"  → base64url JSON keyset cursor (current format).
+  //   3. Bare "eyJ…"         → Commit 1 in-flight token, decoded same as #2.
+  //   4. Legacy small numeric (≤ 6 digits, ≤ 1M) → pre-Commit-1 OFFSET bridge.
+  //   Anything else (incl. Gmail's 16+ digit numeric tokens that may leak in
+  //   via cross-mode token state on the client) is treated as malformed and
+  //   falls through to first-page. Never crashes.
   let cursor: MsgCursor | null = null;
   let legacyOffset = 0;
   if (p.pageToken && p.pageToken.length > 0) {
     if (isLegacyNumericToken(p.pageToken)) {
       legacyOffset = Math.max(parseInt(p.pageToken, 10) || 0, 0);
     } else {
-      const decoded = b64urlDecode<MsgCursor>(p.pageToken);
+      const decoded = decodeLocalToken<MsgCursor>(p.pageToken);
       if (decoded && (typeof decoded.i === "number") && (decoded.s === null || typeof decoded.s === "string")) {
         cursor = decoded;
       }
@@ -323,14 +363,14 @@ export async function listLocalMessages(p: {
   });
 
   // Build next-page keyset token from the LAST returned row. Emitting a
-  // modern token even when the input was a legacy numeric one is what
-  // lets old clients gracefully migrate after one page.
+  // prefixed modern token even when the input was a legacy/in-flight one is
+  // what lets old clients migrate forward after a single page.
   let nextPageToken: string | null = null;
   if (hasMore && slice.length > 0) {
     const last = slice[slice.length - 1];
     const lastSentAt = last.sent_at ? new Date(last.sent_at).toISOString() : null;
     const nextCursor: MsgCursor = { s: lastSentAt, i: Number(last.pk) };
-    nextPageToken = b64urlEncode(nextCursor);
+    nextPageToken = encodeLocalToken(nextCursor);
   }
 
   return { messages, nextPageToken, tookMs: Date.now() - t0 };
@@ -346,15 +386,14 @@ export async function listLocalThreads(p: {
   const t0 = Date.now();
   const limit = Math.min(Math.max(Number(p.limit) || 30, 1), 100);
 
-  // Same three-state token handling as listLocalMessages — modern keyset,
-  // legacy numeric (one-page bridge), or first page.
+  // Same four-case token handling as listLocalMessages (Commit 1.1).
   let cursor: ThreadCursor | null = null;
   let legacyOffset = 0;
   if (p.pageToken && p.pageToken.length > 0) {
     if (isLegacyNumericToken(p.pageToken)) {
       legacyOffset = Math.max(parseInt(p.pageToken, 10) || 0, 0);
     } else {
-      const decoded = b64urlDecode<ThreadCursor>(p.pageToken);
+      const decoded = decodeLocalToken<ThreadCursor>(p.pageToken);
       if (decoded && typeof decoded.t === "string" && (decoded.s === null || typeof decoded.s === "string")) {
         cursor = decoded;
       }
@@ -414,7 +453,7 @@ export async function listLocalThreads(p: {
     const last = slice[slice.length - 1];
     const lastSentAt = last.sent_at ? new Date(last.sent_at).toISOString() : null;
     const nextCursor: ThreadCursor = { s: lastSentAt, t: String(last.id) };
-    nextPageToken = b64urlEncode(nextCursor);
+    nextPageToken = encodeLocalToken(nextCursor);
   }
 
   return { threads, nextPageToken, tookMs: Date.now() - t0 };

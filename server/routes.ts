@@ -7907,7 +7907,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const q = (req.query.q as string) || "";
     const maxResults = Math.min(Number(req.query.limit) || 50, 100);
     const pageToken = (req.query.pageToken as string) || undefined;
-    const isLocalPageToken = !!pageToken && /^\d+$/.test(pageToken);
+    // Commit 1.1: classify by sentinel prefix instead of guessing by digit-shape.
+    // Local-issued tokens carry the "L1:" sentinel. Bare "eyJ" is the in-flight
+    // Commit 1 format (b64url-of-JSON, recognised one upgrade cycle). Small
+    // numeric tokens (≤ 6 digits) are the legacy OFFSET bridge. Gmail page
+    // tokens are pure digits but always ≥ 16 digits, so they correctly fall
+    // through here and get routed to the Gmail handler.
+    const isLocalPageToken = !!pageToken && (
+      pageToken.startsWith("L1:") ||
+      pageToken.startsWith("eyJ") ||
+      /^\d{1,6}$/.test(pageToken)
+    );
 
     const tryLocal = async () => {
       const { listLocalMessages } = await import("./services/local-mailbox");
@@ -7982,7 +7992,12 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     // local only as fallback. Threads list doesn't expose pagination tokens to
     // the UI today, so this is simpler.
     const pageTokenRaw = (req.query.pageToken as string) || null;
-    const isLocalPageToken = !!pageTokenRaw && /^\d+$/.test(pageTokenRaw);
+    // Commit 1.1: same prefix-sentinel classification as the messages route.
+    const isLocalPageToken = !!pageTokenRaw && (
+      pageTokenRaw.startsWith("L1:") ||
+      pageTokenRaw.startsWith("eyJ") ||
+      /^\d{1,6}$/.test(pageTokenRaw)
+    );
 
     const tryLocalThreads = async () => {
       const { listLocalThreads } = await import("./services/local-mailbox");
