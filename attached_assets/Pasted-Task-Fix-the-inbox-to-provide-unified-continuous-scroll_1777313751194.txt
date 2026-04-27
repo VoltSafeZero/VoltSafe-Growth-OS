@@ -1,0 +1,81 @@
+Task: Fix the inbox to provide unified continuous scrolling across live Gmail and local archive, like Gmail / Superhuman / Spark. Currently the UI shows "Live Gmail INBOX: 22 · Local archive: 1,191" with a toggle to switch between them. This needs to become one continuous inbox where the user scrolls down indefinitely without thinking about live vs. archive.
+This is an investigation and planning task — do not write the fix yet. Inspect the current architecture, propose a plan, then wait for my approval before implementing.
+Investigation tasks
+1. Current architecture. Inspect and report:
+
+Where the "Live Gmail INBOX" emails come from. What endpoint, what client library (Gmail API, IMAP, custom), what code path renders them in the UI. File paths.
+Where the "local archive" 1,191 emails live. DB table name, schema (columns, indexes, relevant constraints). File paths for the read/write code.
+How the toggle works. What component renders the inbox list. What state controls whether live or archive is shown. The "Switch to local archive to see history" link — what does it actually do?
+The Gmail authentication / API integration. How does the app authenticate against the user's Gmail? OAuth tokens stored where? Refresh logic?
+
+2. Sync mechanism (if any). Does the app currently:
+
+Sync new live emails into the local archive on a schedule, on demand, or never?
+Update local archive entries when an email's state changes in Gmail (read/unread, starred, labeled, archived, deleted)?
+Push local state changes back to Gmail (read/unread state, archive/delete actions)?
+
+Report file paths for any sync code that exists. If none exists, state that explicitly.
+3. Data volume context. Run a SELECT COUNT(*) on the local archive table broken down by:
+
+Total rows.
+Rows per user (if multi-user).
+Date range (oldest and newest date_received or equivalent).
+Approximate disk size (if easily queryable).
+
+This tells me what we're working with before we add infinite scroll.
+4. Existing pagination, if any. Does the current inbox list paginate, virtualize, or load everything at once? What component handles the list render — is it a standard React virtualized list (react-window, react-virtual, etc.) or custom?
+Proposed plan
+After investigation, propose a plan for the fix that addresses these requirements:
+Goal state:
+
+Single continuous inbox view per user. No "live vs. archive" toggle, no "switch to local archive" link.
+New emails from Gmail appear at the top automatically (live sync, ideally via Gmail's push notifications / Pub/Sub if configured, or via polling every N minutes if not).
+Scrolling down loads progressively older emails from the local archive.
+Once the user scrolls past the bottom of what's locally cached, the app fetches the next chunk from Gmail's API and appends it to the local archive seamlessly. From the user's perspective, scroll continues without a visible "loading historical emails" wall.
+State changes (read, star, archive, delete) update both the local cache and Gmail, with eventually-consistent two-way sync.
+Works for any user who connects Gmail — not just my account.
+
+Performance constraints:
+
+Initial inbox render must be fast (≤ 500ms perceived load) for users with 100K+ archived emails.
+The DB query for "next 50 emails older than X" must be index-supported. Confirm whether the existing schema has an index on date_received DESC (or equivalent) — if not, propose adding one.
+Backfill from Gmail must respect Gmail API rate limits (250 quota units per user per second per Google's docs; each messages.get is ~5 units).
+
+Specific architectural choice — confirm or counter:
+I'm leaning toward Option A (single source of truth in local DB): live Gmail becomes a sync source that appends to the local DB. The UI reads exclusively from the local DB. Both new emails and historical backfill flow into the same store.
+The alternative is Option B (query-time merge) where the UI queries live Gmail for the top of the list and falls through to local archive lower down. This is more complex (pagination across heterogeneous sources, timestamp tiebreaking, dual state-tracking) and I don't think it's worth it.
+If you have a strong reason to prefer B, make the case. Otherwise, plan for A.
+Sync architecture for A:
+
+New emails: ideally Gmail push (Pub/Sub) for real-time, with polling as a fallback. The standing rule from MIGRATION_RECOVERY.md flagged that GMAIL_PUBSUB_TOPIC was misconfigured post-migration — confirm current state of the Pub/Sub integration.
+Historical backfill: triggered on-demand when the user scrolls past locally-cached content. Fetches next N emails older than the current oldest cached date, writes to DB, returns them to the UI.
+State sync (two-way): when the user marks read/starred/archived in this UI, the change is queued and pushed to Gmail. Periodic full-state reconciliation (every N minutes) ensures local and Gmail stay aligned even if individual operations failed silently.
+
+Output format
+INVESTIGATION
+  1. Current architecture: [file paths, components, endpoints, schema]
+  2. Sync mechanism: [exists? what does it do?]
+  3. Data volume: [counts, date range, size]
+  4. Pagination: [virtualized? load-all? component name]
+
+PROPOSED PLAN
+  Architectural choice: [A or B with reasoning]
+  Sync mechanism: [push vs. poll, current Pub/Sub state]
+  Schema changes: [indexes needed, any column additions]
+  UI changes: [component refactor scope]
+  Backfill flow: [exact sequence of events when user scrolls past local cache]
+  State sync flow: [exact sequence for read/star/archive/delete actions]
+  Migration: [how existing 1,191 archive rows transition to the new model — likely no change needed, just removed toggle]
+  Estimated complexity: [small/medium/large per piece]
+
+OPEN QUESTIONS
+  [anything ambiguous in the spec, anything I need to decide before implementation]
+Constraints
+
+Read-only investigation in this turn. Do not modify any files yet. Do not run the app. Do not run DB writes.
+Standing rules apply: no schema rewrites, no db:push, no destructive DB ops, no package edits without justification.
+Do not begin implementation until I review the plan and approve. The chat agent is using this conversation to design before coding — same pattern as the POLYWEATHER work.
+If the existing code is structured in a way that makes Option A genuinely difficult (e.g., the local archive table has constraints incompatible with live Gmail data shapes), flag this rather than trying to wedge it in. We can solve compatibility issues explicitly rather than implicitly.
+Do not try to fix unrelated email-client issues that surface during investigation. If you see them, list them in OPEN QUESTIONS — don't fix them.
+
+Begin.
