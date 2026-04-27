@@ -29,6 +29,7 @@ import {
 } from "@/lib/dashboard-config";
 import { CEOCommandCenter } from "@/components/command-centers/ceo-center";
 import { TravelPlannerDialog } from "@/components/travel/travel-planner-dialog";
+import { PlanDayChooserDialog } from "@/components/travel/plan-day-chooser-dialog";
 import { CFOCommandCenter } from "@/components/command-centers/cfo-center";
 import { CTOCommandCenter } from "@/components/command-centers/cto-center";
 import { CMOCommandCenter } from "@/components/command-centers/cmo-center";
@@ -716,13 +717,17 @@ export default function RoleCommandCenter() {
     saveMutation.mutate({ defaultCommandCenter: ct });
   };
 
-  // Plan My Travel Day → opens the multi-trip Travel Planner.
+  // Plan My Travel Day → opens the chooser (multi-day trip vs single-day visits).
+  // The chooser then routes to TravelPlannerDialog or MarinasDayPlannerDialog.
+  // The legacy `travelPlannerOpen` state is preserved for the
+  // openPlannerForTrip path (edit-an-existing-trip), which still jumps
+  // straight into the multi-day planner.
   // (declared before any early returns to keep hook order stable)
+  const [planChooserOpen, setPlanChooserOpen] = useState(false);
   const [travelPlannerOpen, setTravelPlannerOpen] = useState(false);
   const [travelPlannerEditId, setTravelPlannerEditId] = useState<string | null>(null);
   const openPlanner = useCallback(() => {
-    setTravelPlannerEditId(null);
-    setTravelPlannerOpen(true);
+    setPlanChooserOpen(true);
   }, []);
   const openPlannerForTrip = useCallback((tripId: string | null) => {
     setTravelPlannerEditId(tripId);
@@ -960,6 +965,10 @@ export default function RoleCommandCenter() {
         <CSCommandCenter visible={visible} compact={compact} />
       )}
 
+      <PlanDayChooserDialog
+        open={planChooserOpen}
+        onOpenChange={setPlanChooserOpen}
+      />
       <TravelPlannerDialog
         open={travelPlannerOpen}
         onOpenChange={setTravelPlannerOpen}

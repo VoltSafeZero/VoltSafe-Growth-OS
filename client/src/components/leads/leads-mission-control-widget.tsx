@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Anchor, MapPin, Sparkles, Map as MapIcon, ChevronRight, Loader2, Locate } from "lucide-react";
-import { MarinasDayPlannerDialog } from "@/components/marinas-day-planner-dialog";
+import { PlanDayChooserDialog } from "@/components/travel/plan-day-chooser-dialog";
 
 const STAGE_COLORS: Record<string, string> = {
   new: "#9ca3af",
@@ -88,9 +88,11 @@ export function LeadsMissionControlWidget({ onPlanDay }: Props = {}) {
   const [locating, setLocating] = useState(false);
   const [leads, setLeads] = useState<NearbyLead[]>([]);
   const [loading, setLoading] = useState(false);
-  // Self-contained day-planner dialog state — only used when no onPlanDay
+  // Self-contained chooser dialog state — only used when no onPlanDay
   // callback was provided (i.e. when this widget is dropped into the
   // draggable grid instead of the legacy hard-coded slot in role-command-center).
+  // The chooser lets the user pick between a multi-day trip and a single-day
+  // marina-visit route, matching the header "Plan My Travel Day" button.
   const [internalPlannerOpen, setInternalPlannerOpen] = useState(false);
   const [internalPlannerLoc, setInternalPlannerLoc] = useState<{ lat: number; lng: number } | null>(null);
 
@@ -256,10 +258,11 @@ export function LeadsMissionControlWidget({ onPlanDay }: Props = {}) {
         )}
       </CardContent>
     </Card>
-    {/* Self-contained planner dialog — only mounts when no parent handler took
-        over (i.e. when the widget runs inside the draggable grid). */}
+    {/* Self-contained planner chooser — only mounts when no parent handler took
+        over (i.e. when the widget runs inside the draggable grid). The map
+        page passes `onPlanDay` so it can keep its selection-mode behaviour. */}
     {!onPlanDay && (
-      <MarinasDayPlannerDialog
+      <PlanDayChooserDialog
         open={internalPlannerOpen}
         onOpenChange={setInternalPlannerOpen}
         userLocation={internalPlannerLoc}
