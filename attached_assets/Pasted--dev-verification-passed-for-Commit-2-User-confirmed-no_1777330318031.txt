@@ -1,0 +1,56 @@
+.dev verification passed for Commit 2.User confirmed normal inbox behavior across scenarios: scrolling, email click, toggle local↔live, search, sent tab. No errors, no broken pagination, no UI regressions. Auto-overflow logic trusted via the 17/17 harness coverage.Approved to proceed to Commit 3: inline local mirror for bulk-mark-read and bulk-archive, plus the two pre-existing 1-line bugs from the original investigation report.Commit 3 scopeTwo endpoints in server/routes.ts currently mutate Gmail labels but do NOT mirror those changes to the local email_messages table:
+POST /api/gmail/bulk-mark-read (around line 9544 per the original investigation)
+POST /api/gmail/bulk-archive (around line 9579)
+Without inline local mirrors, the user-visible flash bug occurs: marking a batch of emails as read or archiving them updates Gmail successfully, but the local rows still show their old label_ids until the next hourly poll or push event arrives. With Commit 1.1's unified inbox, that visual inconsistency is much more obvious — the user clicks "archive 5 emails," they vanish optimistically, then briefly reappear when a refetch lands before the periodic sync corrects them.The toggle-star endpoint (around line 9511) already has the correct pattern — it inline-mirrors the local row. Use that as the reference for what the bulk endpoints should look like.Specific requirements1. Add inline local mirror to POST /api/gmail/bulk-mark-read.After the successful Gmail messages.modify call removes UNREAD for the batch:
+
+In the same transaction (or atomic equivalent if no transactions are used in this codebase pattern), update the local email_messages.label_ids for the affected message IDs to remove UNREAD.
+Match the exact pattern used by toggle-star for consistency.
+If the Gmail call fails: do NOT update local. Surface the Gmail error normally.
+If Gmail succeeds but local update fails: log the error loudly, return success to the user (Gmail is the source of truth), and rely on the next hourly sync / push event to reconcile. Critically: do NOT swallow the local-update error silently — log it with enough context (user ID, message IDs, error) that operators can diagnose drift.
+2. Add inline local mirror to POST /api/gmail/bulk-archive.Same pattern, but the Gmail mutation removes INBOX from each message:
+
+After successful Gmail call, update local label_ids to remove INBOX for the affected message IDs.
+Same error-handling pattern as bulk-mark-read.
+Note: archive operations on Gmail typically operate on threads, not just individual messages. Confirm whether the Gmail call is at thread or message granularity, and ensure the local mirror reaches the same set of rows. If Gmail archives at thread granularity, the local mirror needs to update all messages within those threads, not just the IDs the user clicked.
+3. State drift considerations (architect-style review focus area).This is the specific class of bug to look for in self-review:
+
+What happens if the Gmail call partially succeeds? (E.g., 5 messages requested, 3 succeed, 2 fail.) Does Gmail's response indicate which IDs succeeded? Does the local mirror update only the succeeded ones?
+What happens if the request is retried by the client (e.g., user double-clicks "archive")? Idempotent on Gmail's side, but does the local update path handle the second call cleanly?
+What happens if a push event arrives mid-mutation, also updating the same label_ids? Race condition between inline mirror and push-driven sync. Document or guard.
+If email_messages.label_ids is stored as CSV/JSON text (per the schema), what's the parse-modify-rewrite pattern? Use the same approach as toggle-star.
+Testing requirementsSelf-test harness extensions:
+Bulk-mark-read: send a batch of 3 message IDs, all currently UNREAD. Verify Gmail call fires, verify local rows are updated to remove UNREAD label.
+Bulk-archive: send a batch of 2 thread IDs (or message IDs depending on the Gmail call's granularity). Verify all messages in those threads have INBOX removed locally.
+Failure path: simulate Gmail error. Verify local rows are NOT updated and the error surfaces correctly.
+Local-failure path: simulate local update error after Gmail success. Verify the response is still "success" (Gmail is truth) but the error is logged with full context.
+Race condition: confirm in code review (not in tests) that the inline mirror doesn't conflict with a concurrent push event hitting the same rows.
+Live API probe:
+Use a signed cookie session (same pattern as Commit 1.1 and Commit 2 verification) to:
+
+Bulk-mark-read 3 specific messages in your real DB.
+Verify via direct DB query that label_ids no longer contains UNREAD for those rows.
+Bulk-archive 2 thread IDs.
+Verify via direct DB query that label_ids no longer contains INBOX for those rows.
+
+
+Architect-style self-review:
+Continue the discipline that caught real bugs in 1.1 and 2. Specifically for this commit, focus on:
+
+State drift between Gmail and local under partial failures.
+Race conditions with concurrent push events.
+Whether the bulk-archive granularity (thread vs. message) is correctly matched between Gmail and local update paths.
+Whether the existing toggle-star pattern is actually being correctly imitated, or if there are subtle differences (transaction boundaries, error handling, label parsing).
+
+
+Process
+Implement Commit 3 following the spec above.
+Run the self-test harness extensions plus the live probe.
+Run an architect-style self-review on the changes.
+Make a Replit checkpoint.
+Stop. Report what changed, what was tested, what the architect review found and how it was addressed. Wait for me to verify in .dev myself before proceeding to Commit 4.
+Constraints
+Standing rules apply: no schema changes, no db:push, no destructive DB ops, no package edits without justification.
+Reuse existing patterns. The toggle-star endpoint should be the template for both new mirrors.
+If the bulk-archive granularity question (thread vs message) reveals a non-trivial implementation choice, flag it explicitly in the report rather than making the choice silently.
+If the architect review surfaces something that crosses into Commit 4's scope (UI changes for the unified inbox), flag it but do NOT pull Commit 4 work forward — note it for that commit instead.
+Begin Commit 3.
