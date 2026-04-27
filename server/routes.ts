@@ -9701,6 +9701,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     try {
       const gmail = await getGmailClient(resolved.userId, resolved.accountId);
       let success = 0; let failed = 0;
+      // Track which Gmail IDs actually flipped on Gmail's side. We mirror
+      // ONLY these to local — partial-failure case: 5 requested, 3 succeed,
+      // 2 fail → local mirror updates exactly the 3 that Gmail confirmed.
+      const succeededIds: string[] = [];
       for (const messageId of messageIds) {
         try {
           await gmail.users.messages.modify({
@@ -9708,8 +9712,43 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             requestBody: markAs === "read" ? { removeLabelIds: ["UNREAD"] } : { addLabelIds: ["UNREAD"] },
           });
           success++;
-        } catch { failed++; }
+          succeededIds.push(String(messageId));
+        } catch (e: any) {
+          // 1-line addition (per the original investigation report's
+          // "two pre-existing 1-line bugs"): bare `} catch { failed++; }`
+          // hid which message failed, making partial-failure debugging
+          // impossible. Now we log per-message context so operators can
+          // diagnose drift without having to add ad-hoc logging.
+          console.error(`[bulk-mark-read] gmail modify failed for id=${messageId}:`, e.message);
+          failed++;
+        }
       }
+
+      // Inline local mirror — best-effort. Gmail is the source of truth, so
+      // if the mirror fails we still return success to the user; the next
+      // hourly sync / push event will reconcile. Critically, we DO NOT
+      // swallow the mirror error silently — log with full context.
+      if (succeededIds.length > 0) {
+        try {
+          const { mirrorLabelChangeForMessages } = await import("./services/local-label-mirror");
+          const op = markAs === "read" ? { remove: ["UNREAD"] } : { add: ["UNREAD"] };
+          const r = await mirrorLabelChangeForMessages(succeededIds, resolved.accountId, op);
+          if (r.missing > 0 || r.errors > 0) {
+            console.warn(
+              `[bulk-mark-read] local mirror partial: user=${resolved.userId} ` +
+              `account=${resolved.accountId} updated=${r.updated} missing=${r.missing} errors=${r.errors}`
+            );
+          }
+        } catch (mirrorErr: any) {
+          console.error(
+            `[bulk-mark-read] local mirror FAILED (non-fatal): ` +
+            `user=${resolved.userId} account=${resolved.accountId} ` +
+            `markAs=${markAs} ids=[${succeededIds.join(",")}]:`,
+            mirrorErr.message,
+          );
+        }
+      }
+
       res.json({ success, failed });
     } catch (err: any) {
       res.status(503).json({ message: "Gmail API error", error: err.message });
@@ -9733,6 +9772,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     try {
       const gmail = await getGmailClient(resolved.userId, resolved.accountId);
       let success = 0; let failed = 0;
+      const succeededThreadIds: string[] = [];
       for (const threadId of threadIds) {
         try {
           await gmail.users.threads.modify({
@@ -9740,8 +9780,44 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             requestBody: { removeLabelIds: ["INBOX"] },
           });
           success++;
-        } catch { failed++; }
+          succeededThreadIds.push(String(threadId));
+        } catch (e: any) {
+          // 1-line addition (per the original investigation report's
+          // "two pre-existing 1-line bugs"): bare `} catch { failed++; }`
+          // hid which thread failed. See bulk-mark-read for full rationale.
+          console.error(`[bulk-archive] gmail modify failed for thread=${threadId}:`, e.message);
+          failed++;
+        }
       }
+
+      // Inline local mirror — best-effort. Granularity note: Gmail's
+      // `users.threads.modify({ removeLabelIds: ["INBOX"] })` removes INBOX
+      // from EVERY message in each thread, not just specific message IDs.
+      // mirrorLabelChangeForThreads queries by gmail_thread_id IN (...) so
+      // the local mirror reaches the same set of rows. Without this, archived
+      // threads with multi-message conversations would still show INBOX on
+      // some rows locally and the user would see partial archive flicker.
+      if (succeededThreadIds.length > 0) {
+        try {
+          const { mirrorLabelChangeForThreads } = await import("./services/local-label-mirror");
+          const r = await mirrorLabelChangeForThreads(succeededThreadIds, resolved.accountId, { remove: ["INBOX"] });
+          if (r.errors > 0) {
+            console.warn(
+              `[bulk-archive] local mirror partial: user=${resolved.userId} ` +
+              `account=${resolved.accountId} threads=${r.threads} updated=${r.updated} ` +
+              `missing-threads=${r.missing} errors=${r.errors}`
+            );
+          }
+        } catch (mirrorErr: any) {
+          console.error(
+            `[bulk-archive] local mirror FAILED (non-fatal): ` +
+            `user=${resolved.userId} account=${resolved.accountId} ` +
+            `threadIds=[${succeededThreadIds.join(",")}]:`,
+            mirrorErr.message,
+          );
+        }
+      }
+
       res.json({ success, failed });
     } catch (err: any) {
       res.status(503).json({ message: "Gmail API error", error: err.message });

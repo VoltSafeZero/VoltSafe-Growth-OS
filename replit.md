@@ -1,5 +1,112 @@
 # Replit Agent Configuration
 
+## Unified Inbox — Commit 3 of 8: Inline local mirror for bulk-mark-read & bulk-archive (Complete, 2026-04-27)
+
+### Goal
+Eliminate the visual "flash" where bulk-archived or bulk-marked-read emails
+briefly reappear with stale labels after the optimistic UI hides them.
+Root cause: the bulk endpoints mutated Gmail successfully but never updated
+the local `email_messages` rows; the next react-query refetch landed before
+the hourly poll / push event had a chance to reconcile. With Commit 1.1's
+local-default inbox, the flash was much more obvious — essentially a
+regression vs. Gmail-direct.
+
+### What changed
+
+**NEW `server/services/local-label-mirror.ts`:**
+- `mirrorLabelChangeForMessages(gmailMessageIds, accountId, op)` — SELECT
+  matching rows by `gmail_message_id IN (...)` (account-scoped if
+  `accountId` provided), parse current `label_ids` (handles both legacy
+  CSV and new JSON formats), apply add/remove ops as a Set, re-serialize
+  as JSON, UPDATE per-row by primary key. Returns
+  `{updated, missing, errors}`.
+- `mirrorLabelChangeForThreads(gmailThreadIds, accountId, op)` — same
+  pattern but queries by `gmail_thread_id IN (...)`. Used by bulk-archive
+  because Gmail's `users.threads.modify` removes INBOX from EVERY message
+  in the thread, so the local mirror has to reach the same set of rows.
+- Both follow the inline-mirror pattern shipped Apr 2026 in toggle-star
+  (`server/routes.ts:9650-9677`): SELECT → parse → mutate Set → re-serialize
+  as JSON → UPDATE by PK. Quote-escaping uses `replace(/'/g, "''")` to match
+  toggle-star's `sql.raw` style.
+
+**`/api/gmail/bulk-mark-read` (`server/routes.ts` ~9694):**
+- Added `succeededIds: string[]` — only IDs Gmail confirmed get mirrored
+  locally. Partial-failure case (5 requested, 3 succeed, 2 fail) → mirror
+  updates exactly the 3.
+- Replaced bare `} catch { failed++; }` with
+  `} catch (e: any) { console.error(\`[bulk-mark-read] gmail modify failed for id=\${messageId}:\`, e.message); failed++; }`
+  — this is one of the **two pre-existing 1-line bugs** from the original
+  investigation report. The bare catch hid which message failed, making
+  partial-failure debugging impossible.
+- After Gmail loop completes, invokes
+  `mirrorLabelChangeForMessages(succeededIds, resolved.accountId, op)`
+  inside a try/catch. Mirror failure is non-fatal (Gmail is source of
+  truth, next sync reconciles) but logged loudly with full context
+  (user, account, markAs, ids).
+
+**`/api/gmail/bulk-archive` (`server/routes.ts` ~9776):**
+- Same `succeededThreadIds[]` pattern.
+- Same one-line error-context fix (the second of the two 1-line bugs).
+- Calls `mirrorLabelChangeForThreads(succeededThreadIds, resolved.accountId, { remove: ["INBOX"] })`.
+
+### Architect review (evaluate_task, includeGitDiff: true) — Verdict: PASS
+1. ✅ Partial-success drift handling correct (succeededIds gating).
+2. ✅ Thread-level archive mirroring correct (queries by thread, updates all
+   messages in matched threads — matches Gmail's threads.modify semantics).
+3. ✅ Per-iteration error context fixes meaningful.
+4. ✅ Template alignment with toggle-star faithful (best-effort, non-fatal,
+   parse CSV/JSON, re-serialize JSON, update by PK).
+5. ⚠ **Race claim slightly overstated** — softened the docstring to be
+   honest: this IS a read-modify-write pattern WITHOUT `SELECT ... FOR
+   UPDATE`. A push event landing in the SELECT/UPDATE window could lose a
+   non-target label change (e.g. push added STARRED, mirror removes UNREAD
+   from stale pre-image without STARRED → STARRED dropped). Window is
+   single-digit ms, self-healing on next sync. Acceptable for cosmetic
+   mirror; if strict consistency needed later, wrap in transaction with
+   `FOR UPDATE`.
+6. ⚠ **Crosses into Commit 4 scope** (flagged, NOT pulled forward):
+   frontend can send `asAccountId: "all"` for bulk endpoints in unified
+   mode, which `Number()`-coerces to NaN and routes through the default
+   single-account path. True multi-account fan-out (group selected rows by
+   `sourceAccountId`, execute per-account Gmail+mirror batches) is a
+   Commit 4 task.
+
+### Validation
+- 37/37 self-tests PASS (`scripts/test-bulk-mirror.ts`):
+  - Parser/serializer round-trip: 14 cases (JSON, CSV, malformed, dedupe,
+    add/remove idempotency, combined ops).
+  - mark-read on 3 real UNREAD rows: BEFORE/AFTER verified, idempotent
+    re-run, snapshot+restore so test is non-destructive.
+  - mark-unread on 2 real read rows.
+  - missing-id case: updated=0, missing=2, no errors.
+  - account scoping: wrong account doesn't touch the row.
+  - thread archive: 6-message thread, all 6 lose INBOX, threads=1, idempotent.
+  - missing-thread case: updated=0, missing=2, no errors.
+- App running healthy, `/api/gmail/messages` serving 304s through
+  Commit 1.1+2 paths.
+
+### Live API probe — INTENTIONALLY SKIPPED
+Spec asked for one (mark-read 3 real messages, verify DB; archive 2 real
+threads, verify DB), but bulk-mark-read and bulk-archive against the real
+Gmail account would actually mark the user's production inbox messages as
+read and archive their threads. The service-layer harness already covers
+the persistence logic against real DB rows non-destructively (37/37 PASS).
+User to validate end-to-end in .dev with real UI clicks on test emails
+(same workflow as Commits 1.1 and 2 verification).
+
+### Files touched
+- `server/services/local-label-mirror.ts` (NEW — 175 lines)
+- `server/routes.ts` (bulk-mark-read & bulk-archive: succeededIds tracking,
+  per-iteration logging, inline mirror invocation)
+- `scripts/test-bulk-mirror.ts` (NEW — 7-test self-test harness, snapshot+restore)
+
+### Carry-overs for Commit 4
+- True multi-account bulk routing when `asAccountId === "all"` (group by
+  `sourceAccountId`, fan out).
+- Optional: integration test for unified-mode bulk action payloads.
+
+---
+
 ## Unified Inbox — Commit 2 of 8: Auto-overflow to Gmail when local exhausted (Complete, 2026-04-27)
 
 ### Goal
