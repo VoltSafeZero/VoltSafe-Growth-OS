@@ -1,5 +1,75 @@
 # Replit Agent Configuration
 
+## Premium "My Calendar" Widget — Replaces Today's Meetings (Complete, 2026-04-27)
+
+### Goal
+User asked for "a premium calendar widget that any user can add (their own
+calendar)" in place of the existing "Today's Meetings" widget on the role
+command center. The old widget read from a daily-command-center aggregate and
+just listed today's items with no way to connect a personal calendar.
+
+### What changed
+**NEW `client/src/components/widgets/my-calendar-widget.tsx`** — drop-in
+replacement that:
+- Reads `/api/calendar/integrations` to detect connected providers
+  (Google + CalDAV/Apple). Filters to `isActive !== false` so disconnected
+  rows don't fake a connection.
+- Reads `/api/calendar/events?start=today&end=today+7d`. Polls every 60s
+  in foreground, off in background.
+- **Empty state** (no calendar connected): friendly card with two buttons —
+  "Connect Google Calendar" (kicks off `/api/calendar/integrations/google/
+  auth-url` and redirects, mirroring `settings.tsx`'s flow) and "Connect
+  Apple / iCloud" (deep-links to `/settings` where the existing CalDAV
+  dialog lives). Includes double-click guard.
+- **Connected state**:
+  - 7-day mini week-strip with event-density dots, today highlighted
+  - "Today · {date}" section listing up to 4 events with time chips,
+    title, location/video host/attendee count, and live status pills
+    ("Now" / "in 12m" / "in 2h")
+  - "+ N more today" overflow link to `/execution/calendar`
+  - "Tomorrow" preview with up to 2 events (muted styling)
+  - Footer: "Open full calendar →" + quick "+ Event" CTA
+- Sniffs Zoom/Meet/Teams/Webex/Whereby links from event descriptions when
+  no explicit `meetingUrl` is set, so the join-icon still appears.
+- Date range computed each render (not memoized) so the week window
+  rolls over naturally at midnight in long-lived tabs without restarting
+  the query — same calendar day produces the same ISO strings → same
+  react-query key → no extra fetches.
+
+**`client/src/components/command-centers/action-widgets.tsx`**:
+- Added `import { MyCalendarWidget } from "@/components/widgets/my-calendar-widget";`
+- Removed the old `TodaysMeetingsWidget` body (replaced with comment
+  pointing to the new file).
+- Registry: `todays_meetings: MyCalendarWidget` (intentionally kept the
+  same widget id so existing user layouts and visibility prefs continue
+  to work without a migration).
+
+**`client/src/lib/dashboard-config.ts`**:
+- Renamed widget label "Today's Meetings" → "My Calendar".
+- Updated description to match the upgrade.
+- Removed `visibility.permKey: "calendar"` requirement so any user can
+  add the widget — mirrors the `my_inbox` pattern (every user has their
+  own personal calendar).
+
+### What was NOT changed
+- Zero schema changes, zero `db:push`, zero migrations. Calendar tables
+  and `/api/calendar/*` endpoints already exist and are used as-is.
+- No server route changes.
+- Per-role `defaultVisible` flags in `dashboard-config.ts` (lines 280-455)
+  intentionally left as-is — users opt in via the Widgets panel.
+- The full `/execution/calendar` page, the existing settings → calendar
+  panel, the Google OAuth callback, and the CalDAV connect flow all
+  untouched.
+
+### Validation
+- App restarts cleanly, vite hot-reload picked up all four edits, no
+  compile errors.
+- Architect code review PASS — three minor hardening fixes
+  (double-click guard, isActive filter, midnight-rollover-safe date range)
+  applied before final commit.
+
+---
+
 ## GMAIL Inbox "Only 17 messages" — Surface Local Archive Hint (Complete, 2026-04-27)
 
 ### Goal

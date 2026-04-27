@@ -181,10 +181,12 @@ const NEW_WIDGETS: Record<string, WidgetDef> = {
     },
   },
   todays_meetings: {
-    id: "todays_meetings", label: "Today's Meetings",
-    description: "Calendar events and customer calls happening today",
+    id: "todays_meetings", label: "My Calendar",
+    description: "Your connected Google or Apple calendar — today's meetings, this week at a glance, one-click join links",
     defaultVisible: true, category: "action", isNew: true,
-    visibility: { permKey: "calendar", minAccessLevel: "view" },
+    // Intentionally no permKey: every user has their own personal calendar,
+    // mirroring the My Inbox pattern. Connecting Google/Apple from inside the
+    // widget is a per-user action that doesn't require any team permission.
   },
   my_inbox: {
     id: "my_inbox", label: "My Inbox",

@@ -26,6 +26,7 @@ import {
   CloseLikelihoodDealsWidget,
   KeyAccountsActionWidget,
 } from "@/components/widgets/role-cards";
+import { MyCalendarWidget } from "@/components/widgets/my-calendar-widget";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -875,41 +876,11 @@ export function ForecastGapWidget({ compact, isDragging, dragProps }: WidgetProp
   );
 }
 
-// ── 20. Today's Meetings ──────────────────────────────────────────────────────
-
-export function TodaysMeetingsWidget({ compact, isDragging, dragProps }: WidgetProps) {
-  const { data, isLoading } = useQuery<any>({
-    queryKey: ["/api/daily-command-center"],
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const meetings: any[] = (data?.sections?.thisWeekPriorities?.meetings ?? []).filter((m: any) => {
-    try { return isToday(new Date(m.start_time)); } catch { return false; }
-  });
-
-  return (
-    <ActionWidgetShell id="todays_meetings" icon={Calendar} title="Today's Meetings"
-      count={meetings.length} link="/execution/calendar" compact={compact} isDragging={isDragging} dragProps={dragProps}>
-      {isLoading && <Skeleton className="h-20" />}
-      {!isLoading && meetings.length === 0 && <EmptyState message="No meetings scheduled for today." />}
-      {!isLoading && meetings.slice(0, 5).map((m: any, i: number) => {
-        const start = new Date(m.start_time);
-        const timeStr = format(start, "h:mm a");
-        const isPast = start < new Date();
-        return (
-          <ItemRow key={m.id ?? i}
-            icon={Calendar}
-            title={m.title}
-            subtitle={m.location ?? m.description?.slice(0, 40) ?? undefined}
-            right={timeStr}
-            link="/execution/calendar"
-            testId={`meeting-today-${i}`}
-          />
-        );
-      })}
-    </ActionWidgetShell>
-  );
-}
+// ── 20. My Calendar ───────────────────────────────────────────────────────────
+// The premium replacement for the old "Today's Meetings" widget lives in
+// `client/src/components/widgets/my-calendar-widget.tsx`. It's wired to this
+// registry under the same `todays_meetings` id so existing dashboard layouts
+// and visibility prefs keep working without a migration.
 
 // ── My Inbox & Team Inboxes (Mission Control) ────────────────────────────────
 
@@ -1123,7 +1094,7 @@ export const ACTION_WIDGET_MAP: Record<string, React.ComponentType<WidgetProps>>
   unresponded_leads:      UnrespondedLeadsWidget,
   renewal_countdown:      RenewalCountdownWidget,
   forecast_gap:           ForecastGapWidget,
-  todays_meetings:        TodaysMeetingsWidget,
+  todays_meetings:        MyCalendarWidget,
   my_inbox:               MyInboxWidget,
   team_inboxes:           TeamInboxesWidget,
   weather:                WeatherWidget,
