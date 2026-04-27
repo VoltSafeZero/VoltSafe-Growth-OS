@@ -10122,6 +10122,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
                AND m.label_ids LIKE '%"UNREAD"%') AS unread_count,
           (SELECT count(*)::int FROM email_messages m
              WHERE m.source_account_id = a.id) AS message_count,
+          (SELECT count(*)::int FROM email_messages m
+             WHERE m.source_account_id = a.id
+               AND m.label_ids LIKE '%"INBOX"%') AS inbox_count,
           (SELECT max(sent_at) FROM email_messages m
              WHERE m.source_account_id = a.id) AS last_message_at
         FROM email_accounts a
@@ -10155,6 +10158,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           syncErrorMessage: r.sync_error_message,
           unreadCount: r.unread_count ?? 0,
           messageCount: r.message_count ?? 0,
+          inboxCount: r.inbox_count ?? 0,
           lastMessageAt: r.last_message_at,
           watchHoursRemaining,
           lastWebhookMinAgo,

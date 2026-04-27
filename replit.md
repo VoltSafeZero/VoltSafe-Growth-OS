@@ -1,42 +1,67 @@
 # Replit Agent Configuration
 
-## GMAIL Inbox "Stuck at ~17 messages" — Load More Resumes Auto-Chain (Complete, 2026-04-26)
+## GMAIL Inbox "Only 17 messages" — Surface Local Archive Hint (Complete, 2026-04-27)
 
 ### Goal
-Fix Trevor's report: "I see less than 20 messages in my GMAIL inbox and scrolling
-down loads no more." The inbox is dominated by blocked-domain senders
-(LinkedIn, newsletters, etc.); after the auto-chain budget exhausted at 25
-pages × 50 raw = 1,250 messages, only ~17 passed the blocked-domain filter.
-Each subsequent manual "Load more" click then fetched only ONE more page (50
-raw, ~0–1 visible), so the inbox felt frozen.
+Fix Trevor's report: "Even though my source is set to GMAIL, the inbox shows
+less than 20 messages and scrolling down loads no more." Investigation of his
+actual data showed:
+- Live Gmail INBOX label: only 17 messages (he archives aggressively).
+- Local cache (`email_messages`): **48,437 INBOX-tagged messages going back
+  to 2020-01-01** plus 8,221 SENT — synced when those messages were originally
+  in INBOX before Trevor archived them.
+- With `mailSource=gmail` (default), the inbox correctly shows the 17 live
+  messages and Gmail returns no `nextPageToken`, so the UI lands in the
+  terminal "all caught up" state with no way to discover the local archive.
+- An existing hint already covered the inverse direction (when source=local
+  but Gmail has more → "Switch to live Gmail to see the rest"); the
+  Gmail→local direction had no equivalent.
 
-### What changed (UI only — `client/src/pages/gmail-inbox.tsx`)
-- Manual "Load more" click in the auto-chain-exhausted state now **resets the
-  chain** (`autoChainRef.current.count = 0` + `setAutoChainExhaustedKey(null)`)
-  and then fires `loadMore()`. The auto-chain effect re-engages and pulls
-  another batch of pages until either the visible target is filled or
-  `hasMore` becomes false. One click ≈ another 25-page chain instead of one
-  page.
-- New CTA copy in the exhausted state shows three meaningful counts:
-  `{visible} shown · {scanned} scanned · {N} in Other` so the user understands
-  why visible count lags the mailbox total — most messages are in the "Other"
-  tab (blocked-domain senders) or buried deeper.
-- Fixed a typo in the prior CTA template
-  (`Load more — showing X of more available` had a missing variable between
-  "of" and "more").
+### What changed
+**`server/routes.ts`** — `/api/gmail/accounts/health` response:
+- Added a SELECT-time computed `inbox_count` column (COUNT(*) FILTER on
+  email_messages where source_account_id matches AND label_ids LIKE
+  '%"INBOX"%') and exposed it as `inboxCount` in the response object. No
+  schema column added; no migration. INBOX-only count is required so the new
+  hint doesn't false-positive on accounts where SENT/drafts inflate the total.
+
+**`client/src/pages/gmail-inbox.tsx`** — three coordinated UI changes:
+1. **Manual Load More resumes the chain** (sentinel CTA): when the
+   auto-chain has exhausted its 25-page budget but the user clicks "Load
+   more", reset `autoChainRef.current.count = 0` and clear
+   `autoChainExhaustedKey` before firing `loadMore()`. One click now resumes
+   the chain for another batch of pages instead of fetching just one — useful
+   for inboxes with heavy blocked-domain stripping.
+2. **CTA copy** rewritten to surface meaningful counts: `{shown} shown ·
+   {scanned} scanned · {N} in Other` (also fixes a prior typo
+   "Load more — showing X of more available" with a missing variable).
+3. **New `archive-available` hint** in the all-caught-up sentinel:
+   - Mirrors the existing `localShortfall` hint but inverse-direction.
+   - Fires only when: `mailSource !== "local"` AND `tab === "inbox"` AND
+     `healthById.get(activeAcct).inboxCount > visible + 100`. Restricting to
+     the inbox tab avoids misleading numbers on the derived "Other" slice.
+   - Renders amber two-line: "Live Gmail INBOX: X · Local archive: Y" plus a
+     "Switch to local archive to see history" button.
+   - Click handler **persists** the choice to localStorage
+     (`voltsafe.mailSource` = "local") + shows a confirmation toast — this
+     differs intentionally from the inverse hint (which is a transient
+     fallback). Documented this exception in the comment block above the
+     `mailSource` useState.
 
 ### What was NOT changed
 - Zero schema changes, zero `db:push`, zero migrations.
-- `MarinasDayPlannerDialog` (unrelated), `getMessageSummaries`, `/api/gmail/messages`,
-  blocked-domain rules, and the local/gmail/auto source policy all untouched.
-- Existing "all caught up" terminal state and local-shortfall "Switch to live
-  Gmail" hint preserved verbatim.
+- `MarinasDayPlannerDialog` (unrelated), `getMessageSummaries`,
+  `/api/gmail/messages`, blocked-domain rules, the local/gmail/auto source
+  routing policy, and the existing inverse "Switch to live Gmail" hint all
+  untouched.
 
 ### Validation
-- App restarts cleanly, Vite hot-reloaded the change with no errors.
-- Architect review (`evaluate_task` + git diff) returned PASS on:
-  click-handler mechanics, autoChain re-fire, hooks-rules safety, variable
-  scope, preserved fallback paths, and CTA layout.
+- App restarts cleanly, Vite hot-reloaded each change, no compile errors,
+  `/api/gmail/accounts/health` returns 401 unauthenticated as expected.
+- Architect review (two rounds): first round flagged three issues
+  (messageCount vs inboxCount false-positive, "Other" tab inconsistency,
+  persistence comment), all three resolved in round two; final mapping gap
+  (`inbox_count` in SQL but missing from annotated mapper) caught and fixed.
 
 ## Leads Nearby — Migrated to Draggable Dashboard Widget (Complete, 2026-04-26)
 

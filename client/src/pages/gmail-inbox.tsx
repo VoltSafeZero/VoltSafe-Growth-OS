@@ -2577,10 +2577,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   //      Settings → My Mailboxes → Mail preferences)
   //   3. Default "gmail" — the live Gmail view is the canonical experience.
   // The in-page Source dropdown was removed in favor of the Settings selector
-  // so the inbox toolbar stays focused on actions, not preferences. Programmatic
-  // switches inside this component (e.g. forced "local" for All Inboxes, or the
-  // "Switch to live Gmail" backfill CTA) are transient and intentionally do
-  // NOT persist back to localStorage.
+  // so the inbox toolbar stays focused on actions, not preferences. Most
+  // programmatic switches inside this component (e.g. forced "local" for All
+  // Inboxes, or the "Switch to live Gmail" backfill CTA) are transient and
+  // intentionally do NOT persist back to localStorage. The one exception is
+  // the "Switch to local archive" CTA in the all-caught-up sentinel — that
+  // click is a deliberate user opt-in to the historical view, so it DOES
+  // persist (otherwise the user would be back at "17 messages" on next reload).
   const [mailSource, setMailSource] = useState<"local" | "gmail" | "auto">(() => {
     const urlValue = new URLSearchParams(window.location.search).get("mailSource");
     if (urlValue === "local" || urlValue === "gmail" || urlValue === "auto") return urlValue;
@@ -3030,7 +3033,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     id: number; emailAddress: string; displayName: string | null; isShared: boolean; isOwner: boolean;
     authStatus: string; syncEnabled: boolean; lastSyncAt: string | null; watchExpirationAt: string | null;
     lastWebhookAt: string | null; lastIncrementalSyncAt: string | null; incrementalEventCount: number;
-    syncErrorMessage: string | null; unreadCount: number; messageCount: number; lastMessageAt: string | null;
+    syncErrorMessage: string | null; unreadCount: number; messageCount: number; inboxCount?: number; lastMessageAt: string | null;
     watchHoursRemaining: number | null; lastWebhookMinAgo: number | null; status: "green" | "amber" | "red";
   };
   const accountsHealthQuery = useQuery<AccountHealth[]>({
@@ -5232,6 +5235,28 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   (() => {
                     const liveTotal = (profileQuery.data as any)?.messagesTotal ?? null;
                     const localShortfall = mailSource === "local" && typeof liveTotal === "number" && liveTotal > crmFilteredMessages.length + 50;
+                    // Inverse of localShortfall: source=gmail|auto returned its terminal page
+                    // ("all caught up") but the local cache has substantially more historical
+                    // INBOX-tagged messages. Happens when the user has been archiving heavily
+                    // in Gmail (live INBOX label is tiny) while the synced local snapshot
+                    // still holds the full INBOX-tagged history. Without this hint the user
+                    // sees "17 messages" and thinks the inbox is broken.
+                    //
+                    // Restricted to tab==="inbox": the "Other" tab is a derived blocked-domain
+                    // slice of the same fetch, so its count isn't comparable to the local
+                    // INBOX archive total and the same hint there would be misleading.
+                    const activeAcctIdNum = activeAccountId === "all"
+                      ? null
+                      : (typeof activeAccountId === "number" ? activeAccountId : (personalAccount?.id ?? null));
+                    // Use INBOX-only count (inboxCount), not total messageCount — total
+                    // includes SENT/drafts and would false-positive for normal users.
+                    const localInboxArchive = activeAcctIdNum
+                      ? (healthById.get(activeAcctIdNum)?.inboxCount ?? 0)
+                      : 0;
+                    const archiveShortfall =
+                      mailSource !== "local" &&
+                      tab === "inbox" &&
+                      localInboxArchive > crmFilteredMessages.length + 100;
                     if (localShortfall) {
                       return (
                         <span className="inline-flex flex-col items-center gap-1 text-amber-600 dark:text-amber-400 tabular-nums" data-testid="status-backfill-incomplete">
@@ -5242,6 +5267,37 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             className="text-[10px] underline-offset-2 hover:underline"
                           >
                             Switch to live Gmail to see the rest
+                          </button>
+                        </span>
+                      );
+                    }
+                    if (archiveShortfall) {
+                      return (
+                        <span className="inline-flex flex-col items-center gap-1 text-amber-600 dark:text-amber-400 tabular-nums" data-testid="status-archive-available">
+                          <span>
+                            Live Gmail INBOX: {crmFilteredMessages.length.toLocaleString()} · Local archive: {localInboxArchive.toLocaleString()}
+                          </span>
+                          <button
+                            onClick={() => {
+                              // Persist the preference. Unlike the inverse hint (which is a
+                              // transient backfill fallback), this is a deliberate, sticky
+                              // user choice — the user wants the historical view going forward.
+                              setMailSource("local");
+                              try {
+                                window.localStorage.setItem("voltsafe.mailSource", "local");
+                              } catch {
+                                // localStorage may be unavailable (private mode, etc.) — ignore.
+                              }
+                              toast({
+                                title: "Switched to local archive",
+                                description:
+                                  "Your inbox now shows synced historical messages. Change anytime in Mail preferences.",
+                              });
+                            }}
+                            data-testid="button-switch-to-local"
+                            className="text-[10px] underline-offset-2 hover:underline"
+                          >
+                            Switch to local archive to see history
                           </button>
                         </span>
                       );
