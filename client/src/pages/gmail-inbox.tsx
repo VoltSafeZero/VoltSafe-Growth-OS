@@ -29,6 +29,7 @@ import { useSnippets, SnippetInsertButton, SnippetsManagerDialog } from "@/compo
 import { useLocation } from "wouter";
 import { sanitizeEmailHtml, htmlToPlainText } from "@/lib/sanitize-html";
 import { motion, AnimatePresence } from "framer-motion";
+import { formatDistanceToNow } from "date-fns";
 
 // ─── Avatar deterministic color palette ─────────────────────────────────────
 // Tightened palette — removed the lightest pastels (lime, amber) to keep
@@ -2620,36 +2621,43 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const mailTeamPerms: MailTeamPerms = (userPermissions?.mail_team ?? {}) as MailTeamPerms;
   const isAdmin = ["master_admin", "admin"].includes(currentUserRole);
   const { toast } = useToast();
-  // Mail source resolution order (per-user, per-device):
-  //   1. ?mailSource= URL param (one-off override, wins for that session)
-  //   2. localStorage "voltsafe.mailSource" (user's saved preference, set in
-  //      Settings → My Mailboxes → Mail preferences)
-  //   3. Default "local" — the local synced store gives full history (54k+
-  //      messages going back years) and powers the fast poll loop. The live
-  //      Gmail view is still one click away from the source toggle in
-  //      Settings → Mail preferences for users who prefer the live label
-  //      window. The inbox query polls every 15s while the local source is
-  //      active so newly-arrived mail (already synced via Gmail push webhook)
-  //      surfaces near-realtime, on par with premium clients.
-  // The in-page Source dropdown was removed in favor of the Settings selector
-  // so the inbox toolbar stays focused on actions, not preferences. Most
-  // programmatic switches inside this component (e.g. forced "local" for All
-  // Inboxes, or the "Switch to live Gmail" backfill CTA) are transient and
-  // intentionally do NOT persist back to localStorage. The one exception is
-  // the "Switch to local archive" CTA in the all-caught-up sentinel — that
-  // click is a deliberate user opt-in to the historical view, so it DOES
-  // persist (otherwise the user would be back at "17 messages" on next reload).
-  const [mailSource, setMailSource] = useState<"local" | "gmail" | "auto">(() => {
-    const urlValue = new URLSearchParams(window.location.search).get("mailSource");
-    if (urlValue === "local" || urlValue === "gmail" || urlValue === "auto") return urlValue;
+  // Commit 4 (unified inbox): the in-page mailSource toggle, the
+  // ?mailSource= URL override, the localStorage `voltsafe.mailSource`
+  // preference, and the toggle CTAs in the all-caught-up sentinel were all
+  // removed. The inbox is now ALWAYS sourced from the local mirror — the
+  // synced store has the full INBOX history (54k+ rows going back years) and
+  // is kept fresh by the Gmail push webhook + a 15s foreground poll, so
+  // there is no longer a UX reason to expose a "live Gmail" view. This
+  // one-shot effect cleans up any localStorage value left over from
+  // pre-Commit-4 sessions and drops any cached React Query entries that
+  // still carry the old 5-tuple key (which included mailSource as the last
+  // segment) so we don't ship stale rows on the first post-deploy load.
+  useEffect(() => {
+    try { window.localStorage.removeItem("voltsafe.mailSource"); } catch {}
     try {
-      const stored = window.localStorage.getItem("voltsafe.mailSource");
-      if (stored === "local" || stored === "gmail" || stored === "auto") return stored;
-    } catch {
-      // localStorage may be unavailable (private mode, SSR, etc.) — fall through to default.
-    }
-    return "local";
-  });
+      // Old 5-tuple keys: ["/api/gmail/messages", "inbox"|"sent", q, acct, mailSource].
+      // After Commit 4 we use 4-tuple keys. Drop anything with an extra trailing
+      // segment so the cache doesn't leak old "local"/"gmail" rows past upgrade.
+      queryClient.removeQueries({
+        predicate: (q) => {
+          const k = q.queryKey;
+          if (!Array.isArray(k) || k.length < 5) return false;
+          if (k[0] !== "/api/gmail/messages") return false;
+          return k[4] === "local" || k[4] === "gmail" || k[4] === "auto";
+        },
+      });
+      queryClient.removeQueries({
+        predicate: (q) => {
+          const k = q.queryKey;
+          if (!Array.isArray(k) || k.length < 4) return false;
+          if (k[0] !== "/api/gmail/threads") return false;
+          return k[3] === "local" || k[3] === "gmail" || k[3] === "auto";
+        },
+      });
+    } catch {}
+    // Run once on mount — no deps. Idempotent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
@@ -3027,7 +3035,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             ? [...m.labelIds.filter(l => l !== "STARRED"), "STARRED"]
             : m.labelIds.filter(l => l !== "STARRED") } : m
         ) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId, mailSource], update);
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], update);
       setInboxExtra((prev) => prev.map((m) => m.id === msgId ? { ...m, labelIds: data.starred
         ? [...m.labelIds.filter(l => l !== "STARRED"), "STARRED"]
         : m.labelIds.filter(l => l !== "STARRED") } : m));
@@ -3050,8 +3058,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // account id so per-thread reads/mutations target the right mailbox (instead of sending the
   // literal "all" sentinel, which numeric-only routes coerce to NaN).
   const [currentThreadAccountId, setCurrentThreadAccountId] = useState<number | null>(null);
-  // Save the user's preferred mailSource so we can restore it when they leave "All Inboxes".
-  const [savedMailSource, setSavedMailSource] = useState<"local" | "gmail" | "auto" | null>(null);
 
   const statusQuery = useQuery<{ connected: boolean; tokenValid: boolean; apiEnabled: boolean; hasCredentials: boolean }>({
     queryKey: ["/api/gmail/status"],
@@ -3136,77 +3142,58 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   })();
 
   const inboxQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
-    queryKey: ["/api/gmail/messages", "inbox", searchQuery, activeAccountId, mailSource],
+    queryKey: ["/api/gmail/messages", "inbox", searchQuery, activeAccountId],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", "50");
       params.set("q", searchQuery ? `in:inbox ${searchQuery}` : "in:inbox");
-      params.set("source", mailSource);
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
       return res.json();
     },
-    // Premium-client cadence: poll every 15s on the local source (cheap PG
-    // read of already-webhook-synced data), every 30s on Gmail/auto (rate-
-    // limit conscious). Only polls while the tab is in the foreground —
-    // background polling is intentionally off so we don't burn quota on a
-    // tab the user isn't looking at.
-    refetchInterval: mailSource === "local" ? 15_000 : 30_000,
+    // Premium-client cadence: 15s foreground poll over the local mirror
+    // (cheap PG read of already-webhook-synced data). The background-poll
+    // gate keeps us from burning cycles on a tab the user isn't looking at.
+    refetchInterval: 15_000,
     refetchIntervalInBackground: false,
   });
 
   const sentQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
-    queryKey: ["/api/gmail/messages", "sent", searchQuery, activeAccountId, mailSource],
+    queryKey: ["/api/gmail/messages", "sent", searchQuery, activeAccountId],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", "50");
       params.set("q", searchQuery ? `in:sent ${searchQuery}` : "in:sent");
-      params.set("source", mailSource);
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
       return res.json();
     },
     enabled: tab === "sent",
-    // Sent doesn't change as fast — keep at 30s/60s to limit unnecessary work.
-    refetchInterval: mailSource === "local" ? 30_000 : 60_000,
+    // Sent doesn't change as fast — 30s is plenty.
+    refetchInterval: 30_000,
     refetchIntervalInBackground: false,
   });
 
   const inboxBaseToken = inboxQuery.data?.nextPageToken ?? null;
   const sentBaseToken = sentQuery.data?.nextPageToken ?? null;
 
-  // Pagination state hygiene (Commit 1.1 split — fixes stale-token leak on mode toggle).
-  //
-  // Previous version conflated two concerns into a single effect with deps
-  // [inboxBaseToken, searchQuery, activeAccountId, mailSource] guarded by a
-  // prevKey early-return. That early-return was needed to avoid wiping
-  // accumulated extras on background refetches — but it ALSO blocked the
-  // "adopt the new base token after a context-change refetch" path:
-  //
-  //   1. User toggles mailSource gmail→local.
-  //   2. Effect fires (mailSource changed). Key differs → resets extras +
-  //      sets nextToken = inboxBaseToken (still the OLD gmail token, OR null
-  //      because TanStack v5 cleared data for the new query key).
-  //   3. New local fetch lands. inboxBaseToken updates to a fresh local token.
-  //   4. Effect fires (inboxBaseToken changed) but key is unchanged → early
-  //      return. nextToken NEVER adopts the new local token. hasMore stays
-  //      false (or worse, stays at the stale gmail token → 500/503 on
-  //      subsequent loadMore).
-  //
-  // Fix: split into two effects with disjoint responsibilities.
-  //   * Effect A (context-change reset): clears extras + nulls nextToken when
-  //     the user changes search/account/mailSource. Does NOT depend on
-  //     baseToken, so background refetches don't trip it.
+  // Pagination state hygiene (Commit 1.1 split — fixes stale-token leak on
+  // context change). Two effects with disjoint responsibilities:
+  //   * Effect A (context-change reset): clears extras + nulls nextToken
+  //     when the user changes search/account. Does NOT depend on baseToken
+  //     so background refetches don't trip it.
   //   * Effect B (base-token adoption): when nextToken is null (fresh slate)
   //     and baseToken arrives, adopt baseToken as the cursor. When nextToken
   //     is non-null (mid-pagination), leave it alone — preserves the user's
   //     scroll position across background refetches.
+  // (Pre-Commit-4 these deps also included `mailSource` to handle the
+  // gmail↔local toggle; that toggle no longer exists.)
   useEffect(() => {
     setInboxExtra([]);
     setInboxNextToken(null);
-  }, [searchQuery, activeAccountId, mailSource]);
+  }, [searchQuery, activeAccountId]);
   useEffect(() => {
     setInboxNextToken((prev) => prev ?? inboxBaseToken);
   }, [inboxBaseToken]);
@@ -3218,7 +3205,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   useEffect(() => {
     setSentExtra([]);
     setSentNextToken(null);
-  }, [searchQuery, activeAccountId, mailSource]);
+  }, [searchQuery, activeAccountId]);
   useEffect(() => {
     setSentNextToken((prev) => prev ?? sentBaseToken);
   }, [sentBaseToken]);
@@ -3231,8 +3218,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Tab is included even though inbox/other share data, because a tab change can race with reset.
   const inboxEpochRef = useRef(0);
   const sentEpochRef = useRef(0);
-  useEffect(() => { inboxEpochRef.current += 1; }, [activeAccountId, searchQuery, mailSource, tab, inboxCategory, crmFilter]);
-  useEffect(() => { sentEpochRef.current += 1; }, [activeAccountId, searchQuery, mailSource, tab]);
+  useEffect(() => { inboxEpochRef.current += 1; }, [activeAccountId, searchQuery, tab, inboxCategory, crmFilter]);
+  useEffect(() => { sentEpochRef.current += 1; }, [activeAccountId, searchQuery, tab]);
 
   // Inbox debug instrumentation — opt-in via `localStorage.inbox_debug=1`. Logs every fetch's
   // full context, raw vs visible count, drop-on-stale-epoch, and auto-chain decisions. Stripped
@@ -3247,7 +3234,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const loadMoreInbox = async () => {
     if (!inboxNextToken || loadingMoreInbox) return;
     const requestEpoch = inboxEpochRef.current;
-    const ctxKey = `acct=${activeAccountId ?? ""}|src=${mailSource}|tab=${tab}|q=${searchQuery}|cat=${inboxCategory}|crm=${crmFilter}`;
+    const ctxKey = `acct=${activeAccountId ?? ""}|tab=${tab}|q=${searchQuery}|cat=${inboxCategory}|crm=${crmFilter}`;
     dbg("loadMoreInbox:fire", { ctx: ctxKey, epoch: requestEpoch, token: inboxNextToken });
     setLoadingMoreInbox(true);
     try {
@@ -3255,7 +3242,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       params.set("limit", "50");
       params.set("q", searchQuery ? `in:inbox ${searchQuery}` : "in:inbox");
       params.set("pageToken", inboxNextToken);
-      params.set("source", mailSource);
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error();
@@ -3298,7 +3284,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const loadMoreSent = async () => {
     if (!sentNextToken || loadingMoreSent) return;
     const requestEpoch = sentEpochRef.current;
-    const ctxKey = `acct=${activeAccountId ?? ""}|src=${mailSource}|tab=sent|q=${searchQuery}`;
+    const ctxKey = `acct=${activeAccountId ?? ""}|tab=sent|q=${searchQuery}`;
     dbg("loadMoreSent:fire", { ctx: ctxKey, epoch: requestEpoch, token: sentNextToken });
     setLoadingMoreSent(true);
     try {
@@ -3306,7 +3292,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       params.set("limit", "50");
       params.set("q", searchQuery ? `in:sent ${searchQuery}` : "in:sent");
       params.set("pageToken", sentNextToken);
-      params.set("source", mailSource);
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error();
@@ -3346,11 +3331,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       : (typeof activeAccountId === "number" ? activeAccountId : null);
 
   const threadQuery = useQuery<Thread>({
-    queryKey: ["/api/gmail/threads", selectedThreadId, threadAccountId, mailSource],
+    queryKey: ["/api/gmail/threads", selectedThreadId, threadAccountId],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (threadAccountId) params.set("asAccountId", String(threadAccountId));
-      params.set("source", mailSource);
       const qs = params.toString() ? `?${params}` : "";
       const res = await fetch(`/api/gmail/threads/${selectedThreadId}${qs}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
@@ -3577,7 +3561,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               : m
           )
         } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId, mailSource], updateMsgs);
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], updateMsgs);
       setInboxExtra(prev => prev.map(m =>
         messageIds.includes(m.id)
           ? { ...m, labelIds: isRead ? m.labelIds.filter(l => l !== "UNREAD") : [...m.labelIds.filter(l => l !== "UNREAD"), "UNREAD"] }
@@ -3602,7 +3586,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onSuccess: ({ threadIds }) => {
       const removeArchived = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
         old ? { ...old, messages: old.messages.filter(m => !threadIds.includes(m.threadId)) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId, mailSource], removeArchived);
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeArchived);
       setInboxExtra(prev => prev.filter(m => !threadIds.includes(m.threadId)));
       if (selectedThreadId && threadIds.includes(selectedThreadId)) {
         setSelectedThreadId(null);
@@ -3643,7 +3627,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onSuccess: ({ threadId }) => {
       const removeArchived = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
         old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId, mailSource], removeArchived);
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeArchived);
       setInboxExtra(prev => prev.filter(m => m.threadId !== threadId));
       if (selectedThreadId === threadId) { setSelectedThreadId(null); setSelectedMessageId(null); }
       toast({ title: "Thread archived" });
@@ -3818,7 +3802,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Compute the inbox chain key once; reused by the auto-chain effect AND the
   // unconditional context-clear effect below, so a context switch ALWAYS wipes the
   // exhaustion flag — even when the auto-chain effect short-circuits (e.g. tab=sent).
-  const inboxChainKey = `inbox-or-other|${activeAccountId ?? ""}|${searchQuery}|${mailSource}|${inboxCategory}|${crmFilter}`;
+  const inboxChainKey = `inbox-or-other|${activeAccountId ?? ""}|${searchQuery}|${inboxCategory}|${crmFilter}`;
   useEffect(() => {
     // Unconditional clear on any inbox-context change — never gated by hasMore/isLoading
     // so stale exhaustion can't bleed across mailbox/source/tab switches.
@@ -3885,8 +3869,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         old ? { ...old, messages: old.messages.map((m) =>
           m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m
         ) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId, mailSource], removeUnread);
-      queryClient.setQueryData(["/api/gmail/messages", "sent", searchQuery, activeAccountId, mailSource], removeUnread);
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeUnread);
+      queryClient.setQueryData(["/api/gmail/messages", "sent", searchQuery, activeAccountId], removeUnread);
       // Also update the locally-stored extra pages
       setInboxExtra((prev) => prev.map((m) => m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
       setSentExtra((prev) => prev.map((m) => m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
@@ -4032,9 +4016,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             {syncMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
             {syncMutation.isPending ? "Syncing..." : "Sync to CRM"}
           </Button>
-          {/* Source selector lives in Settings → My Mailboxes → Mail preferences.
-              Default is "gmail"; users can override via the Settings page or a
-              ?mailSource= URL param for one-off debugging. */}
+          {/* Commit 4: the inbox is always sourced from the local mirror —
+              the Source selector and ?mailSource= URL param were removed. */}
           <LocalSearchButton />
           {/* Density toggle — Comfortable / Compact / Ultra */}
           <div
@@ -4183,11 +4166,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             {((personalAccount ? 1 : 0) + sharedAccounts.length) > 1 && (
               <button
                 onClick={() => {
-                  // Force local source for unified mode (live Gmail can't span accounts).
-                  // Save the user's prior choice so we can restore it when they leave.
-                  if (activeAccountId !== "all") setSavedMailSource(mailSource);
                   setActiveAccountId("all");
-                  setMailSource("local");
                   setTab("inbox");
                   setSelectedMessageId(null);
                   setSelectedThreadId(null);
@@ -4211,8 +4190,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               <>
                 <button
                   onClick={() => {
-                    // Restore previous mailSource if leaving "All Inboxes"
-                    if (activeAccountId === "all" && savedMailSource) { setMailSource(savedMailSource); setSavedMailSource(null); }
                     setActiveAccountId(null); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); setCurrentThreadAccountId(null);
                   }}
                   data-testid="btn-account-personal"
@@ -4318,7 +4295,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     <div key={acct.id}>
                       <button
                         onClick={() => {
-                          if (activeAccountId === "all" && savedMailSource) { setMailSource(savedMailSource); setSavedMailSource(null); }
                           setActiveAccountId(acct.id); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); setCurrentThreadAccountId(null);
                         }}
                         data-testid={`btn-account-shared-${acct.id}`}
@@ -4411,7 +4387,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-foreground truncate" data-testid="text-connected-email">{connectedAccount.emailAddress}</p>
                     {connectedAccount.lastSyncAt ? (
-                      <p className="text-[10px] text-muted-foreground truncate">Synced {new Date(connectedAccount.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+                      // Commit 4: relative "synced N min ago" sourced from the
+                      // server's email_accounts.last_sync_at — refreshed
+                      // naturally by accountsQuery (30s poll). Avoids a
+                      // frontend-side now() ticker.
+                      <p className="text-[10px] text-muted-foreground truncate" data-testid="text-last-sync">
+                        synced {(() => {
+                          try { return formatDistanceToNow(new Date(connectedAccount.lastSyncAt), { addSuffix: true }); }
+                          catch { return ""; }
+                        })()}
+                      </p>
                     ) : (
                       <p className="text-[10px] text-muted-foreground">{connectedAccount.authStatus === "active" ? "Never synced" : connectedAccount.authStatus}</p>
                     )}
@@ -5313,90 +5298,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     )}
                   </button>
                 ) : crmFilteredMessages && crmFilteredMessages.length > 0 ? (
-                  // Backfill-aware "all caught up". When source=local and the local store has fewer
-                  // messages than Gmail reports for the mailbox, true exhaustion of the local cursor
-                  // is NOT user exhaustion — it's a backfill gap. Surface the gap with a switch hint.
-                  (() => {
-                    const liveTotal = (profileQuery.data as any)?.messagesTotal ?? null;
-                    const localShortfall = mailSource === "local" && typeof liveTotal === "number" && liveTotal > crmFilteredMessages.length + 50;
-                    // Inverse of localShortfall: source=gmail|auto returned its terminal page
-                    // ("all caught up") but the local cache has substantially more historical
-                    // INBOX-tagged messages. Happens when the user has been archiving heavily
-                    // in Gmail (live INBOX label is tiny) while the synced local snapshot
-                    // still holds the full INBOX-tagged history. Without this hint the user
-                    // sees "17 messages" and thinks the inbox is broken.
-                    //
-                    // Restricted to tab==="inbox": the "Other" tab is a derived blocked-domain
-                    // slice of the same fetch, so its count isn't comparable to the local
-                    // INBOX archive total and the same hint there would be misleading.
-                    const activeAcctIdNum = activeAccountId === "all"
-                      ? null
-                      : (typeof activeAccountId === "number" ? activeAccountId : (personalAccount?.id ?? null));
-                    // Use INBOX-only count (inboxCount), not total messageCount — total
-                    // includes SENT/drafts and would false-positive for normal users.
-                    const localInboxArchive = activeAcctIdNum
-                      ? (healthById.get(activeAcctIdNum)?.inboxCount ?? 0)
-                      : 0;
-                    const archiveShortfall =
-                      mailSource !== "local" &&
-                      tab === "inbox" &&
-                      localInboxArchive > crmFilteredMessages.length + 100;
-                    if (localShortfall) {
-                      return (
-                        <span className="inline-flex flex-col items-center gap-1 text-amber-600 dark:text-amber-400 tabular-nums" data-testid="status-backfill-incomplete">
-                          {/* Commit 1.1 copy fix: previous "Local store: 50" misread as "the local archive has 50 rows".
-                              Now "Showing X of Y local" — X = currently rendered, Y = healthById INBOX count. */}
-                          <span>Showing {crmFilteredMessages.length.toLocaleString()} of {localInboxArchive.toLocaleString()} local · Gmail has ~{Number(liveTotal).toLocaleString()}</span>
-                          <button
-                            onClick={() => setMailSource("gmail")}
-                            data-testid="button-switch-to-gmail"
-                            className="text-[10px] underline-offset-2 hover:underline"
-                          >
-                            Switch to live Gmail to see the rest
-                          </button>
-                        </span>
-                      );
-                    }
-                    if (archiveShortfall) {
-                      return (
-                        <span className="inline-flex flex-col items-center gap-1 text-amber-600 dark:text-amber-400 tabular-nums" data-testid="status-archive-available">
-                          {/* Commit 1.1 copy fix: aligned with the local-mode footer above —
-                              "Showing X of Y live" reads cleanly when paired with the archive count. */}
-                          <span>
-                            Showing {crmFilteredMessages.length.toLocaleString()} of {Number(liveTotal ?? crmFilteredMessages.length).toLocaleString()} live · Local archive: {localInboxArchive.toLocaleString()}
-                          </span>
-                          <button
-                            onClick={() => {
-                              // Persist the preference. Unlike the inverse hint (which is a
-                              // transient backfill fallback), this is a deliberate, sticky
-                              // user choice — the user wants the historical view going forward.
-                              setMailSource("local");
-                              try {
-                                window.localStorage.setItem("voltsafe.mailSource", "local");
-                              } catch {
-                                // localStorage may be unavailable (private mode, etc.) — ignore.
-                              }
-                              toast({
-                                title: "Switched to local archive",
-                                description:
-                                  "Your inbox now shows synced historical messages. Change anytime in Mail preferences.",
-                              });
-                            }}
-                            data-testid="button-switch-to-local"
-                            className="text-[10px] underline-offset-2 hover:underline"
-                          >
-                            Switch to local archive to see history
-                          </button>
-                        </span>
-                      );
-                    }
-                    return (
-                      <span className="inline-flex items-center gap-1.5 text-muted-foreground/45 tabular-nums" data-testid="status-all-caught-up">
-                        <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
-                        You're all caught up · {crmFilteredMessages.length} message{crmFilteredMessages.length !== 1 ? "s" : ""}
-                      </span>
-                    );
-                  })()
+                  // Commit 4: the "Switch to live Gmail / Switch to local archive"
+                  // CTAs were removed along with the mailSource toggle — the inbox
+                  // is always sourced from the local mirror now, so the shortfall
+                  // branches no longer apply (any gap is a backfill issue, not a
+                  // source-toggle issue, and surfaces in Mailbox Health instead).
+                  <span className="inline-flex items-center gap-1.5 text-muted-foreground/45 tabular-nums" data-testid="status-all-caught-up">
+                    <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
+                    You're all caught up · {crmFilteredMessages.length} message{crmFilteredMessages.length !== 1 ? "s" : ""}
+                  </span>
                 ) : null}
               </div>
             )}

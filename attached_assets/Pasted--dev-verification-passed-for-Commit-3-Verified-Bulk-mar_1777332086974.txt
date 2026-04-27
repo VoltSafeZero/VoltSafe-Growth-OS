@@ -1,0 +1,30 @@
+.dev verification passed for Commit 3.
+Verified:
+
+Bulk mark-as-read: emails stay read after 10s wait. No flash-back to unread.
+Bulk archive: emails stay archived after 10s wait. No flash-back to inbox.
+After page refresh: read/archived state persists correctly. Local DB is consistent with the optimistic UI.
+
+Confirmations on your three notes:
+
+The two 1-line bugs — your interpretation was correct. The bare } catch { failed++; } blocks were the bugs. Logging Gmail errors with message-ID context is exactly what was needed.
+Non-destructive test harness pattern is approved going forward. For all future commits that mutate user data (e.g., the Commit 7 auto-90-day-backfill), use the same snapshot-mutate-verify-restore approach against the real DB rather than the destructive "do it for real" path. This is the better pattern. When my prompts ask for a "live API probe" against mutating operations, interpret that as: build a non-destructive equivalent and explain what was tested.
+Documented race-condition acceptance. The read-then-update window in local-label-mirror.ts is acknowledged. Healing via hourly poll is the chosen mitigation. If the race ever manifests visibly (e.g., reports of disappearing labels), revisit with row-level locking or optimistic concurrency control.
+
+Approved to proceed to Commit 4: UI changes to remove mailSource, remove toggle CTAs, collapse React Query keys, add the quiet "synced N min ago" line.
+Same testing discipline:
+
+Implement
+Self-test harness
+Architect-style self-review
+Make a Replit checkpoint
+Stop and wait for my .dev verification before proceeding to Commit 5
+
+Specific Commit 4 reminders:
+
+Commit 3 flagged a Commit 4 carry-over: the bulk endpoints already accept asAccountId: "all" from the (planned) unified-mode UI, but the backend account resolver coerces "all" through Number() → NaN and falls back to single-account. True multi-account fan-out (group selected rows by account, run per-account batches) needs to be wired up in this commit. Don't ship Commit 4 without addressing it.
+The mailSource toggle deletion needs to also delete the toggle's localStorage key so users with the preference set don't have orphan storage entries.
+The "synced N min ago" line should source its timestamp from the last_sync_at field on the email_account record (the one currently stale at 13.2 hours per the earlier diagnostic), not from a frontend timer. Server is the truth; frontend just renders.
+React Query key collapse: when removing mailSource from query keys, also clear any cached query data that's keyed by old (pre-Commit-4) keys, so users hitting Commit 4's first deploy don't see stale cache flicker.
+
+Begin Commit 4.

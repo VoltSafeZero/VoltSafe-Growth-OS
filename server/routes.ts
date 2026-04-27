@@ -9683,7 +9683,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
   app.post("/api/gmail/bulk-mark-read", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
-    const { messageIds, markAs, asAccountId } = req.body;
+    const { messageIds, markAs } = req.body;
+    const rawAcc = req.body.asAccountId;
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       return res.status(400).json({ message: "messageIds array required" });
     }
@@ -9694,7 +9695,108 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       return res.status(400).json({ message: "markAs must be 'read' or 'unread'" });
     }
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
-    const resolved = await resolveAccount(userId, asAccountId ? Number(asAccountId) : undefined, _ia, _mtp);
+
+    // ── Commit 4: multi-account fan-out for unified "All Inboxes" mode ──
+    // Pre-Commit-4 the route did `Number(asAccountId)` which silently coerced
+    // "all" → NaN → fell through to the user's personal account; cross-account
+    // IDs all failed silently (counted by the bulk catch but with no idea
+    // why). Now: detect "all" explicitly, look up each ID's home account in
+    // local mirror, group by account, run one Gmail client per account.
+    if (rawAcc === "all") {
+      const accessible = await getAccessibleAccountIds(userId, _ia, _mtp);
+      // For each accessible account, decide if the user has EDIT (not just
+      // VIEW) — bulk-mark-read mutates Gmail labels so view-only is not
+      // enough. Inline the same logic requireAccountEditAccess uses, but
+      // applied per-account so we can demote no-edit accounts to a
+      // "failedNoPermission" bucket instead of failing the whole request.
+      const acctRows = accessible.length === 0 ? [] : await db.select().from(emailAccounts)
+        .where(inArray(emailAccounts.id, accessible));
+      const editableIds = acctRows.filter((a) => {
+        if (!a.isActive) return false;
+        if (a.userId === userId) return true;
+        if (_ia) return true;
+        return _mtp[String(a.id)]?.edit === true;
+      }).map((a) => a.id);
+      if (editableIds.length === 0) {
+        return res.status(403).json({
+          message: "You don't have edit access to any mailboxes",
+          success: 0, failed: messageIds.length,
+        });
+      }
+      const { groupMessageIdsByAccount } = await import("./services/bulk-account-router");
+      const { mirrorLabelChangeForMessages } = await import("./services/local-label-mirror");
+      const groups = await groupMessageIdsByAccount(messageIds.map(String), editableIds);
+      let success = 0;
+      let failed = 0;
+      const op = markAs === "read" ? { remove: ["UNREAD"] } : { add: ["UNREAD"] };
+      for (const [accountId, ids] of groups.byAccount) {
+        const succeededIds: string[] = [];
+        try {
+          const gmail = await getGmailClient(userId, accountId);
+          for (const messageId of ids) {
+            try {
+              await gmail.users.messages.modify({
+                userId: "me", id: messageId,
+                requestBody: markAs === "read"
+                  ? { removeLabelIds: ["UNREAD"] }
+                  : { addLabelIds: ["UNREAD"] },
+              });
+              success++;
+              succeededIds.push(messageId);
+            } catch (e: any) {
+              console.error(
+                `[bulk-mark-read fan-out] gmail modify failed account=${accountId} id=${messageId}:`,
+                e.message,
+              );
+              failed++;
+            }
+          }
+        } catch (acctErr: any) {
+          // getGmailClient itself failed (token expired, account inactive,
+          // etc). Count every ID we'd have sent to it as failed and move on
+          // — don't drag down the other accounts in the same request.
+          console.error(
+            `[bulk-mark-read fan-out] account=${accountId} unavailable:`,
+            acctErr.message,
+          );
+          failed += ids.length;
+          continue;
+        }
+        if (succeededIds.length > 0) {
+          try {
+            const r = await mirrorLabelChangeForMessages(succeededIds, accountId, op);
+            if (r.missing > 0 || r.errors > 0) {
+              console.warn(
+                `[bulk-mark-read fan-out] mirror partial: account=${accountId} ` +
+                `updated=${r.updated} missing=${r.missing} errors=${r.errors}`
+              );
+            }
+          } catch (mirrorErr: any) {
+            console.error(
+              `[bulk-mark-read fan-out] mirror FAILED (non-fatal): ` +
+              `account=${accountId} ids=[${succeededIds.join(",")}]:`,
+              mirrorErr.message,
+            );
+          }
+        }
+      }
+      const failedNoPermission = groups.forbiddenIds.length;
+      const failedNotFound = groups.unknownIds.length;
+      failed += failedNoPermission + failedNotFound;
+      return res.json({
+        success,
+        failed,
+        failedNoPermission,
+        failedNotFound,
+        perAccount: Object.fromEntries(
+          Array.from(groups.byAccount.entries()).map(([id, list]) => [id, list.length])
+        ),
+      });
+    }
+
+    // ── Single-account path (numeric asAccountId or undefined) ──
+    const numAcc = (rawAcc != null && rawAcc !== "all") ? Number(rawAcc) : undefined;
+    const resolved = await resolveAccount(userId, numAcc, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     // Phase 4: bulk mark-read mutates Gmail labels — require edit access.
     if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
@@ -9757,7 +9859,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
   app.post("/api/gmail/bulk-archive", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
-    const { threadIds, asAccountId } = req.body;
+    const { threadIds } = req.body;
+    const rawAcc = req.body.asAccountId;
     if (!Array.isArray(threadIds) || threadIds.length === 0) {
       return res.status(400).json({ message: "threadIds array required" });
     }
@@ -9765,7 +9868,96 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       return res.status(400).json({ message: "Maximum 50 threads per request" });
     }
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
-    const resolved = await resolveAccount(userId, asAccountId ? Number(asAccountId) : undefined, _ia, _mtp);
+
+    // ── Commit 4: multi-account fan-out (mirrors bulk-mark-read above) ──
+    // For threads we group by gmail_thread_id (per-mailbox-scoped) and fan
+    // out one Gmail client per account. Mirror runs per-account so the
+    // local INBOX label is removed from every message of every archived
+    // thread within that account's rows.
+    if (rawAcc === "all") {
+      const accessible = await getAccessibleAccountIds(userId, _ia, _mtp);
+      const acctRows = accessible.length === 0 ? [] : await db.select().from(emailAccounts)
+        .where(inArray(emailAccounts.id, accessible));
+      const editableIds = acctRows.filter((a) => {
+        if (!a.isActive) return false;
+        if (a.userId === userId) return true;
+        if (_ia) return true;
+        return _mtp[String(a.id)]?.edit === true;
+      }).map((a) => a.id);
+      if (editableIds.length === 0) {
+        return res.status(403).json({
+          message: "You don't have edit access to any mailboxes",
+          success: 0, failed: threadIds.length,
+        });
+      }
+      const { groupThreadIdsByAccount } = await import("./services/bulk-account-router");
+      const { mirrorLabelChangeForThreads } = await import("./services/local-label-mirror");
+      const groups = await groupThreadIdsByAccount(threadIds.map(String), editableIds);
+      let success = 0;
+      let failed = 0;
+      for (const [accountId, tids] of groups.byAccount) {
+        const succeededTids: string[] = [];
+        try {
+          const gmail = await getGmailClient(userId, accountId);
+          for (const threadId of tids) {
+            try {
+              await gmail.users.threads.modify({
+                userId: "me", id: threadId,
+                requestBody: { removeLabelIds: ["INBOX"] },
+              });
+              success++;
+              succeededTids.push(threadId);
+            } catch (e: any) {
+              console.error(
+                `[bulk-archive fan-out] gmail modify failed account=${accountId} thread=${threadId}:`,
+                e.message,
+              );
+              failed++;
+            }
+          }
+        } catch (acctErr: any) {
+          console.error(
+            `[bulk-archive fan-out] account=${accountId} unavailable:`,
+            acctErr.message,
+          );
+          failed += tids.length;
+          continue;
+        }
+        if (succeededTids.length > 0) {
+          try {
+            const r = await mirrorLabelChangeForThreads(succeededTids, accountId, { remove: ["INBOX"] });
+            if (r.errors > 0) {
+              console.warn(
+                `[bulk-archive fan-out] mirror partial: account=${accountId} ` +
+                `threads=${r.threads} updated=${r.updated} missing-threads=${r.missing} errors=${r.errors}`
+              );
+            }
+          } catch (mirrorErr: any) {
+            console.error(
+              `[bulk-archive fan-out] mirror FAILED (non-fatal): ` +
+              `account=${accountId} threadIds=[${succeededTids.join(",")}]:`,
+              mirrorErr.message,
+            );
+          }
+        }
+      }
+      const failedNoPermission = groups.forbiddenIds.length;
+      const failedNotFound = groups.unknownIds.length;
+      failed += failedNoPermission + failedNotFound;
+      return res.json({
+        success,
+        failed,
+        failedNoPermission,
+        failedNotFound,
+        perAccount: Object.fromEntries(
+          Array.from(groups.byAccount.entries()).map(([id, list]) => [id, list.length])
+        ),
+      });
+    }
+
+    // ── Single-account path (numeric asAccountId or undefined) ──
+    const numAcc = (rawAcc != null && rawAcc !== "all") ? Number(rawAcc) : undefined;
+    const resolved = await resolveAccount(userId, numAcc, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     // Phase 4: bulk archive mutates Gmail labels — require edit access.
     if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;

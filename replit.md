@@ -1,5 +1,156 @@
 # Replit Agent Configuration
 
+## Unified Inbox — Commit 4 of 8: Remove mailSource toggle + multi-account bulk fan-out (Complete, 2026-04-27)
+
+### Goal
+Two paired cleanups that together finish the "everything is the local mirror"
+story Commit 1.1 started:
+1. **UI cleanup** — delete every surface that lets the user (or a URL) choose
+   between live Gmail and the local mirror. The local mirror is the only
+   source going forward; anything else is dead weight that fragments the
+   query cache and confuses operators.
+2. **Multi-account bulk fan-out** — the carry-over flagged in Commit 3.
+   `bulk-mark-read` and `bulk-archive` were silently funneling
+   `asAccountId === "all"` through `Number()` → NaN → personal account, so
+   cross-account row selections in unified mode failed without explanation.
+   Now they group by `email_messages.source_account_id` and dispatch one
+   Gmail client per account.
+
+### What changed
+
+**NEW `server/services/bulk-account-router.ts`** (~187 lines, pure SELECT):
+- `groupMessageIdsByAccount(gmailMessageIds, accessibleAccountIds)` — looks
+  up each ID's `source_account_id` in `email_messages`, buckets known IDs
+  by account, drops IDs whose account isn't in the accessible set into
+  `forbiddenIds`, drops IDs with no local row into `unknownIds`. Dedupes.
+  Returns `{ byAccount: Map<number, string[]>, unknownIds, forbiddenIds }`.
+- `groupThreadIdsByAccount(gmailThreadIds, accessibleAccountIds)` — same
+  shape but queries by `gmail_thread_id` (DISTINCT to handle multi-message
+  threads). Gmail thread IDs are per-mailbox so each thread maps to exactly
+  one account.
+- Side-effect-free. Caller decides what to do with the buckets.
+
+**`/api/gmail/bulk-mark-read` (`server/routes.ts:9684`)** — added an
+`if (rawAcc === "all")` branch BEFORE the existing single-account path:
+- `getAccessibleAccountIds(userId, isAdmin, mailTeamPerms)` for view scope.
+- Inline edit-access filter per account: owner OR admin OR
+  `mailTeamPerms[id].edit === true`. View-only accounts demoted to
+  forbidden, NOT a request-level 403.
+- Empty editable set → 403 with `{ message, success: 0, failed: N }`.
+- For each `[accountId, ids]` bucket: one `getGmailClient`, one Gmail
+  modify per ID, then per-account `mirrorLabelChangeForMessages` over the
+  succeededIds. `getGmailClient` failure (token expired, account inactive)
+  counts every ID in that bucket as failed and continues to the next
+  account — does NOT poison the rest of the request.
+- Response: backwards-compatible `{ success, failed }` PLUS optional
+  `failedNoPermission` (= forbidden bucket size), `failedNotFound`
+  (= unknown bucket size), and `perAccount` map for observability.
+- Single-account path preserved: `numAcc = (rawAcc != null && rawAcc !== "all") ? Number(rawAcc) : undefined`
+  prevents the NaN coercion when `asAccountId` is the string "all".
+
+**`/api/gmail/bulk-archive` (`server/routes.ts:9860`)** — mirror image of
+the above but uses `groupThreadIdsByAccount` +
+`mirrorLabelChangeForThreads`. Same per-account dispatch, same aggregation
+shape, same single-account preservation.
+
+**`client/src/pages/gmail-inbox.tsx`** — full mailSource removal:
+- Deleted state: `mailSource`, `setMailSource`, `savedMailSource`,
+  `setSavedMailSource`. (Pre-Commit-4: a 3-way `"local" | "gmail" | "auto"`
+  picker initialized from a URL param, then localStorage, then default
+  "local".)
+- Deleted from query keys: 3 `useQuery` keyArrays + 6 `setQueryData` keys
+  collapsed from 5-tuples (`["...", tab, q, acct, mailSource]`) to
+  4-tuples (`["...", tab, q, acct]`). Threads from 4-tuple to 3-tuple.
+- Deleted from request URLs: 5 call sites of `params.set("source", mailSource)`
+  removed (inbox query, sent query, thread query, loadMoreInbox, loadMoreSent).
+- Deleted from effect deps: 3 useEffects + `inboxEpochRef`/`sentEpochRef`
+  triggers + `ctxKey` strings + `inboxChainKey` no longer mention mailSource.
+- Collapsed conditional refetch intervals: `mailSource === "local" ? 15_000 : 30_000`
+  → fixed `15_000` (inbox) / `30_000` (sent) — the local mirror is always
+  cheap to poll.
+- Deleted the in-sentinel switch CTAs: the `localShortfall` /
+  `archiveShortfall` branches and their two `<button>` toggles
+  (`button-switch-to-gmail`, `button-switch-to-local`) are gone. The
+  "all caught up" sentinel is now a single quiet status line; any
+  shortfall is a backfill issue and shows up in Mailbox Health instead.
+- Deleted source-toggle remnants in account row clicks (the
+  "save/restore mailSource around All Inboxes" dance is no longer needed
+  since there's no preference to preserve).
+- **One-shot cleanup useEffect on mount**: `localStorage.removeItem("voltsafe.mailSource")`
+  PLUS defensive `queryClient.removeQueries({ predicate })` that drops any
+  cached entry whose key still has the legacy 5-tuple shape (5th segment
+  in `{"local","gmail","auto"}`). Keeps the post-deploy cache from leaking
+  stale rows on first load.
+- **NEW** "synced N min ago" footer line at ~4399: replaced
+  `Synced HH:MM` (`toLocaleTimeString`) with
+  `formatDistanceToNow(new Date(connectedAccount.lastSyncAt), { addSuffix: true })`.
+  Sourced from the server's `email_accounts.last_sync_at` (already in
+  `accountsQuery`'s 30s poll), so no separate ticker is needed.
+
+**`client/src/pages/mailbox-settings.tsx`**:
+- Deleted the `MailPreferencesCard` component (~80 lines: localStorage-
+  backed `<Select>` of "Gmail / Local / Auto" with description copy) AND
+  its `<MailPreferencesCard />` invocation in the page body.
+- Stub comment left in place explaining the deletion — the localStorage
+  cleanup happens in `gmail-inbox.tsx`'s mount effect (single source of
+  truth), so this page no longer needs to know about the legacy key.
+
+**NEW `scripts/test-bulk-fanout.ts`** — read-only self-test for the
+grouping helpers. Result: **29/29 PASS** (multi-account dispatch case
+SKIPS in dev because the dev DB only has 1 account with messages —
+correctly distinguished from a fail). Coverage:
+- Empty input invariants (both helpers, both ID types, empty accessible).
+- Unknown IDs (3 fake msg + 2 fake thread → all in `unknownIds`,
+  `byAccount` empty).
+- Known IDs route to the correct source account.
+- Forbidden: known IDs whose account isn't in caller's set → `forbiddenIds`.
+- Multi-account dispatch (when 2+ accounts available): mixed input splits
+  into the right buckets; partial-access drops the inaccessible bucket
+  into forbidden.
+- Duplicate input dedupes to one bucket entry.
+- Conservation invariant: every input ID lands in exactly one of
+  `byAccount` ∪ `unknownIds` ∪ `forbiddenIds` (no drops, no double-counts).
+
+### Validation
+- `scripts/test-bulk-fanout.ts`: 29/29 PASS, 0 fail.
+- `Start application` workflow: running, HMR clean after the leftover
+  `savedMailSource` ref was deleted (line 4298 was missed in the first
+  pass — `mailSource is not defined` ReferenceError surfaced in the
+  browser console; fixed; no further runtime errors).
+- `/api/gmail/messages` continues to return 200/304.
+- Confirmed: **no schema changes**, **no migrations**. Pure read-side
+  routing helper + UI/route deletions.
+
+### Architect review
+Triggered async at end of session — fix any blocking notes inline.
+
+### Files touched
+- `server/services/bulk-account-router.ts` (NEW — 187 lines, SELECT-only)
+- `server/routes.ts` (+~120 lines for two `if (rawAcc === "all")` branches
+  and `numAcc` coercion guard)
+- `client/src/pages/gmail-inbox.tsx` (~−180 lines net: state + 5 source
+  params + 9 5-tuple keys + 2 CTA branches + savedMailSource dance, +
+  cleanup useEffect + relative footer)
+- `client/src/pages/mailbox-settings.tsx` (~−80 lines: MailPreferencesCard
+  definition + invocation deleted)
+- `scripts/test-bulk-fanout.ts` (NEW — 220 lines, 29 assertions)
+
+### Carry-overs for Commit 5
+- **Live API probe** of the multi-account fan-out: real cross-account
+  bulk-mark-read on 2 test rows from 2 accounts; verify `perAccount`
+  counts match. Skipped here for the same reason as Commit 3 (would
+  mutate the user's real inbox).
+- **Mirror queue** for label changes that arrive while a fan-out is
+  in flight (the read-modify-write window is still open per Commit 3
+  architect note #5).
+- **Surface `failedNoPermission` + `failedNotFound` in the UI toast**
+  on bulk action completion — currently only `success` / `failed`
+  are read by `bulkMarkReadMutation` / `bulkArchiveMutation`. Worth
+  splitting so users see "3 archived, 1 not in your mailboxes"
+  instead of just "3 archived, 1 failed".
+
+---
+
 ## Unified Inbox — Commit 3 of 8: Inline local mirror for bulk-mark-read & bulk-archive (Complete, 2026-04-27)
 
 ### Goal

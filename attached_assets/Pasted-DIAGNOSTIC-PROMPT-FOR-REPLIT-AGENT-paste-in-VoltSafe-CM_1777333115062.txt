@@ -1,0 +1,95 @@
+DIAGNOSTIC PROMPT FOR REPLIT AGENT (paste in VoltSafe CMS)
+Read-only investigation only — no code changes.
+The user reports that the team inboxes support@voltsafe.com and sales@voltsafe.com exhibit the same pre-fix symptoms (truncated email lists, no continuous scroll, broken pagination state) that trevor@voltsafe.com had before Commits 1.1, 2, and 3 landed. Need to diagnose whether this is:
+(a) Stale cache (hard-refresh fixes it).
+(b) Per-account operational state (watch expired, sync stuck, last_webhook_at extremely stale, OAuth tokens broken).
+(c) Multi-account UI/code-path scoping bug (the new code works for trevor's account but fails for shared/team accounts).
+Investigation tasks
+1. Per-account state snapshot.
+Query the email_accounts table for all three accounts (trevor@voltsafe.com, support@voltsafe.com, sales@voltsafe.com). For each, report:
+
+Account ID, owner_user_id, source (Gmail/IMAP/etc.)
+refresh_token present (yes/no, no values)
+last_sync_at, last_incremental_sync_at, last_webhook_at (timestamps)
+watch_expiration_at
+incremental_event_count
+Any error / status fields on the account row
+Whether the account has its own folder routing or shares trevor's
+
+Then count rows in email_messages for each account: SELECT source_account_id, COUNT(*), MIN(sent_at), MAX(sent_at) FROM email_messages GROUP BY source_account_id.
+This tells me whether the team inboxes have any local data at all, and whether their sync state is healthy.
+2. Code-path scoping audit.
+For the route GET /api/gmail/messages, trace the full execution path with accountId set to the team inboxes' account IDs. Specifically:
+
+Does resolveAccount() return the correct account record for these inboxes?
+Does listLocalMessages() correctly scope its WHERE source_account_id IN (...) clause to the requested account?
+Does the keyset pagination (Commit 1.1) work correctly for accounts other than trevor's?
+Does the auto-overflow logic (Commit 2) trigger correctly for these accounts? Specifically check whether oldestLocalSentAt is being correctly computed per-account.
+Does bulk-mark-read and bulk-archive (Commit 3) correctly scope label_ids updates to the target account's rows only?
+
+Identify any place where the code accidentally hard-codes accountId === 1 (trevor's) or where account scoping is missing.
+3. Authentication and access scoping.
+
+Are support@voltsafe.com and sales@voltsafe.com configured as separate email_accounts rows owned by trevor's users.id, or as completely separate users?
+When trevor accesses these inboxes via the UI, is the session resolving access via email_accounts.owner_user_id, or via some shared-mailbox / delegation pattern?
+Does the requireAuth middleware grant access correctly for these team inboxes?
+
+4. Front-end account selection.
+In gmail-inbox.tsx, when the user clicks support@voltsafe.com in the sidebar, what accountId is passed to the API requests?
+
+Is it the correct account ID for the team inbox?
+Or does it ever fall back to trevor's account (e.g., default behavior on a sidebar click that doesn't fully wire through)?
+Does the React Query cache key correctly include the active account ID?
+
+5. Concrete reproduction.
+If safe to do without mutating data: simulate a GET /api/gmail/messages?accountId=<support's ID> request via signed cookie. Report:
+
+HTTP status
+Response shape (does it include the new fields from Commit 2: localExhausted, historyLoadCapReached, historyLoadFailed?)
+nextPageToken format (modern keyset L1: prefix or numeric?)
+Number of rows returned
+
+Compare against the same call for trevor's account.
+Output format
+ACCOUNT STATE SNAPSHOT
+  trevor@voltsafe.com:    [account ID, sync timestamps, message count, status]
+  support@voltsafe.com:   [same]
+  sales@voltsafe.com:     [same]
+
+CODE-PATH SCOPING AUDIT
+  resolveAccount: [behavior for non-trevor accounts]
+  listLocalMessages: [scoping correctness]
+  Auto-overflow: [scoping correctness]
+  Bulk endpoints: [scoping correctness]
+  Hard-coded accountId references found: [list]
+
+AUTH SCOPING
+  Team inbox ownership model: [described]
+  requireAuth resolution: [described]
+
+FRONT-END ACCOUNT SELECTION
+  Active account ID resolution: [described]
+  Hard-coded fallbacks found: [list]
+
+REPRODUCTION
+  trevor's account response: [summary]
+  support's account response: [summary]
+  sales' account response: [summary]
+  Differences: [bulleted list]
+
+DIAGNOSIS
+  Most likely cause: [(a) stale cache / (b) per-account operational state / (c) code-path scoping bug]
+  Confidence: [high/medium/low]
+  Evidence: [bulleted]
+
+PROPOSED FIX SCOPE
+  Estimated effort: [small/medium/large]
+  Suggested commit ordering: [should this be a Commit 3.5 amendment, or rolled into Commit 4 as part of the unified-inbox UI changes, or something else?]
+Constraints
+
+Read-only. No code changes.
+No DB mutations. No INSERT, UPDATE, DELETE, no token refreshes, no watch re-registrations.
+If a fix is genuinely tiny (single-line or two-line code change to scope something correctly), still flag it as proposed-not-applied; do not apply it without my approval.
+If the diagnosis reveals the team inboxes need a watch refresh or OAuth re-flow, that's operational (separate from this code work) — flag it but don't try to fix it.
+
+Begin.
