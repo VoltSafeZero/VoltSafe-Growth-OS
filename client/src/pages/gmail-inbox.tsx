@@ -2575,7 +2575,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   //   1. ?mailSource= URL param (one-off override, wins for that session)
   //   2. localStorage "voltsafe.mailSource" (user's saved preference, set in
   //      Settings → My Mailboxes → Mail preferences)
-  //   3. Default "gmail" — the live Gmail view is the canonical experience.
+  //   3. Default "local" — the local synced store gives full history (54k+
+  //      messages going back years) and powers the fast poll loop. The live
+  //      Gmail view is still one click away from the source toggle in
+  //      Settings → Mail preferences for users who prefer the live label
+  //      window. The inbox query polls every 15s while the local source is
+  //      active so newly-arrived mail (already synced via Gmail push webhook)
+  //      surfaces near-realtime, on par with premium clients.
   // The in-page Source dropdown was removed in favor of the Settings selector
   // so the inbox toolbar stays focused on actions, not preferences. Most
   // programmatic switches inside this component (e.g. forced "local" for All
@@ -2593,7 +2599,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     } catch {
       // localStorage may be unavailable (private mode, SSR, etc.) — fall through to default.
     }
-    return "gmail";
+    return "local";
   });
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -3092,9 +3098,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       if (!res.ok) throw new Error((await res.json()).message);
       return res.json();
     },
-    // Auto-refresh every 60s so newly-arrived mail surfaces without a manual reload.
-    // Only polls while the tab is in the foreground (default react-query behavior).
-    refetchInterval: 60_000,
+    // Premium-client cadence: poll every 15s on the local source (cheap PG
+    // read of already-webhook-synced data), every 30s on Gmail/auto (rate-
+    // limit conscious). Only polls while the tab is in the foreground —
+    // background polling is intentionally off so we don't burn quota on a
+    // tab the user isn't looking at.
+    refetchInterval: mailSource === "local" ? 15_000 : 30_000,
     refetchIntervalInBackground: false,
   });
 
@@ -3111,7 +3120,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       return res.json();
     },
     enabled: tab === "sent",
-    refetchInterval: 60_000,
+    // Sent doesn't change as fast — keep at 30s/60s to limit unnecessary work.
+    refetchInterval: mailSource === "local" ? 30_000 : 60_000,
     refetchIntervalInBackground: false,
   });
 

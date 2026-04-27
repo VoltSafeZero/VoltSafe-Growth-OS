@@ -849,12 +849,12 @@ function MailPreferencesCard() {
     } catch {
       // localStorage unavailable — fall through to default.
     }
-    return "gmail";
+    return "local";
   });
 
   const labelFor: Record<SourcePref, string> = {
-    gmail: "Gmail (default)",
-    local: "Local",
+    gmail: "Gmail",
+    local: "Local (default)",
     auto:  "Auto",
   };
 
@@ -893,7 +893,7 @@ function MailPreferencesCard() {
               Inbox source
             </Label>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Default for everyone is <span className="text-foreground font-medium">Gmail</span>.
+              Default for everyone is <span className="text-foreground font-medium">Local</span>.
               Changes apply the next time you open the inbox.
             </p>
           </div>
@@ -906,8 +906,8 @@ function MailPreferencesCard() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="gmail" data-testid="opt-mail-source-gmail">Gmail (default)</SelectItem>
-              <SelectItem value="local" data-testid="opt-mail-source-local">Local</SelectItem>
+              <SelectItem value="local" data-testid="opt-mail-source-local">Local (default)</SelectItem>
+              <SelectItem value="gmail" data-testid="opt-mail-source-gmail">Gmail</SelectItem>
               <SelectItem value="auto" data-testid="opt-mail-source-auto">Auto</SelectItem>
             </SelectContent>
           </Select>
