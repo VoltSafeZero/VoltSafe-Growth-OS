@@ -354,6 +354,34 @@ function ComposeDialog({
     onError: (err: any) => toast({ title: "Failed to save draft", description: err.message, variant: "destructive" }),
   });
 
+  // Delete an existing draft and close the composer. Mirrors the post-send /
+  // post-schedule cleanup path (lines 334 / 370) that already DELETE the draft
+  // server-side, plus an explicit user-facing button + confirmation toast.
+  const deleteDraftMutation = useMutation({
+    mutationFn: async () => {
+      if (!activeDraftId) throw new Error("No draft to delete");
+      const qs = asAccountId ? `?asAccountId=${asAccountId}` : "";
+      const res = await fetch(`/api/gmail/drafts/${activeDraftId}${qs}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Delete failed" }));
+        throw new Error(err.message || "Delete failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Draft deleted" });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/drafts"] });
+      // Drafts also surface in the unified messages list as DRAFT-labeled rows;
+      // refresh that too so the deleted item disappears immediately.
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
+      onClose();
+    },
+    onError: (err: any) => toast({ title: "Failed to delete draft", description: err.message, variant: "destructive" }),
+  });
+
   const scheduleMutation = useMutation({
     mutationFn: async () => {
       const htmlBody = buildEmailHtml(body);
@@ -376,7 +404,7 @@ function ComposeDialog({
     onError: (err: any) => toast({ title: "Failed to schedule", description: err.message, variant: "destructive" }),
   });
 
-  const isWorking = sendMutation.isPending || draftMutation.isPending || scheduleMutation.isPending;
+  const isWorking = sendMutation.isPending || draftMutation.isPending || scheduleMutation.isPending || deleteDraftMutation.isPending;
   const minDatetime = new Date(Date.now() + 60000).toISOString().slice(0, 16);
 
   return (
@@ -477,6 +505,27 @@ function ComposeDialog({
                 >
                   {draftMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
                   <span className="ml-1">Save Draft</span>
+                </Button>
+              )}
+              {/* Delete Draft — only shown when an actual draft exists server-side
+                  (i.e. user opened an existing draft, or saved one this session).
+                  Cancel handles the "discard unsaved compose" case already. */}
+              {canSend && activeDraftId && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (window.confirm("Delete this draft? This can't be undone.")) {
+                      deleteDraftMutation.mutate();
+                    }
+                  }}
+                  disabled={isWorking}
+                  data-testid="button-delete-draft"
+                  className="text-muted-foreground hover:text-destructive"
+                  title="Delete this draft"
+                >
+                  {deleteDraftMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  <span className="ml-1">Delete Draft</span>
                 </Button>
               )}
               {canSend && (
