@@ -169,7 +169,7 @@ export function LeadsMissionControlWidget({ onPlanDay }: Props = {}) {
             onClick={handlePlanDayClick}
             data-testid="button-leads-widget-plan-day"
           >
-            <Sparkles className="h-3 w-3" /> Plan My Travel Day
+            <Sparkles className="h-3 w-3" /> PLAN TRAVEL
           </Button>
         </div>
       </CardHeader>
