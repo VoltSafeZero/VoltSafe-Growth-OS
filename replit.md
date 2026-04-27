@@ -1,5 +1,95 @@
 # Replit Agent Configuration
 
+## Unified Inbox — Commit 2 of 8: Auto-overflow to Gmail when local exhausted (Complete, 2026-04-27)
+
+### Goal
+The local archive holds ~55K rows but doesn't reach all the way back to the
+beginning of time. When a user keysets to the bottom of their local mailbox,
+they used to just see "no more messages" — now we transparently fetch older
+messages from Gmail, persist them, and stitch the cursor so pagination keeps
+flowing seamlessly.
+
+### What changed
+
+**Extended `server/services/local-mailbox.ts`:**
+- `listLocalMessages` return value now additively carries `localExhausted`,
+  `oldestLocalSentAt`, `oldestLocalPk` so the route knows when (and from
+  where) to overflow.
+- New exported helper `encodeMsgCursorToken(sentAtIso, pk)` so the route can
+  mint fresh keyset tokens pointing at backfilled rows.
+- All Commit 1.1 keyset tests still pass — purely additive.
+
+**`server/services/gmail-incremental.ts`:**
+- Exported the previously-private `upsertMessageById` so the new backfill
+  service can reuse the same single-message persistence path that incremental
+  sync uses. Avoids a second insert codepath drifting from the canonical one.
+
+**NEW `server/services/gmail-history-backfill.ts`:**
+- `fetchOlderFromGmail(account, before, limit)` — Gmail `messages.list` with
+  `q='in:inbox OR in:sent before:<unix-seconds>'` (widened from spec's
+  `in:inbox` to match unified-inbox semantics: local archive contains both
+  directions, so backfill must too). Concurrency cap of 5 in-flight detail
+  fetches, 429 retry honoring `Retry-After` (max 3 retries, 2s/4s/8s
+  exponential fallback), per-account `Map<accountId, Promise>` mutex so two
+  concurrent requests for the same account don't double-insert or
+  double-debit quota — the follower path returns rows:[] AND
+  inserted/skipped/errors zeroed so the route's session counter is only
+  charged by the leader.
+- Returns `{rows, fetched, inserted, skipped, errors, noMoreHistory, failed,
+  failureReason, oldest, tookMs}`.
+
+**`/api/gmail/messages` route (`server/routes.ts` ~line 7960):**
+- New auto-overflow branch in `source=local` path. Triggers when ALL of:
+  - single account (not unified-mode fan-out — that's a later commit);
+  - empty `q` (Gmail's q syntax doesn't 1:1 map our local q-translator;
+    blindly backfilling with a different filter would pollute filtered pages);
+  - `localExhausted=true` AND short page;
+  - per-session backfill count below the soft cap (5,000 inserts).
+- Clamps `wantMore` to `min(maxResults - local.length, SOFT_CAP - sofar)`
+  so a request near the cap can't overshoot by up to a full page.
+- Recomputes `capReached` AFTER the increment so the response reflects
+  post-request truth (a request that crosses the cap surfaces the signal
+  on THAT response, not the next one).
+- Stitches `nextPageToken` via `encodeMsgCursorToken` pointing at the
+  oldest backfilled row (or oldest local row if backfill yielded nothing
+  new but Gmail isn't end-of-history yet).
+- New response flags: `historyLoadFailed`, `endOfHistory`,
+  `historyLoadCapReached`. Header `X-Mail-Source: "local+backfill"`.
+
+### Architect review (evaluate_task, includeGitDiff: true)
+First pass came back **Fail** with three real bugs — all fixed in this commit:
+1. Query corruption: backfill ignored `q`. Fix: gate overflow to empty `q`.
+2. Cap math off-by-one: `capReached` computed pre-backfill, used post-backfill.
+   Fix: clamp to remaining budget AND recompute after the session counter
+   increments.
+3. Follower accounting: leader's `inserted` count was preserved on the
+   follower's response, double-counting against the cap. Fix: zero
+   `inserted/skipped/errors/fetched` on the follower path.
+
+### Validation
+- 17/17 Commit 2 tests PASS (`scripts/test-history-backfill.ts`):
+  listLocalMessages shape (11), backfill noMoreHistory path (3), in-flight
+  de-dupe (3, completes in <200ms).
+- All Commit 1.1 keyset tests still PASS — pure additive.
+- App running healthy, `/api/gmail/messages` serving 304s through new path.
+
+### Files touched
+- `server/services/local-mailbox.ts` (additive return fields + encode helper)
+- `server/services/gmail-incremental.ts` (export upsertMessageById)
+- `server/services/gmail-history-backfill.ts` (NEW)
+- `server/routes.ts` (auto-overflow branch in source=local)
+- `scripts/test-history-backfill.ts` (NEW — 3-test self-test harness)
+
+### Deliberate scope punts (tracked for later commits)
+- **Unified-mode overflow**: when the user is viewing "all accounts", overflow
+  is skipped. Implementing fan-out across N accounts with per-account caps is
+  a later commit.
+- **q-translation in backfill**: when the user has a non-empty filter, overflow
+  is skipped (we serve the local result and emit no cap signal). Plumbing
+  the q-translator into the Gmail backfill is a later commit.
+
+---
+
 ## Premium "My Calendar" Widget — Replaces Today's Meetings (Complete, 2026-04-27)
 
 ### Goal

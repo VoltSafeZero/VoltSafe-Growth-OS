@@ -63,6 +63,14 @@ function encodeLocalToken(obj: unknown): string {
   return LOCAL_TOKEN_PREFIX + b64urlEncode(obj);
 }
 
+// Phase 5 Commit 2 — exported so the auto-overflow path in /api/gmail/messages
+// can stitch a fresh keyset cursor across (local + backfilled-from-Gmail) rows
+// without having to reach back into local-mailbox internals.
+export function encodeMsgCursorToken(sentAtIso: string | null, pk: number): string {
+  const cursor: MsgCursor = { s: sentAtIso, i: Number(pk) };
+  return encodeLocalToken(cursor);
+}
+
 // Accept three local-token shapes: prefixed (new), bare b64url-of-JSON (Commit 1
 // in-flight), and rejection of anything else. Returns null on malformed input —
 // callers fall through to first-page, never crash.
@@ -275,7 +283,24 @@ export async function listLocalMessages(p: {
   q?: string;
   limit?: number;
   pageToken?: string | null;
-}): Promise<{ messages: LocalMessageSummary[]; nextPageToken: string | null; tookMs: number }> {
+}): Promise<{
+  messages: LocalMessageSummary[];
+  nextPageToken: string | null;
+  tookMs: number;
+  // Phase 5 Commit 2 — auto-overflow signals.
+  // localExhausted=true means the local archive has no more rows older than this
+  // page (i.e. nextPageToken would be null even before truncation). The route
+  // uses this to decide whether to backfill from Gmail.
+  localExhausted: boolean;
+  // The sent_at boundary the route uses as Gmail's `before:` filter when
+  // overflowing. Either the last returned row's sent_at (most common), or
+  // — if the local query returned 0 rows — the input cursor's sent_at,
+  // or null (first page + 0 rows ⇒ "fetch most recent from Gmail").
+  oldestLocalSentAt: string | null;
+  // Pk of the last returned row, used by the route to stitch a fresh keyset
+  // cursor across (local ∪ backfilled) results. Null when 0 rows returned.
+  oldestLocalPk: number | null;
+}> {
   const t0 = Date.now();
   const limit = Math.min(Math.max(Number(p.limit) || 50, 1), 100);
 
@@ -366,14 +391,36 @@ export async function listLocalMessages(p: {
   // prefixed modern token even when the input was a legacy/in-flight one is
   // what lets old clients migrate forward after a single page.
   let nextPageToken: string | null = null;
-  if (hasMore && slice.length > 0) {
+  let oldestLocalSentAt: string | null = null;
+  let oldestLocalPk: number | null = null;
+  if (slice.length > 0) {
     const last = slice[slice.length - 1];
-    const lastSentAt = last.sent_at ? new Date(last.sent_at).toISOString() : null;
-    const nextCursor: MsgCursor = { s: lastSentAt, i: Number(last.pk) };
-    nextPageToken = encodeLocalToken(nextCursor);
+    oldestLocalSentAt = last.sent_at ? new Date(last.sent_at).toISOString() : null;
+    oldestLocalPk = Number(last.pk);
+    if (hasMore) {
+      const nextCursor: MsgCursor = { s: oldestLocalSentAt, i: oldestLocalPk };
+      nextPageToken = encodeLocalToken(nextCursor);
+    }
+  } else if (cursor) {
+    // Zero rows returned but we DID have an input cursor → the cursor's
+    // sent_at is the natural `before:` boundary for any Gmail backfill.
+    // (We don't carry a pk here: the route uses the backfill's own pk.)
+    oldestLocalSentAt = cursor.s;
   }
 
-  return { messages, nextPageToken, tookMs: Date.now() - t0 };
+  // localExhausted = no more local rows older than this page. Used by the
+  // /api/gmail/messages auto-overflow path (Commit 2) to trigger a Gmail
+  // backfill so unified-inbox scrolling never hits a "live vs archive" seam.
+  const localExhausted = !hasMore;
+
+  return {
+    messages,
+    nextPageToken,
+    tookMs: Date.now() - t0,
+    localExhausted,
+    oldestLocalSentAt,
+    oldestLocalPk,
+  };
 }
 
 // ── Threads list (one row per thread, newest message first) ────────────────

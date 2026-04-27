@@ -52,7 +52,12 @@ async function captureProfileHistoryId(accountId: number, gmailClient: any): Pro
 }
 
 // Insert/upsert a single Gmail message into our DB by gmail_message_id.
-async function upsertMessageById(
+// Phase 5 Commit 2: exported so the history-backfill helper (used by the
+// /api/gmail/messages auto-overflow path) can reuse the exact same parsing,
+// attachment-insertion, association-engine and folder-routing pipeline. We
+// intentionally do NOT duplicate this logic — divergence would mean
+// backfilled rows render differently from incrementally synced rows.
+export async function upsertMessageById(
   gmailClient: any,
   gmailMessageId: string,
   ownerUserId: number,

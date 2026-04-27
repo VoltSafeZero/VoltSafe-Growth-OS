@@ -1,0 +1,92 @@
+.dev verification passed for Commit 1.1.
+Verified all six scenarios:
+
+Fresh local load shows real local total in footer.
+Deep scroll in local mode works without errors.
+Toggle local→live Gmail switches cleanly, footer accurate.
+Live Gmail mode paginates correctly.
+Toggle live→local works AND scrolling after toggle works (the original bug — confirmed fixed).
+Search-then-switch-tabs uses correct per-tab state.
+Bonus: clicking emails no longer triggers the runtime-error overlay (browser-extension noise filter holding).
+
+No 500/503 errors observed. No red errors in browser console. Footer counts accurate and consistent.
+Approved to proceed to Commit 2: fetchOlderFromGmail helper + auto-overflow in /api/gmail/messages.
+Commit 2 scope (from the original 8-commit plan)
+The unified inbox's defining behavior: when a user scrolls past the bottom of the locally-cached emails, the API automatically fetches older emails from Gmail, persists them to email_messages, and returns them in the same response. From the user's perspective, scroll continues seamlessly without a visible "loading historical emails" wall.
+Specific requirements
+1. New helper: fetchOlderFromGmail(account, before, limit) in server/services/gmail-sync.ts (or a new file if cleaner).
+
+Inputs: an account record, a before date (the oldest local sent_at the API needs to fetch older than), a limit.
+Issues users.messages.list({ q: 'in:inbox before:<date>', maxResults: limit }) against Gmail.
+For each returned message ID, calls users.messages.get (parallelized but rate-limited — see below).
+For each fetched message, runs the existing parsing/insertion pipeline (parseGmailMessage → INSERT … ON CONFLICT DO NOTHING → attachments → associations → folder routing). Reuse gmail-incremental.ts:upsertMessageById or equivalent — do NOT reimplement.
+Returns the new rows in the same shape as LocalMessageSummary[].
+
+2. Rate-limit guard.
+
+Concurrency cap: 5 in-flight messages.get calls at any time.
+Retry-After-aware backoff on 429 responses, max 3 retries.
+If Gmail returns a non-retriable error (auth, quota), return what's been fetched so far and log the error; do not throw.
+Target latency: ~1 second per 50-row chunk under normal conditions.
+
+3. Auto-overflow in /api/gmail/messages route.
+
+When source=local (now the only source after Commit 4) returns a page with fewer rows than limit AND localExhausted=true (the flag from Commit 1.1 indicating the local archive has no rows older than the current cursor for this account):
+
+Compute before = oldestLocalSentAt for the account.
+Call fetchOlderFromGmail(account, before, limit - localRowsReturned).
+The new rows from Gmail are now in email_messages (via the parsing pipeline).
+Concatenate the local rows with the newly-backfilled rows in the response.
+Build a new pageToken from the oldest item in the combined response (using the existing keyset cursor format from Commit 1.1).
+Frontend receives a unified, continuous list and never sees a "live vs archive" seam.
+
+
+
+4. Soft cap (per Q3 of the original plan):
+
+Track per-session backfill count (server-side, keyed by user/session — exact mechanism your call, but it should reset between user sessions).
+After 5,000 rows have been backfilled in a session, return the local-only response without auto-overflowing.
+Include a flag in the response (e.g., historyLoadCapReached: true) so the frontend can show a "Load older history" affordance.
+The frontend CTA work is Commit 6 — for Commit 2, just emit the flag correctly.
+
+5. Edge cases to handle explicitly:
+
+Account has zero local rows yet (e.g., brand-new connection). Auto-overflow should still work, fetching from Gmail's most recent backwards.
+Gmail returns zero rows for the requested before date. Means no more history exists. Response should indicate no further pagination is possible (nextPageToken: null, plus a flag the frontend can show).
+Concurrent requests from the same user (rare but possible): rate-limiter should handle them gracefully without doubling the actual Gmail calls.
+Gmail API outage entirely: local rows return as before; historyLoadFailed flag in response so frontend knows to show a recoverable error rather than treating it as "end of history."
+
+Testing requirements
+Self-test harness extensions:
+
+Test that local-only request (with plenty of local rows) does not trigger auto-overflow.
+Test that local-exhausted request triggers exactly one Gmail backfill.
+Test that backfilled rows appear in subsequent local-only queries (i.e., they're persisted to DB).
+Test that the soft cap kicks in correctly at 5,000 backfilled rows in a session.
+Test that Gmail errors don't break local pagination.
+
+Live API probe via signed cookie:
+
+Run a real auto-overflow scenario against your real 55K-row mailbox: scroll past the local boundary, observe Gmail backfill, verify the new rows are now in email_messages and would be returned by a subsequent local query.
+Confirm rate limiting works: trigger a request that would normally hit Gmail concurrency limits, verify it self-throttles to 5 in-flight.
+
+Self-review (architect-style) before reporting:
+
+Continue the self-review discipline that caught the searchQuery dependency bug in 1.1.
+Specifically: review the auto-overflow path for any state leak between requests, the soft cap for off-by-one issues, the rate-limit logic for cases where backoff timer might starve other requests.
+
+Process
+
+Implement Commit 2 following the spec above.
+Run the self-test harness extensions plus the live probe.
+Run an architect-style self-review on the changes.
+Make a Replit checkpoint.
+Stop. Report what changed, what was tested, what the architect review found and how it was addressed. Wait for me to verify in .dev myself before proceeding to Commit 3.
+
+Constraints
+
+Standing rules apply: no schema changes, no db:push, no destructive DB ops, no package edits without justification.
+Reuse existing parsing/insertion pipeline. Do not duplicate logic from gmail-incremental.ts:upsertMessageById.
+The historyLoadCapReached and historyLoadFailed flags must be additions to the response; do not break the existing response schema.
+If implementation reveals an unexpected coupling with Commit 4's planned UI changes (mailSource removal), flag it but do NOT pull Commit 4 work forward — note it for that commit instead.
+Continue the architect-style self-review you used in 1.1. Specifically catch: state leaks between requests, off-by-one on soft cap, race conditions in rate-limiter, cases where the local query's localExhausted flag might be wrong.

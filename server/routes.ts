@@ -7936,10 +7936,135 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       return res.json({ messages: local.messages, nextPageToken: local.nextPageToken });
     };
 
-    // ── source=local: always local (explicit user opt-in for offline cache) ─────
+    // ── source=local: serve from the local archive, with auto-overflow ──────────
+    // (Phase 5 Commit 2)
+    //
+    // When the local archive runs out and the page would otherwise be short,
+    // transparently top it up by pulling older messages from Gmail and
+    // persisting them via the same parsing pipeline gmail-sync uses. The
+    // unified inbox needs this so scrolling never hits a "live vs archive"
+    // seam — the user shouldn't have to know there's a cache layer.
+    //
+    // Scope: only triggers in single-account mode (resolved.accountId set,
+    // accountIds NOT set). In unified-inbox mode there's no single Gmail
+    // account to fan out to; that's a deliberate punt for a later commit.
+    //
+    // Soft cap: 5,000 backfilled rows per session caps the worst case where a
+    // user scrolls forever — protects Gmail quota and our DB from runaway
+    // growth in a single browser session. After the cap is hit, we still
+    // serve the local results but emit historyLoadCapReached=true so the
+    // client can show a "load older from Gmail" affordance.
     if (source === "local") {
-      try { return sendLocal(await tryLocal()); }
-      catch (err: any) { return res.status(500).json({ message: "Local mailbox query failed", error: err.message }); }
+      try {
+        const local = await tryLocal();
+        const isUnified = !!(resolved as any).accountIds;
+        const acct: any = (resolved as any).acct;
+        // Overflow eligibility:
+        //  • single-account only (unified-mode fan-out is a later commit);
+        //  • EMPTY query only — Gmail's q-syntax doesn't 1:1 map to our
+        //    local q-translator (has:attachment, mime:, etc), so blindly
+        //    backfilling with a different filter would pollute filtered
+        //    pages with unrelated rows. The user is paginating off the
+        //    bottom of an UNFILTERED inbox; that's the only safe trigger.
+        //    Plumbing q translation into Gmail is a future commit.
+        const queryEmpty = !q || q.trim() === "";
+        const canOverflow = !isUnified && !!acct?.id && !!acct?.emailAddress && queryEmpty;
+
+        const sess = req.session as any;
+        const SOFT_CAP = 5000;
+        const backfilledSoFar: number = Number(sess.gmailBackfillCount || 0);
+        const capReached = backfilledSoFar >= SOFT_CAP;
+
+        const shouldOverflow =
+          canOverflow &&
+          local.localExhausted &&
+          local.messages.length < maxResults &&
+          !capReached;
+
+        if (!shouldOverflow) {
+          res.setHeader("X-Mail-Source", "local");
+          res.setHeader("X-Mail-Took-Ms", String(local.tookMs));
+          const body: any = {
+            messages: local.messages,
+            nextPageToken: local.nextPageToken,
+          };
+          // Only surface the cap signal when overflow WOULD have triggered
+          // were it not for the cap — not on every paginated page request,
+          // not when the user has a filter active, not in unified mode. The
+          // UI shows it as "you've hit your session's history-load limit;
+          // reload to fetch more".
+          if (capReached && local.localExhausted && local.messages.length < maxResults &&
+              !isUnified && !!acct?.id && queryEmpty) {
+            body.historyLoadCapReached = true;
+          }
+          return res.json(body);
+        }
+
+        // Auto-overflow path: ask Gmail for the missing tail.
+        // Clamp the request to whichever is smaller: the page shortfall, or
+        // the remaining session-cap budget. Without the clamp, a user near
+        // the cap could overshoot by up to maxResults (=100) on a single
+        // request, defeating the cap's purpose.
+        const remainingBudget = Math.max(0, SOFT_CAP - backfilledSoFar);
+        const wantMore = Math.min(maxResults - local.messages.length, remainingBudget);
+        const beforeDate = local.oldestLocalSentAt
+          ? new Date(local.oldestLocalSentAt)
+          : null;
+
+        const { fetchOlderFromGmail } = await import("./services/gmail-history-backfill");
+        const { encodeMsgCursorToken } = await import("./services/local-mailbox");
+        const backfill = await fetchOlderFromGmail(
+          { id: acct.id, userId: resolved.userId, emailAddress: acct.emailAddress },
+          beforeDate,
+          wantMore,
+        );
+
+        // Track newly-persisted rows against the per-session soft cap. Skipped
+        // rows (already in DB) don't add to DB pressure so we only count
+        // inserts. The in-flight follower path returns inserted=0 (see
+        // gmail-history-backfill.ts), so concurrent requests for the same
+        // account don't double-debit the cap.
+        const newCount = backfilledSoFar + backfill.inserted;
+        sess.gmailBackfillCount = newCount;
+        // Recompute capReached AFTER the increment so the response reflects
+        // the post-request truth, not the pre-request snapshot. Without this,
+        // a request that crosses the cap mid-response would silently omit
+        // the cap signal and the next request would be the one to surface
+        // it — confusing for the UI to interpret.
+        const capReachedNow = newCount >= SOFT_CAP;
+
+        // De-dupe just in case a row appears in BOTH the local slice and the
+        // backfill — shouldn't happen with second-precision `before:`, but
+        // it's a cheap safety net that costs O(n).
+        const localIds = new Set(local.messages.map((m: any) => m.id));
+        const overflowed = backfill.rows.filter(r => !localIds.has(r.id));
+        const combined = [...local.messages, ...overflowed];
+
+        // Emit a fresh keyset cursor pointing at the OLDEST row we returned —
+        // either the last local row (if backfill yielded nothing) or the
+        // oldest backfilled row. Suppressed when we know we're at end-of-history.
+        let nextPageToken: string | null = null;
+        if (combined.length > 0 && !backfill.noMoreHistory) {
+          if (backfill.oldest) {
+            nextPageToken = encodeMsgCursorToken(backfill.oldest.sentAtIso, backfill.oldest.pk);
+          } else if (local.oldestLocalPk != null) {
+            // No backfilled rows but Gmail didn't say end-of-history (e.g.
+            // every fetched row already existed). Resume from the local tail
+            // so the next request will try Gmail again with a fresh `before:`.
+            nextPageToken = encodeMsgCursorToken(local.oldestLocalSentAt, local.oldestLocalPk);
+          }
+        }
+
+        res.setHeader("X-Mail-Source", "local+backfill");
+        res.setHeader("X-Mail-Took-Ms", String(local.tookMs + backfill.tookMs));
+        const body: any = { messages: combined, nextPageToken };
+        if (backfill.failed) body.historyLoadFailed = true;
+        if (backfill.noMoreHistory) body.endOfHistory = true;
+        if (capReachedNow) body.historyLoadCapReached = true;
+        return res.json(body);
+      } catch (err: any) {
+        return res.status(500).json({ message: "Local mailbox query failed", error: err.message });
+      }
     }
 
     // ── source=auto + paginating into deep history with a local token ──
