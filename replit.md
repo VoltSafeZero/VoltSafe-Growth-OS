@@ -3789,3 +3789,43 @@ Provincial breakdown of the 50 inserts: NB 17, NS 15, BC 8, PE 6, NL 4. Canadian
 **Dry-run mode**: `--dry-run` flag prints the dedup report and a sample of 5 would-be INSERTs but commits nothing. Was used to sanity-check before the real run.
 
 **Re-runnability**: this script is idempotent against the same input file because the dedup logic now treats the just-inserted rows as existing. Re-running on the same CSV would skip all 52 rows as duplicates (verified mentally; not actually re-run to avoid noise).
+
+## Today page — customisable widget grid (Apr 2026)
+
+The `/today` page used to be a static "your day at a glance" dashboard. Replaced
+with a fully customisable widget grid that mirrors the Command Center
+architecture but is **independent** from it — toggling Today widgets does not
+change Command Center widgets and vice versa.
+
+**Files**
+- `client/src/components/today/today-widgets.tsx` (NEW) — 8 widgets, catalog
+  (`TODAY_WIDGET_DEFS`), id→component map (`TODAY_ACTION_WIDGET_MAP`), size
+  hints (`TODAY_WIDGET_SIZE_HINTS`), and shared `useTodayData()` hook (one
+  `useQuery(['/api/dashboard/today'])` — React Query dedupes across all 8
+  widgets so only one network request fires).
+- `client/src/components/command-centers/dashboard-grid.tsx` — merges
+  Command Center registries with the Today registries at the grid layer
+  (avoids a circular import with `action-widgets.tsx`).
+- `client/src/pages/today.tsx` (REWRITTEN) — header with edit toolbar +
+  Widgets sheet + DashboardGrid keyed by `resetSeed`.
+
+**8 Today widgets** (all id-prefixed `today_*` so they cannot collide with
+Command Center widgets in the flat `widgetVisibility` jsonb map):
+`today_overview` (greeting + KPI strip), `today_suggested_actions`,
+`today_meetings`, `today_tasks_due`, `today_overdue`, `today_email_activity`,
+`today_hot_opportunities`, `today_new_leads`.
+
+**Persistence model** — uses the EXISTING jsonb columns on `users`, no schema
+work:
+- `widgetVisibility` is a single flat map shared by every page; namespacing by
+  id prefix (`today_*`) keeps the two surfaces isolated. Server PATCH
+  `/api/users/me/layout` REPLACES this field, so visibility writes always merge
+  against the freshest stored map (read via `queryClient.getQueryData` at
+  mutate-time, not from the closure-captured profile — protects against
+  cross-tab races).
+- `dashboardLayouts.today` holds Today's grid positions. Server merges
+  `dashboardLayouts` per-key, so saving here cannot disturb other dashboards.
+- Reset visibility strips only `today_*` keys; reset layout sends
+  `{ today: {} }` so the grid falls back to defaults via `reconcileLayouts`.
+
+**Architect review** — pass; race-on-stale-write hardening applied as suggested.

@@ -2,7 +2,8 @@ import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { Responsive as ResponsiveGridLayout, type LayoutItem, type ResponsiveLayouts } from "react-grid-layout";
 import { Button } from "@/components/ui/button";
 import { Pencil, Save, X, RotateCcw, Move } from "lucide-react";
-import { ACTION_WIDGET_MAP } from "@/components/command-centers/action-widgets";
+import { ACTION_WIDGET_MAP as CC_WIDGET_MAP } from "@/components/command-centers/action-widgets";
+import { TODAY_ACTION_WIDGET_MAP, TODAY_WIDGET_SIZE_HINTS } from "@/components/today/today-widgets";
 
 // Re-export friendlier aliases so callers don't have to know about RGL's naming
 export type Layout = LayoutItem;
@@ -10,9 +11,20 @@ export type Layouts = ResponsiveLayouts;
 
 export type WidgetSizeHint = { w: number; h: number; minW?: number; minH?: number; maxW?: number; maxH?: number };
 
+// Unified widget registry: Command Center widgets + Today-page widgets. Today
+// widgets live in a separate module to avoid a circular import with the
+// action-widgets file (which exports ActionWidgetShell that today-widgets
+// consumes). Both sides namespace their ids (`today_*` vs everything else)
+// so there's no key collision.
+const ACTION_WIDGET_MAP: Record<string, React.ComponentType<any>> = {
+  ...CC_WIDGET_MAP,
+  ...TODAY_ACTION_WIDGET_MAP,
+};
+
 // Per-widget default sizing hints. Most widgets are 4 wide × 8 tall on lg (12-col grid).
 // Bigger widgets get more room; team_load_balancer is taller; cash_pulse and board_pack
-// are wider for their KPI summaries.
+// are wider for their KPI summaries. Today-page widgets contribute their own
+// hints via TODAY_WIDGET_SIZE_HINTS (merged below).
 const WIDGET_SIZE_HINTS: Record<string, WidgetSizeHint> = {
   cash_pulse:             { w: 6, h: 8,  minW: 3, minH: 6 },
   board_pack_readiness:   { w: 6, h: 9,  minW: 3, minH: 7 },
@@ -46,6 +58,9 @@ const WIDGET_SIZE_HINTS: Record<string, WidgetSizeHint> = {
   deployment_blockers:    { w: 6, h: 8,  minW: 3, minH: 6 },
   close_opps_score:       { w: 6, h: 10, minW: 3, minH: 6 },
   key_accounts:           { w: 6, h: 9,  minW: 3, minH: 6 },
+  // Today-page widgets — defined in today-widgets.tsx, merged here so the
+  // grid can size them without a separate hint table.
+  ...TODAY_WIDGET_SIZE_HINTS,
 };
 
 const DEFAULT_HINT: WidgetSizeHint = { w: 4, h: 8, minW: 3, minH: 6 };
