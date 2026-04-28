@@ -152,6 +152,252 @@ pins the wiring is cheap insurance — write it any time the answer to
 
 ---
 
+## Unified Inbox — Commit 6 of 8: "X new messages" top-of-list pill (Complete, 2026-04-28)
+
+### Why this exists
+With Commit 5's foreground 15s polling now reliably landing fresh mail in
+the local mirror, we needed the user-facing notification piece. Without a
+pill, fresh mail just silently appears at the top of the list — which is
+fine if the user is already at the top, but invisible if they're scrolled
+down reading something. Commit 6 surfaces a Superhuman/Gmail/Apple-Mail-style
+pill ("1 new message" / "X new messages") at the top of the visible scroll
+viewport whenever new mail arrives AND the user is not already at the top.
+Click → smooth-scroll to top + dismiss + advance baseline. **Zero refetch**
+— the new mail is already in the local mirror (delivered via the Commit 5
+15s tick or push), already rendered just above the current scroll fold.
+
+This commit covers ALL sources of new mail with a single detection path:
+the Commit 5 foreground 15s tick, push delivery (when working in
+production), and the backend hourly tick. They all flow into the same
+`inboxQuery.data?.messages` array via react-query, and the detection
+useEffect watches THAT array — not the polling fetch event. The user
+explicitly flagged this as the race-safety contract: "appear AFTER the
+new mail lands in the local mirror, not as a blind 'polling fired'
+trigger."
+
+### What changed (one frontend file + one source-grep test)
+
+**`client/src/pages/gmail-inbox.tsx`** (+172 lines / -2 lines):
+
+1. New lucide import: `ArrowUp` (line 23, slotted into the existing
+   alphabetical-ish import group).
+
+2. Five state primitives + two useEffects + one useCallback, placed
+   **right after `inboxQuery`** (TDZ — the detection effect closes over
+   `inboxQuery.data?.messages` and lists it in deps, so the declaration
+   must precede this block; an earlier draft put them above the queries
+   and triggered TS2448/TS2454 used-before-declaration errors. The
+   relocated block is now at lines ~3288-3424 with a section-header
+   comment block explaining the design):
+   - `inboxScrollRef = useRef<HTMLDivElement>(null)` — ref attached to
+     the message-list scroll container at line ~4871.
+   - `lastSeenInboxIdsRef = useRef<Set<string>>(new Set())` — baseline
+     of message ids the user has "acknowledged" (either by being at the
+     top when they arrived, or by clicking the pill).
+   - `lastSeenViewKeyRef = useRef<string>("")` — tracks the
+     `${activeAccountId ?? "personal"}|${tab}|${searchQuery}` tuple so
+     view changes silently re-baseline (no pill on view switch).
+   - `[newMessagesCount, setNewMessagesCount] = useState(0)` — the
+     visible pill count.
+   - `[isAtTop, setIsAtTop] = useState(true)` — driven by the scroll
+     listener; gates whether new arrivals increment the pill or just
+     advance the baseline silently.
+   - **Detection useEffect** on `[inboxQuery.data?.messages,
+     activeAccountId, tab, searchQuery, isAtTop]`. Five branches:
+     view-change → silent baseline reset (functional setState avoids
+     reading newMessagesCount in deps and self-retriggering); empty
+     baseline + first-non-empty data → silent re-baseline (without
+     this guard, the very first data tick would falsely count all 50
+     messages as "new" on initial load); top-down walk with
+     early-break to count new arrivals; "walked-to-end without finding
+     any known id" → silent re-baseline (without this, a long polling
+     gap that rotated the entire 50-row window would falsely pop a
+     "50 new messages" pill); on real new arrivals, ALWAYS advance the
+     baseline (prevents double-counting on the next data tick) and
+     only increment the pill count when `!isAtTop`.
+   - **Scroll listener useEffect** on `[tab]` (re-attaches when the
+     scroll container DOM node may have changed via React tree
+     reshuffles between tab switches). Uses `{ passive: true }` to
+     avoid jank. Threshold `scrollTop < 50` (50px tolerance for
+     sub-pixel scroll states / inertia). On reaching top, auto-
+     dismisses the pill — avoids the surreal "user is looking at the
+     top of the inbox, sees the new emails right there, pill still
+     says '5 new messages' pointing where they already are."
+   - **`handleScrollToTop` useCallback** (`[]` deps): smooth scroll
+     via `scrollTo({ top: 0, behavior: "smooth" })` with a try/catch
+     fallback to `scrollTop = 0` for old browsers, then
+     `setNewMessagesCount(0)`. **Zero `invalidateQueries` /
+     `refetchQueries` / `.refetch()`** in the body — that's the
+     user-flagged click-without-refetch contract.
+
+3. The scroll container at line ~4871 gets `ref={inboxScrollRef}` added
+   inline. Inside the container, as the first child (above the tab-
+   conditional render branches), the pill JSX:
+   - Wrapper: `sticky top-2 z-20 flex justify-center pointer-events-none`
+     with `aria-live="polite" aria-atomic="true"` (the architect-flagged
+     a11y contract — count changes get announced to screen readers).
+     `pointer-events-none` on the wrapper so the empty horizontal space
+     flanking the pill doesn't intercept row clicks underneath.
+   - Inner button: `pointer-events-auto` (re-enables clickability on
+     just the visible pill area), pill-shaped (`rounded-full`),
+     primary-colored, with hover state and a fade+slide-in animation.
+     Render-gated by `tab === "inbox" && newMessagesCount > 0 && !isAtTop`.
+   - `<ArrowUp aria-hidden="true" focusable="false" />` — purely
+     decorative, the visible "1 new message" / "X new messages" text
+     is the accessible name. Without `aria-hidden`, screen readers
+     would double-announce the icon alongside the text.
+   - Text: `{count === 1 ? "1 new message" : `${count} new messages`}`.
+     Singular/plural is exact per the user spec — no "X new messages"
+     literal substitution.
+   - Three `data-testid`s: `pill-new-messages` (wrapper),
+     `button-pill-scroll-top` (inner button),
+     `text-pill-new-messages-count` (count span).
+   - z-20 layers above the existing sticky bulk-action toolbar (z-10 at
+     line ~5048) so both can coexist on the rare occasions both
+     conditions hold (user has selected messages AND new mail just
+     arrived).
+
+**`tests/new-messages-pill.test.js`** (new, 20 source-grep assertions
+in two groups). Same shape as `tests/foreground-polling.test.js` from
+Commit 5: read the source, regex-assert each invariant, exit 1 on any
+fail. Group A (13 assertions) covers detection / state / lifecycle:
+state primitives declared, viewKey shape, view-change reset branch,
+both silent re-baseline guards (empty baseline + walked-to-end), top-
+down early-break loop, baseline-advance + !isAtTop gate on increment,
+scrollTop < 50 threshold, auto-dismiss-on-reach-top, passive scroll
+listener with [tab] in deps, smooth-scroll click handler with
+try/catch fallback, click handler does NOT call invalidate/refetch,
+detection sourced from `inboxQuery.data?.messages`. Group B (7
+assertions) covers render/UI: render gate, singular/plural text
+formatting, ArrowUp imported AND rendered with `aria-hidden`, three
+data-testids, sticky+z-20+pointer-events-none tokens (any order; not
+class-string-position-coupled), pointer-events split between wrapper
+and inner button, ref attached to scroll container.
+
+Per-architect-review test relaxations (so innocent reformatting won't
+fail the test): A12 accepts ANY useCallback deps array shape (not just
+`[]`); B3 doesn't pin the exact icon size class; B5 checks for
+sticky/top-2/z-20/pointer-events-none as independent tokens in any
+order rather than a fixed class string. Behavior invariants preserved.
+
+### Why source-grep instead of HTTP / Vitest (continued from Commit 5)
+Same rationale as Commit 5:
+- HTTP path requires a valid admin session cookie; test credentials in
+  this repo are drifted (5 legacy test workflows still failing for
+  login-403 — pre-existing, out of scope, documented in Operational
+  follow-ups).
+- The actual regression we're guarding against is a SOURCE EDIT to
+  this exact JSX/state block. Source-grep catches it with zero
+  dependencies, zero env setup, zero runtime cost.
+- End-to-end behavior verified manually in `.dev` per the user-facing
+  verification list below.
+
+### Race-condition analysis (architect-reviewed)
+1. **Pill detection vs polling fetch**: detection useEffect closes over
+   `inboxQuery.data?.messages` and lists it in deps, so it fires AFTER
+   react-query has updated its cache from a fetch. Detection naturally
+   serializes after the local-mirror update. No race.
+2. **Consecutive polling ticks**: baseline (`lastSeenInboxIdsRef`)
+   advances on the same tick we increment the pill count, so the next
+   tick sees the new ids as "known" and doesn't re-count. No double-
+   counting.
+3. **Long polling gap rotates the 50-row window**: walked-to-end guard
+   silently re-baselines without popping a misleading "50 new messages"
+   pill. Confirmed correct by architect review.
+4. **Rapid view switches**: viewKey check fires first, baseline is
+   reset before any counting happens. No phantom pill on tab/search/
+   account swap.
+5. **Pagination interaction**: the inboxQuery returns the FIRST page
+   only (50 newest). Load-more appends to a separate `inboxExtra`
+   array (line ~3964) that detection does NOT watch. Top-of-list
+   newest-first detection is unaffected by pagination state.
+6. **Click during in-flight polling tick**: click sets count to 0
+   immediately. If a polling tick lands new messages right after the
+   click, the next detection effect tick sees those messages as not in
+   `lastSeenInboxIdsRef`, advances the baseline, and (if user is now
+   at top from the smooth-scroll) silently absorbs them; otherwise
+   pops a fresh pill. Both are correct user-perceived behavior.
+
+### Architect review verdict
+PASS with two minor follow-ups, both applied in-line:
+- A11y patch: `aria-live="polite" aria-atomic="true"` on the pill
+  wrapper, `aria-hidden="true" focusable="false"` on the ArrowUp icon.
+- Three test-assertion relaxations (A12, B3, B5) so syntax-level
+  reformatting can't break the test without a behavior change.
+
+### User-facing verification list (per user direction — STOP after Commit 6)
+Verify these in `.dev` before approving Commit 7:
+1. Open the inbox tab. Scroll down past the first ~5 messages. Wait
+   for new mail to arrive (use the Commit 5 15s tick — send yourself
+   an email from a different account and wait up to ~30s). Pill
+   should appear at the top of the visible scroll viewport with text
+   "1 new message" (singular).
+2. Send 2-3 more messages quickly. Pill count should increment to
+   "3 new messages" (plural).
+3. Click the pill. List should smooth-scroll to the top, the pill
+   should disappear, and the new messages should be visible at the
+   top of the list. Open the network panel and confirm NO `/api/gmail/
+   messages?...` request fires from the click — the new mail was
+   already in the local mirror.
+4. Scroll back down. Pill should NOT reappear (baseline already
+   advanced).
+5. Switch to the Drafts tab. Pill should disappear (it's inbox-only).
+   Switch back to inbox. No pill (baseline silently reset on tab
+   switch).
+6. Switch accounts (if you have multiple). No pill (baseline silently
+   reset on account switch).
+7. Type a search query. No pill (baseline silently reset on search
+   change). Clear the search. No pill.
+8. Repeat #1 but stay scrolled to the top. New mail should just
+   appear at the top of the list — no pill (the user is already
+   looking at the top, no notification needed).
+9. With messages selected (bulk-action toolbar visible at the top),
+   trigger fresh mail from a different account. Both the bulk-action
+   toolbar AND the pill should be visible — pill stacks ABOVE the
+   toolbar (z-20 vs z-10).
+10. Screen-reader spot check: with VoiceOver / NVDA enabled, when the
+    pill appears the count should be announced ("1 new message" or
+    "3 new messages") via the `aria-live="polite"` region. The arrow
+    icon should NOT be announced separately.
+
+### Done definition (Commit 6)
+- [x] T001: read existing inbox scroll/sticky patterns (line 4731
+  scroll container, line 5048 bulk-action toolbar, line 3404
+  inboxQuery declaration).
+- [x] T002: pill state + detection useEffect + scroll listener
+  useEffect implemented; functional setState used in view-reset
+  branch to keep newMessagesCount out of deps.
+- [x] T003: ref attached to scroll container, pill JSX inserted as
+  first child with sticky positioning + a11y attributes + click
+  handler.
+- [x] T004: source-grep test (`tests/new-messages-pill.test.js`),
+  20/20 passing. Three assertions de-brittled per architect review.
+- [x] T005: architect review with `includeGitDiff=true`, verdict
+  PASS, two minor follow-ups applied (a11y patch + test relaxations).
+- [x] T006: this entry.
+- [x] App workflow running healthy; Vite HMR processed all edits.
+- [x] Existing test suites still pass (`tests/source-default.test.js`
+  9/9, `tests/foreground-polling.test.js` 23/23). The 5 legacy test
+  workflows are still failing for login-403 — pre-existing, no
+  regression introduced by Commit 6, documented in Operational
+  follow-ups (unchanged from Commit 5).
+- [x] Typecheck baseline unchanged at 278 errors. The only error in
+  `gmail-inbox.tsx` is the pre-existing TS2802 at line 4100
+  (`[...new Set(...)]` spread, unrelated to Commit 6).
+- STOP. Wait for user `.dev` verification before starting Commit 7.
+
+### Operational items unchanged (still pending, NOT for Commit 6)
+- Pub/Sub push delivery in dev — still broken, still relies on the
+  Commit 5 polling fallback as the actual safety net. Already
+  documented in the Post-Publish section.
+- Test credential drift — same 5 legacy test workflows still failing
+  with login-403, no change. Already documented in Operational
+  follow-ups + Commit 5 entry.
+- TS2802 `[...new Set(...)]` at line 4100 — pre-existing,
+  not in scope for any open commit.
+
+---
+
 ## Unified Inbox — Commit 5 of 8: Foreground 15s polling fallback for incremental Gmail sync (Complete, 2026-04-28)
 
 ### Why this exists

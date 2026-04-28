@@ -17,7 +17,7 @@ import {
   FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronRight, Folder,
   Reply, ReplyAll, Pencil, User, Building2, Zap, Flame,
   CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
-  CheckCheck, ArrowLeft, ClipboardList, StickyNote, ArchiveX, Square, Filter, Eye,
+  CheckCheck, ArrowLeft, ArrowUp, ClipboardList, StickyNote, ArchiveX, Square, Filter, Eye,
   Sparkles, Code2, Type, Rows3, Rows2, Inbox as InboxIcon,
   Maximize2, Minimize2,
   Command as CommandIcon, AlignJustify, Hash, AtSign, Folders, Zap as ZapIcon,
@@ -3282,6 +3282,147 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     refetchIntervalInBackground: false,
   });
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Commit 6: "X new messages" top-of-list pill (Superhuman/Gmail style).
+  // ──────────────────────────────────────────────────────────────────────────
+  // Lives RIGHT AFTER inboxQuery (TDZ — the detection effect closes over
+  // inboxQuery.data?.messages and includes it in its deps array, so the
+  // declaration must precede this block).
+  //
+  // Detection trigger: watch inboxQuery.data?.messages DIRECTLY (NOT the
+  // polling fetch event). This naturally serializes AFTER the local mirror
+  // update — addresses the user-flagged race-condition concern: "appear AFTER
+  // the new mail lands in the local mirror, not as a blind 'polling fired'
+  // trigger." It also covers ALL sources of new mail with one detection
+  // path: the Commit 5 foreground 15s tick, push delivery (when working in
+  // production), and the backend hourly tick.
+  //
+  // View-scope semantics: the pill is per (account, tab, searchQuery) tuple
+  // — those are the segments that change the inbox queryKey AND the
+  // user-perceived view. Switching account, tab, OR search resets the
+  // baseline silently with no pill (we just adopted a different dataset;
+  // "new since I started looking" is undefined). The client-side filters
+  // (inboxCategory, crmFilter) do NOT reset — those narrow the same
+  // underlying data, and the pill counts new arrivals in the underlying
+  // inbox regardless of the active category filter (matches Gmail behavior).
+  //
+  // Counting algorithm: walk the new messages array from the top until we
+  // hit an id we've seen — that prefix is the new-arrivals count. Robust to
+  // pagination because Gmail orders newest-first and pagination appends at
+  // the BOTTOM, so the loop short-circuits at the top.
+  //
+  // Scroll-position gate: scrollTop < 50px = "at top" (50px tolerance for
+  // sub-pixel scroll states / inertia). When at top, baseline advances
+  // silently; new mail just appears in place per the user spec ("If the
+  // user is already at the top, no pill — the new email just appears at the
+  // top naturally").
+  //
+  // Click contract: smooth-scroll to top + reset count + (baseline already
+  // current). ZERO invalidateQueries / refetch — local mirror is current,
+  // messages are already rendered just above the current scroll fold.
+  const inboxScrollRef = useRef<HTMLDivElement>(null);
+  const lastSeenInboxIdsRef = useRef<Set<string>>(new Set());
+  const lastSeenViewKeyRef = useRef<string>("");
+  const [newMessagesCount, setNewMessagesCount] = useState(0);
+  const [isAtTop, setIsAtTop] = useState(true);
+
+  useEffect(() => {
+    const messages = inboxQuery.data?.messages ?? [];
+    const viewKey = `${activeAccountId ?? "personal"}|${tab}|${searchQuery}`;
+
+    // View change → silently reset baseline, never pop a pill.
+    if (viewKey !== lastSeenViewKeyRef.current) {
+      lastSeenViewKeyRef.current = viewKey;
+      lastSeenInboxIdsRef.current = new Set(messages.map((m) => m.id));
+      // Functional setState avoids reading newMessagesCount in deps (which
+      // would self-retrigger this effect on every count change).
+      setNewMessagesCount((prev) => (prev !== 0 ? 0 : prev));
+      return;
+    }
+
+    // First non-empty data after a view change with empty baseline → adopt
+    // as baseline silently. Without this guard, the very first data tick
+    // would count all 50 messages as "new" and (if the user is scrolled)
+    // pop a misleading "50 new messages" pill on initial load.
+    const seen = lastSeenInboxIdsRef.current;
+    if (seen.size === 0 && messages.length > 0) {
+      lastSeenInboxIdsRef.current = new Set(messages.map((m) => m.id));
+      return;
+    }
+
+    // Count new arrivals at the top of the list.
+    let newArrivals = 0;
+    for (const m of messages) {
+      if (seen.has(m.id)) break;
+      newArrivals++;
+    }
+
+    // Walked to the end without finding ANY known id. Either a long polling
+    // gap rotated the entire 50-row window, or some upstream view-shape
+    // change we can't reason about safely. Don't pop a misleading
+    // "50 new messages" pill — silently re-baseline.
+    if (newArrivals === messages.length && messages.length > 0) {
+      lastSeenInboxIdsRef.current = new Set(messages.map((m) => m.id));
+      return;
+    }
+
+    if (newArrivals === 0) return;
+
+    // Always advance the baseline on a real new-arrivals tick — prevents
+    // double-counting on the next data update. The pill count is the
+    // running tally of "unseen at top, since the last user acknowledgement
+    // (scroll-to-top or click)."
+    lastSeenInboxIdsRef.current = new Set(messages.map((m) => m.id));
+    if (!isAtTop) {
+      setNewMessagesCount((prev) => prev + newArrivals);
+    }
+    // If isAtTop: baseline advances, count stays at 0 → no pill. The user
+    // is already looking at the top of the list; the new mail just renders
+    // in place.
+  }, [inboxQuery.data?.messages, activeAccountId, tab, searchQuery, isAtTop]);
+
+  // Scroll listener — updates isAtTop AND auto-dismisses the pill the
+  // moment the user reaches the top (whether by smooth-scroll click or
+  // manual scroll). Auto-dismiss avoids the surreal state of "user is
+  // looking at the top of the inbox, sees the new emails right there, pill
+  // still says '5 new messages' pointing where they already are."
+  useEffect(() => {
+    const el = inboxScrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const top = el.scrollTop < 50;
+      setIsAtTop(top);
+      if (top) setNewMessagesCount((c) => (c > 0 ? 0 : c));
+    };
+    // Run once on mount in case the container starts mid-scroll (rare but
+    // possible after browser scroll-restoration on hard-refresh).
+    onScroll();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+    // tab in deps so the listener re-attaches when the underlying scroll
+    // container DOM node may have changed via React tree reshuffles, and
+    // the initial onScroll() call resets isAtTop correctly for the new view.
+  }, [tab]);
+
+  const handleScrollToTop = useCallback(() => {
+    const el = inboxScrollRef.current;
+    if (el) {
+      try {
+        el.scrollTo({ top: 0, behavior: "smooth" });
+      } catch {
+        // Fallback for very old browsers without smooth-scroll support.
+        el.scrollTop = 0;
+      }
+    }
+    setNewMessagesCount(0);
+    // Baseline is already up-to-date from the detection-effect's increment
+    // branch; no change needed here. Critically: we do NOT call
+    // invalidateQueries or refetch. The new mail is already in the local
+    // mirror and already rendered in the list above the current scroll
+    // position — a refetch would be wasted bandwidth AND would risk a flash
+    // of the skeleton state during the refetch window.
+  }, []);
+
   const sentQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
     queryKey: ["/api/gmail/messages", "sent", searchQuery, activeAccountId],
     queryFn: async () => {
@@ -4728,7 +4869,41 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           </div>
 
           {/* Message list — bottom padding ensures last email isn't hidden under the FAB */}
-          <div className="flex-1 overflow-y-auto pb-36 md:pb-24">
+          <div ref={inboxScrollRef} className="flex-1 overflow-y-auto pb-36 md:pb-24">
+            {/* Commit 6: "X new messages" top-of-list pill (Superhuman/Gmail style).
+                See state block near the inboxQuery / accountsHealthQuery for the
+                detection logic. Render conditions: inbox tab only, count > 0,
+                user scrolled below the top. Sticky-positioned to top of the
+                visible scroll viewport, centered, with pointer-events-none on
+                the wrapper so the empty horizontal space flanking the pill
+                doesn't intercept row clicks underneath. z-20 to layer above the
+                bulk-action toolbar (sticky top-0 z-10 at line ~5048) so both
+                can coexist on the rare occasions both conditions hold. */}
+            {tab === "inbox" && newMessagesCount > 0 && !isAtTop && (
+              <div
+                className="sticky top-2 z-20 flex justify-center pointer-events-none"
+                data-testid="pill-new-messages"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                <button
+                  type="button"
+                  onClick={handleScrollToTop}
+                  data-testid="button-pill-scroll-top"
+                  className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground shadow-md hover:bg-primary/90 transition-all animate-in fade-in slide-in-from-top-2"
+                >
+                  {/* aria-hidden + focusable=false: the icon is purely decorative;
+                      the visible text "1 new message" / "X new messages" is the
+                      accessible name for screen-reader users. */}
+                  <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" focusable="false" />
+                  <span data-testid="text-pill-new-messages-count">
+                    {newMessagesCount === 1
+                      ? "1 new message"
+                      : `${newMessagesCount} new messages`}
+                  </span>
+                </button>
+              </div>
+            )}
             {/* Drafts tab */}
             {tab === "drafts" && (
               draftsQuery.isLoading ? (
