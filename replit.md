@@ -390,6 +390,98 @@ so push-delivery health no longer requires a DB shell to investigate.
 - `tests/admin-diagnostics.test.js` — new, 27 source-grep assertions,
   all green.
 
+### Post-Commit 8 product tweak: plain-text email reader (2026-04-28)
+
+**Trigger**: user-reported visual bug — opening certain Gmail threads
+showed the message body as raw plain text with `<https://very-long-url>`
+angle-bracket wrapping and literal markdown asterisks
+(`*Beki Kabanzira*`) instead of clean typography. Screenshot was
+unmistakable: a Survey-Monkey-style "application link" email rendered as
+a wall of monospace.
+
+**Root cause**: the inbox reader's `MessageBody` component had two
+rendering paths — a sandboxed-iframe srcDoc for `isHtml=true` (with
+Apple-Mail-grade CSS, image scaling, link styling, zoom controls) and a
+naked `<pre>` block for everything else. Any message that arrived as
+text/plain — either because the sender (Gmail's YAMM tracker, in this
+case) only ships text/plain, or because we couldn't reach the multipart
+HTML alternative for a thread that fell through to the Gmail-direct
+fetch — got the `<pre>` treatment. URLs were unclickable, asterisks were
+literal, quoted reply chains were `> > >` walls, and `[image: ...]`
+placeholders just sat there as confusing dead text.
+
+**Decision**: keep ONE iframe rendering path; convert plain-text emails
+to presentation-grade HTML on the client first. Single typography
+contract, single security perimeter, single zoom/fit treatment.
+
+**Code change** (NO schema, NO new commit number — Commit 8 was the last
+in the 8-commit plan, this is purely client-side rendering):
+
+- `client/src/lib/sanitize-html.ts` — new exported
+  `plainTextToEmailHtml(text)`. Eight ordered passes, each operating on
+  the previous step's already-escaped output:
+  1. HTML-escape every char first (`&` `<` `>` `"` `'`) so subsequent
+     steps can ONLY add tags, never inject content.
+  2. Replace `[image: URL]` placeholders with a tiny muted `[image]`
+     marker — the bracketed URL is the source page of the image, not
+     a real image file, so there's nothing renderable.
+  3. Linkify Gmail's RFC-3676 `<URL>` plain-text wrapping → clickable
+     `<a target="_blank" rel="noopener noreferrer nofollow">URL</a>`
+     with the angle brackets stripped from the visible text. This is
+     the regex that fixes the screenshot's exact URL pattern.
+  4. Linkify bare `http(s)://` URLs not already inside an `<a href>`
+     (look-behind class `[^"'>]` blocks double-wrapping); trailing
+     punctuation `.,;:!?)]}` is excluded so `see https://x.com.` doesn't
+     link the period.
+  5. Linkify bare email addresses as `mailto:` (same look-behind trick).
+  6. Markdown emphasis: `**bold**` first, then `*bold*` (Gmail-signature
+     style, fixes literal-asterisk on `*Beki Kabanzira*`), then
+     `_italic_`. `**` must run first or single-`*` would half-eat it.
+     Inner content forbids `\n` and `*` so emphasis can't span across
+     paragraphs.
+  7. Group consecutive lines starting with `>` (now `&gt;` after step 1)
+     into a single `<blockquote>`. Multiple-level quotes (`>>`, `>>>`)
+     all collapse into the same block — visual nesting of
+     reply-of-reply-of-reply is rarely useful and hurts horizontal width.
+  8. Paragraph breaks on blank lines; single newlines → `<br>`. Already
+     block-level `<blockquote>` chunks pass through untouched.
+- `client/src/pages/gmail-inbox.tsx` — `MessageBody`:
+  - Import the new helper.
+  - `sanitized` useMemo now does `isHtml ? sanitizeEmailHtml(body) :
+    sanitizeEmailHtml(plainTextToEmailHtml(body))`. DOMPurify is STILL
+    the last step on either branch — the new converter is purely a
+    cosmetic transform; security is unchanged.
+  - Reading-mode toolbar (Beautiful / Source / Plain) ungated from
+    `isHtml` → shown for any non-empty body. Toolbar now equally
+    useful for plain-text emails: Beautiful = rendered, Source = the
+    HTML we built, Plain = the original text.
+  - Iframe branch ungated from `isHtml` → renders for ANY body in
+    Beautiful mode.
+  - Legacy `mode === "beautiful" && !isHtml` `<pre>` branch removed
+    (now superseded by the single iframe path).
+
+**Safety**: zero security regression. Every byte still funnels through
+DOMPurify before reaching the iframe srcDoc. The new converter only
+inserts already-escaped content into a fixed allow-list of tags
+(`<a>` `<p>` `<br>` `<strong>` `<em>` `<blockquote>` `<span>`); even if
+the regex logic broke, DOMPurify would strip anything dangerous on the
+second pass.
+
+**Tests**: 9-assertion converter sanity check (Node, no DOM) covers
+every pattern from the screenshot — angle-bracket URL, `*bold*`
+signature, `[image: URL]` placeholder, mailto, quoted lines,
+paragraphs, no-leftover-literal-`&lt;https`, no-leftover-`[image:`.
+All 9 pass. TypeScript compile shows ZERO new errors in either touched
+file (the pre-existing TS errors in unrelated files are untouched and
+out of scope).
+
+**Files**:
+- `client/src/lib/sanitize-html.ts` — `+~110` lines (new function +
+  jsdoc explaining the 8-step pipeline and the security argument).
+- `client/src/pages/gmail-inbox.tsx` — `~12` lines changed (import,
+  `sanitized` memo, two `isHtml &&` gates removed, legacy `<pre>`
+  branch deleted with a breadcrumb comment).
+
 ### Post-Commit 8 product tweak: default backfill window 90d → 1 year (2026-04-28)
 
 **Trigger**: post-deploy product feedback that 90 days of email is too

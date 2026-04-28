@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/command";
 import { useSnippets, SnippetInsertButton, SnippetsManagerDialog } from "@/components/inbox-snippets";
 import { useLocation } from "wouter";
-import { sanitizeEmailHtml, htmlToPlainText } from "@/lib/sanitize-html";
+import { sanitizeEmailHtml, plainTextToEmailHtml, htmlToPlainText } from "@/lib/sanitize-html";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
 
@@ -847,10 +847,20 @@ function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
   // When zoom mode flips, recompute.
   useEffect(() => { fitContent(); }, [zoom, fitContent]);
 
-  const sanitized = useMemo(
-    () => (body && isHtml ? sanitizeEmailHtml(body) : body || ""),
-    [body, isHtml],
-  );
+  // Build the HTML payload the iframe will render. For HTML emails we just
+  // sanitize. For plain-text emails (Gmail returns text-only for some senders,
+  // and ANY message we couldn't pull HTML for falls back to the text body) we
+  // first convert to presentation-grade HTML — auto-linking URLs (including
+  // Gmail's `<URL>` angle-bracket plain-text wrapping), turning `*bold*` into
+  // <strong>, styling quoted reply lines as <blockquote>, and hiding noisy
+  // `[image: ...]` placeholders — THEN sanitize that result so DOMPurify is
+  // still the last line of defense before content reaches the iframe srcDoc.
+  // Result: every email reads like a real email, never a wall of monospace.
+  const sanitized = useMemo(() => {
+    if (!body) return "";
+    if (isHtml) return sanitizeEmailHtml(body);
+    return sanitizeEmailHtml(plainTextToEmailHtml(body));
+  }, [body, isHtml]);
   const plainTextView = useMemo(
     () => (body && isHtml ? htmlToPlainText(sanitized) : body || ""),
     [sanitized, body, isHtml],
@@ -949,8 +959,12 @@ function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
 
   return (
     <div className="space-y-2.5">
-      {/* Reading-mode + zoom controls — only when there's HTML to render */}
-      {isHtml && (
+      {/* Reading-mode + zoom controls. Shown for ANY body (was previously
+          gated on isHtml only) — now plain-text emails go through the same
+          iframe path after client-side conversion, so the toolbar is
+          equally useful for them: Beautiful (rendered), Source (raw HTML
+          we built), Plain (the original text). */}
+      {body && (
         <div className="flex items-center justify-end gap-2 -mt-1 -mr-1">
           {mode === "beautiful" && (
             <div
@@ -1001,7 +1015,7 @@ function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
       )}
 
       <AnimatePresence mode="wait">
-        {mode === "beautiful" && isHtml && (
+        {mode === "beautiful" && (
           <motion.div
             ref={wrapperRef}
             key="beautiful"
@@ -1046,17 +1060,10 @@ function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
           </motion.div>
         )}
 
-        {mode === "beautiful" && !isHtml && (
-          <motion.pre
-            key="beautiful-text"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            className="text-[14.5px] whitespace-pre-wrap font-sans text-foreground/90 leading-[1.65] tracking-[-0.005em]"
-            data-testid="text-email-body-plain"
-          >
-            {body}
-          </motion.pre>
-        )}
+        {/* (The legacy `beautiful && !isHtml` <pre> branch was removed — plain
+            text now flows through the iframe above via plainTextToEmailHtml,
+            which auto-links URLs, styles quoted lines, and gives the same
+            typographic treatment as any HTML email.) */}
 
         {mode === "raw" && (
           <motion.pre
