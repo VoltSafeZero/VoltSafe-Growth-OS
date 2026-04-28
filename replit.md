@@ -30,6 +30,157 @@ lost between commits.
      real inbound message; if still stale, check Cloud Pub/Sub delivery
      metrics for ack failures.
 
+### Orphan rows in `email_messages` (cosmetic, not user-facing)
+- **Symptom seen 2026-04-28**: 5,938 rows exist with
+  `source_account_id = 91`, but no `email_accounts` row with `id = 91`
+  exists. Top senders look like a previously-connected personal Gmail
+  (Air Canada, Adidas, Craigslist, 23andMe, etc.) — the account was
+  disconnected and the rows were never garbage-collected.
+- **Impact**: none — the route's `resolveAccount` would never resolve to
+  `91`, so these rows are dead storage only. ~5,938 rows out of ~65k total
+  is meaningful but not urgent.
+- **What to do post-Commit-8 if/when storage becomes a concern**: write a
+  one-shot cleanup script that deletes `email_messages WHERE
+  source_account_id NOT IN (SELECT id FROM email_accounts)`. Run inside a
+  transaction with a row-count assertion. Also consider adding a periodic
+  GC pass when an account is disconnected via the UI so this doesn't
+  re-accumulate.
+
+### Process note: audit-gap lesson learned (Commit 1 keyset bug + Commit 4.1 source-default bug)
+Both bugs had the same shape: a code path was correctly built but **not
+actually reached** in the active flow. The reviews verified "does this
+code execute correctly when called?" without verifying "does this code
+actually get called?". Going forward, architecture/code reviews on this
+project should explicitly answer BOTH questions for any non-trivial code
+path. A one-line guard test (like `tests/source-default.test.js`) that
+pins the wiring is cheap insurance — write it any time the answer to
+"does this default value matter?" is yes.
+
+---
+
+## Unified Inbox — Commit 4.1 amendment: Flip server source default to "local" (Complete, 2026-04-28)
+
+### Why this exists
+Commit 4 removed `params.set("source", mailSource)` from the frontend (correct
+intent — kill the toggle), but the matching server-side defaults were left at
+`|| "gmail"`. End result: every list request silently bypassed the local
+mirror and round-tripped to Gmail's REST API. Invisible for trevor (his
+mirror is always fresh; the live result looked identical), catastrophic for
+shared mailboxes — sales/support showed only the live recent-N slice instead
+of their historical local archive, which the user perceived as
+"sales is showing trevor's emails" (in fact: sales' live inbox is dominated
+by internal CC'd threads where trevor is the visible participant, while the
+2,615 marine-industry rows that distinguish sales' real character live in
+the local mirror that the route had stopped reading).
+
+The diagnostic for this regression is captured in chat history (2026-04-28).
+The audit-gap that allowed this to slip past Commit 4's review is documented
+in the Post-Publish section above ("Process note: audit-gap lesson learned").
+
+### What changed (3 single-line server edits + 1 new test)
+
+**`server/routes.ts:7916`** (`/api/gmail/messages`):
+```diff
+- const source = ((req.query.source as string) || "gmail").toLowerCase();
++ const source = ((req.query.source as string) || "local").toLowerCase();
+```
+
+**`server/routes.ts:8124`** (`/api/gmail/threads` — thread list):
+```diff
+- const source = ((req.query.source as string) || "gmail").toLowerCase();
++ const source = ((req.query.source as string) || "local").toLowerCase();
+```
+
+**`server/routes.ts:8195`** (`/api/gmail/threads/:id` — single-thread fetch):
+```diff
+- const source = ((req.query.source as string) || "gmail").toLowerCase();
++ const source = ((req.query.source as string) || "local").toLowerCase();
+```
+
+(Note: my original diagnostic mis-labeled the third endpoint as
+`/api/gmail/sent`. There is no `/api/gmail/sent` route — the sent view is
+served by `/api/gmail/messages` with `q=in:sent`, so it's covered by the
+first edit. The third line is `/api/gmail/threads/:id`, which was hit
+once-per-thread-click and had the same regression.)
+
+Comment block on the first edit explains the backstory; the other two refer
+back to it. Explicit `?source=gmail` is still honoured by every endpoint —
+this is purely a default flip, not a removal of the override capability.
+
+**NEW `tests/source-default.test.js`** (~130 lines): pure source-grep
+regression test against `server/routes.ts`, no HTTP, no DB, no auth, no
+env vars. Pins the wiring with nine assertions (currently 9/9 PASS):
+1. routes.ts is readable.
+2. ZERO occurrences of `(req.query.source as string) || "gmail"` remain
+   anywhere in routes.ts. This is the strongest guard — re-introducing
+   the regressed pattern on ANY new or existing list route fails the
+   test immediately.
+3. EXACTLY THREE occurrences of `(req.query.source as string) || "local"`
+   exist. Drift from 3 means either we lost one (regression) or someone
+   added a new list route without thinking about the default — fail
+   loud and force a re-read of this entry.
+4–6. Each of the three named routes (`/api/gmail/messages`,
+   `/api/gmail/threads`, `/api/gmail/threads/:id`) is still registered.
+7–9. Each `|| "local"` line sits within 12 source-lines downstream of
+   an `if (!resolved)` guard — sanity-check that the default flip
+   didn't accidentally land in some unrelated code path with a
+   structurally similar query-param read.
+
+Why source-grep instead of HTTP: an earlier draft hit the routes over
+HTTP and asserted `X-Mail-Source` headers. It required a valid admin
+session cookie, and the test credentials in this repo have drifted
+(all five legacy test workflows currently fail with login-403 for the
+same reason). A source-grep catches the actual regression we're guarding
+against — a source-code edit — at zero runtime cost, with zero
+environment setup, and runs in any context including CI without DB or
+network access. The HTTP behaviour is verified manually in `.dev` per
+the user-facing checklist below.
+
+Run: `node tests/source-default.test.js`. No DB writes, no fixture rows,
+no schema changes.
+
+### Deliberately deferred to a separate cleanup pass (NOT Commit 5)
+Two items the diagnostic flagged that were intentionally NOT bundled into
+4.1, per user direction. Land separately once 4.1 is verified in `.dev`:
+- **Drop the `source === "auto"` branch** in `/api/gmail/messages` (lines
+  ~8071–8079) and the `source === "auto"` Gmail-failure fallback (~8093).
+  The toggle that produced "auto" is gone; the branch is dead code today.
+- **Strip the `source` query param from the public API surface entirely**.
+  Currently it's a reserved escape hatch for internal probes. If we keep
+  it, document it as such; if we don't need it, remove it everywhere
+  including the three new comment blocks.
+
+Do NOT do either of these until Commit 4.1 has been observed in production
+behaviour for at least one cycle. The `source === "gmail"` branch is the
+documented escape hatch right now — removing it before we're sure no
+internal tooling depends on it would be a worse regression than the one
+we're fixing.
+
+### Operational caveat (visible in `.dev` immediately after this commit)
+Sales' `email_accounts.last_sync_at IS NULL` even though the local mirror
+has 2,615 inbox rows for it (likely populated by the
+`Attachment backfill` / `HTML backfill` workflows, which insert without
+touching `last_sync_at`). After 4.1 lands, the sales inbox will correctly
+show its 2,615 historical marine-industry emails — but the ~6 most recent
+live messages from today will be missing until the regular sync fires for
+sales. Either trigger a one-shot full sync for accounts 92 and 93 from the
+Mailbox admin page, or wait for the polling fallback in Commit 5 to close
+the gap. This is operational, not a code issue.
+
+### Done definition (4.1)
+- 3 route edits applied; comments in code reference Commit 4.1 for traceability.
+- `tests/source-default.test.js` passes (9/9).
+- replit.md updated with this entry + the orphan-rows note + the audit-gap
+  lesson learned (above, in Post-Publish section).
+- App workflow restarted; `/api/gmail/messages?limit=1` returns
+  `X-Mail-Source: local` for trevor's session.
+- User-facing verification list (per user direction):
+  1. Click sales@voltsafe.com → see sales' marine-industry mail.
+  2. Click support@voltsafe.com → see support's content.
+  3. Click trevor@voltsafe.com → see trevor's content unchanged.
+  4. Scroll deep → historical local-mirror data, not just live recent-N.
+  5. Toggle between accounts → each transition shows the correct content.
+
 ---
 
 ## Unified Inbox — Commit 4 of 8: Remove mailSource toggle + multi-account bulk fan-out (Complete, 2026-04-27)

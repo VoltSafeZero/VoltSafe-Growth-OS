@@ -1,0 +1,17 @@
+Commit 4.1 approved as a 3-line server-side fix. Do not bundle the dead-code cleanup into 4.1 — keep the fix surgical.Apply the minimal 3-line change to default source to "local" at:
+
+server/routes.ts:7906 (/api/gmail/messages)
+server/routes.ts:8112 (/api/gmail/threads)
+server/routes.ts:8179 (/api/gmail/sent)
+Do not drop the source === "auto" branch or strip the source query param in this commit. Those are cleanup opportunities that should land separately once we've verified 4.1 doesn't surface unexpected issues. Document them in replit.md as deferred cleanup for Commit 5 or a separate follow-up.Do add the small route-level smoke test you proposed: assert that source defaults to local-mirror when the param is absent, so this regression can't slip back in silently.Self-review focus for this commit: confirm that auto mode and explicit source=gmail calls (if any internal callers exist) are NOT broken by the default flip. Check whether any other endpoint or background job calls these route handlers with assumed defaults.Architect-style self-review as before.Live verification path: After the fix lands and tests pass, I'll verify in .dev:
+
+Click sales@voltsafe.com in sidebar → see sales' actual marine-industry mail (not trevor's content).
+Click support@voltsafe.com → see support's actual content.
+Click trevor@voltsafe.com → see trevor's content unchanged.
+Confirm scrolling deep into any of the three accounts shows historical local-mirror data (not just the live-Gmail recent-50).
+Toggle between accounts a few times — each transition should show the correct account's content.
+Two operational notes for replit.md at end of this commit:
+Orphan rows in email_messages: 5,938 rows with source_account_id=91 exist, but no email_accounts row with id=91. Likely a previously-disconnected account whose messages were never GC'd. Cosmetic, not user-facing. Add to the Phase 2 / Post-Publish operational follow-ups section. Flag for cleanup if/when storage becomes a concern.
+
+Audit-gap lesson learned: future architectural reviews should explicitly check "does this code path actually execute?" alongside "does this code path execute correctly when reached?" Add a short note to the project's review checklist (or replit.md if no formal checklist exists). The Commit 1 keyset bug and the Commit 4 source-default bug were both this same shape — components correctly built but not actually integrated into the active flow.
+After Commit 4.1 lands and I verify in .dev, we proceed to Commit 5 (PubSub diagnostic + 15s polling fallback).Begin Commit 4.1.

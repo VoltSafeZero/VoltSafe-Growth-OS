@@ -7889,12 +7889,12 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
-  // Phase 2C: source=local|gmail|auto. Default 'gmail' preserves prior behavior.
-  // 'auto' (Apr 2026 fix): the previous "local if local has > 0 rows" rule made the
-  // user blind to recent-but-not-yet-synced emails — local could return a stale page
-  // and the Gmail fallback never fired. New rule: on the FIRST page (no pageToken),
-  // prefer Gmail (source of truth for freshness) and use local only when Gmail fails.
-  // For subsequent pages, route by token shape (digits = local offset; otherwise = Gmail).
+  // source=local|gmail|auto. Default flipped to 'local' in Commit 4.1 — see the
+  // longer note inside the handler for the regression backstory. Explicit
+  // ?source=gmail and ?source=auto remain honoured for internal probes/debug.
+  // ('auto' is dead code as of Commit 4 since the toggle that produced it is gone;
+  // it stays one cycle as the documented escape hatch and is queued for removal
+  // in a separate cleanup pass once 4.1 is verified in .dev.)
   app.get("/api/gmail/messages", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     // Multi-mailbox Phase 1: accept "all" sentinel for unified inbox in addition to numeric ids.
@@ -7903,7 +7903,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.json({ messages: [], nextPageToken: null });
-    const source = ((req.query.source as string) || "gmail").toLowerCase();
+    // Commit 4.1: default to "local" so the inbox reads from the local mirror.
+    // Pre-Commit-4 the frontend explicitly sent ?source=local; Commit 4 removed
+    // that param (correct intent — kill the toggle) but the server default was
+    // never flipped, so every list request was silently going live to Gmail and
+    // bypassing the mirror entirely (regression: shared mailboxes returned only
+    // the live-Gmail recent slice instead of the full local archive). Explicit
+    // ?source=gmail still honoured for internal probes/debug.
+    const source = ((req.query.source as string) || "local").toLowerCase();
     const q = (req.query.q as string) || "";
     const maxResults = Math.min(Number(req.query.limit) || 50, 100);
     const pageToken = (req.query.pageToken as string) || undefined;
@@ -8109,7 +8116,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.json([]);
-    const source = ((req.query.source as string) || "gmail").toLowerCase();
+    // Commit 4.1: default to "local" — same regression as /api/gmail/messages.
+    // See the longer note on /api/gmail/messages for the full backstory.
+    const source = ((req.query.source as string) || "local").toLowerCase();
     const q = (req.query.q as string) || "";
     const maxResults = Math.min(Number(req.query.limit) || 30, 100);
 
@@ -8176,7 +8185,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
-    const source = ((req.query.source as string) || "gmail").toLowerCase();
+    // Commit 4.1: default to "local" — same regression as /api/gmail/messages.
+    // Single-thread fetch matters here too: clicking a thread on a shared
+    // mailbox post-Commit-4 would round-trip to Gmail per click instead of
+    // serving from the local mirror.
+    const source = ((req.query.source as string) || "local").toLowerCase();
 
     if (source === "local" || source === "auto") {
       try {
