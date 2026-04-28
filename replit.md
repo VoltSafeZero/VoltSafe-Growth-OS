@@ -18,6 +18,20 @@ lost between commits.
   Pub/Sub listener), and the polling fallback being built in Commit 5 is
   the actual user-facing safety net. Fixing push in dev would just be a
   cosmetic green-light that doesn't reflect production behaviour.
+- **Diagnostic confirmation (`scripts/pubsub-diagnostic.ts`, 2026-04-28)**:
+  ran end of Commit 5 to test whether the freshly-watched accounts (92 +
+  93, expirations 2026-05-05 from the post-Commit-4.1 OAuth-completion
+  restart) would receive push notifications. Sent two real test emails
+  (`trevor → support` gmail msg id `19dd1a8a1ce0e709`, `trevor → sales`
+  gmail msg id `19dd1a8a3ee953b1`), then polled `last_webhook_at` every 5s
+  for 90s. Result: **NO webhook fired for ANY of the three accounts (1, 92,
+  93)**. So trevor's stale 10-day-old `last_webhook_at` is NOT specific to
+  its old watch — push is structurally broken in dev regardless of watch
+  freshness. This pins the diagnosis: the Commit 5 foreground polling
+  fallback IS the actual user-facing safety net in the dev environment,
+  not just a redundant belt-and-braces. Script is left in `scripts/` as a
+  written record; re-run after first publish to `.replit.app` to confirm
+  push works in the production environment.
 - **What to do post-Commit-8 / on first publish to `.replit.app`**:
   1. Verify the Gmail Pub/Sub topic + subscription are pointed at the
      `.replit.app` webhook URL (NOT the rotating `.janeway.replit.dev` dev
@@ -29,6 +43,10 @@ lost between commits.
   3. After re-arming, monitor `last_webhook_at` for movement on the next
      real inbound message; if still stale, check Cloud Pub/Sub delivery
      metrics for ack failures.
+  4. Re-run `scripts/pubsub-diagnostic.ts` against the production
+     environment to confirm push works end-to-end. If it fires, the
+     foreground polling fallback becomes a belt-and-braces redundancy in
+     prod (still useful for blip recovery; never harmful).
 
 ### Orphan rows in `email_messages` (cosmetic, not user-facing)
 - **Symptom seen 2026-04-28**: 5,938 rows exist with
@@ -131,6 +149,203 @@ project should explicitly answer BOTH questions for any non-trivial code
 path. A one-line guard test (like `tests/source-default.test.js`) that
 pins the wiring is cheap insurance — write it any time the answer to
 "does this default value matter?" is yes.
+
+---
+
+## Unified Inbox — Commit 5 of 8: Foreground 15s polling fallback for incremental Gmail sync (Complete, 2026-04-28)
+
+### Why this exists
+The dev environment (Replit container) puts the long-lived Pub/Sub
+listener to sleep, so push delivery is unreliable in `.dev`. Without push,
+new mail only lands when the backend hourly tick runs `runIncrementalForAll`
+— fine for backups, terrible for a user staring at their inbox waiting
+for "where's my email?". Commit 5 adds a foreground-only, per-account 15s
+polling fallback that calls the existing incremental-sync endpoint while
+the user is on the inbox page and the tab is visible. Layered on top of
+the existing 15s `inboxQuery` refetch (which re-reads the local DB
+mirror) and the 30s `accountsHealthQuery` refetch.
+
+The diagnostic confirming push is broken in dev (and therefore that this
+fallback is the actual safety net, not a redundancy) is captured in the
+Post-Publish "Pub/Sub push delivery" follow-up section above.
+
+### What changed (one frontend hook + one backend SQL hardening + one diagnostic + one test)
+
+**`client/src/pages/gmail-inbox.tsx`** (~+115 lines, single new
+`useEffect` block placed just after `accountsHealthQuery` / `healthById`):
+A 15s `setInterval` tick that, for each account in
+`accountsHealthQuery.data`, decides independently whether to POST
+`/api/gmail/sync-incremental?accountId=N`. Five gates must all hold:
+1. `document.visibilityState === "visible"` (don't poll a hidden tab).
+2. `account.authStatus === "active"` (skip revoked/expired auth).
+3. `account.syncEnabled !== false` (respect deliberate pauses).
+4. `now - max(lastWebhookAt, lastIncrementalSyncAt) > 60s` (staleness
+   threshold).
+5. `now - lastPolledByThisHook > 15s` AND not currently in-flight
+   (per-account cooldown + double-fire guard, both via `useRef`-held
+   `Map<id, ts>` and `Set<id>`).
+
+Note on `watchExpirationAt`: an early draft skipped polling when the
+account's watch was expired or null. **That gate was removed in the same
+commit** after architect review pointed out it's semantically backwards
+— watch state governs PUSH delivery, not the history-API polling path
+that `syncIncremental` uses. Expired/null watch is precisely WHEN polling
+matters most (push is dead → polling is the only path). The test file
+includes an explicit anti-regression assertion to prevent the broken
+gate from being reintroduced.
+
+The hook reads from a `healthDataRef` (kept in sync via a tiny
+`useEffect` that just writes `accountsHealthQuery.data` into the ref).
+This avoids both stale-closure bugs (empty-deps interval) AND extra
+network round-trips (no separate fetch — uses the data the existing 30s
+health query already pulls). On a successful sync that actually changed
+something (`r.added > 0 || r.deleted > 0 || r.labelsChanged > 0`), the
+hook invalidates `["/api/gmail/messages"]`, `["/api/gmail/threads"]`, and
+`["/api/gmail/accounts","health"]` — TanStack Query v5's prefix matching
+ensures all the per-folder + per-account subkeys (e.g.
+`["/api/gmail/messages","inbox",searchQuery,activeAccountId]`) are
+covered. Cleanup on unmount: `clearInterval` + `removeEventListener`.
+
+There's also a `visibilitychange` listener so coming back to the tab
+after a blur runs an immediate tick instead of waiting up to 15s — the
+most common "show me new mail" moment.
+
+**Endpoint reuse, no new route**: the original session plan (T002) was to
+add `POST /api/gmail/accounts/:id/poll-now`. On inspection it collapsed
+to zero new code: `POST /api/gmail/sync-incremental?accountId=N`
+(`server/routes.ts:11119`) already does exactly the same thing
+(`requireAuth` + `requireOwnerOrAdmin` + call `syncIncremental`). The
+critical detail is `requireOwnerOrAdmin`'s `isOwner` check is
+`acct.userId === userId` (NOT `&& !isShared`), so it correctly passes for
+the original creator (trevor, userId 4) even on accounts marked shared
+via the post-Commit-4.1 data correction (92 + 93). The test file pins
+this contract: it asserts the existing endpoint stays registered AND
+that no redundant `/poll-now` route was added.
+
+**`server/services/gmail-incremental.ts`** (architect-flagged hardening
+nit — atomic-update for concurrency): the final `UPDATE email_accounts`
+that persists `lastHistoryId` + `incrementalEventCount` previously wrote
+both from the stale account snapshot read at the top of the function.
+With the new 15s tick, the chance of two concurrent `syncIncremental`
+calls for the same account (foreground tick + backend hourly tick + push
+event collision) goes up, and a "last writer wins" race could (a)
+regress `lastHistoryId` when the slower run finishes second, causing
+redundant re-fetches (NOT data loss — `upsertMessageById`'s
+`onConflictDoNothing` absorbs the dups), or (b) lose the slower run's
+counter increment. Both fixed in-place:
+```diff
+-  lastHistoryId: endHistoryId,
++  lastHistoryId: sql`GREATEST(${emailAccounts.lastHistoryId}::bigint, ${endHistoryId}::bigint)::text`,
+   lastIncrementalSyncAt: new Date(),
+-  incrementalEventCount: (account.incrementalEventCount ?? 0) + events,
++  incrementalEventCount: sql`COALESCE(${emailAccounts.incrementalEventCount}, 0) + ${events}`,
+```
+- `GREATEST(...::bigint)::text` — Gmail history IDs are numeric strings;
+  the bigint cast avoids lexicographic comparison breaking when ids cross
+  digit-count boundaries (e.g. 9 → 10 digits). PostgreSQL's `GREATEST`
+  ignores NULLs unless all args are NULL; the seed branch above already
+  handles the all-null case via `captureProfileHistoryId`, so by the
+  time we reach this UPDATE both args are non-null.
+- `COALESCE(col, 0) + events` — atomic SQL increment, concurrent-safe.
+
+No schema change, no migration. Just SQL semantics inside the existing
+UPDATE.
+
+**`scripts/pubsub-diagnostic.ts`** (NEW, ~150 lines): one-off diagnostic
+that snapshots `last_webhook_at` for accounts 1/92/93, sends two test
+emails as trevor (`trevor → support`, `trevor → sales`, uniquely tagged
+subject `[pubsub-diag {ISO}]`), polls every 5s for up to 90s watching
+each account's webhook timestamp, then reports per-account: did the
+webhook fire? did the message land in the local mirror? Includes
+interpretation guidance in the script itself. Result of the 2026-04-28
+run is captured in the Post-Publish Pub/Sub follow-up entry. Left in
+the repo as a written record; re-run after first publish to confirm
+push works in production.
+
+**`tests/foreground-polling.test.js`** (NEW, 23 source-grep assertions):
+splits into Group A (server endpoint exists, still uses `requireAuth` +
+`requireOwnerOrAdmin` + `syncIncremental`, no redundant `/poll-now`
+added) and Group B (frontend has all 5 gates, the 15s/60s/15s constants,
+the in-flight + cooldown refs, the visibilitychange wake-up, the
+healthDataRef indirection, the cache invalidations, the cleanup, AND
+the explicit anti-regression for the watchExpirationAt gate that was
+removed). Same source-grep philosophy as `tests/source-default.test.js`
+(documented in Commit 4.1 entry below): the test guards against a
+SOURCE EDIT regression at zero runtime cost, with zero environment
+setup, runs in any context including CI without DB or network. The
+HTTP behaviour is verified manually in `.dev` per the user-facing
+checklist below.
+
+Run: `node tests/foreground-polling.test.js`. No DB writes, no fixture
+rows, no schema changes.
+
+### Architect verdict (2026-04-28, `includeGitDiff=true`)
+PASS-WITH-NITS, zero critical issues. Two nits, both fixed in the same
+commit:
+1. Concurrency in `syncIncremental`'s UPDATE — fixed via the
+   `GREATEST` + atomic-counter SQL change above.
+2. `watchExpirationAt` skip semantically backwards — gate removed,
+   anti-regression assertion pinned in the test.
+
+### What this commit deliberately does NOT do
+- **No schema changes** (project standing rule).
+- **No new endpoints** (T002 collapsed to zero new code; the existing
+  `/api/gmail/sync-incremental` does the job).
+- **No backend cron change**. The existing hourly `runIncrementalForAll`
+  remains as-is. The new 15s tick is additive, not a replacement.
+- **No fix to push-in-dev**. The diagnostic confirmed push is broken in
+  dev for ALL three accounts including freshly-watched ones; that's
+  documented as a deferred post-publish item, not a Commit 5 task.
+- **No retroactive sync of the pubsub-diagnostic test emails into the
+  local mirror**. They'll land naturally on the first foreground tick
+  the next time trevor opens `.dev` (both 92 and 93 have null
+  `lastWebhookAt`/`lastIncrementalSyncAt`, so they're infinitely stale
+  → polling fires on the very first tick).
+
+### Done definition (Commit 5)
+- `client/src/pages/gmail-inbox.tsx` — one `useEffect` block + one
+  `useRef`-tracking sibling effect, ~+115 lines net.
+- `server/services/gmail-incremental.ts` — final UPDATE switched to
+  atomic SQL (GREATEST + COALESCE-add), ~+30 lines net (mostly comments).
+- `scripts/pubsub-diagnostic.ts` — NEW, ~150 lines.
+- `tests/foreground-polling.test.js` — NEW, 23/23 passing.
+- `tests/source-default.test.js` — still 9/9 passing (no regression).
+- App workflow restarted; server boots clean (migrations, scheduler,
+  Express on :5000, browser HMR'd). No SQL syntax errors from the
+  GREATEST/CAS change.
+- replit.md updated: this entry + the diagnostic-result capture in the
+  Post-Publish Pub/Sub follow-up + the "resolved by Commit 5" note in
+  the Commit 4.1 operational-caveat section.
+
+### User-facing verification list (per user direction — STOP after Commit 5)
+Verify these in `.dev` before approving Commit 6:
+1. Open the Gmail inbox tab. Within ~15s of arriving, support@ and
+   sales@ should populate (their `lastWebhookAt`/`lastIncrementalSyncAt`
+   are both NULL → infinitely stale → polling fires immediately).
+2. The two `[pubsub-diag ...]` test emails sent during the diagnostic
+   should appear in support@ and sales@ inboxes shortly after.
+3. Send yourself a fresh email from any other inbox to one of the three
+   mailboxes. It should appear in the corresponding inbox view within
+   ~15s WITHOUT requiring a manual refresh.
+4. Switch to a different browser tab for >15s. New mail should NOT
+   trigger sync (visibility gate). Switch back — sync should fire
+   immediately on the visibilitychange event.
+5. Verify the polling does not double-fire: open the network panel,
+   wait 30s on the inbox page, count POSTs to
+   `/api/gmail/sync-incremental` per account — at most 2 per account
+   per 30s (the 15s cooldown).
+
+### Operational items unchanged (still pending, NOT for Commit 5)
+- 5 legacy test workflows (`mail-permissions`, `mailbox-switching`,
+  `permissions`, `tracking-multi-proof`, `tracking-proof`) continue to
+  fail with login-403 due to drifted admin test credentials. Re-checked
+  at end of Commit 5 — still failing for the same reason, no change.
+  Already documented in the Post-Publish section + in the Commit 4.1
+  test rationale (line ~208 above). Out of scope until a dedicated
+  test-credential refresh pass.
+- Push-delivery in dev — still broken (architecturally, see Pub/Sub
+  follow-up above). Polling fallback is the live answer until first
+  publish to `.replit.app`.
 
 ---
 
@@ -242,6 +457,14 @@ live messages from today will be missing until the regular sync fires for
 sales. Either trigger a one-shot full sync for accounts 92 and 93 from the
 Mailbox admin page, or wait for the polling fallback in Commit 5 to close
 the gap. This is operational, not a code issue.
+
+**Resolved by Commit 5 (2026-04-28)**: support@ and sales@ both have
+`lastWebhookAt IS NULL` AND `lastIncrementalSyncAt IS NULL` → infinitely
+stale by the polling hook's gate, so the foreground 15s tick fires on the
+very first iteration the moment trevor opens the inbox in `.dev`. The
+`pubsub-diagnostic` test emails (gmail msg ids `19dd1a8a1ce0e709` +
+`19dd1a8a3ee953b1`) will appear within ~5–15s of opening the page on
+either mailbox. That's the live demonstration of the safety net.
 
 ### Done definition (4.1)
 - 3 route edits applied; comments in code reference Commit 4.1 for traceability.

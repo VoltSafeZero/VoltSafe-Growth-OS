@@ -3111,6 +3111,129 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     (accountsHealthQuery.data ?? []).map((h) => [h.id, h] as const),
   );
 
+  // ─── Commit 5: Foreground 15s polling fallback for incremental sync ─────
+  //
+  // Why this exists:
+  //   Push (Pub/Sub) delivery is unreliable in the dev environment because
+  //   Replit's container sleep terminates the long-lived listener. When push
+  //   is down, the existing backend hourly tick is the only thing pulling
+  //   new mail into our DB — fine for backups, terrible for "where's my
+  //   live email?". This effect provides a 15s user-facing safety net.
+  //
+  // What it is NOT:
+  //   It is NOT a duplicate of the inboxQuery 15s refetch above. That one
+  //   re-reads the local DB mirror (cheap PG read). This one calls
+  //   syncIncremental on the backend (Gmail history API + upsert). The two
+  //   are layered: this fetches new mail INTO the DB, the inboxQuery
+  //   fetches it FROM the DB into the UI.
+  //
+  // Race-safety:
+  //   syncIncremental is idempotent end-to-end. Gmail's history.list({
+  //   startHistoryId }) skips events <= startHistoryId. upsertMessageById
+  //   uses onConflictDoNothing on inserts. Label-update writes are
+  //   idempotent. The lastHistoryId UPDATE is a single atomic write. So
+  //   this 15s tick coexists safely with the existing backend hourly tick
+  //   AND any inbound push events — at worst we waste a few API calls
+  //   during a race, never corrupt data.
+  //
+  // Endpoint reuse:
+  //   No new endpoint. POST /api/gmail/sync-incremental?accountId=N
+  //   already does exactly this (requireAuth + requireOwnerOrAdmin +
+  //   syncIncremental). We just call it with the right cadence and gates.
+  //   `requireOwnerOrAdmin`'s isOwner is `acct.userId === userId` (not
+  //   `&& !isShared`), so it passes for the original creator even on
+  //   accounts marked shared via the OAuth-admin-task data correction.
+  //
+  // Gates (all must hold for an account to be polled on a tick):
+  //   1. document.visibilityState === "visible"  (don't poll a hidden tab)
+  //   2. account.authStatus === "active" && syncEnabled !== false
+  //   3. (now - max(lastWebhookAt, lastIncrementalSyncAt)) > 60s
+  //      AND (now - lastPolledByThisHook) > 15s   (avoid spam)
+  //
+  // NOTE on watchExpirationAt:
+  //   Watch expiration governs PUSH delivery (Pub/Sub notifications), NOT
+  //   the history-API polling path that syncIncremental uses. An expired
+  //   or null watchExpirationAt means push is dead for this account —
+  //   which is precisely WHEN polling matters most. So we deliberately do
+  //   NOT skip on expired watch; we treat watch state as orthogonal to
+  //   polling viability. (An earlier draft of this hook had a "skip when
+  //   watchExpirationAt < now" gate; architect review caught that as
+  //   semantically backwards and it was removed in the same commit.)
+  //
+  // Mount point:
+  //   This effect lives inside gmail-inbox.tsx, so it only runs while the
+  //   user is on the inbox page. Page-mount + visibilityState together
+  //   give us "visible AND on inbox page" coverage.
+  const POLLING_TICK_MS = 15_000;
+  const STALENESS_THRESHOLD_MS = 60_000;
+  const PER_ACCOUNT_COOLDOWN_MS = 15_000;
+  const lastPolledAtRef = useRef<Map<number, number>>(new Map());
+  const inFlightPollRef = useRef<Set<number>>(new Set());
+  const healthDataRef = useRef(accountsHealthQuery.data);
+  useEffect(() => { healthDataRef.current = accountsHealthQuery.data; }, [accountsHealthQuery.data]);
+  useEffect(() => {
+    const tick = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      const accounts = healthDataRef.current ?? [];
+      if (accounts.length === 0) return;
+      const now = Date.now();
+      for (const a of accounts) {
+        if (a.authStatus !== "active") continue;
+        if (a.syncEnabled === false) continue;
+        // (no watchExpirationAt skip — watch state governs push, not
+        // polling. See the gates comment block above for full rationale.)
+        if (inFlightPollRef.current.has(a.id)) continue;
+        const lastSelfPoll = lastPolledAtRef.current.get(a.id) ?? 0;
+        if (now - lastSelfPoll < PER_ACCOUNT_COOLDOWN_MS) continue;
+        const lastWebhookMs = a.lastWebhookAt ? new Date(a.lastWebhookAt).getTime() : 0;
+        const lastIncrementalMs = a.lastIncrementalSyncAt ? new Date(a.lastIncrementalSyncAt).getTime() : 0;
+        const lastSyncSignalMs = Math.max(lastWebhookMs, lastIncrementalMs);
+        if (now - lastSyncSignalMs < STALENESS_THRESHOLD_MS) continue;
+        // Fire.
+        inFlightPollRef.current.add(a.id);
+        lastPolledAtRef.current.set(a.id, now);
+        fetch(`/api/gmail/sync-incremental?accountId=${a.id}`, {
+          method: "POST",
+          credentials: "include",
+        })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((payload) => {
+            const r = payload?.results?.[0];
+            // Only invalidate when the sync actually changed something —
+            // avoids unnecessary refetch storms when polling is just
+            // confirming "still nothing new".
+            if (r && (r.added > 0 || r.deleted > 0 || r.labelsChanged > 0)) {
+              queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/gmail/threads"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/gmail/accounts", "health"] });
+            }
+          })
+          .catch(() => { /* swallow — next tick will retry */ })
+          .finally(() => {
+            inFlightPollRef.current.delete(a.id);
+          });
+      }
+    };
+    // Run once immediately so a freshly-opened inbox doesn't wait 15s.
+    tick();
+    const handle = setInterval(tick, POLLING_TICK_MS);
+    // Tab-visibility wake-up: when the user comes back to the tab after a
+    // blur, run a tick immediately instead of waiting up to 15s for the
+    // next interval. This is the most common "show me new mail" moment.
+    const onVisibilityChange = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") tick();
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisibilityChange);
+    }
+    return () => {
+      clearInterval(handle);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+      }
+    };
+  }, []); // empty deps — interval mounts once; healthDataRef tracks fresh data.
+
   // Shared accounts visible to this user — filtered by mail_team permissions.
   // Non-admins require an explicit view grant; no grant = no access.
   const sharedAccounts = (accountsQuery.data ?? []).filter((a) => {

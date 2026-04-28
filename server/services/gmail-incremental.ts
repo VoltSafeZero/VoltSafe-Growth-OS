@@ -4,7 +4,7 @@
 // Falls back to full paginated sync if the stored historyId is too old (404).
 import { db } from "../db";
 import { emailAccounts, emailMessages } from "../../shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { parseGmailMessage } from "./email-parser";
 import { insertAttachmentsForMessage } from "./email-attachments";
 import { runAssociationEngine } from "./association-engine";
@@ -222,12 +222,36 @@ export async function syncIncremental(accountId: number): Promise<IncrementalRes
       }
     } while (pageToken);
 
-    // Persist new historyId + counters
+    // Persist new historyId + counters.
+    //
+    // Concurrency-safety (Commit 5 hardening — architect-flagged nit):
+    //   Two concurrent syncIncremental calls for the same account both
+    //   read account.lastHistoryId at the top of this function (line 128).
+    //   Without atomic writes, a "last writer wins" race could:
+    //     (a) regress lastHistoryId when the slower run finishes second
+    //         with an older endHistoryId, causing the next sync to
+    //         redundantly re-fetch a few hundred events. Not data loss —
+    //         upsertMessageById's onConflictDoNothing absorbs the dup
+    //         inserts — but wasted Gmail API budget.
+    //     (b) lose the slower run's `events` increment to the counter,
+    //         since both writers compute their increment from the same
+    //         stale snapshot value.
+    //
+    // Fix: do both updates atomically in SQL.
+    //   - lastHistoryId: GREATEST of current and our endHistoryId, cast
+    //     to bigint to avoid lexicographic comparison breaking when Gmail
+    //     ids cross digit-count boundaries. Cast back to text since the
+    //     column type is text. NULL handling: PostgreSQL's GREATEST
+    //     ignores NULLs unless all args are NULL, so a NULL existing
+    //     value (shouldn't happen here — the seed branch above returns
+    //     before reaching this UPDATE) would just adopt our endHistoryId.
+    //   - incrementalEventCount: atomic add via SQL, COALESCE-guarded
+    //     against the legacy NULL default.
     await db.update(emailAccounts)
       .set({
-        lastHistoryId: endHistoryId,
+        lastHistoryId: sql`GREATEST(${emailAccounts.lastHistoryId}::bigint, ${endHistoryId}::bigint)::text`,
         lastIncrementalSyncAt: new Date(),
-        incrementalEventCount: (account.incrementalEventCount ?? 0) + events,
+        incrementalEventCount: sql`COALESCE(${emailAccounts.incrementalEventCount}, 0) + ${events}`,
         syncErrorMessage: null,
         updatedAt: new Date(),
       })

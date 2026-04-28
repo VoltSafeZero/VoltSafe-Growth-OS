@@ -1,0 +1,30 @@
+.dev verification passed for the operational data correction.
+Confirmed:
+
+Sidebar shows three accounts: trevor under Personal, support and sales under Shared Inboxes.
+Sales shows actual marine-industry content + one fresh live message from 00:17 today (per your resync log). Click-through to email body works.
+Support shows correct support content. Click-through works.
+Trevor unchanged. Click-through works.
+Deep scroll works in all three accounts. Auto-overflow logic from Commit 2 is now actively running for all three accounts as users scroll past local cache.
+Account-toggle transitions show distinct, correct content per account. No stale-cache flicker.
+
+The unified inbox is now genuinely complete and operational across all three connected accounts. Multi-account verification end-to-end against real data: passed.
+Approved to proceed to Commit 5: PubSub diagnostic + 15s foreground polling fallback.
+Same testing discipline:
+
+Implement the 15s foreground polling fallback (the user-facing safety net since push is unreliable in dev).
+Run a fresh PubSub diagnostic (the test-email-and-watch-for-webhook test you couldn't run before because we didn't know if support@/sales@ would webhook correctly).
+Test harness coverage.
+Architect-style self-review.
+Make a Replit checkpoint.
+Stop and wait for my .dev verification before proceeding to Commit 6.
+
+Specific Commit 5 reminders:
+
+15s polling should be foreground-only: only fire when the inbox UI is visible (e.g., document.visibilityState === 'visible' AND the user is on the inbox page). Two simultaneous schedulers calling syncIncremental for the same account is a known footgun.
+Polling fallback should respect per-account state: each account's last_webhook_at, last_incremental_sync_at, and watch_expiration_at are independent. The polling decision (do I need to poll right now?) should be made per-account, not globally.
+The fresh watches registered on Commit 4.1 restart (support@ and sales@, expiring 2026-05-05) mean push should work for those accounts when emails arrive. Worth confirming during the diagnostic whether last_webhook_at ticks for support@ and sales@ when test emails are sent. If yes, push is functional in dev for newly-watched accounts (the trevor stale-webhook is likely specific to its older watch's missed renewal). Useful intelligence either way.
+Race conditions to watch for in self-review: foreground 15s poll vs. existing hourly poll vs. push events all hitting syncIncremental for the same account. Confirm coordination prevents double-processing. If syncIncremental is already idempotent (history-API-driven, advances lastHistoryId), this is naturally safe — but verify, don't assume.
+The pre-existing failing test workflows (the ones using stale trevor passwords) are still out of scope for this commit. Note them in replit.md operational follow-ups for later cleanup.
+
+Begin Commit 5.
