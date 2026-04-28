@@ -1,5 +1,37 @@
 # Replit Agent Configuration
 
+## Post-Publish Operational Follow-ups (deferred — not in any open commit)
+
+These are operational items deliberately scoped OUT of the active 8-commit
+unified-inbox plan. They become relevant only after the app is published to
+`.replit.app` (deployment URL stable, Pub/Sub subscription re-pointable, no
+container-sleep killing background work). Track them here so they don't get
+lost between commits.
+
+### Gmail watch / Pub/Sub push delivery
+- **Symptom seen 2026-04-27**: trevor's `email_accounts.last_webhook_at` is
+  10.7 days stale (Apr 17) despite `incremental_event_count=2705` and a
+  current `last_sync_at`. Polling sync masks the issue end-user-side, so
+  there's no immediate user impact.
+- **Why it's deferred, not Commit 5**: push is structurally broken in the
+  dev environment anyway (Replit container sleep terminates the long-lived
+  Pub/Sub listener), and the polling fallback being built in Commit 5 is
+  the actual user-facing safety net. Fixing push in dev would just be a
+  cosmetic green-light that doesn't reflect production behaviour.
+- **What to do post-Commit-8 / on first publish to `.replit.app`**:
+  1. Verify the Gmail Pub/Sub topic + subscription are pointed at the
+     `.replit.app` webhook URL (NOT the rotating `.janeway.replit.dev` dev
+     URL).
+  2. Confirm the watch auto-renew cron is firing weekly (watches expire
+     ~7 days after `users.watch` is called; currently
+     `watch_expiration_at` for trevor is 2026-04-30, so the renewal job
+     either isn't running or isn't bumping the timestamp).
+  3. After re-arming, monitor `last_webhook_at` for movement on the next
+     real inbound message; if still stale, check Cloud Pub/Sub delivery
+     metrics for ack failures.
+
+---
+
 ## Unified Inbox — Commit 4 of 8: Remove mailSource toggle + multi-account bulk fan-out (Complete, 2026-04-27)
 
 ### Goal
