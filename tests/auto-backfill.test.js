@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
- * Commit 7 regression test: Auto 90-day backfill on OAuth + visible
+ * Commit 7 regression test: Auto 1-year backfill on OAuth + visible
+ * (originally shipped at 90 days; widened to 365 days / 1 year on
+ * 2026-04-28 — see replit.md and gmail-oauth.ts header comment)
  * progress UI.
  *
  * Commit 7 promise: a brand-new Gmail OAuth completion automatically
- * enqueues a backfill of the user's last 90 days of email AND surfaces a
+ * enqueues a backfill of the user's last year of email AND surfaces a
  * sticky progress banner at the top of the inbox showing the import in
  * real time. Stop pauses the import cleanly (preserving last_page_token);
  * Resume picks up from the same place. Reuses the existing
@@ -84,7 +86,7 @@ function readSrc(rel) {
 }
 
 function run() {
-  console.log("Commit 7 — Auto 90-day backfill + progress UI source-grep tests\n");
+  console.log("Commit 7 — Auto 1-year backfill + progress UI source-grep tests\n");
 
   const oauthSrc = readSrc("server/gmail-oauth.ts");
   const svcSrc = readSrc("server/services/backfill-service.ts");
@@ -96,14 +98,15 @@ function run() {
   // ──────────────────────────────────────────────────────────────────────
   console.log("Group A — backend:");
 
-  // A1: DEFAULT_BACKFILL_DAYS = 90 + computeDefaultBackfillFrom helper.
-  const a1Const = /const\s+DEFAULT_BACKFILL_DAYS\s*=\s*90\b/.test(oauthSrc);
+  // A1: DEFAULT_BACKFILL_DAYS = 365 (was 90 at original Commit 7 ship; widened
+  //     to 1 year on 2026-04-28) + computeDefaultBackfillFrom helper.
+  const a1Const = /const\s+DEFAULT_BACKFILL_DAYS\s*=\s*365\b/.test(oauthSrc);
   const a1Helper = /function\s+computeDefaultBackfillFrom\s*\(\s*\)\s*:\s*string\s*\{[\s\S]{0,400}?DEFAULT_BACKFILL_DAYS[\s\S]{0,200}?toISOString\(\)\.slice\(0,\s*10\)/.test(oauthSrc);
   if (a1Const && a1Helper) {
-    ok("A1: DEFAULT_BACKFILL_DAYS=90 AND computeDefaultBackfillFrom() helper present");
+    ok("A1: DEFAULT_BACKFILL_DAYS=365 (1 year) AND computeDefaultBackfillFrom() helper present");
   } else {
     bad(`A1: const=${a1Const} helper=${a1Helper}`,
-        "the 90-day default is the centerpiece promise of Commit 7 — both must be intact");
+        "the 1-year default (widened from 90d on 2026-04-28) is the centerpiece promise of the auto-backfill UX — both must be intact");
   }
 
   // A2: autoEnqueueBackfillForNewAccount uses the helper, NOT a hardcoded date.

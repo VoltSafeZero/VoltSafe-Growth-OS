@@ -390,6 +390,67 @@ so push-delivery health no longer requires a DB shell to investigate.
 - `tests/admin-diagnostics.test.js` — new, 27 source-grep assertions,
   all green.
 
+### Post-Commit 8 product tweak: default backfill window 90d → 1 year (2026-04-28)
+
+**Trigger**: post-deploy product feedback that 90 days of email is too
+short for a CRM-grade unified inbox — renewal cycles, project timelines,
+and customer threads routinely span 6–12 months. A new user connecting
+their Gmail and only seeing the last quarter of history undersells the
+"endless scrolling, all your email in one place" promise that defines
+the feature.
+
+**Decision**: every newly OAuth'd user mailbox now backfills the last
+**365 days (1 year)** by default. The three special voltsafe addresses
+(trevor / sales / support) keep their `2020-01-01 → today` override per
+ops policy — they're not affected by this change.
+
+**Code change is a one-line constant flip + copy updates** (NO schema
+change, NO new commit number — Commit 8 was the last commit in the
+8-commit plan; this is a config tweak):
+- `server/gmail-oauth.ts`: `DEFAULT_BACKFILL_DAYS = 90` → `365`. The
+  `computeDefaultBackfillFrom()` helper picks up the new value
+  automatically — every downstream caller (OAuth completion, admin
+  trigger-backfill, admin force-full-resync `?withBackfill=true`) gets
+  the new window for free since they all funnel through
+  `autoEnqueueBackfillForNewAccount`.
+- `client/src/pages/gmail-inbox.tsx`: the four user-visible status-text
+  strings on the backfill progress banner now say "your last year of
+  email" / "from the last year" instead of "your last 90 days" / "from
+  the last 90 days". Comment headers updated to match.
+- `server/routes.ts`: comments inside the Commit 8 admin cluster now
+  mention "365-day / 1-year default" and "1-year backfill" for accuracy.
+- `tests/auto-backfill.test.js`: A1 regex now pins `DEFAULT_BACKFILL_DAYS = 365`
+  (was `90`). All 14 tests still green.
+- `tests/admin-diagnostics.test.js`: E5 description string updated to
+  "1-year backfill". All 27 tests still green.
+
+**Scope of effect**:
+- **Future OAuths**: get the new 1-year window automatically. No data
+  migration needed.
+- **Already-connected mailboxes**: NOT auto-rebackfilled. They keep
+  whatever history they already imported. An operator who wants to
+  extend an existing mailbox to a year of history can hit
+  `POST /api/admin/mailbox/:id/trigger-backfill` with body
+  `{ "dateFrom": "<today minus 365 days as YYYY-MM-DD>" }`, or
+  `{ "dateTo": "<existing earliest date>" }` to fill the gap without
+  re-fetching what's already stored. The Commit 7 idempotency guard
+  prevents accidental duplicate workers.
+- **Production rollout**: requires a republish to `.replit.app` since
+  the constant is compiled into the server bundle.
+
+**What stayed the same**:
+- Cancel / resume semantics (Commit 7) unchanged — a 1-year backfill is
+  resumable from the persisted `last_page_token` exactly the same way a
+  90-day one was.
+- TOCTOU-safe atomic enqueue (Commit 8 SEV-HIGH fix) unchanged.
+- The user-visible progress banner text now reads "your last year of
+  email" — same banner, same z-index stack, same Stop/Resume buttons,
+  same 5s/30s polling cadence.
+
+**Test sweep after change**: all 4 unified-inbox source-grep suites
+green — admin-diagnostics 27/27, auto-backfill 14/14,
+new-messages-pill 20/20, foreground-polling 23/23. Total 84/84.
+
 ### Architecture: unified-inbox canonical flow (post-Commit-8, end-to-end)
 
 After 8 commits the unified-inbox feature is complete. For future

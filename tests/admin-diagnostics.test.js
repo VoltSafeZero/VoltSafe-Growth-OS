@@ -211,7 +211,7 @@ assert(
 assert(
   /req\.query\.withBackfill/.test(resyncBlock) &&
   /autoEnqueueBackfillForNewAccount/.test(resyncBlock),
-  "E5: ?withBackfill=true ALSO enqueues a 90-day backfill via canonical helper"
+  "E5: ?withBackfill=true ALSO enqueues a 1-year backfill via canonical helper"
 );
 
 assert(

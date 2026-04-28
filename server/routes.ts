@@ -5437,7 +5437,7 @@ export async function registerRoutes(
   // POST /api/admin/mailbox/:id/trigger-backfill
   // Enqueue a fresh backfill for any mailbox. Reuses the canonical enqueue
   // helper from gmail-oauth.ts so the result is byte-identical to a
-  // post-OAuth auto-enqueue (same 90-day default, same special-address
+  // post-OAuth auto-enqueue (same 365-day / 1-year default, same special-address
   // override, same fire-and-forget worker).
   //
   // Body (all optional):
@@ -5514,7 +5514,7 @@ export async function registerRoutes(
   // mutation is on the email_accounts row itself.
   //
   // Query (optional):
-  //   ?withBackfill=true — also enqueue a 90-day backfill (honors the
+  //   ?withBackfill=true — also enqueue a 1-year backfill (honors the
   //                        in-flight guard; will NOT skip-idempotency).
   app.post("/api/admin/mailbox/:id/force-full-resync", requireAuth, requireAdmin, async (req, res) => {
     try {

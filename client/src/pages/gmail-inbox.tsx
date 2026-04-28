@@ -3423,12 +3423,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     // of the skeleton state during the refetch window.
   }, []);
 
-  // ── Commit 7: Auto 90-day backfill on OAuth — visible progress banner ──
+  // ── Commit 7: Auto 1-year backfill on OAuth — visible progress banner ──
+  // (Originally Commit 7 shipped a 90-day default; widened to 365 days /
+  // 1 year on 2026-04-28 per product decision — see gmail-oauth.ts header
+  // comment for rationale.)
   // Polls /api/my/mailbox/backfill/status to surface a sticky banner at the
   // top of the inbox showing import progress. Backed by the existing
   // backfill_jobs table; new rows are created automatically on OAuth
   // completion (gmail-oauth.ts autoEnqueueBackfillForNewAccount) for the
-  // last 90 days of history.
+  // last year of history.
   //
   // Refetch interval is GATED on job state: 5s while there's an in-flight
   // job (pending/running/cancelling) for the active account, plus a 30s
@@ -4992,7 +4995,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
           {/* Message list — bottom padding ensures last email isn't hidden under the FAB */}
           <div ref={inboxScrollRef} className="flex-1 overflow-y-auto pb-36 md:pb-24">
-            {/* Commit 7: Auto 90-day backfill progress banner. Sticky-pinned
+            {/* Commit 7: Auto 1-year backfill progress banner. Sticky-pinned
                 at the absolute top of the scroll viewport, sitting above the
                 Commit 6 "new messages" pill (z-30 vs pill's z-20 vs the
                 bulk-action toolbar's z-10). Render-gated by
@@ -5022,11 +5025,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
                   let statusText = "";
                   if (j.status === "pending") {
-                    statusText = `Preparing to import your last 90 days of email${acctSuffix}…`;
+                    statusText = `Preparing to import your last year of email${acctSuffix}…`;
                   } else if (j.status === "running") {
                     statusText = hasTotal
-                      ? `Importing your last 90 days of email${acctSuffix} — ${processed.toLocaleString()} of ~${total.toLocaleString()} (${pct}%)`
-                      : `Importing your last 90 days of email${acctSuffix} — ${processed.toLocaleString()} so far`;
+                      ? `Importing your last year of email${acctSuffix} — ${processed.toLocaleString()} of ~${total.toLocaleString()} (${pct}%)`
+                      : `Importing your last year of email${acctSuffix} — ${processed.toLocaleString()} so far`;
                   } else if (j.status === "cancelling") {
                     statusText = `Stopping import${acctSuffix} — ${processed.toLocaleString()} imported so far`;
                   } else if (j.status === "cancelled") {
@@ -5034,7 +5037,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   } else if (j.status === "failed") {
                     statusText = `Import paused on error${acctSuffix}: ${j.errorMessage || "unknown error"}`;
                   } else if (j.status === "completed") {
-                    statusText = `✓ Imported ${processed.toLocaleString()} message${processed === 1 ? "" : "s"} from the last 90 days${acctSuffix}`;
+                    statusText = `✓ Imported ${processed.toLocaleString()} message${processed === 1 ? "" : "s"} from the last year${acctSuffix}`;
                   }
 
                   const showCancel = j.status === "pending" || j.status === "running";
