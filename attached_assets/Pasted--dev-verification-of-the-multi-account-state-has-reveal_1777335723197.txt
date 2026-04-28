@@ -1,0 +1,48 @@
+.dev verification of the multi-account state has revealed a Commit 4 gap. Stop. Do not proceed to Commit 5.I successfully connected support@voltsafe.com and sales@voltsafe.com via OAuth. Admin → My Mailboxes shows all three accounts active and recognized:
+trevor@voltsafe.com: 55,141 messages
+support@voltsafe.com: 560 messages, last synced 4/28
+sales@voltsafe.com: 22 messages, Never synced
+But in Work → Inbox, when I click on sales@voltsafe.com in the sidebar, the email list shows trevor's emails — not sales's. The header reads sales@voltsafe.com (6) and the footer says sales@voltsafe.com · Never synced, but the email body is unmistakably trevor's content (Scott Carlson, NGIF Accelerator, internal VoltSafe meeting threads, etc.).This contradicts your code-path scoping audit, which reported zero hard-coded accountId fallbacks. Something in the email-list query isn't actually scoping to the active account.Read-only investigation — no code changes yet. Diagnose where the bug is.Specifically check:
+The active-account state in the React component. When the user clicks sales@voltsafe.com in the sidebar, does activeAccountId actually update to sales' account ID, or does it stay on trevor's ID? Inspect the click handler and confirm the state update path.
+
+The query parameter passed to /api/gmail/messages. When sales@voltsafe.com is the active sidebar item, what asAccountId value is being sent in the request? Check the actual network request, not just the React state.
+
+The route's resolveAccount behavior for the sales account. Walk through what happens when the route receives asAccountId=<sales' account ID>. Does it correctly resolve to the sales account? Does it fall back to a default (trevor's) account if any check fails?
+
+The local query filter. Once resolveAccount returns the account, is the WHERE source_account_id = ... clause correctly filtering to the resolved account ID, or is it falling through to an owner_user_id filter that pulls in all accounts owned by trevor (which would include all three)?
+
+React Query cache key. When mailSource was removed in Commit 4, was the active account ID added to the query key? Or is the query cache returning trevor's cached data because the cache key doesn't include the active account?
+
+Send the actual API request via signed cookie to confirm: GET /api/gmail/messages?asAccountId=<sales' ID>&limit=10 and report the response. This tells us whether the bug is server-side (route returning wrong data) or client-side (sending wrong account ID, or rendering cached wrong data).
+Output formatACTIVE ACCOUNT STATE FLOW
+  Sidebar click handler: [behavior, file path]
+  activeAccountId state on click: [value before/after]
+
+API REQUEST INSPECTION
+  asAccountId sent to /api/gmail/messages when sales is active: [actual value]
+  Response: [shape, account_id of returned messages]
+
+SERVER-SIDE SCOPING
+  resolveAccount with sales' account ID: [returns what?]
+  listLocalMessages WHERE clause for that account: [actual SQL]
+  Number of rows that match: [count]
+
+CACHE KEY ANALYSIS
+  React Query cache key for inbox: [actual value]
+  Does it include activeAccountId: [yes/no]
+  If no: stale-cache flicker is the likely cause
+
+DIAGNOSIS
+  Root cause: [client-side state / client-side cache / server-side scoping / something else]
+  Confidence: [high/medium/low]
+  Evidence: [specific findings]
+
+PROPOSED FIX
+  Scope: [single file / multiple]
+  Estimated lines: [approximate]
+  Sub-commit naming: [Commit 4.1 amendment, or part of Commit 5, or something else]Constraints
+Read-only.
+No code changes.
+No DB writes.
+Do not propose pushing this fix into Commit 5's scope without seeing the diagnosis first — it might be an isolated 4.1 amendment that's better landed before any other work.
+Begin.
