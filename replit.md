@@ -3768,3 +3768,24 @@ Operator follow-up to the Canadian export: same CSV + ChatGPT-instructions deliv
 - `chatgpt_usa_marina_research_instructions.md` — 14.0 KB. Mirror of the CA prompt with US-specific values: full English state names (no `FL`/`NY` abbreviations), 5-digit or 5+4 ZIP, **11 region buckets** (`Northeast` / `Mid-Atlantic` / `Southeast` / `Gulf` / `Great Lakes` / `Inland South` / `Plains` / `Mountain` / `Pacific Northwest` / `Pacific Southwest` / `Alaska` / `Territories`), full IANA timezone reference table (Eastern through American Samoa), and a target of **1,500–3,000 new marinas** with priority-gap callouts grounded in the actual distribution: TX (290 → should be 600+, Galveston/Corpus/Travis/Conroe/Texoma), CA (660 → 1000+, SF Bay/Delta/Tahoe/Shasta/Havasu), Mountain West reservoirs (AZ 23, CO 25, NV 10, UT 13, NM 5 — Powell/Mead/Mohave/Havasu/Pleasant), Inland South lakes (AR/OK/KY/MO — Cumberland/Texoma/Bull Shoals/Beaver), OR 123, HI 39, AK 60, MN 103, PA 122, MS 56. Source-quality section adds USACE/BoR/NPS/state-park concessionaire lists and AMI/state marine-trades rosters. Also adds parent-company guidance (Suntex / Safe Harbor / Westrec / Marinas International / Oasis / F3) since US consolidation has been heavy.
 
 **Same researcher-safety guarantee**: 33-column header set is identical across both countries — every CRM-internal column (lead_status, priority, assigned_to_user_id, beta_tester, pilot_candidate_score, all `partner_*`, all revenue-architecture columns, source-attribution stamps, territory_id, etc.) is OMITTED so an enrichment cycle cannot clobber operator-only state.
+
+## Canadian marinas import — first ChatGPT-enriched batch (Apr 2026)
+**Scope (one-shot data import — zero schema changes, zero `db:push`, zero backend route changes.)**
+
+Operator handed me a 52-row CSV (`attached_assets/canadian_marinas_enriched_import_*.csv`) of new Canadian marinas found via ChatGPT research using the prompt + CSV from the prior task. All 52 rows marked `action=NEW`. Built `scripts/import-marinas-from-csv.ts` to dedup against the existing 967 Canadian accounts and insert non-duplicates in a single transaction.
+
+**Dedup strategy** (conservative): for each candidate, `normaliseName()` lowercases + strips a small stop-word list (`marina`, `marinas`, `the`, `inc`, `ltd`, `llc`, `resort`, `harbour`/`harbor`, `wharf`, `dock`, `yacht`, `club`, `boat`/`boats`, `and`, `&`, `at`, `of`) + Unicode-folds fancy quotes/hyphens (so "Ballantyne's Cove" matches "Ballantynes Cove" and "Pender Harbour Resort and Marina" matches "Pender Harbour Resort & Marina"). Match if (norm_name + state_province) hits OR (norm_name + norm_city) hits. Conservative auto-skip on any match. Anything name-empty after normalisation is flagged "suspect" and skipped for human review (zero in this batch).
+
+**Sanitisation**: `parseIntOrNull` for numerics; `parseFloatOrNull` for lat/long; `parseBoolOrFalse` for booleans (defaulting to `false` instead of NULL because `expansion_plans` is `NOT NULL DEFAULT FALSE`); `sanitisePhone` rejects strings with fewer than 7 digits — caught the corrupted `-3464` value in the West Point Marina (PE) row's `contact_phone` cell (looked like a stray longitude fragment from ChatGPT's column shifting) and dropped it on insert. UTF-8 BOM at file start is also stripped.
+
+**Insert path**: pure SQL `INSERT INTO accounts(...) VALUES(...) RETURNING id` via `tx.execute`, wrapped in `db.transaction()` so the whole batch rolls back on any failure. Defaults left to the table (`lead_status='new'`, `priority='medium'`, `org_type='marina_prospect'`, `segment='marina'`, `created_at`/`updated_at = now()`). No `contacts` rows created — none of the 52 supplied rows had a real contact name + email; importer logs but does not insert empty contact triples.
+
+**Results**: 50 inserted (IDs **11127–11176**), 2 duplicates skipped:
+- "Pender Harbour Resort **and** Marina" (Garden Bay, BC) → existing #820 "Pender Harbour Resort **&** Marina" (Sunshine Coast Regional District) — the `&`-vs-`and` fold from `STOP_WORDS` caught it
+- "The Marina at Brentwood Bay Resort" (Brentwood Bay, BC) → existing #704 "Brentwood Bay Resort" (Brentwood Bay) — the marina is the resort
+
+Provincial breakdown of the 50 inserts: NB 17, NS 15, BC 8, PE 6, NL 4. Canadian total: 967 → 1017.
+
+**Dry-run mode**: `--dry-run` flag prints the dedup report and a sample of 5 would-be INSERTs but commits nothing. Was used to sanity-check before the real run.
+
+**Re-runnability**: this script is idempotent against the same input file because the dedup logic now treats the just-inserted rows as existing. Re-running on the same CSV would skip all 52 rows as duplicates (verified mentally; not actually re-run to avoid noise).
