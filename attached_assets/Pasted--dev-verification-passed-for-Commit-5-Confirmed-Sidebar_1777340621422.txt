@@ -1,0 +1,32 @@
+.dev verification passed for Commit 5.
+Confirmed:
+
+Sidebar populated within ~15s on hard-refresh. Both support@ and sales@ filled with their content.
+Two [pubsub-diag ...] test emails visible in support@ and sales@ — proving end-to-end polling works against real Gmail.
+Real-time delivery test: sent a fresh email to [account], appeared in .dev within ~[N] seconds without manual refresh.
+Tab-visibility gate works: no polling activity while tab hidden, polling fires on visibilitychange when tab becomes visible.
+Network tab shows ~2 sync-incremental POSTs per account per 60s, respecting the cooldown.
+Multiple tabs scenario: emails arrive in both tabs' views; no conflict.
+
+The unified inbox now has reliable real-time email delivery in dev via the polling fallback, with push as the eventual production path once the app is published to .replit.app. Five-of-eight commits done.
+Approved to proceed to Commit 6: "X new messages" top-of-list pill.
+Same testing discipline:
+
+Implement the pill UI that appears when polling/push detects new rows above the current scroll position.
+Behavior: purely additive notification; click should scroll to top, not refetch.
+Should respect the cooldown / not flicker if the user is already scrolled to top.
+Test harness coverage.
+Architect-style self-review.
+Make a Replit checkpoint.
+Stop and wait for my .dev verification before proceeding to Commit 7.
+
+Specific Commit 6 reminders:
+
+The pill should appear when new mail arrives via polling or push and the user is scrolled below the top of the inbox. If the user is already at the top, no pill — the new email just appears at the top naturally.
+Click behavior: scroll to top + dismiss pill. Should NOT trigger a refetch — the new mail is already in the local mirror via polling.
+The pill text should be specific: "1 new message" / "5 new messages" / "12 new messages." Not "X new messages" as a literal string.
+Per-account scoping: the pill should be relative to the currently-viewed inbox. If new mail arrives in support@ while the user is viewing trevor@, no pill on the trevor view (the pill belongs to support@, which the user isn't looking at).
+The visual style should match the existing design language. Reference Superhuman / Gmail / Apple Mail patterns rather than inventing something new.
+Watch for: race conditions between the pill state and the polling refresh that creates the new emails. The pill should appear after the new mail lands in the local mirror, not as a blind "polling fired, show pill" trigger.
+
+Begin Commit 6.
