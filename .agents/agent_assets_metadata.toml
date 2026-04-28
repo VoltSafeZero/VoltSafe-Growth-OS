@@ -12,3 +12,15 @@ id = "Yj0CxAMwX03A5MO7udLS2"
 uri = "file://exports/chatgpt_marina_research_instructions.md"
 type = "text"
 title = "ChatGPT Research Instructions (copy-paste prompt)"
+
+[[outputs]]
+id = "9eZ5Aw27JoUu_hgv2t7p1"
+uri = "file://exports/usa_marinas_for_chatgpt.csv"
+type = "table"
+title = "US Marinas — CSV for ChatGPT (9,913 existing + template rows)"
+
+[[outputs]]
+id = "vMYqlDo69b8p5YXLJ6Z9S"
+uri = "file://exports/chatgpt_usa_marina_research_instructions.md"
+type = "text"
+title = "ChatGPT US Research Instructions (copy-paste prompt)"

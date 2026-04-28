@@ -3755,3 +3755,16 @@ Operator request: hand ChatGPT a single file containing every fillable marina fi
 **Verified incidental**: legacy `accounts.address` column has zero rows populated for Canadian accounts (`COUNT FILTER WHERE address IS NOT NULL = 0`), so omitting it from the export drops no data. Architect flagged this as a precaution; no fix needed.
 
 **No re-import path was built** — operator will hand the resulting enriched CSV back for manual review before any DB changes. Importer is a follow-up task if/when desired.
+
+## US marinas CSV export — same exercise for the US (Apr 2026)
+**Scope (one-shot data export — zero schema changes, zero `db:push`, zero backend route changes.)**
+
+Operator follow-up to the Canadian export: same CSV + ChatGPT-instructions deliverable for US accounts. Refactored the original single-purpose `scripts/export-canadian-marinas-csv.ts` into a parameterized `scripts/export-marinas-csv.ts` accepting `--country=CA|US`; old script deleted (the new one writes the identical CA filename so re-running CA still produces `canadian_marinas_for_chatgpt.csv` byte-equivalent).
+
+**Country config** (`COUNTRY_CFG` map in the script): each entry holds the `country ILIKE` SQL filter, slug for filename, default `lead_source` value, and the example-row vitals (province/city/postal/timezone/lat-lng/tags/phone). Filter for US is broad: `country ILIKE 'usa' OR country ILIKE 'us' OR country ILIKE 'united states' OR country ILIKE 'united states of america'`.
+
+**Deliverables** (both in `exports/`, presented via the asset card):
+- `usa_marinas_for_chatgpt.csv` — 1.4 MB, 9,917 lines (1 header + 3 example rows + **9,913 existing US accounts**). State leaders: FL 1309, NY 1192, CA 660, MI 520, NJ 506, MA 496, MD 468, WA 364, ME 332, CT 314.
+- `chatgpt_usa_marina_research_instructions.md` — 14.0 KB. Mirror of the CA prompt with US-specific values: full English state names (no `FL`/`NY` abbreviations), 5-digit or 5+4 ZIP, **11 region buckets** (`Northeast` / `Mid-Atlantic` / `Southeast` / `Gulf` / `Great Lakes` / `Inland South` / `Plains` / `Mountain` / `Pacific Northwest` / `Pacific Southwest` / `Alaska` / `Territories`), full IANA timezone reference table (Eastern through American Samoa), and a target of **1,500–3,000 new marinas** with priority-gap callouts grounded in the actual distribution: TX (290 → should be 600+, Galveston/Corpus/Travis/Conroe/Texoma), CA (660 → 1000+, SF Bay/Delta/Tahoe/Shasta/Havasu), Mountain West reservoirs (AZ 23, CO 25, NV 10, UT 13, NM 5 — Powell/Mead/Mohave/Havasu/Pleasant), Inland South lakes (AR/OK/KY/MO — Cumberland/Texoma/Bull Shoals/Beaver), OR 123, HI 39, AK 60, MN 103, PA 122, MS 56. Source-quality section adds USACE/BoR/NPS/state-park concessionaire lists and AMI/state marine-trades rosters. Also adds parent-company guidance (Suntex / Safe Harbor / Westrec / Marinas International / Oasis / F3) since US consolidation has been heavy.
+
+**Same researcher-safety guarantee**: 33-column header set is identical across both countries — every CRM-internal column (lead_status, priority, assigned_to_user_id, beta_tester, pilot_candidate_score, all `partner_*`, all revenue-architecture columns, source-attribution stamps, territory_id, etc.) is OMITTED so an enrichment cycle cannot clobber operator-only state.
