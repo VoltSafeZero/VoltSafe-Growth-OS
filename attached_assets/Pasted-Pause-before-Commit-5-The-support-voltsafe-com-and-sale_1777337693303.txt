@@ -1,0 +1,39 @@
+Pause before Commit 5. The support@voltsafe.com and sales@voltsafe.com accounts no longer appear in the Work → Inbox sidebar after Commit 4.1 landed. They were visible pre-4.1 (per the multi-account display bug screenshots). They still appear in Admin → My Mailboxes as Active.Read-only diagnostic first, then admin tasks if needed. No code changes yet.Diagnostic tasks1. Verify the email_accounts state for all three accounts.Query the rows for trevor's, support@'s, and sales@'s accounts. Report:
+
+id, owner_user_id, is_shared (true/false), auth_status, is_active
+disconnected_at (NULL or timestamp)
+last_sync_at, watch_expiration_at
+Specifically: are support@voltsafe.com (id 92) and sales@voltsafe.com (id 93) still flagged is_shared = FALSE? If so, the three admin tasks I asked you to run after OAuth completion were never executed. They were:
+Verify each new email_accounts row.
+UPDATE email_accounts SET is_shared = TRUE WHERE id IN (92, 93).
+Update users.permissions.mail_team for user_id=4 (trevor) to grant {view: true, edit: true} for account IDs 92 and 93.
+2. Verify trevor's mail_team permissions.Read users.permissions.mail_team for user_id=4. Report the current JSONB content. Does it include entries for accounts 92 and 93?3. Check the sidebar's account-fetching query.Look at client/src/pages/gmail-inbox.tsx for how the sidebar determines which accounts to display. The audit you ran for Commit 4 described:
+"sharedAccounts = accountsQuery.data filtered by !isOwner AND (isAdmin OR mailTeamPerms[id].view===true)"
+But trevor is the owner of all three accounts (owner_user_id = 4). So the !isOwner filter would exclude them from the "sharedAccounts" list entirely. The personalAccount is found via find(isOwner) — singular find, which only returns the first match. So if all three accounts have owner_user_id = 4, only one would be displayed as personal and the other two would be invisible.Trace the actual code path. How does the sidebar render multiple accounts when the same user owns all of them? Is there a pre-4.1 path that worked for this case that 4.1 may have inadvertently broken?4. Look for any recent changes between Commit 4 and Commit 4.1 that could affect sidebar rendering.Check git log / file mtime / replit.md notes. Did anything else change between Commit 4 landing and 4.1 landing?Output formatACCOUNT STATE
+  trevor (id 1):    [is_shared, owner, is_active, disconnected_at]
+  support (id 92):  [same]
+  sales (id 93):    [same]
+
+MAIL_TEAM PERMISSIONS
+  user_id=4 mail_team JSONB: [actual content]
+  Includes 92 / 93: [yes/no]
+
+SIDEBAR RENDERING LOGIC
+  Account-fetching query: [file path, query shape]
+  Multi-account-same-owner handling: [described]
+  Why accounts 92 and 93 are now hidden: [analysis]
+
+DIAGNOSIS
+  Most likely cause: [admin tasks not run / sidebar logic gap / 4.1 regression / other]
+  Confidence: [high/medium/low]
+  Evidence: [bulleted]
+
+PROPOSED FIX
+  Run the three admin tasks (set is_shared, update mail_team)?
+  And/or fix sidebar rendering?
+  Naming: Commit 4.2 amendment, or operational fix only?Constraints
+Read-only diagnostic in this turn.
+No code changes.
+No DB writes (don't run the UPDATE is_shared or mail_team writes yet — propose them, wait for my approval).
+Do not begin Commit 5 until this is resolved.
+Begin.
