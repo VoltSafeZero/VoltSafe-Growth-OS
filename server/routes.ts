@@ -5255,7 +5255,7 @@ export async function registerRoutes(
   // ║ inbox sync pipeline. Lets a master_admin / admin see every connected ║
   // ║ mailbox's sync state at a glance (last_webhook_at, last_incremental_ ║
   // ║ sync_at, watch expiration, in-flight backfill, message count, etc.), ║
-  // ║ and trigger a fresh 90-day backfill or a force-full-resync without   ║
+  // ║ and trigger a fresh 365-day (1-year) backfill or a force-full-resync ║
   // ║ needing direct DB access or a deploy.                                ║
   // ║                                                                      ║
   // ║ Gated by `requireAuth, requireAdmin` — non-admin users get 403.      ║
