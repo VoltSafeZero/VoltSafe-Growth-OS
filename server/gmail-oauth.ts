@@ -6,16 +6,30 @@ import { systemSettings, emailAccounts, users } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 
 // Auto-backfill on new mailbox connect.
-// - Default: 2024-01-01 → today for any newly connected user mailbox.
+// - Default: last 90 days (today minus 90 days → today) for any newly
+//   connected user mailbox. This is the Commit 7 promise: a brand-new OAuth
+//   never lands the user on an empty inbox — the most-recent quarter of
+//   history is fetched immediately, with a visible progress banner.
 // - Special override: trevor/sales/support @voltsafe.com get 2020-01-01 → today
-//   (per ops policy — these mailboxes need the longer history).
+//   (per ops policy — these mailboxes need the longer history regardless).
 // Only fires the first time an account row is INSERTED. Reconnects that go
-// through the UPDATE path are not re-enqueued.
+// through the UPDATE path are not re-enqueued unless the previous job was
+// cancelled and the user explicitly resumes it via the UI banner / endpoint.
 const SPECIAL_2020_ADDRESSES = new Set([
   "trevor@voltsafe.com",
   "sales@voltsafe.com",
   "support@voltsafe.com",
 ]);
+
+const DEFAULT_BACKFILL_DAYS = 90;
+
+function computeDefaultBackfillFrom(): string {
+  // today - 90 days, formatted YYYY-MM-DD (Gmail accepts this; the backfill
+  // service converts to YYYY/MM/DD for the Gmail q= parameter).
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - DEFAULT_BACKFILL_DAYS);
+  return d.toISOString().slice(0, 10);
+}
 
 async function autoEnqueueBackfillForNewAccount(opts: {
   accountId: number;
@@ -26,7 +40,7 @@ async function autoEnqueueBackfillForNewAccount(opts: {
   try {
     const dateFrom = emailAddress && SPECIAL_2020_ADDRESSES.has(emailAddress.toLowerCase())
       ? "2020-01-01"
-      : "2024-01-01";
+      : computeDefaultBackfillFrom();
     const today = new Date().toISOString().slice(0, 10);
 
     // Idempotency: don't double-enqueue if a pending/running job already exists.

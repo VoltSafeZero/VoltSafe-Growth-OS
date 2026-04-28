@@ -3423,6 +3423,128 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     // of the skeleton state during the refetch window.
   }, []);
 
+  // ── Commit 7: Auto 90-day backfill on OAuth — visible progress banner ──
+  // Polls /api/my/mailbox/backfill/status to surface a sticky banner at the
+  // top of the inbox showing import progress. Backed by the existing
+  // backfill_jobs table; new rows are created automatically on OAuth
+  // completion (gmail-oauth.ts autoEnqueueBackfillForNewAccount) for the
+  // last 90 days of history.
+  //
+  // Refetch interval is GATED on job state: 5s while there's an in-flight
+  // job (pending/running/cancelling) for the active account, plus a 30s
+  // tail after a terminal transition so the user sees the resolution land,
+  // then paused. This keeps the poll frequency tight while real work is
+  // happening but avoids hammering the endpoint when nothing is going on.
+  //
+  // The Stop button calls /backfill/cancel which sets status='cancelling';
+  // the runBackfillJob worker re-reads status at every page boundary
+  // (~5–15s) and exits cleanly to status='cancelled', preserving
+  // last_page_token. The Resume button calls /backfill/resume which sets
+  // status back to 'pending' and re-fires the worker — it picks up from
+  // last_page_token. Both endpoints are owner-scoped and 409 if a job is
+  // already in flight.
+  type BackfillJobRow = {
+    id: number;
+    emailAccountId: number;
+    emailAddress: string | null;
+    status: "pending" | "running" | "completed" | "failed" | "cancelling" | "cancelled";
+    dateFrom: string | null;
+    dateTo: string | null;
+    processed: number | null;
+    totalEstimate: number | null;
+    errorMessage: string | null;
+    createdAt: string;
+    updatedAt: string | null;
+    completedAt: string | null;
+  };
+
+  const backfillStatusQuery = useQuery<BackfillJobRow[]>({
+    queryKey: ["/api/my/mailbox/backfill/status"],
+    refetchInterval: (query) => {
+      const data = query.state.data as BackfillJobRow[] | undefined;
+      if (!data || data.length === 0) return false;
+      const hasActive = data.some(
+        (j) => j.status === "pending" || j.status === "running" || j.status === "cancelling"
+      );
+      if (hasActive) return 5_000;
+      // Recently terminal — keep polling briefly so the user sees the
+      // resolution arrive (and the banner disappear / flip to ✓ Complete).
+      const now = Date.now();
+      const recentlyTerminal = data.some((j) => {
+        const t = j.updatedAt ? Date.parse(j.updatedAt) : 0;
+        return Number.isFinite(t) && now - t < 30_000;
+      });
+      return recentlyTerminal ? 5_000 : false;
+    },
+    refetchIntervalInBackground: false,
+  });
+
+  // Resolve the most-recent job for the currently active mailbox view.
+  // "all" view shows the most-recent active job across any account so the
+  // user knows something's still happening even when not focused on it.
+  const activeBackfillJob = useMemo<BackfillJobRow | null>(() => {
+    const rows = backfillStatusQuery.data ?? [];
+    if (rows.length === 0) return null;
+    const filtered =
+      activeAccountId === "all" || activeAccountId == null
+        ? rows
+        : rows.filter((j) => j.emailAccountId === activeAccountId);
+    if (filtered.length === 0) return null;
+    const sorted = [...filtered].sort(
+      (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)
+    );
+    return sorted[0];
+  }, [backfillStatusQuery.data, activeAccountId]);
+
+  // Show banner for any in-flight state, plus a 30s tail after a terminal
+  // transition so the user sees the resolution. Hidden entirely otherwise.
+  const shouldShowBackfillBanner = useMemo(() => {
+    if (!activeBackfillJob) return false;
+    const s = activeBackfillJob.status;
+    if (s === "pending" || s === "running" || s === "cancelling") return true;
+    const t = activeBackfillJob.updatedAt ? Date.parse(activeBackfillJob.updatedAt) : 0;
+    return Number.isFinite(t) && Date.now() - t < 30_000;
+  }, [activeBackfillJob]);
+
+  const cancelBackfillMut = useMutation({
+    mutationFn: async (accountId: number) => {
+      const res = await apiRequest("POST", `/api/my/mailbox/${accountId}/backfill/cancel`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/my/mailbox/backfill/status"] });
+      toast({
+        title: "Stopping import…",
+        description: "Will pause cleanly at the next batch boundary.",
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Couldn't stop import",
+        description: err?.message || "Unknown error",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const resumeBackfillMut = useMutation({
+    mutationFn: async (accountId: number) => {
+      const res = await apiRequest("POST", `/api/my/mailbox/${accountId}/backfill/resume`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/my/mailbox/backfill/status"] });
+      toast({ title: "Resuming import…" });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Couldn't resume import",
+        description: err?.message || "Unknown error",
+        variant: "destructive",
+      });
+    },
+  });
+
   const sentQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
     queryKey: ["/api/gmail/messages", "sent", searchQuery, activeAccountId],
     queryFn: async () => {
@@ -4870,6 +4992,116 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
           {/* Message list — bottom padding ensures last email isn't hidden under the FAB */}
           <div ref={inboxScrollRef} className="flex-1 overflow-y-auto pb-36 md:pb-24">
+            {/* Commit 7: Auto 90-day backfill progress banner. Sticky-pinned
+                at the absolute top of the scroll viewport, sitting above the
+                Commit 6 "new messages" pill (z-30 vs pill's z-20 vs the
+                bulk-action toolbar's z-10). Render-gated by
+                `shouldShowBackfillBanner` which covers in-flight states
+                (pending / running / cancelling) plus a 30s tail after a
+                terminal transition (completed / cancelled / failed) so the
+                user sees the resolution land. The Stop button calls the
+                /backfill/cancel endpoint; Resume/Retry calls /backfill/resume.
+                See the state block near the inboxQuery for the full design
+                rationale and race-condition analysis. */}
+            {shouldShowBackfillBanner && activeBackfillJob && (
+              <div
+                className="sticky top-0 z-30 mx-2 mt-2 rounded-md border border-border bg-card/95 backdrop-blur shadow-sm overflow-hidden"
+                data-testid="banner-backfill-progress"
+                aria-live="polite"
+                aria-atomic="false"
+              >
+                {(() => {
+                  const j = activeBackfillJob;
+                  const processed = Number(j.processed ?? 0);
+                  const total = Number(j.totalEstimate ?? 0);
+                  const hasTotal = Number.isFinite(total) && total > 0;
+                  const pct = hasTotal
+                    ? Math.min(100, Math.max(0, Math.round((processed / total) * 100)))
+                    : 0;
+                  const acctSuffix = j.emailAddress ? ` · ${j.emailAddress}` : "";
+
+                  let statusText = "";
+                  if (j.status === "pending") {
+                    statusText = `Preparing to import your last 90 days of email${acctSuffix}…`;
+                  } else if (j.status === "running") {
+                    statusText = hasTotal
+                      ? `Importing your last 90 days of email${acctSuffix} — ${processed.toLocaleString()} of ~${total.toLocaleString()} (${pct}%)`
+                      : `Importing your last 90 days of email${acctSuffix} — ${processed.toLocaleString()} so far`;
+                  } else if (j.status === "cancelling") {
+                    statusText = `Stopping import${acctSuffix} — ${processed.toLocaleString()} imported so far`;
+                  } else if (j.status === "cancelled") {
+                    statusText = `Import paused${acctSuffix} at ${processed.toLocaleString()} message${processed === 1 ? "" : "s"}`;
+                  } else if (j.status === "failed") {
+                    statusText = `Import paused on error${acctSuffix}: ${j.errorMessage || "unknown error"}`;
+                  } else if (j.status === "completed") {
+                    statusText = `✓ Imported ${processed.toLocaleString()} message${processed === 1 ? "" : "s"} from the last 90 days${acctSuffix}`;
+                  }
+
+                  const showCancel = j.status === "pending" || j.status === "running";
+                  const showResume = j.status === "cancelled" || j.status === "failed";
+                  const isCancelDisabled = cancelBackfillMut.isPending || j.status === "cancelling";
+                  const isResumeDisabled = resumeBackfillMut.isPending;
+
+                  return (
+                    <div className="flex items-center gap-3 px-3 py-2">
+                      <div className="flex-1 min-w-0">
+                        <div
+                          className="text-xs text-foreground truncate"
+                          data-testid="text-backfill-status"
+                        >
+                          <span data-testid="text-backfill-counts">{statusText}</span>
+                        </div>
+                        {(j.status === "running" || j.status === "cancelling") && hasTotal && (
+                          <div
+                            className="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted"
+                            data-testid="progress-backfill-bar"
+                          >
+                            <div
+                              className="h-full bg-primary transition-all duration-500"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        )}
+                        {(j.status === "running" || j.status === "cancelling") && !hasTotal && (
+                          <div
+                            className="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted"
+                            data-testid="progress-backfill-bar"
+                          >
+                            <div className="h-full w-1/3 animate-pulse bg-primary/60" />
+                          </div>
+                        )}
+                      </div>
+                      {showCancel && (
+                        <button
+                          type="button"
+                          onClick={() => cancelBackfillMut.mutate(j.emailAccountId)}
+                          disabled={isCancelDisabled}
+                          data-testid="button-backfill-cancel"
+                          className="shrink-0 inline-flex items-center rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {cancelBackfillMut.isPending ? "Stopping…" : "Stop"}
+                        </button>
+                      )}
+                      {showResume && (
+                        <button
+                          type="button"
+                          onClick={() => resumeBackfillMut.mutate(j.emailAccountId)}
+                          disabled={isResumeDisabled}
+                          data-testid="button-backfill-resume"
+                          className="shrink-0 inline-flex items-center rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {resumeBackfillMut.isPending
+                            ? "Resuming…"
+                            : j.status === "failed"
+                              ? "Retry"
+                              : "Resume"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
             {/* Commit 6: "X new messages" top-of-list pill (Superhuman/Gmail style).
                 See state block near the inboxQuery / accountsHealthQuery for the
                 detection logic. Render conditions: inbox tab only, count > 0,

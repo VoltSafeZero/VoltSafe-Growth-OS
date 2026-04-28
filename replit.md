@@ -152,6 +152,195 @@ pins the wiring is cheap insurance — write it any time the answer to
 
 ---
 
+## Unified Inbox — Commit 7 of 8: Auto 90-day backfill on OAuth + visible progress UI (Complete, 2026-04-28)
+
+### Why this exists
+A brand-new Gmail OAuth completion was previously a "trust fall" — the inbox
+either showed nothing (no backfill, until the next manual trigger) or it
+showed an unbounded "2024-01-01 → today" import that the user couldn't see
+the status of, couldn't stop, and couldn't resume. Commit 7 closes both
+gaps: a freshly connected mailbox automatically enqueues a backfill of the
+last 90 days of email AND surfaces a sticky progress banner at the very
+top of the inbox showing the import in real time. The user always sees
+what's happening, can pause cleanly mid-flight, and can resume from the
+exact same place on the next visit.
+
+This commit deliberately reuses the existing `runBackfillJob` worker and
+`backfill_jobs` table (raw-SQL managed, NOT in `shared/schema.ts`) — the
+only "new state" is two free-text values added to the existing free-text
+`status` column: `cancelling` (cancel requested by the user) and
+`cancelled` (loop exited cleanly mid-run). NO Drizzle schema changes; the
+`total_estimate` column also already existed and is now populated by the
+worker on the first Gmail API call.
+
+### What changed (the diff, in plain English)
+
+**Backend — automatic enqueue (`server/gmail-oauth.ts`):**
+- New constant `DEFAULT_BACKFILL_DAYS = 90` and helper
+  `computeDefaultBackfillFrom()` that returns today−90d as `YYYY-MM-DD`.
+- `autoEnqueueBackfillForNewAccount` now uses this helper as the default
+  `date_from`. The hardcoded `"2024-01-01"` is gone.
+- `SPECIAL_2020_ADDRESSES` set (trevor / sales / support @voltsafe.com)
+  is preserved — those mailboxes still get the longer 2020-01-01 history
+  per ops policy.
+
+**Backend — runBackfillJob worker (`server/services/backfill-service.ts`):**
+- On entry, reads `last_page_token`, `total_estimate`, AND `processed`
+  from the existing job row. Resume-aware: if the job was previously
+  cancelled or failed mid-run, `processed` continues counting from the
+  persisted value instead of rewinding to 0.
+- On the **first iteration only** (when `!pageToken && totalEstimate === null`),
+  captures Gmail's `resultSizeEstimate` from the very first
+  `messages.list` response and writes it to `backfill_jobs.total_estimate`.
+  Gmail's estimate is approximate (often ±20%) but it's the right starting
+  point for the progress bar — better than nothing.
+- At the **top of the `while (hasMore)` loop**, re-reads the live status
+  from the DB. If it's `cancelling` or `cancelled`, persists status
+  `cancelled` with the current `processed` count, leaves `last_page_token`
+  populated, and returns. Per-page granularity (not per-message) is
+  intentional — each Gmail page is up to 100 messages, so worst-case the
+  user waits ~5–15s for a Stop click to take effect, but we avoid
+  hammering the DB with a status SELECT per message.
+
+**Backend — two new endpoints (`server/routes.ts`):**
+- `POST /api/my/mailbox/:id/backfill/cancel` — owner-scoped (verifies
+  `email_accounts.user_id = session.userId`); flips the most-recent
+  in-flight job (`status IN ('pending','running')`) to `cancelling` via
+  a single **atomic conditional UPDATE with `RETURNING id`**. If 0 rows
+  come back (no in-flight job, OR worker just finished in the same
+  millisecond), returns 404. The atomic shape is the architect's
+  SEV-HIGH fix below.
+- `POST /api/my/mailbox/:id/backfill/resume` — same atomic-conditional-
+  UPDATE pattern, but flips `status IN ('cancelled','failed')` back to
+  `pending` and returns `date_from` / `date_to`. On success, fires
+  `runBackfillJob` fire-and-forget the same way `autoEnqueueBackfillForNewAccount`
+  does. If 0 rows come back (nothing resumable, OR a peer request beat
+  us to it), returns 409 (NOT 404 — 404 would be misleading on a
+  successful peer-resume).
+
+**Frontend — sticky progress banner (`client/src/pages/gmail-inbox.tsx`):**
+- New `backfillStatusQuery` hits the existing `GET /api/my/mailbox/backfill/status`
+  endpoint with a **gated `refetchInterval`**: returns `5_000` only when
+  there's an in-flight job for the active account (status in
+  pending/running/cancelling), plus a 30-second tail after a terminal
+  transition so the user sees the resolution land. Returns `false`
+  otherwise — the endpoint is NOT polled when nothing is going on.
+- `activeBackfillJob` `useMemo` filters the response to the currently
+  active mailbox; "all" view shows the most-recent active job across any
+  account so the user knows something is still happening even when not
+  focused on it.
+- `cancelBackfillMut` + `resumeBackfillMut` call the new endpoints via
+  `apiRequest`; both invalidate the status query in `onSuccess` so the
+  banner reflects the new state immediately without waiting for the next
+  5s poll tick.
+- The banner JSX is inserted as the **first child of the `inboxScrollRef`
+  scroll container, BEFORE the Commit 6 pill**. Layering is `sticky top-0
+  z-30` (banner) > `sticky top-2 z-20` (Commit 6 pill) > `sticky top-0 z-10`
+  (bulk-action toolbar) — they stack visually without overlap.
+- Six data-testids (banner-backfill-progress, button-backfill-cancel,
+  button-backfill-resume, text-backfill-status, text-backfill-counts,
+  progress-backfill-bar). Stop button gated to pending/running only;
+  Resume button gated to cancelled/failed only.
+
+### Race-condition analysis (architect-driven)
+
+The architect self-review (with `includeGitDiff: true`) flagged one
+SEV-HIGH and two SEV-MEDs in the v1 backend draft. All three are fixed:
+
+1. **SEV-HIGH (was): Cancel route could overwrite a just-completed job.**
+   The original cancel route did `SELECT id WHERE status IN ('pending','running')`
+   then a separate unconditional `UPDATE ... SET status='cancelling' WHERE id=?`.
+   If the worker finished between SELECT and UPDATE, status would race
+   `running → completed → cancelling` with no loop left to convert
+   `cancelling → cancelled`. The resume endpoint's old in-flight guard
+   (`status IN ('pending','running','cancelling')`) would then 409 forever
+   — the user could neither resume NOR re-trigger.
+   **Fix:** Single atomic `UPDATE ... SET status='cancelling' WHERE id =
+   (SELECT ... status IN ('pending','running')) RETURNING id`. If 0 rows
+   come back, return 404 — the job is no longer cancellable, period. No
+   ghost `cancelling` rows possible.
+
+2. **SEV-MED (was): Resume race under concurrent clicks.**
+   The original resume route also split SELECT-then-UPDATE; two
+   simultaneous clicks could both pass the in-flight guard and both fire
+   `runBackfillJob` on the same job. No data loss (DB dedupe handles it)
+   but real correctness churn.
+   **Fix:** Same atomic-UPDATE-with-RETURNING shape, additionally guarded
+   by `WHERE id = ... AND status IN ('cancelled','failed')`. The losing
+   request gets 0 rows back and returns 409.
+
+3. **SEV-MED (was): `processed` rewinds on resume.**
+   Original `runBackfillJob` initialized `let processed = 0` every entry.
+   After a resume, the banner counter would visually jump from
+   "1,247 of ~5,000" back to "0 of ~5,000" even though `last_page_token`
+   meant the worker was correctly continuing where it left off.
+   **Fix:** Read `processed` from the DB on entry alongside
+   `last_page_token` and `total_estimate`; initialize the local counter to
+   that value.
+
+### Architect verdict
+After fixes: **PASS-with-followups**. One SEV-LOW deferred:
+
+- *(SEV-LOW deferred):* Banner polling becomes `false` after the 30-second
+  terminal tail. If a brand-new OAuth happens **while the inbox tab is
+  already open and idle** (rare — OAuth normally redirects away and back,
+  which remounts the page and refetches), the new job won't be discovered
+  until the next focus event, page nav, or other invalidation. Acceptable
+  for v1 because the actual OAuth flow always redirects through the page
+  remount path. Will revisit if real users report banner-miss in
+  monitoring.
+
+### User-facing verification (the disconnect/reconnect of sales@voltsafe.com)
+
+1. Land on inbox; banner is invisible (no in-flight job).
+2. Settings → Mailboxes → Disconnect `sales@voltsafe.com`.
+3. Settings → Mailboxes → Connect → complete OAuth → land back on inbox.
+4. Banner appears at the top: "Preparing to import your last 90 days of
+   email · sales@voltsafe.com…" within ~1 second.
+5. Within ~5 seconds the text flips to "Importing your last 90 days of
+   email · sales@voltsafe.com — N of ~M (X%)" with a thin progress bar.
+   The N value advances on every 5s tick.
+6. Click **Stop**. Toast appears: "Stopping import…". Banner text changes
+   to "Stopping import · sales@voltsafe.com — N imported so far". Within
+   one batch boundary (~5–15s) banner flips to "Import paused at N
+   message(s)" with a `[Resume]` button.
+7. Click **Resume**. Banner text resumes from N (NOT 0). The denominator
+   ~M is preserved.
+8. Let it complete naturally. Banner briefly flashes "✓ Imported N
+   messages from the last 90 days" then disappears within 30 seconds.
+9. Re-test sequence with a non-special address (e.g., a personal Gmail) —
+   verify the date range really IS today−90d, NOT 2020-01-01.
+10. Concurrent-click stress: open inbox in two tabs during a running
+    import; click Stop in both within the same second. Verify exactly
+    one toast + exactly one transition (the loser tab gets a 404 toast
+    or silently invalidates — no double-cancel artifacts).
+
+### Done definition
+- Commit 6's pill behavior unchanged (20/20 tests still green).
+- Commit 5's foreground-polling behavior unchanged (23/23 tests still green).
+- New `tests/auto-backfill.test.js` source-grep test: 14/14 green.
+- Architect self-review applied: 1× SEV-HIGH + 2× SEV-MED fixed inline;
+  1× SEV-LOW deferred and documented above.
+- ZERO Drizzle schema changes. The `backfill_jobs` table is unchanged at
+  the column level — only the value space of the existing free-text
+  `status` column gained two new strings (`cancelling`, `cancelled`).
+- The existing resumer in `server/index.ts` is `cancelled`-aware by
+  construction: it picks up `status='pending'` and zombie `status='running'`
+  (older-than-grace-period) only — it will NOT touch the new `cancelled`
+  rows, which is exactly what we want (resume must be user-initiated).
+
+### Operational items unchanged
+- The 5 legacy test workflows (mail-permissions, mailbox-switching,
+  permissions, tracking-multi-proof, tracking-proof) remain failing on
+  pre-existing drifted login credentials (login-403 / fetch-failed during
+  workflow restart). Documented in the Commit 6 entry below; unchanged
+  by Commit 7.
+- No new environment variables or secrets.
+- No new background workers or schedulers.
+- No new Drizzle migrations.
+
+---
+
 ## Unified Inbox — Commit 6 of 8: "X new messages" top-of-list pill (Complete, 2026-04-28)
 
 ### Why this exists

@@ -78,18 +78,53 @@ export async function runBackfillJob(opts: BackfillOptions): Promise<void> {
     const query = buildQuery(dateFrom, dateTo);
     log(`[backfill] job=${jobId} account=${account.emailAddress} query="${query}"`);
 
-    // Check existing page token from DB (resumable)
+    // Check existing page token + total_estimate + processed from DB
+    // (resumable). total_estimate is captured once on the first page from
+    // Gmail's resultSizeEstimate (Commit 7 — drives the visible progress
+    // banner). `processed` is read here so resumed jobs continue counting
+    // from where they left off — without this read, every resume rewinds
+    // the banner counter to "0 of ~5,000" even though the underlying work
+    // was preserved by last_page_token.
+    // (Architect-flagged SEV-MED — processed-continuity fix.)
     const jobRowRes = await db.execute(sql.raw(
-      `SELECT last_page_token FROM backfill_jobs WHERE id = ${jobId}`
+      `SELECT last_page_token, total_estimate, processed FROM backfill_jobs WHERE id = ${jobId}`
     )) as any;
     const jobRow = jobRowRes?.rows?.[0];
     let pageToken: string | undefined = jobRow?.last_page_token ?? undefined;
+    let totalEstimate: number | null = jobRow?.total_estimate ?? null;
+    // Track first-iteration so we know when to capture resultSizeEstimate.
+    // Resumed jobs (pageToken already set OR totalEstimate already set) skip
+    // the capture; the original first-page estimate stays authoritative.
+    let isFirstIteration = !pageToken && totalEstimate === null;
 
-    let processed = 0;
+    // Resume-aware: pick up the persisted processed count if any.
+    let processed = Number(jobRow?.processed ?? 0) || 0;
     let newMessages = 0;
     let hasMore = true;
 
     while (hasMore) {
+      // ── Cancel check (Commit 7) ────────────────────────────────────────
+      // Re-read the job's status BEFORE making another expensive Gmail
+      // page call. If the user clicked Stop in the inbox banner, the
+      // /backfill/cancel endpoint will have set status='cancelling'. We
+      // exit cleanly, persist status='cancelled', and leave last_page_token
+      // populated so the resume endpoint can pick up exactly where we
+      // stopped. Per-page granularity (not per-message) is intentional —
+      // each Gmail page is up to 100 messages, so worst-case the user
+      // waits one batch (~5–15s) for the stop to take effect, but we
+      // avoid hammering the database with a status SELECT per message.
+      const cancelCheckRes = await db.execute(sql.raw(
+        `SELECT status FROM backfill_jobs WHERE id = ${jobId}`
+      )) as any;
+      const liveStatus = cancelCheckRes?.rows?.[0]?.status;
+      if (liveStatus === "cancelling" || liveStatus === "cancelled") {
+        await db.execute(sql.raw(
+          `UPDATE backfill_jobs SET status='cancelled', processed=${processed}, updated_at=NOW() WHERE id=${jobId}`
+        ));
+        log(`[backfill] job=${jobId} cancelled mid-run — processed=${processed}, last_page_token preserved for resume`);
+        return;
+      }
+
       const listRes = await gmailClient.users.messages.list({
         userId: "me",
         maxResults: 100,
@@ -100,6 +135,20 @@ export async function runBackfillJob(opts: BackfillOptions): Promise<void> {
       const messages = listRes.data.messages || [];
       pageToken = listRes.data.nextPageToken ?? undefined;
       hasMore = !!pageToken && messages.length > 0;
+
+      // Capture Gmail's resultSizeEstimate on the very first page only.
+      // Gmail's estimate is approximate (often off by ±20%) but it's the
+      // right starting point for a progress bar — better than nothing.
+      // Only persist if non-null and > 0 to avoid wiping a useful estimate
+      // with a zero from an empty mailbox edge case.
+      if (isFirstIteration) {
+        isFirstIteration = false;
+        const est = Number(listRes.data.resultSizeEstimate ?? 0);
+        if (Number.isFinite(est) && est > 0) {
+          totalEstimate = est;
+          await updateJob({ total_estimate: est, status: "running" });
+        }
+      }
 
       // Save page token for resumability
       if (pageToken) {

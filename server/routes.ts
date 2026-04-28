@@ -22083,6 +22083,114 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // POST /api/my/mailbox/:id/backfill/cancel — request a clean stop of an
+  // in-flight backfill job. Sets status='cancelling'; the runBackfillJob
+  // worker re-reads job status at every page boundary (~5–15s) and exits
+  // cleanly to status='cancelled', preserving last_page_token so the
+  // resume endpoint below can pick up exactly where it stopped.
+  // (Commit 7 — visible-progress-banner Stop button.)
+  app.post("/api/my/mailbox/:id/backfill/cancel", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const accountId = Number(req.params.id);
+      if (!Number.isFinite(accountId)) return res.status(400).json({ message: "Bad accountId" });
+
+      // Verify ownership of the mailbox before touching its jobs.
+      const own = await db.execute(sql.raw(
+        `SELECT id FROM email_accounts WHERE id = ${accountId} AND user_id = ${userId}`
+      ));
+      if (!(own as any).rows?.length) return res.status(404).json({ message: "Mailbox not found" });
+
+      // Atomic conditional UPDATE on the most-recent in-flight job for
+      // this account. The SELECT-then-UPDATE pattern races with a worker
+      // that completes between the two queries: it would force a freshly
+      // 'completed' job back to 'cancelling' with no loop left to convert
+      // it to 'cancelled', and the resume endpoint's in-flight guard would
+      // then 409 forever — the user couldn't resume OR re-trigger.
+      // (Architect-flagged SEV-HIGH; fixed by a single atomic UPDATE that
+      // narrows by status to PENDING/RUNNING and reports back via RETURNING.)
+      const upd = await db.execute(sql.raw(
+        `UPDATE backfill_jobs
+            SET status='cancelling', updated_at=NOW()
+          WHERE id = (
+            SELECT id FROM backfill_jobs
+             WHERE email_account_id = ${accountId}
+               AND status IN ('pending','running')
+             ORDER BY id DESC LIMIT 1
+          )
+          RETURNING id`
+      ));
+      const updRow = (upd as any).rows?.[0];
+      if (!updRow) {
+        // No in-flight job to cancel — either none exists or one just
+        // completed/failed/cancelled in the same instant. Either way the
+        // user-facing answer is the same: nothing to stop.
+        return res.status(404).json({ message: "No in-flight backfill job" });
+      }
+      res.json({ jobId: Number(updRow.id), status: "cancelling", message: "Cancellation requested" });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/my/mailbox/:id/backfill/resume — resume the most-recent
+  // cancelled OR failed job for this account. Sets status back to 'pending'
+  // (preserving last_page_token), then fires runBackfillJob fire-and-forget
+  // exactly like autoEnqueueBackfillForNewAccount does. The worker reads
+  // last_page_token from DB on entry and resumes from that page.
+  // (Commit 7 — visible-progress-banner Resume / Retry button.)
+  app.post("/api/my/mailbox/:id/backfill/resume", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const accountId = Number(req.params.id);
+      if (!Number.isFinite(accountId)) return res.status(400).json({ message: "Bad accountId" });
+
+      // Ownership check.
+      const own = await db.execute(sql.raw(
+        `SELECT id FROM email_accounts WHERE id = ${accountId} AND user_id = ${userId}`
+      ));
+      if (!(own as any).rows?.length) return res.status(404).json({ message: "Mailbox not found" });
+
+      // Atomic in-place resume: a single conditional UPDATE that flips
+      // exactly one row from cancelled|failed → pending and returns the
+      // row (with date_from/date_to needed by runBackfillJob). The split
+      // SELECT-then-UPDATE pattern races with concurrent resume clicks
+      // and could fire the worker twice on the same job. RETURNING also
+      // gives us a built-in 409 path: if 0 rows came back, either there's
+      // nothing resumable OR a peer request already won.
+      // (Architect-flagged SEV-MED; collapsed to one statement.)
+      const upd = await db.execute(sql.raw(
+        `UPDATE backfill_jobs
+            SET status='pending', error_message=NULL, updated_at=NOW()
+          WHERE id = (
+            SELECT id FROM backfill_jobs
+             WHERE email_account_id = ${accountId}
+               AND status IN ('cancelled','failed')
+             ORDER BY id DESC LIMIT 1
+          )
+            AND status IN ('cancelled','failed')
+          RETURNING id,
+                    to_char(date_from,'YYYY-MM-DD') AS date_from,
+                    to_char(date_to,'YYYY-MM-DD')   AS date_to`
+      ));
+      const job = (upd as any).rows?.[0];
+      if (!job) {
+        // Either nothing resumable exists OR a concurrent resume request
+        // beat us to the punch and already flipped status to 'pending'.
+        // Surface 409 so the client knows to refetch + redraw, NOT 404
+        // (which would imply "job missing" — misleading on a successful
+        // peer resume).
+        return res.status(409).json({ message: "No resumable job (already running or none exists)" });
+      }
+
+      const { runBackfillJob } = await import("./services/backfill-service");
+      runBackfillJob({
+        jobId: Number(job.id), accountId, userId,
+        dateFrom: job.date_from ?? undefined, dateTo: job.date_to ?? undefined,
+      }).catch(err => console.error(`[backfill] resumed job ${job.id} error:`, err));
+
+      res.json({ jobId: Number(job.id), status: "pending", message: "Backfill resumed" });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // POST /api/my/mailbox/warmness/compute — trigger warmness recompute
   app.post("/api/my/mailbox/warmness/compute", requireAuth, async (req, res) => {
     try {

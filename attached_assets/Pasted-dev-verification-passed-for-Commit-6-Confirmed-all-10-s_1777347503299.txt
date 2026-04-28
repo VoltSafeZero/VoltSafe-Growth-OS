@@ -1,0 +1,29 @@
+dev verification passed for Commit 6.
+Confirmed all 10 scenarios:
+	•	Pill appears for new mail when scrolled, disappears when at top.
+	•	Click → smooth scroll to top + dismiss, no refetch.
+	•	Singular/plural text correct (“1 new message” / “3 new messages”).
+	•	View-scope resets cleanly: account switch, search, tab switch all re-baseline.
+	•	Manual scroll-to-top auto-dismisses pill.
+	•	Multi-cycle works: dismiss → re-trigger fires correctly.
+	•	Pill coexists with bulk-action toolbar without conflict.
+Six-of-eight commits done. Three remaining: Commit 7 (auto-90-day-backfill on OAuth), Commit 8 (admin recovery endpoint), and the Commit 7 verification could fold in a real OAuth disconnect/reconnect of one team account as the test.
+Approved to proceed to Commit 7: Auto 90-day backfill on new OAuth completion + visible progress UI.
+Same testing discipline:
+	•	Implement the auto-backfill trigger on OAuth completion.
+	•	Visible progress UI (Importing your last 90 days of email... 1,247 of ~5,000 or similar).
+	•	Make it abortable via a UI control.
+	•	Test harness coverage.
+	•	Architect-style self-review.
+	•	Make a Replit checkpoint.
+	•	Stop and wait for my .dev verification before proceeding to Commit 8.
+Specific Commit 7 reminders:
+	•	The backfill should be triggered automatically as part of the OAuth completion flow, before the user lands on their inbox. Critical UX moment: a brand-new connection should never show an empty inbox. The user should land on a populated inbox, even if backfill is still completing.
+	•	“Visible progress” means the user can see what’s happening. Suggested approach: a progress bar or counter at the top of the inbox or in the account-settings area, updating in real-time. Don’t be shy about it — silence makes users think the product is broken.
+	•	The backfill should be abortable. If the user clicks “stop” or navigates away, the backfill should pause cleanly, leaving whatever has already been backfilled in the database. Resume on next OAuth completion or via an admin endpoint (Commit 8 scope).
+	•	Reuse existing infrastructure: backfill-service.ts (or whichever canonical backfill module exists per the earlier audit) is already there. Don’t reimplement the backfill itself; just trigger it and add the progress UI.
+	•	Rate-limiting: should respect Gmail API quotas. The 5-in-flight cap from Commit 2 applies here too. Don’t blast Gmail’s API on a fresh connection.
+	•	Per-account state: backfill progress should be stored on the email_accounts row (or a sibling table) so progress survives page refreshes and multiple users can see the same state if they’re admin viewers.
+Real-world test option for Commit 7 verification:
+After Commit 7 lands, I can disconnect and reconnect one of the team accounts (probably sales@voltsafe.com since it had limited live mail) to test the auto-backfill end-to-end against real OAuth. This would be a much stronger verification than synthetic tests. The agent should design Commit 7 with this verification path in mind — i.e., clean OAuth disconnect should leave the system in a state where reconnect cleanly triggers the backfill.
+Begin Commit 7.
