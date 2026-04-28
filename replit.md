@@ -46,6 +46,82 @@ lost between commits.
   GC pass when an account is disconnected via the UI so this doesn't
   re-accumulate.
 
+### OAuth-completion admin tasks: missed for accounts 92 and 93 (data correction, ran post-Commit-4.1)
+- **Symptom seen 2026-04-28**: support@voltsafe.com (id 92) and
+  sales@voltsafe.com (id 93) did not appear in the Work → Inbox sidebar
+  after Commit 4.1 landed. They WERE visible in Admin → My Mailboxes
+  (different endpoint). User suspected a 4.1 regression.
+- **Actual cause (NOT a 4.1 regression)**: when these two accounts were
+  added via OAuth, the post-OAuth admin tasks were never run. The rows
+  came in with the default shape (`user_id = trevor's user_id = 4` AND
+  `is_shared = false`), which means `/api/gmail/accounts` annotated all
+  three accessible rows as `isOwner = true` (the rule is
+  `userId === sessionUserId && !isShared`). The sidebar then collapsed:
+  `personalAccount = data.find(isOwner)` returned trevor (first match);
+  `sharedAccounts = data.filter(!isOwner && ...)` returned `[]`. Net:
+  the other two were silently dropped before render. The bug had been
+  latent in the data model since OAuth completion; 4.1's frontend made
+  it visible only because the user happened to actively check the
+  sidebar around the same time. Confirmed by reading
+  `client/src/pages/gmail-inbox.tsx:3116-3122` (sidebar filter) and
+  `server/routes.ts:10509` (server isOwner annotation), plus the live
+  state of `email_accounts` and `users.permissions.mail_team` for
+  user 4 (`{}` — empty, no shared-inbox grants).
+- **Data correction applied (NOT a Commit 4.2 — purely operational)**:
+  ```sql
+  -- 1. Mark 92 and 93 as shared inboxes so isOwner→false on them.
+  UPDATE email_accounts SET is_shared = TRUE WHERE id IN (92, 93);
+  -- before: is_shared=f for both;  after: is_shared=t for both
+  -- trevor (id 1) is_shared=f UNCHANGED.
+
+  -- 2. Grant trevor view+edit on both shared inboxes (he is role='sales',
+  -- not admin, so the isAdmin shortcut in sharedAccounts filter doesn't
+  -- apply — needs an explicit grant).
+  UPDATE users
+  SET permissions = jsonb_set(
+    permissions,
+    '{mail_team}',
+    '{"92": {"view": true, "edit": true}, "93": {"view": true, "edit": true}}'::jsonb,
+    true
+  )
+  WHERE id = 4;
+  -- before: permissions.mail_team = {} (empty)
+  -- after:  permissions.mail_team = {"92":{"view":true,"edit":true},"93":{"view":true,"edit":true}}
+  -- All 10 other top-level permission keys (crm, quoting, support,
+  -- calendar, projects, knowledge, partnerships, calendar_team,
+  -- team_workload, communications) preserved. Verified by exact JSONB
+  -- equality check post-update.
+
+  -- 3. One-shot operational catch-up sync for sales (account 93 had
+  -- last_sync_at IS NULL, was serving only backfill rows).
+  -- See scripts/resync-account-93.ts. Invoked syncEmailAccount(93,
+  -- {maxPages:3, pageSize:100}) directly (auth bypass — test admin
+  -- credentials in this repo have drifted; standard /api/gmail/
+  -- accounts/93/resync would also work in browser). Result: pages=3,
+  -- processed=300, newMessages=1, hitPageLimit=true, elapsed 2.4s.
+  -- last_sync_at: NULL → 2026-04-28 01:03:02 ✓
+  -- total_msgs: 6010 → 6011, inbox_msgs: 4164 → 4165,
+  -- newest_msg_at: 2026-04-27 20:59 → 2026-04-28 00:17.
+  ```
+- **Why this is documented here, not in a new commit entry**: the
+  active commit plan (Commits 1–8) is for code/feature work. This was
+  pure data correction — the cleanup that should have run at OAuth
+  completion. No code changed. The script (`scripts/resync-account-93.ts`)
+  is preserved in the repo as a written record of what was run; do
+  NOT delete it.
+- **Process gap to close**: today there is no automated post-OAuth
+  hook that prompts the operator to set `is_shared` and grant
+  `mail_team` perms on a fresh account. Whoever connects a shared
+  inbox via OAuth has to remember to run the two updates manually.
+  Worth productising in a later commit (e.g., a "Mark as shared
+  inbox" toggle on the mailbox-settings page that handles both
+  flips atomically and grants the connector view+edit by default).
+  NOT in scope for any open commit today.
+- **Verification owner**: user verifies in `.dev` after this entry
+  lands. Expected outcome: trevor under "Personal", support and sales
+  under "Shared Inboxes" in the Work → Inbox sidebar. Sidebar refreshes
+  on the next 30s `accountsQuery` poll; no app restart required.
+
 ### Process note: audit-gap lesson learned (Commit 1 keyset bug + Commit 4.1 source-default bug)
 Both bugs had the same shape: a code path was correctly built but **not
 actually reached** in the active flow. The reviews verified "does this
