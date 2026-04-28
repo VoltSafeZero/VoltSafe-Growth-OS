@@ -1,0 +1,152 @@
+Read-only diagnostic — no code changes, no DB writes. Let me gather everything in parallel.
+
+
+4 actions
+Critical first finding: only account_id=1 has any rows in email_messages. Let me confirm this is trevor's account and pull the rest.
+
+
+4 actions
+The diagnosis is essentially complete already, but let me check for any other accounts I might be missing and look at the listLocalMessages scoping.
+
+
+5 actions
+I have everything I need for the diagnosis. One last check — let me confirm there are no soft-deleted accounts and look at how the sidebar would render this.
+
+
+3 actions
+Diagnostic complete. The investigation answer is unambiguous and was actually visible in the very first query: those two inboxes don't exist as connected accounts at all. Full report below in the format you asked for.
+
+ACCOUNT STATE SNAPSHOT
+
+trevor@voltsafe.com:
+  id=1, owner=user_id=4 (Trevor), is_shared=FALSE, is_active=TRUE, auth_status=active
+  has_refresh=TRUE, sync_enabled=TRUE
+  last_sync_at         = 2026-04-27 23:18:02   (≈22 min ago — healthy)
+  last_incremental_at  = 2026-04-27 23:17:46   (healthy)
+  last_webhook_at      = 2026-04-17 07:01:27   (≈256 hours / 10.7 days stale ← FLAG)
+  watch_expiration_at  = 2026-04-30 05:58:07   (expires in <3 days ← FLAG)
+  watch_history_id     = 17416635
+  incremental_event_count = 2705
+  message rows in email_messages: 55,139
+    oldest sent_at = 2020-01-01,  newest sent_at = 2026-04-27 23:05
+    inbox-labelled = 48,485,  unread = 640
+support@voltsafe.com:
+  ❌ NO ROW in email_accounts (active OR inactive OR disconnected).
+  ❌ NO ROW in users either — there is no user account with this email.
+  ❌ ZERO rows in email_messages with this address as a source account.
+sales@voltsafe.com:
+  ❌ Same as support — no email_accounts row, no users row, no messages.
+Global email_accounts inventory:
+  total=1, active=1, inactive=0, disconnected=0, is_shared=0
+  → The system has exactly ONE connected mailbox, period.
+
+CODE-PATH SCOPING AUDIT
+
+resolveAccount (server/routes.ts:7807):
+  ✅ Numeric asAccountId path: SELECTs by id, denies if not active, denies non-shared
+     accounts owned by another user, requires mail_team[id].view for shared accounts.
+  ✅ "all" sentinel: returns accountIds[] from getAccessibleAccountIds, with the
+     personal account as a primary fallback.
+  ✅ Default path: returns acct.id (NOT undefined) — explicitly documented as a
+     fix for the "personal inbox bleeds team mail via owner_user_id filter" bug.
+  ✅ No hard-coded asAccountId === 1.
+listLocalMessages (server/services/local-mailbox.ts:281):
+  ✅ Three-branch scoping at line 334–343:
+     - accountIds  → "source_account_id IN (...)"
+     - accountId   → "source_account_id = N"
+     - neither     → "owner_user_id = N"  (legacy bw-compat)
+  ✅ Keyset cursor (Commit 1.1) is account-agnostic — depends only on (sent_at, id).
+Auto-overflow (Commit 2, server/routes.ts:7957–):
+  ✅ Single-account-only by design (commented "deliberate punt" for unified mode).
+  ✅ oldestLocalSentAt computed per-account from the actual returned page.
+Bulk endpoints (Commit 3 + Commit 4 fan-out, ~9684 / ~9860):
+  ✅ "all" branch groups by email_messages.source_account_id, runs one Gmail
+     client per account, mirrors per-account.
+  ✅ Per-account edit-permission filter (owner OR admin OR mail_team[id].edit).
+  ✅ Mirror updates scoped to (gmail_message_id IN ..., source_account_id=acct).
+Hard-coded accountId references found:
+  ✅ NONE. All `accountId === 1`, `accountId == 1`, `userId === 1` etc. searches
+     came back empty across server/routes.ts and server/services.
+
+AUTH SCOPING
+
+Team inbox ownership model:
+  Designed to be: a single email_accounts row with is_shared=TRUE owned by some
+  connector user (typically Trevor), then trevor's user.permissions.mail_team
+  grants view/edit per account-id.
+  Actually: zero is_shared accounts exist. The model is wired but unused.
+requireAuth resolution:
+  Pulls userId from session.userId; getSessionUserAccess() loads role + mail_team
+  perms. Admins (master_admin/admin) skip the perms check; non-admins must have
+  mail_team[String(account.id)].view === true. Verified consistent across all
+  /api/gmail/* endpoints in the audit.
+
+FRONT-END ACCOUNT SELECTION
+
+Active account ID resolution (gmail-inbox.tsx ~3110):
+  - sharedAccounts = accountsQuery.data filtered by !isOwner AND
+    (isAdmin OR mailTeamPerms[id].view===true)
+  - personalAccount = accountsQuery.data.find(isOwner)
+  - appendAccountId(params): only sets asAccountId when activeAccountId is set
+  - All 4 query keys (inbox/sent/threads/sender-detail) include activeAccountId
+Hard-coded fallbacks found:
+  ✅ NONE. There is no "fall back to trevor" anywhere.
+  
+What the sidebar renders for trevor right now:
+  Personal: trevor@voltsafe.com
+  Shared: (empty list — sharedAccounts.length === 0)
+  Total mailbox count = 1
+
+REPRODUCTION
+
+trevor's account (asAccountId=1):
+  Would return 200, source=local, modern L1: keyset tokens, ~50 rows/page,
+  localExhausted=false, ~48k inbox rows available. (Confirmed via row counts —
+  the request was not actually executed since the spec said "if safe".)
+support's account:
+  Cannot reproduce — no account row to pass an asAccountId for. A request like
+  /api/gmail/messages?asAccountId=999 would resolve to null in resolveAccount
+  and return {messages:[], nextPageToken:null} per line 7905.
+sales' account: same as support.
+Differences:
+  • Not a code/scoping difference. There is literally no row, user, or message
+    history for either address.
+
+DIAGNOSIS
+
+Most likely cause: NEITHER (a), (b), NOR (c). It's (d): the accounts have never been connected.
+
+Confidence: HIGH
+
+Evidence:
+
+email_accounts table contains exactly one row, ever — trevor's. No row for support@ or sales@ at any state (active, inactive, disconnected_at set, anything).
+No users row for either address either, so they aren't even existing operators in the CRM.
+Zero rows in email_messages with any source_account_id other than 1.
+The code-path audit found correct per-account scoping at every layer (resolveAccount, listLocalMessages, keyset pagination, auto-overflow, bulk fan-out). There is no scoping bug to find.
+The front-end has no hard-coded fallback to trevor's account.
+What the user is most likely seeing instead:
+
+The sidebar's "Shared" section is empty (because sharedAccounts.length === 0), so there are no support/sales entries to click. If the user is "viewing" those inboxes, they're either looking at trevor's inbox and mis-attributing it, or they're looking at an old screenshot/another environment, or they connected those accounts on production but not in this dev DB.
+If they recently disconnected and re-connected via OAuth, the row could only be missing if the disconnect path actually deleted (not soft-deleted) — but disconnected_at exists as a soft-delete column and is unused (count=0), suggesting no deletion happened either.
+Two unrelated operational flags worth knowing about (independent of the reported symptom):
+
+Trevor's last_webhook_at is 10.7 days stale despite incremental_event_count=2705. Either Pub/Sub stopped delivering, the webhook URL changed (maybe replit.dev domain rotated), or the topic was reset. Polling sync still works (last_sync_at is current), so this is invisible to users right now — but real-time push is dead.
+Trevor's Gmail watch expires in <3 days (2026-04-30). Watches need re-registration weekly. If the renewal cron isn't firing (it'd be the same cron that touches last_webhook_at), the watch will lapse and push will stay broken until manually re-armed.
+PROPOSED FIX SCOPE
+
+Estimated effort: NONE for the reported symptom, SMALL for the operational flags.
+
+There's no code commit to write here — the team inboxes haven't been connected. The user needs to:
+
+Sign in to support@voltsafe.com via the existing OAuth flow in Mailbox Settings.
+Same for sales@voltsafe.com.
+After connection, manually flag both rows is_shared=TRUE (one-time) so they appear in the "Shared" sidebar section. (Or, if the connection flow already does this for non-personal addresses, verify the toggle.)
+Grant mail_team["<new_account_id>"].view = true (and .edit = true if needed) on every CRM user who should see them.
+For the operational flags, separate from this diagnostic and not in scope for Commit 4 or 5, you should look into:
+
+Why last_webhook_at hasn't ticked since Apr 17 (likely Pub/Sub topic / push URL drift on the dev environment).
+Whether the Gmail watch auto-renew job is running.
+Suggested commit ordering: Not a Commit 3.5 amendment, not part of Commit 4, and not in Commit 5 either. This is purely operational. The "unified inbox" code is correct; it just has nothing to unify until support@ and sales@ are connected. I'd recommend doing the OAuth connections first, then if anything misbehaves with the now-multi-account state, that is the moment to file a Commit 4.5 if scoping turns out to be wrong (the test harness already proves the helpers work, but live data is the real test).
+
+No code or DB changes were made.
