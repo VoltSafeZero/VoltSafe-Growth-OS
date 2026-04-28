@@ -31,31 +31,82 @@ function computeDefaultBackfillFrom(): string {
   return d.toISOString().slice(0, 10);
 }
 
-async function autoEnqueueBackfillForNewAccount(opts: {
+/**
+ * Enqueue a backfill job for a Gmail account. Single canonical entry point
+ * used by both the OAuth-completion auto-enqueue path AND the Commit 8
+ * admin "trigger fresh backfill" recovery endpoint — keeping behavior
+ * identical so an admin-triggered backfill is indistinguishable from a
+ * fresh-OAuth one (same 90-day default, same special-address override,
+ * same idempotency guard, same fire-and-forget worker invocation).
+ *
+ * Optional overrides:
+ *   - dateFromOverride: bypass the 90-day default + special-address rule
+ *     and use the caller's explicit start date (still YYYY-MM-DD).
+ *   - dateToOverride: end the backfill at a specific date (default = today).
+ *   - skipIdempotencyCheck: if true, allow enqueueing even when a
+ *     pending/running job already exists for this account. Reserved for
+ *     admin "force re-run" flows; the OAuth-completion path NEVER sets it.
+ *
+ * Returns:
+ *   - { enqueued: true, jobId, dateFrom, dateTo } on success
+ *   - { enqueued: false, reason } on idempotency-block or insert failure
+ */
+export async function autoEnqueueBackfillForNewAccount(opts: {
   accountId: number;
   userId: number;
   emailAddress: string | null;
-}): Promise<void> {
-  const { accountId, userId, emailAddress } = opts;
+  dateFromOverride?: string;
+  dateToOverride?: string;
+  skipIdempotencyCheck?: boolean;
+}): Promise<{ enqueued: boolean; jobId?: number; dateFrom?: string; dateTo?: string; reason?: string }> {
+  const { accountId, userId, emailAddress, dateFromOverride, dateToOverride, skipIdempotencyCheck } = opts;
   try {
-    const dateFrom = emailAddress && SPECIAL_2020_ADDRESSES.has(emailAddress.toLowerCase())
-      ? "2020-01-01"
-      : computeDefaultBackfillFrom();
-    const today = new Date().toISOString().slice(0, 10);
+    const dateFrom = dateFromOverride
+      ?? (emailAddress && SPECIAL_2020_ADDRESSES.has(emailAddress.toLowerCase())
+        ? "2020-01-01"
+        : computeDefaultBackfillFrom());
+    const today = dateToOverride ?? new Date().toISOString().slice(0, 10);
 
-    // Idempotency: don't double-enqueue if a pending/running job already exists.
-    const existing = await db.execute(sql.raw(
-      `SELECT id FROM backfill_jobs WHERE email_account_id = ${accountId} AND status IN ('pending','running') LIMIT 1`
-    ));
-    if ((existing as any).rows?.length) return;
-
-    const inserted = await db.execute(sql.raw(`
-      INSERT INTO backfill_jobs (user_id, email_account_id, status, date_from, date_to)
-      VALUES (${userId}, ${accountId}, 'pending', '${dateFrom}', '${today}')
-      RETURNING id
-    `));
+    // Idempotency: don't double-enqueue if a pending/running job already
+    // exists. The OAuth-completion path always honors this; admin-triggered
+    // re-runs may opt out via skipIdempotencyCheck=true.
+    //
+    // Architect-flagged SEV-HIGH (Commit 8): the original SELECT-then-INSERT
+    // pattern was a classic TOCTOU race — two concurrent OAuth callbacks
+    // (or two trigger-backfill clicks within the same millisecond) could
+    // both pass the check and both INSERT a pending job, spawning two
+    // parallel runBackfillJob workers for the same mailbox.
+    //
+    // Fix: collapse the check + insert into a single SQL statement using
+    // INSERT...SELECT...WHERE NOT EXISTS. The DB enforces mutual exclusion
+    // — the WHERE NOT EXISTS clause is evaluated as part of the INSERT, so
+    // at most ONE of two concurrent statements actually inserts a row.
+    // The losing statement's RETURNING comes back empty and we report
+    // "in-flight job already exists" exactly the same way the old guard did.
+    //
+    // The skipIdempotencyCheck=true path uses an unconditional INSERT — by
+    // design (admin "force" override). It can still spawn duplicate workers;
+    // that's intentional and documented at the route level.
+    const insertSql = skipIdempotencyCheck
+      ? `INSERT INTO backfill_jobs (user_id, email_account_id, status, date_from, date_to)
+           VALUES (${userId}, ${accountId}, 'pending', '${dateFrom}', '${today}')
+           RETURNING id`
+      : `INSERT INTO backfill_jobs (user_id, email_account_id, status, date_from, date_to)
+           SELECT ${userId}, ${accountId}, 'pending', '${dateFrom}', '${today}'
+            WHERE NOT EXISTS (
+              SELECT 1 FROM backfill_jobs
+               WHERE email_account_id = ${accountId}
+                 AND status IN ('pending','running','cancelling')
+            )
+           RETURNING id`;
+    const inserted = await db.execute(sql.raw(insertSql));
     const jobId = Number((inserted as any).rows?.[0]?.id);
-    if (!jobId) return;
+    if (!jobId) {
+      return {
+        enqueued: false,
+        reason: skipIdempotencyCheck ? "insert returned no id" : "in-flight job already exists",
+      };
+    }
 
     console.log(`[auto-backfill] enqueued job ${jobId} for account ${accountId} (${emailAddress ?? "?"}) ${dateFrom}→${today}`);
 
@@ -63,9 +114,12 @@ async function autoEnqueueBackfillForNewAccount(opts: {
     const { runBackfillJob } = await import("./services/backfill-service");
     runBackfillJob({ jobId, accountId, userId, dateFrom, dateTo: today })
       .catch(err => console.error(`[auto-backfill] job ${jobId} error:`, err));
-  } catch (err) {
+
+    return { enqueued: true, jobId, dateFrom, dateTo: today };
+  } catch (err: any) {
     // Never block the OAuth callback on backfill enqueue failures.
     console.error("[auto-backfill] enqueue failed:", err);
+    return { enqueued: false, reason: err?.message ?? String(err) };
   }
 }
 

@@ -1,0 +1,28 @@
+.dev verification passed for Commit 7.
+Disconnected and reconnected sales@voltsafe.com end-to-end via real OAuth. Confirmed:
+	•	Banner appeared within ~1 second of OAuth completion.
+	•	Progress counter advanced every 5 seconds, denominator showed Gmail’s resultSizeEstimate.
+	•	Stop button paused cleanly at ~[N] messages, banner correctly showed paused state with Resume button.
+	•	Resume picked up at [N], not 0. Denominator preserved.
+	•	Completion flashed success state for ~30s then auto-dismissed.
+	•	Backfill landed ~90 days of historical email cleanly. No missing chunks.
+	•	Concurrent-Stop in two tabs: both converged to “paused” state, no stuck “cancelling…” artifact. The atomic UPDATE fix is working.
+Auto-90-day backfill on OAuth completion is verified end-to-end against real Gmail API. Seven-of-eight commits done.
+Approved to proceed to Commit 8: Admin recovery endpoint + project notes update.
+Same testing discipline:
+	•	Implement the admin-only diagnostic + recovery endpoint.
+	•	Test harness coverage.
+	•	Architect-style self-review.
+	•	Update replit.md to document the unified-inbox architecture as the canonical mail-reading path.
+	•	Make a Replit checkpoint.
+	•	Stop and wait for my final verification.
+Specific Commit 8 reminders:
+	•	Endpoint should expose: per-account sync state inspection (last_webhook_at, last_incremental_sync_at, pending mutation queue depth, count of backfilled rows, watch expiration), trigger-fresh-backfill-for-user, force-full-resync.
+	•	Admin-only via existing requireAuth + role check. Should NOT be reachable by non-admin users.
+	•	Operator-facing, not user-facing. The user never sees this. Could be a CLI script, an admin route, or both — recommend whichever path is cleanest in this codebase.
+	•	The replit.md updates should:
+	•	Resolve all the deferred items in the Post-Publish Operational Follow-ups section that are now addressable (e.g., the watch-renewal note, the 5 failing legacy tests if practical to fix, etc.). Don’t let them rot.
+	•	Document the unified-inbox architecture so future agents understand the canonical flow without needing to re-derive it from code.
+	•	Capture the audit-gap lesson learned (component-level audits don’t catch integration gaps) prominently — it’s the single most valuable methodology insight from this 8-commit project.
+After Commit 8, the project is structurally complete. There will still be operational follow-ups (publishing to .replit.app, fixing push, etc.) but those are deployment-side, not code-side.
+Begin Commit 8.

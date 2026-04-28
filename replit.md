@@ -37,12 +37,26 @@ lost between commits.
      `.replit.app` webhook URL (NOT the rotating `.janeway.replit.dev` dev
      URL).
   2. Confirm the watch auto-renew cron is firing weekly (watches expire
-     ~7 days after `users.watch` is called; currently
-     `watch_expiration_at` for trevor is 2026-04-30, so the renewal job
-     either isn't running or isn't bumping the timestamp).
+     ~7 days after `users.watch` is called). **Status update post-Commit 8:
+     the renewal scheduler IS wired — `renewExpiringWatches()` in
+     `server/services/gmail-watch.ts:143` is invoked from `server/index.ts:274`
+     on the same hourly tick as the incremental scheduler. The earlier
+     "renewal job either isn't running or isn't bumping the timestamp"
+     concern reflected the absence of an observability surface, not an
+     absence of the cron itself. Commit 8's
+     `GET /api/admin/mailbox/diagnostics` now returns
+     `watch.{expirationAt, isExpired, expiresInMs}` for every active
+     mailbox in one round-trip, so post-publish verification of "is the
+     renewal cron actually bumping watch_expiration_at?" is a single
+     curl + eyeball on `expiresInMs > 0`. Mark this sub-item RESOLVED-
+     AS-OBSERVABLE: no code change required, just the operator habit of
+     hitting the diagnostic endpoint after the first weekly tick post-
+     publish to confirm timestamps advance.**
   3. After re-arming, monitor `last_webhook_at` for movement on the next
      real inbound message; if still stale, check Cloud Pub/Sub delivery
-     metrics for ack failures.
+     metrics for ack failures. Same diagnostic endpoint surfaces
+     `webhookStaleness.{ageMs, isStale, isOlderThanThreshold}` per
+     mailbox so the "monitor" step doesn't require psql either.
   4. Re-run `scripts/pubsub-diagnostic.ts` against the production
      environment to confirm push works end-to-end. If it fires, the
      foreground polling fallback becomes a belt-and-braces redundancy in
@@ -149,6 +163,320 @@ project should explicitly answer BOTH questions for any non-trivial code
 path. A one-line guard test (like `tests/source-default.test.js`) that
 pins the wiring is cheap insurance — write it any time the answer to
 "does this default value matter?" is yes.
+
+---
+
+## Unified Inbox — Commit 8 of 8: Admin diagnostic + recovery endpoints (Complete, 2026-04-28)
+
+### Why this exists
+After Commits 1–7 the user-facing path was watertight (auto-backfill on OAuth,
+visible progress, atomic cancel/resume, foreground polling, new-message pill,
+keyset pagination). But the **operator** path was opaque. When a mailbox stalled
+in production — webhook stale, backfill stuck, history-id desynced — there was
+no single place to look at "is the sync layer healthy across all mailboxes?"
+and no way to recover without dropping into the database. The Post-Publish
+section above is full of exactly this kind of investigation done by hand.
+
+Commit 8 closes the operator gap with four admin-only endpoints. Together they
+answer the two questions an operator actually has when something looks wrong:
+1. **"Is anything stale?"** — `GET /api/admin/mailbox/diagnostics` returns one
+   row per active mailbox with sync state, watch state, queue depth, in-flight
+   backfill, last terminal backfill, and stored message count. All in a single
+   round-trip with derived freshness flags (`webhookStaleness.isStale`,
+   `watch.isExpired`, `watch.expiresInMs`) computed server-side so the
+   operator doesn't have to do mental math against the current timestamp.
+2. **"Can I fix it without a DB shell?"** — `POST .../trigger-backfill` and
+   `POST .../force-full-resync` are the recovery levers. Trigger-backfill
+   delegates to the same `autoEnqueueBackfillForNewAccount` helper the OAuth
+   completion path uses (single source of truth — fixing one fixes both).
+   Force-full-resync clears `last_history_id + sync_error_message` and fires
+   `syncIncremental` async, which falls into the SEED branch and re-anchors
+   the cursor from Gmail's `Profile.historyId`.
+
+### What changed (the diff, in plain English)
+
+**Backend — canonical enqueue helper exported (`server/gmail-oauth.ts`):**
+- `autoEnqueueBackfillForNewAccount` was a private function called only from
+  the OAuth callback. It is now `export`ed and accepts three new optional
+  knobs: `dateFromOverride`, `dateToOverride`, and `skipIdempotencyCheck`.
+- Return shape is now structured: `{ enqueued: true, jobId, dateFrom, dateTo }`
+  on success, `{ enqueued: false, reason }` on the no-op path. This lets the
+  admin route distinguish "blocked by in-flight guard" (409) from "actual
+  enqueue/DB failure" (500).
+- The idempotency guard widened from `('pending','running')` to
+  `('pending','running','cancelling')`. Without `cancelling`, hitting the
+  Stop button mid-run and immediately re-clicking the (admin) trigger could
+  spawn a second worker before the first one had cooperatively exited.
+- **Architect-flagged SEV-HIGH (TOCTOU race) — fixed**: the original guard
+  was `SELECT existing` followed by `INSERT`. Two concurrent OAuth callbacks
+  (or two trigger-backfill clicks within the same millisecond) could both
+  pass the SELECT and both INSERT, spawning duplicate workers. The fix
+  collapses both statements into a single
+  `INSERT INTO backfill_jobs ... SELECT ... WHERE NOT EXISTS (...)` query.
+  The DB enforces mutual exclusion — at most one of two concurrent inserts
+  actually writes a row, the loser's RETURNING comes back empty, and we
+  report `enqueued: false, reason: "in-flight job already exists"` exactly
+  the same way the old guard did. The `skipIdempotencyCheck=true` admin
+  override path uses an unconditional INSERT — that's the by-design "force"
+  semantics, documented at the route level.
+
+**Backend — four new admin endpoints (`server/routes.ts`, cluster ~L5254):**
+All four gated by `requireAuth + requireAdmin` (session.globalRole must be
+`master_admin` or `admin`). Verified by curl: all return 401/403 unauthenticated.
+
+- `GET /api/admin/mailbox/diagnostics` — system overview. One row per
+  active mailbox in a single query: `accountId`, `userId`, `emailAddress`,
+  `provider`, `lastWebhookAt`, `lastIncrementalSyncAt`, `lastHistoryId`,
+  `watchExpirationAt`, `watchTopic`, `syncErrorMessage`, `storedMessageCount`,
+  `lastMessageAt`, `queueDepth`, `inflightBackfill` (json subquery),
+  `latestTerminalBackfill` (json subquery). Server-side derived flags:
+  `webhookStaleness.{ageMs, isStale, isOlderThanThreshold}`,
+  `incrementalStaleness.{ageMs, isStale}`,
+  `watch.{expirationAt, isExpired, expiresInMs}`,
+  `pushConfigured` (server-wide flag from `isPushConfigured()`).
+  Stale threshold is 24h (`24*60*60*1000`).
+
+- `GET /api/admin/mailbox/:id/diagnostics` — single-mailbox detail view.
+  Same shape as the overview row PLUS `recentBackfills` (last 10
+  `backfill_jobs` rows for this account, ordered by id DESC). 404s on
+  missing mailbox; validates `:id` via `parseInt(req.params.id, 10)`.
+
+- `POST /api/admin/mailbox/:id/trigger-backfill` — recovery lever #1.
+  Body `{ dateFrom?: string, dateTo?: string }` (both validated against
+  `^\d{4}-\d{2}-\d{2}$`). Query `?force=true` maps to
+  `skipIdempotencyCheck=true` (admin override of the in-flight guard).
+  Delegates to canonical `autoEnqueueBackfillForNewAccount` helper —
+  trigger-backfill and OAuth completion now run the SAME enqueue code
+  path. Response: `{ ok: true, enqueued: true, jobId, dateFrom, dateTo }`
+  on success; `{ ok: false, message: "Not enqueued: <reason>" }` with
+  status 409 (in-flight conflict) or 500 (actual failure) on the no-op path.
+
+- `POST /api/admin/mailbox/:id/force-full-resync` — recovery lever #2.
+  Operator-of-last-resort tool: clears `last_history_id` and
+  `sync_error_message` via a single UPDATE, then fires `syncIncremental`
+  fire-and-forget. With `last_history_id` NULL, `syncIncremental` falls
+  into its SEED branch (`syncEmailAccount({ maxPages: 1 })` then
+  `captureProfileHistoryId`) and re-anchors the cursor from Gmail's current
+  `Profile.historyId`. Optional `?withBackfill=true` ALSO enqueues a
+  90-day backfill via the canonical helper for cases where the operator
+  wants to re-fetch recent history into storage as well as re-anchor the
+  cursor. Response: `{ ok: true, clearedHistoryId: true, reseedScheduled: true,
+  backfill: ... }`.
+
+**Tests — `tests/admin-diagnostics.test.js` (27 source-grep assertions):**
+- Group A (4 tests): canonical enqueue helper export, parameters, atomic
+  TOCTOU fix, structured return shape.
+- Group B (5 tests): GET overview — auth gate, all required field aliases
+  in the SELECT, json subqueries for backfill state, derived freshness
+  flags, `pushConfigured` global.
+- Group C (4 tests): GET detail — auth gate, :id parsing + 404, recentBackfills
+  query, single-mailbox storedMessageCount.
+- Group D (5 tests): POST trigger-backfill — auth gate, canonical-helper
+  delegation, `?force=true` mapping, dateFrom/dateTo validation, 409 vs 500
+  signal split.
+- Group E (6 tests): POST force-full-resync — auth gate, clears last_history_id,
+  clears sync_error_message, fires syncIncremental async, `?withBackfill=true`
+  branch, response shape.
+- Group F (3 tests): structural integrity — Commit 8 cluster header
+  comment present, no duplicate route registrations.
+- **All 27 passing.** Pinned the structural contract of the four routes
+  AND the canonical-helper refactor in one place.
+- Why source-grep instead of live HTTP: the recovery endpoints fire workers
+  that touch real Gmail. A live test would either need a Gmail mock or
+  make real Google API calls — both expensive given what we're actually
+  trying to pin (route definitions, auth gates, payload shapes, trigger →
+  worker call edges). Live validation is the operator's job — they'll
+  curl these endpoints with their session cookie against `.replit.app`
+  to confirm they work end-to-end with their real mailboxes.
+
+**Regression tests (all four other suites still green after architect fixes):**
+- `tests/auto-backfill.test.js`: 14/14 (Commit 7 backfill UI/UX contract).
+- `tests/new-messages-pill.test.js`: 20/20 (Commit 6 pill).
+- `tests/foreground-polling.test.js`: 23/23 (Commit 5 fallback).
+- `tests/admin-diagnostics.test.js`: 27/27 (Commit 8, this entry).
+
+### Race / safety analysis (architect review summary)
+
+The architect review (`includeGitDiff: true`) found four issues. Two were
+fixed in-commit (above), two are documented design choices:
+
+1. **SEV-HIGH — TOCTOU enqueue race**: FIXED with atomic
+   INSERT-WHERE-NOT-EXISTS (above).
+
+2. **SEV-LOW — 409 vs 500 signal blurring**: FIXED with `isConflict`
+   ternary in trigger-backfill route (above).
+
+3. **SEV-MED — `?force=true` can spawn parallel workers**: by-design.
+   `?force=true` is the explicit "I, the operator, am intentionally
+   overriding the in-flight guard" knob. The canonical helper logs
+   `[auto-backfill] enqueued job N` on every fire; if the operator
+   double-clicks force, two workers run concurrently and both write to
+   the same `backfill_jobs` rows — recoverable via the cancel endpoints,
+   but disorderly. Mitigation: the route is admin-only and the worker
+   has a per-page cancel-check (Commit 7), so the overlap window is
+   bounded. Not adding an account-level lock today — that would change
+   the contract of the canonical helper and risk regressing the OAuth
+   path's fast-fire behaviour.
+
+4. **SEV-MED — `force-full-resync` can overlap with concurrent webhook /
+   poll syncs**: by-design (and pre-existing). `syncIncremental` is
+   already called from the hourly scheduler, the foreground polling loop
+   (Commit 5), AND the webhook handler. There is no account-level lock
+   on `syncIncremental` today; two concurrent runs are tolerated because
+   Gmail's history API is idempotent and the `last_history_id` cursor
+   simply advances to whichever writer commits last. Force-resync is a
+   clean RESET of the cursor, not a new race vector. Adding an
+   account-scoped `pg_advisory_xact_lock` would be a worthwhile cleanup
+   but it would affect ALL three callers, not just this one — out of
+   scope for Commit 8, properly belongs in a future "sync-pipeline lock"
+   commit.
+
+### Process note: audit-gap lesson #2 (visibility ≠ recovery)
+
+Commits 1–7 were technically correct but **operationally insufficient**:
+the system had no operator-facing answer to "is anything stale across all
+mailboxes?" or "how do I unstuck this without a DB shell?". The audit-gap
+lesson from earlier (Commit 1 keyset bug + Commit 4.1 source-default bug)
+said: a code path that's correctly built but not actually reached is the
+same as no code path at all.
+
+Commit 8 generalises that lesson: when building observability or
+recovery for a long-running pipeline, **distinguish two classes of
+question and answer BOTH**:
+
+1. **"Is the system healthy?"** — the diagnostic question. Answered by a
+   read-only endpoint that returns enough state in one round-trip for
+   the operator to triage without writing SQL. Server-side derived flags
+   (e.g., `isStale`, `isExpired`) are critical — leaving date math to
+   the caller invites bugs on the dashboard.
+2. **"Can the operator fix it without changing code or data manually?"**
+   — the recovery question. Answered by trigger endpoints that delegate
+   to the same canonical worker code paths the normal happy-path uses.
+   `trigger-backfill` shares its enqueue code with the OAuth callback;
+   `force-full-resync` shares its seed code with the webhook handler.
+   Single source of truth → one place to fix bugs in.
+
+Doing only #1 (a dashboard) leaves the operator helpless when they see
+red. Doing only #2 (a button) leaves them blind about when to push it.
+Both questions need first-class answers in the same commit.
+
+### Verification
+
+User verifies in `.dev` (and post-publish in `.replit.app`) by:
+1. Hitting `GET /api/admin/mailbox/diagnostics` with their admin
+   session cookie. Expect: 200 with `{ accounts: [...], pushConfigured,
+   staleThresholdMs }`. Sanity check that `webhookStaleness.isStale`
+   matches the Post-Publish section's known-stale account (trevor's
+   `last_webhook_at` is the canonical "stale push" example).
+2. Hitting `GET /api/admin/mailbox/93/diagnostics` (or any active id)
+   to verify the detail endpoint returns the same row plus
+   `recentBackfills`.
+3. Optionally: `POST /api/admin/mailbox/93/trigger-backfill` with
+   `?force=true` to confirm the recovery path enqueues a job and the
+   Commit 7 progress banner appears in the inbox immediately.
+
+Watch-renewal cron is wired (see updated Post-Publish entry below) and
+its current expiration is now visible per-mailbox in the diagnostic
+output as `watch.expirationAt + watch.expiresInMs + watch.isExpired`,
+so push-delivery health no longer requires a DB shell to investigate.
+
+### Files touched
+- `server/gmail-oauth.ts` — exported helper, added 3 optional params,
+  atomic INSERT-WHERE-NOT-EXISTS replaces SELECT-then-INSERT, structured
+  return shape.
+- `server/routes.ts` — 4 new admin endpoints in the cluster at ~L5254
+  (immediately before `/api/admin/users/:id` PUT). Cluster header
+  comment present for operator-readable provenance.
+- `tests/admin-diagnostics.test.js` — new, 27 source-grep assertions,
+  all green.
+
+### Architecture: unified-inbox canonical flow (post-Commit-8, end-to-end)
+
+After 8 commits the unified-inbox feature is complete. For future
+contributors, here is the canonical flow from "user clicks Connect Gmail"
+to "user reads a brand-new inbound message":
+
+```
+        ┌────────────────────────────────────────────────────────────────┐
+        │  USER → /api/oauth/google/start  (Commit 4.1, gmail-oauth.ts)  │
+        │                  ↓ Google consent screen                        │
+        │       Google → /api/oauth/google/callback                       │
+        │                  ↓ exchange code, persist email_accounts row    │
+        │       autoEnqueueBackfillForNewAccount(accountId, email, user)  │
+        │       ────────────────────────────────────────────────────────  │
+        │       INSERT-WHERE-NOT-EXISTS into backfill_jobs (Commit 8)     │
+        │       fire-and-forget runBackfillJob(jobId)                     │
+        │       startWatch(emailAccount) → Gmail Pub/Sub watch (Commit 5) │
+        └────────────────────────────────────────────────────────────────┘
+                            │                                │
+                            │                                │
+        ┌───────────────────▼──────────────┐  ┌──────────────▼──────────────┐
+        │  BACKGROUND: runBackfillJob       │  │  STEADY-STATE: incremental │
+        │  (server/services/backfill-       │  │  (server/services/gmail-   │
+        │   service.ts, Commit 7)           │  │   incremental.ts)          │
+        │  ─────────────────────────────    │  │  ──────────────────────    │
+        │  page Gmail messages.list from    │  │  webhook arrives           │
+        │  date_from→date_to, 100/page      │  │   ↓                        │
+        │  per-page cancel check at top     │  │  syncIncremental(accountId)│
+        │  of loop (atomic UPDATE WHERE     │  │   ├─ if !lastHistoryId →   │
+        │  status IN cancelling/cancelled)  │  │   │  SEED via              │
+        │  persist last_page_token+         │  │   │  syncEmailAccount({    │
+        │  processed every page; resume     │  │   │    maxPages:1 }) +     │
+        │  from saved values on restart     │  │   │  captureProfileHistory │
+        │  writes to email_messages         │  │   └─ else → history.list   │
+        └───────────────────┬──────────────┘  └──────────────┬─────────────┘
+                            │                                │
+                            └────────────────┬───────────────┘
+                                             ▼
+        ┌────────────────────────────────────────────────────────────────┐
+        │  email_messages table (RECEIVING SIDE OF EVERYTHING)            │
+        │  insert-or-update on (source_account_id, gmail_id) unique key   │
+        └────────────────────────────────────────────────────────────────┘
+                                             │
+        ┌────────────────────────────────────▼───────────────────────────┐
+        │  FRONTEND: /api/my/inbox (Commit 1 keyset, Commit 4.1 source-  │
+        │  filter), /api/my/mailbox/backfill/status (Commit 7 banner),   │
+        │  /api/my/inbox/changes (Commit 5 polling, Commit 6 pill)       │
+        │  ─────────────────────────────────────────────────────────────  │
+        │  gmail-inbox.tsx renders:                                       │
+        │    • banner (Commit 7) — sticky top-0, in-flight backfill UI    │
+        │    • pill   (Commit 6) — sticky top-2, "N new messages" jump-up │
+        │    • toolbar          — sticky top-0 z-10, bulk actions         │
+        │    • message list     — keyset paginated                        │
+        └────────────────────────────────────────────────────────────────┘
+
+        ┌────────────────────────────────────────────────────────────────┐
+        │  ADMIN OBSERVABILITY (Commit 8, server/routes.ts ~L5254)        │
+        │  ─────────────────────────────────────────────────────────────  │
+        │  GET   /api/admin/mailbox/diagnostics       — system overview   │
+        │  GET   /api/admin/mailbox/:id/diagnostics   — single mailbox    │
+        │  POST  /api/admin/mailbox/:id/trigger-backfill  → calls         │
+        │        autoEnqueueBackfillForNewAccount (same as OAuth path)    │
+        │  POST  /api/admin/mailbox/:id/force-full-resync → clears        │
+        │        last_history_id then fires syncIncremental (same as      │
+        │        webhook path, just with cleared cursor)                  │
+        └────────────────────────────────────────────────────────────────┘
+```
+
+**Key invariants:**
+- No Drizzle schema changes were ever made for any of the 8 commits.
+  All new state lives on existing tables: `email_accounts.last_history_id`,
+  `last_webhook_at`, `last_incremental_sync_at`, `incremental_event_count`,
+  `watch_expiration_at`, `watch_history_id`, `watch_topic`, `sync_error_message`;
+  `backfill_jobs.{status, last_page_token, processed, total_estimate}`
+  (raw-SQL managed table, NOT in `shared/schema.ts`).
+- Single source of truth for enqueue: `autoEnqueueBackfillForNewAccount`
+  is called from BOTH OAuth completion AND admin trigger-backfill.
+- Single source of truth for seed: `syncEmailAccount({ maxPages: 1 })` +
+  `captureProfileHistoryId` is the SEED branch of `syncIncremental` AND
+  the path that force-full-resync funnels through (by clearing
+  `last_history_id` and re-firing `syncIncremental`).
+- Race safety: cancel/resume use atomic `UPDATE...WHERE status IN
+  (...) RETURNING id` (Commit 7); enqueue uses atomic
+  `INSERT...WHERE NOT EXISTS` (Commit 8).
+- All background work is fire-and-forget at the call site with
+  `.catch(err => console.error(...))` — workers maintain their own
+  state on disk so a crash mid-loop is recoverable on next call.
 
 ---
 

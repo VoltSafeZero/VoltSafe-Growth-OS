@@ -5248,6 +5248,326 @@ export async function registerRoutes(
     }
   });
 
+  // ╔══════════════════════════════════════════════════════════════════════╗
+  // ║ Commit 8 — Admin diagnostic + recovery endpoints (operator-facing)   ║
+  // ╠══════════════════════════════════════════════════════════════════════╣
+  // ║ A 4-route admin surface for inspecting and recovering the unified-   ║
+  // ║ inbox sync pipeline. Lets a master_admin / admin see every connected ║
+  // ║ mailbox's sync state at a glance (last_webhook_at, last_incremental_ ║
+  // ║ sync_at, watch expiration, in-flight backfill, message count, etc.), ║
+  // ║ and trigger a fresh 90-day backfill or a force-full-resync without   ║
+  // ║ needing direct DB access or a deploy.                                ║
+  // ║                                                                      ║
+  // ║ Gated by `requireAuth, requireAdmin` — non-admin users get 403.      ║
+  // ║ NEVER user-facing: the regular inbox UI does not call any of these.  ║
+  // ║                                                                      ║
+  // ║ Schema: ZERO changes. All sync state already lives ON the existing   ║
+  // ║ `email_accounts` row (last_history_id, watch_expiration_at,          ║
+  // ║ last_webhook_at, last_incremental_sync_at, incremental_event_count). ║
+  // ║ Backfill state lives in the raw-SQL-managed `backfill_jobs` table    ║
+  // ║ added in Commit 7. This commit only READS those tables and triggers  ║
+  // ║ existing workers — `autoEnqueueBackfillForNewAccount` (canonical     ║
+  // ║ enqueue helper, exported from gmail-oauth.ts) and `syncIncremental`  ║
+  // ║ (gmail-incremental.ts).                                              ║
+  // ╚══════════════════════════════════════════════════════════════════════╝
+
+  // GET /api/admin/mailbox/diagnostics
+  // System-wide overview: one row per active mailbox. Includes per-mailbox
+  // sync freshness, watch expiration, in-flight + most-recent-terminal
+  // backfill jobs, and stored message counts. Single round-trip to Postgres
+  // (correlated subqueries instead of N+1 fetches).
+  app.get("/api/admin/mailbox/diagnostics", requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const { isPushConfigured } = await import("./services/gmail-watch");
+      const pushConfigured = isPushConfigured();
+      const STALE_MS = 24 * 60 * 60 * 1000; // "stale webhook" = no push in 24h
+      const now = Date.now();
+
+      const accountsR = await db.execute(sql.raw(`
+        SELECT
+          a.id                                      AS "accountId",
+          a.email_address                           AS "emailAddress",
+          a.user_id                                 AS "userId",
+          a.is_shared                               AS "isShared",
+          a.is_active                               AS "isActive",
+          a.auth_status                             AS "authStatus",
+          a.sync_enabled                            AS "syncEnabled",
+          a.sync_error_message                      AS "syncErrorMessage",
+          a.last_sync_at                            AS "lastSyncAt",
+          a.last_incremental_sync_at                AS "lastIncrementalSyncAt",
+          a.last_webhook_at                         AS "lastWebhookAt",
+          a.last_history_id                         AS "lastHistoryId",
+          COALESCE(a.incremental_event_count, 0)    AS "incrementalEventCount",
+          a.watch_expiration_at                     AS "watchExpirationAt",
+          a.watch_history_id                        AS "watchHistoryId",
+          a.watch_topic                             AS "watchTopic",
+          (SELECT COUNT(*)::int FROM email_messages m WHERE m.source_account_id = a.id) AS "storedMessageCount",
+          (SELECT MAX(m.sent_at)  FROM email_messages m WHERE m.source_account_id = a.id) AS "lastMessageAt",
+          (SELECT COUNT(*)::int FROM backfill_jobs b WHERE b.email_account_id = a.id AND b.status IN ('pending','running','cancelling')) AS "queueDepth",
+          (SELECT json_build_object(
+              'jobId',         b.id,
+              'status',        b.status,
+              'processed',     COALESCE(b.processed, 0),
+              'totalEstimate', b.total_estimate,
+              'updatedAt',     b.updated_at
+            )
+            FROM backfill_jobs b
+            WHERE b.email_account_id = a.id AND b.status IN ('pending','running','cancelling')
+            ORDER BY b.id DESC LIMIT 1) AS "inflightBackfill",
+          (SELECT json_build_object(
+              'jobId',         b.id,
+              'status',        b.status,
+              'processed',     COALESCE(b.processed, 0),
+              'totalEstimate', b.total_estimate,
+              'updatedAt',     b.updated_at
+            )
+            FROM backfill_jobs b
+            WHERE b.email_account_id = a.id AND b.status IN ('completed','cancelled','failed')
+            ORDER BY b.id DESC LIMIT 1) AS "latestTerminalBackfill"
+        FROM email_accounts a
+        WHERE a.is_active = TRUE
+        ORDER BY a.id ASC
+      `)) as any;
+
+      // Compute derived freshness fields server-side so operators don't have
+      // to do timestamp math by hand. Raw timestamps remain in the payload
+      // for anyone who wants them.
+      const accounts = (accountsR.rows ?? []).map((r: any) => {
+        const lastWebhookAt = r.lastWebhookAt ? new Date(r.lastWebhookAt).getTime() : null;
+        const watchExp      = r.watchExpirationAt ? new Date(r.watchExpirationAt).getTime() : null;
+        const webhookAgeMs  = lastWebhookAt ? (now - lastWebhookAt) : null;
+        return {
+          ...r,
+          webhookStaleness: {
+            ageMs:   webhookAgeMs,
+            isStale: webhookAgeMs == null ? null : webhookAgeMs > STALE_MS,
+          },
+          watch: {
+            expirationAt: r.watchExpirationAt,
+            historyId:    r.watchHistoryId,
+            topic:        r.watchTopic,
+            isExpired:    watchExp == null ? null : watchExp < now,
+            expiresInMs:  watchExp == null ? null : (watchExp - now),
+          },
+        };
+      });
+
+      res.json({
+        ok: true,
+        generatedAt: new Date().toISOString(),
+        pushConfigured,
+        staleThresholdMs: STALE_MS,
+        accountCount: accounts.length,
+        accounts,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/admin/mailbox/:id/diagnostics
+  // Single-mailbox detail view. Same per-account fields as the overview,
+  // plus the last 10 backfill_jobs rows for that account so operators can
+  // trace history (especially useful when debugging "why is this user's
+  // import taking so long?" — you see the full job timeline).
+  app.get("/api/admin/mailbox/:id/diagnostics", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const accountId = parseInt(req.params.id, 10);
+      if (!accountId || isNaN(accountId)) return res.status(400).json({ message: "Invalid mailbox id" });
+
+      const acctR = await db.execute(sql.raw(`
+        SELECT a.id AS "accountId", a.email_address AS "emailAddress", a.user_id AS "userId",
+               a.is_shared AS "isShared", a.is_active AS "isActive", a.auth_status AS "authStatus",
+               a.sync_enabled AS "syncEnabled", a.sync_error_message AS "syncErrorMessage",
+               a.last_sync_at AS "lastSyncAt", a.last_incremental_sync_at AS "lastIncrementalSyncAt",
+               a.last_webhook_at AS "lastWebhookAt", a.last_history_id AS "lastHistoryId",
+               COALESCE(a.incremental_event_count, 0) AS "incrementalEventCount",
+               a.watch_expiration_at AS "watchExpirationAt",
+               a.watch_history_id AS "watchHistoryId",
+               a.watch_topic AS "watchTopic",
+               a.created_at AS "createdAt"
+        FROM email_accounts a WHERE a.id = ${accountId} LIMIT 1
+      `)) as any;
+      const acct = acctR.rows?.[0];
+      if (!acct) return res.status(404).json({ message: "Mailbox not found" });
+
+      const [counts, lastMsg, recentBackfills] = await Promise.all([
+        db.execute(sql.raw(`SELECT COUNT(*)::int AS count FROM email_messages WHERE source_account_id = ${accountId}`)),
+        db.execute(sql.raw(`SELECT MAX(sent_at) AS at FROM email_messages WHERE source_account_id = ${accountId}`)),
+        db.execute(sql.raw(`
+          SELECT id AS "jobId", status, COALESCE(processed,0) AS processed, total_estimate AS "totalEstimate",
+                 to_char(date_from,'YYYY-MM-DD') AS "dateFrom", to_char(date_to,'YYYY-MM-DD') AS "dateTo",
+                 last_page_token AS "lastPageToken", error_message AS "errorMessage",
+                 created_at AS "createdAt", updated_at AS "updatedAt"
+          FROM backfill_jobs WHERE email_account_id = ${accountId}
+          ORDER BY id DESC LIMIT 10
+        `)),
+      ]);
+
+      const STALE_MS = 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      const lastWebhookAt = acct.lastWebhookAt ? new Date(acct.lastWebhookAt).getTime() : null;
+      const watchExp      = acct.watchExpirationAt ? new Date(acct.watchExpirationAt).getTime() : null;
+      const webhookAgeMs  = lastWebhookAt ? (now - lastWebhookAt) : null;
+      const { isPushConfigured } = await import("./services/gmail-watch");
+
+      res.json({
+        ok: true,
+        generatedAt: new Date().toISOString(),
+        pushConfigured: isPushConfigured(),
+        staleThresholdMs: STALE_MS,
+        account: {
+          ...acct,
+          storedMessageCount: Number((counts as any).rows?.[0]?.count ?? 0),
+          lastMessageAt: (lastMsg as any).rows?.[0]?.at ?? null,
+          webhookStaleness: { ageMs: webhookAgeMs, isStale: webhookAgeMs == null ? null : webhookAgeMs > STALE_MS },
+          watch: {
+            expirationAt: acct.watchExpirationAt, historyId: acct.watchHistoryId, topic: acct.watchTopic,
+            isExpired: watchExp == null ? null : watchExp < now,
+            expiresInMs: watchExp == null ? null : (watchExp - now),
+          },
+        },
+        recentBackfills: (recentBackfills as any).rows ?? [],
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/admin/mailbox/:id/trigger-backfill
+  // Enqueue a fresh backfill for any mailbox. Reuses the canonical enqueue
+  // helper from gmail-oauth.ts so the result is byte-identical to a
+  // post-OAuth auto-enqueue (same 90-day default, same special-address
+  // override, same fire-and-forget worker).
+  //
+  // Body (all optional):
+  //   { dateFrom?: "YYYY-MM-DD",  dateTo?: "YYYY-MM-DD" }
+  // Query (optional):
+  //   ?force=true — skip the in-flight idempotency guard. Reserved for the
+  //                 rare case where an operator KNOWS the existing job is
+  //                 zombied and needs a clean retry. Default false.
+  //
+  // Response:
+  //   200 { ok, enqueued: true,  jobId, dateFrom, dateTo }   on success
+  //   409 { message: "Not enqueued: in-flight job already exists" } if
+  //       another job is already pending/running/cancelling and ?force is
+  //       not set. (Operator should call /backfill/cancel first or pass
+  //       ?force=true.)
+  app.post("/api/admin/mailbox/:id/trigger-backfill", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const accountId = parseInt(req.params.id, 10);
+      if (!accountId || isNaN(accountId)) return res.status(400).json({ message: "Invalid mailbox id" });
+
+      const acctR = await db.execute(sql.raw(
+        `SELECT id, user_id AS "userId", email_address AS "emailAddress" FROM email_accounts WHERE id = ${accountId} LIMIT 1`
+      )) as any;
+      const acct = acctR.rows?.[0];
+      if (!acct) return res.status(404).json({ message: "Mailbox not found" });
+
+      const force = String(req.query.force ?? "").toLowerCase() === "true";
+      const dateFromOverride = typeof req.body?.dateFrom === "string" ? req.body.dateFrom : undefined;
+      const dateToOverride   = typeof req.body?.dateTo   === "string" ? req.body.dateTo   : undefined;
+
+      const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+      if (dateFromOverride && !dateRe.test(dateFromOverride)) return res.status(400).json({ message: "dateFrom must be YYYY-MM-DD" });
+      if (dateToOverride   && !dateRe.test(dateToOverride))   return res.status(400).json({ message: "dateTo must be YYYY-MM-DD" });
+
+      const { autoEnqueueBackfillForNewAccount } = await import("./gmail-oauth");
+      const result = await autoEnqueueBackfillForNewAccount({
+        accountId:   Number(acct.id),
+        userId:      Number(acct.userId),
+        emailAddress: acct.emailAddress ?? null,
+        dateFromOverride,
+        dateToOverride,
+        skipIdempotencyCheck: force,
+      });
+
+      if (!result.enqueued) {
+        // 409 means "conflict with existing in-flight job" — the operator
+        // can resolve it by hitting /backfill/cancel first OR re-calling
+        // this endpoint with ?force=true to override.
+        // 500 means "actual enqueue/DB failure" — different signal so
+        // operators can distinguish "your action was blocked" from "the
+        // system broke and you should investigate".
+        // (Architect-flagged SEV-LOW: response semantics were blurred.)
+        const isConflict = (result.reason ?? "").includes("in-flight job already exists");
+        return res
+          .status(isConflict ? 409 : 500)
+          .json({ ok: false, message: `Not enqueued: ${result.reason ?? "unknown"}` });
+      }
+      res.json({ ok: true, ...result });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/admin/mailbox/:id/force-full-resync
+  // "I don't trust the history cursor — start over" recovery endpoint.
+  // Clears `email_accounts.last_history_id` (and `sync_error_message`) and
+  // fires `syncIncremental(accountId)` asynchronously. With no historyId,
+  // the sync function takes the SEED branch: shallow paginated sync via
+  // `syncEmailAccount({ maxPages: 1 })` followed by a fresh
+  // `users.getProfile().historyId` capture — exactly the same path used on
+  // first OAuth completion.
+  //
+  // NOT destructive: existing email_messages rows are untouched. The only
+  // mutation is on the email_accounts row itself.
+  //
+  // Query (optional):
+  //   ?withBackfill=true — also enqueue a 90-day backfill (honors the
+  //                        in-flight guard; will NOT skip-idempotency).
+  app.post("/api/admin/mailbox/:id/force-full-resync", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const accountId = parseInt(req.params.id, 10);
+      if (!accountId || isNaN(accountId)) return res.status(400).json({ message: "Invalid mailbox id" });
+
+      const acctR = await db.execute(sql.raw(
+        `SELECT id, user_id AS "userId", email_address AS "emailAddress" FROM email_accounts WHERE id = ${accountId} LIMIT 1`
+      )) as any;
+      const acct = acctR.rows?.[0];
+      if (!acct) return res.status(404).json({ message: "Mailbox not found" });
+
+      await db.execute(sql.raw(`
+        UPDATE email_accounts
+           SET last_history_id = NULL,
+               sync_error_message = NULL,
+               updated_at = NOW()
+         WHERE id = ${accountId}
+      `));
+
+      // Fire the reseed asynchronously — do NOT block the response on a
+      // potentially long-running shallow sync + profile fetch.
+      const { syncIncremental } = await import("./services/gmail-incremental");
+      syncIncremental(Number(acct.id))
+        .catch((err) => console.error(`[admin force-full-resync] account=${accountId} reseed error:`, err?.message ?? err));
+
+      let backfillResult: any = null;
+      const withBackfill = String(req.query.withBackfill ?? "").toLowerCase() === "true";
+      if (withBackfill) {
+        const { autoEnqueueBackfillForNewAccount } = await import("./gmail-oauth");
+        backfillResult = await autoEnqueueBackfillForNewAccount({
+          accountId:    Number(acct.id),
+          userId:       Number(acct.userId),
+          emailAddress: acct.emailAddress ?? null,
+          // For the +backfill case we DO honor the in-flight guard; if the
+          // operator wants to force-skip they should hit /trigger-backfill?force=true
+          // explicitly so the intent is unambiguous.
+          skipIdempotencyCheck: false,
+        });
+      }
+
+      res.json({
+        ok: true,
+        accountId,
+        clearedHistoryId: true,
+        reseedScheduled: true,
+        backfill: backfillResult,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.put("/api/admin/users/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
