@@ -1,0 +1,14 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "oA683qZQRm1ODQiIxRYpx"
+uri = "file://exports/canadian_marinas_for_chatgpt.csv"
+type = "table"
+title = "Canadian Marinas — CSV for ChatGPT (967 existing + template rows)"
+
+[[outputs]]
+id = "Yj0CxAMwX03A5MO7udLS2"
+uri = "file://exports/chatgpt_marina_research_instructions.md"
+type = "text"
+title = "ChatGPT Research Instructions (copy-paste prompt)"
