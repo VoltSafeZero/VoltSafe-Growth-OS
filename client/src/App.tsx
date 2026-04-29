@@ -40,6 +40,7 @@ import NotFound from "@/pages/not-found";
 import { VoiceAssistant } from "@/components/voice-assistant";
 import { QuickCapture } from "@/components/quick-capture";
 import GmailInboxPage from "@/pages/gmail-inbox";
+import { InboxFullScreenShell } from "@/components/inbox/inbox-fullscreen-shell";
 import AssetsPage from "@/pages/assets";
 import PriceListsPage from "@/pages/price-lists";
 import JiraPage from "@/pages/jira";
@@ -291,7 +292,11 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/strategy/research">{() => <Redirect to="/strategy/partnerships" />}</Route>
 
       {/* ── EXECUTION ─────────────────────────────────────────────── */}
-      <Route path="/gmail">{() => wrap(<GmailInboxPage currentUserEmail={user.email} currentUserRole={user.globalRole || "sales"} userPermissions={perms} />)}</Route>
+      <Route path="/gmail">{() => (
+        <InboxFullScreenShell>
+          <GmailInboxPage currentUserEmail={user.email} currentUserRole={user.globalRole || "sales"} userPermissions={perms} />
+        </InboxFullScreenShell>
+      )}</Route>
       <Route path="/relationships">{() => wrap(<RelationshipIntelligencePage />)}</Route>
       <Route path="/execution/calendar">{() => guard("calendar", <CalendarPage permissions={perms} currentUserId={user.id} isAdmin={isAdmin(role)} />)}</Route>
       <Route path="/execution/projects">{() => guard("projects", <ProjectsPage />)}</Route>

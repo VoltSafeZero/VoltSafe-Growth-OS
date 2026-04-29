@@ -4385,7 +4385,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   }, [tab, activeMessages, selectedThreadId, focusedMsg, canSend, selectedInboxIds, focusMode]);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 sm:px-6 py-2.5 border-b border-border/40 bg-background/80 backdrop-blur-sm flex-shrink-0">
         <Mail className="h-4 w-4 text-primary/70" />
