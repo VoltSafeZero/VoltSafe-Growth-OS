@@ -3860,3 +3860,74 @@ dialog's `canSave` was relaxed from "needs org" to "needs name only", and
 picked. The org picker label drops the asterisk and shows
 "Optional — link later"; users can move the contact out of the sentinel later
 by editing it and choosing the right organization.
+
+---
+
+## Smart Inbox view (Spark-style sectioned grouping) — Apr 2026
+
+`client/src/pages/gmail-inbox.tsx` now ships with **two inbox views** the user
+toggles between via a 2-button radiogroup in the toolbar (next to the density
+picker, gated behind `md:`):
+
+- **Classic Inbox** *(default)* — flat chronological list (the existing
+  behaviour, untouched).
+- **Smart Inbox** — sections in the order **Priority → Unread (People /
+  Notifications / Newsletters) → Pinned → Seen**, modelled on Spark Mail.
+
+### Mapping (no schema change)
+
+| Section        | Source                                                           |
+| -------------- | ---------------------------------------------------------------- |
+| Priority       | `STARRED` Gmail label (read OR unread)                           |
+| Unread/People  | `UNREAD` & not in any `CATEGORY_*` label other than primary      |
+| Notifications  | `UNREAD` & `CATEGORY_UPDATES` or `CATEGORY_SOCIAL`               |
+| Newsletters    | `UNREAD` & `CATEGORY_PROMOTIONS` or `CATEGORY_FORUMS`            |
+| Pinned         | localStorage `inbox.pinnedThreads` (read+unread, **not** STARRED)|
+| Seen           | everything else, newest first                                    |
+
+A message lands in **exactly one** bucket — the grouper short-circuits with
+`continue` after the first match, so the same row can't render twice.
+
+### Files
+
+- **NEW** `client/src/components/inbox/smart-inbox-grouper.ts` — pure
+  `groupSmartInbox()` returning a discriminated `SmartItem<M>` union of header
+  and message items, plus `useInboxViewMode()` and `usePinnedThreads()` hooks
+  (both localStorage-backed with cross-tab `storage` event sync).
+  - localStorage keys: `inbox.viewMode` (`"classic" | "smart"`, default
+    `"classic"`) and `inbox.pinnedThreads` (JSON `string[]` of threadIds).
+
+- **MODIFIED** `client/src/pages/gmail-inbox.tsx`:
+  - View-mode picker UI added next to the density toggle (`data-testid=
+    "view-mode-toggle"`, button testids `button-view-smart` /
+    `button-view-classic`).
+  - `viewItems` `useMemo` computes the grouped item array when smart mode is
+    active and the tab supports it (drafts/scheduled/folder/review fall back to
+    classic). Memo deps: `[isSmartView, crmFilteredMessages, pinnedAPI.pinned]`.
+  - The single `crmFilteredMessages?.map((msg) => ...)` row iterator now
+    iterates `viewItems ?? <fallback union>` and branches at the top: header
+    items render a `sticky top-0 z-[1] bg-muted/15 backdrop-blur-sm`
+    section bar with an icon (Flame / Users / Bell / Newspaper / Pin /
+    MailOpen) and a count; message items destructure `const msg = item.msg`
+    and run the existing 200-line row JSX **unchanged**. This keeps the diff
+    surgical and means *every* existing row interaction (selection, star,
+    archive, reply, block, hover actions) keeps working untouched.
+  - A small **Pin / PinOff** button appears in the row hover action bar
+    immediately after the Star button, **only when Smart view is active** —
+    Classic users never see it. Pinning surfaces a read thread in the Pinned
+    section without re-marking it unread.
+
+### Why localStorage for Pin (not Gmail's IMPORTANT label)
+
+Gmail auto-applies `IMPORTANT` to a wide swath of mail, which would make the
+Pinned section unmanageable on day one. Using a per-user localStorage set
+keeps the Pinned section curated by the user and avoids round-tripping a
+schema-touching API. Pin state is therefore browser-local — fine for v1; a
+future revision can promote it to a server-side column when the team is ready.
+
+### Sticky headers
+
+Section headers use `sticky top-0` and rely on the existing `inboxScrollRef`
+container (`<div ref={inboxScrollRef} className="flex-1 overflow-y-auto …">`)
+as their containing block. Don't add `overflow: hidden` to any wrapper between
+the row map and `inboxScrollRef` or sticky behaviour will silently break.

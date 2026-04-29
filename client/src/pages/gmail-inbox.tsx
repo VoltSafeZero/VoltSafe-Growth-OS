@@ -19,9 +19,17 @@ import {
   CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
   CheckCheck, ArrowLeft, ArrowUp, ClipboardList, StickyNote, ArchiveX, Square, Filter, Eye,
   Sparkles, Code2, Type, Rows3, Rows2, Inbox as InboxIcon,
-  Maximize2, Minimize2,
+  Maximize2, Minimize2, Pin, PinOff, LayoutList, List as ListIcon,
   Command as CommandIcon, AlignJustify, Hash, AtSign, Folders, Zap as ZapIcon,
 } from "lucide-react";
+import {
+  groupSmartInbox,
+  useInboxViewMode,
+  usePinnedThreads,
+  type SmartHeaderItem,
+  type SmartItem,
+  type SmartSectionId,
+} from "@/components/inbox/smart-inbox-grouper";
 import {
   CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandSeparator,
 } from "@/components/ui/command";
@@ -2706,6 +2714,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   useEffect(() => {
     try { localStorage.setItem("inbox.density", density); } catch {}
   }, [density]);
+
+  // Spark-style "Smart Inbox" toggle. When enabled the inbox renders sectioned
+  // groups (Priority → Unread by category → Pinned → Seen) instead of a flat
+  // chronological list. Persisted in localStorage via the hook.
+  const [viewMode, setViewMode] = useInboxViewMode();
+  // Per-user thread pin set (localStorage). Pinning lets the user surface a
+  // specific thread in the "Pinned" section even after it has been read.
+  const pinnedAPI = usePinnedThreads();
   // Global density token system — applied to sidebar, list, and reader pane
   // so the entire inbox reflows as one cohesive system when density changes.
   const densityClasses = useMemo(() => {
@@ -4129,6 +4145,20 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     crmFilter === "unlinked"       ? activeMessages.filter(m => triageUnlinkedSet.has(m.threadId)) :
     activeMessages;
 
+  // Smart-Inbox grouping. We compute groups only when (a) the user picked
+  // "smart" view and (b) we're on a tab where it makes sense. Otherwise
+  // `viewItems` is `null` and the renderer falls back to the legacy flat-list
+  // path. Memoised on the message slice + view mode + pin set so we don't
+  // re-bucket on every render.
+  const isSmartView =
+    viewMode === "smart" &&
+    tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review";
+  const viewItems = useMemo<SmartItem<typeof activeMessages[number]>[] | null>(() => {
+    if (!isSmartView) return null;
+    if (!crmFilteredMessages || crmFilteredMessages.length === 0) return [];
+    return groupSmartInbox(crmFilteredMessages, { pinnedThreadIds: pinnedAPI.pinned });
+  }, [isSmartView, crmFilteredMessages, pinnedAPI.pinned]);
+
   const isLoading = tab === "other" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : sentQuery.isLoading;
   const error = tab === "other" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : sentQuery.error;
   // "Other" tab is a derived slice of the same inboxQuery — it must paginate too,
@@ -4415,6 +4445,42 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           {/* Commit 4: the inbox is always sourced from the local mirror —
               the Source selector and ?mailSource= URL param were removed. */}
           <LocalSearchButton />
+          {/* Inbox view-mode picker — Smart (sectioned) vs Classic (flat).
+              Only meaningful on the inbox tab; we still render it elsewhere so
+              it doesn't pop in/out as users navigate between Sent/Drafts/etc.
+              Mirrors Spark's Focused-List vs Simple-List choice but distilled
+              into a single inline radiogroup that matches the density toggle. */}
+          <div
+            className="hidden md:inline-flex items-center gap-0.5 p-0.5 rounded-md border border-border/50 bg-background/60"
+            role="radiogroup"
+            aria-label="Inbox view mode"
+            data-testid="view-mode-toggle"
+          >
+            {([
+              { key: "smart" as const,   icon: LayoutList, label: "Smart Inbox — group by Priority, Unread categories, Pinned, Seen" },
+              { key: "classic" as const, icon: ListIcon,   label: "Classic Inbox — flat chronological list" },
+            ]).map(({ key, icon: Icon, label }) => {
+              const active = viewMode === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  title={label}
+                  data-testid={`button-view-${key}`}
+                  onClick={() => setViewMode(key)}
+                  className={`h-6 w-7 inline-flex items-center justify-center rounded-[4px] transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none ${
+                    active
+                      ? "bg-primary/15 text-primary"
+                      : "text-muted-foreground/55 hover:text-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+              );
+            })}
+          </div>
           {/* Density toggle — Comfortable / Compact / Ultra */}
           <div
             className="hidden md:inline-flex items-center gap-0.5 p-0.5 rounded-md border border-border/50 bg-background/60"
@@ -5584,7 +5650,45 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 <p>No filtered emails</p>
               </div>
             )}
-            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && crmFilteredMessages?.map((msg) => {
+            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && (
+              viewItems ?? (crmFilteredMessages ?? []).map((m) => ({ kind: "msg" as const, section: "flat" as SmartSectionId, msg: m }))
+            )?.map((item) => {
+              // Smart-Inbox section header — purely visual, not a clickable
+              // mail row. Rendered inline so we don't break the surrounding
+              // <div> flow (the parent is a flex column that expects flat
+              // children with a stable border-bottom rhythm).
+              if (item.kind === "header") {
+                const headerIcon =
+                  item.glyph === "priority"      ? Flame       :
+                  item.glyph === "people"        ? Users       :
+                  item.glyph === "notifications" ? Bell        :
+                  item.glyph === "newsletters"   ? Newspaper   :
+                  item.glyph === "pinned"        ? Pin         :
+                  /* "seen" */                     MailOpen;
+                const HeaderIcon = headerIcon;
+                // Priority rows in Spark use a warm amber tone; everything
+                // else stays neutral so the eye is naturally drawn to the
+                // top section first when there are flagged messages.
+                const tone = item.glyph === "priority"
+                  ? "text-amber-400"
+                  : "text-muted-foreground/65";
+                return (
+                  <div
+                    key={`smart-header-${item.id}`}
+                    data-testid={`smart-section-header-${item.id}`}
+                    className={`flex items-center gap-2 ${item.isSubsection ? "pl-7" : "pl-3"} pr-3 py-1.5 bg-muted/15 border-b border-border/20 sticky top-0 z-[1] backdrop-blur-sm`}
+                  >
+                    <HeaderIcon className={`h-3.5 w-3.5 ${tone}`} aria-hidden="true" />
+                    <span className={`text-[11px] font-semibold uppercase tracking-[0.06em] ${tone}`}>
+                      {item.title}
+                    </span>
+                    <span className="text-[10px] tabular-nums text-muted-foreground/45">
+                      {item.count}
+                    </span>
+                  </div>
+                );
+              }
+              const msg = item.msg;
               const unread = isUnread(msg.labelIds);
               const starred = isStarred(msg.labelIds);
               const isSelected = msg.threadId === selectedThreadId;
@@ -5737,6 +5841,37 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         <Star className={`h-3.5 w-3.5 ${starred ? "fill-amber-400 drop-shadow-[0_0_4px_rgba(251,191,36,0.45)]" : ""}`} aria-hidden="true" />
                       </motion.span>
                     </motion.button>
+                    {/* Pin to Smart-Inbox "Pinned" section. Only meaningful in
+                        the Smart view — we hide it in Classic so the action
+                        bar doesn't fill up with a control that has no visible
+                        effect. Pinning lets the user pull a read-but-still-
+                        important conversation back to the top of attention
+                        without re-marking it unread. */}
+                    {isSmartView && (() => {
+                      const pinned = pinnedAPI.isPinned(msg.threadId);
+                      return (
+                        <motion.button
+                          whileTap={{ scale: 0.82 }}
+                          whileHover={{ scale: 1.1 }}
+                          transition={{ type: "spring", stiffness: 400, damping: 20 }}
+                          title={pinned ? "Unpin from Smart Inbox" : "Pin to Smart Inbox"}
+                          aria-label={pinned ? "Unpin from Smart Inbox" : "Pin to Smart Inbox"}
+                          aria-pressed={pinned}
+                          tabIndex={pinned ? 0 : -1}
+                          data-testid={`button-pin-${msg.id}`}
+                          onClick={(e) => { e.stopPropagation(); pinnedAPI.togglePin(msg.threadId); }}
+                          className={`p-1.5 rounded-md transition-colors ${
+                            pinned
+                              ? "text-primary hover:text-primary/80"
+                              : "text-muted-foreground/40 hover:!text-primary hover:bg-primary/10"
+                          }`}
+                        >
+                          {pinned
+                            ? <PinOff className="h-3.5 w-3.5" aria-hidden="true" />
+                            : <Pin className="h-3.5 w-3.5" aria-hidden="true" />}
+                        </motion.button>
+                      );
+                    })()}
                     {canSend && tab === "inbox" && (
                       <motion.button
                         whileTap={{ scale: 0.82 }}
