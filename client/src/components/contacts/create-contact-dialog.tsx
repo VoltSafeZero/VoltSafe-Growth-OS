@@ -73,6 +73,7 @@ export function CreateContactDialog({
   // URL extract state
   const [url, setUrl] = useState("");
   const [fetchingUrl, setFetchingUrl] = useState(false);
+  const [autoFetched, setAutoFetched] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
 
@@ -114,7 +115,7 @@ export function CreateContactDialog({
       setFront((s) => { if (s.preview) URL.revokeObjectURL(s.preview); return emptySlot; });
       setBack((s) => { if (s.preview) URL.revokeObjectURL(s.preview); return emptySlot; });
       setScanning(false);
-      setUrl(""); setFetchingUrl(false);
+      setUrl(""); setFetchingUrl(false); setAutoFetched(null);
       setSaving(false);
       setPickedAccountId(accountId);
       setPickedAccountName("");
@@ -231,14 +232,41 @@ export function CreateContactDialog({
       applyExtracted(data?.extracted || {});
       toast({ title: "Profile imported", description: "Review the details below before saving." });
     } catch (e: any) {
+      // Clear the autoFetched marker on failure so the user can retry by
+      // editing the URL or pressing Import again without being silently blocked.
+      setAutoFetched(null);
       toast({ title: "Couldn't read that link", description: e.message, variant: "destructive" });
     } finally {
       setFetchingUrl(false);
     }
   };
 
+  // Keep latest handleUrlFetch in a ref so the auto-fetch effect doesn't
+  // re-trigger on every render (handleUrlFetch is recreated each render).
+  const handleUrlFetchRef = useRef(handleUrlFetch);
+  useEffect(() => {
+    handleUrlFetchRef.current = handleUrlFetch;
+  });
+
+  // Auto-fetch when the user pastes / finishes typing a valid URL in the URL tab.
+  // Debounced ~600ms; never re-fires for the same URL or while another fetch is in flight.
+  useEffect(() => {
+    if (!open || mode !== "url") return;
+    const trimmed = url.trim();
+    if (!/^https?:\/\/[^\s]{6,}/i.test(trimmed)) return;
+    if (autoFetched === trimmed) return;
+    if (fetchingUrl) return;
+    const timer = setTimeout(() => {
+      setAutoFetched(trimmed);
+      handleUrlFetchRef.current?.();
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [url, open, mode, autoFetched, fetchingUrl]);
+
   const needsOrgPicker = !accountId;
-  const canSave = name.trim().length > 0 && (!!effectiveAccountId || (needsOrgPicker && pickedAccountName.trim().length > 0)) && !saving;
+  // Organization is optional — backend buckets contacts without an org into a
+  // system "Unassigned Contacts" account so the user can link them later.
+  const canSave = name.trim().length > 0 && !saving;
 
   const handleSave = async () => {
     if (!name.trim()) return;
@@ -256,13 +284,10 @@ export function CreateContactDialog({
         const acc = await accRes.json();
         finalAccountId = acc.id;
       }
-      if (!finalAccountId) {
-        toast({ title: "Pick or name an organization", variant: "destructive" });
-        setSaving(false);
-        return;
-      }
       const res = await apiRequest("POST", "/api/contacts", {
-        accountId: finalAccountId,
+        // Send accountId only when we have one — backend assigns the
+        // "Unassigned Contacts" bucket otherwise.
+        ...(finalAccountId ? { accountId: finalAccountId } : {}),
         name: name.trim(),
         title: title.trim() || null,
         email: email.trim() || null,
@@ -402,7 +427,7 @@ export function CreateContactDialog({
             </p>
           </TabsContent>
 
-          {/* URL extract */}
+          {/* URL extract — auto-fetches when a valid URL is pasted/typed */}
           <TabsContent value="url" className="space-y-3 pt-3">
             <div className="space-y-2">
               <Label htmlFor="contact-url" className="text-xs">LinkedIn or website URL</Label>
@@ -416,7 +441,7 @@ export function CreateContactDialog({
                 />
                 <Button
                   type="button"
-                  onClick={handleUrlFetch}
+                  onClick={() => { setAutoFetched(url.trim()); handleUrlFetch(); }}
                   disabled={!url.trim() || fetchingUrl}
                   className="gap-1.5"
                   data-testid="button-fetch-url"
@@ -425,6 +450,21 @@ export function CreateContactDialog({
                   {fetchingUrl ? "Reading…" : "Import"}
                 </Button>
               </div>
+              <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                {fetchingUrl ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                    <span>Reading the page and filling fields below…</span>
+                  </>
+                ) : autoFetched && autoFetched === url.trim() ? (
+                  <>
+                    <Sparkles className="h-3 w-3 text-primary" />
+                    <span>Imported — review and edit anything below before saving.</span>
+                  </>
+                ) : (
+                  <span>Paste a link and we'll fetch automatically. You can edit any field after.</span>
+                )}
+              </p>
             </div>
             <p className="text-[11px] text-muted-foreground">
               Public sites work best. LinkedIn often blocks bots — if it fails, try a business card photo or paste the public profile text into Notes manually.
@@ -467,7 +507,10 @@ export function CreateContactDialog({
 
           {needsOrgPicker && (
             <div className="space-y-1">
-              <Label className="text-xs">Organization *</Label>
+              <div className="flex items-baseline justify-between gap-2">
+                <Label className="text-xs">Organization</Label>
+                <span className="text-[11px] text-muted-foreground">Optional — link later</span>
+              </div>
               <Popover open={orgPickerOpen} onOpenChange={setOrgPickerOpen}>
                 <PopoverTrigger asChild>
                   <Button
@@ -479,7 +522,7 @@ export function CreateContactDialog({
                   >
                     <span className="flex items-center gap-2 truncate">
                       <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                      {pickedAccountName || (effectiveAccountId ? "Selected" : "Choose or type new…")}
+                      {pickedAccountName || (effectiveAccountId ? "Selected" : "Choose, type new, or skip…")}
                     </span>
                     <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" />
                   </Button>

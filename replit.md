@@ -3829,3 +3829,34 @@ work:
   `{ today: {} }` so the grid falls back to defaults via `reconcileLayouts`.
 
 **Architect review** — pass; race-on-stale-write hardening applied as suggested.
+
+## Quick Capture → Create Contact (auto-import + optional org)
+
+**Auto-fetch on URL paste** (`client/src/components/contacts/create-contact-dialog.tsx`):
+the URL tab watches the input via a debounced (~600ms) effect and silently
+calls `POST /api/contacts/extract-from-url` as soon as the typed/pasted text
+matches `^https?://[^\s]{6,}`. A `useRef` wrapper around `handleUrlFetch` keeps
+the debounce timer from being torn down on unrelated re-renders. Guards:
+the same trimmed URL is never auto-fetched twice (`autoFetched` state), the
+auto-fire is skipped while `fetchingUrl` is true, and `autoFetched` is reset
+both on dialog open/close (so reopening with the same URL still works) and on
+fetch failure (so users can retry by pressing Import or editing). Manual Import
+button pre-marks `autoFetched` so a manual click doesn't trigger the debounce
+to re-fire after the response lands.
+
+**Organization is optional** — backend "Unassigned Contacts" sentinel
+(`server/routes.ts` ~L2767-2803): the `contacts.account_id` column is
+`NOT NULL` in the existing schema and we do not change it. To make org
+optional from the user's POV, `POST /api/contacts` substitutes a system
+account named "Unassigned Contacts" (segment `system`, leadStatus `new`,
+priority `low`) whenever the request body has no `accountId`. The helper
+`getOrCreateUnassignedAccountId` caches the resolved id in module scope and
+serializes the first cold-start lookup through an in-process promise lock
+(`pendingUnassignedAccountId`) so concurrent first-request traffic cannot
+create duplicate sentinels — the lookup uses an exact-name match against a
+generous ilike search (limit 200) before falling through to creation. The
+dialog's `canSave` was relaxed from "needs org" to "needs name only", and
+`handleSave` only spreads `accountId` into the request body when one was
+picked. The org picker label drops the asterisk and shows
+"Optional — link later"; users can move the contact out of the sentinel later
+by editing it and choosing the right organization.

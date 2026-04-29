@@ -2761,8 +2761,57 @@ export async function registerRoutes(
     res.json(contact);
   });
 
+  // Sentinel "Unassigned Contacts" account — used when a contact is created
+  // without picking an organization yet. Cached after first lookup. There is no
+  // DB unique constraint on accounts.name, so we serialize first-creation
+  // through an in-process promise lock and re-check by exact name to keep us
+  // from creating duplicate sentinels under concurrent first-cold-start traffic.
+  const UNASSIGNED_ACCOUNT_NAME = "Unassigned Contacts";
+  let cachedUnassignedAccountId: number | null = null;
+  let pendingUnassignedAccountId: Promise<number> | null = null;
+  async function getOrCreateUnassignedAccountId(): Promise<number> {
+    if (cachedUnassignedAccountId) return cachedUnassignedAccountId;
+    if (pendingUnassignedAccountId) return pendingUnassignedAccountId;
+    pendingUnassignedAccountId = (async () => {
+      try {
+        // Use a generous limit so an exact-name match is never starved by
+        // unrelated fuzzy ilike hits (storage.getAccounts filters with ilike).
+        const existing = await storage.getAccounts({ search: UNASSIGNED_ACCOUNT_NAME, limit: 200 } as any).catch(() => null as any);
+        const list: any[] = (existing?.data || existing || []) as any[];
+        const match = list.find((a: any) => a?.name === UNASSIGNED_ACCOUNT_NAME);
+        if (match?.id) {
+          cachedUnassignedAccountId = match.id;
+          return match.id;
+        }
+        const created = await storage.createAccount({
+          name: UNASSIGNED_ACCOUNT_NAME,
+          segment: "system",
+          leadStatus: "new",
+          priority: "low",
+          notes: "System bucket for contacts created without an organization. Move them out by editing the contact and picking the right organization.",
+        } as any);
+        cachedUnassignedAccountId = created.id;
+        return created.id;
+      } finally {
+        pendingUnassignedAccountId = null;
+      }
+    })();
+    return pendingUnassignedAccountId;
+  }
+
   app.post("/api/contacts", requirePermission("crm", "edit"), async (req, res) => {
-    const parsed = insertContactSchema.safeParse(req.body);
+    // Organization is optional from the user's POV — if no accountId is supplied,
+    // assign the contact to the system "Unassigned Contacts" bucket so it can
+    // be linked to a real organization later.
+    const body = { ...(req.body || {}) };
+    if (body.accountId === undefined || body.accountId === null || body.accountId === "") {
+      try {
+        body.accountId = await getOrCreateUnassignedAccountId();
+      } catch (e: any) {
+        return res.status(500).json({ message: `Failed to bucket contact without org: ${e?.message || e}` });
+      }
+    }
+    const parsed = insertContactSchema.safeParse(body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createContact(parsed.data));
   });
