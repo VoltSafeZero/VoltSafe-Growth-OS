@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Camera, Upload, Link2, Sparkles, Loader2, RotateCcw, ImagePlus, Building2, ChevronsUpDown, Plus } from "lucide-react";
+import { Camera, Link2, Sparkles, Loader2, RotateCcw, ImagePlus, Building2, ChevronsUpDown, Plus, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -26,19 +26,32 @@ type ExtractedContact = {
   notes?: string | null;
 };
 
+type ContactMode = "manual" | "card" | "url";
+
+type CardSide = "front" | "back";
+
+type CardSlot = {
+  file: File | null;
+  preview: string | null;
+};
+
+const emptySlot: CardSlot = { file: null, preview: null };
+
 export function CreateContactDialog({
   open,
   onOpenChange,
   accountId,
   onCreated,
+  initialMode = "manual",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   accountId: number | null;
   onCreated: (contact: any) => void;
+  initialMode?: ContactMode;
 }) {
   const { toast } = useToast();
-  const [mode, setMode] = useState<"manual" | "card" | "url">("manual");
+  const [mode, setMode] = useState<ContactMode>(initialMode);
 
   // Form fields (shared across modes — populated by extraction or typed)
   const [name, setName] = useState("");
@@ -48,10 +61,13 @@ export function CreateContactDialog({
   const [linkedinUrl, setLinkedinUrl] = useState("");
   const [notes, setNotes] = useState("");
 
-  // Card scan state
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
-  const [cardPreview, setCardPreview] = useState<string | null>(null);
+  // Card scan state — front and back of the card
+  const frontCameraRef = useRef<HTMLInputElement>(null);
+  const frontUploadRef = useRef<HTMLInputElement>(null);
+  const backCameraRef = useRef<HTMLInputElement>(null);
+  const backUploadRef = useRef<HTMLInputElement>(null);
+  const [front, setFront] = useState<CardSlot>(emptySlot);
+  const [back, setBack] = useState<CardSlot>(emptySlot);
   const [scanning, setScanning] = useState(false);
 
   // URL extract state
@@ -77,21 +93,51 @@ export function CreateContactDialog({
   });
   const orgList: any[] = useMemo(() => orgResults?.data || orgResults || [], [orgResults]);
 
-  // Reset everything when the dialog closes
+  // Track the previous (open, initialMode) so we can detect a mode change
+  // while the dialog is already open and treat it as a fresh "session".
+  const prevOpenModeRef = useRef<{ open: boolean; initialMode: ContactMode }>({
+    open: false,
+    initialMode,
+  });
+
+  // Reset everything when (a) the dialog closes, (b) it just opened,
+  // or (c) initialMode changed while the dialog was already open.
   useEffect(() => {
-    if (!open) {
-      setMode("manual");
+    const prev = prevOpenModeRef.current;
+    const justClosed = !open;
+    const justOpened = open && !prev.open;
+    const modeSwitchedWhileOpen = open && prev.open && prev.initialMode !== initialMode;
+
+    if (justClosed || justOpened || modeSwitchedWhileOpen) {
+      setMode(initialMode);
       setName(""); setTitle(""); setEmail(""); setPhone(""); setLinkedinUrl(""); setNotes("");
-      setCardPreview(null); setScanning(false);
+      setFront((s) => { if (s.preview) URL.revokeObjectURL(s.preview); return emptySlot; });
+      setBack((s) => { if (s.preview) URL.revokeObjectURL(s.preview); return emptySlot; });
+      setScanning(false);
       setUrl(""); setFetchingUrl(false);
       setSaving(false);
       setPickedAccountId(accountId);
       setPickedAccountName("");
       setOrgSearch("");
-    } else {
-      setPickedAccountId(accountId);
     }
-  }, [open, accountId]);
+
+    prevOpenModeRef.current = { open, initialMode };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, accountId, initialMode]);
+
+  // Revoke any outstanding object URL if the component unmounts mid-flow.
+  // (Per-preview cleanup effects: when front.preview / back.preview change
+  // — including to null — the previous render's cleanup revokes the old URL.)
+  useEffect(() => {
+    return () => {
+      if (front.preview) URL.revokeObjectURL(front.preview);
+    };
+  }, [front.preview]);
+  useEffect(() => {
+    return () => {
+      if (back.preview) URL.revokeObjectURL(back.preview);
+    };
+  }, [back.preview]);
 
   const effectiveAccountId = accountId ?? pickedAccountId;
 
@@ -110,19 +156,48 @@ export function CreateContactDialog({
     if (e.address) noteParts.push(`Address: ${e.address}`);
     if (e.notes) noteParts.push(e.notes);
     if (noteParts.length) setNotes(noteParts.join("\n"));
+    // Pre-fill org name suggestion if we don't have one yet
+    if (e.company && !pickedAccountName && !pickedAccountId && !accountId) {
+      setPickedAccountName(e.company);
+    }
   };
 
-  const handleCardFile = async (file: File | undefined) => {
+  const handleSidePicked = (side: CardSide, file: File | undefined) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       toast({ title: "Please choose an image file", variant: "destructive" });
       return;
     }
-    setCardPreview(URL.createObjectURL(file));
+    const preview = URL.createObjectURL(file);
+    if (side === "front") {
+      if (front.preview) URL.revokeObjectURL(front.preview);
+      setFront({ file, preview });
+    } else {
+      if (back.preview) URL.revokeObjectURL(back.preview);
+      setBack({ file, preview });
+    }
+  };
+
+  const clearSide = (side: CardSide) => {
+    if (side === "front") {
+      if (front.preview) URL.revokeObjectURL(front.preview);
+      setFront(emptySlot);
+    } else {
+      if (back.preview) URL.revokeObjectURL(back.preview);
+      setBack(emptySlot);
+    }
+  };
+
+  const handleScanCard = async () => {
+    if (!front.file && !back.file) {
+      toast({ title: "Add at least one photo of the card first" });
+      return;
+    }
     setScanning(true);
     try {
       const fd = new FormData();
-      fd.append("file", file);
+      if (front.file) fd.append("front", front.file);
+      if (back.file) fd.append("back", back.file);
       const res = await fetch("/api/contacts/extract-from-image", {
         method: "POST",
         body: fd,
@@ -134,7 +209,12 @@ export function CreateContactDialog({
       }
       const { extracted } = await res.json();
       applyExtracted(extracted || {});
-      toast({ title: "Card scanned", description: "Review the details below before saving." });
+      toast({
+        title: "Card scanned",
+        description: front.file && back.file
+          ? "Combined info from front + back. Review the details below before saving."
+          : "Review the details below before saving.",
+      });
     } catch (e: any) {
       toast({ title: "Card scan failed", description: e.message, variant: "destructive" });
     } finally {
@@ -201,6 +281,83 @@ export function CreateContactDialog({
     }
   };
 
+  const renderCardSlot = (side: CardSide) => {
+    const slot = side === "front" ? front : back;
+    const cameraRef = side === "front" ? frontCameraRef : backCameraRef;
+    const uploadRef = side === "front" ? frontUploadRef : backUploadRef;
+    const sideLabel = side === "front" ? "Front" : "Back";
+    return (
+      <div className="space-y-1.5" data-testid={`card-slot-${side}`}>
+        <div className="flex items-center justify-between">
+          <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">{sideLabel}</Label>
+          {slot.preview && (
+            <button
+              type="button"
+              onClick={() => clearSide(side)}
+              className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+              data-testid={`button-card-clear-${side}`}
+            >
+              <X className="h-3 w-3" /> Remove
+            </button>
+          )}
+        </div>
+        {slot.preview ? (
+          <div className="relative rounded-lg overflow-hidden border border-border/60 bg-secondary/20">
+            <img src={slot.preview} alt={`Card ${sideLabel.toLowerCase()}`} className="w-full h-32 object-contain" />
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="absolute top-1.5 right-1.5 h-6 px-2 text-[11px] gap-1"
+              onClick={() => clearSide(side)}
+              data-testid={`button-card-retake-${side}`}
+            >
+              <RotateCcw className="h-3 w-3" /> Retake
+            </Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              onClick={() => cameraRef.current?.click()}
+              className="flex flex-col items-center justify-center gap-1 h-20 rounded-lg border border-dashed border-border/60 hover:border-primary/50 hover:bg-primary/5 transition"
+              data-testid={`button-card-camera-${side}`}
+            >
+              <Camera className="h-4 w-4 text-primary" />
+              <span className="text-[11px] font-medium">Take photo</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => uploadRef.current?.click()}
+              className="flex flex-col items-center justify-center gap-1 h-20 rounded-lg border border-dashed border-border/60 hover:border-primary/50 hover:bg-primary/5 transition"
+              data-testid={`button-card-upload-${side}`}
+            >
+              <ImagePlus className="h-4 w-4 text-primary" />
+              <span className="text-[11px] font-medium">Upload</span>
+            </button>
+          </div>
+        )}
+        <input
+          ref={cameraRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => handleSidePicked(side, e.target.files?.[0])}
+          data-testid={`input-card-camera-${side}`}
+        />
+        <input
+          ref={uploadRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => handleSidePicked(side, e.target.files?.[0])}
+          data-testid={`input-card-upload-${side}`}
+        />
+      </div>
+    );
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[92vh] overflow-y-auto" data-testid="dialog-create-contact">
@@ -209,85 +366,39 @@ export function CreateContactDialog({
             <Sparkles className="h-4 w-4 text-primary" /> New contact
           </DialogTitle>
           <DialogDescription>
-            Type it in, scan a business card, or paste a LinkedIn / website link.
+            Type it in, scan a business card (front and/or back), or paste a LinkedIn / website link.
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={mode} onValueChange={(v) => setMode(v as any)} className="mt-2">
+        <Tabs value={mode} onValueChange={(v) => setMode(v as ContactMode)} className="mt-2">
           <TabsList className="grid grid-cols-3 w-full">
             <TabsTrigger value="manual" data-testid="tab-mode-manual">Manual</TabsTrigger>
-            <TabsTrigger value="card" data-testid="tab-mode-card">
-              <Camera className="h-3.5 w-3.5 mr-1" /> Business card
-            </TabsTrigger>
             <TabsTrigger value="url" data-testid="tab-mode-url">
-              <Link2 className="h-3.5 w-3.5 mr-1" /> From link
+              <Link2 className="h-3.5 w-3.5 mr-1" /> LinkedIn
+            </TabsTrigger>
+            <TabsTrigger value="card" data-testid="tab-mode-card">
+              <Camera className="h-3.5 w-3.5 mr-1" /> Card
             </TabsTrigger>
           </TabsList>
 
-          {/* Card scan */}
+          {/* Card scan — front + back */}
           <TabsContent value="card" className="space-y-3 pt-3">
-            {cardPreview ? (
-              <div className="relative rounded-lg overflow-hidden border border-border/60 bg-secondary/20">
-                <img src={cardPreview} alt="Business card" className="w-full max-h-56 object-contain" />
-                {scanning && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-background/70 backdrop-blur-sm">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Loader2 className="h-4 w-4 animate-spin" /> Reading card…
-                    </div>
-                  </div>
-                )}
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  className="absolute top-2 right-2 h-7 text-xs gap-1"
-                  onClick={() => { setCardPreview(null); }}
-                  data-testid="button-card-retake"
-                >
-                  <RotateCcw className="h-3 w-3" /> Retake
-                </Button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => cameraInputRef.current?.click()}
-                  className="flex flex-col items-center justify-center gap-1.5 h-24 rounded-lg border border-dashed border-border/60 hover:border-primary/50 hover:bg-primary/5 transition"
-                  data-testid="button-card-camera"
-                >
-                  <Camera className="h-5 w-5 text-primary" />
-                  <span className="text-xs font-medium">Take photo</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex flex-col items-center justify-center gap-1.5 h-24 rounded-lg border border-dashed border-border/60 hover:border-primary/50 hover:bg-primary/5 transition"
-                  data-testid="button-card-upload"
-                >
-                  <ImagePlus className="h-5 w-5 text-primary" />
-                  <span className="text-xs font-medium">Upload from gallery</span>
-                </button>
-              </div>
-            )}
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={(e) => handleCardFile(e.target.files?.[0])}
-              data-testid="input-card-camera"
-            />
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => handleCardFile(e.target.files?.[0])}
-              data-testid="input-card-upload"
-            />
+            <div className="grid grid-cols-2 gap-2">
+              {renderCardSlot("front")}
+              {renderCardSlot("back")}
+            </div>
+            <Button
+              type="button"
+              onClick={handleScanCard}
+              disabled={scanning || (!front.file && !back.file)}
+              className="w-full gap-1.5"
+              data-testid="button-scan-card"
+            >
+              {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {scanning ? "Reading card…" : (front.file && back.file ? "Scan front + back" : "Scan card")}
+            </Button>
             <p className="text-[11px] text-muted-foreground">
-              Tip: place the card on a dark surface in good light. We'll auto-fill the form below — you can edit anything before saving.
+              Tip: place the card on a dark surface in good light. You can scan just the front, just the back, or both — we'll combine what we find.
             </p>
           </TabsContent>
 

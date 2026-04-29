@@ -2816,26 +2816,46 @@ export async function registerRoutes(
 
   app.post("/api/contacts/extract-from-image",
     requirePermission("crm", "edit"),
-    assetUpload.single("file"),
+    assetUpload.fields([
+      { name: "file", maxCount: 1 },
+      { name: "front", maxCount: 1 },
+      { name: "back", maxCount: 1 },
+      { name: "files", maxCount: 2 },
+    ]),
     async (req, res) => {
       try {
-        const file = (req as any).file as Express.Multer.File | undefined;
-        if (!file || !file.buffer) return res.status(400).json({ message: "No image uploaded" });
-        if (!file.mimetype.startsWith("image/")) return res.status(400).json({ message: "File must be an image" });
-        const dataUrl = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+        const filesByField = ((req as any).files || {}) as Record<string, Express.Multer.File[]>;
+        const legacy = filesByField.file?.[0];
+        const front = filesByField.front?.[0] ?? filesByField.files?.[0];
+        const back = filesByField.back?.[0] ?? filesByField.files?.[1];
+        const images: { label: string; file: Express.Multer.File }[] = [];
+        if (front) images.push({ label: "front", file: front });
+        if (back) images.push({ label: "back", file: back });
+        if (images.length === 0 && legacy) images.push({ label: "card", file: legacy });
+        if (images.length === 0) return res.status(400).json({ message: "No image uploaded" });
+        for (const { file } of images) {
+          if (!file.buffer) return res.status(400).json({ message: "Empty image upload" });
+          if (!file.mimetype.startsWith("image/")) return res.status(400).json({ message: "File must be an image" });
+        }
+        const userContent: any[] = [
+          {
+            type: "text",
+            text: images.length > 1
+              ? "Extract the contact details from these business card photos. The first image is the FRONT and the second is the BACK of the same card — combine information from both into one contact."
+              : "Extract the contact details from this business card image.",
+          },
+          ...images.map(({ file }) => ({
+            type: "image_url",
+            image_url: { url: `data:${file.mimetype};base64,${file.buffer.toString("base64")}` },
+          })),
+        ];
         const extracted = await callContactExtractor([
           {
             role: "system",
             content:
-              "You extract contact information from business card photos. Return ONLY a JSON object with these fields (use null when unknown): firstName, lastName, name (full name), title, email, phone, linkedinUrl, company, website, address, notes. Normalize phone numbers to international format when possible.",
+              "You extract contact information from business card photos. You may receive 1 or 2 images (front and/or back of the same card). Combine info from all images into a single contact. Return ONLY a JSON object with these fields (use null when unknown): firstName, lastName, name (full name), title, email, phone, linkedinUrl, company, website, address, notes. Normalize phone numbers to international format when possible.",
           },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "Extract the contact details from this business card image." },
-              { type: "image_url", image_url: { url: dataUrl } },
-            ] as any,
-          },
+          { role: "user", content: userContent as any },
         ]);
         res.json({ extracted });
       } catch (e: any) {

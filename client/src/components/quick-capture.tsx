@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import {
   ClipboardList, UserPlus, TrendingUp, CalendarDays, StickyNote,
-  Loader2, Zap, Plus,
+  Loader2, Zap, Plus, PenLine, Link2, Camera,
 } from "lucide-react";
 
 type Tab = "note" | "task" | "contact" | "opportunity" | "meeting-note";
@@ -106,61 +106,69 @@ function TaskForm({ onClose, prefill }: { onClose: () => void; prefill?: any }) 
 }
 
 function ContactForm({ onClose }: { onClose: () => void }) {
-  const { toast } = useToast();
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [company, setCompany] = useState("");
-  const [title, setTitle] = useState("");
+  const launch = (mode: "manual" | "url" | "card") => {
+    onClose();
+    // Wait one tick so the Quick Capture dialog finishes closing before the
+    // contact dialog opens — prevents focus-trap collisions.
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("open-create-contact", { detail: { mode } }));
+    }, 50);
+  };
 
-  const mutation = useMutation({
-    mutationFn: async () => {
-      // Create or find account
-      let accountId: number;
-      if (company.trim()) {
-        const accRes = await apiRequest("POST", "/api/accounts", {
-          name: company.trim(), segment: "marina", leadStatus: "new", priority: "medium",
-        });
-        const acc = await accRes.json();
-        accountId = acc.id;
-      } else {
-        throw new Error("Company name is required");
-      }
-      return apiRequest("POST", "/api/contacts", {
-        name: name.trim(), email: email.toLowerCase().trim() || null,
-        title: title.trim() || null, accountId,
-      });
+  const tiles: {
+    mode: "manual" | "url" | "card";
+    label: string;
+    description: string;
+    icon: React.ElementType;
+    testId: string;
+  }[] = [
+    {
+      mode: "manual",
+      label: "Manual",
+      description: "Type the details in",
+      icon: PenLine,
+      testId: "tile-contact-manual",
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
-      toast({ title: "Contact created", description: name });
-      onClose();
+    {
+      mode: "url",
+      label: "LinkedIn",
+      description: "Paste a profile or site link",
+      icon: Link2,
+      testId: "tile-contact-linkedin",
     },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
-  });
+    {
+      mode: "card",
+      label: "Business card",
+      description: "Snap front + back, AI fills it in",
+      icon: Camera,
+      testId: "tile-contact-card",
+    },
+  ];
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label className="text-xs mb-1.5 block">Name *</Label>
-          <Input value={name} onChange={e => setName(e.target.value)} placeholder="Jane Smith" autoFocus data-testid="input-contact-name" />
-        </div>
-        <div>
-          <Label className="text-xs mb-1.5 block">Title</Label>
-          <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Dockmaster" data-testid="input-contact-title" />
-        </div>
+      <p className="text-xs text-muted-foreground">
+        Choose how you'd like to add this contact.
+      </p>
+      <div className="grid grid-cols-1 gap-2">
+        {tiles.map(({ mode, label, description, icon: Icon, testId }) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => launch(mode)}
+            className="flex items-center gap-3 p-3 rounded-lg border border-border/60 hover:border-primary/60 hover:bg-primary/5 transition text-left"
+            data-testid={testId}
+          >
+            <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+              <Icon className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium">{label}</div>
+              <div className="text-[11px] text-muted-foreground truncate">{description}</div>
+            </div>
+          </button>
+        ))}
       </div>
-      <div>
-        <Label className="text-xs mb-1.5 block">Email</Label>
-        <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@marina.com" data-testid="input-contact-email" />
-      </div>
-      <div>
-        <Label className="text-xs mb-1.5 block">Organization *</Label>
-        <Input value={company} onChange={e => setCompany(e.target.value)} placeholder="Harbour Marina Inc." data-testid="input-contact-org" />
-      </div>
-      <Button className="w-full" onClick={() => mutation.mutate()} disabled={!name.trim() || !company.trim() || mutation.isPending} data-testid="button-create-contact">
-        {mutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating…</> : "Add Contact"}
-      </Button>
     </div>
   );
 }
