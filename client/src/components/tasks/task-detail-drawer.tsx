@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useTaskColumns } from "@/hooks/use-task-columns";
@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Tag, Calendar as CalendarIcon, ListChecks, User, Link2, MoveRight, AlertTriangle,
   Trash2, Plus, X, Check, MessageSquare, Activity, Lock, RotateCcw, ChevronDown, Flag,
+  Paperclip, UploadCloud, Download, FileText, FileImage, FileVideo, File as FileIcon, Loader2,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -114,13 +115,119 @@ export function TaskDetailDrawer({ taskId, onOpenChange, onTaskChanged }: Props)
   const isDone = t?.status === "completed" || t?.status === "done";
   const isBlocked = data?.isBlocked;
 
+  // ── Attachments (polymorphic — objectType:"task") ────────────────────────
+  const attachmentsKey = useMemo(
+    () => ["/api/attachments", { objectType: "task", objectId: taskId }],
+    [taskId],
+  );
+  const { data: attachments = [] } = useQuery<any[]>({
+    queryKey: attachmentsKey,
+    queryFn: () =>
+      fetch(`/api/attachments?objectType=task&objectId=${taskId}`, { credentials: "include" })
+        .then(r => r.ok ? r.json() : []),
+    enabled: open && taskId != null,
+  });
+
+  const [uploading, setUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const dragCounter = useRef(0);
+
+  const uploadFiles = useCallback(async (files: FileList | File[]) => {
+    if (!taskId || !files || (files as any).length === 0) return;
+    const list = Array.from(files as any) as File[];
+    setUploading(true);
+    let okCount = 0;
+    let failCount = 0;
+    try {
+      for (const file of list) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("objectType", "task");
+        fd.append("objectId", String(taskId));
+        try {
+          const res = await fetch("/api/attachments", {
+            method: "POST",
+            credentials: "include",
+            body: fd,
+          });
+          if (!res.ok) {
+            failCount++;
+            const msg = await res.text().catch(() => "");
+            toast({
+              title: `Couldn't upload ${file.name}`,
+              description: msg.slice(0, 200) || `HTTP ${res.status}`,
+              variant: "destructive",
+            });
+          } else {
+            okCount++;
+          }
+        } catch (e: any) {
+          failCount++;
+          toast({ title: `Couldn't upload ${file.name}`, description: e?.message || "Network error", variant: "destructive" });
+        }
+      }
+    } finally {
+      setUploading(false);
+      qc.invalidateQueries({ queryKey: attachmentsKey });
+      qc.invalidateQueries({ queryKey: ["/api/tasks", taskId, "full"] });
+      if (okCount > 0) {
+        toast({ title: okCount === 1 ? "Attachment uploaded" : `${okCount} attachments uploaded` });
+      }
+    }
+  }, [taskId, toast, qc, attachmentsKey]);
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+    dragCounter.current += 1;
+    setDragActive(true);
+  };
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current = Math.max(0, dragCounter.current - 1);
+    if (dragCounter.current === 0) setDragActive(false);
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current = 0;
+    setDragActive(false);
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) uploadFiles(files);
+  };
+
+  // Reset drag state when drawer closes/changes task.
+  useEffect(() => {
+    dragCounter.current = 0;
+    setDragActive(false);
+  }, [taskId, open]);
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-2xl overflow-y-auto p-0"
+        className="w-full sm:max-w-2xl overflow-y-auto p-0 relative"
         data-testid="drawer-task-detail"
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
       >
+        {dragActive && t && (
+          <div
+            className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-primary/10 border-4 border-dashed border-primary rounded-lg"
+            data-testid="overlay-task-drop"
+          >
+            <div className="flex flex-col items-center gap-2 text-primary font-medium">
+              <UploadCloud className="h-12 w-12" />
+              <span>Drop files to attach to this task</span>
+            </div>
+          </div>
+        )}
         {isLoading || !t ? (
           <div className="p-6 space-y-3">
             <Skeleton className="h-8 w-2/3" />
@@ -226,6 +333,22 @@ export function TaskDetailDrawer({ taskId, onOpenChange, onTaskChanged }: Props)
 
               {/* Description */}
               <DescriptionEditor taskId={t.id} initial={t.description} onSaved={invalidate} />
+
+              {/* Attachments */}
+              <Section
+                title={`Attachments${attachments.length ? ` (${attachments.length})` : ""}`}
+                icon={<Paperclip className="h-4 w-4" />}
+              >
+                <AttachmentsBlock
+                  attachments={attachments}
+                  uploading={uploading}
+                  onUpload={uploadFiles}
+                  onDeleted={() => {
+                    qc.invalidateQueries({ queryKey: attachmentsKey });
+                    qc.invalidateQueries({ queryKey: ["/api/tasks", taskId, "full"] });
+                  }}
+                />
+              </Section>
 
               {/* Linked context */}
               {(t.account_name || t.linked_object_type) && (
@@ -865,4 +988,218 @@ function humanizeActivity(a: any): string {
       }
       return action;
   }
+}
+
+// ── AttachmentsBlock ────────────────────────────────────────────────────────
+function formatBytes(n?: number | null): string {
+  const v = Number(n) || 0;
+  if (v < 1024) return `${v} B`;
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(0)} KB`;
+  if (v < 1024 * 1024 * 1024) return `${(v / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(v / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function isImageMime(m?: string | null): boolean {
+  return !!m && m.toLowerCase().startsWith("image/");
+}
+function isVideoMime(m?: string | null): boolean {
+  return !!m && m.toLowerCase().startsWith("video/");
+}
+
+function AttachmentIcon({ mime }: { mime?: string | null }) {
+  if (isImageMime(mime)) return <FileImage className="h-4 w-4 text-blue-500" />;
+  if (isVideoMime(mime)) return <FileVideo className="h-4 w-4 text-purple-500" />;
+  if (mime === "application/pdf") return <FileText className="h-4 w-4 text-red-500" />;
+  if (mime?.includes("word") || mime?.includes("document")) return <FileText className="h-4 w-4 text-blue-600" />;
+  if (mime?.includes("sheet") || mime?.includes("excel") || mime === "text/csv") return <FileText className="h-4 w-4 text-emerald-600" />;
+  return <FileIcon className="h-4 w-4 text-muted-foreground" />;
+}
+
+function AttachmentsBlock({
+  attachments,
+  uploading,
+  onUpload,
+  onDeleted,
+}: {
+  attachments: any[];
+  uploading: boolean;
+  onUpload: (files: FileList | File[]) => void | Promise<void>;
+  onDeleted: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [zoneActive, setZoneActive] = useState(false);
+  const { toast } = useToast();
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const onZoneDragEnter = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setZoneActive(true);
+  };
+  const onZoneDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+  };
+  const onZoneDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setZoneActive(false);
+  };
+  const onZoneDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setZoneActive(false);
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) onUpload(files);
+  };
+
+  const handleDelete = async (id: number, name: string) => {
+    if (!confirm(`Remove "${name}" from this task?`)) return;
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/attachments/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const msg = await res.text().catch(() => "");
+        toast({
+          title: "Couldn't delete attachment",
+          description: msg.slice(0, 200) || `HTTP ${res.status}`,
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Attachment removed" });
+        onDeleted();
+      }
+    } catch (e: any) {
+      toast({ title: "Couldn't delete attachment", description: e?.message || "Network error", variant: "destructive" });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div
+        className={[
+          "rounded-md border-2 border-dashed transition-colors px-3 py-3 text-xs flex items-center justify-between gap-3",
+          zoneActive ? "border-primary bg-primary/5" : "border-muted-foreground/25 bg-muted/20 hover:bg-muted/40",
+          uploading ? "opacity-70" : "",
+        ].join(" ")}
+        onDragEnter={onZoneDragEnter}
+        onDragOver={onZoneDragOver}
+        onDragLeave={onZoneDragLeave}
+        onDrop={onZoneDrop}
+        data-testid="zone-task-attachments"
+      >
+        <div className="flex items-center gap-2 text-muted-foreground">
+          {uploading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <UploadCloud className="h-4 w-4" />
+          )}
+          <span>
+            {uploading
+              ? "Uploading…"
+              : "Drag files here, or"}
+          </span>
+          {!uploading && (
+            <button
+              type="button"
+              className="text-primary hover:underline font-medium"
+              onClick={() => inputRef.current?.click()}
+              data-testid="button-task-attach-browse"
+            >
+              browse
+            </button>
+          )}
+        </div>
+        <span className="text-[10px] text-muted-foreground">Up to 50 MB · images, video, PDF, Office, CSV, ZIP</span>
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const files = e.target.files;
+            if (files && files.length > 0) onUpload(files);
+            if (inputRef.current) inputRef.current.value = "";
+          }}
+          data-testid="input-task-attach-file"
+        />
+      </div>
+
+      {attachments.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic px-1">No attachments yet.</p>
+      ) : (
+        <ul className="space-y-1.5" data-testid="list-task-attachments">
+          {attachments.map((a) => {
+            const fileUrl = a.fileName ? `/api/attachments/file/${encodeURIComponent(a.fileName)}` : null;
+            const showImage = isImageMime(a.mimeType) && fileUrl;
+            const dt = a.createdAt ? fmtDateTime(a.createdAt) : null;
+            return (
+              <li
+                key={a.id}
+                className="flex items-center gap-3 rounded-md border bg-card px-2.5 py-2 hover-elevate"
+                data-testid={`row-task-attachment-${a.id}`}
+              >
+                {showImage ? (
+                  <a href={fileUrl!} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                    <img
+                      src={fileUrl!}
+                      alt={a.title || a.originalName || "attachment"}
+                      className="h-12 w-12 object-cover rounded border"
+                      data-testid={`img-task-attachment-${a.id}`}
+                    />
+                  </a>
+                ) : (
+                  <div className="h-12 w-12 rounded border bg-muted flex items-center justify-center shrink-0">
+                    <AttachmentIcon mime={a.mimeType} />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 text-sm truncate">
+                    <span className="font-medium truncate" data-testid={`text-task-attachment-name-${a.id}`}>
+                      {a.title || a.originalName || a.fileName || "Untitled"}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                    <span>{formatBytes(a.fileSize)}</span>
+                    {a.uploadedByName && <><span>·</span><span>by {a.uploadedByName}</span></>}
+                    {dt && <><span>·</span><span>{dt}</span></>}
+                  </div>
+                </div>
+                {fileUrl && (
+                  <a
+                    href={fileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-muted-foreground hover:text-foreground p-1.5 rounded hover-elevate"
+                    title="Open / download"
+                    data-testid={`link-task-attachment-download-${a.id}`}
+                  >
+                    <Download className="h-4 w-4" />
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleDelete(a.id, a.title || a.originalName || a.fileName || "this file")}
+                  disabled={deletingId === a.id}
+                  className="text-muted-foreground hover:text-destructive p-1.5 rounded hover-elevate disabled:opacity-50"
+                  title="Remove"
+                  data-testid={`button-task-attachment-delete-${a.id}`}
+                >
+                  {deletingId === a.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
 }

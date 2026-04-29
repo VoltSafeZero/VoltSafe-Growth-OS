@@ -4114,3 +4114,63 @@ person's name. Improvements to `POST /api/contacts/extract-from-url`:
   the scrape silently succeeded.
 
 No schema changes; no new endpoints — just hardened an existing one.
+
+---
+
+## Phase 13.7.3 — Drag-and-drop file attachments on Tasks (Apr 29, 2026)
+
+User asked to be able to "drop any picture or file format" onto an open
+task drawer to attach it. The `attachments` table was already
+polymorphic (`object_type` + `object_id`) — no schema work needed,
+just three small ACL allow-list updates plus a UI section.
+
+**Backend (3 single-line additions; no schema, no new endpoints):**
+
+- `server/routes.ts` — added `"task"` to the `allowedTypes` whitelist on
+  both `POST /api/attachments` (file upload) and
+  `POST /api/documents/link` (URL link variant).
+- `server/voice-assistant-create-guards.ts` — added
+  `task: "crm"` to the `LINKABLE_SECTION` map. This is the canonical
+  permission section for any objectType the attachment ACL helpers
+  (`attachmentSectionFor` / `requireSectionView`) are asked about.
+  `crm:view` / `crm:edit` is the same gate
+  `/api/tasks/:id/full` already uses (server/routes-tasks.ts:250),
+  so the model is consistent — anyone who can open a task can also
+  manage its attachments.
+
+**Frontend (`client/src/components/tasks/task-detail-drawer.tsx`):**
+
+- Added a `useQuery` on
+  `["/api/attachments", { objectType: "task", objectId: taskId }]` with
+  a custom `queryFn` (the GET endpoint takes query params, not a path
+  segment).
+- Added a `uploadFiles()` callback that POSTs each file as
+  `multipart/form-data` with `objectType=task`, `objectId=<id>`,
+  invalidates the attachment + task-`/full` queries, toasts per-file
+  errors plus a single success toast.
+- Wired drawer-wide drag handlers on `SheetContent`
+  (`onDragEnter/Over/Leave/Drop`) using a `dragCounter` ref so nested
+  child enters/leaves don't cause flicker. A pointer-events-none
+  overlay with a dashed border + "Drop files to attach to this task"
+  message renders absolutely while a drag is active.
+- Inserted a new "Attachments" `Section` between Description and
+  Linked-context. The section renders an `AttachmentsBlock` with:
+  - a dedicated dashed dropzone (its own drag handlers,
+    `stopPropagation` so events don't double-fire on the outer wrapper)
+  - "browse" button → hidden multi-file `<input type="file">`
+  - the list of attachments — image thumbnails for image/* mimes,
+    file-type icons otherwise, filename, size, uploader name,
+    timestamp, download link (`/api/attachments/file/:fileName`),
+    and a delete button (DELETE `/api/attachments/:id` with confirm).
+- Field names match the Drizzle schema (camelCase): `fileName`,
+  `originalName`, `fileSize`, `mimeType`, `uploadedByName`, `createdAt`.
+
+**Multer limits (already configured globally):** 50 MB per file;
+images, video, PDF, Word, Excel, CSV, ZIP. Files saved to `UPLOADS_DIR`
+with UUID filenames; download path is `/api/attachments/file/:fileName`.
+
+Architect-reviewed. The reviewer initially flagged "missing row-level
+ACL on tasks" as a high-risk concern, but follow-up confirmed
+`/api/tasks/:id/full` itself only requires `crm:view` (no per-row
+owner predicate), so the new attachment gate matches the existing
+task-detail gate and introduces no escalation surface.
