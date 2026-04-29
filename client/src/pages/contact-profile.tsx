@@ -117,6 +117,8 @@ export default function ContactProfilePage() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
   const [, navigate] = useLocation();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
 
   const { data, isLoading, isError, refetch } = useQuery<ProfileData>({
     queryKey: ["/api/contacts", id, "profile"],
@@ -126,30 +128,6 @@ export default function ContactProfilePage() {
     }),
   });
 
-  if (isLoading) return (
-    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-4">
-      <Skeleton className="h-8 w-40" />
-      <Skeleton className="h-24 w-full" />
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-40" />)}
-      </div>
-    </div>
-  );
-
-  if (isError || !data) return (
-    <div className="p-6 flex flex-col items-center justify-center min-h-[40vh] gap-4">
-      <AlertTriangle className="h-8 w-8 text-amber-400" />
-      <p className="text-sm text-muted-foreground">Could not load contact profile.</p>
-      <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
-        <RefreshCw className="h-3.5 w-3.5" /> Retry
-      </Button>
-    </div>
-  );
-
-  const { contact, opportunities, emails, meetings, notes, tasks, activities, suggestedAction } = data;
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const { toast } = useToast();
   const uploadAvatarMutation = useMutation({
     mutationFn: async (file: File) => {
       const fd = new FormData();
@@ -179,6 +157,40 @@ export default function ContactProfilePage() {
     },
     onError: (e: any) => toast({ title: "Remove failed", description: e.message, variant: "destructive" }),
   });
+
+  if (isLoading) return (
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-4">
+      <Skeleton className="h-8 w-40" />
+      <Skeleton className="h-24 w-full" />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-40" />)}
+      </div>
+    </div>
+  );
+
+  if (isError || !data || !data.contact) return (
+    <div className="p-6 flex flex-col items-center justify-center min-h-[40vh] gap-4">
+      <AlertTriangle className="h-8 w-8 text-amber-400" />
+      <p className="text-sm text-muted-foreground">Could not load contact profile.</p>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
+          <RefreshCw className="h-3.5 w-3.5" /> Retry
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => navigate("/contacts")} className="gap-2">
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to contacts
+        </Button>
+      </div>
+    </div>
+  );
+
+  const contact = data.contact;
+  const opportunities = data.opportunities ?? [];
+  const emails = data.emails ?? [];
+  const meetings = data.meetings ?? [];
+  const notes = data.notes ?? [];
+  const tasks = data.tasks ?? [];
+  const activities = data.activities ?? [];
+  const suggestedAction = data.suggestedAction ?? "";
   const openTasks = tasks.filter((t: any) => t.status !== "done");
   const overdueTasks = openTasks.filter((t: any) => t.due_date && isPast(new Date(t.due_date)));
   const initials = (contact.name || "?").split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();

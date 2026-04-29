@@ -4078,3 +4078,39 @@ No schema changes — `gmail_message_id`, `gmail_thread_id`,
 `from_email`, `from_name`, `sent_at`, `body_text`, `snippet`,
 `source_account_id` and label storage all already exist on
 `email_messages`.
+
+### Phase 13.7.2 — Contact-profile blank-screen + LinkedIn import warning (2026-04-29 evening)
+
+User reported that opening a freshly-imported contact rendered a black
+blank page. Root cause was a React **rules-of-hooks violation** in
+`client/src/pages/contact-profile.tsx`: `useRef`, `useToast`, and two
+`useMutation` hooks were declared **after** the early returns for
+`isLoading` and `isError`. On the first render the component returned
+the skeleton (3 hooks called); on the next render `data` was truthy so
+the component reached the body and called 6 hooks → React's "Rendered
+more hooks than during the previous render" → unmount → black screen.
+
+Fix: hoisted every hook (`useRef`, `useToast`, `useMutation` x2) to the
+top of the component, above the loading/error guards. Also tightened
+the error guard to handle a missing `data.contact` gracefully and
+added a "Back to contacts" escape hatch on the error pane.
+
+User also reported that the LinkedIn URL importer only captured the
+person's name. Improvements to `POST /api/contacts/extract-from-url`:
+
+- Switched UA to a real-Chrome string and added Accept-Language so we
+  at least get the public Open Graph preview LinkedIn serves to
+  unauthenticated browsers.
+- Now extracts `og:title` / `og:description` / `<title>` BEFORE
+  stripping HTML and feeds them to the AI alongside the body text.
+- Detects bot-wall responses (HTTP 999/403/429, body shorter than
+  ~600 chars on a linkedin.com URL, "sign in to LinkedIn" phrasing)
+  and falls back to parsing the OG title (which is usually
+  "Name - Title - Company | LinkedIn") plus the URL slug for a name.
+- Returns a new `warning` field whenever extraction was sparse (only
+  the name was recovered). The create-contact dialog now surfaces
+  that warning as a red `destructive` toast titled "Partial import"
+  so the user knows to fill in the rest manually rather than thinking
+  the scrape silently succeeded.
+
+No schema changes; no new endpoints — just hardened an existing one.

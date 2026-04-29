@@ -230,7 +230,18 @@ export function CreateContactDialog({
       const res = await apiRequest("POST", "/api/contacts/extract-from-url", { url: url.trim() });
       const data = await res.json();
       applyExtracted(data?.extracted || {});
-      toast({ title: "Profile imported", description: "Review the details below before saving." });
+      if (data?.warning) {
+        // The backend was only able to get partial data (typically because
+        // LinkedIn blocked the scrape). Surface that loudly so the user
+        // knows to fill in the rest manually.
+        toast({
+          title: "Partial import",
+          description: data.warning,
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Profile imported", description: "Review the details below before saving." });
+      }
     } catch (e: any) {
       // Clear the autoFetched marker on failure so the user can retry by
       // editing the URL or pressing Import again without being silently blocked.

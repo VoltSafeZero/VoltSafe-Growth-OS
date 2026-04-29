@@ -2920,42 +2920,134 @@ export async function registerRoutes(
       try {
         const url = String(req.body?.url || "").trim();
         if (!/^https?:\/\//i.test(url)) return res.status(400).json({ message: "Please paste a full URL (https://...)" });
-        let pageText = "";
+
+        // Best-effort name from URL slug — used as a last-resort fallback when the
+        // page is bot-walled (LinkedIn login wall, captcha, etc).
+        const slugFromUrl = (() => {
+          try {
+            const u = new URL(url);
+            const m = u.pathname.match(/\/in\/([^\/?#]+)/i) || u.pathname.match(/\/people\/([^\/?#]+)/i);
+            if (!m) return null;
+            const raw = decodeURIComponent(m[1])
+              .replace(/-[a-f0-9]{6,}$/i, "") // strip LinkedIn trailing hash
+              .replace(/[-_]+/g, " ")
+              .replace(/\s+\d+$/, "") // trailing numerics
+              .trim();
+            if (!raw) return null;
+            return raw.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+          } catch { return null; }
+        })();
+
+        let html = "";
+        let httpStatus = 0;
         try {
           const r = await fetch(url, {
             headers: {
-              "User-Agent": "Mozilla/5.0 (compatible; VoltSafeContactBot/1.0)",
-              "Accept": "text/html,application/xhtml+xml",
+              // Pretend to be a real browser — LinkedIn returns a near-empty
+              // shell to obvious bots. This still won't bypass the auth wall
+              // but raises the chance of getting og: meta tags.
+              "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              "Accept-Language": "en-US,en;q=0.9",
             },
             redirect: "follow",
           });
-          const html = await r.text();
-          // Strip scripts/styles, then collapse tags to plain text. Keep first ~12k chars.
-          pageText = html
-            .replace(/<script[\s\S]*?<\/script>/gi, " ")
-            .replace(/<style[\s\S]*?<\/style>/gi, " ")
-            .replace(/<[^>]+>/g, " ")
-            .replace(/\s+/g, " ")
-            .trim()
-            .slice(0, 12000);
+          httpStatus = r.status;
+          html = await r.text();
         } catch (e: any) {
           return res.status(400).json({ message: `Couldn't fetch that URL: ${e?.message || e}` });
         }
-        if (!pageText) return res.status(400).json({ message: "That page didn't return any readable content (LinkedIn often blocks bots — try a public website or business card photo instead)." });
-        const extracted = await callContactExtractor([
-          {
-            role: "system",
-            content:
-              "You extract contact information from a public webpage (LinkedIn profile, company team page, personal site, etc.). Return ONLY a JSON object with these fields (use null when unknown): firstName, lastName, name (full name), title, email, phone, linkedinUrl, company, website, address, notes. If the URL itself is a LinkedIn profile, copy it into linkedinUrl. Put a 1-sentence professional summary in notes when one is available.",
-          },
-          {
-            role: "user",
-            content: `Source URL: ${url}\n\nPage text:\n${pageText}`,
-          },
-        ]);
+
+        // Extract <meta> tags BEFORE stripping HTML — Open Graph + Twitter cards
+        // often survive even on login-walled LinkedIn pages.
+        const metaPick = (re: RegExp) => {
+          const m = html.match(re);
+          return m ? m[1].trim() : "";
+        };
+        const ogTitle = metaPick(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)
+          || metaPick(/<meta[^>]+name=["']twitter:title["'][^>]+content=["']([^"']+)["']/i);
+        const ogDesc = metaPick(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)
+          || metaPick(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i);
+        const docTitle = metaPick(/<title[^>]*>([^<]+)<\/title>/i);
+
+        const pageText = html
+          .replace(/<script[\s\S]*?<\/script>/gi, " ")
+          .replace(/<style[\s\S]*?<\/style>/gi, " ")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/&nbsp;/gi, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 12000);
+
+        // LinkedIn auth-wall heuristic: small body, "sign in" / "join now" tokens,
+        // or a 999/403/429 status. When we hit it, fall back to whatever we can
+        // glean (slug + meta) without bothering the AI.
+        const looksLikeWall = (
+          httpStatus === 999 || httpStatus === 403 || httpStatus === 429 ||
+          (pageText.length < 600 && /linkedin\.com/i.test(url)) ||
+          /sign in to linkedin|join linkedin|please sign in to view this page/i.test(pageText.slice(0, 2000))
+        );
+
+        let extracted: Record<string, any> = {};
+        let warning: string | null = null;
+
+        if (looksLikeWall) {
+          // Best-effort from slug + og:title (often "Name - Title - Company | LinkedIn")
+          const titleSource = ogTitle || docTitle || "";
+          const stripped = titleSource.replace(/\s*\|\s*linkedin.*$/i, "").trim();
+          const segs = stripped.split(/\s+[-–—]\s+/).map(s => s.trim()).filter(Boolean);
+          extracted.name = segs[0] || slugFromUrl || null;
+          extracted.title = segs[1] || null;
+          extracted.company = segs[2] || null;
+          extracted.notes = ogDesc || null;
+          if (extracted.name) {
+            const parts = String(extracted.name).split(/\s+/);
+            extracted.firstName = parts[0] || null;
+            extracted.lastName = parts.slice(1).join(" ") || null;
+          }
+          warning = "LinkedIn blocked the full page (their anti-bot wall). Pulled what we could from the public preview — please review and fill in any missing fields.";
+        } else if (!pageText) {
+          extracted.name = slugFromUrl || null;
+          if (slugFromUrl) {
+            const parts = slugFromUrl.split(/\s+/);
+            extracted.firstName = parts[0] || null;
+            extracted.lastName = parts.slice(1).join(" ") || null;
+          }
+          warning = "That page didn't return any readable content. Filled in what we could from the URL — please review.";
+        } else {
+          extracted = await callContactExtractor([
+            {
+              role: "system",
+              content:
+                "You extract contact information from a public webpage (LinkedIn profile, company team page, personal site, etc.). Return ONLY a JSON object with these fields (use null when unknown): firstName, lastName, name (full name), title, email, phone, linkedinUrl, company, website, address, notes. If the URL itself is a LinkedIn profile, copy it into linkedinUrl. Put a 1-sentence professional summary in notes when one is available.",
+            },
+            {
+              role: "user",
+              content: `Source URL: ${url}\nPage <title>: ${docTitle}\nOG title: ${ogTitle}\nOG description: ${ogDesc}\n\nPage text:\n${pageText}`,
+            },
+          ]);
+          // Belt-and-braces: if AI somehow missed the name on a LinkedIn page,
+          // fall back to slug.
+          if (!extracted.name && slugFromUrl) {
+            extracted.name = slugFromUrl;
+            const parts = slugFromUrl.split(/\s+/);
+            extracted.firstName = extracted.firstName || parts[0] || null;
+            extracted.lastName = extracted.lastName || parts.slice(1).join(" ") || null;
+            warning = "Only the name could be inferred from the URL — the page didn't expose other fields.";
+          }
+        }
+
         if (!extracted.linkedinUrl && /linkedin\.com\/in\//i.test(url)) extracted.linkedinUrl = url;
         if (!extracted.website && !/linkedin\.com/i.test(url)) extracted.website = url;
-        res.json({ extracted });
+
+        // If everything except name+url is empty, be honest about it.
+        const meaningfulFields = ["title", "email", "phone", "company", "notes", "address"]
+          .filter(k => extracted[k] && String(extracted[k]).trim().length > 0).length;
+        if (!warning && meaningfulFields === 0) {
+          warning = "Only the name was found on that page. LinkedIn often blocks scrapers — try a business card photo or fill in the rest manually.";
+        }
+
+        res.json({ extracted, warning });
       } catch (e: any) {
         console.error("[extract-from-url] failed:", e?.message || e);
         res.status(500).json({ message: e?.message || "Failed to read URL" });
