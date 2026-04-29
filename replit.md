@@ -3931,3 +3931,150 @@ Section headers use `sticky top-0` and rely on the existing `inboxScrollRef`
 container (`<div ref={inboxScrollRef} className="flex-1 overflow-y-auto …">`)
 as their containing block. Don't add `overflow: hidden` to any wrapper between
 the row map and `inboxScrollRef` or sticky behaviour will silently break.
+
+## Phase 13.7 — Spark-style email reader actions toolbar + rich-text format toolbar (2026-04-29)
+
+Added the missing primary action surface to the email reader pane and a
+formatting toolbar that lives inline above each thread's latest message.
+**Zero schema changes** — every new feature reuses existing columns and
+endpoints. The single new server route (`/api/inbox/threads/:threadId/assign`)
+mutates the pre-existing `email_threads.assigned_user_id` column.
+
+### New files
+
+- `client/src/components/inbox/inbox-actions-store.ts`
+  - `useSetAside()` — localStorage-backed Set of thread IDs the user has
+    "tucked away" (Spark gesture). Cross-tab sync via `storage` event.
+  - `useShareAccess()` — localStorage-backed map of `{threadId → userId[]}`
+    for the Share popover's chip-list display.
+  - `useFormatBus(handler)` + `dispatchFormat(cmd, value?)` — window-event
+    bus the format toolbar uses to talk to the compose textarea without
+    prop-drilling. Subscribers self-unmount via `removeEventListener`.
+  - `applyFormatToTextarea(ta, cmd, value?)` — pure helper that wraps the
+    current selection with the appropriate markdown markers (`**`, `*`,
+    `__`, `~~`, `- `, `1. `, `[txt](url)`) and returns the new value +
+    selection range. Used by the compose textarea's bus handler.
+
+- `client/src/components/inbox/email-format-toolbar.tsx`
+  - 8-button bar (B / I / U / S / UL / OL / Link-popover / Clear) that
+    fires `dispatchFormat(...)` on click. The Link button shows a
+    Popover with a URL field and applies `[selection](url)` when the
+    user confirms. Calls the optional `onBeforeFormat` prop right before
+    dispatching so the parent (the reader pane) can open the reply
+    composer if it isn't already mounted.
+
+- `client/src/components/inbox/email-actions-toolbar.tsx`
+  - Full Spark-parity action bar: Close, Done, Trash | Priority(Zap),
+    Unread, Pin(Flame), SetAside(ArrowDownLeft), Hyperlink | Snooze
+    Popover (4 quick options that PATCH the thread record), +AI Popover
+    (Summary / Translate dropdown across 6 languages, calls
+    `/api/inbox/threads/:threadId/ai-summary`), More Menu (Send Again,
+    Reply, Move, Mark Spam, Block) | Assign Popover (PATCH new endpoint
+    with single-owner picker) + Share Popover (fans out
+    create-task-from-thread per recipient, writes localStorage chips).
+
+### New / extended server routes (`server/routes.ts`)
+
+- `PATCH /api/inbox/threads/:threadId/assign` — sets
+  `email_threads.assigned_user_id` to the supplied userId (or null to
+  unassign). Same edit-access guard pattern as PATCH /thread-record.
+- `POST  /api/inbox/threads/:threadId/ai-summary` — pulls the thread
+  body via raw SQL on `email_messages` (joined by `gmail_thread_id`)
+  and asks gpt-5.1 to either summarise or translate. Mode is
+  `"summary" | "translate"`; translate accepts `targetLanguage`.
+- `POST  /api/inbox/create-task-from-thread` — already existed; now
+  accepts an optional `assignedToUserId` which becomes the task's
+  `ownerUserId` (the caller still owns `createdByUserId`). Used by the
+  Share popover to fan out one task per selected teammate.
+
+### Wiring inside `client/src/pages/gmail-inbox.tsx`
+
+- `MessageBody` extended with an optional `headerLeft?: React.ReactNode`
+  prop. Its top row was rewritten to a flex layout that places the new
+  slot on the LEFT and keeps the existing zoom + reading-mode tabs
+  (FIT / 100% / Beautiful / Source / Plain) anchored to the right via a
+  `flex-1` spacer. Only the latest message in a thread receives the
+  `EmailFormatToolbar` (gated by `isLatest && canSend`).
+- `ComposeDialog` got a `bodyRef` ref + a `useFormatBus` subscription so
+  format events from the reader-pane toolbar flow into the textarea
+  even when triggered from outside the dialog. The handler focuses the
+  textarea, applies the markdown wrapper, restores the selection on
+  the next animation frame, and is a no-op when the dialog is closed.
+- New per-thread mutations: `markUnreadSingleMutation` (POST
+  `/api/gmail/bulk-mark-read` with a single-id array, marks `"unread"`
+  + targeted cache patch) and `markDoneSingleMutation` (PATCH
+  `/api/inbox/bulk-mark-done` with a single-id array, closes the
+  reader on success). Trash routes to the existing
+  `archiveThreadMutation` (no separate trash endpoint exists; archive
+  is the Spark-equivalent semantic).
+- The parent component now also mounts a `readerThreadRecordQuery`
+  with the same query key as `ThreadInsightsPanel` so both consumers
+  share react-query's cache and only one network request is made.
+  This is what feeds `assignedUserId` into the toolbar.
+- `EmailActionsToolbar` is rendered inside the existing
+  `border-b border-border/30` reader header div, ABOVE the existing
+  subject + right-side button row, gated on
+  `selectedThreadId && focusedMsg`. The legacy star / reply / archive
+  / focus-mode cluster is intentionally kept on the right of the
+  subject row for muscle-memory parity.
+- `useSetAside()` is initialised at the parent level (next to
+  `pinnedAPI`) and threaded into the toolbar's `isSetAside` prop +
+  `onSetAside` handler. When the gesture transitions a thread INTO
+  the set-aside set, `handleBack()` is called so the reader collapses,
+  matching Spark's "tuck away" feel.
+
+### Schema reuse confirmation
+
+- `email_threads.assigned_user_id` already existed (single-owner column).
+- `tasks.owner_user_id` already existed and is what
+  `createTaskFromThread` writes when `assignedToUserId` is supplied.
+- No `db:push`, no schema edits anywhere. **Standing project rule is
+  intact.**
+
+### TypeScript
+
+- `npx tsc --noEmit` is clean across all the new files. The single
+  pre-existing error at `gmail-inbox.tsx:4395` (`[...new Set(...)]`
+  iteration without `downlevelIteration`) is unchanged from before
+  this work and is not introduced by it.
+
+### Phase 13.7.1 — Architect review fixes (2026-04-29 evening)
+
+After running the architect on the Phase 13.7 work, three follow-up fixes
+were applied:
+
+1. **AI summary IDOR** — `POST /api/inbox/threads/:threadId/ai-summary`
+   was `requireAuth` only and read `email_messages` directly, so any
+   logged-in user could summarise/translate any thread by guessing the
+   ID. Added `requireAccountEditAccess` against the owning mailbox
+   (same pattern as `/assign` and `/thread-record`). Same route also
+   had three column-name bugs in its raw-SQL query (`from_address` →
+   `from_email`, `received_at` → `sent_at`, body interpolation safety)
+   — rewrote it as a typed Drizzle `.select()` against
+   `emailMessages` with `asc(sentAt)`. Eliminates both the IDOR and
+   the SQL-injection surface on the threadId interpolation.
+
+2. **Format-event race** — the previous ComposeDialog handler used a
+   single `requestAnimationFrame` and silently dropped events that
+   arrived before the textarea ref was bound (typical when the user
+   clicks a format button before the composer opens). Added a
+   `pendingFormatRef` queue + a `useEffect` that drains it on the
+   next frame after `open` becomes true and `bodyRef.current` is set.
+   Pending events are cleared whenever the dialog closes.
+
+3. **Trash vs Archive semantics** — the toolbar's "Trash" button
+   originally routed to `/api/gmail/bulk-archive`, which only removes
+   the INBOX label (Spark/Gmail "Archive"). Added a focused single-
+   thread route `POST /api/inbox/threads/:threadId/trash` that calls
+   `gmail.users.threads.trash` (the real Gmail trash op) + mirrors the
+   local label cache (`remove: ["INBOX"], add: ["TRASH"]`). New
+   `trashThreadMutation` in gmail-inbox.tsx invalidates the same
+   inbox cache so the thread disappears immediately. Toolbar's
+   `onTrash` now uses this new mutation; the legacy archive button
+   on the right of the subject row continues to call
+   `archiveThreadMutation` so both gestures remain available.
+
+No schema changes — `gmail_message_id`, `gmail_thread_id`,
+`from_email`, `from_name`, `sent_at`, `body_text`, `snippet`,
+`source_account_id` and label storage all already exist on
+`email_messages`.

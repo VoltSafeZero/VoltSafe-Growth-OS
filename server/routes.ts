@@ -8858,6 +8858,222 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // ──────────────────────────────────────────────────────────────────────
+  // Spark-style reader actions (Apr 2026)
+  //
+  // Two new endpoints supporting the email-actions toolbar:
+  //  1) PATCH /api/inbox/threads/:threadId/assign — sets the thread owner
+  //     (existing email_threads.assignedUserId column; no schema change).
+  //  2) POST  /api/inbox/threads/:threadId/ai-summary — runs an LLM over
+  //     the thread's stored messages and returns a short brief OR a
+  //     translation, depending on `mode`.
+  // ──────────────────────────────────────────────────────────────────────
+
+  app.patch("/api/inbox/threads/:threadId/assign", requireAuth, async (req, res) => {
+    const threadId = String(req.params.threadId);
+    // Body: { assignedUserId: number | null }
+    const raw = req.body?.assignedUserId;
+    const assignedUserId: number | null =
+      raw === null || raw === undefined || raw === "" ? null : Number(raw);
+    if (assignedUserId !== null && !Number.isFinite(assignedUserId)) {
+      return res.status(400).json({ message: "assignedUserId must be a number or null" });
+    }
+
+    try {
+      // Same edit-access guard pattern as PATCH /api/gmail/thread-record.
+      const [anchor] = await db
+        .select({ accId: emailMessages.sourceAccountId })
+        .from(emailMessages)
+        .where(eq(emailMessages.gmailThreadId, threadId))
+        .limit(1);
+      if (anchor?.accId) {
+        if (!(await requireAccountEditAccess(req, res, anchor.accId))) return;
+      }
+
+      // Validate the user actually exists (when not clearing).
+      if (assignedUserId !== null) {
+        const [u] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.id, assignedUserId))
+          .limit(1);
+        if (!u) return res.status(404).json({ message: "User not found" });
+      }
+
+      const existing = await db
+        .select({ id: emailThreads.id })
+        .from(emailThreads)
+        .where(eq(emailThreads.gmailThreadId, threadId));
+
+      if (existing.length === 0) {
+        await db.insert(emailThreads).values({
+          gmailThreadId: threadId,
+          assignedUserId,
+          associationStatus: "unassociated",
+        } as any);
+      } else {
+        await db
+          .update(emailThreads)
+          .set({ assignedUserId, updatedAt: new Date() } as any)
+          .where(eq(emailThreads.gmailThreadId, threadId));
+      }
+
+      res.json({ threadId, assignedUserId });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "assign failed" });
+    }
+  });
+
+  // POST /api/inbox/threads/:threadId/trash — true Gmail "Move to Trash"
+  // (separate from /api/gmail/bulk-archive, which only removes the INBOX
+  // label). Mirrors the local label cache so the thread also disappears
+  // from the inbox view immediately.
+  app.post("/api/inbox/threads/:threadId/trash", requireAuth, async (req, res) => {
+    const userId = (req.session as any).userId;
+    const threadId = String(req.params.threadId);
+    try {
+      const [anchor] = await db
+        .select({ accId: emailMessages.sourceAccountId })
+        .from(emailMessages)
+        .where(eq(emailMessages.gmailThreadId, threadId))
+        .limit(1);
+      if (!anchor || !anchor.accId) {
+        return res.status(404).json({ message: "Thread not found in any synced mailbox" });
+      }
+      if (!(await requireAccountEditAccess(req, res, anchor.accId))) return;
+
+      const gmail = await getGmailClient(userId, anchor.accId);
+      try {
+        await gmail.users.threads.trash({ userId: "me", id: threadId });
+      } catch (e: any) {
+        return res.status(502).json({ message: `Gmail trash failed: ${e?.message || e}` });
+      }
+
+      try {
+        const { mirrorLabelChangeForThreads } = await import("./services/local-label-mirror");
+        await mirrorLabelChangeForThreads([threadId], anchor.accId, {
+          remove: ["INBOX"],
+          add: ["TRASH"],
+        });
+      } catch (mirrorErr: any) {
+        console.error(
+          `[inbox-trash] local mirror failed (non-fatal) account=${anchor.accId} thread=${threadId}:`,
+          mirrorErr.message,
+        );
+      }
+
+      res.json({ ok: true, threadId });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "trash failed" });
+    }
+  });
+
+  // POST /api/inbox/threads/:threadId/ai-summary
+  // Body: { mode?: "summary" | "translate", language?: string }
+  //   - "summary" (default): returns a short executive brief of the whole
+  //     thread plus a bullet list of action items.
+  //   - "translate": returns a translation of the most recent inbound
+  //     message into `language` (default "English").
+  app.post("/api/inbox/threads/:threadId/ai-summary", requireAuth, async (req, res) => {
+    const threadId = String(req.params.threadId);
+    const mode: "summary" | "translate" =
+      req.body?.mode === "translate" ? "translate" : "summary";
+    const language: string = String(req.body?.language || "English").slice(0, 40);
+
+    try {
+      // Authz: enforce mailbox edit-access on the owning account before reading
+      // any message bodies. This matches the guard pattern on PATCH
+      // /api/gmail/thread-record and PATCH /api/inbox/threads/:threadId/assign,
+      // and prevents IDOR-style data leaks where a logged-in user could
+      // summarize/translate someone else's mailbox by guessing thread IDs.
+      const [anchor] = await db
+        .select({ accId: emailMessages.sourceAccountId })
+        .from(emailMessages)
+        .where(eq(emailMessages.gmailThreadId, threadId))
+        .limit(1);
+      if (!anchor) {
+        return res.status(404).json({ message: "No messages found for thread" });
+      }
+      if (anchor.accId) {
+        if (!(await requireAccountEditAccess(req, res, anchor.accId))) return;
+      }
+
+      // Pull the stored messages for this thread (oldest → newest) so the
+      // LLM has chronological context. Cap body length defensively to
+      // avoid blowing the prompt budget on long newsletters.
+      // Use Drizzle's typed select against the schema columns instead of
+      // raw SQL string interpolation (avoids both column-name drift and
+      // any injection risk on threadId).
+      const msgs = await db
+        .select({
+          gmailMessageId: emailMessages.gmailMessageId,
+          subject: emailMessages.subject,
+          fromEmail: emailMessages.fromEmail,
+          fromName: emailMessages.fromName,
+          sentAt: emailMessages.sentAt,
+          snippet: emailMessages.snippet,
+          bodyText: emailMessages.bodyText,
+        })
+        .from(emailMessages)
+        .where(eq(emailMessages.gmailThreadId, threadId))
+        .orderBy(asc(emailMessages.sentAt))
+        .limit(25);
+
+      if (!msgs.length) {
+        return res.status(404).json({ message: "No messages found for thread" });
+      }
+
+      // Build the transcript the LLM will read.
+      const transcript = msgs
+        .map((m) => {
+          const who = m.fromName ? `${m.fromName} <${m.fromEmail ?? ""}>` : (m.fromEmail ?? "");
+          const when = m.sentAt ? new Date(m.sentAt).toISOString() : "";
+          const body = ((m.bodyText ?? "").slice(0, 8000) || m.snippet || "").trim();
+          return `From: ${who}\nDate: ${when}\nSubject: ${m.subject || ""}\n\n${body}`;
+        })
+        .join("\n\n---\n\n")
+        .slice(0, 24000); // hard cap on full transcript size
+
+      const { default: OpenAI } = await import("openai");
+      const oai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      let systemPrompt: string;
+      let userPrompt: string;
+      if (mode === "translate") {
+        const last = msgs[msgs.length - 1];
+        systemPrompt =
+          `You are a professional translator. Translate the user's email content faithfully ` +
+          `into ${language}. Preserve names, dates, numbers, and links exactly. ` +
+          `Return ONLY the translated body — no preface, no commentary.`;
+        userPrompt = (last.body_text || last.snippet || "").trim();
+      } else {
+        systemPrompt =
+          `You are an executive assistant summarizing an email thread for a busy CEO. ` +
+          `Write a tight 2-4 sentence brief of the conversation, then a markdown bullet ` +
+          `list of explicit action items the CEO is being asked to take (or "None" if ` +
+          `there are none). Do not invent details. Do not include greetings, signatures, ` +
+          `or unsubscribe boilerplate. Return plain markdown only.`;
+        userPrompt = transcript;
+      }
+
+      const completion = await oai.chat.completions.create({
+        model: "gpt-5.1",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      });
+
+      const content = completion.choices?.[0]?.message?.content?.trim() || "";
+      res.json({ threadId, mode, language: mode === "translate" ? language : null, content });
+    } catch (err: any) {
+      res.status(503).json({ message: err?.message || "AI summary failed" });
+    }
+  });
+
   // POST /api/gmail/thread-associations/confirm
   // User confirms an association:
   //   - marks isUserConfirmed=true (immutable from engine's perspective)
@@ -10479,19 +10695,42 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
   app.post("/api/inbox/create-task-from-thread", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
     const userId = getSessionUserId(req);
-    const { threadId, subject, fromEmail, fromName, linkedObjectType, linkedObjectId, title, dueDate } = req.body;
+    // `assignedToUserId` is OPTIONAL and lets the caller (the new Share popover
+    // on the email actions toolbar) hand the resulting task to a teammate.
+    // When omitted we keep the original behavior: the creator is also the owner.
+    const {
+      threadId,
+      subject,
+      fromEmail,
+      fromName,
+      linkedObjectType,
+      linkedObjectId,
+      title,
+      dueDate,
+      assignedToUserId,
+    } = req.body;
     if (!threadId) return res.status(400).json({ message: "threadId required" });
     const taskTitle = title || `Follow up: ${subject || fromEmail || "Email"}`;
     const taskDueDate = dueDate ? new Date(dueDate) : (() => {
       const d = new Date(); d.setDate(d.getDate() + 1); return d;
     })();
+    let resolvedOwnerId: number = userId;
+    if (assignedToUserId !== undefined && assignedToUserId !== null && assignedToUserId !== "") {
+      const num = Number(assignedToUserId);
+      if (!Number.isFinite(num)) {
+        return res.status(400).json({ message: "assignedToUserId must be a number" });
+      }
+      const [u] = await db.select({ id: users.id }).from(users).where(eq(users.id, num)).limit(1);
+      if (!u) return res.status(404).json({ message: "assignedToUserId not found" });
+      resolvedOwnerId = num;
+    }
     const taskData: any = {
       title: taskTitle,
       description: `Created from email thread: ${subject || "(no subject)"}${fromName ? ` from ${fromName}` : fromEmail ? ` from ${fromEmail}` : ""}`,
       dueDate: taskDueDate,
       priority: "medium",
       status: "pending",
-      ownerUserId: userId,
+      ownerUserId: resolvedOwnerId,
       createdByUserId: userId,
     };
     if (linkedObjectType) taskData.linkedObjectType = linkedObjectType;

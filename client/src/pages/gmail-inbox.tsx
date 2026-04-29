@@ -30,6 +30,14 @@ import {
   type SmartItem,
   type SmartSectionId,
 } from "@/components/inbox/smart-inbox-grouper";
+import { EmailActionsToolbar } from "@/components/inbox/email-actions-toolbar";
+import { EmailFormatToolbar } from "@/components/inbox/email-format-toolbar";
+import {
+  useSetAside,
+  useFormatBus,
+  applyFormatToTextarea,
+  type FormatEvent,
+} from "@/components/inbox/inbox-actions-store";
 import {
   CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandSeparator,
 } from "@/components/ui/command";
@@ -310,6 +318,88 @@ function ComposeDialog({
   const [assetCategoryFilter, setAssetCategoryFilter] = useState<string>("all");
   const [showQuotePicker, setShowQuotePicker] = useState(false);
 
+  // Ref to the message textarea so the format-bus handler (below) can
+  // wrap the current selection with the appropriate markdown markers.
+  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Pending-format queue: when a format event arrives before the
+  // composer is open or before the textarea has mounted, we stash it
+  // here and replay once both conditions are satisfied. This fixes
+  // the race where the user clicks a format button in the reader
+  // toolbar, the parent calls onBeforeFormat() to open the composer,
+  // and the bus event then fires synchronously before <Textarea> has
+  // a chance to mount and bind its ref.
+  const pendingFormatRef = useRef<FormatEvent | null>(null);
+
+  const applyFormat = useCallback((e: FormatEvent) => {
+    const ta = bodyRef.current;
+    if (!ta) return false;
+    // The textarea must be focused so the calculated selection is
+    // sensible — if it isn't (e.g. the user just clicked the format
+    // button without ever clicking the textarea), focus it first
+    // and place the cursor at the end before applying.
+    if (document.activeElement !== ta) {
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    }
+    const next = applyFormatToTextarea(ta, e.cmd, e.value);
+    setBody(next.value);
+    // Restore the selection after React re-renders.
+    requestAnimationFrame(() => {
+      if (bodyRef.current) {
+        bodyRef.current.focus();
+        bodyRef.current.setSelectionRange(next.selectionStart, next.selectionEnd);
+      }
+    });
+    return true;
+  }, []);
+
+  // Subscribe to the format-event bus while the composer is open. The
+  // bus is fired by EmailFormatToolbar in the reader pane.
+  const onFormatEvent = useCallback(
+    (e: FormatEvent) => {
+      if (!open || !bodyRef.current) {
+        // Composer not ready yet — queue the event so the effect below
+        // can replay it once everything has mounted.
+        pendingFormatRef.current = e;
+        return;
+      }
+      applyFormat(e);
+    },
+    [open, applyFormat],
+  );
+  useFormatBus(onFormatEvent);
+
+  // Drain any pending format event once the composer is open AND the
+  // textarea has mounted. We tick a small timeout to give Radix's
+  // dialog mount + animation a frame to finish before we touch the
+  // selection. The retry is bounded by the dialog's open state — if
+  // the user closes the dialog before mount, the queued event is
+  // discarded on the next close.
+  useEffect(() => {
+    if (!open) {
+      pendingFormatRef.current = null;
+      return;
+    }
+    if (!pendingFormatRef.current) return;
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled || !open) return;
+      if (!bodyRef.current) {
+        // Try again next frame.
+        requestAnimationFrame(tick);
+        return;
+      }
+      const ev = pendingFormatRef.current;
+      pendingFormatRef.current = null;
+      if (ev) applyFormat(ev);
+    };
+    requestAnimationFrame(tick);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, applyFormat]);
+
   const assetsQuery = useQuery<{ id: number; name: string; mimeType: string; size: number; category: string }[]>({
     queryKey: ["/api/assets"],
     enabled: showAssetPicker,
@@ -449,7 +539,7 @@ function ComposeDialog({
           )}
           <div>
             <Label className="text-xs">Message</Label>
-            <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={6} placeholder="Write your message..." disabled={!canSend} data-testid="input-email-body" />
+            <Textarea ref={bodyRef} value={body} onChange={(e) => setBody(e.target.value)} rows={6} placeholder="Write your message..." disabled={!canSend} data-testid="input-email-body" />
           </div>
 
           <div className="border border-border/50 rounded-md p-3 bg-muted/20">
@@ -780,7 +870,22 @@ function ComposeDialog({
 type ReadingMode = "beautiful" | "raw" | "plain";
 type ZoomMode = "fit" | "actual";
 
-function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
+function MessageBody({
+  body,
+  isHtml,
+  headerLeft,
+}: {
+  body: string;
+  isHtml: boolean;
+  /**
+   * Optional content rendered to the LEFT of the FIT/100% + Beautiful/Source/Plain
+   * tab cluster — used by the inbox reader to inject a rich-text formatting
+   * toolbar so writers can bold/italic/list/link the reply they're about to
+   * compose. Anything truthy will be wrapped in a left-aligned wrapper so the
+   * existing right-aligned tab cluster stays anchored to the right edge.
+   */
+  headerLeft?: React.ReactNode;
+}) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<ReadingMode>("beautiful");
@@ -973,7 +1078,18 @@ function MessageBody({ body, isHtml }: { body: string; isHtml: boolean }) {
           equally useful for them: Beautiful (rendered), Source (raw HTML
           we built), Plain (the original text). */}
       {body && (
-        <div className="flex items-center justify-end gap-2 -mt-1 -mr-1">
+        <div className="flex items-center gap-2 -mt-1 -mr-1">
+          {/* Optional left-side slot — used by the inbox reader to inject a
+              rich-text formatting toolbar (Bold/Italic/Lists/Link/Clear).
+              Stays empty in non-inbox contexts. */}
+          {headerLeft && (
+            <div className="flex-shrink-0" data-testid="message-header-left">
+              {headerLeft}
+            </div>
+          )}
+          {/* Spacer — pushes the existing zoom + reading-mode cluster to the
+              right edge regardless of whether headerLeft is present. */}
+          <div className="flex-1" />
           {mode === "beautiful" && (
             <div
               className="flex items-center gap-0.5 rounded-md bg-muted/30 p-0.5"
@@ -1112,6 +1228,10 @@ type ThreadRecord = {
     awaitingReplySince: string | null;
     lastInboundAt: string | null;
     lastOutboundAt: string | null;
+    // Single-owner assignment column on email_threads (no schema change —
+    // already present); surfaced here so the actions toolbar can read /
+    // mutate it through PATCH /api/inbox/threads/:threadId/assign.
+    assignedUserId: number | null;
   };
   contact?: { id: number; name: string; firstName: string; lastName: string; email: string; } | null;
   account?: { id: number; name: string; website: string; } | null;
@@ -2722,6 +2842,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Per-user thread pin set (localStorage). Pinning lets the user surface a
   // specific thread in the "Pinned" section even after it has been read.
   const pinnedAPI = usePinnedThreads();
+  // Per-user "set aside" thread set (localStorage). Mirrors the Spark gesture:
+  // briefly remove a thread from the active inbox without archiving so the
+  // user can come back to it later. Surfaced via the actions toolbar.
+  const setAsideAPI = useSetAside();
   // Global density token system — applied to sidebar, list, and reader pane
   // so the entire inbox reflows as one cohesive system when density changes.
   const densityClasses = useMemo(() => {
@@ -4047,6 +4171,87 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onError: (err: any) => toast({ title: "Archive failed", description: err.message, variant: "destructive" }),
   });
 
+  // True Gmail "Move to Trash" — distinct from archive. Used by the
+  // Spark-style actions toolbar's Trash button. Cache update mirrors
+  // archiveThreadMutation so the thread disappears from the list and
+  // the reader pane closes.
+  const trashThreadMutation = useMutation({
+    mutationFn: async (threadId: string) => {
+      const res = await apiRequest(
+        "POST",
+        `/api/inbox/threads/${encodeURIComponent(threadId)}/trash`,
+        {},
+      );
+      if (!res.ok) throw new Error((await res.json()).message);
+      return { threadId };
+    },
+    onSuccess: ({ threadId }) => {
+      const removeTrashed = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
+        old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old;
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeTrashed);
+      setInboxExtra(prev => prev.filter(m => m.threadId !== threadId));
+      if (selectedThreadId === threadId) { setSelectedThreadId(null); setSelectedMessageId(null); }
+      toast({ title: "Moved to Trash" });
+    },
+    onError: (err: any) => toast({ title: "Trash failed", description: err.message, variant: "destructive" }),
+  });
+
+  // ── Single-thread / single-message variants used by the new Spark-style
+  // actions toolbar at the top of the reader pane. They reuse the existing
+  // bulk endpoints (no new backend routes) so cache-update semantics stay
+  // consistent across bulk + per-thread paths.
+
+  // Mark just the focused message as unread — uses bulk-mark-read with a
+  // single-id array. Does NOT clear the selection like bulk does.
+  const markUnreadSingleMutation = useMutation({
+    mutationFn: async (messageId: string) => {
+      const res = await apiRequest("POST", "/api/gmail/bulk-mark-read", {
+        messageIds: [messageId],
+        markAs: "unread",
+        ...(activeAccountId ? { asAccountId: activeAccountId } : {}),
+      });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return { messageId };
+    },
+    onSuccess: ({ messageId }) => {
+      const updateMsgs = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
+        old ? {
+          ...old, messages: old.messages.map(m =>
+            m.id === messageId
+              ? { ...m, labelIds: [...m.labelIds.filter(l => l !== "UNREAD"), "UNREAD"] }
+              : m
+          )
+        } : old;
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], updateMsgs);
+      setInboxExtra(prev => prev.map(m =>
+        m.id === messageId
+          ? { ...m, labelIds: [...m.labelIds.filter(l => l !== "UNREAD"), "UNREAD"] }
+          : m
+      ));
+      toast({ title: "Marked as unread" });
+    },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  // Mark just the current thread as done — uses /api/inbox/bulk-mark-done
+  // with a single-id array. Closes the reader on success (Spark behaviour).
+  const markDoneSingleMutation = useMutation({
+    mutationFn: async (threadId: string) => {
+      const res = await apiRequest("PATCH", "/api/inbox/bulk-mark-done", { threadIds: [threadId] });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return { threadId };
+    },
+    onSuccess: ({ threadId }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/thread-signals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/triage-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/triage-thread-ids"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", threadId] });
+      if (selectedThreadId === threadId) { setSelectedThreadId(null); setSelectedMessageId(null); }
+      toast({ title: "Marked as done" });
+    },
+    onError: (err: any) => toast({ title: "Mark done failed", description: err.message, variant: "destructive" }),
+  });
+
   const createTaskFromThreadMutation = useMutation({
     mutationFn: async ({ threadId, subject, fromEmail, fromName, linkedObjectType, linkedObjectId, title }: {
       threadId: string; subject?: string; fromEmail?: string; fromName?: string;
@@ -4345,6 +4550,21 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
   const selectedMessages = threadQuery.data?.messages || [];
   const focusedMsg = selectedMessages.find((m) => m.id === selectedMessageId) || selectedMessages[selectedMessages.length - 1];
+
+  // Parent-level slice of /api/gmail/thread-record so the actions toolbar can
+  // read the current assignedUserId WITHOUT re-fetching when the insights
+  // panel is mounted (react-query dedupes by query key — both consumers
+  // share the same network request and cache entry).
+  const readerThreadRecordQuery = useQuery<ThreadRecord>({
+    queryKey: ["/api/gmail/thread-record", selectedThreadId],
+    queryFn: async () => {
+      const res = await fetch(`/api/gmail/thread-record/${selectedThreadId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load thread record");
+      return res.json();
+    },
+    enabled: !!selectedThreadId,
+  });
+  const readerAssignedUserId = readerThreadRecordQuery.data?.thread?.assignedUserId ?? null;
 
   // ── Keyboard navigation ────────────────────────────────────────────────────
   useEffect(() => {
@@ -6009,6 +6229,57 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           <div className={`flex-1 flex flex-col min-h-0 transition-colors duration-300 ${focusMode ? "bg-gradient-to-b from-background via-background to-card/10" : ""}`}>
             {/* Thread header — premium hero card */}
             <div className={`flex-shrink-0 border-b border-border/30 bg-gradient-to-b from-card/40 via-card/20 to-transparent transition-all duration-300 ${focusMode ? "px-6 py-6" : `${densityClasses.readerHeaderPx} ${densityClasses.readerHeaderPy}`}`}>
+              {/* Spark-style top actions toolbar — primary action surface for
+                  the focused thread. Sits above the subject row so the actions
+                  are reachable in one motion regardless of scroll position.
+                  Renders only when a thread is selected; the existing right-
+                  side cluster (star / reply / archive / focus mode) is kept
+                  for muscle-memory parity with previous builds. */}
+              {selectedThreadId && focusedMsg && (
+                <div
+                  className={`mb-3 transition-[max-width] duration-300 ${focusMode ? "max-w-4xl mx-auto w-full" : ""}`}
+                  data-testid="email-actions-toolbar-wrapper"
+                >
+                  <EmailActionsToolbar
+                    threadId={selectedThreadId}
+                    focusedMessage={{
+                      id: focusedMsg.id,
+                      subject: focusedMsg.subject,
+                      body: focusedMsg.body,
+                      snippet: focusedMsg.snippet ?? null,
+                    }}
+                    isPriority={isStarred(focusedMsg.labelIds)}
+                    isPinned={pinnedAPI.isPinned(selectedThreadId)}
+                    isSetAside={setAsideAPI.isSetAside(selectedThreadId)}
+                    assignedUserId={readerAssignedUserId}
+                    canReply={canSend}
+                    handlers={{
+                      onClose: handleBack,
+                      onMarkDone: () => markDoneSingleMutation.mutate(selectedThreadId),
+                      onTrash: () => trashThreadMutation.mutate(selectedThreadId),
+                      onTogglePriority: () => toggleStarMutation.mutate(focusedMsg.id),
+                      onMarkUnread: () => markUnreadSingleMutation.mutate(focusedMsg.id),
+                      onTogglePin: () => pinnedAPI.togglePin(selectedThreadId),
+                      onSetAside: () => {
+                        setAsideAPI.toggle(selectedThreadId);
+                        // Drop the reader pane so the user feels the thread
+                        // was tucked away, mirroring Spark's gesture.
+                        if (!setAsideAPI.isSetAside(selectedThreadId)) {
+                          handleBack();
+                        }
+                      },
+                      onSendAgain: () => handleReply(focusedMsg),
+                      onReply: () => handleReply(focusedMsg),
+                      onMove: () => archiveThreadMutation.mutate(selectedThreadId),
+                      onMarkSpam: () => archiveThreadMutation.mutate(selectedThreadId),
+                      onBlock: () => archiveThreadMutation.mutate(selectedThreadId),
+                    }}
+                    onAssignChanged={() => {
+                      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", selectedThreadId] });
+                    }}
+                  />
+                </div>
+              )}
               <div className={`flex items-start gap-3 transition-[max-width] duration-300 ${focusMode ? "max-w-4xl mx-auto w-full" : ""}`}>
                 <Button variant="ghost" size="icon" className="md:hidden h-8 w-8 -ml-2 mt-0.5" onClick={handleBack}>
                   <ChevronLeft className="h-4 w-4" />
@@ -6202,9 +6473,30 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         </div>
                       </div>
                     </div>
-                    {/* Message body */}
+                    {/* Message body — for the LATEST message in the thread we
+                        inject a rich-text formatting toolbar (Bold / Italic /
+                        Lists / Link / Clear) into MessageBody's headerLeft
+                        slot. Tapping any button auto-opens the reply composer
+                        and dispatches the format event onto the global bus
+                        which the composer textarea subscribes to. */}
                     <div className={`bg-background/30 ${focusMode ? "px-6 py-7 md:px-8 md:py-9" : `${densityClasses.msgBodyPx} ${densityClasses.msgBodyPy}`}`}>
-                      <MessageBody body={msg.body} isHtml={msg.isHtml} />
+                      <MessageBody
+                        body={msg.body}
+                        isHtml={msg.isHtml}
+                        headerLeft={isLatest && canSend ? (
+                          <EmailFormatToolbar
+                            onBeforeFormat={() => {
+                              // Open the reply composer (idempotent — does
+                              // nothing if already open) so the textarea is
+                              // mounted and ready to receive the format
+                              // event fired right after.
+                              if (!replyTo || replyTo.threadId !== msg.threadId) {
+                                handleReply(msg);
+                              }
+                            }}
+                          />
+                        ) : undefined}
+                      />
                     </div>
                     {/* Attachment strip (Phase 2E) — bigger & grid-laid in Focus Mode */}
                     {Array.isArray((msg as any).attachments) && (msg as any).attachments.filter((a: any) => !a.isInline).length > 0 && (
