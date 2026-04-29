@@ -4972,7 +4972,7 @@ export async function registerRoutes(
   }, async (req, res) => {
     if (!req.file) return res.status(400).json({ message: "No file uploaded" });
     const { objectType, objectId, category, title, notes, tags } = req.body;
-    const allowedTypes = ["lead", "account", "partnership", "contact", "opportunity", "quote", "install_workflow", "deployment", "purchase_order", "project", "customer_success", "general"];
+    const allowedTypes = ["lead", "account", "partnership", "contact", "opportunity", "quote", "install_workflow", "deployment", "purchase_order", "project", "customer_success", "general", "task"];
     if (!objectType || !objectId || !allowedTypes.includes(objectType)) {
       try { fs.unlinkSync(req.file.path); } catch {}
       return res.status(400).json({ message: "Valid objectType and objectId required" });
@@ -5082,7 +5082,7 @@ export async function registerRoutes(
     if (!url || !objectType || !objectId) {
       return res.status(400).json({ message: "url, objectType, and objectId are required" });
     }
-    const allowedTypes = ["lead", "account", "partnership", "contact", "opportunity", "quote", "install_workflow", "deployment", "purchase_order", "project", "customer_success", "general"];
+    const allowedTypes = ["lead", "account", "partnership", "contact", "opportunity", "quote", "install_workflow", "deployment", "purchase_order", "project", "customer_success", "general", "task"];
     if (!allowedTypes.includes(objectType)) {
       return res.status(400).json({ message: "Invalid objectType" });
     }

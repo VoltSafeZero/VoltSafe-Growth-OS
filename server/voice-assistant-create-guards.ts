@@ -53,6 +53,11 @@ const LINKABLE_SECTION: Record<string, string> = {
   opportunity: "crm", general: "crm",
   install_workflow: "crm", deployment: "crm",
   purchase_order: "crm", customer_success: "crm",
+  // Tasks live under the same gate as the rest of the CRM/execution surface;
+  // every /api/tasks state-change route already requires crm:edit, and the
+  // task drawer only opens for users who are already viewing tasks they
+  // can see, so crm:view is a safe minimum.
+  task: "crm",
   project: "projects",
   quote: "quoting",
   partnership: "partnerships", ecosystem: "partnerships",
