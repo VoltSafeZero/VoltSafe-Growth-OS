@@ -161,6 +161,14 @@ export type LocalMessageSummary = {
 export type LocalThreadStub = { id: string; snippet: string; historyId: string };
 
 export type LocalAttachment = {
+  id: number;            // email_attachments.id — used by client for download URL
+  /**
+   * True when the row carries a non-null Gmail attachmentId — i.e. the bytes
+   * are actually fetchable via gmail.users.messages.attachments.get(). The
+   * inbox uses this to decide whether to render the chip as a clickable
+   * download link or as a plain non-interactive tile.
+   */
+  downloadable: boolean;
   filename: string;
   mimeType: string;
   sizeBytes: number;
@@ -540,7 +548,8 @@ export async function getLocalThread(p: { resolved: Resolved; threadId: string }
   let attachByMsg = new Map<number, LocalAttachment[]>();
   if (messageIds.length > 0) {
     const attachRes = await db.execute(sql.raw(`
-      SELECT message_id, filename, mime_type, size_bytes, is_inline, content_id
+      SELECT id, message_id, filename, mime_type, size_bytes, is_inline, content_id,
+             (gmail_attachment_id IS NOT NULL) AS downloadable
       FROM email_attachments
       WHERE message_id IN (${messageIds.join(",")})
       ORDER BY id ASC
@@ -549,6 +558,8 @@ export async function getLocalThread(p: { resolved: Resolved; threadId: string }
     for (const a of attachRows) {
       const list = attachByMsg.get(Number(a.message_id)) || [];
       list.push({
+        id: Number(a.id),
+        downloadable: !!a.downloadable,
         filename: a.filename || "(unnamed)",
         mimeType: a.mime_type || "application/octet-stream",
         sizeBytes: Number(a.size_bytes) || 0,

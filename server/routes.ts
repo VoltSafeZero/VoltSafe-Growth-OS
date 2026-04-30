@@ -76,7 +76,7 @@ import { snapshotScore, recordOutcome, computeModelAccuracy, getAllModelAccuracy
 import { computeAwaitingReply, clearAwaitingReply, getTriageSummary, getAwaitingReplyThreads } from "./services/awaiting-reply";
 import {
   emailMessages, emailThreads, emailAssociations, associationFeedback, emailFilters, scheduledEmails,
-  emailAccounts,
+  emailAccounts, emailAttachments,
   assets, assetFolders, priceLists, priceListItems,
   contacts, accounts, leads, opportunities, partnerships,
   migrationMap, notes,
@@ -8587,6 +8587,66 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         }
       }
       return res.status(503).json({ message: "Gmail not connected", error: err.message });
+    }
+  });
+
+  // ── Gmail Attachment helpers ──────────────────────────────────────────────
+  // GET /api/gmail/attachments/:id/calendar-invite — parse a text/calendar
+  // attachment (.ics) and return a normalised event JSON shape used by the
+  // CalendarInviteCard. Auth: caller must own the parent message OR be admin.
+  app.get("/api/gmail/attachments/:id/calendar-invite", requireAuth, async (req, res) => {
+    try {
+      const attId = Number(req.params.id);
+      if (!Number.isFinite(attId)) return res.status(400).json({ error: "Invalid attachment id" });
+      const sess = req.session as any;
+      const userId = sess?.userId as number;
+      const { isAdmin } = await getSessionUserAccess(req.session);
+      const { getAttachmentOwner, parseCalendarInviteForAttachment } = await import("./services/calendar-invite-parser");
+      const owner = await getAttachmentOwner(attId);
+      if (!owner) return res.status(404).json({ error: "Attachment not found" });
+      if (owner.ownerUserId !== userId && !isAdmin) {
+        return res.status(403).json({ error: "Not allowed" });
+      }
+      const isCalendar =
+        (owner.mimeType || "").toLowerCase().startsWith("text/calendar") ||
+        (owner.filename || "").toLowerCase().endsWith(".ics");
+      if (!isCalendar) return res.status(400).json({ error: "Attachment is not a calendar invite" });
+      const event = await parseCalendarInviteForAttachment(attId);
+      if (!event) return res.status(404).json({ error: "Could not parse calendar invite" });
+      res.json(event);
+    } catch (err: any) {
+      console.error("[calendar-invite]", err);
+      res.status(500).json({ error: err?.message || "Failed to parse invite" });
+    }
+  });
+
+  // GET /api/gmail/attachments/:id/download — proxy a Gmail attachment as a
+  // normal file download (Content-Disposition: attachment). Same owner-or-
+  // admin authorization as the calendar-invite parse above.
+  app.get("/api/gmail/attachments/:id/download", requireAuth, async (req, res) => {
+    try {
+      const attId = Number(req.params.id);
+      if (!Number.isFinite(attId)) return res.status(400).json({ error: "Invalid attachment id" });
+      const sess = req.session as any;
+      const userId = sess?.userId as number;
+      const { isAdmin } = await getSessionUserAccess(req.session);
+      const { getAttachmentOwner, downloadGmailAttachment } = await import("./services/calendar-invite-parser");
+      const owner = await getAttachmentOwner(attId);
+      if (!owner) return res.status(404).json({ error: "Attachment not found" });
+      if (owner.ownerUserId !== userId && !isAdmin) {
+        return res.status(403).json({ error: "Not allowed" });
+      }
+      const result = await downloadGmailAttachment(attId);
+      if (!result) return res.status(502).json({ error: "Could not fetch attachment from Gmail" });
+      // Strip CR/LF/quotes from filename to keep header parser happy
+      const safeName = result.filename.replace(/[\r\n"]/g, "_");
+      res.setHeader("Content-Type", result.mimeType);
+      res.setHeader("Content-Disposition", `attachment; filename="${safeName}"`);
+      res.setHeader("Content-Length", String(result.data.length));
+      res.send(result.data);
+    } catch (err: any) {
+      console.error("[attachment-download]", err);
+      res.status(500).json({ error: err?.message || "Failed to download" });
     }
   });
 

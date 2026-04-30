@@ -4258,3 +4258,55 @@ existing organizations.
 
 LSP scan: zero new errors introduced; the pre-existing TS errors
 in this file were not touched.
+
+## Spark-style calendar invite + recipient chips + downloadable attachments
+
+When a Gmail message carries an `.ics` (text/calendar) attachment we now show
+a Spark-style invite block ABOVE the email body — date badge, summary, full
+date/time/timezone, optional **Join meeting** button (Teams/Zoom/Meet/Webex/
+GoToMeeting/Whereby/Jitsi), recurring marker, organizer, and attendee chips
+with PARTSTAT response indicators (✓ accepted / ✗ declined / ? tentative).
+Clicking attendee chips opens `mailto:`. Every (non-inline) attachment chip
+is now a real **download link** that streams the bytes from Gmail with proper
+`Content-Disposition: attachment`. The single-line truncated TO/CC header was
+replaced with a chip list that expands beyond 4 recipients via a `+N more`
+button.
+
+**No schema change.** The `email_attachments` table already had everything we
+needed (`gmail_attachment_id`, `filename`, `mime_type`, `size_bytes`).
+
+### Files
+
+| File | Role |
+|------|------|
+| `server/services/calendar-invite-parser.ts` | NEW — `parseCalendarInviteForAttachment()` lazily fetches the .ics bytes from Gmail (via `getGmailClient(ownerUserId, sourceAccountId)`), parses with `node-ical`, extracts SUMMARY/LOCATION/DTSTART/DTEND/RRULE/STATUS/ORGANIZER/ATTENDEEs and a join URL. Also exports `getAttachmentOwner()` (auth helper) and `downloadGmailAttachment()` (binary fetch). |
+| `client/src/components/inbox/recipient-list.tsx` | NEW — RFC-2822-ish address list parser (respects quoted display names with embedded commas) + chip render with `+N more` / `Show less` expand. |
+| `client/src/components/inbox/calendar-invite-card.tsx` | NEW — `useQuery` against `/api/gmail/attachments/:id/calendar-invite`, renders the Spark block with skeleton/error states. |
+| `server/services/local-mailbox.ts` | EDITED — `LocalAttachment` type now carries `id` (so the client can address the download URL) and `downloadable: boolean` (true iff `gmail_attachment_id IS NOT NULL`). |
+| `server/routes.ts` | EDITED — added two endpoints, both `requireAuth` + owner-or-admin via `getSessionUserAccess`: `GET /api/gmail/attachments/:id/calendar-invite` and `GET /api/gmail/attachments/:id/download`. |
+| `client/src/pages/gmail-inbox.tsx` | EDITED — replaced the truncated TO/CC spans with `<RecipientList>`, mounted `<CalendarInviteCard>` above `MessageBody` for the first text/calendar attachment that is actually fetchable, and converted the attachment chip from a `<div>` to an `<a href download>` (with non-clickable fallback when `downloadable=false` or `id` is absent). |
+
+### Key behavior decisions (from architect feedback)
+
+- **Join URL extraction is defensive.** Some `node-ical` versions strip the
+  leading `X-` from extension properties, so `extractJoinUrl()` probes BOTH
+  `x-microsoft-skypeteamsmeetingurl` AND `microsoft-skypeteamsmeetingurl`
+  (similar for `x-google-conference`), then falls back to a fuzzy scan over
+  remaining event keys for any field whose name mentions
+  teams/meet/zoom/conference/webex/whereby and whose value is a URL, then
+  finally regex-scans LOCATION and DESCRIPTION.
+- **Download chips only render for fetchable attachments.** Inline message
+  parts can have `body.data` without an `attachmentId`. We surface
+  `downloadable = (gmail_attachment_id IS NOT NULL)` to the client and only
+  emit the `<a href download>` when `id != null && downloadable !== false`.
+  Otherwise the chip stays a non-interactive tile (so we never show a
+  download link that 502s).
+- **One invite per message.** When a message carries multiple `.ics` parts
+  we render the FIRST one (matches Spark and Outlook behavior).
+- **Authorization.** Both new endpoints use `getAttachmentOwner()` to look up
+  the message that owns the attachment, then require either
+  `userId === msg.ownerUserId` OR `isAdmin`. Same model used by every other
+  per-message endpoint in `routes.ts`.
+- **`Content-Disposition` injection guarded.** `quotedFilename` strips
+  CR/LF/quotes/backslashes before embedding into the `attachment;
+  filename="..."` header.

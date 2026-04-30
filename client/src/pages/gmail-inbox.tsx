@@ -32,6 +32,8 @@ import {
 } from "@/components/inbox/smart-inbox-grouper";
 import { EmailActionsToolbar } from "@/components/inbox/email-actions-toolbar";
 import { EmailFormatToolbar } from "@/components/inbox/email-format-toolbar";
+import { RecipientList } from "@/components/inbox/recipient-list";
+import { CalendarInviteCard } from "@/components/inbox/calendar-invite-card";
 import {
   useSetAside,
   useFormatBus,
@@ -86,6 +88,16 @@ type MessageSummary = {
   sourceAccountId?: number;
 };
 
+type ThreadAttachment = {
+  id?: number;              // email_attachments.id — present when source=local
+  downloadable?: boolean;   // false for inline parts that have no Gmail attachmentId
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  isInline: boolean;
+  contentId?: string | null;
+};
+
 type ThreadMessage = {
   id: string;
   threadId: string;
@@ -99,6 +111,7 @@ type ThreadMessage = {
   labelIds: string[];
   body: string;
   isHtml: boolean;
+  attachments?: ThreadAttachment[];
 };
 
 type Thread = {
@@ -6497,21 +6510,33 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             </span>
                           </div>
                           <p className="text-[11.5px] text-muted-foreground/65 truncate mt-0.5 font-mono">{parseSenderEmail(msg.from)}</p>
-                          <div className="text-[11px] text-muted-foreground/55 mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                            <span className="inline-flex items-baseline gap-1">
-                              <span className="text-muted-foreground/40 uppercase tracking-wider text-[9.5px] font-semibold">to</span>
-                              <span className="text-foreground/70 truncate max-w-[420px]">{msg.to}</span>
-                            </span>
-                            {msg.cc && (
-                              <span className="inline-flex items-baseline gap-1">
-                                <span className="text-muted-foreground/40 uppercase tracking-wider text-[9.5px] font-semibold">cc</span>
-                                <span className="text-foreground/70 truncate max-w-[300px]">{msg.cc}</span>
-                              </span>
-                            )}
+                          <div className="text-[11px] text-muted-foreground/55 mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                            <RecipientList label="To" raw={msg.to} />
+                            <RecipientList label="Cc" raw={msg.cc} />
                           </div>
                         </div>
                       </div>
                     </div>
+                    {/* Spark-style rich calendar invite block — rendered ABOVE
+                        the body whenever the message carries a text/calendar
+                        attachment with a known DB id. The card lazily fetches
+                        the parsed event (date/time/Join URL/attendees) from
+                        /api/gmail/attachments/:id/calendar-invite. */}
+                    {(() => {
+                      // Pick the first text/calendar attachment with a Gmail
+                      // attachmentId we can actually fetch. Skipping rows without
+                      // `downloadable` avoids spinner-then-error on inline parts.
+                      const ics = (msg.attachments || []).find(
+                        (a) =>
+                          a.id != null && a.downloadable !== false && (
+                            (a.mimeType || "").toLowerCase().startsWith("text/calendar") ||
+                            (a.filename || "").toLowerCase().endsWith(".ics")
+                          )
+                      );
+                      return ics?.id != null ? (
+                        <CalendarInviteCard attachmentId={ics.id} messageKey={msg.id} />
+                      ) : null;
+                    })()}
                     {/* Message body — for the LATEST message in the thread we
                         inject a rich-text formatting toolbar (Bold / Italic /
                         Lists / Link / Clear) into MessageBody's headerLeft
@@ -6544,31 +6569,58 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           {(msg as any).attachments.filter((a: any) => !a.isInline).length} attachment{(msg as any).attachments.filter((a: any) => !a.isInline).length === 1 ? "" : "s"}
                         </div>
                         <div className={focusMode ? "grid grid-cols-1 sm:grid-cols-2 gap-2.5" : "flex flex-wrap gap-2"}>
-                          {(msg as any).attachments.filter((a: any) => !a.isInline).map((a: any, i: number) => (
-                            <div
-                              key={i}
-                              data-testid={`chip-attachment-${msg.id}-${i}`}
-                              className={`flex items-center bg-card/60 border border-border/40 rounded-md hover:border-primary/40 hover:bg-card/80 transition-colors ${focusMode ? "gap-3 px-3.5 py-3 text-[13px] shadow-sm" : "gap-2 px-2.5 py-1.5 text-xs"}`}
-                              title={`${a.mimeType} • ${a.sizeBytes ? Math.round(a.sizeBytes/1024) + " KB" : "size unknown"}`}
-                            >
-                              <div className={`flex items-center justify-center rounded-md bg-primary/10 text-primary flex-shrink-0 ${focusMode ? "h-9 w-9" : ""}`}>
-                                <Paperclip className={focusMode ? "h-4 w-4" : "h-3 w-3 text-muted-foreground"} />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className={`truncate font-medium ${focusMode ? "max-w-none text-foreground" : "max-w-[260px]"}`}>{a.filename}</div>
-                                {focusMode && (
-                                  <div className="text-[11px] text-muted-foreground/70 tabular-nums mt-0.5">
-                                    {a.sizeBytes ? `${Math.round(a.sizeBytes/1024)} KB` : ""}{a.mimeType ? ` · ${a.mimeType.split("/")[1] || a.mimeType}` : ""}
-                                  </div>
+                          {(msg as any).attachments.filter((a: any) => !a.isInline).map((a: any, i: number) => {
+                            // Clickable only when we have a DB id AND Gmail has fetchable bytes
+                            // for it (downloadable=true means gmail_attachment_id IS NOT NULL).
+                            // Without that guard, some inline-but-not-isInline parts would
+                            // render as broken download links that 502 from /download.
+                            const canDownload = a.id != null && a.downloadable !== false;
+                            const downloadUrl = canDownload ? `/api/gmail/attachments/${a.id}/download` : null;
+                            const sharedClass = `flex items-center bg-card/60 border border-border/40 rounded-md transition-colors ${focusMode ? "gap-3 px-3.5 py-3 text-[13px] shadow-sm" : "gap-2 px-2.5 py-1.5 text-xs"} ${downloadUrl ? "hover:border-primary/55 hover:bg-card/90 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" : "hover:border-primary/40 hover:bg-card/80"}`;
+                            const titleAttr = `${a.mimeType} • ${a.sizeBytes ? Math.round(a.sizeBytes/1024) + " KB" : "size unknown"}${downloadUrl ? " — click to download" : ""}`;
+                            const inner = (
+                              <>
+                                <div className={`flex items-center justify-center rounded-md bg-primary/10 text-primary flex-shrink-0 ${focusMode ? "h-9 w-9" : ""}`}>
+                                  <Paperclip className={focusMode ? "h-4 w-4" : "h-3 w-3 text-muted-foreground"} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className={`truncate font-medium ${focusMode ? "max-w-none text-foreground" : "max-w-[260px]"}`}>{a.filename}</div>
+                                  {focusMode && (
+                                    <div className="text-[11px] text-muted-foreground/70 tabular-nums mt-0.5">
+                                      {a.sizeBytes ? `${Math.round(a.sizeBytes/1024)} KB` : ""}{a.mimeType ? ` · ${a.mimeType.split("/")[1] || a.mimeType}` : ""}
+                                    </div>
+                                  )}
+                                </div>
+                                {!focusMode && (
+                                  <span className="text-muted-foreground/60 tabular-nums flex items-center gap-1">
+                                    {a.sizeBytes ? `${Math.round(a.sizeBytes/1024)} KB` : ""}
+                                    {downloadUrl && <Download className="h-3 w-3 text-muted-foreground/70" />}
+                                  </span>
                                 )}
+                              </>
+                            );
+                            return downloadUrl ? (
+                              <a
+                                key={i}
+                                href={downloadUrl}
+                                download={a.filename}
+                                data-testid={`chip-attachment-${msg.id}-${i}`}
+                                className={sharedClass}
+                                title={titleAttr}
+                              >
+                                {inner}
+                              </a>
+                            ) : (
+                              <div
+                                key={i}
+                                data-testid={`chip-attachment-${msg.id}-${i}`}
+                                className={sharedClass}
+                                title={titleAttr}
+                              >
+                                {inner}
                               </div>
-                              {!focusMode && (
-                                <span className="text-muted-foreground/60 tabular-nums">
-                                  {a.sizeBytes ? `${Math.round(a.sizeBytes/1024)} KB` : ""}
-                                </span>
-                              )}
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}
