@@ -919,6 +919,41 @@ export async function syncCalDav(
   return { imported, updated, pushed, deleted, errors };
 }
 
+// ─── Auto-sync scheduler ──────────────────────────────────────────────────────
+
+async function syncAllActiveCalendars(): Promise<void> {
+  const active = await db
+    .select({ id: calendarConnections.id, userId: calendarConnections.userId, provider: calendarConnections.provider })
+    .from(calendarConnections)
+    .where(and(eq(calendarConnections.isActive, true), eq(calendarConnections.syncEnabled, true)));
+
+  for (const conn of active) {
+    try {
+      if (conn.provider === "google") {
+        await syncGoogleCalendar(conn.id, conn.userId);
+      } else {
+        await syncCalDav(conn.id, conn.userId);
+      }
+    } catch (err: any) {
+      console.error(`[calendar-sync] auto-sync failed for connection ${conn.id}: ${err.message}`);
+    }
+  }
+}
+
+export function startCalendarSyncScheduler(): void {
+  const INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+  console.log("[calendar-sync] Auto-sync scheduler started — interval=15min");
+
+  // One pass shortly after boot so events are fresh without waiting 15 min
+  setTimeout(() => {
+    syncAllActiveCalendars().catch((e) => console.error("[calendar-sync] startup sync error:", e.message));
+  }, 45_000);
+
+  setInterval(() => {
+    syncAllActiveCalendars().catch((e) => console.error("[calendar-sync] scheduled sync error:", e.message));
+  }, INTERVAL_MS);
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export async function getCalendarIntegrations(userId: number) {

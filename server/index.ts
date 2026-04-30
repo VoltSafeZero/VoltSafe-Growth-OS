@@ -273,6 +273,9 @@ app.use((req, res, next) => {
       // Phase 2A: Gmail watch renewal (no-op if GMAIL_PUBSUB_TOPIC unset)
       const { startWatchRenewalScheduler } = await import("./services/gmail-watch");
       startWatchRenewalScheduler();
+      // Calendar auto-sync (15-min interval; no-op when no connections are configured)
+      const { startCalendarSyncScheduler } = await import("./calendar-sync");
+      startCalendarSyncScheduler();
       // Phase 2B: ensure local search indexes exist (idempotent, non-blocking)
       import("./services/email-search")
         .then(({ ensureSearchIndexes }) => ensureSearchIndexes())
