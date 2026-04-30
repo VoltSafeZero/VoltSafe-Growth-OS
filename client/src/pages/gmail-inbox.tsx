@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
   Clock, FileText, CalendarClock, CalendarX, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
-  FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronRight, Folder,
+  FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronUp, ChevronRight, Folder,
   Reply, ReplyAll, Pencil, User, Building2, Zap, Flame,
   CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
   CheckCheck, ArrowLeft, ArrowUp, ClipboardList, StickyNote, ArchiveX, Square, Filter, Eye,
@@ -1438,6 +1438,15 @@ function CrmContextPanel({
   const [showQuickTask, setShowQuickTask] = useState(false);
   const [quickTaskTitle, setQuickTaskTitleLocal] = useState("");
 
+  const [panelExpanded, setPanelExpanded] = useState(() => {
+    try { return localStorage.getItem("crm-panel-expanded") !== "false"; } catch { return true; }
+  });
+  const togglePanel = () => {
+    const next = !panelExpanded;
+    setPanelExpanded(next);
+    try { localStorage.setItem("crm-panel-expanded", String(next)); } catch {}
+  };
+
   const canViewCrm = isAdminUser || (userPermissions?.crm !== "none" && userPermissions?.crm != null);
   const canEditCrm = isAdminUser || userPermissions?.crm === "edit";
   const canViewPartnerships = isAdminUser || (userPermissions?.partnerships !== "none" && userPermissions?.partnerships != null);
@@ -1850,8 +1859,8 @@ function CrmContextPanel({
           </button>
         </div>
       )}
-      {/* Workflow state pills */}
-      <div className="px-4 pt-2.5 pb-1.5 flex items-center gap-2 flex-wrap">
+      {/* Workflow state pills + expand/collapse toggle — always visible */}
+      <div className="px-4 pt-2 pb-1.5 flex items-center gap-2 flex-wrap">
         {WORKFLOW_PILLS.map(pill => {
           const isActive = workflowState === pill.value;
           return (
@@ -1871,8 +1880,20 @@ function CrmContextPanel({
           );
         })}
         {workflowMutation.isPending && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/50" />}
+        <div className="flex-1" />
+        <button
+          onClick={togglePanel}
+          data-testid="crm-panel-toggle"
+          title={panelExpanded ? "Collapse CRM panel" : "Expand CRM panel"}
+          className="flex items-center gap-1 text-[10px] text-muted-foreground/35 hover:text-muted-foreground/70 transition-colors px-1.5 py-0.5 rounded hover:bg-muted/30 flex-shrink-0"
+        >
+          <span className="font-medium tracking-wide uppercase">CRM</span>
+          {panelExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+        </button>
       </div>
 
+      {panelExpanded && (
+      <>
       {/* Awaiting reply indicator */}
       {thread?.awaitingReplySince && (
         <div className="px-4 pb-1.5">
@@ -2614,6 +2635,8 @@ function CrmContextPanel({
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }
