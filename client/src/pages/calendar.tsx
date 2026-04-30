@@ -96,6 +96,8 @@ import {
   getMinutes,
   parseISO,
   formatDistanceToNow,
+  startOfDay,
+  endOfDay,
 } from "date-fns";
 import type { CalendarEvent } from "@shared/schema";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -294,7 +296,8 @@ function getViewRange(currentDate: Date, view: ViewMode) {
       end: endOfWeek(currentDate),
     };
   }
-  return { start: currentDate, end: currentDate };
+  // Day view: always start at midnight so morning events are never missed
+  return { start: startOfDay(currentDate), end: endOfDay(currentDate) };
 }
 
 function useCalendarEvents(currentDate: Date, view: ViewMode) {
@@ -848,14 +851,14 @@ function WeekView({
                 return (
                   <div
                     key={day.toISOString()}
-                    className="border-l border-border/30 min-h-[48px] p-0.5 cursor-pointer"
+                    className="border-l border-border/30 min-h-[48px] p-0.5 cursor-pointer overflow-hidden min-w-0"
                     onClick={() => onSlotClick(day, hour)}
                     data-testid={`slot-week-${format(day, "yyyy-MM-dd")}-${hour}`}
                   >
                     {hourEvents.map((ev) => (
                       <button
                         key={`${ev.id}-${ev._team?.name ?? "own"}`}
-                        className={`w-full text-left text-[10px] px-1 py-0.5 rounded truncate border mb-0.5 ${
+                        className={`w-full min-w-0 text-left text-[10px] px-1 py-0.5 rounded border mb-0.5 block truncate ${
                           ev._team?.colorBg || EVENT_TYPE_COLORS[ev.eventType] || EVENT_TYPE_COLORS.meeting
                         }`}
                         onClick={(e) => {
@@ -863,6 +866,7 @@ function WeekView({
                           onEventClick(ev);
                         }}
                         data-testid={`event-week-${ev.id}`}
+                        title={`${formatTime(new Date(ev.startTime))} ${ev.title}`}
                       >
                         {ev._team ? `${ev._team.name.split(" ")[0]}: ` : ""}{formatTime(new Date(ev.startTime))} {ev.title}
                       </button>
