@@ -1565,16 +1565,18 @@ function CrmContextPanel({
     onError: (err: any) => toast({ title: "Failed to replace association", description: err.message, variant: "destructive" }),
   });
 
-  // Org search for the create-contact form (accounts only)
+  // Org search for the create-contact form (accounts only).
+  // When the search box is empty, the backend returns the top 20 accounts
+  // alphabetically so the user has something to BROWSE without typing.
+  // When the user types, it becomes a substring search.
   const orgSearchQuery = useQuery<CrmSearchResult[]>({
     queryKey: ["/api/gmail/crm-search/org", cOrgSearch],
     queryFn: async () => {
-      if (cOrgSearch.length < 2) return [];
       const res = await fetch(`/api/gmail/crm-search?q=${encodeURIComponent(cOrgSearch)}&types=account`, { credentials: "include" });
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: cOrgMode === "existing" && cOrgSearch.length >= 2,
+    enabled: cOrgMode === "existing",
   });
 
   // Refresh association engine for this thread
@@ -1684,7 +1686,10 @@ function CrmContextPanel({
     const domain = effectiveEmail.split("@")[1]?.toLowerCase() ?? "";
     setCName(effectiveName);
     setCTitle("");
-    setCOrgMode("new");
+    // Default to "Link existing" so the user immediately sees the
+    // browse-and-search dropdown of organizations already in the DB.
+    // They can still toggle to "Create new" if no match exists.
+    setCOrgMode("existing");
     setCOrgSearch("");
     setCSelectedAccount(null);
     setCNewOrgName(domain ? orgNameFromDomain(domain) : "");
@@ -2290,15 +2295,19 @@ function CrmContextPanel({
                             />
                           </div>
                         )}
-                        {!cSelectedAccount && cOrgSearch.length >= 2 && (
-                          <div className="max-h-24 overflow-y-auto border border-border/20 rounded bg-background/80 space-y-0">
+                        {!cSelectedAccount && (
+                          <div className="max-h-48 overflow-y-auto border border-border/20 rounded bg-background/80 space-y-0" data-testid="org-search-results">
                             {orgSearchQuery.isLoading && (
                               <div className="flex items-center justify-center py-2">
                                 <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/50" />
                               </div>
                             )}
                             {!orgSearchQuery.isLoading && (orgSearchQuery.data?.length ?? 0) === 0 && (
-                              <p className="text-[10px] text-muted-foreground/40 text-center py-2">No organizations found — try "Create new"</p>
+                              <p className="text-[10px] text-muted-foreground/40 text-center py-2">
+                                {cOrgSearch.length === 0
+                                  ? "No organizations in the database yet — use \"Create new\""
+                                  : "No matches — try a different search or use \"Create new\""}
+                              </p>
                             )}
                             {(orgSearchQuery.data ?? []).map(r => (
                               <button
@@ -2309,10 +2318,15 @@ function CrmContextPanel({
                               >
                                 <Building2 className="h-3 w-3 text-violet-400 flex-shrink-0" />
                                 <span className="text-[11px] text-foreground flex-1 truncate">{r.objectName}</span>
-                                {r.meta && <span className="text-[10px] text-muted-foreground/40 truncate max-w-[60px]">{r.meta}</span>}
+                                {r.meta && <span className="text-[10px] text-muted-foreground/40 truncate max-w-[80px]">{r.meta}</span>}
                               </button>
                             ))}
                           </div>
+                        )}
+                        {!cSelectedAccount && cOrgSearch.length === 0 && (orgSearchQuery.data?.length ?? 0) > 0 && (
+                          <p className="text-[10px] text-muted-foreground/40 italic">
+                            Showing top {orgSearchQuery.data?.length} alphabetically — type to filter.
+                          </p>
                         )}
                       </div>
                     ) : (

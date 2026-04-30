@@ -4174,3 +4174,87 @@ ACL on tasks" as a high-risk concern, but follow-up confirmed
 `/api/tasks/:id/full` itself only requires `crm:view` (no per-row
 owner predicate), so the new attachment gate matches the existing
 task-detail gate and introduces no escalation surface.
+
+---
+
+## Session 2026-04-30 — Phase A.1 (paused) + org-picker UX fix
+
+### A. Phase A.1: schema migration FILES authored (NOT applied)
+
+Per user authorization with stricter phasing than my proposal. User
+wants explicit SQL files reviewed BEFORE anything hits the DB.
+
+**Files written (waiting for user "apply it"):**
+
+- `migrations/0001_zoom_and_booking_links.sql` — adds 3 new tables
+  (`zoom_connections`, `booking_links`, `booking_link_recipients`) +
+  one nullable column on `calendar_events`
+  (`booking_link_recipient_id INTEGER NULL REFERENCES
+  booking_link_recipients(id) ON DELETE SET NULL`).
+  Wrapped in BEGIN/COMMIT, idempotent (`IF NOT EXISTS` everywhere).
+  Pre-flight verified: zero name collisions in live DB.
+  Under-budget vs the 4 tables user authorized — availability rolled
+  into `booking_links.availability JSONB` instead of a 4th table.
+- `migrations/0001_zoom_and_booking_links.down.sql` — drops in
+  reverse order (column on calendar_events first, then recipients,
+  then links, then zoom_connections).
+- `migrations/README.md` — apply / rollback procedure.
+
+**Status: NOT APPLIED.** `shared/schema.ts` is UNTOUCHED. Live DB is
+UNTOUCHED. Will only proceed when user says "apply it" or asks for
+edits to the SQL.
+
+**Discipline going forward:** each Phase A sub-step (A.1 → A.2 → A.3
+→ A.4) is verified before stacking the next. Phase B (Zoom OAuth)
+is on hold pending Zoom Marketplace credentials from user.
+
+### B. Org-picker UX fix (shipped + verified)
+
+**Bug:** When user clicked "+ Link → New Contact" in the unified
+inbox, the inline create-contact form opened in "Create new"
+organization mode by default, and the "Link existing" tab — even
+when clicked — only showed a search input that returned NOTHING
+until the user typed 2+ characters. There was no way to BROWSE
+existing organizations.
+
+**Root causes (3):**
+
+1. `openCreateForm()` in `client/src/pages/gmail-inbox.tsx` line
+   1687 hard-coded `setCOrgMode("new")`.
+2. The dropdown render condition (line 2293) required
+   `cOrgSearch.length >= 2` before showing anything.
+3. The backend `/api/gmail/crm-search` endpoint
+   (`server/routes.ts` line 10038) returned `[]` early for any
+   query shorter than 2 characters.
+
+**Fixes:**
+
+1. `client/src/pages/gmail-inbox.tsx` line 1687: changed to
+   `setCOrgMode("existing")`. Form now opens in browse-and-search
+   mode by default.
+2. `client/src/pages/gmail-inbox.tsx` line 1572-1582: removed
+   the `cOrgSearch.length < 2` short-circuit in the queryFn and
+   the `enabled` predicate. Query now runs whenever mode is
+   "existing".
+3. `client/src/pages/gmail-inbox.tsx` line 2301-2333: dropdown
+   renders whenever no account is selected. Bumped `max-h` from
+   24 to 48 (more rows visible). Empty-state copy distinguishes
+   "no orgs in DB yet" (q empty) vs "no matches" (q non-empty).
+   Added an italic helper line "Showing top N alphabetically — type
+   to filter." when results are present and q is empty.
+4. `server/routes.ts` line 10039-10070: when `q.length < 2` AND
+   the caller asked for accounts ONLY (`types=account`), the
+   endpoint now returns the top 20 accounts alphabetically. All
+   other type combinations still return `[]` for short queries —
+   PRESERVES the existing behavior of every other caller.
+
+**Verified end-to-end via authenticated curl:**
+
+| Test | Path | Result |
+|------|------|--------|
+| Empty q + accounts only | new browse mode | 200, 20 results, alphabetical |
+| `"mar"` + accounts only | existing search path | 200, 8 results |
+| Empty q + multi-type | preserves existing behavior | 200, 0 results |
+
+LSP scan: zero new errors introduced; the pre-existing TS errors
+in this file were not touched.

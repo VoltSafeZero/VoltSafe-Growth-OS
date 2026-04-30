@@ -10035,10 +10035,36 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
   // GET /api/gmail/crm-search?q=...&types=contact,account,lead,opportunity,partner
   // Unified CRM search used for manual association linking.
+  //
+  // Special case: when the caller asks for accounts only and the query is empty,
+  // we return the top 20 accounts alphabetically so the inline create-contact
+  // form can show a BROWSE list (not just a search-as-you-type list). Other
+  // type combinations still require q.length >= 2 to avoid hammering the DB.
   app.get("/api/gmail/crm-search", requireAuth, async (req, res) => {
     const q = String(req.query.q || "").trim();
     const types = String(req.query.types || "contact,account,lead,opportunity,partner").split(",");
-    if (q.length < 2) return res.json([]);
+
+    if (q.length < 2) {
+      // Browse mode: accounts-only callers get top 20 alphabetically.
+      if (types.length === 1 && types[0] === "account") {
+        try {
+          const rows = await db
+            .select({ id: accounts.id, name: accounts.name, website: accounts.website })
+            .from(accounts)
+            .orderBy(asc(accounts.name))
+            .limit(20);
+          return res.json(rows.map(r => ({
+            objectType: "account",
+            objectId: r.id,
+            objectName: r.name,
+            meta: r.website || "",
+          })));
+        } catch (error: any) {
+          return res.status(500).json({ message: error.message });
+        }
+      }
+      return res.json([]);
+    }
 
     try {
       const results: Array<{ objectType: string; objectId: number; objectName: string; meta: string }> = [];
