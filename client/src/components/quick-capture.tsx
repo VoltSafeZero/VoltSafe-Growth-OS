@@ -308,13 +308,34 @@ export function QuickCapture() {
     return () => window.removeEventListener("open-quick-capture", handler);
   }, [handleOpen]);
 
+  // Dynamic FAB position — pages dispatch "fab-nudge" to shift the button out
+  // of the way of their own bottom-right UI (e.g. email reading pane CRM row).
+  // Payload: { bottom?: number, right?: number } in pixels. Omitted axes keep
+  // their default. Reset by dispatching with { bottom: 40, right: 24 }.
+  const [fabStyle, setFabStyle] = useState<React.CSSProperties>({ bottom: 40, right: 24 });
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { bottom, right } = (e as CustomEvent<{ bottom?: number; right?: number }>).detail ?? {};
+      setFabStyle((prev) => ({
+        ...prev,
+        ...(bottom !== undefined ? { bottom } : {}),
+        ...(right  !== undefined ? { right  } : {}),
+      }));
+    };
+    window.addEventListener("fab-nudge", handler);
+    return () => window.removeEventListener("fab-nudge", handler);
+  }, []);
+
   return (
     <>
-      {/* Floating button — sits above the mobile nav bar (h-16 = 64px) + 24px gap on mobile */}
+      {/* Floating action button — position driven by fabStyle so pages can nudge
+          it out of the way of their own bottom-right controls via the "fab-nudge"
+          custom event.  Hidden on mobile (handled by the bottom nav instead). */}
       <button
         id="quick-capture-fab"
         onClick={() => handleOpen()}
-        className="fixed bottom-24 right-4 z-50 w-12 h-12 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all hidden md:flex items-center justify-center md:bottom-10 md:right-6"
+        className="fixed z-50 w-12 h-12 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-[bottom,right,transform,box-shadow] duration-300 hidden md:flex items-center justify-center"
+        style={fabStyle}
         title="Quick capture (⌘K)"
         data-testid="button-quick-capture"
       >

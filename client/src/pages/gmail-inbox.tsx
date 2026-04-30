@@ -4578,6 +4578,30 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     setSelectedThreadId(null);
   };
 
+  // Nudge the FAB up when the email reading pane is open so it never sits on
+  // top of the CRM links / reply / triage buttons at the bottom of the pane.
+  // The reading pane footer is ~220px tall; we add 16px breathing room → 236px.
+  // Reset to the default 40px offset when no thread is selected, and also on
+  // page unmount so other pages always start with the FAB in its default spot.
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("fab-nudge", {
+        detail: { bottom: selectedThreadId ? 236 : 40 },
+      })
+    );
+    return () => {
+      // Only reset on unmount (selectedThreadId dependency runs cleanup before
+      // re-running, but we only want the unmount reset here — the dispatch above
+      // handles the per-state transitions).
+    };
+  }, [selectedThreadId]);
+
+  useEffect(() => {
+    return () => {
+      window.dispatchEvent(new CustomEvent("fab-nudge", { detail: { bottom: 40 } }));
+    };
+  }, []);
+
   const handleReply = (msg: ThreadMessage) => {
     setReplyTo({
       to: parseSenderEmail(msg.from),
