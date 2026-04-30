@@ -4310,3 +4310,94 @@ needed (`gmail_attachment_id`, `filename`, `mime_type`, `size_bytes`).
 - **`Content-Disposition` injection guarded.** `quotedFilename` strips
   CR/LF/quotes/backslashes before embedding into the `attachment;
   filename="..."` header.
+
+---
+
+## 2026-04-30 — Spark calendar invite QA pass + real bug fix
+
+### What changed
+1. **Real runtime bug caught and fixed.** The service file used
+   `import * as ical from "node-ical"`. Under tsx/ESM with esModuleInterop,
+   that namespace import returns a module where `ical.sync === undefined`
+   for CJS dependencies — confirmed via tsx probe. The very first real
+   calendar invite would have hit `Cannot read properties of undefined
+   (reading 'parseICS')`. Switched to `import ical from "node-ical"`
+   (default import) in both the parser and the unit test. **Static type
+   check passed because @types/node-ical declares both shapes.** Only a
+   runtime probe / unit test caught it.
+
+2. **Pure-helper module split.** Extracted the IO-free portion of the
+   parser into `server/services/calendar-invite-parse-core.ts`:
+   - `extractJoinUrl(event)` — Teams / Meet / Zoom / Webex / fallback.
+   - `readAddressNode(node)` — organizer/attendee normalisation.
+   - `parseCalendarInviteFromText(text)` — the **pure surface that calls
+     `ical.sync.parseICS`**; this is the function unit tests should target
+     to lock the import shape.
+   - `MAX_ICS_BYTES` constant (512 KB).
+   The IO-bound surface (`server/services/calendar-invite-parser.ts`) now
+   only owns the DB lookup + Gmail OAuth fetch + base64url decode, then
+   delegates to `parseCalendarInviteFromText()`. Re-exports the shapes and
+   pure helpers so existing call sites need no changes.
+
+3. **UI polish on `client/src/components/inbox/calendar-invite-card.tsx`**:
+   - Attendee list collapses past 8; "Show N more" / "Show fewer" toggle.
+   - Response summary line: `12 yes · 2 no · 4 maybe · 3 pending`.
+   - Attendee chips are now `<a href="mailto:…">` keyboard-focusable links.
+   - Soft error state on parse failure (dimmed AlertCircle row) instead
+     of returning `null` — users can see something arrived but couldn't
+     be decoded.
+   - "No conference link or location provided" hint when both are empty.
+   - Attendee chip `data-testid` scoped by `messageKey` to avoid id
+     collisions when multiple invites are visible at once.
+
+4. **Defensive size cap.** `parseCalendarInviteFromText()` refuses any
+   payload over `MAX_ICS_BYTES` (512 KB). `parseCalendarInviteForAttachment()`
+   double-gates at the byte level before UTF-8 decode. Real-world invites
+   are 2–15 KB; anything past 512 KB is malformed or abusive.
+
+5. **`parseAddressList` lifted to a pure module** at
+   `client/src/components/inbox/parse-address-list.ts`. The original
+   `recipient-list.tsx` now re-exports it so existing imports keep
+   working. Lets the unit test consume it without React/JSX.
+
+### New test: `tests/calendar-invite.unit.ts` — 21/21 passing
+
+Run with `npx tsx tests/calendar-invite.unit.ts`. **No DB and no live
+server required** — the test only imports from `calendar-invite-parse-core`
+and the address-list module, neither of which touches `server/db`.
+Verified to pass cleanly with `DATABASE_URL=""`.
+
+Coverage:
+- `parseCalendarInviteFromText()` — 7 tests including the **service
+  parse-path lock** (any future revert of the node-ical import shape
+  breaks the test).
+- `extractJoinUrl()` — 6 tests across Teams / Meet / Zoom / Webex /
+  no-link / first-http fallback.
+- `parseAddressList()` — 8 tests including quoted display names with
+  embedded commas, lowercase normalisation, trailing-comma tolerance.
+
+### Files touched
+- `server/services/calendar-invite-parse-core.ts` — **NEW** pure module.
+- `server/services/calendar-invite-parser.ts` — slimmed to IO surface.
+- `client/src/components/inbox/calendar-invite-card.tsx` — UI polish.
+- `client/src/components/inbox/parse-address-list.ts` — **NEW** pure
+  helper, lifted from `recipient-list.tsx`.
+- `client/src/components/inbox/recipient-list.tsx` — re-exports
+  `parseAddressList` for backward compat.
+- `tests/calendar-invite.unit.ts` — **NEW**, 21 tests.
+
+### Verification (this turn)
+- `npx tsx tests/calendar-invite.unit.ts` — **21 passed, 0 failed.**
+- Same with `DATABASE_URL=""` — **21 passed, 0 failed** (true isolation).
+- `tsc --noEmit` — clean for all files I touched.
+- Endpoint probes — `/api/gmail/attachments/1/calendar-invite` and
+  `/download` both respond 401 (auth gate intact).
+- Live e2e in the browser remains blocked by the prior-session Google
+  OAuth issue and was not attempted.
+- **No Drizzle changes. No db:push.**
+
+### Phase A.1 status
+- Migration files still on disk at
+  `migrations/0001_zoom_and_booking_links.sql{,.down.sql}`.
+- `shared/schema.ts` UNTOUCHED.
+- **NOT applied.** Awaiting explicit "apply it" from the user.
