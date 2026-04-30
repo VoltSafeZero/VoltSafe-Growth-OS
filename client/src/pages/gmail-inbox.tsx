@@ -2824,6 +2824,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const mailTeamPerms: MailTeamPerms = (userPermissions?.mail_team ?? {}) as MailTeamPerms;
   const isAdmin = ["master_admin", "admin"].includes(currentUserRole);
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
+  const handleNavigateBack = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      window.history.back();
+    } else {
+      setLocation("/");
+    }
+  };
   // Commit 4 (unified inbox): the in-page mailSource toggle, the
   // ?mailSource= URL override, the localStorage `voltsafe.mailSource`
   // preference, and the toggle CTAs in the all-caught-up sentinel were all
@@ -4740,6 +4748,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     <div className="flex flex-col h-full min-h-0 overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-2 px-3 sm:px-4 py-1 border-b border-border/40 bg-background/80 backdrop-blur-sm flex-shrink-0">
+        <button
+          type="button"
+          onClick={handleNavigateBack}
+          data-testid="button-inbox-back"
+          className="inline-flex items-center gap-1 h-7 px-1.5 rounded-md text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none flex-shrink-0"
+          aria-label="Back"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          <span className="text-[12px] font-medium">Back</span>
+        </button>
+        <div className="w-px h-4 bg-border/50 flex-shrink-0" />
         <Mail className="h-3.5 w-3.5 text-primary/70 flex-shrink-0" />
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
