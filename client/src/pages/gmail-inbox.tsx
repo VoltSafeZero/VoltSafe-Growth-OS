@@ -1439,7 +1439,7 @@ function CrmContextPanel({
   const [quickTaskTitle, setQuickTaskTitleLocal] = useState("");
 
   const [panelExpanded, setPanelExpanded] = useState(() => {
-    try { return localStorage.getItem("crm-panel-expanded") !== "false"; } catch { return true; }
+    try { return localStorage.getItem("crm-panel-expanded") === "true"; } catch { return false; }
   });
   const togglePanel = () => {
     const next = !panelExpanded;
@@ -2933,16 +2933,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         chipPy: "py-1", chipPx: "px-2.5", chipText: "text-[11px]",
         searchH: "h-8",
         // Reader header
-        readerHeaderPx: "px-6", readerHeaderPy: "py-5",
-        readerSubjectText: "text-[20px]", readerMetaMt: "mt-1.5",
+        readerHeaderPx: "px-5", readerHeaderPy: "py-2.5",
+        readerSubjectText: "text-[18px]", readerMetaMt: "mt-0.5",
         // Reader thread + per-message card
-        readerThreadPx: "px-4", readerThreadPt: "pt-4", readerThreadGap: "space-y-4",
-        msgHeaderPx: "px-5", msgHeaderPy: "py-4",
-        msgBodyPx: "px-5", msgBodyPy: "py-4",
-        msgAvatar: "w-10 h-10", msgAvatarText: "text-[12.5px]",
-        msgSenderText: "text-[14.5px]",
+        readerThreadPx: "px-4", readerThreadPt: "pt-3", readerThreadGap: "space-y-3",
+        msgHeaderPx: "px-5", msgHeaderPy: "py-2.5",
+        msgBodyPx: "px-5", msgBodyPy: "py-3",
+        msgAvatar: "w-9 h-9", msgAvatarText: "text-[12px]",
+        msgSenderText: "text-[13.5px]",
         // Reply bar
-        replyBarPx: "px-4", replyBarPy: "py-2.5",
+        replyBarPx: "px-4", replyBarPy: "py-2",
       },
       compact: {
         py: "py-2", senderText: "text-[12.5px]", subText: "text-[11.5px]", showSnippet: true, signalsMt: "mt-0.5",
@@ -2955,14 +2955,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         chipsRootPad: "px-3 py-2", chipsRootGap: "space-y-1.5",
         chipPy: "py-0.5", chipPx: "px-2", chipText: "text-[10.5px]",
         searchH: "h-7",
-        readerHeaderPx: "px-5", readerHeaderPy: "py-3.5",
-        readerSubjectText: "text-[17px]", readerMetaMt: "mt-1",
-        readerThreadPx: "px-3", readerThreadPt: "pt-3", readerThreadGap: "space-y-3",
-        msgHeaderPx: "px-4", msgHeaderPy: "py-3",
-        msgBodyPx: "px-4", msgBodyPy: "py-3",
+        readerHeaderPx: "px-4", readerHeaderPy: "py-2",
+        readerSubjectText: "text-[16px]", readerMetaMt: "mt-0.5",
+        readerThreadPx: "px-3", readerThreadPt: "pt-2", readerThreadGap: "space-y-2.5",
+        msgHeaderPx: "px-4", msgHeaderPy: "py-2",
+        msgBodyPx: "px-4", msgBodyPy: "py-2.5",
         msgAvatar: "w-8 h-8", msgAvatarText: "text-[11px]",
-        msgSenderText: "text-[13.5px]",
-        replyBarPx: "px-3", replyBarPy: "py-2",
+        msgSenderText: "text-[13px]",
+        replyBarPx: "px-3", replyBarPy: "py-1.5",
       },
       ultra: {
         py: "py-1.5", senderText: "text-[12px]", subText: "text-[11px]", showSnippet: false, signalsMt: "mt-0",
@@ -2975,14 +2975,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         chipsRootPad: "px-3 py-1.5", chipsRootGap: "space-y-1",
         chipPy: "py-0.5", chipPx: "px-2", chipText: "text-[10px]",
         searchH: "h-7",
-        readerHeaderPx: "px-4", readerHeaderPy: "py-2.5",
-        readerSubjectText: "text-[15px]", readerMetaMt: "mt-0.5",
-        readerThreadPx: "px-3", readerThreadPt: "pt-2", readerThreadGap: "space-y-2",
-        msgHeaderPx: "px-3.5", msgHeaderPy: "py-2.5",
-        msgBodyPx: "px-3.5", msgBodyPy: "py-2.5",
+        readerHeaderPx: "px-4", readerHeaderPy: "py-1.5",
+        readerSubjectText: "text-[14px]", readerMetaMt: "mt-0",
+        readerThreadPx: "px-3", readerThreadPt: "pt-1.5", readerThreadGap: "space-y-2",
+        msgHeaderPx: "px-3.5", msgHeaderPy: "py-1.5",
+        msgBodyPx: "px-3.5", msgBodyPy: "py-2",
         msgAvatar: "w-7 h-7", msgAvatarText: "text-[10px]",
-        msgSenderText: "text-[12.5px]",
-        replyBarPx: "px-3", replyBarPy: "py-1.5",
+        msgSenderText: "text-[12px]",
+        replyBarPx: "px-3", replyBarPy: "py-1",
       },
     };
     return map[density];
@@ -6329,19 +6329,56 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           const focusRecommended = !focusMode && (totalBodyLen > 12000 || selectedMessages.length >= 3);
           return (
           <div className={`flex-1 flex flex-col min-h-0 transition-colors duration-300 ${focusMode ? "bg-gradient-to-b from-background via-background to-card/10" : ""}`}>
-            {/* Thread header — premium hero card */}
+            {/* Compact actions toolbar strip — sits flush above the subject header
+                in normal mode so it doesn't eat into the padded header area. */}
+            {!focusMode && selectedThreadId && focusedMsg && (
+              <div
+                className="flex-shrink-0 border-b border-border/20 bg-card/30 px-3 py-1"
+                data-testid="email-actions-toolbar-wrapper"
+              >
+                <EmailActionsToolbar
+                  threadId={selectedThreadId}
+                  focusedMessage={{
+                    id: focusedMsg.id,
+                    subject: focusedMsg.subject,
+                    body: focusedMsg.body,
+                    snippet: focusedMsg.snippet ?? null,
+                  }}
+                  isPriority={isStarred(focusedMsg.labelIds)}
+                  isPinned={pinnedAPI.isPinned(selectedThreadId)}
+                  isSetAside={setAsideAPI.isSetAside(selectedThreadId)}
+                  assignedUserId={readerAssignedUserId}
+                  canReply={canSend}
+                  handlers={{
+                    onClose: handleBack,
+                    onMarkDone: () => markDoneSingleMutation.mutate(selectedThreadId),
+                    onTrash: () => trashThreadMutation.mutate(selectedThreadId),
+                    onTogglePriority: () => toggleStarMutation.mutate(focusedMsg.id),
+                    onMarkUnread: () => markUnreadSingleMutation.mutate(focusedMsg.id),
+                    onTogglePin: () => pinnedAPI.togglePin(selectedThreadId),
+                    onSetAside: () => {
+                      setAsideAPI.toggle(selectedThreadId);
+                      if (!setAsideAPI.isSetAside(selectedThreadId)) {
+                        handleBack();
+                      }
+                    },
+                    onSendAgain: () => handleReply(focusedMsg),
+                    onReply: () => handleReply(focusedMsg),
+                    onMove: () => archiveThreadMutation.mutate(selectedThreadId),
+                    onMarkSpam: () => archiveThreadMutation.mutate(selectedThreadId),
+                    onBlock: () => archiveThreadMutation.mutate(selectedThreadId),
+                  }}
+                  onAssignChanged={() => {
+                    queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", selectedThreadId] });
+                  }}
+                />
+              </div>
+            )}
+            {/* Thread header — subject + meta only (tighter without toolbar) */}
             <div className={`flex-shrink-0 border-b border-border/30 bg-gradient-to-b from-card/40 via-card/20 to-transparent transition-all duration-300 ${focusMode ? "px-6 py-6" : `${densityClasses.readerHeaderPx} ${densityClasses.readerHeaderPy}`}`}>
-              {/* Spark-style top actions toolbar — primary action surface for
-                  the focused thread. Sits above the subject row so the actions
-                  are reachable in one motion regardless of scroll position.
-                  Renders only when a thread is selected; the existing right-
-                  side cluster (star / reply / archive / focus mode) is kept
-                  for muscle-memory parity with previous builds. */}
-              {selectedThreadId && focusedMsg && (
-                <div
-                  className={`mb-3 transition-[max-width] duration-300 ${focusMode ? "max-w-4xl mx-auto w-full" : ""}`}
-                  data-testid="email-actions-toolbar-wrapper"
-                >
+              {/* Focus Mode: toolbar stays inside header for distraction-free layout */}
+              {focusMode && selectedThreadId && focusedMsg && (
+                <div className="mb-3 max-w-4xl mx-auto w-full">
                   <EmailActionsToolbar
                     threadId={selectedThreadId}
                     focusedMessage={{
@@ -6364,8 +6401,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       onTogglePin: () => pinnedAPI.togglePin(selectedThreadId),
                       onSetAside: () => {
                         setAsideAPI.toggle(selectedThreadId);
-                        // Drop the reader pane so the user feels the thread
-                        // was tucked away, mirroring Spark's gesture.
                         if (!setAsideAPI.isSetAside(selectedThreadId)) {
                           handleBack();
                         }
@@ -6551,6 +6586,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           <div className="flex items-baseline justify-between gap-2">
                             <p
                               className={`font-semibold ${densityClasses.msgSenderText} text-foreground leading-tight tracking-[-0.005em] truncate`}
+                              title={parseSenderEmail(msg.from)}
                               data-testid={`text-sender-${msg.id}`}
                             >
                               {parseSenderName(msg.from)}
@@ -6566,8 +6602,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                               {formatMessageHeaderDate(msg.date, msg.internalDate)}
                             </span>
                           </div>
-                          <p className="text-[11.5px] text-muted-foreground/65 truncate mt-0.5 font-mono">{parseSenderEmail(msg.from)}</p>
-                          <div className="text-[11px] text-muted-foreground/55 mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                          <div className="text-[11px] text-muted-foreground/50 mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
                             <RecipientList label="To" raw={msg.to} />
                             <RecipientList label="Cc" raw={msg.cc} />
                           </div>
