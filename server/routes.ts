@@ -12052,6 +12052,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   //     Replit edge) MAY retain it. Our own request logger only logs req.path,
   //     not req.url, so we don't store it. Rotate GMAIL_WEBHOOK_TOKEN on a
   //     schedule and treat it as a low-sensitivity secret accordingly.
+  // Debounce map: accountId → pending timer handle.
+  // Multiple Pub/Sub messages for the same account within WEBHOOK_DEBOUNCE_MS
+  // are coalesced into a single incremental sync (prevents thundering-herd when
+  // the subscription catches up after a long gap or a burst of label changes).
+  const webhookDebounce = new Map<number, ReturnType<typeof setTimeout>>();
+  const WEBHOOK_DEBOUNCE_MS = 2_000;
+
   app.post("/api/webhooks/gmail", async (req, res) => {
     const expected = (process.env.GMAIL_WEBHOOK_TOKEN || "").trim();
     const provided = typeof req.query.token === "string" ? req.query.token : "";
@@ -12090,9 +12097,20 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         .set({ lastWebhookAt: new Date(), updatedAt: new Date() })
         .where(eq(emailAccounts.id, acct.id));
 
-      // Fire incremental sync in background
-      const { syncIncremental } = await import("./services/gmail-incremental");
-      syncIncremental(acct.id).catch((e) => console.error("[gmail-webhook] incremental sync error:", e.message));
+      // Debounce: cancel any pending sync for this account and schedule a fresh one.
+      // This coalesces bursts (e.g. subscription catch-up after a gap) into one sync.
+      const existing = webhookDebounce.get(acct.id);
+      if (existing) clearTimeout(existing);
+      const handle = setTimeout(async () => {
+        webhookDebounce.delete(acct.id);
+        try {
+          const { syncIncremental } = await import("./services/gmail-incremental");
+          await syncIncremental(acct.id);
+        } catch (e: any) {
+          console.error("[gmail-webhook] incremental sync error:", e.message);
+        }
+      }, WEBHOOK_DEBOUNCE_MS);
+      webhookDebounce.set(acct.id, handle);
     } catch (e: any) {
       console.error("[gmail-webhook] payload parse error:", e.message);
     }
