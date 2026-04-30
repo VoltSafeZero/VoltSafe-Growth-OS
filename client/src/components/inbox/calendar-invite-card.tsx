@@ -8,6 +8,7 @@
 // Data is fetched lazily from /api/gmail/attachments/:id/calendar-invite
 // (the parent passes the attachment DB id, NOT the message id, so the same
 // endpoint handles every kind of invite the inbox might encounter).
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Calendar,
@@ -20,8 +21,15 @@ import {
   HelpCircle,
   Loader2,
   Repeat,
+  AlertCircle,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+
+// Cap the visible attendee strip — anything beyond this hides behind a
+// "+N more" expand. Picked at 8 because that's roughly the point at which
+// the chip row starts wrapping to a second line on a 720-wide thread pane.
+const ATTENDEE_COLLAPSED_COUNT = 8;
 
 interface CalendarAttendee {
   name: string | null;
@@ -89,6 +97,7 @@ export function CalendarInviteCard({ attachmentId, messageKey }: CalendarInviteC
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
+  const [attendeesExpanded, setAttendeesExpanded] = useState(false);
 
   const testKey = messageKey != null ? `${messageKey}` : `${attachmentId}`;
 
@@ -103,7 +112,21 @@ export function CalendarInviteCard({ attachmentId, messageKey }: CalendarInviteC
       </div>
     );
   }
-  if (isError || !data) return null;
+  // Soft error: the body still renders right below us, so we don't want to
+  // hijack the email view with a giant alert. A subtle dimmed line keeps
+  // the existence of an attached invite visible without screaming.
+  if (isError) {
+    return (
+      <div
+        className="my-3 mx-5 rounded-md border border-border/30 bg-muted/30 px-3 py-2 flex items-center gap-2 text-[11px] text-muted-foreground"
+        data-testid={`card-calendar-invite-error-${testKey}`}
+      >
+        <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+        Calendar invite couldn't be parsed — you can still download the .ics from the attachments below.
+      </div>
+    );
+  }
+  if (!data) return null;
 
   const start = data.start ? new Date(data.start) : null;
   const end = data.end ? new Date(data.end) : null;
@@ -185,7 +208,7 @@ export function CalendarInviteCard({ attachmentId, messageKey }: CalendarInviteC
               <span className="break-all">{data.location}</span>
             </div>
           )}
-          {data.joinUrl && (
+          {data.joinUrl ? (
             <div className="pt-1">
               <Button
                 asChild
@@ -199,64 +222,136 @@ export function CalendarInviteCard({ attachmentId, messageKey }: CalendarInviteC
                 </a>
               </Button>
             </div>
-          )}
+          ) : (!data.location && !isCancelled) ? (
+            // Fallback hint: when the invite has neither a conference URL nor
+            // a physical location, surface that explicitly so the recipient
+            // doesn't think we just failed to find the link.
+            <div
+              className="flex items-center gap-1.5 text-[11px] text-muted-foreground/65 italic pt-0.5"
+              data-testid={`text-invite-no-link-${testKey}`}
+            >
+              <Video className="h-3 w-3 opacity-60" />
+              No conference link or location provided
+            </div>
+          ) : null}
         </div>
       </div>
       {/* Attendees */}
-      {data.attendees.length > 0 && (
-        <div className="border-t border-border/30 bg-background/40 px-4 py-3 sm:px-5">
-          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold text-muted-foreground/65 mb-2">
-            <Users className="h-3 w-3" />
-            <span data-testid={`text-attendee-count-${testKey}`}>
-              {data.attendees.length} attendee{data.attendees.length === 1 ? "" : "s"}
-            </span>
-            {data.organizer && (
-              <span className="normal-case tracking-normal text-muted-foreground/50 font-normal">
-                · organizer {data.organizer.name || data.organizer.email}
+      {data.attendees.length > 0 && (() => {
+        // Aggregate response counts across all attendees so the header line
+        // gives a quick "12 accepted · 2 declined · 4 pending" summary.
+        const counts = data.attendees.reduce(
+          (acc, a) => {
+            const k = (a.partstat || "").toUpperCase();
+            if (k === "ACCEPTED") acc.accepted++;
+            else if (k === "DECLINED") acc.declined++;
+            else if (k === "TENTATIVE") acc.tentative++;
+            else acc.pending++;
+            return acc;
+          },
+          { accepted: 0, declined: 0, tentative: 0, pending: 0 },
+        );
+        const totalRespondedShown =
+          counts.accepted || counts.declined || counts.tentative;
+        const showAllAttendees =
+          attendeesExpanded || data.attendees.length <= ATTENDEE_COLLAPSED_COUNT;
+        const visibleAttendees = showAllAttendees
+          ? data.attendees
+          : data.attendees.slice(0, ATTENDEE_COLLAPSED_COUNT);
+        const hiddenAttendeeCount =
+          data.attendees.length - visibleAttendees.length;
+
+        return (
+          <div className="border-t border-border/30 bg-background/40 px-4 py-3 sm:px-5">
+            <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 text-[10px] uppercase tracking-wider font-semibold text-muted-foreground/65 mb-2">
+              <span className="inline-flex items-center gap-1.5">
+                <Users className="h-3 w-3" />
+                <span data-testid={`text-attendee-count-${testKey}`}>
+                  {data.attendees.length} attendee{data.attendees.length === 1 ? "" : "s"}
+                </span>
               </span>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {data.attendees.map((a) => {
-              const isOrganizer =
-                !!data.organizer?.email && a.email === data.organizer.email;
-              const partstat = (a.partstat || "").toUpperCase();
-              const indicator =
-                partstat === "ACCEPTED"  ? <Check className="h-2.5 w-2.5 text-emerald-400" /> :
-                partstat === "DECLINED"  ? <X className="h-2.5 w-2.5 text-rose-400" /> :
-                partstat === "TENTATIVE" ? <HelpCircle className="h-2.5 w-2.5 text-amber-400" /> :
-                null;
-              return (
-                <div
-                  key={a.email}
-                  className="inline-flex items-center gap-1.5 rounded-full bg-card/60 border border-border/30 pl-1 pr-2 py-0.5 hover:border-border/60 transition-colors"
-                  title={
-                    `${a.name || a.email}` +
-                    (a.name && a.email !== a.name ? ` <${a.email}>` : "") +
-                    (partstat ? ` · ${partstat}` : "")
-                  }
-                  data-testid={`chip-attendee-${a.email}`}
+              {totalRespondedShown > 0 && (
+                <span
+                  className="normal-case tracking-normal text-muted-foreground/55 font-normal"
+                  data-testid={`text-attendee-summary-${testKey}`}
                 >
-                  <div
-                    className={`h-4 w-4 rounded-full bg-gradient-to-br ${avatarColor(a.email)} text-[8px] font-bold text-white flex items-center justify-center select-none ring-1 ring-black/5`}
+                  ·
+                  {counts.accepted > 0 && <span className="ml-1 text-emerald-500/90">{counts.accepted} yes</span>}
+                  {counts.declined > 0 && <span className="ml-1 text-rose-500/90">{counts.declined} no</span>}
+                  {counts.tentative > 0 && <span className="ml-1 text-amber-500/90">{counts.tentative} maybe</span>}
+                  {counts.pending > 0 && <span className="ml-1 text-muted-foreground/55">{counts.pending} pending</span>}
+                </span>
+              )}
+              {data.organizer && (
+                <span className="normal-case tracking-normal text-muted-foreground/50 font-normal">
+                  · organizer {data.organizer.name || data.organizer.email}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {visibleAttendees.map((a) => {
+                const isOrganizer =
+                  !!data.organizer?.email && a.email === data.organizer.email;
+                const partstat = (a.partstat || "").toUpperCase();
+                const indicator =
+                  partstat === "ACCEPTED"  ? <Check className="h-2.5 w-2.5 text-emerald-400" /> :
+                  partstat === "DECLINED"  ? <X className="h-2.5 w-2.5 text-rose-400" /> :
+                  partstat === "TENTATIVE" ? <HelpCircle className="h-2.5 w-2.5 text-amber-400" /> :
+                  null;
+                return (
+                  <a
+                    key={a.email}
+                    href={`mailto:${a.email}`}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-card/60 border border-border/30 pl-1 pr-2 py-0.5 hover:border-primary/40 hover:bg-card/90 transition-colors no-underline"
+                    title={
+                      `${a.name || a.email}` +
+                      (a.name && a.email !== a.name ? ` <${a.email}>` : "") +
+                      (partstat ? ` · ${partstat}` : "")
+                    }
+                    data-testid={`chip-attendee-${testKey}-${a.email}`}
                   >
-                    {initialsOf(a.name, a.email)}
-                  </div>
-                  <span className="text-[11px] font-medium text-foreground/85 max-w-[160px] truncate">
-                    {a.name || a.email}
-                  </span>
-                  {isOrganizer && (
-                    <span className="text-[8.5px] uppercase tracking-wider font-semibold text-primary/80">
-                      org
+                    <div
+                      className={`h-4 w-4 rounded-full bg-gradient-to-br ${avatarColor(a.email)} text-[8px] font-bold text-white flex items-center justify-center select-none ring-1 ring-black/5`}
+                    >
+                      {initialsOf(a.name, a.email)}
+                    </div>
+                    <span className="text-[11px] font-medium text-foreground/85 max-w-[160px] truncate">
+                      {a.name || a.email}
                     </span>
-                  )}
-                  {indicator}
-                </div>
-              );
-            })}
+                    {isOrganizer && (
+                      <span className="text-[8.5px] uppercase tracking-wider font-semibold text-primary/80">
+                        org
+                      </span>
+                    )}
+                    {indicator}
+                  </a>
+                );
+              })}
+              {hiddenAttendeeCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setAttendeesExpanded(true)}
+                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary/85 hover:bg-primary/20 transition-colors px-2.5 py-0.5 text-[11px] font-medium"
+                  data-testid={`button-expand-attendees-${testKey}`}
+                >
+                  +{hiddenAttendeeCount} more
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+              )}
+              {attendeesExpanded && data.attendees.length > ATTENDEE_COLLAPSED_COUNT && (
+                <button
+                  type="button"
+                  onClick={() => setAttendeesExpanded(false)}
+                  className="inline-flex items-center rounded-full text-muted-foreground/60 hover:text-foreground transition-colors px-2.5 py-0.5 text-[11px]"
+                  data-testid={`button-collapse-attendees-${testKey}`}
+                >
+                  Show less
+                </button>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

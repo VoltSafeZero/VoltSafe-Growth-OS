@@ -1,52 +1,15 @@
 // Renders a To/Cc recipient row as an expandable list of pretty chips.
 // Replaces the old single-line truncated string render that hid attendees
 // after the first ~3 addresses on wide threads.
+//
+// The actual address-list parser lives in `./parse-address-list` so it can
+// be imported from Node-side unit tests without pulling in React/JSX.
 import { useState, useMemo } from "react";
 import { ChevronDown } from "lucide-react";
+import { parseAddressList, type ParsedAddress } from "./parse-address-list";
 
-export interface ParsedAddress {
-  name: string | null;
-  email: string;
-}
-
-/**
- * Split "Foo Bar <foo@x>, baz@y, \"Q, R\" <qr@z>" while respecting quoted
- * substrings (display names can legally contain commas).
- */
-export function parseAddressList(raw: string | null | undefined): ParsedAddress[] {
-  if (!raw) return [];
-  const out: ParsedAddress[] = [];
-  let inQuotes = false;
-  let buf = "";
-  for (const ch of raw) {
-    if (ch === '"') {
-      inQuotes = !inQuotes;
-      buf += ch;
-      continue;
-    }
-    if (ch === "," && !inQuotes) {
-      const piece = buf.trim();
-      if (piece) out.push(parseSingle(piece));
-      buf = "";
-      continue;
-    }
-    buf += ch;
-  }
-  const last = buf.trim();
-  if (last) out.push(parseSingle(last));
-  return out;
-}
-
-function parseSingle(piece: string): ParsedAddress {
-  // "Display Name" <email@host>  or  Display Name <email@host>
-  const m = piece.match(/^(.*?)<([^>]+)>\s*$/);
-  if (m) {
-    let name = m[1].trim();
-    if (name.startsWith('"') && name.endsWith('"')) name = name.slice(1, -1).trim();
-    return { name: name || null, email: m[2].trim().toLowerCase() };
-  }
-  return { name: null, email: piece.trim().toLowerCase() };
-}
+export { parseAddressList };
+export type { ParsedAddress };
 
 interface RecipientListProps {
   label: string;                 // "To" / "Cc" / "Bcc"

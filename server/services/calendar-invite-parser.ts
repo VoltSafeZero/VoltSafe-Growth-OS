@@ -1,13 +1,16 @@
-// Calendar-invite (.ics) parser + Gmail attachment proxy.
+// Calendar-invite (.ics) Gmail attachment proxy + IO surface.
+//
+// This module owns the database lookup + Gmail OAuth fetch chain. The pure
+// parsing logic (node-ical decode, VEVENT normalisation, joinUrl extraction)
+// lives in `./calendar-invite-parse-core` so it can be unit-tested without
+// pulling in `server/db` (which would explode in a DATABASE_URL-less shell).
 //
 // Two responsibilities:
 //   1. parseCalendarInviteForAttachment(attachmentDbId)
 //      - Resolves the email_attachments row -> parent email_messages row
 //      - Fetches the raw attachment bytes from Gmail's REST API using the
 //        owner's OAuth token (refreshed transparently by getGmailClient)
-//      - Decodes base64url -> UTF-8 text -> parses with node-ical
-//      - Normalises the first VEVENT into a flat shape that the React
-//        CalendarInviteCard can render directly
+//      - Decodes UTF-8 and hands off to parseCalendarInviteFromText()
 //
 //   2. downloadGmailAttachment(attachmentDbId)
 //      - Same lookup + auth chain, returns the raw bytes + filename + mime
@@ -15,36 +18,24 @@
 //
 // Both helpers throw on missing/inaccessible records; the route wraps them
 // in try/catch and converts to 404/500.
-import * as ical from "node-ical";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { emailAttachments, emailMessages } from "../../shared/schema";
 import { getGmailClient } from "../gmail-oauth";
+import {
+  parseCalendarInviteFromText,
+  MAX_ICS_BYTES,
+  type CalendarAttendee,
+  type CalendarEventDetails,
+} from "./calendar-invite-parse-core";
 
-export interface CalendarAttendee {
-  name: string | null;
-  email: string;
-  role: string | null;       // CHAIR | REQ-PARTICIPANT | OPT-PARTICIPANT
-  partstat: string | null;   // ACCEPTED | DECLINED | TENTATIVE | NEEDS-ACTION
-  rsvp: boolean;
-}
-
-export interface CalendarEventDetails {
-  uid: string | null;
-  summary: string;
-  description: string | null;
-  location: string | null;
-  joinUrl: string | null;     // Best-effort conference URL (Teams/Zoom/Meet/etc)
-  start: string | null;       // ISO-8601
-  end: string | null;         // ISO-8601
-  allDay: boolean;
-  organizer: { name: string | null; email: string | null } | null;
-  attendees: CalendarAttendee[];
-  status: string | null;      // CONFIRMED | CANCELLED | TENTATIVE
-  sequence: number;
-  method: string | null;      // REQUEST | REPLY | CANCEL
-  rrule: string | null;
-}
+// Re-export the shape definitions and the pure helper so existing callers
+// (and future ones) can import everything from a single module.
+export { parseCalendarInviteFromText, MAX_ICS_BYTES };
+export type { CalendarAttendee, CalendarEventDetails };
+// Also re-export extractJoinUrl for any caller that wants the pure helper
+// directly without going through the IO chain.
+export { extractJoinUrl, readAddressNode } from "./calendar-invite-parse-core";
 
 interface AttachmentLookup {
   attachment: {
@@ -154,81 +145,13 @@ export async function downloadGmailAttachment(
   };
 }
 
-// Lightweight helpers for converting node-ical's polymorphic shape into our
-// flat schema. node-ical's organizer/attendee can be either a plain string
-// like "MAILTO:foo@bar.com" or a richer object with `params` and `val`.
-function readAddressNode(node: any): CalendarAttendee | null {
-  if (!node) return null;
-  let raw = "";
-  let params: Record<string, any> = {};
-  if (typeof node === "string") {
-    raw = node;
-  } else if (typeof node === "object") {
-    raw = String(node.val ?? node);
-    params = node.params || {};
-  }
-  const email = raw.replace(/^MAILTO:/i, "").trim().toLowerCase();
-  if (!email) return null;
-  return {
-    name: typeof params.CN === "string" ? params.CN : null,
-    email,
-    role: typeof params.ROLE === "string" ? params.ROLE : null,
-    partstat: typeof params.PARTSTAT === "string" ? params.PARTSTAT : null,
-    rsvp: String(params.RSVP || "").toUpperCase() === "TRUE",
-  };
-}
-
-function extractJoinUrl(event: any): string | null {
-  // 1. Microsoft Teams ships X-MICROSOFT-SKYPETEAMSMEETINGURL on the VEVENT.
-  //    node-ical historically strips the leading "X-" when surfacing iCal
-  //    extension properties, so we probe BOTH the prefixed and non-prefixed
-  //    forms (lowercased + uppercased) to be safe across versions.
-  const probeKeys = [
-    "x-microsoft-skypeteamsmeetingurl",
-    "X-MICROSOFT-SKYPETEAMSMEETINGURL",
-    "microsoft-skypeteamsmeetingurl",
-    "MICROSOFT-SKYPETEAMSMEETINGURL",
-    "x-google-conference",
-    "X-GOOGLE-CONFERENCE",
-    "google-conference",
-    "GOOGLE-CONFERENCE",
-  ];
-  for (const k of probeKeys) {
-    const v = event[k];
-    if (v && typeof v === "string") return v;
-    if (v && typeof v === "object" && typeof v.val === "string") return v.val;
-  }
-  // 1b. Last-resort fuzzy scan over remaining event keys for any field whose
-  //     name mentions teams/meet/zoom/conference and whose value is a URL.
-  for (const [key, val] of Object.entries(event)) {
-    const lk = key.toLowerCase();
-    if (!/(teams|meet|zoom|conference|webex|whereby)/.test(lk)) continue;
-    const str = typeof val === "string"
-      ? val
-      : (val && typeof val === "object" && typeof (val as any).val === "string")
-        ? (val as any).val
-        : "";
-    if (/^https?:\/\//i.test(str)) return str;
-  }
-  // 2. LOCATION sometimes is the Zoom/Webex URL itself
-  const loc = typeof event.location === "string" ? event.location : "";
-  const locMatch = loc.match(/https?:\/\/\S+/);
-  if (locMatch) return locMatch[0];
-  // 3. DESCRIPTION — prefer known conference domains, fall back to first link
-  const desc = typeof event.description === "string" ? event.description : "";
-  const conf = desc.match(
-    /https?:\/\/[^\s"'<>)]*(?:teams\.microsoft\.com|zoom\.us|meet\.google\.com|webex\.com|whereby\.com|jit\.si|gotomeeting\.com)[^\s"'<>)]*/i,
-  );
-  if (conf) return conf[0];
-  const any = desc.match(/https?:\/\/[^\s"'<>)]+/);
-  if (any) return any[0];
-  return null;
-}
-
 /**
  * Parse the calendar invite for a single attachment row.
  * Caller is responsible for verifying the attachment is text/calendar before
  * invoking us.
+ *
+ * The hard work (UTF-8 decode + node-ical parse + VEVENT normalisation) is
+ * delegated to parseCalendarInviteFromText() in the pure-helper module.
  */
 export async function parseCalendarInviteForAttachment(
   attachmentDbId: number,
@@ -237,66 +160,8 @@ export async function parseCalendarInviteForAttachment(
   if (!lookup) return null;
   const buf = await fetchAttachmentBytes(lookup);
   if (!buf) return null;
+  // Cheap byte-level guard before we even allocate a JS string.
+  if (buf.length > MAX_ICS_BYTES) return null;
   const text = buf.toString("utf-8");
-  if (!/BEGIN:VCALENDAR/i.test(text)) return null;
-
-  let parsed: any;
-  try {
-    parsed = ical.sync.parseICS(text);
-  } catch {
-    return null;
-  }
-  const event = Object.values(parsed).find(
-    (v: any) => v && v.type === "VEVENT",
-  ) as any;
-  if (!event) return null;
-
-  const organizer = readAddressNode(event.organizer);
-
-  const attRaw = event.attendee;
-  const attArr = !attRaw
-    ? []
-    : Array.isArray(attRaw)
-    ? attRaw
-    : [attRaw];
-  const attendees = attArr
-    .map(readAddressNode)
-    .filter((a: CalendarAttendee | null): a is CalendarAttendee => !!a);
-
-  const startDate: any = event.start;
-  const endDate: any = event.end;
-  const allDay =
-    !!startDate && (startDate.dateOnly === true || /^\d{4}-\d{2}-\d{2}$/.test(String(startDate)));
-
-  const toIso = (d: any): string | null => {
-    if (!d) return null;
-    try {
-      const date = d instanceof Date ? d : new Date(d);
-      if (isNaN(date.getTime())) return null;
-      return date.toISOString();
-    } catch {
-      return null;
-    }
-  };
-
-  return {
-    uid: typeof event.uid === "string" ? event.uid : null,
-    summary: typeof event.summary === "string" ? event.summary : "(no title)",
-    description: typeof event.description === "string" ? event.description : null,
-    location: typeof event.location === "string" ? event.location : null,
-    joinUrl: extractJoinUrl(event),
-    start: toIso(startDate),
-    end: toIso(endDate),
-    allDay,
-    organizer: organizer ? { name: organizer.name, email: organizer.email } : null,
-    attendees,
-    status: typeof event.status === "string" ? event.status : null,
-    sequence: typeof event.sequence === "number" ? event.sequence : 0,
-    method: typeof parsed.method === "string"
-      ? parsed.method
-      : typeof event.method === "string"
-      ? event.method
-      : null,
-    rrule: event.rrule ? String(event.rrule) : null,
-  };
+  return parseCalendarInviteFromText(text);
 }

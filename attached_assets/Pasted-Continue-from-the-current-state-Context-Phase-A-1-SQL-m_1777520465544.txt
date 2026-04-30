@@ -1,0 +1,51 @@
+Continue from the current state.
+
+Context:
+- Phase A.1 SQL migration for zoom_connections / booking_links / booking_link_recipients is still paused. Do NOT apply it unless I explicitly say "apply it".
+- The org picker fix is done.
+- Inbox top spacing optimization is done.
+- Spark-style calendar invite rendering was implemented:
+  - .ics parsing
+  - invite card above email body
+  - Join button extraction
+  - attendee chips
+  - expanded TO/CC display
+  - downloadable attachment chips
+  - auth-gated endpoints
+  - schema untouched
+
+Now I want a careful follow-up QA + polish pass on the Spark-style calendar invite / email header rendering.
+
+Goals:
+1. Inspect the current implementation for the calendar invite card, attachment download links, and expanded To/CC chip rendering.
+2. Confirm the UI matches the intended behavior:
+   - invite card appears only when a real .ics/calendar invite exists
+   - event title/date/time/timezone render cleanly
+   - Join button only appears when a valid URL is found
+   - attendee chips do not overcrowd the header
+   - +N more expand works for To/Cc recipients
+   - attachment chips are clickable only when downloadable
+   - non-downloadable inline artifacts remain non-clickable
+3. Improve visual polish if needed:
+   - better spacing
+   - better wrapping
+   - clearer attendee response states
+   - clearer fallback copy when no join link exists
+   - ensure it looks good in compact inbox layout
+4. Add/adjust focused tests if the existing test framework allows it.
+5. Do not touch schema.
+6. Do not touch the paused Phase A.1 migration.
+7. Do not start unrelated refactors.
+8. After changes, run:
+   - TypeScript/LSP check
+   - focused route/endpoint check
+   - any available focused tests
+   - architect/code review if available
+9. Report:
+   - files changed
+   - behavior verified
+   - any remaining limitations
+   - whether any pre-existing errors remain unrelated
+
+Important:
+If you find that live browser e2e is blocked again, do not fake it. Say it is blocked, then do static/type/route verification and tell me exactly what still needs human eyeballing.
