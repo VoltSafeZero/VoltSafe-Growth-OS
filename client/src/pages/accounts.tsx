@@ -34,6 +34,7 @@ import { CreateActionItem } from "@/components/create-action-item";
 import type { Account, Contact, Opportunity, Ticket, InfrastructureProfile, Lead } from "@shared/schema";
 import { EmailsTab } from "@/components/emails-tab";
 import { TimelineTab } from "@/components/timeline-tab";
+import StateProvinceSelect from "@/components/state-province-select";
 
 const segmentColors: Record<string, string> = {
   marina: "bg-blue-500/10 text-blue-500 border-blue-500/20",
@@ -1877,9 +1878,26 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2"><Label className="text-xs">Street Address</Label><Input value={form.streetAddress} onChange={(e) => setForm(f => ({ ...f, streetAddress: e.target.value }))} data-testid="input-edit-street" /></div>
           <div><Label className="text-xs">City</Label><Input value={form.city} onChange={(e) => setForm(f => ({ ...f, city: e.target.value }))} data-testid="input-edit-city" /></div>
-          <div><Label className="text-xs">State/Province</Label><Input value={form.stateProvince} onChange={(e) => setForm(f => ({ ...f, stateProvince: e.target.value }))} data-testid="input-edit-state" /></div>
+          <div>
+            <Label className="text-xs">State/Province</Label>
+            <StateProvinceSelect
+              country={form.country}
+              value={form.stateProvince}
+              onChange={(v) => setForm(f => ({ ...f, stateProvince: v }))}
+              data-testid="select-edit-state"
+            />
+          </div>
           <div><Label className="text-xs">Postal/Zip</Label><Input value={form.postalZip} onChange={(e) => setForm(f => ({ ...f, postalZip: e.target.value }))} data-testid="input-edit-postal" /></div>
-          <div><Label className="text-xs">Country</Label><Input value={form.country} onChange={(e) => setForm(f => ({ ...f, country: e.target.value }))} data-testid="input-edit-country" /></div>
+          <div>
+            <Label className="text-xs">Country</Label>
+            <Select value={form.country} onValueChange={(v) => setForm(f => ({ ...f, country: v, stateProvince: "" }))}>
+              <SelectTrigger data-testid="select-edit-country"><SelectValue placeholder="Select country" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="US">USA</SelectItem>
+                <SelectItem value="CA">Canada</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div><Label className="text-xs">Region</Label><Input value={form.region} onChange={(e) => setForm(f => ({ ...f, region: e.target.value }))} data-testid="input-edit-region" /></div>
           <div><Label className="text-xs">Timezone</Label><Input value={form.timezone} onChange={(e) => setForm(f => ({ ...f, timezone: e.target.value }))} data-testid="input-edit-tz" /></div>
         </div>
@@ -1990,11 +2008,19 @@ function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2"><Label>Street Address</Label><Input value={form.streetAddress} onChange={(e) => setForm(f => ({ ...f, streetAddress: e.target.value }))} data-testid="input-account-address" /></div>
         <div><Label>City</Label><Input value={form.city} onChange={(e) => setForm(f => ({ ...f, city: e.target.value }))} data-testid="input-account-city" /></div>
-        <div><Label>State/Province</Label><Input value={form.stateProvince} onChange={(e) => setForm(f => ({ ...f, stateProvince: e.target.value }))} data-testid="input-account-state" /></div>
+        <div>
+          <Label>State/Province</Label>
+          <StateProvinceSelect
+            country={form.country}
+            value={form.stateProvince}
+            onChange={(v) => setForm(f => ({ ...f, stateProvince: v }))}
+            data-testid="select-account-state"
+          />
+        </div>
         <div><Label>Postal/Zip</Label><Input value={form.postalZip} onChange={(e) => setForm(f => ({ ...f, postalZip: e.target.value }))} data-testid="input-account-postal" /></div>
         <div>
           <Label>Country</Label>
-          <Select value={form.country} onValueChange={(v) => setForm(f => ({ ...f, country: v }))}>
+          <Select value={form.country} onValueChange={(v) => setForm(f => ({ ...f, country: v, stateProvince: "" }))}>
             <SelectTrigger data-testid="select-account-country"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="US">USA</SelectItem>
