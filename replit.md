@@ -4401,3 +4401,41 @@ Coverage:
   `migrations/0001_zoom_and_booking_links.sql{,.down.sql}`.
 - `shared/schema.ts` UNTOUCHED.
 - **NOT applied.** Awaiting explicit "apply it" from the user.
+
+## Visual QA pass — calendar invite card (Apr 30, 2026)
+
+### What was verified statically
+- Unit tests re-run: **21 passed, 0 failed** (with and without
+  `DATABASE_URL`).
+- `tsc --noEmit`: clean for every file I touched
+  (`calendar-invite-card.tsx`, `parse-address-list.ts`,
+  `calendar-invite-parse-core.ts`, `calendar-invite-parser.ts`,
+  `recipient-list.tsx`). The remaining project-wide TS errors live in
+  unrelated files (`header.tsx`, `quick-capture.tsx`, `score-widget.tsx`,
+  `automations.tsx`, `my-calendar-widget.tsx`, etc.) and were not
+  introduced this work.
+- Code re-read of the rendered JSX in `calendar-invite-card.tsx`:
+  loading / error / cancelled / recurring / no-start-date branches all
+  guarded; date-badge only renders when `start` is non-null;
+  attendee-strip collapse threshold = 8.
+
+### Live browser QA — BLOCKED (not faked)
+- The testing helper is locked at the project level after a prior
+  session's Google OAuth redirect; it refuses before any login attempt.
+- Mockup-sandbox screenshot fallback was attempted but the sandbox is
+  missing `@tanstack/react-query` (the card uses `useQuery` to fetch its
+  invite payload) and `bash`-installing into the sandbox is disallowed.
+  Adding it would require modifying `artifacts/mockup-sandbox/package.json`
+  and dealing with React 18-vs-19 dedup, which is more scope than a QA
+  pass warrants.
+- **No screenshot was fabricated.** The user-facing message lists the
+  exact manual checks instead.
+
+### Manual QA checklist provided to user
+Five focal areas (TO/CC chip expansion, attendee display incl. ≥9
+attendees, join/location fallback, attachment download, error/cancelled
+states) — see chat reply for the exact checklist.
+
+### No code changes this turn
+- `git status` is clean. No new diff to architect-review (the prior
+  turn's diff was already PASS).
