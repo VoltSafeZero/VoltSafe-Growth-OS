@@ -86,6 +86,8 @@ const ORG_TYPE_OPTIONS = [
   { value: "other", label: "Other" },
 ];
 
+const MARINA_ORG_TYPES = new Set(["marina_prospect", "marina_customer", "pilot_site", "marina_group", "port_harbor"]);
+
 const orgTypeColors: Record<string, string> = {
   marina_prospect: "bg-blue-500/10 text-blue-400 border-blue-500/20",
   marina_customer: "bg-green-500/10 text-green-400 border-green-500/20",
@@ -412,6 +414,8 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
             <SelectItem value="createdAt:asc">Oldest First</SelectItem>
             <SelectItem value="slipCount:desc">Most Slips</SelectItem>
             <SelectItem value="slipCount:asc">Fewest Slips</SelectItem>
+            <SelectItem value="industry:asc">Industry A–Z</SelectItem>
+            <SelectItem value="industry:desc">Industry Z–A</SelectItem>
           </SelectContent>
         </Select>
         </div>
@@ -1830,7 +1834,10 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
     notes: account.notes || "",
     notesSummary: account.notesSummary || "",
     tags: account.tags || "",
+    industry: (account as any).industry || "",
   });
+
+  const isMarinaType = MARINA_ORG_TYPES.has(form.orgType);
 
   return (
     <form onSubmit={(e) => {
@@ -1844,6 +1851,7 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
       <div className="grid grid-cols-2 gap-3">
         <div><Label className="text-xs">Name *</Label><Input value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} required data-testid="input-edit-name" /></div>
         <div><Label className="text-xs">Legal Name</Label><Input value={form.legalName} onChange={(e) => setForm(f => ({ ...f, legalName: e.target.value }))} data-testid="input-edit-legal-name" /></div>
+        <div className="col-span-2"><Label className="text-xs">Industry</Label><Input value={form.industry} onChange={(e) => setForm(f => ({ ...f, industry: e.target.value }))} placeholder="e.g. Marine, Utilities, Government…" data-testid="input-edit-industry" /></div>
         <div><Label className="text-xs">Website</Label><Input value={form.website} onChange={(e) => setForm(f => ({ ...f, website: e.target.value }))} data-testid="input-edit-website" /></div>
         <div>
           <Label className="text-xs">Organization Type</Label>
@@ -1903,44 +1911,48 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
         </div>
       </div>
 
-      <div className="border-t border-border/50 pt-3">
-        <Label className="text-xs text-muted-foreground mb-2 block">Marina Details</Label>
-        <div className="grid grid-cols-2 gap-3">
-          <div><Label className="text-xs">Slip Count</Label><Input type="number" value={form.slipCount} onChange={(e) => setForm(f => ({ ...f, slipCount: e.target.value }))} data-testid="input-edit-slips" /></div>
-          <div><Label className="text-xs">Slip Mix</Label><Input value={form.slipMix} onChange={(e) => setForm(f => ({ ...f, slipMix: e.target.value }))} placeholder="e.g. 60% wet, 40% dry" data-testid="input-edit-slip-mix" /></div>
-          <div><Label className="text-xs">Avg Boat Size Range</Label><Input value={form.avgBoatSizeRange} onChange={(e) => setForm(f => ({ ...f, avgBoatSizeRange: e.target.value }))} placeholder="e.g. 25-45 ft" data-testid="input-edit-boat-size" /></div>
-          <div><Label className="text-xs">Power Demand</Label><Input value={form.powerDemandIntensity} onChange={(e) => setForm(f => ({ ...f, powerDemandIntensity: e.target.value }))} placeholder="e.g. High, Medium, Low" data-testid="input-edit-power-demand" /></div>
-          <div><Label className="text-xs">Seasonality</Label><Input value={form.seasonality} onChange={(e) => setForm(f => ({ ...f, seasonality: e.target.value }))} placeholder="e.g. Year-round, Apr-Oct" data-testid="input-edit-seasonality" /></div>
+      {isMarinaType && (
+        <div className="border-t border-border/50 pt-3">
+          <Label className="text-xs text-muted-foreground mb-2 block">Marina Details</Label>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label className="text-xs">Slip Count</Label><Input type="number" value={form.slipCount} onChange={(e) => setForm(f => ({ ...f, slipCount: e.target.value }))} data-testid="input-edit-slips" /></div>
+            <div><Label className="text-xs">Slip Mix</Label><Input value={form.slipMix} onChange={(e) => setForm(f => ({ ...f, slipMix: e.target.value }))} placeholder="e.g. 60% wet, 40% dry" data-testid="input-edit-slip-mix" /></div>
+            <div><Label className="text-xs">Avg Boat Size Range</Label><Input value={form.avgBoatSizeRange} onChange={(e) => setForm(f => ({ ...f, avgBoatSizeRange: e.target.value }))} placeholder="e.g. 25-45 ft" data-testid="input-edit-boat-size" /></div>
+            <div><Label className="text-xs">Power Demand</Label><Input value={form.powerDemandIntensity} onChange={(e) => setForm(f => ({ ...f, powerDemandIntensity: e.target.value }))} placeholder="e.g. High, Medium, Low" data-testid="input-edit-power-demand" /></div>
+            <div><Label className="text-xs">Seasonality</Label><Input value={form.seasonality} onChange={(e) => setForm(f => ({ ...f, seasonality: e.target.value }))} placeholder="e.g. Year-round, Apr-Oct" data-testid="input-edit-seasonality" /></div>
+          </div>
+          <div className="flex items-center gap-4 mt-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={form.expansionPlans} onChange={(e) => setForm(f => ({ ...f, expansionPlans: e.target.checked }))} className="rounded" data-testid="input-edit-expansion" />
+              Expansion Plans
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={form.betaTester} onChange={(e) => setForm(f => ({ ...f, betaTester: e.target.checked }))} className="rounded" data-testid="input-edit-beta" />
+              Beta Tester
+            </label>
+          </div>
+          {form.expansionPlans && (
+            <div className="mt-2"><Label className="text-xs">Expansion Notes</Label><Textarea value={form.expansionNotes} onChange={(e) => setForm(f => ({ ...f, expansionNotes: e.target.value }))} rows={2} data-testid="input-edit-expansion-notes" /></div>
+          )}
         </div>
-        <div className="flex items-center gap-4 mt-3">
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={form.expansionPlans} onChange={(e) => setForm(f => ({ ...f, expansionPlans: e.target.checked }))} className="rounded" data-testid="input-edit-expansion" />
-            Expansion Plans
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={form.betaTester} onChange={(e) => setForm(f => ({ ...f, betaTester: e.target.checked }))} className="rounded" data-testid="input-edit-beta" />
-            Beta Tester
-          </label>
-        </div>
-        {form.expansionPlans && (
-          <div className="mt-2"><Label className="text-xs">Expansion Notes</Label><Textarea value={form.expansionNotes} onChange={(e) => setForm(f => ({ ...f, expansionNotes: e.target.value }))} rows={2} data-testid="input-edit-expansion-notes" /></div>
-        )}
-      </div>
+      )}
 
       <div className="border-t border-border/50 pt-3">
         <Label className="text-xs text-muted-foreground mb-2 block">Sales Info</Label>
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label className="text-xs">Pipeline Stage</Label>
-            <Select value={form.leadStatus} onValueChange={(v) => setForm(f => ({ ...f, leadStatus: v }))}>
-              <SelectTrigger data-testid="select-edit-lead-status"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {PIPELINE_STAGES.map(s => (
-                  <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {isMarinaType && (
+            <div>
+              <Label className="text-xs">Pipeline Stage</Label>
+              <Select value={form.leadStatus} onValueChange={(v) => setForm(f => ({ ...f, leadStatus: v }))}>
+                <SelectTrigger data-testid="select-edit-lead-status"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PIPELINE_STAGES.map(s => (
+                    <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div>
             <Label className="text-xs">Priority</Label>
             <Select value={form.priority} onValueChange={(v) => setForm(f => ({ ...f, priority: v }))}>
@@ -1976,12 +1988,15 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
 
 function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<string, unknown>) => void; isPending: boolean }) {
   const [form, setForm] = useState({
-    name: "", orgType: "marina_prospect", segment: "marina", streetAddress: "", city: "", stateProvince: "", postalZip: "", country: "US",
+    name: "", orgType: "marina_prospect", segment: "marina", industry: "",
+    streetAddress: "", city: "", stateProvince: "", postalZip: "", country: "US",
     region: "", slipCount: "", notes: "", leadStatus: "new", priority: "medium",
   });
+  const isMarinaType = MARINA_ORG_TYPES.has(form.orgType);
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit({ ...form, slipCount: form.slipCount ? Number(form.slipCount) : undefined }); }} className="space-y-4">
       <div><Label>Name *</Label><Input value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} required data-testid="input-account-name" /></div>
+      <div><Label>Industry</Label><Input value={form.industry} onChange={(e) => setForm(f => ({ ...f, industry: e.target.value }))} placeholder="e.g. Marine, Utilities, Government…" data-testid="input-account-industry" /></div>
       <div>
         <Label>Organization Type</Label>
         <Select value={form.orgType} onValueChange={(v) => setForm(f => ({ ...f, orgType: v }))}>
@@ -2031,20 +2046,24 @@ function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div><Label>Region</Label><Input value={form.region} onChange={(e) => setForm(f => ({ ...f, region: e.target.value }))} data-testid="input-account-region" /></div>
-        <div><Label>Slip Count</Label><Input type="number" value={form.slipCount} onChange={(e) => setForm(f => ({ ...f, slipCount: e.target.value }))} data-testid="input-slip-count" /></div>
+        {isMarinaType && (
+          <div><Label>Slip Count</Label><Input type="number" value={form.slipCount} onChange={(e) => setForm(f => ({ ...f, slipCount: e.target.value }))} data-testid="input-slip-count" /></div>
+        )}
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label>Pipeline Stage</Label>
-          <Select value={form.leadStatus} onValueChange={(v) => setForm(f => ({ ...f, leadStatus: v }))}>
-            <SelectTrigger data-testid="select-account-status"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {PIPELINE_STAGES.map(s => (
-                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {isMarinaType && (
+          <div>
+            <Label>Pipeline Stage</Label>
+            <Select value={form.leadStatus} onValueChange={(v) => setForm(f => ({ ...f, leadStatus: v }))}>
+              <SelectTrigger data-testid="select-account-status"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {PIPELINE_STAGES.map(s => (
+                  <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div>
           <Label>Priority</Label>
           <Select value={form.priority} onValueChange={(v) => setForm(f => ({ ...f, priority: v }))}>
