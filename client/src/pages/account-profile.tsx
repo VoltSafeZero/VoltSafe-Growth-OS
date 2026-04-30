@@ -124,6 +124,11 @@ export default function AccountProfilePage() {
     }),
   });
 
+  // Revenue data — hoisted above early returns to satisfy React rules of hooks
+  const { data: billingLines } = useQuery<any[]>({ queryKey: ["/api/accounts", id, "billing-lines"], queryFn: () => fetch(`/api/accounts/${id}/billing-lines`).then(r => r.json()), staleTime: 30_000, enabled: !!id });
+  const { data: rolloutPhases } = useQuery<any[]>({ queryKey: ["/api/accounts", id, "rollout-phases"], queryFn: () => fetch(`/api/accounts/${id}/rollout-phases`).then(r => r.json()), staleTime: 30_000, enabled: !!id });
+  const { data: revenueMetrics } = useQuery<any>({ queryKey: ["/api/revenue/account", id, "metrics"], queryFn: () => fetch(`/api/revenue/account/${id}/metrics`).then(r => r.json()), staleTime: 30_000, enabled: !!id });
+
   if (isLoading) return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-4">
       <Skeleton className="h-8 w-40" />
@@ -150,11 +155,6 @@ export default function AccountProfilePage() {
   const openOpps = opportunities.filter((o: any) => !["closed_won", "closed_lost"].includes(o.stage));
   const wonOpps = opportunities.filter((o: any) => o.stage === "closed_won");
   const totalPipeline = openOpps.reduce((s: number, o: any) => s + (Number(o.amount) || 0), 0);
-
-  // Revenue data for this account
-  const { data: billingLines } = useQuery<any[]>({ queryKey: ["/api/accounts", id, "billing-lines"], queryFn: () => fetch(`/api/accounts/${id}/billing-lines`).then(r => r.json()), staleTime: 30_000 });
-  const { data: rolloutPhases } = useQuery<any[]>({ queryKey: ["/api/accounts", id, "rollout-phases"], queryFn: () => fetch(`/api/accounts/${id}/rollout-phases`).then(r => r.json()), staleTime: 30_000 });
-  const { data: revenueMetrics } = useQuery<any>({ queryKey: ["/api/revenue/account", id, "metrics"], queryFn: () => fetch(`/api/revenue/account/${id}/metrics`).then(r => r.json()), staleTime: 30_000 });
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5" data-testid="account-profile-page">
