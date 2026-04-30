@@ -998,6 +998,50 @@ function EventFormDialog({
   const [invitees, setInvitees] = useState<string[]>(initialData?.invitees || []);
   const [inviteeInput, setInviteeInput] = useState("");
 
+  // Personal Zoom room URL stored on the user's device — lets us one-click
+  // insert the user's own meeting URL without round-tripping through the
+  // backend (no schema/API changes required).
+  const [personalRoomUrl, setPersonalRoomUrl] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return window.localStorage.getItem("voltsafe.zoom.personalRoomUrl");
+  });
+
+  const setMeetingUrlFromZoom = (url: string) => setFormData((p) => ({ ...p, meetingUrl: url }));
+
+  const handleUseMyZoomRoom = () => {
+    if (personalRoomUrl) {
+      setMeetingUrlFromZoom(personalRoomUrl);
+      return;
+    }
+    const entered = window.prompt(
+      "Paste your Personal Zoom Room URL (e.g. https://zoom.us/j/1234567890).\n\nIt will be saved on this device for one-click reuse."
+    );
+    if (entered && /^https?:\/\//i.test(entered.trim())) {
+      const url = entered.trim();
+      window.localStorage.setItem("voltsafe.zoom.personalRoomUrl", url);
+      setPersonalRoomUrl(url);
+      setMeetingUrlFromZoom(url);
+    }
+  };
+
+  const handleChangeMyZoomRoom = () => {
+    const entered = window.prompt(
+      "Update your Personal Zoom Room URL (leave empty and press OK to clear it):",
+      personalRoomUrl || ""
+    );
+    if (entered === null) return;
+    const trimmed = entered.trim();
+    if (trimmed === "") {
+      window.localStorage.removeItem("voltsafe.zoom.personalRoomUrl");
+      setPersonalRoomUrl(null);
+      return;
+    }
+    if (/^https?:\/\//i.test(trimmed)) {
+      window.localStorage.setItem("voltsafe.zoom.personalRoomUrl", trimmed);
+      setPersonalRoomUrl(trimmed);
+    }
+  };
+
   const addInvitee = () => {
     const email = inviteeInput.trim().toLowerCase();
     if (email && email.includes("@") && !invitees.includes(email)) {
@@ -1070,6 +1114,55 @@ function EventFormDialog({
               placeholder="https://zoom.us/j/..."
               data-testid="input-event-meeting-url"
             />
+            <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1.5"
+                onClick={() => window.open("https://zoom.us/start/videomeeting", "_blank", "noopener,noreferrer")}
+                title="Opens Zoom in a new tab so you can start a fresh meeting and copy its link back into the field above."
+                data-testid="button-zoom-new-meeting"
+              >
+                <Plus className="h-3 w-3" /> New Zoom meeting
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1.5"
+                onClick={handleUseMyZoomRoom}
+                title={
+                  personalRoomUrl
+                    ? `One-click insert ${personalRoomUrl}`
+                    : "Save your Personal Zoom Room URL once, then one-click insert it on every future meeting."
+                }
+                data-testid="button-zoom-use-personal-room"
+              >
+                <Repeat className="h-3 w-3" /> {personalRoomUrl ? "Use my Zoom room" : "Set my Zoom room"}
+              </Button>
+              {personalRoomUrl && (
+                <button
+                  type="button"
+                  className="text-[11px] text-muted-foreground/60 hover:text-foreground hover:underline underline-offset-2"
+                  onClick={handleChangeMyZoomRoom}
+                  data-testid="button-zoom-change-personal-room"
+                >
+                  Change saved room
+                </button>
+              )}
+              {formData.meetingUrl && /^https?:\/\//i.test(formData.meetingUrl) && (
+                <a
+                  href={formData.meetingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-auto inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                  data-testid="link-zoom-test-open"
+                >
+                  <ExternalLink className="h-3 w-3" /> Open
+                </a>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
