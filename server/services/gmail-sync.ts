@@ -253,26 +253,41 @@ async function runScheduledEmailSender() {
 const HOUR_MS = 60 * 60 * 1000;
 const MIN_MS = 60 * 1000;
 
+const runIncremental = async () => {
+  const { runIncrementalForAll } = await import("./gmail-incremental");
+  log("[gmail-sync] Scheduled incremental sync…");
+  const results = await runIncrementalForAll();
+  const totals = results.reduce(
+    (acc, r) => ({ events: acc.events + r.events, added: acc.added + r.added, fellBack: acc.fellBack || r.fellBack }),
+    { events: 0, added: 0, fellBack: false },
+  );
+  log(`[gmail-sync] Incremental done — accounts=${results.length} events=${totals.events} added=${totals.added}${totals.fellBack ? " (one or more fell back to paginated)" : ""}`);
+};
+
 export function startHourlySyncScheduler() {
-  log("[gmail-sync] Hourly sync scheduler started — pagination + label-refresh enabled");
+  log("[gmail-sync] Sync scheduler started — incremental=5min, label-refresh=60min");
   log(`[auto-confirm] Sweep registered — dry-run=${AUTO_CONFIRM_DRY_RUN}, scope=contact, threshold=90`);
 
+  // Run one pass 30s after boot so emails don't wait up to 5 min after a restart
+  setTimeout(async () => {
+    try { await runIncremental(); } catch (err: any) {
+      log(`[gmail-sync] Startup sync error: ${err.message}`);
+    }
+  }, 30_000);
+
+  // Incremental sync every 5 minutes (historyId-based, very lightweight Gmail API calls)
+  setInterval(async () => {
+    try { await runIncremental(); } catch (err: any) {
+      log(`[gmail-sync] Scheduled sync error: ${err.message}`);
+    }
+  }, 5 * MIN_MS);
+
+  // Label-refresh pass every 60 minutes to catch read-state changes from mobile clients
   setInterval(async () => {
     try {
-      // Phase 2A: prefer historyId-based incremental sync; fall back to paginated walk.
-      const { runIncrementalForAll } = await import("./gmail-incremental");
-      log("[gmail-sync] Scheduled incremental sync…");
-      const results = await runIncrementalForAll();
-      const totals = results.reduce(
-        (acc, r) => ({ events: acc.events + r.events, added: acc.added + r.added, fellBack: acc.fellBack || r.fellBack }),
-        { events: 0, added: 0, fellBack: false },
-      );
-      log(`[gmail-sync] Incremental done — accounts=${results.length} events=${totals.events} added=${totals.added}${totals.fellBack ? " (one or more fell back to paginated)" : ""}`);
-      // Always run a small label-refresh pass on top stored msgs to catch read-state changes
-      // even when no history events fired (e.g. user marked-read in mobile app between syncs).
       await runGmailSync({ maxPages: 1, pageSize: 100, refreshLabels: true });
     } catch (err: any) {
-      log(`[gmail-sync] Scheduled sync error: ${err.message}`);
+      log(`[gmail-sync] Label refresh error: ${err.message}`);
     }
   }, HOUR_MS);
 
