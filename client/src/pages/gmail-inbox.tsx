@@ -4386,9 +4386,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     inboxOther;
 
   const crmFilteredMessages = tab !== "inbox" ? activeMessages :
-    crmFilter === "unread"         ? activeMessages.filter(m => isUnread(m.labelIds)) :
+    // Keep the currently-open thread visible even after its UNREAD label is
+    // removed from cache — the grouper handles keeping it in the right section.
+    crmFilter === "unread"         ? activeMessages.filter(m => isUnread(m.labelIds) || m.threadId === selectedThreadId) :
     crmFilter === "starred"        ? activeMessages.filter(m => isStarred(m.labelIds)) :
-    crmFilter === "needs-reply"    ? activeMessages.filter(m => isUnread(m.labelIds)) :
+    crmFilter === "needs-reply"    ? activeMessages.filter(m => isUnread(m.labelIds) || m.threadId === selectedThreadId) :
     crmFilter === "follow-up"      ? activeMessages.filter(m => isStarred(m.labelIds)) :
     crmFilter === "awaiting-reply" ? activeMessages.filter(m => triageAwaitingSet.has(m.threadId)) :
     crmFilter === "hot"            ? activeMessages.filter(m => triageHotSet.has(m.threadId)) :
@@ -4406,8 +4408,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const viewItems = useMemo<SmartItem<typeof activeMessages[number]>[] | null>(() => {
     if (!isSmartView) return null;
     if (!crmFilteredMessages || crmFilteredMessages.length === 0) return [];
-    return groupSmartInbox(crmFilteredMessages, { pinnedThreadIds: pinnedAPI.pinned });
-  }, [isSmartView, crmFilteredMessages, pinnedAPI.pinned]);
+    return groupSmartInbox(crmFilteredMessages, {
+      pinnedThreadIds: pinnedAPI.pinned,
+      // Keep the open thread in its original section while the user is reading
+      // it, even though its UNREAD label was already removed from the cache.
+      openThreadId: selectedThreadId,
+    });
+  }, [isSmartView, crmFilteredMessages, pinnedAPI.pinned, selectedThreadId]);
 
   const isLoading = tab === "other" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : sentQuery.isLoading;
   const error = tab === "other" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : sentQuery.error;
@@ -4473,12 +4480,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // budget is exhausted but `hasMore` stays true, the sentinel renders an explicit "Load more"
   // button so the user has a manual escape hatch — never silently stops with rows missing.
   const autoChainRef = useRef({ key: "", count: 0 });
-  // Holds the deferred "remove UNREAD from cache" operation for the currently
-  // open thread. We fire the Gmail API mark-read immediately on click (so Gmail
-  // stays accurate) but we hold off updating the local React Query cache until
-  // the user navigates away. This prevents the thread from jumping out of an
-  // unread-filtered list while the user is still reading it.
-  const pendingMarkReadRef = useRef<(() => void) | null>(null);
   // Use STATE (not ref) so the "more available" CTA re-renders the moment the budget is exhausted.
   const [autoChainExhaustedKey, setAutoChainExhaustedKey] = useState<string | null>(null);
   // Compute the inbox chain key once; reused by the auto-chain effect AND the
@@ -4539,13 +4540,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   };
 
   const handleSelectMessage = (msg: MessageSummary) => {
-    // Flush any deferred mark-read from the PREVIOUS thread before switching
-    // so the old thread re-sorts correctly once we leave it.
-    if (pendingMarkReadRef.current) {
-      pendingMarkReadRef.current();
-      pendingMarkReadRef.current = null;
-    }
-
     setSelectedMessageId(msg.id);
     setSelectedThreadId(msg.threadId);
     // Multi-mailbox Phase 1: capture the source account so thread reads + mutations target
@@ -4553,43 +4547,33 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     setCurrentThreadAccountId(msg.sourceAccountId ?? null);
 
     if (isUnread(msg.labelIds)) {
-      // Build the removeUnread cache updater but do NOT apply it yet — we
-      // defer it until the user navigates away so the thread stays in its
-      // current list position while they are reading it.
-      const msgId = msg.id;
-      const snapSearchQuery = searchQuery;
-      const snapAccountId = activeAccountId;
+      // Immediately remove UNREAD from both inbox query caches so the email
+      // row loses its bold/dot styling right away, while the smart-inbox
+      // grouper keeps the thread in its current section until the user moves
+      // to a different thread (see openThreadId passed to groupSmartInbox).
       const removeUnread = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
         old ? { ...old, messages: old.messages.map((m) =>
-          m.id === msgId ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m
+          m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m
         ) } : old;
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeUnread);
+      queryClient.setQueryData(["/api/gmail/messages", "sent", searchQuery, activeAccountId], removeUnread);
+      // Also update the locally-stored extra pages
+      setInboxExtra((prev) => prev.map((m) => m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
+      setSentExtra((prev) => prev.map((m) => m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
 
-      pendingMarkReadRef.current = () => {
-        queryClient.setQueryData(["/api/gmail/messages", "inbox", snapSearchQuery, snapAccountId], removeUnread);
-        queryClient.setQueryData(["/api/gmail/messages", "sent", snapSearchQuery, snapAccountId], removeUnread);
-        setInboxExtra((prev) => prev.map((m) => m.id === msgId ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
-        setSentExtra((prev) => prev.map((m) => m.id === msgId ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
-      };
-
-      // Fire-and-forget — tell Gmail to mark it read server-side immediately.
-      // The local cache update is deferred (see pendingMarkReadRef) so the
-      // thread does not jump in the list while the user is still reading.
+      // Fire-and-forget — tell Gmail to mark it read server-side. In unified mode we send
+      // the message's specific sourceAccountId, since /mark-read parses asAccountId as Number.
       const accId = msg.sourceAccountId ?? (typeof activeAccountId === "number" ? activeAccountId : null);
       fetch(`/api/gmail/messages/${msg.id}/mark-read`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(accId ? { asAccountId: accId } : {}),
-      }).catch(() => {/* silent */});
+      }).catch(() => {/* silent — cache already updated */});
     }
   };
 
   const handleBack = () => {
-    // Flush the pending mark-read so the thread re-sorts correctly once closed.
-    if (pendingMarkReadRef.current) {
-      pendingMarkReadRef.current();
-      pendingMarkReadRef.current = null;
-    }
     setSelectedMessageId(null);
     setSelectedThreadId(null);
   };

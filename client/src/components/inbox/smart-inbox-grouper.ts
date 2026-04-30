@@ -106,6 +106,13 @@ function sortNewestFirst<M extends GroupableMessage>(arr: M[]): M[] {
 export interface GroupOptions {
   /** Set of threadIds the user has explicitly pinned. Optional. */
   pinnedThreadIds?: ReadonlySet<string>;
+  /**
+   * When set, this thread is kept in its unread bucket (People / Notifications /
+   * Newsletters) even after its UNREAD label has been removed from the cache.
+   * This lets the UI mark the email as visually read (bold off) while keeping
+   * the row in its original list position until the user navigates away.
+   */
+  openThreadId?: string | null;
 }
 
 /**
@@ -118,6 +125,7 @@ export function groupSmartInbox<M extends GroupableMessage>(
 ): SmartItem<M>[] {
   if (!messages || messages.length === 0) return [];
   const pinned = options.pinnedThreadIds ?? new Set<string>();
+  const openThreadId = options.openThreadId ?? null;
 
   // Bucket pass — each message lands in exactly one bucket so headers can't
   // double-count and we never render the same row twice.
@@ -133,12 +141,15 @@ export function groupSmartInbox<M extends GroupableMessage>(
     const starred = isStarredMsg(labels);
     const unread = isUnreadMsg(labels);
     const isPinned = pinned.has(m.threadId);
+    // If this is the currently-open thread that was just marked read, keep it
+    // in the same unread bucket so it doesn't jump down the list mid-read.
+    const isOpenAndJustRead = !unread && !starred && m.threadId === openThreadId;
 
     if (starred) {
       priority.push(m);
       continue;
     }
-    if (unread) {
+    if (unread || isOpenAndJustRead) {
       const cat = smartCategoryOf(labels);
       if (cat === "people") unreadPeople.push(m);
       else if (cat === "notifications") unreadNotifications.push(m);
