@@ -6011,7 +6011,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     isBulkChecked
                       ? "bg-primary/10 border-l-[3px] border-l-primary/60"
                       : isSelected
-                        ? "bg-primary/8 border-l-[3px] border-l-primary shadow-[inset_0_1px_0_0_rgba(20,184,166,0.08)]"
+                        ? "bg-primary/[0.13] border-l-[3px] border-l-primary shadow-[inset_0_0_0_1px_rgba(20,184,166,0.14),inset_4px_0_12px_-4px_rgba(20,184,166,0.08)]"
                         : "border-l-[3px] border-l-transparent hover:bg-muted/35 hover:border-l-primary/15"
                   }`}
                 >
@@ -6035,7 +6035,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   <button
                     onClick={() => handleSelectMessage(msg)}
                     data-testid={`email-row-${msg.id}`}
-                    className={`flex-1 text-left ${densityClasses.py} pr-14 min-w-0 transition-[padding] duration-200`}
+                    className={`flex-1 text-left ${densityClasses.py} pr-14 min-w-0 transition-[padding] duration-200 outline-none focus:outline-none focus-visible:outline-none`}
                   >
                     {/* Row 1: sender + timestamp */}
                     <div className="flex items-center justify-between gap-2 mb-[3px]">
