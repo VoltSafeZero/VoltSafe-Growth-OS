@@ -11,8 +11,9 @@ import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft, Mail, Phone, Building2, User, Zap, CheckSquare,
   CalendarDays, TrendingUp, MessageSquare, AlertTriangle, RefreshCw,
-  Star, Clock, ExternalLink, Send, Plus,
+  Star, Clock, ExternalLink, Send, Plus, Pencil,
 } from "lucide-react";
+import { EditContactDialog } from "@/components/contacts/edit-contact-dialog";
 import { formatDistanceToNow, format, isPast } from "date-fns";
 import { Link } from "wouter";
 import { TimelineTab } from "@/components/timeline-tab";
@@ -119,6 +120,7 @@ export default function ContactProfilePage() {
   const [, navigate] = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const [editOpen, setEditOpen] = useState(false);
 
   const { data, isLoading, isError, refetch } = useQuery<ProfileData>({
     queryKey: ["/api/contacts", id, "profile"],
@@ -283,6 +285,16 @@ export default function ContactProfilePage() {
               </div>
             </div>
             <div className="flex-shrink-0 flex flex-col gap-2 sm:items-end">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEditOpen(true)}
+                className="gap-1.5 w-full sm:w-auto"
+                data-testid="button-edit-contact"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit
+              </Button>
               {overdueTasks.length > 0 && (
                 <Badge variant="destructive" className="text-xs">{overdueTasks.length} overdue</Badge>
               )}
@@ -537,6 +549,16 @@ export default function ContactProfilePage() {
 
       {/* Unified Timeline — full width */}
       <TimelineSection contactId={id} />
+
+      <EditContactDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        contact={contact}
+        onSaved={() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/contacts", id, "profile"] });
+          refetch();
+        }}
+      />
     </div>
   );
 }

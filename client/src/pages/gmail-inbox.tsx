@@ -117,6 +117,24 @@ function formatDate(dateStr: string, internalDate?: string) {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+// Full timestamp shown on each opened email message header so the user can see
+// the exact day-of-week + date + time of every message in a thread (e.g.
+// "Thu, Apr 23, 2026 · 3:09 PM"). Year is omitted for messages from the
+// current year to keep the line compact.
+function formatMessageHeaderDate(dateStr: string, internalDate?: string) {
+  const d = dateStr ? new Date(dateStr) : internalDate ? new Date(Number(internalDate)) : null;
+  if (!d || isNaN(d.getTime())) return "";
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  const datePart = d.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+  const timePart = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return `${datePart} · ${timePart}`;
+}
+
 function parseSenderName(from: string) {
   const match = from.match(/^"?([^"<]+)"?\s*<[^>]+>$/);
   return match ? match[1].trim() : from.replace(/<[^>]+>/, "").trim() || from;
@@ -6453,8 +6471,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             >
                               {parseSenderName(msg.from)}
                             </p>
-                            <span className="text-[11px] text-muted-foreground/60 whitespace-nowrap flex-shrink-0 tabular-nums font-medium">
-                              {formatDate(msg.date, msg.internalDate)}
+                            <span
+                              className="text-[11px] text-muted-foreground/70 whitespace-nowrap flex-shrink-0 tabular-nums font-medium"
+                              title={(() => {
+                                const d = msg.date ? new Date(msg.date) : msg.internalDate ? new Date(Number(msg.internalDate)) : null;
+                                return d && !isNaN(d.getTime()) ? d.toLocaleString() : "";
+                              })()}
+                              data-testid={`text-message-date-${msg.id}`}
+                            >
+                              {formatMessageHeaderDate(msg.date, msg.internalDate)}
                             </span>
                           </div>
                           <p className="text-[11.5px] text-muted-foreground/65 truncate mt-0.5 font-mono">{parseSenderEmail(msg.from)}</p>
