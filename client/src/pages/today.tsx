@@ -43,12 +43,13 @@ function visibleTodayCatalog(profile: UserProfile): WidgetDef[] {
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  action:   "Daily Action",
-  risk:     "Risk Signals",
-  revenue:  "Revenue",
-  pipeline: "Pipeline",
-  team:     "Team",
-  classic:  "Other",
+  action:     "Daily Action",
+  risk:       "Risk Signals",
+  revenue:    "Revenue",
+  pipeline:   "Pipeline",
+  team:       "Team",
+  operations: "Operations",
+  classic:    "Other",
 };
 
 // ── Inline widget picker (mirrors the Command Center sheet) ─────────────────

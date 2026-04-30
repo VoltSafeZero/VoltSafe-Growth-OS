@@ -6737,6 +6737,68 @@ export async function registerRoutes(
         suggestedActions.unshift({ type: "meeting", text: `"${nextMeetingRows[0].title}" starts in ${mins} min — review briefing`, link: "/execution/calendar", priority: "high" });
       }
 
+      // ── CEO widgets: team workload, team blockers, pipeline funnel, active projects ──
+      const sevenDaysAgoTs = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+      const teamWorkloadRes = await db.execute(sql.raw(
+        `SELECT u.id, u.name,
+           COUNT(t.id) FILTER (WHERE t.status = 'pending')::int AS open_tasks,
+           COUNT(t.id) FILTER (WHERE t.status = 'pending' AND t.due_date < NOW())::int AS overdue,
+           COUNT(t.id) FILTER (WHERE t.status IN ('done','completed') AND t.completed_at >= '${sevenDaysAgoTs}')::int AS completed_week
+         FROM users u
+         LEFT JOIN tasks t ON t.owner_user_id = u.id
+         WHERE u.status = 'active'
+         GROUP BY u.id, u.name
+         ORDER BY overdue DESC, open_tasks DESC`
+      ));
+      const teamWorkload = (teamWorkloadRes as any).rows ?? [];
+
+      const teamBlockersRes = await db.execute(sql.raw(
+        `SELECT t.id, t.title, t.due_date AS "dueDate", t.priority, u.name AS "ownerName",
+           GREATEST(0, EXTRACT(day FROM NOW() - t.due_date)::int) AS "daysOverdue"
+         FROM tasks t
+         JOIN users u ON u.id = t.owner_user_id
+         WHERE t.status = 'pending' AND t.due_date < NOW()
+         ORDER BY t.due_date ASC
+         LIMIT 15`
+      ));
+      const teamBlockers = (teamBlockersRes as any).rows ?? [];
+
+      const pipelineFunnelRes = await db.execute(sql.raw(
+        `SELECT stage,
+           COUNT(*)::int AS count,
+           COALESCE(SUM(amount), 0)::float AS value
+         FROM opportunities
+         WHERE stage NOT IN ('closed_won', 'closed_lost')
+         GROUP BY stage`
+      ));
+      const pipelineFunnel = (pipelineFunnelRes as any).rows ?? [];
+
+      const stalledDealCountRes = await db.execute(sql.raw(
+        `SELECT COUNT(*)::int AS n FROM opportunities
+         WHERE stage NOT IN ('closed_won','closed_lost')
+           AND (last_activity_date IS NULL OR last_activity_date <= '${sevenDaysAgoTs}')`
+      ));
+      const stalledDealCount = Number((stalledDealCountRes as any).rows?.[0]?.n ?? 0);
+
+      const activeProjectsRes = await db.execute(sql.raw(
+        `SELECT p.id, p.name, p.status, p.phase,
+           u.name AS "ownerName",
+           a.name AS "accountName",
+           COUNT(pm.id) FILTER (WHERE pm.status = 'completed')::int AS milestones_done,
+           COUNT(pm.id)::int AS milestones_total,
+           p.end_date AS "endDate"
+         FROM projects p
+         LEFT JOIN users u ON u.id = p.owner_user_id
+         LEFT JOIN accounts a ON a.id = p.account_id
+         LEFT JOIN project_milestones pm ON pm.project_id = p.id
+         WHERE p.status NOT IN ('completed', 'cancelled')
+         GROUP BY p.id, p.name, p.status, p.phase, u.name, a.name, p.end_date
+         ORDER BY p.end_date ASC NULLS LAST
+         LIMIT 10`
+      ));
+      const activeProjects = (activeProjectsRes as any).rows ?? [];
+
       res.json({
         todaysMeetings, tasksDueToday, overdueTasks, newLeads: newLeadRecords,
         hotOpportunities: enrichedOpps, recentActivity, suggestedActions,
@@ -6744,6 +6806,11 @@ export async function registerRoutes(
           meetingsToday: todaysMeetings.length, tasksDueCount: tasksDueToday.length,
           overdueCount: overdueTasks.length, newLeadsCount: newLeadRecords.length,
         },
+        teamWorkload,
+        teamBlockers,
+        pipelineFunnel,
+        pipelineFunnelMeta: { stalledDealCount },
+        activeProjects,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

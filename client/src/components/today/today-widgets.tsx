@@ -16,7 +16,7 @@ import { ActionWidgetShell } from "@/components/command-centers/action-widgets";
 import {
   CalendarDays, Clock, CheckSquare, AlertTriangle, TrendingUp,
   UserPlus, Zap, Video, MapPin, ArrowRight, Building2,
-  Mail, Flame, Sun,
+  Mail, Flame, Sun, Users, ShieldAlert, BarChart3, FolderOpen,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import type { WidgetDef } from "@/lib/dashboard-config";
@@ -36,6 +36,11 @@ export type TodayData = {
   recentActivity: Array<{ id: number; subject?: string; fromEmail?: string; sentAt?: string; direction?: string; snippet?: string }>;
   suggestedActions: Array<{ type: string; text: string; link: string; priority: "high" | "medium" | "low" }>;
   stats: { meetingsToday: number; tasksDueCount: number; overdueCount: number; newLeadsCount: number };
+  teamWorkload: Array<{ id: number; name: string; open_tasks: number; overdue: number; completed_week: number }>;
+  teamBlockers: Array<{ id: number; title: string; dueDate?: string; priority: string; ownerName: string; daysOverdue: number }>;
+  pipelineFunnel: Array<{ stage: string; count: number; value: number }>;
+  pipelineFunnelMeta: { stalledDealCount: number };
+  activeProjects: Array<{ id: number; name: string; status: string; phase?: string; ownerName?: string; accountName?: string; milestones_done: number; milestones_total: number; endDate?: string }>;
 };
 
 export function useTodayData() {
@@ -52,6 +57,7 @@ const STAGE_LABEL: Record<string, string> = {
   inbound_new: "New", qualifying: "Qualifying", proposal: "Proposal",
   negotiation: "Negotiating", verbal_commit: "Verbal", closed_won: "Won",
 };
+const STAGE_ORDER = ["inbound_new", "qualifying", "proposal", "negotiation", "verbal_commit"];
 const STAGE_COLOR: Record<string, string> = {
   verbal_commit: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
   proposal: "bg-blue-500/15 text-blue-400 border-blue-500/25",
@@ -59,16 +65,36 @@ const STAGE_COLOR: Record<string, string> = {
   qualifying: "bg-purple-500/15 text-purple-400 border-purple-500/25",
   inbound_new: "bg-secondary/60 text-muted-foreground",
 };
+const STAGE_BAR_COLOR: Record<string, string> = {
+  verbal_commit: "bg-emerald-400",
+  negotiation: "bg-amber-400",
+  proposal: "bg-blue-400",
+  qualifying: "bg-purple-400",
+  inbound_new: "bg-muted-foreground/40",
+};
 const PRIORITY_DOT: Record<string, string> = {
   high: "bg-red-400", medium: "bg-amber-400", low: "bg-muted-foreground/40",
+  urgent: "bg-red-500",
 };
 const ACTION_ICON: Record<string, React.ElementType> = {
   meeting: CalendarDays, task: CheckSquare, opportunity: TrendingUp,
   lead: UserPlus, email: Mail, deal: Flame,
 };
+const PROJECT_STATUS_COLOR: Record<string, string> = {
+  active: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
+  on_hold: "bg-amber-500/15 text-amber-400 border-amber-500/25",
+  at_risk: "bg-red-500/15 text-red-400 border-red-500/25",
+  planning: "bg-blue-500/15 text-blue-400 border-blue-500/25",
+};
 
 function Empty({ text }: { text: string }) {
   return <p className="text-xs text-muted-foreground italic py-2">{text}</p>;
+}
+
+function fmt$(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}k`;
+  return `$${n.toLocaleString()}`;
 }
 
 // ── 1. Greeting + Day Stats Hero ─────────────────────────────────────────────
@@ -322,6 +348,217 @@ export function TodayNewLeadsWidget() {
   );
 }
 
+// ── 9. Team Workload Snapshot ────────────────────────────────────────────────
+// CEO view: see every active team member's task load at a glance — who's
+// overloaded (high overdue) vs. productive (high completed_week).
+
+export function TodayTeamWorkloadWidget() {
+  const { data, isLoading } = useTodayData();
+  const members = data?.teamWorkload ?? [];
+  const maxOpen = Math.max(1, ...members.map(m => m.open_tasks));
+
+  return (
+    <ActionWidgetShell id="today_team_workload" icon={Users} title="Team Workload"
+      count={members.length} link="/execution/team-workload">
+      {isLoading && <Skeleton className="h-32" />}
+      {!isLoading && members.length === 0 && <Empty text="No active team members found." />}
+      {!isLoading && members.map(m => {
+        const overdueRatio = m.open_tasks > 0 ? m.overdue / m.open_tasks : 0;
+        const barColor = overdueRatio > 0.5 ? "bg-red-400" : overdueRatio > 0.2 ? "bg-amber-400" : "bg-emerald-400";
+        return (
+          <div key={m.id} className="py-2 border-b border-border/30 last:border-0" data-testid={`member-workload-${m.id}`}>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <span className="text-sm font-medium truncate flex-1">{m.name}</span>
+              <div className="flex items-center gap-2 text-xs shrink-0">
+                <span className="text-muted-foreground">{m.open_tasks} open</span>
+                {m.overdue > 0 && (
+                  <span className="text-red-400 font-semibold">{m.overdue} overdue</span>
+                )}
+                {m.completed_week > 0 && (
+                  <span className="text-emerald-400">✓ {m.completed_week}</span>
+                )}
+              </div>
+            </div>
+            <div className="h-1.5 rounded-full bg-secondary/50 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${barColor}`}
+                style={{ width: `${Math.min(100, (m.open_tasks / maxOpen) * 100)}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
+      {!isLoading && members.length > 0 && (
+        <p className="text-[10px] text-muted-foreground mt-2 italic">
+          Bar = relative task load · Red = {">"}50% overdue · Green = on track · ✓ = completed this week
+        </p>
+      )}
+    </ActionWidgetShell>
+  );
+}
+
+// ── 10. Team Blockers (company-wide overdue) ─────────────────────────────────
+// CEO view: all overdue tasks across the entire team with owner attribution so
+// the CEO can see exactly who is blocked on what and intervene if needed.
+
+export function TodayTeamBlockersWidget() {
+  const { data, isLoading } = useTodayData();
+  const items = data?.teamBlockers ?? [];
+
+  return (
+    <ActionWidgetShell id="today_team_blockers" icon={ShieldAlert} title="Team Blockers"
+      count={items.length} link="/execution/team-workload">
+      {isLoading && <Skeleton className="h-24" />}
+      {!isLoading && items.length === 0 && <Empty text="No overdue tasks across the team — great work!" />}
+      {!isLoading && items.map(t => {
+        const urgency = t.daysOverdue > 14 ? "text-red-400" : t.daysOverdue > 7 ? "text-amber-400" : "text-muted-foreground";
+        return (
+          <div key={t.id}
+            className="flex items-start gap-2.5 py-1.5 border-b border-border/30 last:border-0"
+            data-testid={`blocker-${t.id}`}
+          >
+            <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${PRIORITY_DOT[t.priority] ?? "bg-muted-foreground/30"}`} />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm truncate">{t.title}</p>
+              <p className="text-xs text-muted-foreground">{t.ownerName}</p>
+            </div>
+            <span className={`text-xs font-medium shrink-0 tabular-nums ${urgency}`}>
+              {t.daysOverdue}d
+            </span>
+          </div>
+        );
+      })}
+      {!isLoading && items.length > 0 && (
+        <Link href="/execution/team-workload">
+          <p className="text-xs text-primary mt-2 flex items-center gap-1 cursor-pointer hover:underline">
+            View all <ArrowRight className="h-3 w-3" />
+          </p>
+        </Link>
+      )}
+    </ActionWidgetShell>
+  );
+}
+
+// ── 11. Pipeline Funnel ──────────────────────────────────────────────────────
+// CEO view: company-wide pipeline stage distribution with $ value per stage
+// and a stalled deal count so the CEO sees where deals are concentrating or
+// getting stuck.
+
+export function TodayPipelineFunnelWidget() {
+  const { data, isLoading } = useTodayData();
+  const rawFunnel = data?.pipelineFunnel ?? [];
+  const stalledCount = data?.pipelineFunnelMeta?.stalledDealCount ?? 0;
+
+  const knownSet = new Set(STAGE_ORDER);
+  const ordered = STAGE_ORDER
+    .map(stage => rawFunnel.find(r => r.stage === stage))
+    .filter(Boolean) as typeof rawFunnel;
+  const extra = rawFunnel.filter(r => !knownSet.has(r.stage));
+  const funnelByStage = [...ordered, ...extra];
+
+  const maxCount = Math.max(1, ...funnelByStage.map(r => r.count));
+
+  return (
+    <ActionWidgetShell id="today_pipeline_funnel" icon={BarChart3} title="Pipeline Funnel"
+      link="/pipeline">
+      {isLoading && <Skeleton className="h-32" />}
+      {!isLoading && funnelByStage.length === 0 && <Empty text="No open pipeline deals." />}
+      {!isLoading && funnelByStage.map(r => (
+        <div key={r.stage} className="py-1.5 border-b border-border/30 last:border-0" data-testid={`funnel-${r.stage}`}>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="text-xs text-muted-foreground w-24 shrink-0">{STAGE_LABEL[r.stage] ?? r.stage}</span>
+            <div className="flex-1 h-2 rounded-full bg-secondary/40 overflow-hidden">
+              <div
+                className={`h-full rounded-full ${STAGE_BAR_COLOR[r.stage] ?? "bg-primary/50"}`}
+                style={{ width: `${(r.count / maxCount) * 100}%` }}
+              />
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs font-semibold w-4 text-right">{r.count}</span>
+              {r.value > 0 && (
+                <span className="text-xs text-emerald-400 w-16 text-right tabular-nums">{fmt$(r.value)}</span>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+      {!isLoading && stalledCount > 0 && (
+        <div className="mt-2 flex items-center gap-2 px-2 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+          <p className="text-xs text-amber-400">
+            {stalledCount} deal{stalledCount > 1 ? "s" : ""} stalled — no activity in 7+ days
+          </p>
+        </div>
+      )}
+    </ActionWidgetShell>
+  );
+}
+
+// ── 12. Active Projects ──────────────────────────────────────────────────────
+// CEO view: all active projects with milestone completion progress, owner,
+// and end date so the CEO can spot slipping or at-risk deliverables.
+
+export function TodayActiveProjectsWidget() {
+  const { data, isLoading } = useTodayData();
+  const projects = data?.activeProjects ?? [];
+  const now = new Date();
+
+  return (
+    <ActionWidgetShell id="today_active_projects" icon={FolderOpen} title="Active Projects"
+      count={projects.length} link="/execution/projects">
+      {isLoading && <Skeleton className="h-32" />}
+      {!isLoading && projects.length === 0 && <Empty text="No active projects right now." />}
+      {!isLoading && projects.map(p => {
+        const pct = p.milestones_total > 0 ? Math.round((p.milestones_done / p.milestones_total) * 100) : 0;
+        const isOverdue = p.endDate && new Date(p.endDate) < now;
+        const endLabel = p.endDate ? format(new Date(p.endDate), "MMM d") : null;
+        return (
+          <div key={p.id}
+            className="py-2 border-b border-border/30 last:border-0"
+            data-testid={`project-${p.id}`}
+          >
+            <div className="flex items-start justify-between gap-1 mb-1">
+              <p className="text-sm font-medium truncate flex-1">{p.name}</p>
+              <Badge variant="outline"
+                className={`text-[10px] px-1.5 shrink-0 ml-1 ${PROJECT_STATUS_COLOR[p.status] ?? "bg-secondary/60 text-muted-foreground"}`}>
+                {p.status.replace(/_/g, " ")}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-2 mb-1.5">
+              {p.accountName && (
+                <span className="text-xs text-muted-foreground truncate flex-1">
+                  <Building2 className="inline h-3 w-3 mr-0.5" />{p.accountName}
+                </span>
+              )}
+              {endLabel && (
+                <span className={`text-xs shrink-0 ${isOverdue ? "text-red-400" : "text-muted-foreground"}`}>
+                  {isOverdue ? "⚠ " : ""}Due {endLabel}
+                </span>
+              )}
+            </div>
+            {p.milestones_total > 0 && (
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-1.5 rounded-full bg-secondary/50 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${pct === 100 ? "bg-emerald-400" : isOverdue ? "bg-red-400" : "bg-primary"}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
+                  {p.milestones_done}/{p.milestones_total} milestones
+                </span>
+              </div>
+            )}
+            {p.ownerName && (
+              <p className="text-[10px] text-muted-foreground mt-1">{p.ownerName}</p>
+            )}
+          </div>
+        );
+      })}
+    </ActionWidgetShell>
+  );
+}
+
 // ── Catalog: widget defs available on the Today page ────────────────────────
 //
 // All ids are `today_` prefixed so they cannot collide with the Command
@@ -378,6 +615,31 @@ export const TODAY_WIDGET_DEFS: WidgetDef[] = [
     description: "Recently arrived leads ready for first-touch.",
     defaultVisible: true, category: "pipeline", isNew: true,
   },
+  // ── CEO-focused additions ──
+  {
+    id: "today_team_workload",
+    label: "Team Workload",
+    description: "Every active team member's open tasks, overdue count, and completions this week — color-coded by health.",
+    defaultVisible: true, category: "team", isNew: true,
+  },
+  {
+    id: "today_team_blockers",
+    label: "Team Blockers",
+    description: "All overdue tasks across the entire team with owner attribution and days overdue.",
+    defaultVisible: true, category: "team", isNew: true,
+  },
+  {
+    id: "today_pipeline_funnel",
+    label: "Pipeline Funnel",
+    description: "Company-wide deal count and value per stage with stalled deal alerts.",
+    defaultVisible: true, category: "revenue", isNew: true,
+  },
+  {
+    id: "today_active_projects",
+    label: "Active Projects",
+    description: "All active projects with milestone progress, owner, and end date — spot slipping deliverables at a glance.",
+    defaultVisible: true, category: "operations", isNew: true,
+  },
 ];
 
 // Map of today widget id → component, merged into ACTION_WIDGET_MAP at the
@@ -391,16 +653,24 @@ export const TODAY_ACTION_WIDGET_MAP: Record<string, React.ComponentType<any>> =
   today_email_activity:     TodayEmailActivityWidget,
   today_hot_opportunities:  TodayHotOpportunitiesWidget,
   today_new_leads:          TodayNewLeadsWidget,
+  today_team_workload:      TodayTeamWorkloadWidget,
+  today_team_blockers:      TodayTeamBlockersWidget,
+  today_pipeline_funnel:    TodayPipelineFunnelWidget,
+  today_active_projects:    TodayActiveProjectsWidget,
 };
 
 // Default size hints for today widgets in the 12-col responsive grid.
 export const TODAY_WIDGET_SIZE_HINTS: Record<string, { w: number; h: number; minW?: number; minH?: number }> = {
-  today_overview:           { w: 12, h: 4,  minW: 6, minH: 3 },
-  today_suggested_actions:  { w: 12, h: 6,  minW: 6, minH: 4 },
-  today_meetings:           { w: 8,  h: 11, minW: 4, minH: 6 },
-  today_tasks_due:          { w: 4,  h: 8,  minW: 3, minH: 5 },
-  today_overdue:            { w: 4,  h: 8,  minW: 3, minH: 5 },
-  today_email_activity:     { w: 8,  h: 8,  minW: 4, minH: 5 },
-  today_hot_opportunities:  { w: 4,  h: 11, minW: 3, minH: 5 },
-  today_new_leads:          { w: 4,  h: 8,  minW: 3, minH: 5 },
+  today_overview:           { w: 12, h: 4,  minW: 6,  minH: 3 },
+  today_suggested_actions:  { w: 12, h: 6,  minW: 6,  minH: 4 },
+  today_meetings:           { w: 8,  h: 11, minW: 4,  minH: 6 },
+  today_tasks_due:          { w: 4,  h: 8,  minW: 3,  minH: 5 },
+  today_overdue:            { w: 4,  h: 8,  minW: 3,  minH: 5 },
+  today_email_activity:     { w: 8,  h: 8,  minW: 4,  minH: 5 },
+  today_hot_opportunities:  { w: 4,  h: 11, minW: 3,  minH: 5 },
+  today_new_leads:          { w: 4,  h: 8,  minW: 3,  minH: 5 },
+  today_team_workload:      { w: 6,  h: 10, minW: 4,  minH: 6 },
+  today_team_blockers:      { w: 6,  h: 10, minW: 4,  minH: 6 },
+  today_pipeline_funnel:    { w: 6,  h: 9,  minW: 4,  minH: 5 },
+  today_active_projects:    { w: 6,  h: 11, minW: 4,  minH: 6 },
 };

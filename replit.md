@@ -3809,11 +3809,19 @@ change Command Center widgets and vice versa.
 - `client/src/pages/today.tsx` (REWRITTEN) — header with edit toolbar +
   Widgets sheet + DashboardGrid keyed by `resetSeed`.
 
-**8 Today widgets** (all id-prefixed `today_*` so they cannot collide with
+**12 Today widgets** (all id-prefixed `today_*` so they cannot collide with
 Command Center widgets in the flat `widgetVisibility` jsonb map):
-`today_overview` (greeting + KPI strip), `today_suggested_actions`,
-`today_meetings`, `today_tasks_due`, `today_overdue`, `today_email_activity`,
-`today_hot_opportunities`, `today_new_leads`.
+- Daily Action: `today_overview` (greeting + KPI strip), `today_suggested_actions`, `today_meetings`, `today_tasks_due`, `today_email_activity`
+- Risk: `today_overdue`
+- Revenue: `today_hot_opportunities`, `today_pipeline_funnel` (company pipeline by stage with stalled-deal alert)
+- Pipeline: `today_new_leads`
+- Team (CEO): `today_team_workload` (all active users: open/overdue/completed with health bar), `today_team_blockers` (all overdue tasks company-wide with owner + days overdue)
+- Operations (CEO): `today_active_projects` (active projects with milestone progress bars + end date)
+
+All 4 CEO widgets (`today_team_workload`, `today_team_blockers`, `today_pipeline_funnel`,
+`today_active_projects`) are backed by 4 new SQL queries added to `GET /api/dashboard/today`
+(no schema change). New response fields: `teamWorkload`, `teamBlockers`, `pipelineFunnel`,
+`pipelineFunnelMeta`, `activeProjects`.
 
 **Persistence model** — uses the EXISTING jsonb columns on `users`, no schema
 work:
