@@ -414,8 +414,6 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
             <SelectItem value="createdAt:asc">Oldest First</SelectItem>
             <SelectItem value="slipCount:desc">Most Slips</SelectItem>
             <SelectItem value="slipCount:asc">Fewest Slips</SelectItem>
-            <SelectItem value="industry:asc">Industry A–Z</SelectItem>
-            <SelectItem value="industry:desc">Industry Z–A</SelectItem>
           </SelectContent>
         </Select>
         </div>
@@ -1834,7 +1832,6 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
     notes: account.notes || "",
     notesSummary: account.notesSummary || "",
     tags: account.tags || "",
-    industry: (account as any).industry || "",
   });
 
   const isMarinaType = MARINA_ORG_TYPES.has(form.orgType);
@@ -1851,7 +1848,6 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
       <div className="grid grid-cols-2 gap-3">
         <div><Label className="text-xs">Name *</Label><Input value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} required data-testid="input-edit-name" /></div>
         <div><Label className="text-xs">Legal Name</Label><Input value={form.legalName} onChange={(e) => setForm(f => ({ ...f, legalName: e.target.value }))} data-testid="input-edit-legal-name" /></div>
-        <div className="col-span-2"><Label className="text-xs">Industry</Label><Input value={form.industry} onChange={(e) => setForm(f => ({ ...f, industry: e.target.value }))} placeholder="e.g. Marine, Utilities, Government…" data-testid="input-edit-industry" /></div>
         <div><Label className="text-xs">Website</Label><Input value={form.website} onChange={(e) => setForm(f => ({ ...f, website: e.target.value }))} data-testid="input-edit-website" /></div>
         <div>
           <Label className="text-xs">Organization Type</Label>
@@ -1988,7 +1984,7 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
 
 function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<string, unknown>) => void; isPending: boolean }) {
   const [form, setForm] = useState({
-    name: "", orgType: "marina_prospect", segment: "marina", industry: "",
+    name: "", orgType: "marina_prospect", segment: "marina",
     streetAddress: "", city: "", stateProvince: "", postalZip: "", country: "US",
     region: "", slipCount: "", notes: "", leadStatus: "new", priority: "medium",
   });
@@ -1996,7 +1992,6 @@ function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit({ ...form, slipCount: form.slipCount ? Number(form.slipCount) : undefined }); }} className="space-y-4">
       <div><Label>Name *</Label><Input value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} required data-testid="input-account-name" /></div>
-      <div><Label>Industry</Label><Input value={form.industry} onChange={(e) => setForm(f => ({ ...f, industry: e.target.value }))} placeholder="e.g. Marine, Utilities, Government…" data-testid="input-account-industry" /></div>
       <div>
         <Label>Organization Type</Label>
         <Select value={form.orgType} onValueChange={(v) => setForm(f => ({ ...f, orgType: v }))}>

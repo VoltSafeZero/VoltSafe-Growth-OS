@@ -645,7 +645,7 @@ export class DatabaseStorage implements IStorage {
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
-    const accountSortColumns: Record<string, AnyColumn> = { name: accounts.name, segment: accounts.segment, region: accounts.region, slipCount: accounts.slipCount, createdAt: accounts.createdAt, industry: accounts.industry };
+    const accountSortColumns: Record<string, AnyColumn> = { name: accounts.name, segment: accounts.segment, region: accounts.region, slipCount: accounts.slipCount, createdAt: accounts.createdAt };
     const sortCol = options?.sortBy && accountSortColumns[options.sortBy];
     const orderClause = sortCol ? getSortOrder(sortCol, options?.sortOrder || "asc") : desc(accounts.createdAt);
 
