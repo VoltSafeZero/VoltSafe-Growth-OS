@@ -564,6 +564,7 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
   const [tasksCreated, setTasksCreated] = useState(false);
   const [activeTab, setActiveTab] = useState("summary");
   const [justCompleted, setJustCompleted] = useState(false);
+  const [highlightedTabs, setHighlightedTabs] = useState<Set<string>>(new Set());
 
   const prevStatusRef = useRef<string | null>(null);
 
@@ -581,7 +582,7 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
     },
   });
 
-  // Detect processing → completed transition and auto-switch to Summary tab
+  // Detect processing → completed transition: toast, tab highlights, summary switch
   useEffect(() => {
     if (!note) return;
     const prev = prevStatusRef.current;
@@ -590,10 +591,27 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
         setActiveTab("summary");
         setJustCompleted(true);
         setTimeout(() => setJustCompleted(false), 2500);
+
+        // Fire summary toast with counts
+        const actionCount = note.actionItems.length;
+        const hasFollowup = !!note.followupDraftText;
+        const parts: string[] = [];
+        if (actionCount > 0) parts.push(`${actionCount} action${actionCount === 1 ? "" : "s"} ready`);
+        if (hasFollowup) parts.push("follow-up draft ready");
+        toast({
+          title: "Meeting processed",
+          description: parts.length > 0 ? parts.join(" · ") : "Summary and insights are ready",
+        });
+
+        // Highlight relevant tabs
+        const toHighlight = new Set<string>();
+        if (actionCount > 0) toHighlight.add("action-items");
+        if (hasFollowup) toHighlight.add("followup");
+        if (toHighlight.size > 0) setHighlightedTabs(toHighlight);
       }
     }
     prevStatusRef.current = note.status;
-  }, [note?.status]);
+  }, [note?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Retry / Regenerate mutation — POST /api/meeting-notes/:id/process
   const retryMutation = useMutation({
@@ -851,16 +869,33 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
                 <TabsTrigger value="notes" className="text-xs gap-1.5" data-testid="tab-notes">
                   <MessageSquare className="w-3 h-3" /> Notes
                 </TabsTrigger>
-                <TabsTrigger value="action-items" className="text-xs gap-1.5" data-testid="tab-action-items">
+                <TabsTrigger
+                  value="action-items"
+                  className="text-xs gap-1.5"
+                  data-testid="tab-action-items"
+                  onClick={() => setHighlightedTabs((prev) => { const s = new Set(prev); s.delete("action-items"); return s; })}
+                >
                   <ListChecks className="w-3 h-3" /> Action Items
                   {note.actionItems.length > 0 && (
-                    <span className="ml-0.5 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-semibold">
+                    <span className={`ml-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-semibold transition-colors ${
+                      highlightedTabs.has("action-items")
+                        ? "bg-primary text-primary-foreground animate-pulse"
+                        : "bg-primary/10 text-primary"
+                    }`}>
                       {note.actionItems.length}
                     </span>
                   )}
                 </TabsTrigger>
-                <TabsTrigger value="followup" className="text-xs gap-1.5" data-testid="tab-followup">
+                <TabsTrigger
+                  value="followup"
+                  className="text-xs gap-1.5"
+                  data-testid="tab-followup"
+                  onClick={() => setHighlightedTabs((prev) => { const s = new Set(prev); s.delete("followup"); return s; })}
+                >
                   <Send className="w-3 h-3" /> Follow-up
+                  {highlightedTabs.has("followup") && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" data-testid="dot-followup-highlight" />
+                  )}
                 </TabsTrigger>
               </TabsList>
 
@@ -1162,6 +1197,62 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
               suggestions={note.suggestions ?? []}
               onConfirmed={() => queryClient.invalidateQueries({ queryKey: ["/api/meeting-notes", noteId] })}
             />
+
+            {/* Quick Actions — shown when note is completed and has results */}
+            {note.status === "completed" && (note.actionItems.length > 0 || !!note.followupDraftText) && (
+              <div
+                className="flex flex-col gap-2 p-3 rounded-lg border border-primary/20 bg-primary/5"
+                data-testid="panel-quick-actions"
+              >
+                <p className="text-xs font-semibold text-primary uppercase tracking-wide flex items-center gap-1.5">
+                  <Sparkles className="w-3 h-3" /> Quick Actions
+                </p>
+
+                {note.actionItems.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className={`w-full h-7 text-xs gap-1.5 transition-colors ${
+                      highlightedTabs.has("action-items")
+                        ? "border-primary/40 text-primary bg-primary/5"
+                        : ""
+                    }`}
+                    onClick={() => {
+                      setActiveTab("action-items");
+                      setHighlightedTabs((prev) => { const s = new Set(prev); s.delete("action-items"); return s; });
+                    }}
+                    data-testid="button-quick-create-tasks"
+                  >
+                    <ListChecks className="w-3 h-3" />
+                    Create Tasks
+                    {note.actionItems.length > 0 && (
+                      <span className="ml-auto text-[10px] bg-primary/10 text-primary px-1.5 rounded-full">
+                        {note.actionItems.length}
+                      </span>
+                    )}
+                  </Button>
+                )}
+
+                {!!note.followupDraftText && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className={`w-full h-7 text-xs gap-1.5 transition-colors ${
+                      highlightedTabs.has("followup")
+                        ? "border-primary/40 text-primary bg-primary/5"
+                        : ""
+                    }`}
+                    onClick={() => {
+                      setComposeOpen(true);
+                      setHighlightedTabs((prev) => { const s = new Set(prev); s.delete("followup"); return s; });
+                    }}
+                    data-testid="button-quick-send-followup"
+                  >
+                    <Send className="w-3 h-3" /> Send Follow-up
+                  </Button>
+                )}
+              </div>
+            )}
 
             {/* CRM actions */}
             <div className="flex flex-col gap-2 p-3 rounded-lg border border-border/50 bg-card">

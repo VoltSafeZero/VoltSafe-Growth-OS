@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { formatDistanceToNow } from "date-fns";
 import { Mic, Plus, CalendarClock, Mail, Upload, Hash, AlertCircle, Loader2 } from "lucide-react";
+import { ToastAction } from "@/components/ui/toast";
 
 type MeetingNoteSummary = {
   id: number;
@@ -73,7 +74,35 @@ export default function MeetingNotesIndexPage() {
 
   const { data: notes = [], isLoading, isError } = useQuery<MeetingNoteSummary[]>({
     queryKey: ["/api/meeting-notes"],
+    // Poll every 3s when any note is processing
+    refetchInterval: (query) => {
+      const data = query.state.data as MeetingNoteSummary[] | undefined;
+      return data?.some((n) => n.status === "processing") ? 3000 : false;
+    },
   });
+
+  // Detect processing → completed transitions from the list view
+  const prevNoteStatusesRef = useRef<Map<number, string>>(new Map());
+  useEffect(() => {
+    const prev = prevNoteStatusesRef.current;
+    notes.forEach((note) => {
+      const prevStatus = prev.get(note.id);
+      if (prevStatus === "processing" && note.status === "completed") {
+        const noteId = note.id;
+        const noteTitle = note.title || "Meeting";
+        toast({
+          title: `"${noteTitle}" is ready`,
+          description: "AI processing complete — open to review insights.",
+          action: (
+            <ToastAction altText="Open meeting note" onClick={() => navigate(`/meeting-notes/${noteId}`)}>
+              Open
+            </ToastAction>
+          ),
+        });
+      }
+      prev.set(note.id, note.status);
+    });
+  }, [notes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const createMutation = useMutation({
     mutationFn: () =>
