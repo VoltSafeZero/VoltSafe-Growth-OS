@@ -5,14 +5,19 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { formatDistanceToNow, format } from "date-fns";
 import {
   Mic, ArrowLeft, CheckCircle2, Clock, AlertCircle, XCircle,
   CalendarClock, Mail, Hash, Upload, Loader2, FileText,
-  ListChecks, MessageSquare, Sparkles, Send,
+  ListChecks, MessageSquare, Sparkles, Send, Plus,
+  CheckCheck, X, Activity, Link2, Building2, User, Briefcase,
 } from "lucide-react";
 import { MeetingNoteCapturePanel } from "@/components/meeting-notes/meeting-note-capture-panel";
 
@@ -70,14 +75,18 @@ type MeetingNoteDetail = {
   links: { id: number; linkedObjectType: string; linkedObjectId: number }[];
 };
 
+type Account = { id: number; name: string; industry?: string | null };
+type Contact = { id: number; name: string; email?: string | null; accountId?: number | null };
+type Opportunity = { id: number; name: string; accountId?: number | null };
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const STATUS_LABEL: Record<string, string> = {
   scheduled_prompted: "Scheduled",
   recording:          "Recording",
   processing:         "Processing",
-  done:               "Done",
-  error:              "Error",
+  completed:          "Completed",
+  failed:             "Failed",
   cancelled:          "Cancelled",
 };
 
@@ -85,8 +94,8 @@ const STATUS_CLASS: Record<string, string> = {
   scheduled_prompted: "bg-blue-500/10 text-blue-500 border-blue-500/20",
   recording:          "bg-red-500/10 text-red-500 border-red-500/20",
   processing:         "bg-amber-500/10 text-amber-600 border-amber-500/20",
-  done:               "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
-  error:              "bg-red-500/10 text-red-500 border-red-500/20",
+  completed:          "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+  failed:             "bg-red-500/10 text-red-500 border-red-500/20",
   cancelled:          "bg-muted text-muted-foreground border-border",
 };
 
@@ -94,8 +103,8 @@ const STATUS_ICON: Record<string, React.ElementType> = {
   scheduled_prompted: Clock,
   recording:          Mic,
   processing:         Loader2,
-  done:               CheckCircle2,
-  error:              AlertCircle,
+  completed:          CheckCircle2,
+  failed:             AlertCircle,
   cancelled:          XCircle,
 };
 
@@ -108,9 +117,9 @@ const SOURCE_ICON: Record<string, React.ElementType> = {
 };
 
 const AI_STATUS_CLASS: Record<string, string> = {
-  suggested: "bg-amber-500/10 text-amber-600 border-amber-500/20",
-  accepted:  "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
-  rejected:  "bg-muted text-muted-foreground border-border",
+  suggested:    "bg-amber-500/10 text-amber-600 border-amber-500/20",
+  accepted:     "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+  rejected:     "bg-muted text-muted-foreground border-border",
   task_created: "bg-primary/10 text-primary border-primary/20",
 };
 
@@ -174,12 +183,251 @@ function EditableTitle({
   );
 }
 
+// ─── Compose Dialog ───────────────────────────────────────────────────────────
+
+function FollowUpComposeDialog({
+  open, onClose, defaultTo, defaultSubject, defaultBody,
+}: {
+  open: boolean;
+  onClose: () => void;
+  defaultTo: string;
+  defaultSubject: string;
+  defaultBody: string;
+}) {
+  const { toast } = useToast();
+  const [to, setTo] = useState(defaultTo);
+  const [subject, setSubject] = useState(defaultSubject);
+  const [body, setBody] = useState(defaultBody);
+
+  useEffect(() => {
+    if (open) { setTo(defaultTo); setSubject(defaultSubject); setBody(defaultBody); }
+  }, [open, defaultTo, defaultSubject, defaultBody]);
+
+  const sendMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/gmail/send", {
+        to,
+        subject,
+        body: body.replace(/\n/g, "<br>"),
+        attachmentIds: [],
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).message || `Error ${res.status}`);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Follow-up sent" });
+      onClose();
+    },
+    onError: (e: Error) => {
+      toast({ title: "Send failed", description: e.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <Send className="w-4 h-4" /> Send Follow-up Email
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-3 mt-1">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-muted-foreground">To</label>
+            <Input
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              placeholder="recipient@example.com"
+              className="h-8 text-sm"
+              data-testid="input-followup-to"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-muted-foreground">Subject</label>
+            <Input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className="h-8 text-sm"
+              data-testid="input-followup-subject"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-muted-foreground">Body</label>
+            <Textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              className="min-h-[180px] text-sm resize-none"
+              data-testid="textarea-followup-body"
+            />
+          </div>
+          <div className="flex justify-end gap-2 mt-1">
+            <Button variant="outline" size="sm" onClick={onClose} data-testid="button-followup-cancel">
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => sendMutation.mutate()}
+              disabled={sendMutation.isPending || !to.trim() || !subject.trim()}
+              data-testid="button-followup-send"
+            >
+              {sendMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Send className="w-3.5 h-3.5 mr-1.5" />}
+              Send
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── CRM Link Picker ──────────────────────────────────────────────────────────
+
+type CrmObjectType = "account" | "contact" | "opportunity";
+
+function CrmLinkPicker({
+  noteId, currentType, currentId, onLinked,
+}: {
+  noteId: number;
+  currentType: string | null;
+  currentId: number | null;
+  onLinked: () => void;
+}) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [objType, setObjType] = useState<CrmObjectType>("account");
+
+  const accountsQuery = useQuery<Account[]>({
+    queryKey: ["/api/accounts", "all"],
+    staleTime: 60_000,
+  });
+
+  const contactsQuery = useQuery<Contact[]>({
+    queryKey: ["/api/contacts", null],
+    staleTime: 60_000,
+  });
+
+  const linkMutation = useMutation({
+    mutationFn: async ({ type, id }: { type: CrmObjectType; id: number }) => {
+      const res = await apiRequest("POST", `/api/meeting-notes/${noteId}/link-record`, {
+        objectType: type,
+        objectId: id,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).message || "Link failed");
+      }
+      // Also update the note's primary linked object
+      await apiRequest("PATCH", `/api/meeting-notes/${noteId}`, {
+        linkedObjectType: type,
+        linkedObjectId: id,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Record linked" });
+      setOpen(false);
+      onLinked();
+    },
+    onError: (e: Error) => {
+      toast({ title: "Link failed", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const accounts = accountsQuery.data ?? [];
+  const contacts = (contactsQuery.data as any)?.contacts ?? contactsQuery.data ?? [];
+
+  const currentLabel = (() => {
+    if (!currentType || !currentId) return null;
+    if (currentType === "account") {
+      const a = accounts.find((x) => x.id === currentId);
+      return a ? `${a.name} (Account)` : `Account #${currentId}`;
+    }
+    if (currentType === "contact") {
+      const c = (contacts as Contact[]).find((x) => x.id === currentId);
+      return c ? `${c.name} (Contact)` : `Contact #${currentId}`;
+    }
+    return `${currentType} #${currentId}`;
+  })();
+
+  return (
+    <div className="flex flex-col gap-2">
+      {currentLabel && (
+        <div className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-500/10 rounded-md px-2 py-1.5" data-testid="text-linked-record">
+          <Link2 className="w-3 h-3 shrink-0" />
+          <span className="truncate">{currentLabel}</span>
+        </div>
+      )}
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="sm" className="w-full h-7 text-xs gap-1.5" data-testid="button-link-record">
+            <Link2 className="w-3 h-3" />
+            {currentLabel ? "Change Link" : "Link to CRM Record"}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-72 p-0" align="start">
+          <div className="flex border-b border-border/50">
+            {(["account", "contact"] as CrmObjectType[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setObjType(t)}
+                className={`flex-1 py-1.5 text-xs font-medium capitalize transition-colors ${
+                  objType === t ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted/50"
+                }`}
+                data-testid={`tab-link-${t}`}
+              >
+                {t === "account" ? <Building2 className="w-3 h-3 inline mr-1" /> : <User className="w-3 h-3 inline mr-1" />}
+                {t}
+              </button>
+            ))}
+          </div>
+          <Command>
+            <CommandInput placeholder={`Search ${objType}s…`} className="h-8 text-sm" />
+            <CommandList className="max-h-52">
+              <CommandEmpty>No {objType}s found</CommandEmpty>
+              <CommandGroup>
+                {objType === "account" && accounts.map((a) => (
+                  <CommandItem
+                    key={a.id}
+                    value={a.name}
+                    onSelect={() => linkMutation.mutate({ type: "account", id: a.id })}
+                    data-testid={`item-link-account-${a.id}`}
+                  >
+                    <Building2 className="w-3 h-3 mr-2 shrink-0 text-muted-foreground" />
+                    {a.name}
+                  </CommandItem>
+                ))}
+                {objType === "contact" && (contacts as Contact[]).map((c) => (
+                  <CommandItem
+                    key={c.id}
+                    value={c.name}
+                    onSelect={() => linkMutation.mutate({ type: "contact", id: c.id })}
+                    data-testid={`item-link-contact-${c.id}`}
+                  >
+                    <User className="w-3 h-3 mr-2 shrink-0 text-muted-foreground" />
+                    {c.name}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function MeetingNotesDetailPage({ params }: { params: { id: string } }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const noteId = Number(params?.id);
+
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [timelineAdded, setTimelineAdded] = useState(false);
 
   const { data: note, isLoading, isError, refetch } = useQuery<MeetingNoteDetail>({
     queryKey: ["/api/meeting-notes", noteId],
@@ -198,6 +446,63 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
       await queryClient.invalidateQueries({ queryKey: ["/api/meeting-notes"] });
     },
     onError: () => toast({ title: "Save failed", variant: "destructive" }),
+  });
+
+  // Action item status mutation
+  const updateItemMutation = useMutation({
+    mutationFn: async ({ itemId, status }: { itemId: number; status: string }) => {
+      const res = await apiRequest(
+        "PATCH",
+        `/api/meeting-notes/${noteId}/action-items/${itemId}`,
+        { status },
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).message || "Update failed");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/meeting-notes", noteId] });
+    },
+    onError: (e: Error) => toast({ title: "Update failed", description: e.message, variant: "destructive" }),
+  });
+
+  // Create tasks mutation
+  const createTasksMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/meeting-notes/${noteId}/create-tasks`, {});
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).message || "Failed");
+      }
+      return res.json() as Promise<{ created: number; skipped: number }>;
+    },
+    onSuccess: (data) => {
+      toast({
+        title: data.created > 0
+          ? `${data.created} task${data.created === 1 ? "" : "s"} created`
+          : "No new tasks — accept items first",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/meeting-notes", noteId] });
+    },
+    onError: (e: Error) => toast({ title: "Task creation failed", description: e.message, variant: "destructive" }),
+  });
+
+  // Add to timeline mutation
+  const timelineMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/meeting-notes/${noteId}/add-to-timeline`, {});
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).message || "Failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Added to CRM timeline" });
+      setTimelineAdded(true);
+    },
+    onError: (e: Error) => toast({ title: "Timeline failed", description: e.message, variant: "destructive" }),
   });
 
   // Local notes textarea state (debounce via blur)
@@ -246,6 +551,17 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
   const StatusIcon = STATUS_ICON[note.status] ?? Clock;
   const SrcIcon = SOURCE_ICON[note.source] ?? Hash;
 
+  const acceptedCount = note.actionItems.filter((i) => i.status === "accepted").length;
+  const taskCreatedCount = note.actionItems.filter((i) => i.status === "task_created").length;
+
+  // Follow-up compose pre-fill
+  const participantEmails = note.participants
+    .filter((p) => p.email)
+    .map((p) => p.email!)
+    .join(", ");
+  const composeSubject = `Follow-up: ${note.title || "Meeting"}`;
+  const composeBody = note.followupDraftText ?? "";
+
   return (
     <div className="flex flex-col h-full min-h-0 overflow-y-auto bg-background">
       <div className="max-w-4xl w-full mx-auto px-4 py-5 flex flex-col gap-4">
@@ -291,6 +607,13 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
             ) : null}
 
             <span>{formatDistanceToNow(new Date(note.createdAt), { addSuffix: true })}</span>
+
+            {note.linkedObjectType && note.linkedObjectId && (
+              <Badge variant="outline" className="flex items-center gap-1 text-[10px] text-sky-500 border-sky-500/20 bg-sky-500/10" data-testid="badge-linked-record">
+                <Link2 className="w-3 h-3" />
+                Linked: {note.linkedObjectType} #{note.linkedObjectId}
+              </Badge>
+            )}
           </div>
         </div>
 
@@ -406,11 +729,39 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
               {/* ── Action Items ─────────────────────────────────────────── */}
               <TabsContent value="action-items" className="mt-3">
                 {note.actionItems.length > 0 ? (
-                  <div className="flex flex-col gap-2" data-testid="list-action-items">
+                  <div className="flex flex-col gap-3" data-testid="list-action-items">
+                    {/* Create Tasks bar */}
+                    <div className="flex items-center justify-between gap-2 pb-2 border-b border-border/40">
+                      <p className="text-xs text-muted-foreground">
+                        {acceptedCount > 0
+                          ? `${acceptedCount} accepted · ${taskCreatedCount} task${taskCreatedCount !== 1 ? "s" : ""} created`
+                          : "Accept items below to create CRM tasks"}
+                      </p>
+                      <Button
+                        size="sm"
+                        variant={acceptedCount > 0 ? "default" : "outline"}
+                        className="h-7 text-xs gap-1.5"
+                        onClick={() => createTasksMutation.mutate()}
+                        disabled={createTasksMutation.isPending || acceptedCount === 0}
+                        data-testid="button-create-tasks"
+                      >
+                        {createTasksMutation.isPending
+                          ? <Loader2 className="w-3 h-3 animate-spin" />
+                          : <Plus className="w-3 h-3" />}
+                        Create Tasks ({acceptedCount})
+                      </Button>
+                    </div>
+
                     {note.actionItems.map((item) => (
                       <div
                         key={item.id}
-                        className="flex items-start gap-3 p-3 rounded-lg border border-border/50 bg-card"
+                        className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${
+                          item.status === "rejected"
+                            ? "border-border/30 opacity-50"
+                            : item.status === "accepted" || item.status === "task_created"
+                            ? "border-emerald-500/30 bg-emerald-500/5"
+                            : "border-border/50 bg-card"
+                        }`}
                         data-testid={`card-action-item-${item.id}`}
                       >
                         <div className="flex-1 min-w-0">
@@ -431,14 +782,51 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
                               "{item.sourceQuote}"
                             </blockquote>
                           )}
+                          {item.createdTaskId && (
+                            <p className="text-xs text-primary mt-1">Task #{item.createdTaskId} created</p>
+                          )}
                         </div>
-                        <Badge
-                          variant="outline"
-                          className={`shrink-0 text-[10px] ${AI_STATUS_CLASS[item.status] ?? ""}`}
-                          data-testid={`status-action-item-${item.id}`}
-                        >
-                          {item.status.replace("_", " ")}
-                        </Badge>
+
+                        <div className="flex flex-col items-end gap-1.5 shrink-0">
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] ${AI_STATUS_CLASS[item.status] ?? ""}`}
+                            data-testid={`status-action-item-${item.id}`}
+                          >
+                            {item.status.replace("_", " ")}
+                          </Badge>
+
+                          {item.status === "suggested" && (
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => updateItemMutation.mutate({ itemId: item.id, status: "accepted" })}
+                                className="flex items-center gap-0.5 text-[10px] text-emerald-600 hover:bg-emerald-500/10 rounded px-1.5 py-0.5 transition-colors"
+                                data-testid={`button-accept-${item.id}`}
+                                title="Accept"
+                              >
+                                <CheckCheck className="w-3 h-3" /> Accept
+                              </button>
+                              <button
+                                onClick={() => updateItemMutation.mutate({ itemId: item.id, status: "rejected" })}
+                                className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:bg-muted/50 rounded px-1.5 py-0.5 transition-colors"
+                                data-testid={`button-reject-${item.id}`}
+                                title="Reject"
+                              >
+                                <X className="w-3 h-3" /> Reject
+                              </button>
+                            </div>
+                          )}
+
+                          {item.status === "accepted" && (
+                            <button
+                              onClick={() => updateItemMutation.mutate({ itemId: item.id, status: "suggested" })}
+                              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                              data-testid={`button-undo-accept-${item.id}`}
+                            >
+                              Undo
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -450,11 +838,23 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
               {/* ── Follow-up ────────────────────────────────────────────── */}
               <TabsContent value="followup" className="mt-3">
                 {note.followupDraftText ? (
-                  <div
-                    className="text-sm whitespace-pre-wrap leading-relaxed p-3 rounded-lg bg-secondary/30 border border-border/50"
-                    data-testid="text-followup-draft"
-                  >
-                    {note.followupDraftText}
+                  <div className="flex flex-col gap-3">
+                    <div
+                      className="text-sm whitespace-pre-wrap leading-relaxed p-3 rounded-lg bg-secondary/30 border border-border/50"
+                      data-testid="text-followup-draft"
+                    >
+                      {note.followupDraftText}
+                    </div>
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        className="gap-1.5 h-8 text-xs"
+                        onClick={() => setComposeOpen(true)}
+                        data-testid="button-send-followup"
+                      >
+                        <Send className="w-3.5 h-3.5" /> Send Follow-up
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <EmptyState icon={Send} message="No follow-up draft yet — one can be generated after processing." />
@@ -463,12 +863,55 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
             </Tabs>
           </div>
 
-          {/* Side capture panel */}
-          <div className="w-56 shrink-0">
+          {/* Right column */}
+          <div className="w-56 shrink-0 flex flex-col gap-3">
+            {/* Capture panel */}
             <MeetingNoteCapturePanel note={note} onRefetch={refetch} />
+
+            {/* CRM actions */}
+            <div className="flex flex-col gap-2 p-3 rounded-lg border border-border/50 bg-card">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">CRM</p>
+
+              {/* CRM Link Picker */}
+              <CrmLinkPicker
+                noteId={noteId}
+                currentType={note.linkedObjectType}
+                currentId={note.linkedObjectId}
+                onLinked={() => {
+                  queryClient.invalidateQueries({ queryKey: ["/api/meeting-notes", noteId] });
+                }}
+              />
+
+              {/* Add to Timeline */}
+              <Button
+                variant="outline"
+                size="sm"
+                className={`w-full h-7 text-xs gap-1.5 ${timelineAdded ? "border-emerald-500/40 text-emerald-600" : ""}`}
+                onClick={() => timelineMutation.mutate()}
+                disabled={timelineMutation.isPending || timelineAdded || !note.linkedObjectType}
+                data-testid="button-add-to-timeline"
+                title={!note.linkedObjectType ? "Link to a CRM record first" : ""}
+              >
+                {timelineMutation.isPending
+                  ? <Loader2 className="w-3 h-3 animate-spin" />
+                  : timelineAdded
+                  ? <CheckCircle2 className="w-3 h-3" />
+                  : <Activity className="w-3 h-3" />}
+                {timelineAdded ? "Added to Timeline" : "Add to Timeline"}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Follow-up compose dialog */}
+      <FollowUpComposeDialog
+        open={composeOpen}
+        onClose={() => setComposeOpen(false)}
+        defaultTo={participantEmails}
+        defaultSubject={composeSubject}
+        defaultBody={composeBody}
+      />
     </div>
   );
 }

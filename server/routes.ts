@@ -105,11 +105,12 @@ import {
 import {
   listMeetingNotes, createMeetingNote, getMeetingNoteDetail, updateMeetingNote,
   startRecording, stopRecording, processMeetingNote, createTasksFromActionItems,
-  addNoteToTimeline, draftFollowup, linkRecord,
+  addNoteToTimeline, draftFollowup, linkRecord, updateActionItemStatus,
   getMeetingNoteByCalendarEvent, createMeetingNoteForCalendarEvent,
   sessionIsAdmin,
   createMeetingNoteSchema, updateMeetingNoteSchema,
   linkRecordSchema, draftFollowupSchema, createTasksSchema,
+  VALID_ACTION_ITEM_STATUSES,
 } from "./services/meeting-notes-service";
 import { validateAudioChunk, storeChunk } from "./services/meeting-notes-audio";
 import { transcribeMeetingNote } from "./services/meeting-notes-transcription";
@@ -24038,6 +24039,31 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (e: any) {
       const status = (e as any).httpStatus ?? 500;
       res.status(status).json({ message: e.message });
+    }
+  });
+
+  // PATCH /api/meeting-notes/:noteId/action-items/:itemId — update action item status
+  app.patch("/api/meeting-notes/:noteId/action-items/:itemId", requireAuth, async (req, res) => {
+    try {
+      const noteId = parseInt(req.params.noteId, 10);
+      const itemId = parseInt(req.params.itemId, 10);
+      if (isNaN(noteId) || isNaN(itemId)) return res.status(400).json({ message: "Invalid id" });
+      const { status } = req.body ?? {};
+      if (!status || !VALID_ACTION_ITEM_STATUSES.includes(status)) {
+        return res.status(400).json({
+          message: `status must be one of: ${VALID_ACTION_ITEM_STATUSES.join(", ")}`,
+        });
+      }
+      const userId  = req.session.userId!;
+      const isAdmin = sessionIsAdmin(req.session);
+      const result  = await updateActionItemStatus(noteId, itemId, status, userId, isAdmin);
+      if (!result.ok) {
+        const httpStatus = result.error === "Not found" ? 404 : 400;
+        return res.status(httpStatus).json({ message: result.error });
+      }
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
     }
   });
 

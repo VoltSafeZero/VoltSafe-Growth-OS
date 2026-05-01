@@ -4500,3 +4500,28 @@ states) — see chat reply for the exact checklist.
 - followupDraftText: 821 chars ✓
 - actionItems in DB: 5 rows, all status='suggested' ✓
 - VoltSafe signals: marina/customer names, 30A/50A mentions, NEC/CSA compliance, pilot readiness, procurement blockers ✓
+
+## Phase B.6 — CRM/Task/Follow-up Integration for Meeting Notes (COMPLETE 2026-05-01)
+
+### New backend
+- `server/services/meeting-notes-service.ts`:
+  - `updateActionItemStatus(noteId, itemId, status, userId, isAdmin)` — updates `meeting_note_action_items.status` with access control
+- `server/routes.ts`:
+  - `PATCH /api/meeting-notes/:noteId/action-items/:itemId` — accepts `{ status }` in `VALID_ACTION_ITEM_STATUSES`; returns 404 if item not found, 400 if invalid status
+  - `VALID_ACTION_ITEM_STATUSES` added to import
+
+### Frontend — `client/src/pages/meeting-notes-detail.tsx` (full rebuild)
+- **Action Items tab**: per-item Accept / Reject / Undo buttons; "Create Tasks (N)" button disabled until ≥1 accepted; shows task count + `createdTaskId` after task creation; items dim when rejected
+- **Follow-up tab**: "Send Follow-up" button opens `FollowUpComposeDialog` — inline Dialog pre-filled with participant emails (To), note title (Subject), `followupDraftText` (Body); POSTs to `POST /api/gmail/send`
+- **CRM sidebar section**: `CrmLinkPicker` — Popover + shadcn Command with Account / Contact search tabs; on select calls `POST /api/meeting-notes/:id/link-record` then `PATCH /api/meeting-notes/:id` to set primary linked object; shows emerald chip for current linked record
+- **Timeline button**: "Add to Timeline" → `POST /api/meeting-notes/:id/add-to-timeline`; flips to "Added ✓" on success; disabled if no linked object or already added
+- **Header**: linked-record badge shown when `linkedObjectType + linkedObjectId` set; editable title; status + source meta-row
+- All key elements have `data-testid` attributes
+
+### Smoke test results (all via curl with session auth)
+- Accept item #11 → `{"ok":true}` ✓
+- Create tasks → `{"created":1,"skipped":0}`, item #11 status=task_created, createdTaskId=314 ✓
+- Link record (account 1) → `{"ok":true,"linkId":2}` ✓
+- Add to timeline → `{"ok":true,"activityId":879}` ✓
+- Invalid status → `{"message":"status must be one of: suggested, accepted, rejected, task_created"}` ✓
+- Timeline without linked object → proper 400 message ✓

@@ -257,6 +257,37 @@ export async function processMeetingNote(
   return { ok: true, note };
 }
 
+// ── Update action item status ─────────────────────────────────────────────────
+
+export async function updateActionItemStatus(
+  noteId: number, itemId: number,
+  status: typeof VALID_ACTION_ITEM_STATUSES[number],
+  userId: number, isAdmin: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  const note = await lookupNote(noteId, userId, isAdmin);
+  if (!note) return { ok: false, error: "Not found" };
+
+  const [existing] = await db
+    .select()
+    .from(meetingNoteActionItems)
+    .where(
+      and(
+        eq(meetingNoteActionItems.id, itemId),
+        eq(meetingNoteActionItems.meetingNoteId, noteId),
+      ),
+    )
+    .limit(1);
+
+  if (!existing) return { ok: false, error: "Action item not found" };
+
+  await db
+    .update(meetingNoteActionItems)
+    .set({ status })
+    .where(eq(meetingNoteActionItems.id, itemId));
+
+  return { ok: true };
+}
+
 // ── Task creation from accepted action items ───────────────────────────────────
 
 export async function createTasksFromActionItems(

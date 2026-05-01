@@ -1,0 +1,93 @@
+Start Phase B.6: CRM, task, and follow-up integration.
+
+Scope:
+- Do NOT change schema.
+- Do NOT touch recording or transcription.
+- Do NOT modify AI extraction logic.
+- Do NOT restart the 5 known failing creds-drift workflows.
+
+Goal:
+Turn Meeting Notes into actions across VoltSafe CMS:
+- create tasks
+- write to CRM timeline
+- generate follow-up email inside inbox
+- suggest/link records
+
+Backend tasks:
+
+1. Finalize POST /api/meeting-notes/:id/create-tasks
+- Only create tasks where:
+  status = 'accepted'
+  AND created_task_id IS NULL
+- Insert into tasks table:
+  - title
+  - description
+  - due_date
+  - linked_object_type
+  - linked_object_id
+- Set created_task_id on action item
+- Return count of tasks created
+
+2. Finalize POST /api/meeting-notes/:id/add-to-timeline
+- Insert into activities table:
+  - type = "meeting_note"
+  - content = summary_text
+  - linked_object_type
+  - linked_object_id
+- Reject if note is not linked to an object
+
+3. Finalize POST /api/meeting-notes/:id/draft-followup
+- Already stores followup_draft_text
+- Add helper so frontend can open compose modal pre-filled
+
+Frontend tasks:
+
+4. Action Items tab:
+- Add:
+  - Accept button
+  - Reject button
+- PATCH action item status
+- Add “Create Tasks” button
+- Call /create-tasks
+- Show success count
+
+5. Follow-up tab:
+- Add button:
+  “Send Follow-up”
+- Opens existing compose modal
+- Prefills:
+  - body = followup_draft_text
+  - recipients = participants emails if available
+
+6. CRM linking:
+- Use meeting-note-link-picker
+- Allow linking note to:
+  - account
+  - contact
+  - opportunity
+- Save via /link-record
+- Show linked record in header
+
+7. Timeline integration:
+- Add button:
+  “Add to CRM Timeline”
+- Calls /add-to-timeline
+- Show success state
+
+Tests/checks:
+
+- TypeScript/LSP check
+- tests/calendar-invite.unit.ts
+- Manual:
+  - accept action item → create task → appears in tasks table
+  - add to timeline → appears in CRM activity feed
+  - send follow-up → opens compose modal correctly
+  - linking → persists and displays
+
+Report:
+- files changed
+- task creation working
+- timeline integration working
+- follow-up email working
+- linking behavior
+- limitations
