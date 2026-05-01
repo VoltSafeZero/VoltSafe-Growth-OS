@@ -22,6 +22,11 @@ import {
   meetingNoteActionItems,
 } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import {
+  extractEmailsFromText,
+  populateParticipantsFromEmails,
+  getUserEmail,
+} from "./participant-matcher";
 
 // ── OpenAI client ─────────────────────────────────────────────────────────
 
@@ -441,6 +446,26 @@ async function _processWithAI(noteId: number): Promise<void> {
       `Action item insert failed: ${(err as Error).message}`,
       true,
     );
+  }
+
+  // 10. Extract emails from transcript → seed participants (fire-and-forget)
+  if (transcript) {
+    setImmediate(async () => {
+      try {
+        const emails = extractEmailsFromText(transcript);
+        if (emails.length === 0) return;
+        const noteRows = await db
+          .select({ createdBy: meetingNotes.createdBy })
+          .from(meetingNotes)
+          .where(eq(meetingNotes.id, noteId))
+          .limit(1);
+        if (!noteRows[0]?.createdBy) return;
+        const ownerEmail = await getUserEmail(noteRows[0].createdBy);
+        await populateParticipantsFromEmails(noteId, emails, ownerEmail);
+      } catch (err) {
+        console.error(`[participant-matcher] transcript email extraction error for note ${noteId}:`, err);
+      }
+    });
   }
 }
 

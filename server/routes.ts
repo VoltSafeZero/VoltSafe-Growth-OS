@@ -82,6 +82,7 @@ import {
   migrationMap, notes,
   calendarConnections, calendarEvents, tasks,
   digestConfigs, digestRuns,
+  meetingNoteParticipants,
 } from "@shared/schema";
 import { weatherPrefsSchema, WEATHER_PREFS_MAX_BYTES } from "@shared/weather-types";
 import {
@@ -113,6 +114,7 @@ import {
   linkRecordSchema, draftFollowupSchema, createTasksSchema,
   VALID_ACTION_ITEM_STATUSES,
 } from "./services/meeting-notes-service";
+import { populateParticipantsFromEmails, getUserEmail } from "./services/participant-matcher";
 import { validateAudioChunk, storeChunk } from "./services/meeting-notes-audio";
 import { transcribeMeetingNote } from "./services/meeting-notes-transcription";
 import { processWithAI } from "./services/meeting-notes-ai";
@@ -24152,6 +24154,96 @@ export function registerConfluenceRoutes(app: Express) {
         return res.status(status).json({ message: result.error });
       }
       res.status(201).json({ ok: true, linkId: result.linkId });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // PATCH /api/meeting-notes/:noteId/participants/:participantId
+  // Confirms a suggested CRM link by setting contactId on the participant row.
+  app.patch("/api/meeting-notes/:noteId/participants/:participantId", requireAuth, async (req, res) => {
+    try {
+      const noteId        = parseInt(req.params.noteId, 10);
+      const participantId = parseInt(req.params.participantId, 10);
+      if (isNaN(noteId) || isNaN(participantId)) {
+        return res.status(400).json({ message: "Invalid id" });
+      }
+      const { contactId } = req.body as { contactId?: number };
+      if (contactId == null || typeof contactId !== "number") {
+        return res.status(400).json({ message: "contactId is required" });
+      }
+      const [updated] = await db
+        .update(meetingNoteParticipants)
+        .set({ contactId })
+        .where(
+          and(
+            eq(meetingNoteParticipants.id, participantId),
+            eq(meetingNoteParticipants.meetingNoteId, noteId),
+          ),
+        )
+        .returning();
+      if (!updated) return res.status(404).json({ message: "Participant not found" });
+      res.json({ ok: true, participantId: updated.id, contactId: updated.contactId });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/meeting-notes/:id/sync-participants
+  // Re-runs participant extraction from the note's raw transcript text.
+  // Useful when transcript was updated after the initial processing.
+  app.post("/api/meeting-notes/:id/sync-participants", requireAuth, async (req, res) => {
+    try {
+      const id      = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId  = req.session.userId!;
+      const isAdmin = sessionIsAdmin(req.session);
+
+      // Load note (permission check + transcript)
+      const [noteRow] = await db
+        .select({
+          id:               meetingNotes.id,
+          createdBy:        meetingNotes.createdBy,
+          rawTranscriptText: meetingNotes.rawTranscriptText,
+          calendarEventId:  meetingNotes.calendarEventId,
+        })
+        .from(meetingNotes)
+        .where(eq(meetingNotes.id, id))
+        .limit(1);
+
+      if (!noteRow) return res.status(404).json({ message: "Not found" });
+      if (noteRow.createdBy !== userId && !isAdmin) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const ownerEmail = await getUserEmail(userId);
+      let added = 0;
+
+      // From transcript
+      if (noteRow.rawTranscriptText) {
+        const { extractEmailsFromText } = await import("./services/participant-matcher");
+        const emails = extractEmailsFromText(noteRow.rawTranscriptText);
+        if (emails.length > 0) {
+          await populateParticipantsFromEmails(id, emails, ownerEmail);
+          added += emails.length;
+        }
+      }
+
+      // From calendar invitees
+      if (noteRow.calendarEventId) {
+        const [event] = await db
+          .select({ invitees: calendarEvents.invitees })
+          .from(calendarEvents)
+          .where(eq(calendarEvents.id, noteRow.calendarEventId))
+          .limit(1);
+        const invitees = (event?.invitees ?? []).filter(Boolean);
+        if (invitees.length > 0) {
+          await populateParticipantsFromEmails(id, invitees, ownerEmail);
+          added += invitees.length;
+        }
+      }
+
+      res.json({ ok: true, processed: added });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

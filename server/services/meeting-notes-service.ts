@@ -3,11 +3,16 @@ import crypto from "crypto";
 import {
   meetingNotes, meetingNoteTranscriptChunks, meetingNoteActionItems,
   meetingNoteParticipants, meetingNoteLinks,
-  activities, tasks,
+  activities, tasks, calendarEvents,
   MeetingNote,
 } from "@shared/schema";
 import { eq, and, desc, isNull } from "drizzle-orm";
 import { z } from "zod";
+import {
+  populateParticipantsFromEmails,
+  computeParticipantSuggestions,
+  getUserEmail,
+} from "./participant-matcher";
 
 // ── Enums / constants ────────────────────────────────────────────────────────
 
@@ -151,7 +156,7 @@ export async function getMeetingNoteDetail(
   const note = await lookupNote(id, userId, isAdmin);
   if (!note) return null;
 
-  const [chunks, actionItems, participants, links] = await Promise.all([
+  const [chunks, actionItems, participants, links, suggestions] = await Promise.all([
     db.select()
       .from(meetingNoteTranscriptChunks)
       .where(eq(meetingNoteTranscriptChunks.meetingNoteId, id))
@@ -168,9 +173,10 @@ export async function getMeetingNoteDetail(
       .from(meetingNoteLinks)
       .where(eq(meetingNoteLinks.meetingNoteId, id))
       .orderBy(meetingNoteLinks.id),
+    computeParticipantSuggestions(id).catch(() => []),
   ]);
 
-  return { ...note, chunks, actionItems, participants, links };
+  return { ...note, chunks, actionItems, participants, links, suggestions };
 }
 
 // ── Update ────────────────────────────────────────────────────────────────────
@@ -522,7 +528,7 @@ export async function createMeetingNoteForCalendarEvent(
   calendarEventId: number, userId: number,
   data: Partial<z.infer<typeof createMeetingNoteSchema>>,
 ): Promise<MeetingNote> {
-  return createMeetingNote(userId, {
+  const note = await createMeetingNote(userId, {
     source:           data.source    ?? "calendar",
     title:            data.title,
     platform:         data.platform,
@@ -531,4 +537,25 @@ export async function createMeetingNoteForCalendarEvent(
     linkedObjectId:   data.linkedObjectId,
     consentNoted:     data.consentNoted,
   });
+
+  // Seed participants from calendar event invitees (fire-and-forget, non-blocking)
+  setImmediate(async () => {
+    try {
+      const [event] = await db
+        .select({ invitees: calendarEvents.invitees })
+        .from(calendarEvents)
+        .where(eq(calendarEvents.id, calendarEventId))
+        .limit(1);
+
+      const invitees: string[] = (event?.invitees ?? []).filter(Boolean);
+      if (invitees.length === 0) return;
+
+      const ownerEmail = await getUserEmail(userId);
+      await populateParticipantsFromEmails(note.id, invitees, ownerEmail);
+    } catch (err) {
+      console.error(`[participant-matcher] seed error for note ${note.id}:`, err);
+    }
+  });
+
+  return note;
 }

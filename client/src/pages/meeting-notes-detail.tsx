@@ -18,7 +18,7 @@ import {
   CalendarClock, Mail, Hash, Upload, Loader2, FileText,
   ListChecks, MessageSquare, Sparkles, Send, Plus,
   CheckCheck, X, Activity, Link2, Building2, User,
-  Copy, RefreshCw, RotateCcw, Wand2,
+  Copy, RefreshCw, RotateCcw, Wand2, UserCheck, ExternalLink,
 } from "lucide-react";
 import { MeetingNoteCapturePanel } from "@/components/meeting-notes/meeting-note-capture-panel";
 
@@ -72,8 +72,29 @@ type MeetingNoteDetail = {
   updatedAt: string;
   chunks: TranscriptChunk[];
   actionItems: ActionItem[];
-  participants: { id: number; name: string | null; email: string | null }[];
+  participants: {
+    id: number;
+    name: string | null;
+    email: string | null;
+    contactId: number | null;
+    isInternal: boolean;
+    speakerLabel: string | null;
+  }[];
   links: { id: number; linkedObjectType: string; linkedObjectId: number }[];
+  suggestions: ParticipantSuggestion[];
+};
+
+type ParticipantSuggestion = {
+  participantId: number;
+  participantEmail: string;
+  matchType: "email_exact" | "domain_account" | "none";
+  match: {
+    contactId: number;
+    contactName: string;
+    contactEmail: string | null;
+    accountId: number;
+    accountName: string;
+  } | null;
 };
 
 type Account = { id: number; name: string; industry?: string | null };
@@ -420,6 +441,117 @@ function CrmLinkPicker({
   );
 }
 
+// ─── Suggested Links Panel ────────────────────────────────────────────────────
+
+function SuggestedLinksPanel({
+  noteId,
+  suggestions,
+  onConfirmed,
+}: {
+  noteId: number;
+  suggestions: ParticipantSuggestion[];
+  onConfirmed: () => void;
+}) {
+  const { toast } = useToast();
+  const [confirmedIds, setConfirmedIds] = useState<Set<number>>(new Set());
+
+  const pending = suggestions.filter(
+    (s) => s.match !== null && !confirmedIds.has(s.participantId),
+  );
+
+  const confirmMutation = useMutation({
+    mutationFn: async ({ participantId, contactId }: { participantId: number; contactId: number }) => {
+      const r = await apiRequest(
+        "PATCH",
+        `/api/meeting-notes/${noteId}/participants/${participantId}`,
+        { contactId },
+      );
+      if (!r.ok) throw new Error("Failed to link");
+      return r.json();
+    },
+    onSuccess: (_data, { participantId }) => {
+      setConfirmedIds((s) => new Set([...s, participantId]));
+      onConfirmed();
+      toast({ title: "Contact linked", description: "Participant linked to CRM contact." });
+    },
+    onError: () => toast({ title: "Link failed", variant: "destructive" }),
+  });
+
+  if (pending.length === 0) return null;
+
+  return (
+    <div
+      className="flex flex-col gap-2 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5"
+      data-testid="panel-suggested-links"
+    >
+      <div className="flex items-center gap-1.5">
+        <UserCheck className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+        <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wide">
+          Suggested Links
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {pending.map((s) => {
+          if (!s.match) return null;
+          const isPending = confirmMutation.isPending && confirmMutation.variables?.participantId === s.participantId;
+          return (
+            <div
+              key={s.participantId}
+              className="flex flex-col gap-1 p-2 rounded-md bg-background/60 border border-border/40"
+              data-testid={`suggestion-${s.participantId}`}
+            >
+              <p className="text-xs text-muted-foreground truncate" title={s.participantEmail}>
+                {s.participantEmail}
+              </p>
+              <div className="flex items-center gap-1">
+                {s.matchType === "email_exact"
+                  ? <UserCheck className="w-3 h-3 text-emerald-500 shrink-0" />
+                  : <Building2 className="w-3 h-3 text-blue-400 shrink-0" />
+                }
+                <span className="text-xs font-medium text-foreground truncate flex-1" title={s.match.contactName}>
+                  {s.match.contactName}
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground truncate">{s.match.accountName}</p>
+              <Button
+                size="sm"
+                className="h-6 text-[10px] w-full gap-1 mt-0.5"
+                onClick={() => confirmMutation.mutate({ participantId: s.participantId, contactId: s.match!.contactId })}
+                disabled={isPending}
+                data-testid={`button-confirm-link-${s.participantId}`}
+              >
+                {isPending ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Link2 className="w-2.5 h-2.5" />}
+                Link
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+
+      {pending.length > 1 && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-6 text-[10px] w-full gap-1 border-amber-500/30"
+          onClick={() => {
+            pending.forEach((s) => {
+              if (s.match && !confirmMutation.isPending) {
+                confirmMutation.mutate({ participantId: s.participantId, contactId: s.match.contactId });
+              }
+            });
+          }}
+          disabled={confirmMutation.isPending}
+          data-testid="button-confirm-all-links"
+        >
+          <CheckCheck className="w-2.5 h-2.5" />
+          Link all ({pending.length})
+        </Button>
+      )}
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function MeetingNotesDetailPage({ params }: { params: { id: string } }) {
@@ -759,7 +891,18 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
                     <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Participants</p>
                     <div className="flex flex-wrap gap-1.5">
                       {note.participants.map((p) => (
-                        <Badge key={p.id} variant="secondary" className="text-xs" data-testid={`badge-participant-${p.id}`}>
+                        <Badge
+                          key={p.id}
+                          variant="secondary"
+                          className={`text-xs gap-1 ${p.contactId ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : ""}`}
+                          data-testid={`badge-participant-${p.id}`}
+                        >
+                          {p.contactId
+                            ? <UserCheck className="w-2.5 h-2.5 shrink-0" />
+                            : p.isInternal
+                            ? <User className="w-2.5 h-2.5 shrink-0 text-muted-foreground" />
+                            : null
+                          }
                           {p.name || p.email || "Unknown"}
                         </Badge>
                       ))}
@@ -1012,6 +1155,13 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
           <div className="w-56 shrink-0 flex flex-col gap-3">
             {/* Capture panel */}
             <MeetingNoteCapturePanel note={note} onRefetch={refetch} />
+
+            {/* Suggested Links */}
+            <SuggestedLinksPanel
+              noteId={noteId}
+              suggestions={note.suggestions ?? []}
+              onConfirmed={() => queryClient.invalidateQueries({ queryKey: ["/api/meeting-notes", noteId] })}
+            />
 
             {/* CRM actions */}
             <div className="flex flex-col gap-2 p-3 rounded-lg border border-border/50 bg-card">
