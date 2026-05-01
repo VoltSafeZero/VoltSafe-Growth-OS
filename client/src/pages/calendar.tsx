@@ -1967,14 +1967,31 @@ function BriefingTab({ eventId }: { eventId: number }) {
   );
 }
 
+// ─── Zoom URL extractor ───────────────────────────────────────────────────────
+
+/** Checks meetingUrl, then location, then description for a zoom.us URL. */
+function extractZoomUrl(event: { meetingUrl?: string | null; location?: string | null; description?: string | null }): string | null {
+  const ZOOM_RE = /https?:\/\/[a-z0-9.-]*zoom\.us\/[^\s"'<>)]+/i;
+  if (event.meetingUrl && ZOOM_RE.test(event.meetingUrl)) return event.meetingUrl;
+  if (event.location && ZOOM_RE.test(event.location)) {
+    const m = event.location.match(ZOOM_RE);
+    if (m) return m[0];
+  }
+  if (event.description) {
+    const m = event.description.match(ZOOM_RE);
+    if (m) return m[0];
+  }
+  return null;
+}
+
 // ─── Meeting Note Action (compact hook inside event detail) ─────────────────
 
 type MeetingNoteRef = { id: number; title: string | null; status: string } | null;
 
-function MeetingNoteAction({ eventId, meetingUrl }: { eventId: number; meetingUrl?: string | null }) {
+function MeetingNoteAction({ eventId, zoomUrl }: { eventId: number; zoomUrl: string | null }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
-  const isZoom = !!meetingUrl && /zoom\.us/i.test(meetingUrl);
+  const isZoom = !!zoomUrl;
 
   const { data: note, isLoading } = useQuery<MeetingNoteRef>({
     queryKey: ["/api/calendar/events", eventId, "meeting-note"],
@@ -2002,39 +2019,39 @@ function MeetingNoteAction({ eventId, meetingUrl }: { eventId: number; meetingUr
   });
 
   if (isLoading) {
-    return <div className="h-6 w-36 bg-muted/40 rounded animate-pulse" />;
+    return <div className="h-8 w-full bg-muted/40 rounded animate-pulse" />;
   }
 
   if (note) {
     return (
-      <button
+      <Button
+        size="sm"
+        variant="outline"
+        className="w-full gap-2"
         onClick={() => navigate(`/meeting-notes/${note.id}`)}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
         data-testid="button-view-meeting-note"
       >
-        <Mic className="h-3 w-3 shrink-0" />
-        <span>{isZoom ? "View Meeting Notes" : "View Meeting Note"}</span>
-      </button>
+        <Mic className="h-3.5 w-3.5 shrink-0" />
+        {isZoom ? "View Meeting Notes" : "View Meeting Note"}
+      </Button>
     );
   }
 
   return (
-    <button
+    <Button
+      size="sm"
+      variant={isZoom ? "default" : "outline"}
+      className={`w-full gap-2 ${isZoom ? "bg-[#2D8CFF] hover:bg-[#2680f0] text-white border-0" : ""}`}
       onClick={() => createMutation.mutate()}
       disabled={createMutation.isPending}
-      className={`flex items-center gap-1.5 text-xs transition-colors disabled:opacity-50 ${
-        isZoom
-          ? "text-[#2D8CFF] hover:text-[#2680f0] font-medium"
-          : "text-muted-foreground hover:text-foreground"
-      }`}
       data-testid="button-create-meeting-note"
     >
       {createMutation.isPending
-        ? <Loader2 className="h-3 w-3 animate-spin shrink-0" />
-        : <Mic className="h-3 w-3 shrink-0" />
+        ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+        : <Mic className="h-3.5 w-3.5 shrink-0" />
       }
-      <span>{isZoom ? "Start Meeting Notes" : "Create Meeting Note"}</span>
-    </button>
+      {isZoom ? "Start Meeting Notes" : "Create Meeting Note"}
+    </Button>
   );
 }
 
@@ -2218,7 +2235,7 @@ function EventDetailDialog({
             </div>
             {/* Footer actions inside scroll */}
             <div className="mt-5 pt-4 border-t border-border/30 flex flex-col gap-2">
-              <MeetingNoteAction eventId={event.id} meetingUrl={event.meetingUrl} />
+              <MeetingNoteAction eventId={event.id} zoomUrl={extractZoomUrl(event)} />
               <div className="flex items-center justify-between gap-2">
                 <Button variant="destructive" size="sm" onClick={onDelete} disabled={isDeleting} data-testid="button-delete-event">
                   {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}

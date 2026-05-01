@@ -21,6 +21,7 @@ import {
   Copy, RefreshCw, RotateCcw, Wand2, UserCheck, ExternalLink,
 } from "lucide-react";
 import { MeetingNoteCapturePanel } from "@/components/meeting-notes/meeting-note-capture-panel";
+import { SiZoom } from "react-icons/si";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -582,6 +583,17 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
     },
   });
 
+  // Fetch the linked calendar event to get its Zoom URL (only for Zoom notes)
+  const { data: linkedCalEvent } = useQuery<{ meetingUrl?: string | null } | null>({
+    queryKey: ["/api/calendar/events", note?.calendarEventId],
+    queryFn: () =>
+      fetch(`/api/calendar/events/${note!.calendarEventId}`, { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+    enabled: !!note?.calendarEventId && note?.platform === "zoom",
+    staleTime: 60_000,
+  });
+
   // Detect processing → completed transition: toast, tab highlights, summary switch
   useEffect(() => {
     if (!note) return;
@@ -747,6 +759,7 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
 
   const StatusIcon = STATUS_ICON[note.status] ?? Clock;
   const SrcIcon = SOURCE_ICON[note.source] ?? Hash;
+  const zoomJoinUrl = linkedCalEvent?.meetingUrl ?? null;
 
   const acceptedCount = note.actionItems.filter((i) => i.status === "accepted").length;
   const taskCreatedCount = note.actionItems.filter((i) => i.status === "task_created").length;
@@ -792,8 +805,28 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
               {SOURCE_LABEL[note.source] ?? note.source}
             </span>
 
-            {note.platform && (
+            {note.platform === "zoom" ? (
+              <Badge
+                variant="outline"
+                className="flex items-center gap-1 text-[10px] font-medium text-[#2D8CFF] border-[#2D8CFF]/40 bg-[#2D8CFF]/10 px-1.5 py-0.5"
+              >
+                <SiZoom className="h-2.5 w-2.5 shrink-0" />
+                Zoom
+              </Badge>
+            ) : note.platform ? (
               <span className="text-muted-foreground capitalize">{note.platform}</span>
+            ) : null}
+            {note.platform === "zoom" && zoomJoinUrl && (
+              <a
+                href={zoomJoinUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="link-zoom-join"
+                className="inline-flex items-center gap-1 text-[10px] font-medium text-[#2D8CFF] hover:underline"
+              >
+                <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+                Join Zoom
+              </a>
             )}
 
             {note.durationSeconds ? (

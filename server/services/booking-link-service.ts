@@ -17,7 +17,7 @@ import { db } from "../db";
 import { bookingLinks, bookingLinkRecipients, calendarEvents } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
-import { createZoomMeeting } from "./zoom-service";
+import { createZoomMeetingForBooking } from "./zoom-meeting-service";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Validation schemas (shared between service and routes)
@@ -449,11 +449,14 @@ export async function confirmBooking(
   const endTime   = new Date(startTime.getTime() + link.slotMinutes * 60_000);
   const now       = new Date();
 
-  // 5. Try to create Zoom meeting (best-effort; null = no Zoom connection)
-  const zoom = await createZoomMeeting(link.ownerUserId, {
+  // 5. Try to create Zoom meeting (best-effort; null = no Zoom connection or creds missing)
+  const zoom = await createZoomMeetingForBooking(link.ownerUserId, {
     topic:           link.name,
     startTime,
     durationMinutes: link.slotMinutes,
+    timezone:        link.timeZone ?? undefined,
+    attendeeEmail:   recipient.recipientEmail,
+    attendeeName:    data.attendeeName,
     agenda:          link.description ?? undefined,
   });
 
