@@ -430,14 +430,12 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
               { label: "Suspended", value: stats.suspended, icon: UserX, color: "text-red-400", bg: "bg-red-500/10" },
             ].map(s => (
               <Card key={s.label} className="border-border/50 bg-card/50" data-testid={`card-user-stat-${s.label.toLowerCase()}`}>
-                <CardContent className="p-3 flex items-center gap-2.5">
-                  <div className={`w-8 h-8 rounded-lg ${s.bg} flex items-center justify-center shrink-0`}>
-                    <s.icon className={`w-4 h-4 ${s.color}`} />
+                <CardContent className="p-3 flex flex-col gap-1.5">
+                  <div className={`w-7 h-7 rounded-md ${s.bg} flex items-center justify-center`}>
+                    <s.icon className={`w-3.5 h-3.5 ${s.color}`} />
                   </div>
-                  <div>
-                    <div className="text-xl font-bold">{s.value}</div>
-                    <div className="text-xs text-muted-foreground">{s.label}</div>
-                  </div>
+                  <div className="text-xl font-bold leading-none">{s.value}</div>
+                  <div className="text-xs text-muted-foreground">{s.label}</div>
                 </CardContent>
               </Card>
             ))}
