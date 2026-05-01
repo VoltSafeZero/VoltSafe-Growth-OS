@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,6 +66,7 @@ import {
   AlertTriangle,
   Sparkles,
   Bot,
+  Mic,
 } from "lucide-react";
 import {
   Tabs,
@@ -1966,6 +1967,68 @@ function BriefingTab({ eventId }: { eventId: number }) {
   );
 }
 
+// ─── Meeting Note Action (compact hook inside event detail) ─────────────────
+
+type MeetingNoteRef = { id: number; title: string | null; status: string } | null;
+
+function MeetingNoteAction({ eventId }: { eventId: number }) {
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+
+  const { data: note, isLoading } = useQuery<MeetingNoteRef>({
+    queryKey: ["/api/calendar/events", eventId, "meeting-note"],
+    queryFn: async () => {
+      const r = await fetch(`/api/calendar/events/${eventId}/meeting-note`, { credentials: "include" });
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error("failed");
+      return r.json();
+    },
+    retry: false,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/calendar/events/${eventId}/create-meeting-note`, {}),
+    onSuccess: async (res) => {
+      const created = await res.json();
+      await queryClient.invalidateQueries({ queryKey: ["/api/calendar/events", eventId, "meeting-note"] });
+      navigate(`/meeting-notes/${created.id}`);
+    },
+    onError: () => toast({ title: "Could not create meeting note", variant: "destructive" }),
+  });
+
+  if (isLoading) {
+    return <div className="h-6 w-36 bg-muted/40 rounded animate-pulse" />;
+  }
+
+  if (note) {
+    return (
+      <button
+        onClick={() => navigate(`/meeting-notes/${note.id}`)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        data-testid="button-view-meeting-note"
+      >
+        <Mic className="h-3 w-3 shrink-0" />
+        <span>View Meeting Note</span>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => createMutation.mutate()}
+      disabled={createMutation.isPending}
+      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+      data-testid="button-create-meeting-note"
+    >
+      {createMutation.isPending
+        ? <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+        : <Mic className="h-3 w-3 shrink-0" />
+      }
+      <span>Create Meeting Note</span>
+    </button>
+  );
+}
+
 // ─── Event Detail Dialog (tabbed) ────────────────────────────────────────────
 
 function EventDetailDialog({
@@ -2131,14 +2194,17 @@ function EventDetailDialog({
               )}
             </div>
             {/* Footer actions inside scroll */}
-            <div className="flex items-center justify-between gap-2 mt-5 pt-4 border-t border-border/30">
-              <Button variant="destructive" size="sm" onClick={onDelete} disabled={isDeleting} data-testid="button-delete-event">
-                {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                Delete
-              </Button>
-              <Button size="sm" onClick={() => setEditing(true)} data-testid="button-edit-event">
-                <Pencil className="mr-2 h-4 w-4" /> Edit
-              </Button>
+            <div className="mt-5 pt-4 border-t border-border/30 flex flex-col gap-2">
+              <MeetingNoteAction eventId={event.id} />
+              <div className="flex items-center justify-between gap-2">
+                <Button variant="destructive" size="sm" onClick={onDelete} disabled={isDeleting} data-testid="button-delete-event">
+                  {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                  Delete
+                </Button>
+                <Button size="sm" onClick={() => setEditing(true)} data-testid="button-edit-event">
+                  <Pencil className="mr-2 h-4 w-4" /> Edit
+                </Button>
+              </div>
             </div>
           </TabsContent>
 
