@@ -246,11 +246,16 @@ export async function processMeetingNote(
   const note = await lookupNote(id, userId, isAdmin);
   if (!note) return { ok: false, error: "Not found" };
 
-  const allowedStatuses = ["processing", "completed", "failed"];
+  // Reject if already in-flight — prevents concurrent double-runs
+  if (note.status === "processing") {
+    return { ok: false, error: "Analysis is already in progress for this note" };
+  }
+
+  const allowedStatuses = ["completed", "failed"];
   if (!allowedStatuses.includes(note.status)) {
     return {
       ok: false,
-      error: `Note must be in 'processing', 'completed', or 'failed' status to trigger pipeline (current: '${note.status}')`,
+      error: `Note must be in 'completed' or 'failed' status to retry analysis (current: '${note.status}')`,
     };
   }
 

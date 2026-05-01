@@ -17,7 +17,8 @@ import {
   Mic, ArrowLeft, CheckCircle2, Clock, AlertCircle, XCircle,
   CalendarClock, Mail, Hash, Upload, Loader2, FileText,
   ListChecks, MessageSquare, Sparkles, Send, Plus,
-  CheckCheck, X, Activity, Link2, Building2, User, Briefcase,
+  CheckCheck, X, Activity, Link2, Building2, User,
+  Copy, RefreshCw, RotateCcw, Wand2,
 } from "lucide-react";
 import { MeetingNoteCapturePanel } from "@/components/meeting-notes/meeting-note-capture-panel";
 
@@ -429,6 +430,10 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
   const [composeOpen, setComposeOpen] = useState(false);
   const [timelineAdded, setTimelineAdded] = useState(false);
   const [tasksCreated, setTasksCreated] = useState(false);
+  const [activeTab, setActiveTab] = useState("summary");
+  const [justCompleted, setJustCompleted] = useState(false);
+
+  const prevStatusRef = useRef<string | null>(null);
 
   const { data: note, isLoading, isError, refetch } = useQuery<MeetingNoteDetail>({
     queryKey: ["/api/meeting-notes", noteId],
@@ -437,6 +442,42 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
       return r.json();
     }),
     enabled: !!noteId,
+    // Poll every 2.5s while processing — stop once done or failed
+    refetchInterval: (query) => {
+      const status = (query.state.data as MeetingNoteDetail | undefined)?.status;
+      return status === "processing" ? 2500 : false;
+    },
+  });
+
+  // Detect processing → completed transition and auto-switch to Summary tab
+  useEffect(() => {
+    if (!note) return;
+    const prev = prevStatusRef.current;
+    if (prev === "processing" && (note.status === "completed" || note.status === "failed")) {
+      if (note.status === "completed") {
+        setActiveTab("summary");
+        setJustCompleted(true);
+        setTimeout(() => setJustCompleted(false), 2500);
+      }
+    }
+    prevStatusRef.current = note.status;
+  }, [note?.status]);
+
+  // Retry / Regenerate mutation — POST /api/meeting-notes/:id/process
+  const retryMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/meeting-notes/${noteId}/process`, {});
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).message || "Failed to start analysis");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Analysis started — checking for results…" });
+      queryClient.invalidateQueries({ queryKey: ["/api/meeting-notes", noteId] });
+    },
+    onError: (e: Error) => toast({ title: "Retry failed", description: e.message, variant: "destructive" }),
   });
 
   const patchMutation = useMutation({
@@ -623,12 +664,51 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
           </div>
         </div>
 
+        {/* Processing banner */}
+        {note.status === "processing" && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/20" data-testid="banner-processing">
+            <Loader2 className="w-4 h-4 text-amber-600 animate-spin shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Analyzing meeting…</p>
+              <p className="text-xs text-amber-600/70">Transcribing and extracting insights. This usually takes under a minute.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Failure banner */}
+        {note.status === "failed" && (
+          <div className="flex items-start gap-3 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20" data-testid="banner-failed">
+            <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-red-600 dark:text-red-400">Processing failed</p>
+              {note.processingError && (
+                <p className="text-xs text-red-500/80 mt-0.5 line-clamp-2">
+                  {note.processingError.replace(/openai|api.key|sk-[a-zA-Z0-9]+/gi, "[redacted]")}
+                </p>
+              )}
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 h-7 text-xs border-red-500/30 text-red-600 hover:bg-red-500/10 gap-1.5"
+              onClick={() => retryMutation.mutate()}
+              disabled={retryMutation.isPending}
+              data-testid="button-retry-analysis"
+            >
+              {retryMutation.isPending
+                ? <Loader2 className="w-3 h-3 animate-spin" />
+                : <RotateCcw className="w-3 h-3" />}
+              Retry Analysis
+            </Button>
+          </div>
+        )}
+
         {/* Two-column layout */}
         <div className="flex gap-4 items-start">
 
           {/* Main tabs */}
           <div className="flex-1 min-w-0">
-            <Tabs defaultValue="summary">
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="w-full justify-start h-9 gap-0.5 bg-muted/40 p-1" data-testid="tabs-meeting-note">
                 <TabsTrigger value="summary" className="text-xs gap-1.5" data-testid="tab-summary">
                   <Sparkles className="w-3 h-3" /> Summary
@@ -656,7 +736,9 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
               <TabsContent value="summary" className="mt-3">
                 {note.summaryText ? (
                   <div
-                    className="text-sm text-foreground whitespace-pre-wrap leading-relaxed"
+                    className={`text-sm text-foreground whitespace-pre-wrap leading-relaxed transition-all duration-700 ${
+                      justCompleted ? "animate-pulse bg-emerald-500/5 rounded-lg p-2 -m-2" : ""
+                    }`}
                     data-testid="text-summary"
                   >
                     {note.summaryText}
@@ -775,7 +857,14 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
                         data-testid={`card-action-item-${item.id}`}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium">{item.title}</p>
+                          <div className="flex items-start gap-2 flex-wrap">
+                            <p className="text-sm font-medium">{item.title}</p>
+                            {item.status === "suggested" && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-violet-500 bg-violet-500/10 border border-violet-500/20 rounded-full px-1.5 py-0.5 shrink-0 mt-0.5" data-testid={`badge-ai-suggested-${item.id}`}>
+                                <Wand2 className="w-2.5 h-2.5" /> AI Suggested
+                              </span>
+                            )}
+                          </div>
                           {item.description && (
                             <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>
                           )}
@@ -855,7 +944,36 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
                     >
                       {note.followupDraftText}
                     </div>
-                    <div className="flex justify-end">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 h-8 text-xs"
+                          onClick={() => {
+                            navigator.clipboard.writeText(note.followupDraftText ?? "").then(() =>
+                              toast({ title: "Copied to clipboard" }),
+                            );
+                          }}
+                          data-testid="button-copy-followup"
+                        >
+                          <Copy className="w-3.5 h-3.5" /> Copy
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 h-8 text-xs"
+                          onClick={() => retryMutation.mutate()}
+                          disabled={retryMutation.isPending || note.status === "processing"}
+                          data-testid="button-regenerate-draft"
+                          title="Re-run AI to refresh the draft"
+                        >
+                          {retryMutation.isPending
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <RefreshCw className="w-3.5 h-3.5" />}
+                          Regenerate
+                        </Button>
+                      </div>
                       <Button
                         size="sm"
                         className="gap-1.5 h-8 text-xs"
@@ -867,7 +985,24 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
                     </div>
                   </div>
                 ) : (
-                  <EmptyState icon={Send} message="No follow-up draft yet — one can be generated after processing." />
+                  <div className="flex flex-col gap-3">
+                    <EmptyState icon={Send} message="No follow-up draft yet — generate one below." />
+                    <div className="flex justify-center">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 h-8 text-xs"
+                        onClick={() => retryMutation.mutate()}
+                        disabled={retryMutation.isPending || note.status === "processing"}
+                        data-testid="button-generate-draft"
+                      >
+                        {retryMutation.isPending
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : <Wand2 className="w-3.5 h-3.5" />}
+                        Generate Draft
+                      </Button>
+                    </div>
+                  </div>
                 )}
               </TabsContent>
             </Tabs>
