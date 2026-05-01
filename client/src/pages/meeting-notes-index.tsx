@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -6,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { formatDistanceToNow } from "date-fns";
-import { Mic, Plus, CalendarClock, Mail, Upload, Hash, AlertCircle } from "lucide-react";
+import { Mic, Plus, CalendarClock, Mail, Upload, Hash, AlertCircle, Loader2 } from "lucide-react";
 
 type MeetingNoteSummary = {
   id: number;
@@ -22,18 +23,22 @@ type MeetingNoteSummary = {
 
 const STATUS_LABEL: Record<string, string> = {
   scheduled_prompted: "Scheduled",
-  recording: "Recording",
-  processing: "Processing",
-  done: "Done",
-  error: "Error",
-  cancelled: "Cancelled",
+  recording:          "Recording",
+  processing:         "Processing",
+  completed:          "Completed",
+  done:               "Done",
+  failed:             "Failed",
+  error:              "Error",
+  cancelled:          "Cancelled",
 };
 
 const STATUS_CLASS: Record<string, string> = {
   scheduled_prompted: "bg-blue-500/10 text-blue-500 border-blue-500/20",
   recording:          "bg-red-500/10 text-red-500 border-red-500/20",
   processing:         "bg-amber-500/10 text-amber-600 border-amber-500/20",
+  completed:          "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
   done:               "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+  failed:             "bg-red-500/10 text-red-500 border-red-500/20",
   error:              "bg-red-500/10 text-red-500 border-red-500/20",
   cancelled:          "bg-muted text-muted-foreground border-border",
 };
@@ -59,9 +64,12 @@ function formatDuration(secs: number | null): string {
   return `${m}m ${s}s`;
 }
 
+const PAGE_SIZE = 20;
+
 export default function MeetingNotesIndexPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const { data: notes = [], isLoading, isError } = useQuery<MeetingNoteSummary[]>({
     queryKey: ["/api/meeting-notes"],
@@ -79,6 +87,9 @@ export default function MeetingNotesIndexPage() {
       toast({ title: "Failed to create meeting note", variant: "destructive" });
     },
   });
+
+  const visible = notes.slice(0, visibleCount);
+  const hasMore = notes.length > visibleCount;
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-y-auto bg-background">
@@ -103,7 +114,9 @@ export default function MeetingNotesIndexPage() {
             disabled={createMutation.isPending}
             data-testid="button-new-meeting-note"
           >
-            <Plus className="w-3.5 h-3.5 mr-1.5" />
+            {createMutation.isPending
+              ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+              : <Plus className="w-3.5 h-3.5 mr-1.5" />}
             New Meeting Note
           </Button>
         </div>
@@ -144,8 +157,9 @@ export default function MeetingNotesIndexPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-1.5">
-            {notes.map((note) => {
+            {visible.map((note) => {
               const SrcIcon = SOURCE_ICON[note.source] ?? Hash;
+              const isProcessing = note.status === "processing";
               return (
                 <button
                   key={note.id}
@@ -154,7 +168,9 @@ export default function MeetingNotesIndexPage() {
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-border/50 bg-card hover:bg-secondary/40 hover:border-border transition-all text-left"
                 >
                   <div className="w-8 h-8 rounded-md bg-primary/8 flex items-center justify-center shrink-0">
-                    <SrcIcon className="w-4 h-4 text-primary/70" />
+                    {isProcessing
+                      ? <Loader2 className="w-4 h-4 text-amber-500 animate-spin" />
+                      : <SrcIcon className="w-4 h-4 text-primary/70" />}
                   </div>
 
                   <div className="flex-1 min-w-0">
@@ -182,6 +198,29 @@ export default function MeetingNotesIndexPage() {
                 </button>
               );
             })}
+
+            {/* Load more */}
+            {hasMore && (
+              <div className="flex justify-center pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs h-8 gap-1.5"
+                  onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                  data-testid="button-load-more-notes"
+                >
+                  <Plus className="w-3 h-3" />
+                  Load more ({notes.length - visibleCount} remaining)
+                </Button>
+              </div>
+            )}
+
+            {/* Total count when showing all */}
+            {!hasMore && notes.length > PAGE_SIZE && (
+              <p className="text-center text-xs text-muted-foreground py-2">
+                Showing all {notes.length} notes
+              </p>
+            )}
           </div>
         )}
       </div>

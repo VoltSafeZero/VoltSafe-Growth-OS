@@ -259,7 +259,19 @@ export async function processMeetingNote(
     };
   }
 
-  return { ok: true, note };
+  // Atomically claim the note by setting status="processing" in the DB right
+  // now — before we return. This eliminates the race window where two concurrent
+  // POST /process requests both pass the guard above but both see the old status
+  // because the actual DB write was deferred to the setImmediate callback.
+  const now = new Date();
+  const [updated] = await db
+    .update(meetingNotes)
+    .set({ status: "processing", updatedAt: now })
+    .where(eq(meetingNotes.id, id))
+    .returning();
+
+  console.log(`[process-service] noteId=${id} claimed for processing (prev status: ${note.status})`);
+  return { ok: true, note: updated };
 }
 
 // ── Update action item status ─────────────────────────────────────────────────

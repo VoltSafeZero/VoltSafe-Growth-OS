@@ -282,13 +282,13 @@ export async function processWithAI(noteId: number): Promise<void> {
 }
 
 async function _processWithAI(noteId: number): Promise<void> {
-  // 1. Fetch note (include summaryText for idempotency check)
-  let note: { rawTranscriptText: string | null; summaryText: string | null } | undefined;
+  // 1. Fetch note — include status so we can guard against spurious calls
+  let note: { rawTranscriptText: string | null; status: string } | undefined;
   try {
     const rows = await db
       .select({
         rawTranscriptText: meetingNotes.rawTranscriptText,
-        summaryText:       meetingNotes.summaryText,
+        status:            meetingNotes.status,
       })
       .from(meetingNotes)
       .where(eq(meetingNotes.id, noteId));
@@ -307,10 +307,12 @@ async function _processWithAI(noteId: number): Promise<void> {
     return;
   }
 
-  // 2. Idempotency guard — already processed, skip
-  if (note.summaryText != null) {
+  // 2. Idempotency guard — only run when status has been explicitly set to
+  //    "processing" (by processMeetingNote or stopRecording). Any other status
+  //    means a spurious or duplicate call; skip safely.
+  if (note.status !== "processing") {
     console.log(
-      `[meeting-notes-ai] noteId=${noteId} already has summary — skipping (idempotent)`,
+      `[meeting-notes-ai] noteId=${noteId} status="${note.status}" ≠ processing — skipping (idempotent)`,
     );
     return;
   }
