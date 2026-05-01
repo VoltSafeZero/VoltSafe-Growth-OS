@@ -3991,7 +3991,8 @@ export async function registerRoutes(
       if (!gate.ok) return res.status(403).json({ message: "Not authorized to create tasks for this object" });
     }
     body.createdByUserId = userId;
-    if (!isAdmin) body.ownerUserId = userId;
+    // Default assignee to creator; allow any authenticated user to assign to any org member
+    if (!body.ownerUserId) body.ownerUserId = userId;
     const parsed = insertTaskSchema.safeParse(body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
     res.status(201).json(await storage.createTask(parsed.data));

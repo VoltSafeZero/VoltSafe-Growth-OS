@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -56,6 +56,18 @@ function TaskForm({ onClose, prefill }: { onClose: () => void; prefill?: any }) 
   const [title, setTitle] = useState(prefill?.title || "");
   const [dueDate, setDueDate] = useState(prefill?.dueDate || "");
   const [priority, setPriority] = useState(prefill?.priority || "medium");
+  const [ownerUserId, setOwnerUserId] = useState<string>("me");
+
+  const { data: me } = useQuery<{ id: number; name: string }>({
+    queryKey: ["/api/auth/me"],
+    queryFn: () => fetch("/api/auth/me", { credentials: "include" }).then(r => r.json()),
+  });
+  const { data: users = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["/api/users"],
+    queryFn: () => fetch("/api/users", { credentials: "include" }).then(r => r.json()),
+  });
+
+  const resolvedOwnerUserId = ownerUserId === "me" ? (me?.id ?? null) : Number(ownerUserId);
 
   const mutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/tasks", {
@@ -63,6 +75,7 @@ function TaskForm({ onClose, prefill }: { onClose: () => void; prefill?: any }) 
       dueDate: dueDate || null,
       priority,
       status: "pending",
+      ownerUserId: resolvedOwnerUserId,
       linkedObjectType: prefill?.linkedObjectType || null,
       linkedObjectId: prefill?.linkedObjectId || null,
       accountId: prefill?.accountId || null,
@@ -99,6 +112,18 @@ function TaskForm({ onClose, prefill }: { onClose: () => void; prefill?: any }) 
             </SelectContent>
           </Select>
         </div>
+      </div>
+      <div>
+        <Label className="text-xs mb-1.5 block">Assign to</Label>
+        <Select value={ownerUserId} onValueChange={setOwnerUserId}>
+          <SelectTrigger data-testid="select-assignee"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="me">Me{me?.name ? ` (${me.name})` : ""}</SelectItem>
+            {users.filter(u => u.id !== me?.id).map(u => (
+              <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <Button className="w-full" onClick={() => mutation.mutate()} disabled={!title.trim() || mutation.isPending} data-testid="button-create-task">
         {mutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating…</> : "Create Task"}

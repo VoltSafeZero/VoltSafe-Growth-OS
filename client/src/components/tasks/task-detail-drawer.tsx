@@ -17,6 +17,7 @@ import {
   Tag, Calendar as CalendarIcon, ListChecks, User, Link2, MoveRight, AlertTriangle,
   Trash2, Plus, X, Check, MessageSquare, Activity, Lock, RotateCcw, ChevronDown, Flag,
   Paperclip, UploadCloud, Download, FileText, FileImage, FileVideo, File as FileIcon, Loader2,
+  Users,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -271,6 +272,7 @@ export function TaskDetailDrawer({ taskId, onOpenChange, onTaskChanged }: Props)
               <DueDateButton task={t} onChanged={invalidate} />
               <ChecklistAddButton taskId={t.id} onChanged={invalidate} />
               <AssigneeButton task={t} users={users} onChanged={invalidate} />
+              <ParticipantsButton task={t} watchers={data.watchers} users={users} onChanged={invalidate} />
               <MoveButton task={t} onChanged={invalidate} />
               <PriorityButton task={t} onChanged={invalidate} />
               <DependenciesButton task={t} deps={data.dependencies} onChanged={invalidate} />
@@ -306,6 +308,9 @@ export function TaskDetailDrawer({ taskId, onOpenChange, onTaskChanged }: Props)
                 )}
                 {isDone && t.completed_by_name && (
                   <Chip icon={<Check className="h-3.5 w-3.5" />} label="Completed by" value={`${t.completed_by_name} · ${fmtDate(t.completed_at) || ""}`} testId="chip-completed-by" />
+                )}
+                {data.watchers?.length > 0 && (
+                  <Chip icon={<Users className="h-3.5 w-3.5" />} label="Shared with" value={data.watchers.map((w: any) => w.name).join(", ")} testId="chip-participants" />
                 )}
                 <Chip
                   icon={<MoveRight className="h-3.5 w-3.5" />}
@@ -719,6 +724,60 @@ function AssigneeButton({ task, users, onChanged }: any) {
               {task.owner_user_id === u.id && <Check className="h-3.5 w-3.5" />}
             </button>
           ))}
+        </div>
+      )}
+    </ActionPopover>
+  );
+}
+
+function ParticipantsButton({ task, watchers, users, onChanged }: any) {
+  const watcherIds = new Set((watchers || []).map((w: any) => w.id));
+  const available = (users || []).filter((u: any) => u.id !== task.owner_user_id && !watcherIds.has(u.id));
+  return (
+    <ActionPopover icon={<Users className="h-3.5 w-3.5" />} label={watchers?.length ? `Shared (${watchers.length})` : "Share"} testId="button-action-participants">
+      {(close) => (
+        <div className="space-y-3 min-w-[220px]">
+          {watchers?.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-muted-foreground mb-1.5">Shared with</div>
+              <div className="space-y-1">
+                {watchers.map((w: any) => (
+                  <div key={w.id} className="flex items-center justify-between text-xs px-2 py-1 rounded bg-muted">
+                    <span>{w.name}</span>
+                    <button
+                      className="text-muted-foreground hover:text-destructive transition-colors"
+                      title="Remove"
+                      onClick={async () => { await apiRequest("DELETE", `/api/tasks/${task.id}/watchers/${w.id}`, {}); onChanged(); }}
+                      data-testid={`button-remove-participant-${w.id}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {available.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-muted-foreground mb-1.5">Add participant</div>
+              <div className="space-y-1 max-h-52 overflow-y-auto">
+                {available.map((u: any) => (
+                  <button
+                    key={u.id}
+                    className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted flex items-center gap-2"
+                    onClick={async () => { await apiRequest("POST", `/api/tasks/${task.id}/watchers/${u.id}`, {}); onChanged(); }}
+                    data-testid={`button-add-participant-${u.id}`}
+                  >
+                    <Users className="h-3 w-3 text-muted-foreground" />
+                    {u.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {watchers?.length === 0 && available.length === 0 && (
+            <div className="text-xs text-muted-foreground text-center py-2">No other users in org</div>
+          )}
         </div>
       )}
     </ActionPopover>
