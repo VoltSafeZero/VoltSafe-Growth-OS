@@ -13,6 +13,7 @@ import { MobileNav } from "@/components/dashboard/mobile-nav";
 import { GlobalCreateContact } from "@/components/contacts/global-create-contact";
 import { isAdvisorRole } from "@/lib/nav-config";
 import BookingPublicPage from "@/pages/booking-public";
+import { UpcomingMeetingBanner } from "@/components/dashboard/upcoming-meeting-banner";
 
 import Dashboard from "@/pages/dashboard";
 import CommandCenter from "@/pages/command-center";
@@ -480,6 +481,7 @@ function App() {
           <AuthenticatedRouter user={user} onLogout={handleLogout} />
           <VoiceAssistant />
           <QuickCapture />
+          <UpcomingMeetingBanner />
         </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>
