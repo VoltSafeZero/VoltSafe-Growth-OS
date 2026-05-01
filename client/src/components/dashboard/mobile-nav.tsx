@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { Home, Building2, Target, Plus, LayoutGrid, X } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { QuickLogModal } from "@/components/mobile/quick-log-modal";
-import { getMobileNavGroups } from "@/lib/nav-config";
+import { getMobileNavGroups, isAdvisorRole } from "@/lib/nav-config";
 
 // Mobile menu groupings mirror the desktop sidebar via the shared
 // nav config in client/src/lib/nav-config.ts. Edit there to change
@@ -26,12 +26,16 @@ export function MobileNav({ userGlobalRole = "sales" }: { userGlobalRole?: strin
   const [showMore, setShowMore] = useState(false);
   const [showQuickLog, setShowQuickLog] = useState(false);
   const isAdmin = ["master_admin", "admin"].includes(userGlobalRole);
+  const isAdvisor = isAdvisorRole(userGlobalRole);
 
-  // Filter admin-only items so non-admins never see (or can navigate to) restricted routes.
+  // Filter admin-only and advisor-hidden items so restricted users can't navigate to them.
   const visibleNavGroups = allNavGroups
+    .filter((group) => !(isAdvisor && group.advisorHidden))
     .map((group) => ({
       ...group,
-      items: group.items.filter((item: any) => !item.adminOnly || isAdmin),
+      items: group.items.filter((item: any) =>
+        (!item.adminOnly || isAdmin) && !(isAdvisor && item.advisorHidden)
+      ),
     }))
     .filter((group) => group.items.length > 0);
 

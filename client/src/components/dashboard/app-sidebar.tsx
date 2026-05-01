@@ -7,6 +7,7 @@ import { Sidebar, SidebarContent, SidebarHeader } from "@/components/ui/sidebar"
 import type { UserPermissions } from "@/App";
 import {
   getDesktopSections,
+  isAdvisorRole,
   type DesktopNavSection as NavSection,
   type DesktopNavItem as NavItem,
 } from "@/lib/nav-config";
@@ -43,6 +44,7 @@ export function AppSidebar({
   userPermissions?: UserPermissions;
 }) {
   const isAdmin = ["master_admin", "admin"].includes(userGlobalRole);
+  const isAdvisor = isAdvisorRole(userGlobalRole);
   const perms: UserPermissions = userPermissions ?? DEFAULT_PERMISSIONS;
   const [location, navigate] = useLocation();
   const [openSection, setOpenSection] = useState<string>(() => getActiveSectionId(location));
@@ -61,12 +63,14 @@ export function AppSidebar({
   function canSeeSection(section: NavSection): boolean {
     if (section.isDivider) return true;
     if (section.adminOnly && !isAdmin) return false;
+    if (isAdvisor && section.advisorHidden) return false;
     if (isAdmin) return true;
     if (!section.permKey) return true;
     return (perms[section.permKey] as AccessLevel) !== "none";
   }
 
   function canSeeItem(item: NavItem): boolean {
+    if (isAdvisor && item.advisorHidden) return false;
     if (isAdmin) return true;
     if (item.adminOnly) return false;
     if (!item.permKey) return true;
@@ -78,7 +82,7 @@ export function AppSidebar({
       ...s,
       items: s.items?.filter(item => canSeeItem(item)),
     })).filter(s => s.isDivider || !s.items || s.items.length > 0);
-  }, [isAdmin, perms]);
+  }, [isAdmin, isAdvisor, perms]);
 
   const handleSectionClick = (section: NavSection) => {
     if (section.url) {

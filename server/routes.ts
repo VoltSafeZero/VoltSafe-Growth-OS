@@ -43,7 +43,7 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
-import { requireAuth, requirePermission, seedUsers, hashPassword, verifyPassword, getSessionUserId, requireName } from "./auth";
+import { requireAuth, requirePermission, requireNotAdvisor, seedUsers, hashPassword, verifyPassword, getSessionUserId, requireName } from "./auth";
 import { attachmentSectionFor, exportSectionFor, requireSectionView } from "./voice-assistant-create-guards";
 import { toCsv, setCsvHeaders, type CsvColumn } from "./csv-export";
 import {
@@ -1090,6 +1090,12 @@ export async function registerRoutes(
   // Partnerships section — view permission required for all reads
   app.use("/api/partnerships", requireAuth, requirePermission("partnerships", "view"));
   app.use("/api/ecosystem", requireAuth, requirePermission("partnerships", "view"));
+  // Revenue, pipeline forecast, and simulation — advisor role blocked (sales/financial data)
+  app.use("/api/revenue", requireAuth, requireNotAdvisor);
+  app.use("/api/revenue-sim", requireAuth, requireNotAdvisor);
+  app.use("/api/pipeline/insights", requireAuth, requireNotAdvisor);
+  app.use("/api/pipeline/forecast", requireAuth, requireNotAdvisor);
+  app.use("/api/pipeline/rep-performance", requireAuth, requireNotAdvisor);
   app.use("/api/geocode", requireAuth);
 
   app.get("/api/metrics", async (_req, res) => {

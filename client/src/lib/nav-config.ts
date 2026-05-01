@@ -57,6 +57,7 @@ export type NavItem = {
   exactMatch?: boolean;
   badge?: string;
   showOn?: Platform[];
+  advisorHidden?: boolean;
 };
 
 export type NavSection = {
@@ -69,7 +70,12 @@ export type NavSection = {
   permKey?: PermKey;
   isDivider?: boolean;
   showOn?: Platform[];
+  advisorHidden?: boolean;
 };
+
+export function isAdvisorRole(globalRole: string): boolean {
+  return globalRole === "advisor";
+}
 
 export const NAV_CONFIG: NavSection[] = [
   {
@@ -101,14 +107,15 @@ export const NAV_CONFIG: NavSection[] = [
     label: "Pipeline",
     icon: Target,
     permKey: "crm",
+    advisorHidden: true,
     items: [
-      { id: "leads",     label: "Leads",     route: "/opportunities", icon: Sparkles,    permKey: "crm" },
-      { id: "pipeline",  label: "Pipeline",  route: "/pipeline",      icon: GitBranch,   permKey: "crm" },
-      { id: "accounts",  label: "Accounts",  route: "/accounts",      icon: Building2,   permKey: "crm" },
-      { id: "contacts",  label: "Contacts",  route: "/contacts",      icon: Contact,     permKey: "crm" },
-      { id: "quotes",    label: "Quotes",    route: "/quotes",        icon: FileText,    permKey: "quoting" },
-      { id: "renewals",  label: "Renewals",  route: "/renewals",      icon: RefreshCcw },
-      { id: "won",       label: { desktop: "Accounts Won", mobile: "Won" }, route: "/revenue/deals", icon: Trophy, permKey: "crm" },
+      { id: "leads",     label: "Leads",     route: "/opportunities", icon: Sparkles,    permKey: "crm",     advisorHidden: true },
+      { id: "pipeline",  label: "Pipeline",  route: "/pipeline",      icon: GitBranch,   permKey: "crm",     advisorHidden: true },
+      { id: "accounts",  label: "Accounts",  route: "/accounts",      icon: Building2,   permKey: "crm",     advisorHidden: true },
+      { id: "contacts",  label: "Contacts",  route: "/contacts",      icon: Contact,     permKey: "crm",     advisorHidden: true },
+      { id: "quotes",    label: "Quotes",    route: "/quotes",        icon: FileText,    permKey: "quoting", advisorHidden: true },
+      { id: "renewals",  label: "Renewals",  route: "/renewals",      icon: RefreshCcw,                      advisorHidden: true },
+      { id: "won",       label: { desktop: "Accounts Won", mobile: "Won" }, route: "/revenue/deals", icon: Trophy, permKey: "crm", advisorHidden: true },
       { id: "notes",     label: "Notes",     route: "/notes",         icon: StickyNote },
     ],
   },
@@ -117,11 +124,11 @@ export const NAV_CONFIG: NavSection[] = [
     label: "Operations",
     icon: SlidersHorizontal,
     items: [
-      { id: "install-workflows", label: "Install Workflows", route: "/install-workflows",        icon: Layers,    permKey: "crm" },
-      { id: "procurement",       label: "Procurement",       route: "/procurement",              icon: Package,   permKey: "crm" },
-      { id: "deployments",       label: "Deployments",       route: "/deployments",              icon: Layers,    mobileIcon: Truck, permKey: "crm" },
+      { id: "install-workflows", label: "Install Workflows", route: "/install-workflows",        icon: Layers,    permKey: "crm",          advisorHidden: true },
+      { id: "procurement",       label: "Procurement",       route: "/procurement",              icon: Package,   permKey: "crm",          advisorHidden: true },
+      { id: "deployments",       label: "Deployments",       route: "/deployments",              icon: Layers,    mobileIcon: Truck, permKey: "crm", advisorHidden: true },
       { id: "projects",          label: "Projects",          route: "/execution/projects",       icon: Layers,    permKey: "projects" },
-      { id: "communications",    label: "Communications",    route: "/execution/communications", icon: Megaphone, permKey: "communications" },
+      { id: "communications",    label: "Communications",    route: "/execution/communications", icon: Megaphone, permKey: "communications", advisorHidden: true },
       { id: "documents",         label: "Documents",         route: "/documents",                icon: BookOpen },
       { id: "assets",            label: "Assets",            route: "/knowledge/assets",         icon: FolderOpen, permKey: "knowledge" },
     ],
@@ -131,14 +138,14 @@ export const NAV_CONFIG: NavSection[] = [
     label: "Insights",
     icon: Brain,
     items: [
-      { id: "exec-dashboard",     label: { desktop: "Executive Dashboard", mobile: "Exec Dashboard" }, route: "/executive-dashboard",         icon: Trophy,     permKey: "crm" },
-      { id: "reports",            label: "Reports",                                                     route: "/relationships",               icon: TrendingUp },
-      { id: "forecasting",        label: "Forecasting",                                                 route: "/execution/forecast",          icon: GitBranch },
-      { id: "source-attribution", label: "Source Attribution",                                          route: "/analytics/source-attribution", icon: TrendingUp, permKey: "crm" },
-      { id: "copilot",            label: { desktop: "Executive Copilot",  mobile: "Copilot" },         route: "/executive-copilot",           icon: Brain },
-      { id: "briefs",             label: { desktop: "Meeting Briefs",     mobile: "Briefs"  },         route: "/intelligence/briefs",         icon: Sparkles },
-      { id: "signals",            label: { desktop: "Signals & Alerts",   mobile: "Signals" },         route: "/intelligence/signals",        icon: Bell, mobileIcon: SlidersHorizontal },
-      { id: "territory",          label: { desktop: "Territory & Geo",    mobile: "Territory" },       route: "/geography",                   icon: Globe,      permKey: "crm" },
+      { id: "exec-dashboard",     label: { desktop: "Executive Dashboard", mobile: "Exec Dashboard" }, route: "/executive-dashboard",          icon: Trophy,     permKey: "crm", advisorHidden: true },
+      { id: "reports",            label: "Reports",                                                     route: "/relationships",                icon: TrendingUp },
+      { id: "forecasting",        label: "Forecasting",                                                 route: "/execution/forecast",           icon: GitBranch,                  advisorHidden: true },
+      { id: "source-attribution", label: "Source Attribution",                                          route: "/analytics/source-attribution", icon: TrendingUp, permKey: "crm", advisorHidden: true },
+      { id: "copilot",            label: { desktop: "Executive Copilot",  mobile: "Copilot" },         route: "/executive-copilot",            icon: Brain },
+      { id: "briefs",             label: { desktop: "Meeting Briefs",     mobile: "Briefs"  },         route: "/intelligence/briefs",          icon: Sparkles },
+      { id: "signals",            label: { desktop: "Signals & Alerts",   mobile: "Signals" },         route: "/intelligence/signals",         icon: Bell, mobileIcon: SlidersHorizontal },
+      { id: "territory",          label: { desktop: "Territory & Geo",    mobile: "Territory" },       route: "/geography",                    icon: Globe,      permKey: "crm", advisorHidden: true },
     ],
   },
   {
@@ -146,14 +153,15 @@ export const NAV_CONFIG: NavSection[] = [
     label: "Channels",
     icon: Share2,
     permKey: "partnerships",
+    advisorHidden: true,
     items: [
-      { id: "industry",  label: { desktop: "Industry Partnerships", mobile: "Industry" }, route: "/strategy/partnerships/industry-associations", icon: Users2 },
-      { id: "dealers",   label: { desktop: "Dealers / Resellers",   mobile: "Dealers"  }, route: "/strategy/partnerships/channel-commercial",    icon: Truck },
-      { id: "alliances", label: { desktop: "Strategic Alliances",   mobile: "Alliances"}, route: "/strategy/partnerships/manufacturing",         icon: Factory },
-      { id: "investors", label: "Investors",                                              route: "/strategy/partnerships/innovation-research",   icon: FlaskConical },
-      { id: "govt",      label: "Govt & Grants",                                          route: "/strategy/partnerships/government-public",     icon: Landmark },
-      { id: "referrals", label: "Referrals",                                              route: "/strategy/partnerships/other",                 icon: Circle },
-      { id: "media",     label: { desktop: "Media & Tradeshows",    mobile: "Media"    }, route: "/strategy/partnerships/media-tradeshows",      icon: Newspaper },
+      { id: "industry",  label: { desktop: "Industry Partnerships", mobile: "Industry" }, route: "/strategy/partnerships/industry-associations", icon: Users2,      advisorHidden: true },
+      { id: "dealers",   label: { desktop: "Dealers / Resellers",   mobile: "Dealers"  }, route: "/strategy/partnerships/channel-commercial",    icon: Truck,       advisorHidden: true },
+      { id: "alliances", label: { desktop: "Strategic Alliances",   mobile: "Alliances"}, route: "/strategy/partnerships/manufacturing",         icon: Factory,     advisorHidden: true },
+      { id: "investors", label: "Investors",                                              route: "/strategy/partnerships/innovation-research",   icon: FlaskConical, advisorHidden: true },
+      { id: "govt",      label: "Govt & Grants",                                          route: "/strategy/partnerships/government-public",     icon: Landmark,    advisorHidden: true },
+      { id: "referrals", label: "Referrals",                                              route: "/strategy/partnerships/other",                 icon: Circle,      advisorHidden: true },
+      { id: "media",     label: { desktop: "Media & Tradeshows",    mobile: "Media"    }, route: "/strategy/partnerships/media-tradeshows",      icon: Newspaper,   advisorHidden: true },
     ],
   },
   {
@@ -162,15 +170,15 @@ export const NAV_CONFIG: NavSection[] = [
     icon: MoreHorizontal,
     items: [
       { id: "daily-execution",   label: "Daily Execution",   route: "/execution/daily",                icon: PlayCircle },
-      { id: "revenue-hub",       label: "Revenue Hub",       route: "/revenue",                        icon: BarChart3,   permKey: "crm", exactMatch: true },
-      { id: "revenue-ops",       label: "Revenue Ops",       route: "/revenue-ops",                    icon: Target },
-      { id: "revenue-sim",       label: "Revenue Simulator", route: "/revenue-sim",                    icon: FlaskRound },
+      { id: "revenue-hub",       label: "Revenue Hub",       route: "/revenue",                        icon: BarChart3,   permKey: "crm", exactMatch: true, advisorHidden: true },
+      { id: "revenue-ops",       label: "Revenue Ops",       route: "/revenue-ops",                    icon: Target,                                         advisorHidden: true },
+      { id: "revenue-sim",       label: "Revenue Simulator", route: "/revenue-sim",                    icon: FlaskRound,                                     advisorHidden: true },
       { id: "rel-intelligence",  label: "Rel. Intelligence", route: "/intelligence/rel-intelligence",  icon: BarChart3 },
-      { id: "score-feedback",    label: "Score Feedback",    route: "/scores/feedback",                icon: Target },
+      { id: "score-feedback",    label: "Score Feedback",    route: "/scores/feedback",                icon: Target,                                         advisorHidden: true },
       { id: "digest-alerts",     label: "Digest & Alerts",   route: "/alerts-digest",                  icon: BellRing },
-      { id: "territory-routing", label: "Territory Routing", route: "/routing",                        icon: MapPin },
-      { id: "data-quality",      label: "Data Quality",      route: "/data-quality",                   icon: ShieldCheck, permKey: "crm" },
-      { id: "price-lists",       label: "Price Lists",       route: "/price-lists",                    icon: Tags,        permKey: "quoting" },
+      { id: "territory-routing", label: "Territory Routing", route: "/routing",                        icon: MapPin,                                         advisorHidden: true },
+      { id: "data-quality",      label: "Data Quality",      route: "/data-quality",                   icon: ShieldCheck, permKey: "crm",                   advisorHidden: true },
+      { id: "price-lists",       label: "Price Lists",       route: "/price-lists",                    icon: Tags,        permKey: "quoting",               advisorHidden: true },
       { id: "task-rules",        label: "Task Rules",        route: "/automation/tasks",               icon: Zap },
       { id: "automations",       label: "Automations",       route: "/automations",                    icon: Zap },
       { id: "help",              label: "Help",              route: "/help",                           icon: HelpCircle },
@@ -218,6 +226,7 @@ export type DesktopNavItem = {
   exactMatch?: boolean;
   badge?: string;
   permKey?: PermKey;
+  advisorHidden?: boolean;
 };
 
 export type DesktopNavSection = {
@@ -229,6 +238,7 @@ export type DesktopNavSection = {
   adminOnly?: boolean;
   permKey?: PermKey;
   isDivider?: boolean;
+  advisorHidden?: boolean;
 };
 
 export function getDesktopSections(): DesktopNavSection[] {
@@ -251,10 +261,12 @@ export function getDesktopSections(): DesktopNavSection[] {
               exactMatch: item.exactMatch,
               badge: item.badge,
               permKey: item.permKey,
+              advisorHidden: item.advisorHidden,
             })),
       adminOnly: s.adminOnly,
       permKey: s.permKey,
       isDivider: s.isDivider,
+      advisorHidden: s.advisorHidden,
     }));
 }
 
@@ -270,11 +282,13 @@ export type MobileNavItem = {
   url: string;
   icon: React.ElementType;
   adminOnly?: boolean;
+  advisorHidden?: boolean;
 };
 
 export type MobileNavGroup = {
   label: string;
   items: MobileNavItem[];
+  advisorHidden?: boolean;
 };
 
 export function getMobileNavGroups(): MobileNavGroup[] {
@@ -282,6 +296,7 @@ export function getMobileNavGroups(): MobileNavGroup[] {
     .filter((s) => !s.isDivider && visibleOnPlatform(s, "mobile"))
     .map((s) => ({
       label: projectLabel(s.label, "mobile"),
+      advisorHidden: s.advisorHidden,
       items: (s.items ?? [])
         .filter((item) => visibleOnPlatform(item, "mobile"))
         .map((item) => ({
@@ -289,6 +304,7 @@ export function getMobileNavGroups(): MobileNavGroup[] {
           url: item.route,
           icon: item.mobileIcon ?? item.icon,
           adminOnly: item.adminOnly,
+          advisorHidden: item.advisorHidden,
         })),
     }))
     .filter((g) => g.items.length > 0);

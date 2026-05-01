@@ -104,6 +104,9 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
 
 const PERMISSION_LEVELS: Record<string, number> = { none: 0, view: 1, edit: 2 };
 
+// Sections that advisor role cannot access regardless of their permissions JSON.
+const ADVISOR_BLOCKED_SECTIONS = new Set(["crm", "partnerships", "quoting"]);
+
 export function requirePermission(section: string, minLevel: "view" | "edit") {
   return async (req: Request, res: Response, next: NextFunction) => {
     const userId = req.session?.userId;
@@ -122,6 +125,11 @@ export function requirePermission(section: string, minLevel: "view" | "edit") {
         return next();
       }
 
+      // Advisors cannot access sales/financial sections.
+      if (user.globalRole === "advisor" && ADVISOR_BLOCKED_SECTIONS.has(section)) {
+        return res.status(403).json({ message: "Advisors do not have access to this section" });
+      }
+
       const perms = (user.permissions as Record<string, string>) || {};
       const userLevel = PERMISSION_LEVELS[perms[section] ?? "none"] ?? 0;
       const required = PERMISSION_LEVELS[minLevel] ?? 1;
@@ -136,4 +144,13 @@ export function requirePermission(section: string, minLevel: "view" | "edit") {
       res.status(500).json({ message: "Internal error checking permissions" });
     }
   };
+}
+
+// Blocks advisor role from accessing a route entirely.
+export function requireNotAdvisor(req: Request, res: Response, next: NextFunction) {
+  const role = String((req.session as any)?.globalRole || "");
+  if (role === "advisor") {
+    return res.status(403).json({ message: "Advisors do not have access to this resource" });
+  }
+  next();
 }

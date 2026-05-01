@@ -15,7 +15,7 @@ import {
   UserCheck, UserX, KeyRound, Edit2, X, Mail, Briefcase, Wrench, HeartHandshake,
   Clock, ChevronRight, AlertTriangle, CheckCircle2,
   UserCog, Crown, Eye, Lock, Unlock, Trash2, ShieldAlert,
-  Building2, CalendarClock, Layers, Megaphone, Users2, BookOpen, LifeBuoy, FileText,
+  Building2, CalendarClock, Layers, Megaphone, Users2, BookOpen, LifeBuoy, FileText, GraduationCap,
 } from "lucide-react";
 
 type AccessLevel = "none" | "view" | "edit";
@@ -67,6 +67,7 @@ const GLOBAL_ROLES = [
   { value: "sales", label: "Sales", icon: Briefcase, color: "text-green-400", bg: "bg-green-500/10", border: "border-green-500/30" },
   { value: "customer_success", label: "Customer Success", icon: HeartHandshake, color: "text-pink-400", bg: "bg-pink-500/10", border: "border-pink-500/30" },
   { value: "analyst", label: "Analyst", icon: Eye, color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/30" },
+  { value: "advisor", label: "Advisor", icon: GraduationCap, color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/30" },
   { value: "read_only", label: "Read Only", icon: Lock, color: "text-gray-400", bg: "bg-gray-500/10", border: "border-gray-500/30" },
 ];
 

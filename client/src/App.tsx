@@ -11,6 +11,7 @@ import { AppSidebar } from "@/components/dashboard/app-sidebar";
 import { Header } from "@/components/dashboard/header";
 import { MobileNav } from "@/components/dashboard/mobile-nav";
 import { GlobalCreateContact } from "@/components/contacts/global-create-contact";
+import { isAdvisorRole } from "@/lib/nav-config";
 
 import Dashboard from "@/pages/dashboard";
 import CommandCenter from "@/pages/command-center";
@@ -199,6 +200,7 @@ function AppShell({ children, user, onLogout }: { children: React.ReactNode; use
 function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const perms = user.permissions ?? FULL_PERMISSIONS;
   const role = user.globalRole || "sales";
+  const isAdvisor = isAdvisorRole(role);
   const [searchOpen, setSearchOpen] = useState(false);
   const [appLocation] = useLocation();
 
@@ -231,6 +233,10 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
     return wrap(hasAccess(perms, role, section) ? children : <AccessDenied />);
   }
 
+  function advisorBlock(children: React.ReactNode) {
+    return wrap(isAdvisor ? <AccessDenied /> : children);
+  }
+
   return (
     <Switch>
       <Route path="/">{() => wrap(<RoleCommandCenter />)}</Route>
@@ -239,34 +245,34 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/today">{() => wrap(<TodayPage />)}</Route>
       <Route path="/field/nearby">{() => wrap(<FieldNearbyPage />)}</Route>
       <Route path="/field">{() => wrap(<FieldPage />)}</Route>
-      <Route path="/pipeline">{() => guard("crm", <PipelinePage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
-      <Route path="/data-quality">{() => guard("crm", <DataQualityPage />)}</Route>
-      <Route path="/install-workflows">{() => guard("crm", <InstallWorkflowsPage />)}</Route>
-      <Route path="/analytics/source-attribution">{() => guard("crm", <SourceAttributionPage />)}</Route>
-      <Route path="/executive-dashboard">{() => guard("crm", <ExecutiveDashboardPage />)}</Route>
-      <Route path="/procurement">{() => guard("crm", <ProcurementPage />)}</Route>
-      <Route path="/deployments">{() => guard("crm", <DeploymentsPage />)}</Route>
-      <Route path="/renewals">{() => guard("crm", <RenewalsPage />)}</Route>
-      <Route path="/geography">{() => guard("crm", <GeographyPage />)}</Route>
-      <Route path="/routing">{() => wrap(<TerritoryRoutingPage />)}</Route>
+      <Route path="/pipeline">{() => guard("crm", isAdvisor ? <AccessDenied /> : <PipelinePage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
+      <Route path="/data-quality">{() => guard("crm", isAdvisor ? <AccessDenied /> : <DataQualityPage />)}</Route>
+      <Route path="/install-workflows">{() => guard("crm", isAdvisor ? <AccessDenied /> : <InstallWorkflowsPage />)}</Route>
+      <Route path="/analytics/source-attribution">{() => guard("crm", isAdvisor ? <AccessDenied /> : <SourceAttributionPage />)}</Route>
+      <Route path="/executive-dashboard">{() => guard("crm", isAdvisor ? <AccessDenied /> : <ExecutiveDashboardPage />)}</Route>
+      <Route path="/procurement">{() => guard("crm", isAdvisor ? <AccessDenied /> : <ProcurementPage />)}</Route>
+      <Route path="/deployments">{() => guard("crm", isAdvisor ? <AccessDenied /> : <DeploymentsPage />)}</Route>
+      <Route path="/renewals">{() => guard("crm", isAdvisor ? <AccessDenied /> : <RenewalsPage />)}</Route>
+      <Route path="/geography">{() => guard("crm", isAdvisor ? <AccessDenied /> : <GeographyPage />)}</Route>
+      <Route path="/routing">{() => advisorBlock(<TerritoryRoutingPage />)}</Route>
       <Route path="/documents">{() => wrap(<DocumentsPage />)}</Route>
 
       {/* ── Sidebar alias routes — each nav item gets a unique URL so active   */}
       {/* ── state never leaks across sections (no shared paths between items). */}
-      <Route path="/execution/forecast">{() => guard("crm", <PipelinePage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
-      <Route path="/revenue/deals">{() => guard("crm", <LeadsPage canEdit={isAdmin(role) || perms.crm === "edit"} lockedStatus="converted" pageTitle="Accounts Won" />)}</Route>
+      <Route path="/execution/forecast">{() => guard("crm", isAdvisor ? <AccessDenied /> : <PipelinePage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
+      <Route path="/revenue/deals">{() => guard("crm", isAdvisor ? <AccessDenied /> : <LeadsPage canEdit={isAdmin(role) || perms.crm === "edit"} lockedStatus="converted" pageTitle="Accounts Won" />)}</Route>
       <Route path="/intelligence/briefs">{() => wrap(<TodayPage />)}</Route>
       <Route path="/intelligence/signals">{() => wrap(<ActivityFeedPage />)}</Route>
       <Route path="/intelligence/rel-intelligence">{() => wrap(<RelationshipIntelligencePage />)}</Route>
 
       {/* ── Growth OS: Relationships ───────────────────────────────── */}
-      <Route path="/accounts/:id">{(params) => guard("crm", <AccountProfilePage />)}</Route>
-      <Route path="/accounts">{() => guard("crm", <AccountsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
-      <Route path="/contacts/:id">{(params) => guard("crm", <ContactProfilePage />)}</Route>
-      <Route path="/contacts">{() => guard("crm", <ContactsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
-      <Route path="/opportunities/:id">{(params) => guard("crm", <OpportunityProfilePage />)}</Route>
-      <Route path="/opportunities">{() => guard("crm", <LeadsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
-      <Route path="/quotes">{() => guard("quoting", <QuotesPage canEdit={isAdmin(role) || perms.quoting === "edit"} />)}</Route>
+      <Route path="/accounts/:id">{(params) => guard("crm", isAdvisor ? <AccessDenied /> : <AccountProfilePage />)}</Route>
+      <Route path="/accounts">{() => guard("crm", isAdvisor ? <AccessDenied /> : <AccountsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
+      <Route path="/contacts/:id">{(params) => guard("crm", isAdvisor ? <AccessDenied /> : <ContactProfilePage />)}</Route>
+      <Route path="/contacts">{() => guard("crm", isAdvisor ? <AccessDenied /> : <ContactsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
+      <Route path="/opportunities/:id">{(params) => guard("crm", isAdvisor ? <AccessDenied /> : <OpportunityProfilePage />)}</Route>
+      <Route path="/opportunities">{() => guard("crm", isAdvisor ? <AccessDenied /> : <LeadsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
+      <Route path="/quotes">{() => guard("quoting", isAdvisor ? <AccessDenied /> : <QuotesPage canEdit={isAdmin(role) || perms.quoting === "edit"} />)}</Route>
 
       {/* ── Growth OS: Coming Soon stubs ──────────────────────────── */}
       <Route path="/activity">{() => wrap(<ActivityFeedPage />)}</Route>
@@ -288,8 +294,8 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       ))}
 
       {/* ── STRATEGY ──────────────────────────────────────────────── */}
-      <Route path="/strategy/partnerships/:typeSlug">{(params) => guard("partnerships", <PartnershipsPage typeSlug={(params as any)?.typeSlug || ""} canEdit={isAdmin(role) || perms.partnerships === "edit"} />)}</Route>
-      <Route path="/strategy/partnerships">{() => guard("partnerships", <PartnershipsPage typeSlug="" canEdit={isAdmin(role) || perms.partnerships === "edit"} />)}</Route>
+      <Route path="/strategy/partnerships/:typeSlug">{(params) => guard("partnerships", isAdvisor ? <AccessDenied /> : <PartnershipsPage typeSlug={(params as any)?.typeSlug || ""} canEdit={isAdmin(role) || perms.partnerships === "edit"} />)}</Route>
+      <Route path="/strategy/partnerships">{() => guard("partnerships", isAdvisor ? <AccessDenied /> : <PartnershipsPage typeSlug="" canEdit={isAdmin(role) || perms.partnerships === "edit"} />)}</Route>
       <Route path="/strategy/industry">{() => <Redirect to="/strategy/partnerships" />}</Route>
       <Route path="/strategy/oem">{() => <Redirect to="/strategy/partnerships" />}</Route>
       <Route path="/strategy/government">{() => <Redirect to="/strategy/partnerships" />}</Route>
@@ -304,22 +310,22 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/relationships">{() => wrap(<RelationshipIntelligencePage />)}</Route>
       <Route path="/execution/calendar">{() => guard("calendar", <CalendarPage permissions={perms} currentUserId={user.id} isAdmin={isAdmin(role)} />)}</Route>
       <Route path="/execution/projects">{() => guard("projects", <ProjectsPage />)}</Route>
-      <Route path="/execution/communications">{() => guard("communications", <CommunicationsPage />)}</Route>
+      <Route path="/execution/communications">{() => guard("communications", isAdvisor ? <AccessDenied /> : <CommunicationsPage />)}</Route>
       <Route path="/execution/team-workload">{() => guard("team_workload", <TeamWorkloadPage />)}</Route>
       <Route path="/execution/tasks">{() => wrap(<TasksHubPage />)}</Route>
 
       {/* ── KNOWLEDGE ─────────────────────────────────────────────── */}
       <Route path="/knowledge/assets">{() => guard("knowledge", <AssetsPage />)}</Route>
-      <Route path="/price-lists">{() => guard("quoting", <PriceListsPage />)}</Route>
+      <Route path="/price-lists">{() => guard("quoting", isAdvisor ? <AccessDenied /> : <PriceListsPage />)}</Route>
 
       {/* ── SUPPORT ───────────────────────────────────────────────── */}
       <Route path="/support/tickets">{() => guard("support", <TicketsPage canEdit={isAdmin(role) || perms.support === "edit"} />)}</Route>
 
       {/* ── REPORTS ───────────────────────────────────────────────── */}
       <Route path="/board-pack">{() => wrap(<BoardPackPage />)}</Route>
-      <Route path="/revenue">{() => wrap(<RevenuePage />)}</Route>
-      <Route path="/revenue-sim">{() => wrap(<RevenueSimPage />)}</Route>
-      <Route path="/revenue-ops">{() => wrap(<RevenueOpsPage />)}</Route>
+      <Route path="/revenue">{() => advisorBlock(<RevenuePage />)}</Route>
+      <Route path="/revenue-sim">{() => advisorBlock(<RevenueSimPage />)}</Route>
+      <Route path="/revenue-ops">{() => advisorBlock(<RevenueOpsPage />)}</Route>
       <Route path="/winter">{() => wrap(<WinterHubPage />)}</Route>
       <Route path="/executive-copilot">{() => wrap(<ExecutiveCopilotPage />)}</Route>
 
@@ -382,7 +388,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/ecosystem/regions">{() => wrap(<EcosystemRegionsPage />)}</Route>
       <Route path="/marinas">{() => wrap(<MarinasPage />)}</Route>
       <Route path="/alerts-digest">{() => wrap(<AlertsDigestPage />)}</Route>
-      <Route path="/scores/feedback">{() => wrap(<ScoreFeedbackPage />)}</Route>
+      <Route path="/scores/feedback">{() => advisorBlock(<ScoreFeedbackPage />)}</Route>
 
       <Route component={NotFound} />
     </Switch>
