@@ -970,9 +970,22 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
   const [country, setCountry] = useState("US");
   const [currency, setCurrency] = useState("USD");
   const [accountId, setAccountId] = useState("");
+  const [leadId, setLeadId] = useState("");
   const [contactId, setContactId] = useState("");
   const [marinaComboOpen, setMarinaComboOpen] = useState(false);
   const [marinaSearch, setMarinaSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(marinaSearch), 300);
+    return () => clearTimeout(t);
+  }, [marinaSearch]);
+
+  const { data: leadResults } = useQuery<{ data: { id: number; company: string; contactEmail?: string | null; contactPhone?: string | null; slips?: string | null; streetAddress?: string | null; city?: string | null; state?: string | null; zipCode?: string | null; country?: string | null }[] }>({
+    queryKey: ["/api/leads", "quote-search", debouncedSearch],
+    queryFn: () => fetch(`/api/leads?search=${encodeURIComponent(debouncedSearch)}&limit=30`, { credentials: "include" }).then(r => r.json()),
+    enabled: debouncedSearch.length >= 2,
+  });
 
   const { data: contacts = [] } = useQuery<Contact[]>({
     queryKey: ["/api/contacts", accountId || null],
@@ -1022,30 +1035,54 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
     }
   };
 
-  const handleMarinaSelect = (acct: Account) => {
-    setAccountId(String(acct.id));
-    setCustomerName(acct.name);
+  const handleMarinaSelect = (
+    entry: { source: "account"; acct: Account } | { source: "lead"; lead: { id: number; company: string; contactEmail?: string | null; contactPhone?: string | null; slips?: string | null; streetAddress?: string | null; city?: string | null; state?: string | null; zipCode?: string | null; country?: string | null } }
+  ) => {
     setMarinaComboOpen(false);
     setMarinaSearch("");
-    if (acct.slipCount) setSlipsCount(String(acct.slipCount));
-    // Auto-fill billing address from account address fields
-    const parts = [
-      acct.streetAddress,
-      [acct.city, acct.stateProvince, acct.postalZip].filter(Boolean).join(", "),
-      acct.country,
-    ].filter(Boolean);
-    if (parts.length) setMarinaAddress(parts.join("\n"));
-    // Auto-set country/currency if account country is recognized
-    if (acct.country) {
-      const countryUpper = acct.country.toUpperCase();
-      const match = COUNTRY_OPTIONS.find(o =>
-        o.code === countryUpper ||
-        o.label.toLowerCase() === acct.country!.toLowerCase()
-      );
-      if (match) handleCountryChange(match.code);
-    }
-    // Clear contact selection since marina changed
     setContactId("");
+
+    if (entry.source === "account") {
+      const acct = entry.acct;
+      setAccountId(String(acct.id));
+      setLeadId("");
+      setCustomerName(acct.name);
+      if (acct.slipCount) setSlipsCount(String(acct.slipCount));
+      const parts = [
+        acct.streetAddress,
+        [acct.city, acct.stateProvince, acct.postalZip].filter(Boolean).join(", "),
+        acct.country,
+      ].filter(Boolean);
+      if (parts.length) setMarinaAddress(parts.join("\n"));
+      if (acct.country) {
+        const match = COUNTRY_OPTIONS.find(o =>
+          o.code === acct.country!.toUpperCase() ||
+          o.label.toLowerCase() === acct.country!.toLowerCase()
+        );
+        if (match) handleCountryChange(match.code);
+      }
+    } else {
+      const lead = entry.lead;
+      setLeadId(String(lead.id));
+      setAccountId("");
+      setCustomerName(lead.company);
+      if (lead.slips) setSlipsCount(lead.slips.replace(/\D/g, "").split("–")[0].trim() || "");
+      const addrParts = [
+        lead.streetAddress,
+        [lead.city, lead.state, lead.zipCode].filter(Boolean).join(", "),
+        lead.country,
+      ].filter(Boolean);
+      if (addrParts.length) setMarinaAddress(addrParts.join("\n"));
+      if (lead.contactEmail) setCustomerEmail(lead.contactEmail);
+      if (lead.contactPhone) setCustomerPhone(lead.contactPhone);
+      if (lead.country) {
+        const match = COUNTRY_OPTIONS.find(o =>
+          o.code === lead.country!.toUpperCase() ||
+          o.label.toLowerCase() === lead.country!.toLowerCase()
+        );
+        if (match) handleCountryChange(match.code);
+      }
+    }
   };
 
   const addFromCatalog = (item: CatalogItem) => {
@@ -1114,6 +1151,7 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
     }
     onSubmit({
       accountId: accountId ? Number(accountId) : undefined,
+      leadId: leadId ? Number(leadId) : undefined,
       contactId: contactId ? Number(contactId) : undefined,
       country,
       currency,
@@ -1227,23 +1265,50 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
                           onValueChange={setMarinaSearch}
                           data-testid="input-marina-search"
                         />
-                        <CommandEmpty>No marina found.</CommandEmpty>
-                        <CommandGroup className="max-h-56 overflow-y-auto">
-                          {accounts
+                        {(() => {
+                          const filteredAccounts = accounts
                             .filter(a => !marinaSearch || a.name.toLowerCase().includes(marinaSearch.toLowerCase()))
-                            .slice(0, 60)
-                            .map(a => (
-                              <CommandItem
-                                key={a.id}
-                                value={a.name}
-                                onSelect={() => handleMarinaSelect(a)}
-                                data-testid={`marina-option-${a.id}`}
-                              >
-                                <Check className={`mr-2 h-3.5 w-3.5 ${accountId === String(a.id) ? "opacity-100" : "opacity-0"}`} />
-                                {a.name}
-                              </CommandItem>
-                            ))}
-                        </CommandGroup>
+                            .slice(0, 30);
+                          const filteredLeads = (leadResults?.data ?? [])
+                            .filter(l => !filteredAccounts.some(a => a.name.toLowerCase() === l.company.toLowerCase()));
+                          const total = filteredAccounts.length + filteredLeads.length;
+                          return total === 0 ? (
+                            <CommandEmpty>{marinaSearch.length < 2 ? "Type to search…" : "No results found."}</CommandEmpty>
+                          ) : (
+                            <>
+                              {filteredAccounts.length > 0 && (
+                                <CommandGroup heading="Accounts">
+                                  {filteredAccounts.map(a => (
+                                    <CommandItem
+                                      key={`acct-${a.id}`}
+                                      value={`account-${a.name}`}
+                                      onSelect={() => handleMarinaSelect({ source: "account", acct: a })}
+                                      data-testid={`marina-option-acct-${a.id}`}
+                                    >
+                                      <Check className={`mr-2 h-3.5 w-3.5 shrink-0 ${accountId === String(a.id) ? "opacity-100" : "opacity-0"}`} />
+                                      {a.name}
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              )}
+                              {filteredLeads.length > 0 && (
+                                <CommandGroup heading="Leads">
+                                  {filteredLeads.map(l => (
+                                    <CommandItem
+                                      key={`lead-${l.id}`}
+                                      value={`lead-${l.company}`}
+                                      onSelect={() => handleMarinaSelect({ source: "lead", lead: l })}
+                                      data-testid={`marina-option-lead-${l.id}`}
+                                    >
+                                      <Check className={`mr-2 h-3.5 w-3.5 shrink-0 ${leadId === String(l.id) ? "opacity-100" : "opacity-0"}`} />
+                                      <span className="flex-1 truncate">{l.company}</span>
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              )}
+                            </>
+                          );
+                        })()}
                       </Command>
                     </PopoverContent>
                   </Popover>
@@ -1563,7 +1628,7 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
           {total > 0 && <span className="text-sm font-bold">{fmtMoney(total, currency)}</span>}
           <Button
             onClick={handleSubmit}
-            disabled={isPending || !accountId}
+            disabled={isPending || !customerName}
             className="bg-primary text-primary-foreground"
             data-testid="button-submit-quote"
           >
