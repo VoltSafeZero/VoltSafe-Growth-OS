@@ -1,0 +1,134 @@
+Start Phase B.7: hardening + UX polish for Meeting Notes.
+
+Scope:
+- No new major features
+- No schema changes
+- No changes to AI logic unless fixing issues
+- Do NOT restart the 5 known failing creds-drift workflows
+
+Goal:
+Make Meeting Notes fast, safe, and frictionless in real use.
+
+---
+
+PART 1 — Processing UX (critical)
+
+Problem:
+Right now user clicks Stop → nothing obvious happens.
+
+Fix:
+
+1. Add processing state UI in meeting-notes-detail:
+   - If status === "processing":
+     show:
+       - spinner
+       - text: "Analyzing meeting..."
+       - disable actions
+
+2. Add polling:
+   - When status === "processing":
+     poll GET /api/meeting-notes/:id every 2–3 seconds
+     stop when status === "completed" or "failed"
+
+3. On completion:
+   - auto-refresh tabs
+   - scroll to Summary tab
+   - subtle highlight animation
+
+---
+
+PART 2 — Failure UX
+
+1. If status === "failed":
+   - show:
+     "Processing failed"
+     + processing_error message (cleaned)
+   - show button:
+     "Retry Analysis"
+     → calls POST /process
+
+2. Do NOT show raw errors (sanitize)
+
+---
+
+PART 3 — Action item UX polish
+
+1. When AI creates action items:
+   - visually highlight new ones (pulse or fade-in)
+
+2. Default behavior:
+   - suggested items are visually distinct
+   - accepted items turn green
+   - rejected dimmed (already done)
+
+3. Add small label:
+   "AI Suggested"
+
+---
+
+PART 4 — Follow-up UX upgrade
+
+1. When opening follow-up:
+   - prefill recipients from participants
+   - if none → fallback to user email
+
+2. Add:
+   "Copy to clipboard" button
+
+3. Add:
+   "Regenerate draft" button
+   → calls /process again (AI only)
+
+---
+
+PART 5 — Performance polish
+
+1. Meeting notes list:
+   - limit to 20 per page
+   - add simple pagination or "Load more"
+
+2. Transcript:
+   - lazy render if large
+   - avoid blocking UI
+
+---
+
+PART 6 — Safety checks
+
+Verify:
+
+- cannot start recording without consent
+- cannot create tasks twice (already fixed)
+- cannot add timeline twice (already fixed)
+- cannot access another user's meeting note
+- processing cannot run twice concurrently
+
+---
+
+PART 7 — Final test
+
+Run full flow:
+
+1. Create note
+2. Record
+3. Stop
+4. Watch processing UI
+5. See summary appear
+6. Accept action item
+7. Create task
+8. Link CRM
+9. Add to timeline
+10. Send follow-up
+
+Everything should feel:
+- instant
+- obvious
+- zero confusion
+
+---
+
+Report:
+- UX improvements added
+- polling working
+- failure handling working
+- any rough edges remaining

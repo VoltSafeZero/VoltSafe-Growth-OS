@@ -1,0 +1,117 @@
+Tighten Meeting Notes execution safety (no schema changes).
+
+Scope:
+- Do NOT change schema.
+- Do NOT touch recording/transcription/AI logic.
+- Do NOT restart the 5 known failing creds-drift workflows.
+
+Goal:
+1) Prevent duplicate task creation
+2) Prevent duplicate CRM timeline entries
+
+---
+
+PART 1 — Prevent duplicate task creation
+
+In server/services/meeting-notes-service.ts:
+
+Update the createTasksFromMeetingNote (or equivalent) logic so that tasks are ONLY created when:
+
+- action_item.status === 'accepted'
+- action_item.created_task_id IS NULL
+
+Implementation requirements:
+- Query only items that meet both conditions
+- After creating a task:
+  - set created_task_id
+  - update status to 'task_created'
+
+Add defensive behavior:
+- If no eligible items:
+  - return { created: 0, skipped: N }
+- Never create duplicate tasks on re-run
+
+Optional safety log:
+console.log(`[meeting-notes] create-tasks skipped ${skipped}, created ${created}`)
+
+---
+
+PART 2 — Prevent duplicate timeline entries
+
+In server/services/meeting-notes-service.ts:
+
+Update addToTimeline (or equivalent):
+
+Before inserting into activities table:
+
+- Check if an activity already exists where:
+  - type = 'meeting_note'
+  - AND meeting_note_id (or equivalent identifier) matches
+
+If exists:
+- return early:
+  { ok: true, skipped: true }
+
+If not:
+- insert activity normally
+
+IMPORTANT:
+- If meeting_note_id is NOT currently stored in activities:
+  - Use content match fallback:
+    - same type = 'meeting_note'
+    - AND same linked_object_type
+    - AND same linked_object_id
+    - AND content = summary_text
+  - If match found → skip insert
+
+---
+
+PART 3 — UI enforcement (frontend)
+
+In meeting-notes-detail.tsx:
+
+1. After successful "Create Tasks":
+   - Disable button permanently for that note session
+   - Show:
+     "Tasks Created ✓"
+
+2. After successful "Add to Timeline":
+   - Disable button
+   - Show:
+     "Added ✓"
+
+3. Prevent double-click:
+   - Add loading state
+   - Disable button while request is in-flight
+
+---
+
+PART 4 — Tests
+
+Verify manually:
+
+1. Create a meeting note with 2 accepted action items
+2. Click "Create Tasks" twice
+   EXPECT:
+   - First call: creates tasks
+   - Second call: created = 0, skipped > 0
+   - No duplicate tasks in DB
+
+3. Click "Add to Timeline" twice
+   EXPECT:
+   - First call: activity created
+   - Second call: skipped = true
+   - No duplicate activities
+
+4. Re-run /process after tasks created
+   EXPECT:
+   - No duplicate action items
+   - No duplicate tasks
+
+---
+
+Report:
+- confirmation duplicate tasks prevented
+- confirmation duplicate timeline entries prevented
+- files modified
+- behavior verified

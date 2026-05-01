@@ -24081,7 +24081,7 @@ export function registerConfluenceRoutes(app: Express) {
         const status = result.error === "Not found" ? 404 : 400;
         return res.status(status).json({ message: result.error });
       }
-      res.json({ ok: true, activityId: result.activityId });
+      res.json({ ok: true, activityId: result.activityId, skipped: result.skipped ?? false });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

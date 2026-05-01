@@ -428,6 +428,7 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
 
   const [composeOpen, setComposeOpen] = useState(false);
   const [timelineAdded, setTimelineAdded] = useState(false);
+  const [tasksCreated, setTasksCreated] = useState(false);
 
   const { data: note, isLoading, isError, refetch } = useQuery<MeetingNoteDetail>({
     queryKey: ["/api/meeting-notes", noteId],
@@ -478,11 +479,12 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
       return res.json() as Promise<{ created: number; skipped: number }>;
     },
     onSuccess: (data) => {
-      toast({
-        title: data.created > 0
-          ? `${data.created} task${data.created === 1 ? "" : "s"} created`
-          : "No new tasks — accept items first",
-      });
+      if (data.created > 0) {
+        toast({ title: `${data.created} task${data.created === 1 ? "" : "s"} created` });
+        setTasksCreated(true);
+      } else {
+        toast({ title: "No new tasks — accept items first" });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/meeting-notes", noteId] });
     },
     onError: (e: Error) => toast({ title: "Task creation failed", description: e.message, variant: "destructive" }),
@@ -498,8 +500,12 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
       }
       return res.json();
     },
-    onSuccess: () => {
-      toast({ title: "Added to CRM timeline" });
+    onSuccess: (data: { ok: boolean; activityId?: number; skipped?: boolean }) => {
+      toast({
+        title: data.skipped
+          ? "Already on timeline — no duplicate added"
+          : "Added to CRM timeline",
+      });
       setTimelineAdded(true);
     },
     onError: (e: Error) => toast({ title: "Timeline failed", description: e.message, variant: "destructive" }),
@@ -733,22 +739,26 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
                     {/* Create Tasks bar */}
                     <div className="flex items-center justify-between gap-2 pb-2 border-b border-border/40">
                       <p className="text-xs text-muted-foreground">
-                        {acceptedCount > 0
+                        {tasksCreated
+                          ? `${taskCreatedCount} task${taskCreatedCount !== 1 ? "s" : ""} created from this note`
+                          : acceptedCount > 0
                           ? `${acceptedCount} accepted · ${taskCreatedCount} task${taskCreatedCount !== 1 ? "s" : ""} created`
                           : "Accept items below to create CRM tasks"}
                       </p>
                       <Button
                         size="sm"
-                        variant={acceptedCount > 0 ? "default" : "outline"}
-                        className="h-7 text-xs gap-1.5"
+                        variant={tasksCreated ? "outline" : acceptedCount > 0 ? "default" : "outline"}
+                        className={`h-7 text-xs gap-1.5 ${tasksCreated ? "border-emerald-500/40 text-emerald-600" : ""}`}
                         onClick={() => createTasksMutation.mutate()}
-                        disabled={createTasksMutation.isPending || acceptedCount === 0}
+                        disabled={createTasksMutation.isPending || acceptedCount === 0 || tasksCreated}
                         data-testid="button-create-tasks"
                       >
                         {createTasksMutation.isPending
                           ? <Loader2 className="w-3 h-3 animate-spin" />
+                          : tasksCreated
+                          ? <CheckCircle2 className="w-3 h-3" />
                           : <Plus className="w-3 h-3" />}
-                        Create Tasks ({acceptedCount})
+                        {tasksCreated ? "Tasks Created ✓" : `Create Tasks (${acceptedCount})`}
                       </Button>
                     </div>
 

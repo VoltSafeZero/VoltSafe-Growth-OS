@@ -6,7 +6,7 @@ import {
   activities, tasks,
   MeetingNote,
 } from "@shared/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 // ── Enums / constants ────────────────────────────────────────────────────────
@@ -297,19 +297,31 @@ export async function createTasksFromActionItems(
   const note = await lookupNote(id, userId, isAdmin);
   if (!note) throw Object.assign(new Error("Not found"), { httpStatus: 404 });
 
-  const items = await db
-    .select()
-    .from(meetingNoteActionItems)
-    .where(
-      and(
-        eq(meetingNoteActionItems.meetingNoteId, id),
-        eq(meetingNoteActionItems.status, "accepted"),
+  // Pull only items that are accepted AND have no task yet (DB-level guard against duplicates)
+  const [eligible, alreadyDone] = await Promise.all([
+    db
+      .select()
+      .from(meetingNoteActionItems)
+      .where(
+        and(
+          eq(meetingNoteActionItems.meetingNoteId, id),
+          eq(meetingNoteActionItems.status, "accepted"),
+          isNull(meetingNoteActionItems.createdTaskId),
+        ),
       ),
-    );
+    db
+      .select({ id: meetingNoteActionItems.id })
+      .from(meetingNoteActionItems)
+      .where(
+        and(
+          eq(meetingNoteActionItems.meetingNoteId, id),
+          eq(meetingNoteActionItems.status, "task_created"),
+        ),
+      ),
+  ]);
 
-  const eligible = items.filter(item => !item.createdTaskId);
-  const skipped  = items.length - eligible.length;
-  let created    = 0;
+  const skipped = alreadyDone.length;
+  let created   = 0;
 
   const targetObjectType = opts.linkedObjectType ?? note.linkedObjectType ?? null;
   const targetObjectId   = opts.linkedObjectId   ?? note.linkedObjectId   ?? null;
@@ -341,6 +353,7 @@ export async function createTasksFromActionItems(
     created++;
   }
 
+  console.log(`[meeting-notes] create-tasks note=${id} created=${created} skipped=${skipped}`);
   return { created, skipped };
 }
 
@@ -348,7 +361,7 @@ export async function createTasksFromActionItems(
 
 export async function addNoteToTimeline(
   id: number, userId: number, isAdmin: boolean,
-): Promise<{ ok: boolean; error?: string; activityId?: number }> {
+): Promise<{ ok: boolean; error?: string; activityId?: number; skipped?: boolean }> {
   const note = await lookupNote(id, userId, isAdmin);
   if (!note) return { ok: false, error: "Not found" };
 
@@ -368,6 +381,28 @@ export async function addNoteToTimeline(
     note.title       ??
     `Meeting note — ${note.createdAt.toISOString().slice(0, 10)}`;
 
+  // ── Duplicate guard ──────────────────────────────────────────────────────
+  // activities has no meeting_note_id column, so use content-match fallback:
+  // same type + same linked object + same summary text → treat as duplicate.
+  const [existingActivity] = await db
+    .select({ id: activities.id })
+    .from(activities)
+    .where(
+      and(
+        eq(activities.type, "meeting_note"),
+        eq(activities.linkedObjectType, objectType),
+        eq(activities.linkedObjectId, objectId),
+        eq(activities.summary, summary),
+      ),
+    )
+    .limit(1);
+
+  if (existingActivity) {
+    console.log(`[meeting-notes] add-to-timeline note=${id} skipped (duplicate activityId=${existingActivity.id})`);
+    return { ok: true, skipped: true, activityId: existingActivity.id };
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   const [activity] = await db
     .insert(activities)
     .values({
@@ -380,6 +415,7 @@ export async function addNoteToTimeline(
     })
     .returning({ id: activities.id });
 
+  console.log(`[meeting-notes] add-to-timeline note=${id} inserted activityId=${activity.id}`);
   return { ok: true, activityId: activity.id };
 }
 
