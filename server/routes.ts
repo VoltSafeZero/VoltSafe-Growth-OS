@@ -102,6 +102,16 @@ import {
   listRecipients, addRecipient, revokeRecipient, resolvePublicToken,
   createBookingLinkSchema, updateBookingLinkSchema, addRecipientSchema,
 } from "./services/booking-link-service";
+import {
+  listMeetingNotes, createMeetingNote, getMeetingNoteDetail, updateMeetingNote,
+  startRecording, stopRecording, processMeetingNote, createTasksFromActionItems,
+  addNoteToTimeline, draftFollowup, linkRecord,
+  getMeetingNoteByCalendarEvent, createMeetingNoteForCalendarEvent,
+  sessionIsAdmin,
+  createMeetingNoteSchema, updateMeetingNoteSchema,
+  linkRecordSchema, draftFollowupSchema, createTasksSchema,
+} from "./services/meeting-notes-service";
+import { validateAudioChunk, storeChunkStub } from "./services/meeting-notes-audio";
 
 // ── Auth rate limiters ─────────────────────────────────────────────────────
 // Defense in depth against credential stuffing, password-reset spam, and
@@ -23673,6 +23683,278 @@ export function registerConfluenceRoutes(app: Express) {
       const view = await resolvePublicToken(token);
       if (!view) return res.status(404).json({ message: "Booking link not found or revoked" });
       res.json(view);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ── Meeting Notes ─────────────────────────────────────────────────────────
+  // Cortex Meeting Notes: create, list, get, patch, lifecycle, audio, tasks,
+  // timeline, follow-up drafts, CRM links, and calendar-event integration.
+  // Status transitions enforced by service layer.
+
+  // GET /api/meeting-notes — list notes visible to the current user
+  app.get("/api/meeting-notes", requireAuth, async (req, res) => {
+    try {
+      const userId  = req.session.userId!;
+      const isAdmin = sessionIsAdmin(req.session);
+      const notes   = await listMeetingNotes(userId, isAdmin);
+      res.json(notes);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/meeting-notes — create a new note (app-generated UUID)
+  app.post("/api/meeting-notes", requireAuth, async (req, res) => {
+    try {
+      const parsed = createMeetingNoteSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Validation error", errors: parsed.error.issues });
+      }
+      const note = await createMeetingNote(req.session.userId!, parsed.data);
+      res.status(201).json(note);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/meeting-notes/:id — full detail: note + chunks + action_items + participants + links
+  app.get("/api/meeting-notes/:id", requireAuth, async (req, res) => {
+    try {
+      const id      = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId  = req.session.userId!;
+      const isAdmin = sessionIsAdmin(req.session);
+      const detail  = await getMeetingNoteDetail(id, userId, isAdmin);
+      if (!detail) return res.status(404).json({ message: "Not found" });
+      res.json(detail);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // PATCH /api/meeting-notes/:id — update mutable fields (title, platform, notes, etc.)
+  app.patch("/api/meeting-notes/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const parsed = updateMeetingNoteSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Validation error", errors: parsed.error.issues });
+      }
+      const userId  = req.session.userId!;
+      const isAdmin = sessionIsAdmin(req.session);
+      const updated = await updateMeetingNote(id, userId, isAdmin, parsed.data);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/meeting-notes/:id/start — transition → recording
+  // Requires consentNoted = true on the note before this call succeeds.
+  app.post("/api/meeting-notes/:id/start", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId  = req.session.userId!;
+      const isAdmin = sessionIsAdmin(req.session);
+      const result  = await startRecording(id, userId, isAdmin);
+      if (!result.ok) {
+        const status = result.error === "Not found" ? 404 : 409;
+        return res.status(status).json({ message: result.error });
+      }
+      res.json(result.note);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/meeting-notes/:id/stop — transition recording → processing
+  app.post("/api/meeting-notes/:id/stop", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId  = req.session.userId!;
+      const isAdmin = sessionIsAdmin(req.session);
+      const result  = await stopRecording(id, userId, isAdmin);
+      if (!result.ok) {
+        const status = result.error === "Not found" ? 404 : 409;
+        return res.status(status).json({ message: result.error });
+      }
+      res.json(result.note);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/meeting-notes/:id/audio-chunk
+  // Accepts a binary audio chunk (audio/*). Validates status = recording,
+  // Content-Type, and Content-Length before draining the body.
+  // Phase B.2 stub: acknowledges the chunk without persisting audio.
+  app.post("/api/meeting-notes/:id/audio-chunk", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId  = req.session.userId!;
+      const isAdmin = sessionIsAdmin(req.session);
+
+      const detail = await getMeetingNoteDetail(id, userId, isAdmin);
+      if (!detail) return res.status(404).json({ message: "Not found" });
+
+      const validation = validateAudioChunk(req, detail.status);
+      if (!validation.ok) {
+        return res.status(validation.httpStatus ?? 400).json({ message: validation.error });
+      }
+
+      const seqHeader = parseInt(String(req.headers["x-sequence-no"] ?? "0"), 10);
+      const sequenceNo = isNaN(seqHeader) ? 0 : seqHeader;
+
+      const { bytes } = await storeChunkStub(id, sequenceNo, req);
+      res.status(202).json({ accepted: true, sequenceNo, bytes });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/meeting-notes/:id/process
+  // Placeholder: validates status = processing. AI pipeline wired in Phase B.5.
+  app.post("/api/meeting-notes/:id/process", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId  = req.session.userId!;
+      const isAdmin = sessionIsAdmin(req.session);
+      const result  = await processMeetingNote(id, userId, isAdmin);
+      if (!result.ok) {
+        const status = result.error === "Not found" ? 404 : 409;
+        return res.status(status).json({ message: result.error });
+      }
+      res.json({ queued: true, note: result.note });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/meeting-notes/:id/create-tasks
+  // Promotes accepted action items into CRM tasks.
+  app.post("/api/meeting-notes/:id/create-tasks", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const parsed = createTasksSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Validation error", errors: parsed.error.issues });
+      }
+      const userId  = req.session.userId!;
+      const isAdmin = sessionIsAdmin(req.session);
+      const result  = await createTasksFromActionItems(id, userId, isAdmin, parsed.data);
+      res.json(result);
+    } catch (e: any) {
+      const status = (e as any).httpStatus ?? 500;
+      res.status(status).json({ message: e.message });
+    }
+  });
+
+  // POST /api/meeting-notes/:id/add-to-timeline
+  // Writes an activity row for the note to the CRM timeline.
+  // Note must have linked_object_type + linked_object_id set.
+  app.post("/api/meeting-notes/:id/add-to-timeline", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId  = req.session.userId!;
+      const isAdmin = sessionIsAdmin(req.session);
+      const result  = await addNoteToTimeline(id, userId, isAdmin);
+      if (!result.ok) {
+        const status = result.error === "Not found" ? 404 : 400;
+        return res.status(status).json({ message: result.error });
+      }
+      res.json({ ok: true, activityId: result.activityId });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/meeting-notes/:id/draft-followup
+  // Stores (or overwrites) the follow-up email draft text on the note.
+  app.post("/api/meeting-notes/:id/draft-followup", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const parsed = draftFollowupSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Validation error", errors: parsed.error.issues });
+      }
+      const userId  = req.session.userId!;
+      const isAdmin = sessionIsAdmin(req.session);
+      const updated = await draftFollowup(id, userId, isAdmin, parsed.data.followupDraftText);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/meeting-notes/:id/link-record
+  // Adds (or updates) a CRM object link on the note. Idempotent.
+  app.post("/api/meeting-notes/:id/link-record", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const parsed = linkRecordSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Validation error", errors: parsed.error.issues });
+      }
+      const userId  = req.session.userId!;
+      const isAdmin = sessionIsAdmin(req.session);
+      const result  = await linkRecord(
+        id, userId, isAdmin,
+        parsed.data.objectType, parsed.data.objectId, parsed.data.relationshipType,
+      );
+      if (!result.ok) {
+        const status = result.error === "Not found" ? 404 : 400;
+        return res.status(status).json({ message: result.error });
+      }
+      res.status(201).json({ ok: true, linkId: result.linkId });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/calendar/events/:id/meeting-note
+  // Returns the most recent meeting note linked to this calendar event,
+  // or 404 if none exists. Only returns the note if the caller can access it.
+  app.get("/api/calendar/events/:id/meeting-note", requireAuth, async (req, res) => {
+    try {
+      const calId   = parseInt(req.params.id, 10);
+      if (isNaN(calId)) return res.status(400).json({ message: "Invalid id" });
+      const userId  = req.session.userId!;
+      const isAdmin = sessionIsAdmin(req.session);
+      const note    = await getMeetingNoteByCalendarEvent(calId, userId, isAdmin);
+      if (!note) return res.status(404).json({ message: "No meeting note for this event" });
+      res.json(note);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/calendar/events/:id/create-meeting-note
+  // Creates a new meeting note pre-linked to the given calendar event.
+  app.post("/api/calendar/events/:id/create-meeting-note", requireAuth, async (req, res) => {
+    try {
+      const calId = parseInt(req.params.id, 10);
+      if (isNaN(calId)) return res.status(400).json({ message: "Invalid id" });
+      // Allow optional overrides (title, platform, linkedObjectType, linkedObjectId)
+      const overrides = updateMeetingNoteSchema.partial().safeParse(req.body ?? {});
+      if (!overrides.success) {
+        return res.status(400).json({ message: "Validation error", errors: overrides.error.issues });
+      }
+      const userId = req.session.userId!;
+      const note   = await createMeetingNoteForCalendarEvent(calId, userId, overrides.data);
+      res.status(201).json(note);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

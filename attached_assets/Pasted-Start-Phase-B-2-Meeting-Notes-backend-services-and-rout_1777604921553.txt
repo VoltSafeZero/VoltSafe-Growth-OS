@@ -1,0 +1,96 @@
+Start Phase B.2: Meeting Notes backend services and routes.
+
+Scope:
+- Phase B.1 schema is applied.
+- Do NOT change schema.
+- Do NOT start frontend/UI.
+- Do NOT implement recording/transcription yet.
+- Do NOT touch Zoom/booking Phase A unless absolutely necessary.
+- Do NOT restart the 5 known failing creds-drift workflows.
+
+Goal:
+Build the backend foundation for Cortex Meeting Notes.
+
+Deliverables:
+1. New service:
+   server/services/meeting-notes-service.ts
+
+2. Optional helper:
+   server/services/meeting-notes-audio.ts
+   - only stub basic chunk guards if needed
+   - no real transcription yet
+
+3. Add API routes:
+   - GET /api/meeting-notes
+   - POST /api/meeting-notes
+   - GET /api/meeting-notes/:id
+   - PATCH /api/meeting-notes/:id
+   - POST /api/meeting-notes/:id/start
+   - POST /api/meeting-notes/:id/stop
+   - POST /api/meeting-notes/:id/audio-chunk
+   - POST /api/meeting-notes/:id/process
+   - POST /api/meeting-notes/:id/create-tasks
+   - POST /api/meeting-notes/:id/add-to-timeline
+   - POST /api/meeting-notes/:id/draft-followup
+   - POST /api/meeting-notes/:id/link-record
+   - GET /api/calendar/events/:id/meeting-note
+   - POST /api/calendar/events/:id/create-meeting-note
+
+4. Validation:
+   - title max 200 chars
+   - status transitions enforced:
+     scheduled_prompted or adhoc → recording
+     recording → processing
+     processing → completed / failed later
+     any state → cancelled only by explicit cancel route if added
+   - source enum:
+     calendar, mail, adhoc, upload
+   - platform enum:
+     zoom, teams, meet, phone, in_person, other
+   - linked_object_type enum:
+     account, contact, lead, opportunity, project, ticket
+   - action item statuses:
+     suggested, accepted, rejected, task_created
+   - audio chunk endpoint:
+     - require status = recording
+     - max chunk 1MB
+     - content-type must be audio/*
+     - safe stub storage only for now
+
+5. Permissions:
+   - requireAuth on all private routes
+   - read allowed if created_by = session user OR admin/master_admin
+   - write allowed if created_by = session user OR admin/master_admin
+   - create-tasks should check existing task permission pattern if available
+   - add-to-timeline/link-record should check CRM/target object access if available
+   - if target-object permission helpers are unclear, implement conservative guard and report limitation
+
+6. Behavior:
+   - POST /api/meeting-notes creates note with app-generated crypto.randomUUID()
+   - GET detail returns note + chunks + action_items + participants + links
+   - calendar event create route creates note pre-linked to calendar_event_id
+   - process route should be a placeholder that marks/keeps status safely; no AI yet
+   - create-tasks can be stubbed if task schema/service needs more review, but must not create bad data
+
+7. Tests/checks:
+   - route smoke tests:
+     - create note
+     - list notes
+     - get detail
+     - patch note
+     - start note
+     - upload bad chunk rejected
+     - stop note
+     - other user cannot access note
+     - calendar event note lookup/create
+   - TypeScript/LSP check
+   - tests/calendar-invite.unit.ts
+   - DB verification that no schema changes occurred
+
+8. Report:
+   - files changed
+   - routes added
+   - validation implemented
+   - permissions implemented
+   - tests/checks run
+   - limitations / B.3 next steps
