@@ -12,6 +12,7 @@ import { Header } from "@/components/dashboard/header";
 import { MobileNav } from "@/components/dashboard/mobile-nav";
 import { GlobalCreateContact } from "@/components/contacts/global-create-contact";
 import { isAdvisorRole } from "@/lib/nav-config";
+import BookingPublicPage from "@/pages/booking-public";
 
 import Dashboard from "@/pages/dashboard";
 import CommandCenter from "@/pages/command-center";
@@ -426,6 +427,23 @@ function App() {
           token={resetToken ?? ""}
           onLogin={(u) => setUser(u as unknown as AuthUser)}
         />
+      </ThemeProvider>
+    );
+  }
+
+  // Handle /book/:token — public booking page (no auth required)
+  const bookingTokenMatch = typeof window !== "undefined"
+    ? window.location.pathname.match(/^\/book\/([^/]+)$/)
+    : null;
+  if (bookingTokenMatch) {
+    return (
+      <ThemeProvider defaultTheme="dark">
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <Toaster />
+            <BookingPublicPage token={bookingTokenMatch[1]} />
+          </TooltipProvider>
+        </QueryClientProvider>
       </ThemeProvider>
     );
   }

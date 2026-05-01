@@ -1971,9 +1971,10 @@ function BriefingTab({ eventId }: { eventId: number }) {
 
 type MeetingNoteRef = { id: number; title: string | null; status: string } | null;
 
-function MeetingNoteAction({ eventId }: { eventId: number }) {
+function MeetingNoteAction({ eventId, meetingUrl }: { eventId: number; meetingUrl?: string | null }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const isZoom = !!meetingUrl && /zoom\.us/i.test(meetingUrl);
 
   const { data: note, isLoading } = useQuery<MeetingNoteRef>({
     queryKey: ["/api/calendar/events", eventId, "meeting-note"],
@@ -1987,7 +1988,11 @@ function MeetingNoteAction({ eventId }: { eventId: number }) {
   });
 
   const createMutation = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/calendar/events/${eventId}/create-meeting-note`, {}),
+    mutationFn: () => apiRequest(
+      "POST",
+      `/api/calendar/events/${eventId}/create-meeting-note`,
+      isZoom ? { platform: "zoom" } : {},
+    ),
     onSuccess: async (res) => {
       const created = await res.json();
       await queryClient.invalidateQueries({ queryKey: ["/api/calendar/events", eventId, "meeting-note"] });
@@ -2008,7 +2013,7 @@ function MeetingNoteAction({ eventId }: { eventId: number }) {
         data-testid="button-view-meeting-note"
       >
         <Mic className="h-3 w-3 shrink-0" />
-        <span>View Meeting Note</span>
+        <span>{isZoom ? "View Meeting Notes" : "View Meeting Note"}</span>
       </button>
     );
   }
@@ -2017,14 +2022,18 @@ function MeetingNoteAction({ eventId }: { eventId: number }) {
     <button
       onClick={() => createMutation.mutate()}
       disabled={createMutation.isPending}
-      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+      className={`flex items-center gap-1.5 text-xs transition-colors disabled:opacity-50 ${
+        isZoom
+          ? "text-[#2D8CFF] hover:text-[#2680f0] font-medium"
+          : "text-muted-foreground hover:text-foreground"
+      }`}
       data-testid="button-create-meeting-note"
     >
       {createMutation.isPending
         ? <Loader2 className="h-3 w-3 animate-spin shrink-0" />
         : <Mic className="h-3 w-3 shrink-0" />
       }
-      <span>Create Meeting Note</span>
+      <span>{isZoom ? "Start Meeting Notes" : "Create Meeting Note"}</span>
     </button>
   );
 }
@@ -2137,14 +2146,28 @@ function EventDetailDialog({
           {/* Details tab */}
           <TabsContent value="details" className="flex-1 overflow-y-auto px-6 pb-4 mt-3">
             <div className="space-y-2.5 text-sm">
-              {event.meetingUrl && (
-                <div className="flex items-center gap-2">
-                  <Video className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <a href={event.meetingUrl} target="_blank" rel="noopener noreferrer" className="text-primary truncate" data-testid="link-meeting-url">
-                    Join Meeting
+              {event.meetingUrl && (() => {
+                const isZoomUrl = /zoom\.us/i.test(event.meetingUrl!);
+                return isZoomUrl ? (
+                  <a
+                    href={event.meetingUrl!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 w-full bg-[#2D8CFF] hover:bg-[#2680f0] text-white text-sm font-medium rounded-lg px-4 py-2.5 transition-colors"
+                    data-testid="link-join-zoom"
+                  >
+                    <Video className="h-4 w-4 shrink-0" />
+                    Join Zoom Meeting
                   </a>
-                </div>
-              )}
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Video className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <a href={event.meetingUrl!} target="_blank" rel="noopener noreferrer" className="text-primary truncate" data-testid="link-meeting-url">
+                      Join Meeting
+                    </a>
+                  </div>
+                );
+              })()}
               <div className="flex items-center gap-2">
                 <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span>
@@ -2195,7 +2218,7 @@ function EventDetailDialog({
             </div>
             {/* Footer actions inside scroll */}
             <div className="mt-5 pt-4 border-t border-border/30 flex flex-col gap-2">
-              <MeetingNoteAction eventId={event.id} />
+              <MeetingNoteAction eventId={event.id} meetingUrl={event.meetingUrl} />
               <div className="flex items-center justify-between gap-2">
                 <Button variant="destructive" size="sm" onClick={onDelete} disabled={isDeleting} data-testid="button-delete-event">
                   {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}

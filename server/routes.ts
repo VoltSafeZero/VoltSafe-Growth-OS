@@ -100,6 +100,7 @@ import {
 import {
   listBookingLinks, getBookingLink, createBookingLink, updateBookingLink,
   listRecipients, addRecipient, revokeRecipient, resolvePublicToken,
+  confirmBooking, confirmBookingSchema,
   createBookingLinkSchema, updateBookingLinkSchema, addRecipientSchema,
 } from "./services/booking-link-service";
 import {
@@ -23851,6 +23852,29 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // ── POST /api/booking-links/public/:token/confirm ────────────────────────
+  // Confirms a booking slot. No auth required (public endpoint).
+  // Body: { slotStart: ISO-8601, attendeeName?: string }
+  // Returns 404 if token invalid/revoked, 409 if already booked.
+  app.post("/api/booking-links/public/:token/confirm", async (req, res) => {
+    try {
+      const { token } = req.params;
+      if (!token || token.length < 10) return res.status(400).json({ message: "Invalid token" });
+      const parsed = confirmBookingSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Validation error", errors: parsed.error.issues });
+      }
+      const result = await confirmBooking(token, parsed.data);
+      if (!result) return res.status(404).json({ message: "Booking link not found or revoked" });
+      if (result.alreadyBooked) {
+        return res.status(409).json({ message: "This slot has already been booked", ...result });
+      }
+      res.status(201).json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // ── Meeting Notes ─────────────────────────────────────────────────────────
   // Cortex Meeting Notes: create, list, get, patch, lifecycle, audio, tasks,
   // timeline, follow-up drafts, CRM links, and calendar-event integration.
@@ -24152,6 +24176,7 @@ export function registerConfluenceRoutes(app: Express) {
 
   // POST /api/calendar/events/:id/create-meeting-note
   // Creates a new meeting note pre-linked to the given calendar event.
+  // Auto-detects platform="zoom" from the event's meetingUrl if not overridden.
   app.post("/api/calendar/events/:id/create-meeting-note", requireAuth, async (req, res) => {
     try {
       const calId = parseInt(req.params.id, 10);
@@ -24162,7 +24187,21 @@ export function registerConfluenceRoutes(app: Express) {
         return res.status(400).json({ message: "Validation error", errors: overrides.error.issues });
       }
       const userId = req.session.userId!;
-      const note   = await createMeetingNoteForCalendarEvent(calId, userId, overrides.data);
+
+      // Auto-detect platform from event meetingUrl when not explicitly provided
+      let resolvedOverrides = { ...overrides.data };
+      if (!resolvedOverrides.platform) {
+        const [calEvent] = await db
+          .select({ meetingUrl: calendarEvents.meetingUrl })
+          .from(calendarEvents)
+          .where(eq(calendarEvents.id, calId))
+          .limit(1);
+        if (calEvent?.meetingUrl && /zoom\.us/i.test(calEvent.meetingUrl)) {
+          resolvedOverrides = { ...resolvedOverrides, platform: "zoom" };
+        }
+      }
+
+      const note = await createMeetingNoteForCalendarEvent(calId, userId, resolvedOverrides);
       res.status(201).json(note);
     } catch (e: any) {
       res.status(500).json({ message: e.message });

@@ -14,9 +14,10 @@
 
 import crypto from "crypto";
 import { db } from "../db";
-import { bookingLinks, bookingLinkRecipients } from "@shared/schema";
+import { bookingLinks, bookingLinkRecipients, calendarEvents } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
+import { createZoomMeeting } from "./zoom-service";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Validation schemas (shared between service and routes)
@@ -368,5 +369,135 @@ export async function resolvePublicToken(token: string): Promise<PublicBookingVi
     recipientEmail: recipient.recipientEmail,
     alreadyBooked: !!recipient.bookedAt,
     bookedAt: recipient.bookedAt,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Booking confirmation
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const confirmBookingSchema = z.object({
+  slotStart:    z.string().datetime({ message: "slotStart must be an ISO 8601 datetime" }),
+  attendeeName: z.string().max(200).optional(),
+});
+
+export interface ConfirmBookingResult {
+  calendarEventId: number;
+  startTime: Date;
+  endTime: Date;
+  zoomJoinUrl: string | null;
+  zoomMeetingId: string | null;
+  zoomPassword: string | null;
+  alreadyBooked: boolean;
+}
+
+/**
+ * Confirms a booking for the given public recipient token.
+ * - Validates token is still live and not already booked.
+ * - Attempts to create a Zoom meeting for the link owner (gracefully skipped if
+ *   the owner has no Zoom connection or the API call fails).
+ * - Inserts a calendar_events row linked back to the recipient.
+ * - Marks the recipient row as booked.
+ * Returns null if the token is invalid/revoked.
+ * Returns { alreadyBooked: true } if the slot was already taken.
+ */
+export async function confirmBooking(
+  token: string,
+  data: { slotStart: string; attendeeName?: string },
+): Promise<ConfirmBookingResult | null> {
+  // 1. Resolve recipient
+  const [recipient] = await db
+    .select()
+    .from(bookingLinkRecipients)
+    .where(eq(bookingLinkRecipients.token, token))
+    .limit(1);
+
+  if (!recipient || recipient.revokedAt) return null;
+
+  // 2. Guard: already booked
+  if (recipient.bookedAt) {
+    const event = recipient.bookedCalendarEventId
+      ? await db
+          .select()
+          .from(calendarEvents)
+          .where(eq(calendarEvents.id, recipient.bookedCalendarEventId))
+          .limit(1)
+          .then((r) => r[0])
+      : null;
+    return {
+      calendarEventId: recipient.bookedCalendarEventId ?? 0,
+      startTime:       event?.startTime ?? new Date(data.slotStart),
+      endTime:         event?.endTime ?? new Date(data.slotStart),
+      zoomJoinUrl:     event?.meetingUrl ?? null,
+      zoomMeetingId:   null,
+      zoomPassword:    null,
+      alreadyBooked:   true,
+    };
+  }
+
+  // 3. Get active booking link
+  const [link] = await db
+    .select()
+    .from(bookingLinks)
+    .where(and(eq(bookingLinks.id, recipient.bookingLinkId), eq(bookingLinks.active, true)))
+    .limit(1);
+
+  if (!link) return null;
+
+  // 4. Calculate times
+  const startTime = new Date(data.slotStart);
+  const endTime   = new Date(startTime.getTime() + link.slotMinutes * 60_000);
+  const now       = new Date();
+
+  // 5. Try to create Zoom meeting (best-effort; null = no Zoom connection)
+  const zoom = await createZoomMeeting(link.ownerUserId, {
+    topic:           link.name,
+    startTime,
+    durationMinutes: link.slotMinutes,
+    agenda:          link.description ?? undefined,
+  });
+
+  // 6. Insert calendar event
+  const [calEvent] = await db
+    .insert(calendarEvents)
+    .values({
+      userId:                  link.ownerUserId,
+      title:                   link.name,
+      description:             link.description,
+      eventType:               "meeting",
+      startTime,
+      endTime,
+      allDay:                  false,
+      location:                zoom?.joinUrl ?? null,
+      meetingUrl:              zoom?.joinUrl ?? null,
+      status:                  "scheduled",
+      invitees:                [recipient.recipientEmail],
+      bookingLinkRecipientId:  recipient.id,
+      createdAt:               now,
+      updatedAt:               now,
+    })
+    .returning();
+
+  // 7. Mark recipient as booked
+  await db
+    .update(bookingLinkRecipients)
+    .set({
+      bookedAt:             now,
+      bookedCalendarEventId: calEvent.id,
+    })
+    .where(eq(bookingLinkRecipients.id, recipient.id));
+
+  console.log(
+    `[booking] confirmed token=${token.slice(0, 8)}… calEventId=${calEvent.id} zoom=${zoom ? zoom.meetingId : "none"}`,
+  );
+
+  return {
+    calendarEventId: calEvent.id,
+    startTime,
+    endTime,
+    zoomJoinUrl:   zoom?.joinUrl   ?? null,
+    zoomMeetingId: zoom?.meetingId ?? null,
+    zoomPassword:  zoom?.password  ?? null,
+    alreadyBooked: false,
   };
 }

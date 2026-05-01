@@ -342,6 +342,82 @@ export interface ZoomConnectionPublic {
   disconnectedAt: Date | null;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Meeting creation
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ZoomMeetingResult {
+  meetingId: string;
+  joinUrl: string;
+  startUrl: string;
+  password: string | null;
+}
+
+/**
+ * Creates a scheduled Zoom meeting on behalf of the given user.
+ * Returns null if the user has no active Zoom connection or the API call fails.
+ * NEVER throws — callers can treat null as "no Zoom available".
+ */
+export async function createZoomMeeting(
+  userId: number,
+  opts: {
+    topic: string;
+    startTime: Date;
+    durationMinutes: number;
+    agenda?: string;
+  },
+): Promise<ZoomMeetingResult | null> {
+  try {
+    const conn = await refreshZoomTokenIfNeeded(userId);
+    if (!conn || conn.disconnectedAt) return null;
+
+    const resp = await fetch("https://api.zoom.us/v2/users/me/meetings", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${conn.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        topic: opts.topic,
+        type: 2, // scheduled meeting
+        start_time: opts.startTime.toISOString(),
+        duration: opts.durationMinutes,
+        agenda: opts.agenda ?? "",
+        settings: {
+          host_video: true,
+          participant_video: true,
+          join_before_host: true,
+          waiting_room: false,
+        },
+      }),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      console.error(
+        `[zoom-service] createZoomMeeting failed (${resp.status}) for userId=${userId}: ${text.slice(0, 200)}`,
+      );
+      return null;
+    }
+
+    const json: any = await resp.json();
+    console.log(`[zoom-service] meeting created id=${json.id} userId=${userId}`);
+    return {
+      meetingId: String(json.id),
+      joinUrl: json.join_url,
+      startUrl: json.start_url,
+      password: json.password ?? null,
+    };
+  } catch (err: unknown) {
+    console.error("[zoom-service] createZoomMeeting error:", (err as Error).message);
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Safe public projection (strips tokens before sending to client)
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function toPublicZoomConnection(
   row: ZoomConnectionRow | null,
 ): ZoomConnectionPublic {

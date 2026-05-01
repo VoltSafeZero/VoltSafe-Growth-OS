@@ -1,0 +1,102 @@
+Finish the Zoom loop: booking links → Zoom meeting → calendar event → Meeting Notes.
+
+Scope:
+- Do NOT change schema.
+- Do NOT restart the 5 known failing creds-drift workflows.
+- Do NOT touch Meeting Notes AI/recording logic unless needed for linking.
+- Keep this focused on closing the scheduling-to-notes loop.
+
+Goal:
+When a booking is confirmed, VoltSafe should create a Zoom meeting, store the join URL on the calendar event, and let the user start Meeting Notes from that event.
+
+Tasks:
+
+1. Inspect current booking flow
+- Find where booking recipients/tokens are resolved.
+- Find where calendar_events are created for bookings.
+- Find any existing booking confirmation endpoint.
+- If no confirmation endpoint exists yet, report that and build only the service hooks needed.
+
+2. Add Zoom meeting creation service
+Create or update:
+server/services/zoom-meeting-service.ts
+
+Function:
+createZoomMeetingForBooking(ownerUserId, {
+  topic,
+  startTime,
+  durationMinutes,
+  timezone,
+  attendeeEmail,
+  attendeeName,
+  agenda
+})
+
+Behavior:
+- Load owner’s zoom_connections row.
+- Refresh token if needed.
+- Call Zoom:
+  POST /v2/users/me/meetings
+- Use scheduled meeting type.
+- Return:
+  zoomMeetingId
+  joinUrl
+  startUrl if available
+- Never expose tokens.
+
+3. Hook Zoom into booking confirmation
+When a booking creates a calendar event:
+- create Zoom meeting first if booking link location_type = "zoom"
+- set calendar event location = joinUrl
+- include Zoom URL in event description if location is already used
+- preserve attendee email/name
+- do not fail entire booking if Zoom fails unless location_type is strictly zoom
+- store a clear error/log if Zoom creation fails
+
+4. Calendar event modal UI
+In the calendar event detail modal:
+- If event location or description contains zoom.us:
+  show:
+  - Join Zoom button
+  - Start Meeting Notes button
+
+Join Zoom:
+- opens Zoom URL in new tab
+
+Start Meeting Notes:
+- call existing:
+  POST /api/calendar/events/:id/create-meeting-note
+- PATCH note to set:
+  platform = "zoom"
+- navigate to /meeting-notes/:id
+
+If a meeting note already exists:
+- show View Meeting Note
+
+5. Meeting Notes detail header
+If platform = zoom:
+- show subtle Zoom badge
+- if linked calendar event has Zoom URL, show Join Zoom button
+
+6. Tests/checks
+- TypeScript/LSP check
+- tests/calendar-invite.unit.ts
+- authenticated smoke tests:
+  - Zoom connection status endpoint still works
+  - booking-link service still works
+  - calendar event with Zoom URL shows Start Meeting Notes path
+  - creating Meeting Note from calendar event sets platform=zoom
+- If real Zoom credentials are missing, do not fake live Zoom API success.
+  Instead:
+  - verify missing-credentials path
+  - verify service handles failure cleanly
+  - report exactly what Replit Secrets are needed
+
+Report:
+- files changed
+- whether booking confirmation endpoint exists
+- Zoom meeting service behavior
+- calendar modal buttons added
+- Meeting Notes linking behavior
+- credentials needed
+- limitations / next step
