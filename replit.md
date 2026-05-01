@@ -4447,3 +4447,43 @@ states) — see chat reply for the exact checklist.
 ### No code changes this turn
 - `git status` is clean. No new diff to architect-review (the prior
   turn's diff was already PASS).
+
+---
+
+## Phase B.5 — AI Meeting Note Extraction (COMPLETE 2026-05-01)
+
+### New files
+- `server/services/meeting-notes-ai.ts` — full AI extraction pipeline:
+  - `processWithAI(noteId)` — never throws; all errors → `processingError`
+  - Model chain: `gpt-4o` → `gpt-4o-mini` fallback
+  - JSON-mode structured output with VoltSafe-specific signals
+  - Empty transcript → polite empty-state (status=completed, no error)
+  - Transcript truncation at 80K chars with warning
+  - Writes: `summaryText`, `notesText` (+ VoltSafe signals appendix), `decisionsText`, `actionItemsText`, `followupDraftText`
+  - Inserts each action item into `meeting_note_action_items` (status='suggested')
+  - Sets `status='completed'` on success, `status='failed'` on hard error
+
+### Updated files
+- `server/services/meeting-notes-transcription.ts` — chains `processWithAI(noteId)` after transcript persisted
+- `server/services/meeting-notes-service.ts`:
+  - `updateMeetingNoteSchema` now includes `rawTranscriptText` (manual transcript injection)
+  - `processMeetingNote` guard relaxed: allows `processing | completed | failed` for reprocessing
+- `server/routes.ts`:
+  - Added `import { processWithAI }` from meeting-notes-ai
+  - `POST /api/meeting-notes/:id/process` — runs `processWithAI` when `rawTranscriptText` exists; re-transcribes otherwise
+
+### Key architecture notes
+- `AI_INTEGRATIONS_OPENAI_API_KEY` + `AI_INTEGRATIONS_OPENAI_BASE_URL` (Replit AI Integrations pattern)
+- `gpt-4o-mini-transcribe` does NOT support `verbose_json` response format; removed from fallback chain
+- Empty transcript (silence) now accepted gracefully — not treated as failure
+- tsx watcher does NOT reliably auto-restart on large `routes.ts` edits (23K+ lines) — must use `restart_workflow "Start application"` manually after `routes.ts` changes
+
+### Smoke test result (note id=16)
+- status: completed ✓
+- summaryText: 386 chars ✓
+- notesText: 1330 chars (with VoltSafe Signals section) ✓
+- decisionsText: 174 chars (3 decisions) ✓
+- actionItemsText: 703 chars (5 formatted items) ✓
+- followupDraftText: 821 chars ✓
+- actionItems in DB: 5 rows, all status='suggested' ✓
+- VoltSafe signals: marina/customer names, 30A/50A mentions, NEC/CSA compliance, pilot readiness, procurement blockers ✓

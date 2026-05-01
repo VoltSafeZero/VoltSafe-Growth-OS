@@ -49,14 +49,15 @@ export const createMeetingNoteSchema = z.object({
 });
 
 export const updateMeetingNoteSchema = z.object({
-  title:            z.string().max(200).optional(),
-  platform:         z.enum(VALID_PLATFORMS).optional(),
-  linkedObjectType: z.enum(VALID_OBJECT_TYPES).optional(),
-  linkedObjectId:   z.number().int().positive().optional(),
-  notesText:        z.string().optional(),
-  summaryText:      z.string().optional(),
-  decisionsText:    z.string().optional(),
-  consentNoted:     z.boolean().optional(),
+  title:             z.string().max(200).optional(),
+  platform:          z.enum(VALID_PLATFORMS).optional(),
+  linkedObjectType:  z.enum(VALID_OBJECT_TYPES).optional(),
+  linkedObjectId:    z.number().int().positive().optional(),
+  notesText:         z.string().optional(),
+  summaryText:       z.string().optional(),
+  decisionsText:     z.string().optional(),
+  consentNoted:      z.boolean().optional(),
+  rawTranscriptText: z.string().nullable().optional(),
 });
 
 export const linkRecordSchema = z.object({
@@ -245,15 +246,14 @@ export async function processMeetingNote(
   const note = await lookupNote(id, userId, isAdmin);
   if (!note) return { ok: false, error: "Not found" };
 
-  if (note.status !== "processing") {
+  const allowedStatuses = ["processing", "completed", "failed"];
+  if (!allowedStatuses.includes(note.status)) {
     return {
       ok: false,
-      error: `Note must be in 'processing' status to trigger pipeline (current: '${note.status}')`,
+      error: `Note must be in 'processing', 'completed', or 'failed' status to trigger pipeline (current: '${note.status}')`,
     };
   }
 
-  // Phase B.5 placeholder — AI pipeline not yet wired.
-  console.log(`[meeting-notes] process requested for note ${id} — AI pipeline deferred to Phase B.5`);
   return { ok: true, note };
 }
 
