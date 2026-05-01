@@ -14,6 +14,7 @@ import {
   CalendarClock, Mail, Hash, Upload, Loader2, FileText,
   ListChecks, MessageSquare, Sparkles, Send,
 } from "lucide-react";
+import { MeetingNoteCapturePanel } from "@/components/meeting-notes/meeting-note-capture-panel";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -173,70 +174,6 @@ function EditableTitle({
   );
 }
 
-// ─── CapturePanel ────────────────────────────────────────────────────────────
-
-function CapturePanel({ note }: { note: MeetingNoteDetail }) {
-  const isDone = ["done", "cancelled", "error"].includes(note.status);
-
-  return (
-    <div className="flex flex-col gap-3 p-4 rounded-xl border border-border/60 bg-card">
-      <div className="flex items-center gap-2">
-        <Mic className="w-4 h-4 text-primary" />
-        <span className="text-sm font-medium">Capture</span>
-      </div>
-
-      {note.status === "recording" ? (
-        <div className="flex items-center gap-2 text-red-500 text-sm">
-          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-          Recording…
-        </div>
-      ) : note.status === "processing" ? (
-        <div className="flex items-center gap-2 text-amber-600 text-sm">
-          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          Processing transcript…
-        </div>
-      ) : null}
-
-      {note.startedAt && (
-        <p className="text-xs text-muted-foreground">
-          Started {format(new Date(note.startedAt), "h:mm a")}
-          {note.endedAt ? ` · Ended ${format(new Date(note.endedAt), "h:mm a")}` : ""}
-          {note.durationSeconds ? ` · ${formatDuration(note.durationSeconds)}` : ""}
-        </p>
-      )}
-
-      <div
-        title="Recording coming in Phase B.4"
-        className="w-full"
-      >
-        <Button
-          size="sm"
-          variant="outline"
-          className="w-full gap-2 opacity-50 cursor-not-allowed"
-          disabled
-          data-testid="button-start-recording"
-        >
-          <Mic className="w-3.5 h-3.5" />
-          {isDone ? "Recording complete" : "Start Recording"}
-        </Button>
-      </div>
-
-      {!isDone && (
-        <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
-          Audio capture coming in Phase B.4
-        </p>
-      )}
-
-      {note.processingError && (
-        <div className="flex items-start gap-2 p-2 rounded-md bg-red-500/10 text-red-500 text-xs">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          {note.processingError}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function MeetingNotesDetailPage({ params }: { params: { id: string } }) {
@@ -244,7 +181,7 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
   const { toast } = useToast();
   const noteId = Number(params?.id);
 
-  const { data: note, isLoading, isError } = useQuery<MeetingNoteDetail>({
+  const { data: note, isLoading, isError, refetch } = useQuery<MeetingNoteDetail>({
     queryKey: ["/api/meeting-notes", noteId],
     queryFn: () => fetch(`/api/meeting-notes/${noteId}`).then((r) => {
       if (!r.ok) throw new Error("Not found");
@@ -528,7 +465,7 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
 
           {/* Side capture panel */}
           <div className="w-56 shrink-0">
-            <CapturePanel note={note} />
+            <MeetingNoteCapturePanel note={note} onRefetch={refetch} />
           </div>
         </div>
       </div>
