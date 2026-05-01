@@ -5786,6 +5786,107 @@ export async function registerRoutes(
     }
   });
 
+  // ---------------------------------------------------------------------------
+  // Premium invite email builder — used by create-user and resend-invite routes.
+  // Renders a branded HTML email matching VoltSafe Growth OS visual identity.
+  // ---------------------------------------------------------------------------
+  function buildInviteEmail(opts: {
+    recipientName: string;
+    recipientEmail: string;
+    tempPassword: string;
+    loginUrl: string;
+    isResend: boolean;
+  }): string {
+    const { recipientName, recipientEmail, tempPassword, loginUrl, isResend } = opts;
+    const firstName = recipientName.split(" ")[0] || recipientName;
+    const headline = isResend ? "Your access has been refreshed" : "You've been invited";
+    const subline = isResend
+      ? `Hi ${firstName}, your VoltSafe Growth OS credentials have been reset. Use the details below to sign back in.`
+      : `Hi ${firstName}, your account is ready. Use the credentials below to access VoltSafe Growth OS for the first time.`;
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>VoltSafe Growth OS</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f0f2f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="background-color:#f0f2f5;padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <!-- Card -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+
+          <!-- Teal header -->
+          <tr>
+            <td style="background-color:#0d9488;padding:28px 32px 26px;">
+              <table cellpadding="0" cellspacing="0" border="0" role="presentation">
+                <tr>
+                  <td style="padding-right:14px;vertical-align:middle;">
+                    <div style="width:44px;height:44px;background:rgba(255,255,255,0.18);border-radius:11px;text-align:center;line-height:44px;font-size:24px;">&#9875;</div>
+                  </td>
+                  <td style="vertical-align:middle;">
+                    <div style="font-size:19px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;line-height:1.2;">VoltSafe Growth OS</div>
+                    <div style="font-size:12px;color:rgba(255,255,255,0.65);margin-top:3px;letter-spacing:0.1px;">Marina Sales Intelligence Platform</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:32px 32px 8px;">
+              <h1 style="margin:0 0 10px;font-size:22px;font-weight:700;color:#0f172a;letter-spacing:-0.4px;">${headline}</h1>
+              <p style="margin:0 0 26px;font-size:15px;color:#64748b;line-height:1.65;">${subline}</p>
+
+              <!-- Credentials box -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:26px;">
+                <!-- Email row -->
+                <tr>
+                  <td style="padding:14px 18px;border-bottom:1px solid #e2e8f0;">
+                    <div style="font-size:10.5px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:5px;">Email address</div>
+                    <div style="font-size:14px;font-weight:500;color:#0f172a;">${recipientEmail}</div>
+                  </td>
+                </tr>
+                <!-- Password row -->
+                <tr>
+                  <td style="padding:14px 18px;">
+                    <div style="font-size:10.5px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:5px;">Temporary password</div>
+                    <code style="display:inline-block;font-size:15px;font-weight:600;color:#0f172a;background:#f1f5f9;padding:5px 12px;border-radius:7px;border:1px solid #e2e8f0;letter-spacing:0.5px;">${tempPassword}</code>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- CTA button -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin-bottom:28px;">
+                <tr>
+                  <td align="center">
+                    <a href="${loginUrl}" style="display:inline-block;background-color:#0d9488;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:14px 40px;border-radius:10px;letter-spacing:-0.1px;">Sign in to VoltSafe &rarr;</a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0 0 28px;font-size:13px;color:#94a3b8;line-height:1.65;">You will be prompted to set a permanent password the first time you sign in. Keep these credentials private and do not share them.</p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0;">
+              <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.5;">Sent by <strong style="color:#64748b;">VoltSafe Growth OS</strong> &middot; If you weren&rsquo;t expecting this, you can safely ignore it.</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+  }
+
   app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
     const sessionUser = await db.select().from(users).where(eq(users.id, req.session.userId!)).limit(1);
     if (!sessionUser[0]) return res.status(401).json({ message: "Not authenticated" });
@@ -5820,24 +5921,9 @@ export async function registerRoutes(
     // Send welcome email (non-blocking — user is created regardless of email success)
     const SYSTEM_SENDER_ID = 4; // Trevor's account used as the system sender
     const loginUrl = process.env.APP_URL || "https://image-linker-burgesstrevor76.replit.app";
-    const welcomeHtml = `
-<div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
-  <h2 style="margin-bottom: 4px;">Welcome to VoltSafe Growth OS</h2>
-  <p style="color: #555; margin-top: 0;">Hi ${name}, your account has been created.</p>
-  <div style="background: #f5f5f5; border-radius: 8px; padding: 16px 20px; margin: 20px 0;">
-    <p style="margin: 0 0 8px;"><strong>Login URL:</strong><br>
-      <a href="${loginUrl}" style="color: #0066cc;">${loginUrl}</a>
-    </p>
-    <p style="margin: 0 0 8px;"><strong>Email:</strong><br>${email.toLowerCase().trim()}</p>
-    <p style="margin: 0;"><strong>Temporary Password:</strong><br>
-      <code style="background: #e0e0e0; padding: 2px 6px; border-radius: 4px; font-size: 15px;">${tempPassword}</code>
-    </p>
-  </div>
-  <p style="color: #555; font-size: 14px;">When you log in for the first time, you will be prompted to set a new password of your choice.</p>
-  <p style="color: #999; font-size: 12px;">If you were not expecting this email, please ignore it or contact your administrator.</p>
-</div>`;
+    const welcomeHtml = buildInviteEmail({ recipientName: name, recipientEmail: email.toLowerCase().trim(), tempPassword, loginUrl, isResend: false });
 
-    sendEmail(SYSTEM_SENDER_ID, email.toLowerCase().trim(), "Welcome to VoltSafe Growth OS — Your Login Details", welcomeHtml)
+    sendEmail(SYSTEM_SENDER_ID, email.toLowerCase().trim(), `You've been invited to VoltSafe Growth OS`, welcomeHtml)
       .catch((err) => console.error("[welcome-email] Failed to send welcome email to", email, err?.message));
 
     res.json({ ...created, tempPassword });
@@ -5858,24 +5944,9 @@ export async function registerRoutes(
 
     const SYSTEM_SENDER_ID = 4;
     const loginUrl = process.env.APP_URL || "https://image-linker-burgesstrevor76.replit.app";
-    const welcomeHtml = `
-<div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
-  <h2 style="margin-bottom: 4px;">Your VoltSafe Growth OS Login Details</h2>
-  <p style="color: #555; margin-top: 0;">Hi ${target.name}, here are your updated login credentials.</p>
-  <div style="background: #f5f5f5; border-radius: 8px; padding: 16px 20px; margin: 20px 0;">
-    <p style="margin: 0 0 8px;"><strong>Login URL:</strong><br>
-      <a href="${loginUrl}" style="color: #0066cc;">${loginUrl}</a>
-    </p>
-    <p style="margin: 0 0 8px;"><strong>Email:</strong><br>${target.email}</p>
-    <p style="margin: 0;"><strong>Temporary Password:</strong><br>
-      <code style="background: #e0e0e0; padding: 2px 6px; border-radius: 4px; font-size: 15px;">${tempPassword}</code>
-    </p>
-  </div>
-  <p style="color: #555; font-size: 14px;">When you log in for the first time, you will be prompted to set a new password of your choice.</p>
-  <p style="color: #999; font-size: 12px;">If you were not expecting this email, please ignore it or contact your administrator.</p>
-</div>`;
+    const welcomeHtml = buildInviteEmail({ recipientName: target.name, recipientEmail: target.email, tempPassword, loginUrl, isResend: true });
 
-    sendEmail(SYSTEM_SENDER_ID, target.email, "VoltSafe Growth OS — Your Login Details", welcomeHtml)
+    sendEmail(SYSTEM_SENDER_ID, target.email, `Your VoltSafe Growth OS access has been refreshed`, welcomeHtml)
       .catch((err) => console.error("[resend-invite] Failed to send invite email to", target.email, err?.message));
 
     res.json({ message: "Invite resent" });
