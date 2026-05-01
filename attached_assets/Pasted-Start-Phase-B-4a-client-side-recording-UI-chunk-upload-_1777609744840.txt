@@ -1,0 +1,82 @@
+Start Phase B.4a: client-side recording UI + chunk upload only.
+
+Scope:
+- Do NOT implement Whisper/OpenAI transcription yet.
+- Do NOT implement AI summaries.
+- Do NOT change schema.
+- Do NOT touch Zoom/booking.
+- Do NOT restart the 5 known failing creds-drift workflows.
+- Keep this phase focused on browser recording mechanics.
+
+Goal:
+Make the Meeting Notes detail page able to start/stop real browser microphone recording and upload audio chunks to the existing backend stub.
+
+Frontend deliverables:
+1. Create hook:
+   client/src/components/meeting-notes/use-meeting-recorder.ts
+
+2. Update capture panel in:
+   client/src/pages/meeting-notes-detail.tsx
+   or extract:
+   client/src/components/meeting-notes/meeting-note-capture-panel.tsx
+
+3. Recording behavior:
+   - User must check/confirm consent before Start is enabled.
+   - PATCH note with consentNoted=true before calling start.
+   - POST /api/meeting-notes/:id/start
+   - Request microphone permission using MediaRecorder.
+   - Record audio chunks every 3 seconds.
+   - Upload each chunk to:
+     POST /api/meeting-notes/:id/audio-chunk
+     Content-Type: actual blob type
+   - Show:
+     - recording timer
+     - mic permission state
+     - uploading state
+     - last successful chunk time
+     - error state
+   - On Stop:
+     - stop MediaRecorder
+     - flush final chunk
+     - POST /api/meeting-notes/:id/stop
+     - refetch meeting note detail
+
+4. Browser compatibility:
+   - Choose supported mime type in this order:
+     audio/webm;codecs=opus
+     audio/webm
+     audio/mp4
+     audio/mpeg
+   - If MediaRecorder is unsupported, show clear disabled state.
+
+5. Reliability:
+   - Queue failed chunks and retry once.
+   - Do not lose UI state if one chunk fails; show warning.
+   - Prevent double-start and double-stop.
+   - Clean up tracks on unmount.
+
+6. Backend:
+   - Only modify server/services/meeting-notes-audio.ts if needed to accept real chunk bodies more reliably.
+   - Do not add storage/transcription yet.
+   - Endpoint can continue draining/logging chunks.
+
+7. Tests/checks:
+   - TypeScript/LSP check
+   - tests/calendar-invite.unit.ts
+   - manual smoke:
+     - open meeting note detail
+     - consent checkbox enables Start
+     - browser asks for mic permission
+     - Start changes status to recording
+     - chunks POST successfully
+     - Stop changes status to processing
+   - If browser mic testing is blocked, do not fake it; report exact blocker.
+
+Report:
+- files changed
+- recording flow implemented
+- MIME fallback implemented
+- chunk upload behavior
+- what is still stubbed
+- checks run
+- B.4b next steps
