@@ -1,0 +1,120 @@
+Start Phase B.5: AI summary, decisions, action items, and follow-up extraction.
+
+Scope:
+- Do NOT change schema.
+- Do NOT touch Zoom/booking.
+- Do NOT change recording/transcription except if a small hook is needed.
+- Do NOT restart the 5 known failing creds-drift workflows.
+
+Goal:
+After transcription completes, convert raw_transcript_text into useful Meeting Notes output:
+- executive summary
+- detailed notes
+- decisions
+- action items
+- blockers/risks
+- follow-up draft
+- VoltSafe-specific sales/customer signals
+
+Backend deliverables:
+1. Create:
+   server/services/meeting-notes-ai.ts
+
+2. Update:
+   server/services/meeting-notes-transcription.ts
+   - after transcript is stored, trigger AI processing
+   - if transcript is empty, mark completed with a polite empty-summary/fallback state
+
+3. Wire:
+   POST /api/meeting-notes/:id/process
+   - reruns AI processing when raw_transcript_text exists
+   - returns useful status/error JSON
+
+AI requirements:
+Use existing OpenAI/Replit AI env pattern:
+- AI_INTEGRATIONS_OPENAI_API_KEY
+- AI_INTEGRATIONS_OPENAI_BASE_URL if needed
+
+Use structured JSON output.
+
+The AI output should include:
+{
+  "executive_summary": "",
+  "detailed_notes": "",
+  "decisions": [],
+  "action_items": [
+    {
+      "title": "",
+      "description": "",
+      "owner_name": "",
+      "due_date": null,
+      "source_quote": "",
+      "confidence_score": 0.0
+    }
+  ],
+  "blockers": [],
+  "risks": [],
+  "followup_draft": "",
+  "voltsafe_signals": {
+    "marina_names": [],
+    "customer_names": [],
+    "thirty_amp_mentions": [],
+    "fifty_amp_mentions": [],
+    "code_or_compliance_mentions": [],
+    "pilot_readiness": "",
+    "procurement_blockers": [],
+    "dock_upgrade_timing": [],
+    "contractor_names": [],
+    "funding_or_investor_signals": [],
+    "next_step_commitments": []
+  }
+}
+
+Storage behavior:
+- meeting_notes.summary_text = executive_summary
+- meeting_notes.notes_text = detailed_notes
+- meeting_notes.decisions_text = formatted decisions
+- meeting_notes.action_items_text = formatted action items
+- meeting_notes.followup_draft_text = followup_draft
+- insert each action item into meeting_note_action_items with status='suggested'
+- set status='completed' on success
+- set status='failed' + processing_error on failure
+
+Prompt requirements:
+- Keep summaries practical and concise.
+- Do not invent owners, dates, or commitments.
+- Use null when unknown.
+- Extract only real action items.
+- VoltSafe-specific detection should look for:
+  - marina names
+  - shore power
+  - pedestal
+  - 30A / 50A
+  - NEC / CSA / electrical code
+  - pilot
+  - procurement / PO / budget
+  - dock rebuilds / slip upgrades
+  - contractor/electrician names
+  - investor/funding/revenue discussion
+
+Long transcript handling:
+- If transcript is very long, chunk it first or truncate safely with a warning in processing_error.
+- Do not crash.
+
+Tests/checks:
+- Add unit test with fixture transcript if easy.
+- Run TypeScript/LSP check.
+- Run tests/calendar-invite.unit.ts.
+- Smoke test:
+  - create meeting note
+  - manually patch raw_transcript_text with a sample VoltSafe meeting transcript if needed
+  - call POST /api/meeting-notes/:id/process
+  - verify summary_text, decisions_text, action_items rows, followup_draft_text, status=completed
+
+Report:
+- files changed
+- AI model used
+- fields populated
+- action item insertion behavior
+- tests/checks run
+- limitations / B.6 next steps

@@ -113,6 +113,7 @@ import {
 } from "./services/meeting-notes-service";
 import { validateAudioChunk, storeChunk } from "./services/meeting-notes-audio";
 import { transcribeMeetingNote } from "./services/meeting-notes-transcription";
+import { processWithAI } from "./services/meeting-notes-ai";
 
 // ── Auth rate limiters ─────────────────────────────────────────────────────
 // Defense in depth against credential stuffing, password-reset spam, and
@@ -23828,8 +23829,8 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // POST /api/meeting-notes/:id/process
-  // Retriggers transcription for notes stuck in processing (e.g. after a transient error).
-  // Responds immediately; transcription runs in background.
+  // Re-runs AI extraction when raw_transcript_text exists; re-runs transcription otherwise.
+  // Responds immediately; processing runs in background.
   app.post("/api/meeting-notes/:id/process", requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
@@ -23842,11 +23843,18 @@ export function registerConfluenceRoutes(app: Express) {
         return res.status(status).json({ message: result.error });
       }
       res.json({ queued: true, note: result.note });
-      // Re-run transcription in background (retry path)
+      // If transcript already exists → go straight to AI; otherwise re-transcribe
+      const hasTranscript = result.note?.rawTranscriptText != null;
       setImmediate(() => {
-        transcribeMeetingNote(id).catch((e: Error) =>
-          console.error(`[process-route] transcription error noteId=${id}: ${e.message}`),
-        );
+        if (hasTranscript) {
+          processWithAI(id).catch((e: Error) =>
+            console.error(`[process-route] AI error noteId=${id}: ${e.message}`),
+          );
+        } else {
+          transcribeMeetingNote(id).catch((e: Error) =>
+            console.error(`[process-route] transcription error noteId=${id}: ${e.message}`),
+          );
+        }
       });
     } catch (e: any) {
       res.status(500).json({ message: e.message });

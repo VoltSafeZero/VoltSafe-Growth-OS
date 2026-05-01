@@ -27,6 +27,7 @@ import {
   cleanupAudioFile,
 } from "./meeting-notes-audio";
 import { ensureCompatibleFormat } from "../replit_integrations/audio/client";
+import { processWithAI } from "./meeting-notes-ai";
 
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // 25 MB hard limit
 
@@ -262,6 +263,10 @@ export async function transcribeMeetingNote(noteId: number): Promise<void> {
   // ── Cleanup audio file ───────────────────────────────────────────────────
   // Best-effort; leave the file on disk if cleanup fails (it's in /tmp anyway)
   await cleanupAudioFile(noteId);
+
+  // ── Chain into AI processing (Phase B.5) ─────────────────────────────────
+  // processWithAI reads rawTranscriptText from DB — handles empty string gracefully.
+  await processWithAI(noteId);
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
