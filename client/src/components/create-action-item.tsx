@@ -50,6 +50,8 @@ export function CreateActionItem({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/board"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
       queryClient.invalidateQueries({ queryKey: ["/api/team-workload"] });
       setOpen(false);
       setForm({

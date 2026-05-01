@@ -210,13 +210,14 @@ export function TaskDetailDrawer({ taskId, onOpenChange, onTaskChanged }: Props)
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-2xl overflow-y-auto p-0 relative"
+        className="w-full sm:max-w-2xl overflow-y-auto p-0"
         data-testid="drawer-task-detail"
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
+        <div className="relative min-h-full">
         {dragActive && t && (
           <div
             className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-primary/10 border-4 border-dashed border-primary rounded-lg"
@@ -428,6 +429,7 @@ export function TaskDetailDrawer({ taskId, onOpenChange, onTaskChanged }: Props)
             </div>
           </>
         )}
+        </div>
       </SheetContent>
     </Sheet>
   );

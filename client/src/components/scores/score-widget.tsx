@@ -227,6 +227,8 @@ function TaskModal({
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/board"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
       queryClient.invalidateQueries({ queryKey: ["/api/scores/command-center-widgets"] });
       toast({ title: "Task created", description: item ? `Follow-up task for ${item.name}` : "Task created" });
       onClose();

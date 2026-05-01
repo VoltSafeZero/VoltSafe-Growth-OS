@@ -635,6 +635,7 @@ export default function TasksHubPage() {
 
   const invalidate = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/tasks/board"] });
   }, [queryClient]);
 
   const acceptSuggMut = useMutation({
@@ -643,6 +644,7 @@ export default function TasksHubPage() {
       toast({ description: "Task created from suggestion" });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/suggestions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/board"] });
     },
     onError: () => toast({ variant: "destructive", description: "Failed to accept suggestion" }),
   });

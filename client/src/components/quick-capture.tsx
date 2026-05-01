@@ -69,6 +69,8 @@ function TaskForm({ onClose, prefill }: { onClose: () => void; prefill?: any }) 
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/board"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
       toast({ title: "Task created", description: title });
       onClose();
     },
