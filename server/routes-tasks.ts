@@ -270,8 +270,18 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const view = String(req.query.view || "my");
       const admin = isAdmin(req);
-      const ownerFilter = view === "team" ? "" : `AND t.owner_user_id = ${userId}`;
-      const allowAll = view === "team" || admin;
+      // Build the WHERE clause filter for this view:
+      //   assigned_by_me → tasks I created but assigned to someone else
+      //   team (admin only) → no owner restriction (full team visibility)
+      //   anything else (or team for non-admin) → only tasks assigned to me
+      let whereFilter = "";
+      if (view === "assigned_by_me") {
+        whereFilter = `AND t.created_by_user_id = ${userId} AND t.owner_user_id IS NOT NULL AND t.owner_user_id != ${userId}`;
+      } else if (view === "team" && admin) {
+        whereFilter = ""; // admin sees everyone
+      } else {
+        whereFilter = `AND t.owner_user_id = ${userId}`;
+      }
 
       const rows: any = await db.execute(sql.raw(`
         SELECT
@@ -299,7 +309,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
         LEFT JOIN users cu ON cu.id = t.created_by_user_id
         LEFT JOIN users cb ON cb.id = t.completed_by_user_id
         LEFT JOIN accounts a ON a.id = t.account_id
-        WHERE t.archived = false ${allowAll ? "" : ownerFilter}
+        WHERE t.archived = false ${whereFilter}
         ORDER BY t.sort_order ASC, t.due_date ASC NULLS LAST, t.id DESC
         LIMIT 1000
       `));

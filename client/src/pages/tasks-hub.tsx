@@ -54,13 +54,14 @@ type HubResponse = {
     today_count: number;
     overdue_count: number;
     upcoming_count: number;
+    assigned_by_me_count: number;
   };
   view: string;
   groupBy: string;
   total: number;
 };
 
-type ViewTab = "board" | "my" | "team" | "today" | "overdue" | "upcoming" | "completed" | "suggestions" | "archived";
+type ViewTab = "board" | "my" | "team" | "today" | "overdue" | "upcoming" | "completed" | "suggestions" | "archived" | "assigned_by_me";
 type GroupBy = "due_date" | "priority" | "linked_record" | "assignee";
 
 const VIEW_LABELS: Record<ViewTab, string> = {
@@ -73,6 +74,7 @@ const VIEW_LABELS: Record<ViewTab, string> = {
   completed: "Completed",
   suggestions: "Suggestions",
   archived: "Archived",
+  assigned_by_me: "Delegated",
 };
 
 const VIEW_ICONS: Record<ViewTab, React.ElementType> = {
@@ -85,6 +87,7 @@ const VIEW_ICONS: Record<ViewTab, React.ElementType> = {
   completed: CheckCircle2,
   suggestions: Sparkles,
   archived: Trash2,
+  assigned_by_me: ArrowRight,
 };
 
 const GROUP_LABELS: Record<GroupBy, string> = {
@@ -552,6 +555,7 @@ function SuggestionCard({
 
 function EmptyState({ view }: { view: ViewTab }) {
   const messages: Record<ViewTab, { title: string; sub: string }> = {
+    board: { title: "No tasks", sub: "Create a task to get started." },
     my: { title: "No open tasks", sub: "You're all caught up. Create a task to track follow-ups." },
     team: { title: "No team tasks", sub: "No open tasks across the team right now." },
     today: { title: "Nothing due today", sub: "Clear schedule — enjoy it while it lasts." },
@@ -559,6 +563,8 @@ function EmptyState({ view }: { view: ViewTab }) {
     upcoming: { title: "Nothing coming up", sub: "No tasks due in the next 7 days." },
     completed: { title: "No completed tasks", sub: "Tasks you complete will appear here." },
     suggestions: { title: "No suggestions right now", sub: "All CRM records look healthy. Check back later." },
+    archived: { title: "No archived tasks", sub: "Archived tasks will appear here." },
+    assigned_by_me: { title: "No delegated tasks", sub: "Tasks you assign to other users will appear here so you can track their completion." },
   };
   const m = messages[view];
   const Icon = VIEW_ICONS[view];
@@ -612,7 +618,7 @@ export default function TasksHubPage() {
     queryFn: () =>
       fetch(`/api/tasks/hub?view=${view}&groupBy=${groupBy}`, { credentials: "include" }).then(r => r.json()),
     refetchInterval: 30_000,
-    enabled: view !== "board" && view !== "suggestions",
+    enabled: view !== "board" && view !== "suggestions" && view !== "archived",
   });
 
   const { data: usersData = [] } = useQuery<{ id: number; name: string }[]>({
@@ -740,7 +746,7 @@ export default function TasksHubPage() {
     return oa !== ob ? oa - ob : a.localeCompare(b);
   });
 
-  const viewTabs: ViewTab[] = ["board", "my", "team", "today", "overdue", "upcoming", "completed", "suggestions", "archived"];
+  const viewTabs: ViewTab[] = ["board", "my", "assigned_by_me", "team", "today", "overdue", "upcoming", "completed", "suggestions", "archived"];
 
   const suggestionsList = suggestionsData?.suggestions ?? [];
 
@@ -752,6 +758,7 @@ export default function TasksHubPage() {
     if (v === "overdue") return counts.overdue_count || null;
     if (v === "upcoming") return counts.upcoming_count || null;
     if (v === "suggestions") return suggestionsData?.total || null;
+    if (v === "assigned_by_me") return counts.assigned_by_me_count || null;
     return null;
   };
 

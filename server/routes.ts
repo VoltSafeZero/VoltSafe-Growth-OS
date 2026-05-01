@@ -4093,6 +4093,11 @@ export async function registerRoutes(
         case "completed":
           whereClause = `t.status IN ('done','completed') ${isAdminUser ? "" : `AND t.owner_user_id = ${userId}`}`;
           break;
+        case "assigned_by_me":
+          // Tasks the current user CREATED and assigned to someone else — includes
+          // all statuses (open + done) so the user can track completion.
+          whereClause = `t.created_by_user_id = ${userId} AND t.owner_user_id IS NOT NULL AND t.owner_user_id != ${userId} AND t.archived = false`;
+          break;
         default:
           whereClause = `t.owner_user_id = ${userId} AND t.status NOT IN ('done','completed')`;
       }
@@ -4160,7 +4165,8 @@ export async function registerRoutes(
           COUNT(*) FILTER (WHERE ${isAdminUser ? "" : `owner_user_id = ${userId} AND `}status NOT IN ('done','completed') AND (snoozed_until IS NULL OR snoozed_until <= NOW()))::int AS team_count,
           COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date >= '${todayStart.toISOString()}' AND due_date <= '${todayEnd.toISOString()}' ${isAdminUser ? "" : `AND owner_user_id = ${userId}`})::int AS today_count,
           COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date < '${todayStart.toISOString()}' ${isAdminUser ? "" : `AND owner_user_id = ${userId}`})::int AS overdue_count,
-          COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date > '${todayEnd.toISOString()}' AND due_date <= '${sevenDaysOut.toISOString()}' ${isAdminUser ? "" : `AND owner_user_id = ${userId}`})::int AS upcoming_count
+          COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date > '${todayEnd.toISOString()}' AND due_date <= '${sevenDaysOut.toISOString()}' ${isAdminUser ? "" : `AND owner_user_id = ${userId}`})::int AS upcoming_count,
+          COUNT(*) FILTER (WHERE created_by_user_id = ${userId} AND owner_user_id IS NOT NULL AND owner_user_id != ${userId} AND status NOT IN ('done','completed') AND archived = false)::int AS assigned_by_me_count
         FROM tasks
       `));
       const counts = (countsRes as any).rows?.[0] ?? {};

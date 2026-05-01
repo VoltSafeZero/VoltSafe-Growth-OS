@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   CalendarDays, ListChecks, MessageSquare, Lock, User as UserIcon, Check,
-  Search, Filter, Bookmark, BookmarkPlus, Save, Trash2, X, ChevronDown, Settings,
+  Search, Filter, Bookmark, BookmarkPlus, Save, Trash2, X, ChevronDown, Settings, ArrowRight,
 } from "lucide-react";
 import { format, isToday, isPast } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -98,6 +98,17 @@ export function TaskBoard({ view, onOpenTask }: Props) {
     queryKey: ["/api/task-board-views"],
     queryFn: () => fetch("/api/task-board-views", { credentials: "include" }).then(r => r.json()),
   });
+
+  const { data: delegatedData } = useQuery<any>({
+    queryKey: ["/api/tasks/board", "assigned_by_me"],
+    queryFn: () => fetch(`/api/tasks/board?view=assigned_by_me`, { credentials: "include" }).then(r => r.json()),
+    refetchInterval: 30000,
+  });
+
+  const delegatedAll = useMemo(() => {
+    if (!delegatedData?.grouped) return [] as any[];
+    return (Object.values(delegatedData.grouped) as any[][]).flat();
+  }, [delegatedData?.grouped]);
 
   // On first load, apply default saved view if any
   useEffect(() => {
@@ -440,6 +451,31 @@ export function TaskBoard({ view, onOpenTask }: Props) {
               </div>
             );
           })}
+
+          {/* ── Tasks You've Delegated to Others (read-only column) ── */}
+          <div
+            className="w-72 flex-shrink-0 flex flex-col rounded-lg border-2 border-violet-500/30 bg-violet-500/5 dark:bg-violet-900/10"
+            data-testid="column-delegated"
+          >
+            <div className="px-3 py-2 flex items-center gap-2 border-b border-violet-500/20">
+              <ArrowRight className="h-3.5 w-3.5 text-violet-400 flex-shrink-0" />
+              <div className="text-xs font-semibold uppercase tracking-wide text-violet-400 flex-1 truncate">
+                Delegated to Others
+              </div>
+              <Badge variant="secondary" className="h-5 text-xs">{delegatedAll.length}</Badge>
+            </div>
+            <div className="flex-1 p-2 space-y-2 max-h-[calc(100vh-340px)] overflow-y-auto">
+              {delegatedAll.length === 0 ? (
+                <div className="text-xs text-muted-foreground/60 italic text-center py-6">
+                  Tasks you assign to others appear here
+                </div>
+              ) : (
+                delegatedAll.map((t: any) => (
+                  <DelegatedCard key={t.id} task={t} onOpen={() => onOpenTask(t.id)} />
+                ))
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -572,6 +608,81 @@ function BoardCard({ task, onOpen, onDragStart, onDragEnd }: any) {
         ) : task.creatorName && task.creatorName !== task.ownerName ? (
           <span className="text-muted-foreground/70 italic" title={`Created by ${task.creatorName}`}>
             by {task.creatorName.split(" ")[0]}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+const COLUMN_LABEL: Record<string, string> = {
+  backlog: "Backlog",
+  todo: "To Do",
+  in_progress: "In Progress",
+  blocked: "Blocked",
+  done: "Done",
+};
+
+function DelegatedCard({ task, onOpen }: { task: any; onOpen: () => void }) {
+  const isDone = task.status === "completed" || task.boardColumn === "done";
+  const due = task.dueDate ? new Date(task.dueDate) : null;
+  const isOverdue = due && !isDone && isPast(due) && !isToday(due);
+  const isDueToday = due && !isDone && isToday(due);
+  const isBlocked = task.openDependencies > 0 && !isDone;
+
+  const colLabel = COLUMN_LABEL[task.boardColumn] || task.boardColumn || "Backlog";
+  const statusCls = isDone
+    ? "bg-emerald-500/15 text-emerald-400"
+    : isBlocked
+    ? "bg-amber-500/15 text-amber-400"
+    : "bg-muted text-muted-foreground";
+
+  return (
+    <div
+      onClick={onOpen}
+      className={`group relative bg-card border rounded-md p-2.5 cursor-pointer hover:shadow-md transition-all space-y-1.5 ${isDone ? "opacity-60" : ""}`}
+      data-testid={`card-delegated-${task.id}`}
+    >
+      <div className="flex items-center justify-between mb-0.5">
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${statusCls}`}>
+          {colLabel}
+        </span>
+        <span className={`h-1.5 w-1.5 rounded-full ${PRIORITY_DOT[task.priority] || PRIORITY_DOT.medium}`} />
+      </div>
+
+      <h4
+        className={`text-sm font-medium leading-snug ${isDone ? "line-through text-muted-foreground" : ""}`}
+        data-testid={`text-delegated-title-${task.id}`}
+      >
+        {task.title}
+      </h4>
+
+      {task.accountName && (
+        <div className="text-xs text-muted-foreground truncate">{task.accountName}</div>
+      )}
+
+      <div className="flex items-center justify-between text-xs pt-1 border-t border-dashed border-violet-500/20 mt-1.5">
+        <div className="flex items-center gap-1 text-muted-foreground min-w-0">
+          <UserIcon className="h-3 w-3 flex-shrink-0 text-violet-400" />
+          <span className="truncate font-medium" title={`Assigned to ${task.ownerName || "Unassigned"}`}>
+            {task.ownerName || <span className="italic">Unassigned</span>}
+          </span>
+        </div>
+        {isDone && task.completedByName ? (
+          <span className="inline-flex items-center gap-0.5 text-emerald-600" title={`Completed by ${task.completedByName}`}>
+            <Check className="h-3 w-3" /> Done
+          </span>
+        ) : due ? (
+          <span
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] ${
+              isOverdue
+                ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300"
+                : isDueToday
+                ? "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300"
+                : "text-muted-foreground"
+            }`}
+          >
+            <CalendarDays className="h-3 w-3" /> {format(due, "MMM d")}
           </span>
         ) : null}
       </div>
