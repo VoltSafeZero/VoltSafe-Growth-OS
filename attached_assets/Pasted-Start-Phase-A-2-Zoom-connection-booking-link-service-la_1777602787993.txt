@@ -1,0 +1,70 @@
+Start Phase A.2: Zoom connection + booking link service layer.
+
+Scope:
+- Phase A.1 schema is now applied.
+- Do NOT change schema unless absolutely necessary; if needed, show SQL first.
+- Do NOT refactor unrelated modules.
+- Build backend service/routes first, then UI later.
+
+Goal:
+Create the backend foundation for:
+1. connecting a user’s Zoom account
+2. storing/updating zoom_connections
+3. creating/editing booking_links
+4. generating recipient-specific booking tokens
+5. reading booking links safely
+
+Deliverables:
+1. Zoom service:
+   - server/services/zoom-service.ts
+   - helpers for token refresh, connection lookup, disconnect
+   - no real OAuth UI yet unless already easy
+   - use env placeholders for Zoom client id/secret/redirect uri if needed
+
+2. Booking link service:
+   - server/services/booking-link-service.ts
+   - create booking link
+   - update booking link
+   - list booking links for owner
+   - get booking link by slug/token
+   - create recipient token
+   - revoke recipient token
+
+3. API routes:
+   - GET /api/zoom/connection
+   - POST /api/zoom/disconnect
+   - GET /api/booking-links
+   - POST /api/booking-links
+   - GET /api/booking-links/:id
+   - PATCH /api/booking-links/:id
+   - POST /api/booking-links/:id/recipients
+   - POST /api/booking-links/recipients/:id/revoke
+   - GET /api/booking-links/public/:token
+
+4. Permissions:
+   - require logged-in user
+   - booking links scoped to owner_user_id
+   - users can only view/edit their own booking links unless admin
+   - public token endpoint should expose only safe scheduling info, not internal tokens/secrets
+
+5. Validation:
+   - validate slot_minutes, buffer_minutes, advance_days, min_notice_hours
+   - validate slug format
+   - validate email format for recipients
+   - validate availability JSON shape:
+     [{ dow: 1, start: "09:00", end: "17:00" }]
+   - reject invalid time ranges
+
+6. Tests/checks:
+   - TypeScript/LSP check
+   - focused route/service tests if available
+   - verify no schema changes
+   - verify migration remains applied and rollback file still exists
+
+Report back:
+- files changed
+- routes added
+- validation implemented
+- permissions enforced
+- tests/checks run
+- limitations / next steps

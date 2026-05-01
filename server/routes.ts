@@ -93,6 +93,14 @@ import {
   getCalendarIntegrations,
   disconnectCalendarIntegration,
 } from "./calendar-sync";
+import {
+  lookupZoomConnection, disconnectZoom, toPublicZoomConnection, isZoomConfigured,
+} from "./services/zoom-service";
+import {
+  listBookingLinks, getBookingLink, createBookingLink, updateBookingLink,
+  listRecipients, addRecipient, revokeRecipient, resolvePublicToken,
+  createBookingLinkSchema, updateBookingLinkSchema, addRecipientSchema,
+} from "./services/booking-link-service";
 
 // ── Auth rate limiters ─────────────────────────────────────────────────────
 // Defense in depth against credential stuffing, password-reset spam, and
@@ -23411,6 +23419,150 @@ export function registerConfluenceRoutes(app: Express) {
       `));
       res.json((rows as any).rows ?? []);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Phase A.2 — Zoom connection + Booking links
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── GET /api/zoom/connection ────────────────────────────────────────────
+  // Returns the current user's Zoom connection status (no tokens exposed).
+  app.get("/api/zoom/connection", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const row = await lookupZoomConnection(userId);
+      res.json({
+        ...toPublicZoomConnection(row),
+        configured: isZoomConfigured(),
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ── POST /api/zoom/disconnect ───────────────────────────────────────────
+  // Marks the Zoom connection as disconnected (tokens cleared, row retained).
+  app.post("/api/zoom/disconnect", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      await disconnectZoom(userId);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ── GET /api/booking-links ──────────────────────────────────────────────
+  // List all booking links owned by the current user.
+  app.get("/api/booking-links", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const links = await listBookingLinks(userId);
+      res.json(links);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ── POST /api/booking-links ─────────────────────────────────────────────
+  // Create a new booking link.
+  app.post("/api/booking-links", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const parsed = createBookingLinkSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Validation error", errors: parsed.error.flatten() });
+      }
+      const link = await createBookingLink(userId, parsed.data);
+      res.status(201).json(link);
+    } catch (e: any) {
+      res.status((e as any).status ?? 500).json({ message: e.message });
+    }
+  });
+
+  // ── GET /api/booking-links/:id ──────────────────────────────────────────
+  // Get a single booking link (owner only).
+  app.get("/api/booking-links/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const link = await getBookingLink(id, userId);
+      if (!link) return res.status(404).json({ message: "Booking link not found" });
+      // Include recipients
+      const recipients = await listRecipients(id, userId);
+      res.json({ ...link, recipients });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ── PATCH /api/booking-links/:id ────────────────────────────────────────
+  // Update a booking link (owner only, slug not updatable).
+  app.patch("/api/booking-links/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const parsed = updateBookingLinkSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Validation error", errors: parsed.error.flatten() });
+      }
+      const updated = await updateBookingLink(id, userId, parsed.data);
+      if (!updated) return res.status(404).json({ message: "Booking link not found" });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ── POST /api/booking-links/:id/recipients ──────────────────────────────
+  // Add a recipient to a booking link; returns (or re-uses) their token row.
+  app.post("/api/booking-links/:id/recipients", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const parsed = addRecipientSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Validation error", errors: parsed.error.flatten() });
+      }
+      const recipient = await addRecipient(id, userId, parsed.data.recipientEmail);
+      if (!recipient) return res.status(404).json({ message: "Booking link not found" });
+      res.status(201).json(recipient);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ── POST /api/booking-links/recipients/:id/revoke ───────────────────────
+  // Revoke a specific recipient token (owner-scoped via link ownership).
+  app.post("/api/booking-links/recipients/:id/revoke", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const recipientId = parseInt(req.params.id, 10);
+      if (isNaN(recipientId)) return res.status(400).json({ message: "Invalid id" });
+      const ok = await revokeRecipient(recipientId, userId);
+      if (!ok) return res.status(404).json({ message: "Recipient not found or already revoked" });
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ── GET /api/booking-links/public/:token ────────────────────────────────
+  // Public endpoint — resolves a recipient token to scheduling info.
+  // No auth required. Exposes only safe fields (no raw tokens or owner data).
+  app.get("/api/booking-links/public/:token", async (req, res) => {
+    try {
+      const { token } = req.params;
+      if (!token || token.length < 10) return res.status(400).json({ message: "Invalid token" });
+      const view = await resolvePublicToken(token);
+      if (!view) return res.status(404).json({ message: "Booking link not found or revoked" });
+      res.json(view);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
   });
 
   // ── Engagement scheduler + default rules ────────────────────────────────────
