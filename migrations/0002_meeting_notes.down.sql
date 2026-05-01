@@ -10,11 +10,15 @@
 -- Does NOT touch any table from 0001 or earlier.
 -- ─────────────────────────────────────────────────────────────────────────────
 
+BEGIN;
+
 DROP TABLE IF EXISTS meeting_note_links;
 DROP TABLE IF EXISTS meeting_note_participants;
 DROP TABLE IF EXISTS meeting_note_action_items;
 DROP TABLE IF EXISTS meeting_note_transcript_chunks;
 DROP TABLE IF EXISTS meeting_notes;
+
+COMMIT;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- End of migration 0002_meeting_notes (DOWN)

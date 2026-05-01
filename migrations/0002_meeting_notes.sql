@@ -18,6 +18,8 @@
 -- Rollback: migrations/0002_meeting_notes.down.sql
 -- ─────────────────────────────────────────────────────────────────────────────
 
+BEGIN;
+
 -- ── 1. meeting_notes ─────────────────────────────────────────────────────────
 --
 -- One row per meeting note session.
@@ -123,11 +125,16 @@ CREATE TABLE meeting_note_transcript_chunks (
   created_at      TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
 );
 
--- Enforces ordering uniqueness and powers the primary access pattern
--- (SELECT ... WHERE meeting_note_id = ? ORDER BY sequence_no)
-ALTER TABLE meeting_note_transcript_chunks
-  ADD CONSTRAINT meeting_note_transcript_chunks_note_seq_unique
-    UNIQUE (meeting_note_id, sequence_no);
+-- Single-column index for fast lookup of all chunks belonging to a note
+CREATE INDEX idx_meeting_note_transcript_chunks_note_id
+  ON meeting_note_transcript_chunks (meeting_note_id);
+
+-- Unique composite index — enforces ordering uniqueness AND serves as the
+-- primary access pattern (WHERE meeting_note_id = ? ORDER BY sequence_no).
+-- Using CREATE UNIQUE INDEX rather than ALTER TABLE ADD CONSTRAINT so the
+-- index carries an explicit, query-visible name.
+CREATE UNIQUE INDEX idx_meeting_note_transcript_chunks_note_seq
+  ON meeting_note_transcript_chunks (meeting_note_id, sequence_no);
 
 
 -- ── 3. meeting_note_action_items ─────────────────────────────────────────────
@@ -241,10 +248,23 @@ CREATE TABLE meeting_note_links (
   created_at       TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
 );
 
--- Prevents duplicate CRM links; also powers the primary lookup pattern
+-- Prevents duplicate CRM links; composite unique on all three discriminators
 ALTER TABLE meeting_note_links
   ADD CONSTRAINT meeting_note_links_note_object_unique
     UNIQUE (meeting_note_id, object_type, object_id);
+
+-- Single-column index: fast lookup of all links for a given note
+-- (the composite unique above starts with meeting_note_id and covers this,
+-- but an explicit index keeps query plans predictable on single-column filters)
+CREATE INDEX idx_meeting_note_links_note_id
+  ON meeting_note_links (meeting_note_id);
+
+-- Reverse lookup index: given an object, find all notes that reference it
+-- (the composite unique starts with meeting_note_id and cannot serve this)
+CREATE INDEX idx_meeting_note_links_object
+  ON meeting_note_links (object_type, object_id);
+
+COMMIT;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- End of migration 0002_meeting_notes (UP)
