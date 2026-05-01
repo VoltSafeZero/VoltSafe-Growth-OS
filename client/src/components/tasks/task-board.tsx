@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   CalendarDays, ListChecks, MessageSquare, Lock, User as UserIcon, Check,
-  Search, Filter, Bookmark, BookmarkPlus, Save, Trash2, X, ChevronDown, Settings, ArrowRight,
+  Search, Filter, Bookmark, BookmarkPlus, Save, Trash2, X, ChevronDown, Settings, ArrowRight, GripVertical,
 } from "lucide-react";
 import { format, isToday, isPast } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -62,6 +62,7 @@ export function TaskBoard({ view, onOpenTask }: Props) {
   const { toast } = useToast();
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [draggingColValue, setDraggingColValue] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>({});
   const [activeViewId, setActiveViewId] = useState<number | null>(null);
   const [saveOpen, setSaveOpen] = useState(false);
@@ -77,6 +78,49 @@ export function TaskBoard({ view, onOpenTask }: Props) {
   // Workspace-wide custom columns (admin-managed via "Manage columns" dialog)
   const { columns: columnDefs } = useTaskColumns();
   const [manageOpen, setManageOpen] = useState(false);
+
+  // Per-user column order persisted in localStorage
+  const [colOrderOverride, setColOrderOverride] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!me?.id) return;
+    try {
+      const saved = localStorage.getItem(`task-col-order-${me.id}`);
+      if (saved) setColOrderOverride(JSON.parse(saved));
+    } catch { /* ignore */ }
+  }, [me?.id]);
+
+  // Apply user's column order on top of workspace column definitions
+  const displayColumns = useMemo(() => {
+    if (!colOrderOverride.length) return columnDefs;
+    const ordered: typeof columnDefs = [];
+    for (const val of colOrderOverride) {
+      const col = columnDefs.find(c => c.value === val);
+      if (col) ordered.push(col);
+    }
+    // Append any workspace columns not yet in the user's saved order
+    for (const col of columnDefs) {
+      if (!colOrderOverride.includes(col.value)) ordered.push(col);
+    }
+    return ordered;
+  }, [columnDefs, colOrderOverride]);
+
+  function handleColumnDrop(targetColValue: string) {
+    if (!draggingColValue || draggingColValue === targetColValue) return;
+    const current = displayColumns.map(c => c.value);
+    const fromIdx = current.indexOf(draggingColValue);
+    const toIdx = current.indexOf(targetColValue);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const next = [...current];
+    next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, draggingColValue);
+    setColOrderOverride(next);
+    if (me?.id) {
+      try { localStorage.setItem(`task-col-order-${me.id}`, JSON.stringify(next)); } catch { /* ignore */ }
+    }
+    setDraggingColValue(null);
+    setDragOverCol(null);
+  }
 
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/tasks/board", view],
@@ -387,11 +431,29 @@ export function TaskBoard({ view, onOpenTask }: Props) {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {colOrderOverride.length > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 text-xs gap-1 text-muted-foreground"
+            onClick={() => {
+              setColOrderOverride([]);
+              if (me?.id) {
+                try { localStorage.removeItem(`task-col-order-${me.id}`); } catch { /* ignore */ }
+              }
+            }}
+            data-testid="button-reset-col-order"
+            title="Reset columns to default order"
+          >
+            <X className="h-3 w-3" />
+            Reset order
+          </Button>
+        )}
         {isAdmin && (
           <Button
             variant="outline"
             size="sm"
-            className="h-8 text-xs gap-1 ml-auto"
+            className="h-8 text-xs gap-1"
             onClick={() => setManageOpen(true)}
             data-testid="button-manage-columns"
             title="Add, rename, reorder, or delete board columns (admin)"
@@ -405,7 +467,7 @@ export function TaskBoard({ view, onOpenTask }: Props) {
       {/* Board */}
       {isLoading ? (
         <div className="flex gap-3 overflow-x-auto pb-4">
-          {columnDefs.map(c => (
+          {displayColumns.map(c => (
             <div key={c.value} className="w-72 flex-shrink-0 space-y-2">
               <Skeleton className="h-8 w-full" />
               <Skeleton className="h-24 w-full" />
@@ -415,20 +477,37 @@ export function TaskBoard({ view, onOpenTask }: Props) {
         </div>
       ) : (
         <div className="flex gap-3 overflow-x-auto pb-4" data-testid="board-container">
-          {columnDefs.map(col => {
+          {displayColumns.map(col => {
             const cards: any[] = filteredGrouped[col.value] || [];
-            const isOver = dragOverCol === col.value;
+            const isColOver = dragOverCol === col.value && draggingColValue !== null && draggingColValue !== col.value;
+            const isTaskOver = dragOverCol === col.value && draggingId !== null;
             return (
               <div
                 key={col.value}
-                className={`w-72 flex-shrink-0 flex flex-col rounded-lg border-2 ${columnBorderClass(col.color)} bg-muted/40 transition-colors ${isOver ? "bg-muted/80 ring-2 ring-primary" : ""}`}
+                className={`w-72 flex-shrink-0 flex flex-col rounded-lg border-2 ${columnBorderClass(col.color)} bg-muted/40 transition-all ${isTaskOver ? "bg-muted/80 ring-2 ring-primary" : ""} ${isColOver ? "ring-2 ring-primary/60 scale-[1.01]" : ""} ${draggingColValue === col.value ? "opacity-50" : ""}`}
                 onDragOver={(e) => { e.preventDefault(); setDragOverCol(col.value); }}
-                onDragLeave={() => setDragOverCol(null)}
-                onDrop={() => handleDrop(col.value)}
+                onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverCol(null); }}
+                onDrop={() => {
+                  if (draggingColValue) {
+                    handleColumnDrop(col.value);
+                  } else {
+                    handleDrop(col.value);
+                  }
+                }}
                 data-testid={`column-${col.value}`}
               >
-                <div className="px-3 py-2 flex items-center justify-between border-b border-inherit">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{col.label}</div>
+                <div className="px-3 py-2 flex items-center gap-1.5 border-b border-inherit group/colheader">
+                  <div
+                    draggable
+                    onDragStart={(e) => { e.stopPropagation(); setDraggingColValue(col.value); setDraggingId(null); }}
+                    onDragEnd={() => { setDraggingColValue(null); setDragOverCol(null); }}
+                    className="cursor-grab active:cursor-grabbing p-0.5 -ml-1 rounded opacity-0 group-hover/colheader:opacity-60 hover:!opacity-100 transition-opacity"
+                    title="Drag to reorder column"
+                    data-testid={`grip-column-${col.value}`}
+                  >
+                    <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+                  </div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex-1">{col.label}</div>
                   <Badge variant="secondary" className="h-5 text-xs">{cards.length}</Badge>
                 </div>
                 <div className="flex-1 p-2 space-y-2 max-h-[calc(100vh-340px)] overflow-y-auto">
