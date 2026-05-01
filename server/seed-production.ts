@@ -950,6 +950,71 @@ export async function seedSampleProjects(): Promise<void> {
   }
 }
 
+export async function migrateChangelogSchema(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS app_changelogs (
+        id serial PRIMARY KEY,
+        version text NOT NULL UNIQUE,
+        title text NOT NULL,
+        summary text NOT NULL,
+        items jsonb NOT NULL DEFAULT '[]',
+        published_at timestamptz NOT NULL DEFAULT now(),
+        is_published boolean NOT NULL DEFAULT true
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS user_changelog_acks (
+        user_id integer NOT NULL,
+        changelog_id integer NOT NULL REFERENCES app_changelogs(id) ON DELETE CASCADE,
+        acked_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (user_id, changelog_id)
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_changelog_acks_user ON user_changelog_acks(user_id)`);
+
+    // Seed initial changelog entries — ON CONFLICT DO NOTHING so restarts don't duplicate
+    const v11Items = JSON.stringify([
+      "Meeting recordings are automatically transcribed and summarised — no more manual note-taking.",
+      "Key decisions from each meeting are listed clearly so nothing gets missed.",
+      "Action items (with owners and due dates) are pulled out and added to your Tasks automatically.",
+      "A ready-to-send follow-up email draft is generated from each meeting.",
+      "Marina-specific signals such as permits, compliance notes, dock upgrade timing, and buyer readiness are highlighted automatically."
+    ]);
+    const v12Items = JSON.stringify([
+      "Your task board now only shows tasks that are assigned to you — you will no longer see other people's work.",
+      "A new 'Delegated to Others' column on your board shows every task you have assigned to a teammate, so you can see when they complete it.",
+      "A new 'Delegated' tab in the Tasks Hub gives you a full list of tasks you have handed off to others.",
+      "Assigning tasks to teammates works exactly as before — they see and manage their own tasks normally."
+    ]);
+    await db.execute(sql.raw(`
+      INSERT INTO app_changelogs (version, title, summary, items, published_at)
+      VALUES (
+        'v1.1',
+        'AI Meeting Notes',
+        'Your meeting recordings are now automatically turned into structured notes, action items, and follow-up emails — no extra work needed.',
+        '${v11Items.replace(/'/g, "''")}',
+        '2026-05-01 10:00:00+00'
+      )
+      ON CONFLICT (version) DO NOTHING
+    `));
+    await db.execute(sql.raw(`
+      INSERT INTO app_changelogs (version, title, summary, items, published_at)
+      VALUES (
+        'v1.2',
+        'Task Privacy & Delegation',
+        'Your task board is now private to you. You can also track tasks you assign to teammates so you know when they are done.',
+        '${v12Items.replace(/'/g, "''")}',
+        '2026-05-01 18:00:00+00'
+      )
+      ON CONFLICT (version) DO NOTHING
+    `));
+    console.log("[migration] Changelog schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Changelog schema migration error (non-fatal):", err);
+  }
+}
+
 export async function migrateTerritorySchema(): Promise<void> {
   try {
     await db.execute(sql`

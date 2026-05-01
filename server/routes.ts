@@ -8294,6 +8294,47 @@ export async function registerRoutes(
     }
   });
 
+  // ─── Changelog / What's New ────────────────────────────────────────────────
+
+  // GET /api/changelogs/unread — changelogs the current user has not yet acknowledged
+  app.get("/api/changelogs/unread", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const rows = await db.execute(sql.raw(
+        `SELECT c.id, c.version, c.title, c.summary, c.items, c.published_at AS "publishedAt"
+         FROM app_changelogs c
+         WHERE c.is_published = true
+           AND NOT EXISTS (
+             SELECT 1 FROM user_changelog_acks a
+             WHERE a.changelog_id = c.id AND a.user_id = ${userId}
+           )
+         ORDER BY c.published_at DESC`
+      ));
+      res.json({ changelogs: (rows as any).rows ?? [] });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/changelogs/:id/ack — mark a changelog as acknowledged
+  app.post("/api/changelogs/:id/ack", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const changelogId = Number(req.params.id);
+      if (!changelogId) return res.status(400).json({ message: "Invalid id" });
+      await db.execute(sql.raw(
+        `INSERT INTO user_changelog_acks (user_id, changelog_id)
+         VALUES (${userId}, ${changelogId})
+         ON CONFLICT DO NOTHING`
+      ));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+
   // AI Meeting Briefing
   app.post("/api/calendar/events/:id/briefing", requireAuth, async (req, res) => {
     try {

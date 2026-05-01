@@ -5,7 +5,7 @@ import {
   Search, Bell, LogOut, X, Plus, CalendarDays, CheckSquare, UserPlus as UserPlusIcon,
   Mail, Flame, AlertTriangle, Building2, Contact, FileText, Ticket, FolderOpen, Layers,
   Users, Target, StickyNote, ArrowRight, Sun, LayoutDashboard, Zap, Clock, GitBranch,
-  ExternalLink, Copy, BookOpen,
+  ExternalLink, Copy, BookOpen, Sparkles, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +39,16 @@ type NotificationAlert = {
   createdAt: string;
 };
 type NotificationsResponse = { notifications: NotificationAlert[]; unreadCount: number };
+
+type AppChangelog = {
+  id: number;
+  version: string;
+  title: string;
+  summary: string;
+  items: string[];
+  publishedAt: string;
+};
+type ChangelogsResponse = { changelogs: AppChangelog[] };
 
 type SearchResultItem = {
   type: "account" | "contact" | "opportunity" | "lead" | "note" | "document";
@@ -828,13 +838,78 @@ function GlobalSearch({ canEdit }: { canEdit: boolean }) {
   );
 }
 
+function ChangelogEntry({ entry, onAck }: { entry: AppChangelog; onAck: (id: number) => void }) {
+  const [expanded, setExpanded] = useState(true);
+  const queryClient = useQueryClient();
+  const ackMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", `/api/changelogs/${entry.id}/ack`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/changelogs/unread"] });
+      onAck(entry.id);
+    },
+  });
+
+  return (
+    <div className="border border-primary/20 rounded-lg mx-3 my-2 bg-primary/5 overflow-hidden" data-testid={`changelog-entry-${entry.id}`}>
+      <div className="flex items-start gap-2 px-3 pt-3 pb-2">
+        <Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <span className="text-[10px] font-semibold text-primary uppercase tracking-widest">{entry.version}</span>
+              <p className="text-sm font-semibold leading-tight">{entry.title}</p>
+            </div>
+            <button
+              onClick={() => setExpanded(e => !e)}
+              className="text-muted-foreground hover:text-foreground shrink-0"
+              data-testid={`changelog-toggle-${entry.id}`}
+            >
+              {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{entry.summary}</p>
+        </div>
+      </div>
+      {expanded && (
+        <div className="px-3 pb-1">
+          <ul className="space-y-1 mb-2">
+            {entry.items.map((item, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-xs leading-snug text-foreground/80">
+                <span className="text-primary mt-0.5 shrink-0">•</span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className="px-3 pb-2.5 flex justify-end">
+        <button
+          onClick={() => ackMutation.mutate()}
+          disabled={ackMutation.isPending}
+          className="text-xs bg-primary text-primary-foreground px-3 py-1 rounded-md hover:bg-primary/90 disabled:opacity-50 font-medium"
+          data-testid={`changelog-got-it-${entry.id}`}
+        >
+          {ackMutation.isPending ? "…" : "Got it"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function NotificationPanel({ onNavigate }: { onNavigate: (href: string) => void }) {
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery<NotificationsResponse>({
     queryKey: ["/api/notifications"],
     refetchInterval: 60_000,
   });
+  const { data: changelogData } = useQuery<ChangelogsResponse>({
+    queryKey: ["/api/changelogs/unread"],
+    refetchInterval: 300_000,
+  });
   const alerts = data?.notifications ?? [];
+  const changelogs = changelogData?.changelogs ?? [];
   const unreadCount = alerts.filter(a => !a.isRead).length;
 
   const markReadMutation = useMutation({
@@ -863,8 +938,28 @@ function NotificationPanel({ onNavigate }: { onNavigate: (href: string) => void 
 
   if (isLoading) return <div className="p-4 text-sm text-muted-foreground text-center">Loading…</div>;
 
+  const isEmpty = changelogs.length === 0 && alerts.length === 0;
+
   return (
     <>
+      {/* ── What's New section ── */}
+      {changelogs.length > 0 && (
+        <div className="border-b border-border/40 pb-1 pt-1">
+          <div className="px-4 py-1.5 flex items-center gap-1.5">
+            <Sparkles className="h-3.5 w-3.5 text-primary" />
+            <span className="text-[11px] font-semibold text-primary uppercase tracking-widest">What's New</span>
+          </div>
+          {changelogs.map(cl => (
+            <ChangelogEntry
+              key={cl.id}
+              entry={cl}
+              onAck={() => queryClient.invalidateQueries({ queryKey: ["/api/changelogs/unread"] })}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* ── Regular notifications ── */}
       {unreadCount > 0 && (
         <div className="px-4 py-2 flex items-center justify-between border-b border-border/30 bg-secondary/10">
           <span className="text-xs text-muted-foreground">{unreadCount} unread</span>
@@ -878,12 +973,12 @@ function NotificationPanel({ onNavigate }: { onNavigate: (href: string) => void 
           </button>
         </div>
       )}
-      {alerts.length === 0 ? (
+      {isEmpty ? (
         <div className="p-6 text-sm text-muted-foreground text-center">
           <CheckSquare className="h-8 w-8 mx-auto mb-2 opacity-20" />
           You're all caught up!
         </div>
-      ) : (
+      ) : alerts.length === 0 ? null : (
         <div className="divide-y divide-border/30">
           {alerts.map(a => {
             const Icon = NOTIF_ICON[a.type] ?? AlertTriangle;
@@ -941,7 +1036,11 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
     queryKey: ["/api/notifications"],
     refetchInterval: 60_000,
   });
-  const unreadCount = notifData?.unreadCount ?? 0;
+  const { data: headerChangelogData } = useQuery<ChangelogsResponse>({
+    queryKey: ["/api/changelogs/unread"],
+    refetchInterval: 300_000,
+  });
+  const unreadCount = (notifData?.unreadCount ?? 0) + (headerChangelogData?.changelogs?.length ?? 0);
 
   useEffect(() => {
     if (mobileSearchOpen && mobileSearchRef.current) {
@@ -1064,7 +1163,7 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
                   <p className="text-sm font-semibold">Notifications</p>
                   {unreadCount > 0 && <span className="text-xs text-muted-foreground">{unreadCount} unread</span>}
                 </div>
-                <div className="max-h-[420px] overflow-y-auto">
+                <div className="max-h-[520px] overflow-y-auto">
                   <NotificationPanel onNavigate={(href) => navigate(href)} />
                 </div>
               </PopoverContent>
