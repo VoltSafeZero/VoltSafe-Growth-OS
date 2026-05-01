@@ -236,20 +236,20 @@ function formatVoltSafeSignals(vs: VoltSafeSignals): string {
 
 async function handleEmptyTranscript(noteId: number): Promise<void> {
   console.log(
-    `[meeting-notes-ai] noteId=${noteId} transcript empty — writing polite empty state`,
+    `[meeting-notes-ai] noteId=${noteId} transcript empty — writing empty state`,
   );
   try {
     await db
       .update(meetingNotes)
       .set({
-        summaryText:      "No speech was detected in this recording.",
-        notesText:        "The meeting was recorded but no audible content was captured.",
-        decisionsText:    "",
-        actionItemsText:  "",
-        followupDraftText:"",
-        processingError:  null,
-        status:           "completed",
-        updatedAt:        new Date(),
+        summaryText:       "No discussion captured.",
+        notesText:         "",
+        decisionsText:     "",
+        actionItemsText:   "",
+        followupDraftText: "",
+        processingError:   null,
+        status:            "completed",
+        updatedAt:         new Date(),
       })
       .where(eq(meetingNotes.id, noteId));
   } catch (err: unknown) {
@@ -266,13 +266,30 @@ async function handleEmptyTranscript(noteId: number): Promise<void> {
 /**
  * Run AI extraction on a meeting note that already has raw_transcript_text.
  * This function NEVER throws — all errors are stored in processing_error.
+ * Idempotent: if summary_text is already populated, returns immediately.
  */
 export async function processWithAI(noteId: number): Promise<void> {
-  // 1. Fetch note
-  let note: { rawTranscriptText: string | null } | undefined;
+  try {
+    await _processWithAI(noteId);
+  } catch (err: unknown) {
+    // Safety net — should not reach here, but guarantees no throw
+    await markError(
+      noteId,
+      `Unexpected error: ${(err as Error).message}`,
+      false,
+    );
+  }
+}
+
+async function _processWithAI(noteId: number): Promise<void> {
+  // 1. Fetch note (include summaryText for idempotency check)
+  let note: { rawTranscriptText: string | null; summaryText: string | null } | undefined;
   try {
     const rows = await db
-      .select({ rawTranscriptText: meetingNotes.rawTranscriptText })
+      .select({
+        rawTranscriptText: meetingNotes.rawTranscriptText,
+        summaryText:       meetingNotes.summaryText,
+      })
       .from(meetingNotes)
       .where(eq(meetingNotes.id, noteId));
     note = rows[0];
@@ -290,15 +307,23 @@ export async function processWithAI(noteId: number): Promise<void> {
     return;
   }
 
+  // 2. Idempotency guard — already processed, skip
+  if (note.summaryText != null) {
+    console.log(
+      `[meeting-notes-ai] noteId=${noteId} already has summary — skipping (idempotent)`,
+    );
+    return;
+  }
+
   const transcript = (note.rawTranscriptText ?? "").trim();
 
-  // 2. Empty transcript — write polite fallback and mark completed
+  // 3. Empty transcript — write empty state and mark completed
   if (transcript.length === 0) {
     await handleEmptyTranscript(noteId);
     return;
   }
 
-  // 3. Build OpenAI client
+  // 4. Build OpenAI client
   const client = buildOpenAIClient();
   if (!client) {
     await markError(
@@ -346,11 +371,14 @@ export async function processWithAI(noteId: number): Promise<void> {
   const notesText       = ((aiOutput.detailed_notes ?? "").trim() + voltSafeSection).trim();
   const followupDraft   = (aiOutput.followup_draft ?? "").trim();
 
-  const truncationWarning = truncated
-    ? " [Note: transcript was truncated due to length — some content may be missing]"
-    : null;
+  if (truncated) {
+    console.warn(
+      `[meeting-notes-ai] noteId=${noteId} transcript was truncated — ` +
+        `some content may be missing from the AI output`,
+    );
+  }
 
-  // 8. Write to DB
+  // 8. Write to DB — processingError always NULL on success path
   try {
     await db
       .update(meetingNotes)
@@ -360,7 +388,7 @@ export async function processWithAI(noteId: number): Promise<void> {
         decisionsText,
         actionItemsText,
         followupDraftText: followupDraft,
-        processingError:   truncationWarning,
+        processingError:   null,
         status:            "completed",
         updatedAt:         new Date(),
       })

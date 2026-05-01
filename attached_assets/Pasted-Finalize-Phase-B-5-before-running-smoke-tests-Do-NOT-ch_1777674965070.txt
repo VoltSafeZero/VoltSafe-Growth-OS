@@ -1,0 +1,92 @@
+Finalize Phase B.5 before running smoke tests.
+
+Do NOT change schema.
+Do NOT touch recording/transcription logic beyond what’s required below.
+Do NOT restart the 5 known failing creds-drift workflows.
+
+Fix two critical issues:
+
+1. Prevent duplicate AI processing
+- In processWithAI (meeting-notes-ai.ts):
+  - Before running AI, check:
+    if meetingNote.summaryText is NOT NULL:
+      - skip processing
+      - return early (idempotent behavior)
+- This prevents:
+  - transcription-triggered AI + manual /process double execution
+
+2. Prevent duplicate action items
+- Before inserting new action items:
+  DELETE FROM meeting_note_action_items WHERE meeting_note_id = $1;
+- Then insert fresh items from AI output.
+
+3. Ensure never-throw behavior
+- Wrap entire AI pipeline in try/catch
+- On error:
+  - update meeting_notes:
+    - status = 'failed'
+    - processing_error = error.message (safe string)
+  - do NOT throw
+
+4. Ensure success path sets:
+- meeting_notes.status = 'completed'
+- processing_error = NULL
+
+5. Ensure empty transcript handling:
+- If raw_transcript_text is empty or whitespace:
+  - set:
+    summary_text = "No discussion captured."
+    notes_text = ""
+    decisions_text = ""
+    action_items_text = ""
+    followup_draft_text = ""
+  - status = 'completed'
+  - skip AI call entirely
+
+6. Keep structured JSON parsing safe:
+- If AI response is invalid JSON:
+  - catch parse error
+  - set processing_error
+  - status = 'failed'
+
+After implementing, run this smoke test:
+
+Step 1:
+Create a meeting note via API or UI
+
+Step 2:
+Manually PATCH raw_transcript_text with:
+
+"We spoke with the marina team at Port Credit about upgrading their dock power.
+They currently have mostly 30A connections but are considering adding 50A.
+They mentioned NEC compliance concerns.
+Next step is to send a proposal this week.
+The marina will review budget internally."
+
+Step 3:
+POST /api/meeting-notes/:id/process
+
+Verify:
+
+- meeting_notes:
+  - summary_text populated
+  - notes_text populated
+  - decisions_text populated
+  - followup_draft_text populated
+  - status = completed
+  - processing_error = NULL
+
+- meeting_note_action_items:
+  - at least 1–2 items created
+  - no duplicates on re-run
+
+Run:
+- TypeScript check
+- tests/calendar-invite.unit.ts
+
+Report:
+- confirmation idempotency works
+- confirmation no duplicate action items
+- sample summary
+- sample action item
+- sample follow-up draft
