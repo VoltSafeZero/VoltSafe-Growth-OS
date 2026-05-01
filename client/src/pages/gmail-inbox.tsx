@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
@@ -198,10 +199,11 @@ const INBOX_SIGNAL_CONFIG: Record<string, { label: string; color: string }> = {
 };
 
 const WORKFLOW_ROW_CONFIG: Record<string, { label: string; color: string }> = {
-  needs_reply:     { label: "Needs Reply",  color: "text-amber-400 bg-amber-500/10 border-amber-500/25" },
-  waiting_on_them: { label: "Waiting",      color: "text-blue-400 bg-blue-500/10 border-blue-500/25" },
-  follow_up:       { label: "Follow Up",    color: "text-orange-400 bg-orange-500/10 border-orange-500/25" },
-  done:            { label: "Done",         color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/25" },
+  needs_reply:     { label: "Needs Reply",     color: "text-amber-400 bg-amber-500/10 border-amber-500/25" },
+  waiting_on_them: { label: "Waiting",         color: "text-blue-400 bg-blue-500/10 border-blue-500/25" },
+  follow_up:       { label: "Follow Up",       color: "text-orange-400 bg-orange-500/10 border-orange-500/25" },
+  done:            { label: "Done",            color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/25" },
+  quote_requested: { label: "Quote Requested", color: "text-violet-400 bg-violet-500/10 border-violet-500/25" },
 };
 
 function formatWaitTime(since: string | null): string {
@@ -1390,6 +1392,7 @@ function CrmContextPanel({
   returnPath,
   hintSenderEmail,
   hintSenderName,
+  hintSubject,
 }: {
   threadId: string;
   userPermissions?: CrmPanelPerms;
@@ -1397,6 +1400,7 @@ function CrmContextPanel({
   returnPath?: string | null;
   hintSenderEmail?: string;
   hintSenderName?: string;
+  hintSubject?: string;
 }) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
@@ -1427,6 +1431,11 @@ function CrmContextPanel({
 
   const [showQuickTask, setShowQuickTask] = useState(false);
   const [quickTaskTitle, setQuickTaskTitleLocal] = useState("");
+
+  // Quote request popover state
+  const [showQuotePopover, setShowQuotePopover] = useState(false);
+  const [quoteTaskTitle, setQuoteTaskTitle] = useState("");
+  const [quoteParticipants, setQuoteParticipants] = useState<Set<number>>(new Set());
 
   const [panelExpanded, setPanelExpanded] = useState(() => {
     try { return localStorage.getItem("crm-panel-expanded") === "true"; } catch { return false; }
@@ -1506,6 +1515,41 @@ function CrmContextPanel({
       queryClient.invalidateQueries({ queryKey: ["/api/inbox/triage-thread-ids"] });
     },
     onError: (err: any) => toast({ title: "Failed to update status", description: err.message, variant: "destructive" }),
+  });
+
+  const { data: orgUsers = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["/api/users"],
+    queryFn: () => fetch("/api/users", { credentials: "include" }).then(r => r.json()),
+  });
+
+  const quoteRequestMutation = useMutation({
+    mutationFn: async ({ title, participantIds }: { title: string; participantIds: number[] }) => {
+      const res = await apiRequest("POST", "/api/inbox/quote-request", {
+        threadId,
+        title,
+        participantIds,
+        linkedObjectType: topLinkedRecord?.objectType,
+        linkedObjectId: topLinkedRecord?.objectId,
+      });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", threadId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/triage-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/triage-thread-ids"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/thread-tasks", threadId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/board"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      setShowQuotePopover(false);
+      const added = data?.participantsAdded ?? 0;
+      toast({
+        title: "Quote task created",
+        description: added > 0 ? `Task created & shared with ${added} teammate${added === 1 ? "" : "s"}.` : "Task assigned to you — open it to add teammates.",
+      });
+    },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
   });
 
   const confirmMutation = useMutation({
@@ -1870,6 +1914,83 @@ function CrmContextPanel({
           );
         })}
         {workflowMutation.isPending && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/50" />}
+
+        {/* Quote Requested — dedicated action with popover */}
+        <Popover open={showQuotePopover} onOpenChange={(open) => {
+          if (open) {
+            const defaultTitle = hintSubject ? `Prepare quote: ${hintSubject}` : "Prepare quote";
+            setQuoteTaskTitle(defaultTitle);
+            setQuoteParticipants(new Set());
+          }
+          setShowQuotePopover(open);
+        }}>
+          <PopoverTrigger asChild>
+            <button
+              data-testid="btn-quote-requested"
+              className={`text-[11px] px-2.5 py-[3px] rounded-full border font-medium transition-all select-none ${
+                workflowState === "quote_requested"
+                  ? "text-violet-400 bg-violet-500/15 border-violet-500/40"
+                  : "text-muted-foreground/50 border-border/30 hover:border-violet-500/40 hover:text-violet-400"
+              }`}
+            >
+              {workflowState === "quote_requested" ? "✓ Quote Requested" : "Quote Requested"}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80 p-4" side="bottom" align="start">
+            <div className="space-y-3">
+              <div>
+                <p className="text-[13px] font-semibold text-foreground mb-0.5">Create quote task</p>
+                <p className="text-[11px] text-muted-foreground">Tags this email and creates an actionable task.</p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-medium text-muted-foreground">Task title</label>
+                <Input
+                  data-testid="input-quote-task-title"
+                  value={quoteTaskTitle}
+                  onChange={e => setQuoteTaskTitle(e.target.value)}
+                  className="h-8 text-[12px]"
+                  placeholder="Prepare quote: …"
+                />
+              </div>
+              {orgUsers.filter(u => !u.name?.includes("trevor")).length > 0 && (
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-medium text-muted-foreground">Share with teammates</label>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {orgUsers.map(u => (
+                      <label key={u.id} className="flex items-center gap-2 cursor-pointer py-0.5">
+                        <input
+                          type="checkbox"
+                          data-testid={`checkbox-quote-participant-${u.id}`}
+                          checked={quoteParticipants.has(u.id)}
+                          onChange={e => {
+                            const next = new Set(quoteParticipants);
+                            if (e.target.checked) next.add(u.id); else next.delete(u.id);
+                            setQuoteParticipants(next);
+                          }}
+                          className="rounded border-border accent-violet-500"
+                        />
+                        <span className="text-[12px] text-foreground">{u.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <Button
+                data-testid="btn-quote-confirm"
+                size="sm"
+                className="w-full bg-violet-600 hover:bg-violet-700 text-white text-[12px] h-8"
+                disabled={!quoteTaskTitle.trim() || quoteRequestMutation.isPending}
+                onClick={() => quoteRequestMutation.mutate({
+                  title: quoteTaskTitle,
+                  participantIds: Array.from(quoteParticipants),
+                })}
+              >
+                {quoteRequestMutation.isPending ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" />Creating…</> : "Create Quote Task"}
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
+
         <div className="flex-1" />
         <button
           onClick={togglePanel}
@@ -6769,7 +6890,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             )}
             {/* CRM Context Panel — hidden in Focus Mode for distraction-free reading */}
             {!focusMode && (
-              <CrmContextPanel key={selectedThreadId} threadId={selectedThreadId!} userPermissions={userPermissions} isAdminUser={isAdmin} returnPath={returnPath} hintSenderEmail={focusedMsg ? parseSenderEmail(focusedMsg.from) : undefined} hintSenderName={focusedMsg ? parseSenderName(focusedMsg.from) : undefined} />
+              <CrmContextPanel key={selectedThreadId} threadId={selectedThreadId!} userPermissions={userPermissions} isAdminUser={isAdmin} returnPath={returnPath} hintSenderEmail={focusedMsg ? parseSenderEmail(focusedMsg.from) : undefined} hintSenderName={focusedMsg ? parseSenderName(focusedMsg.from) : undefined} hintSubject={focusedMsg?.subject ?? undefined} />
             )}
           </div>
           );

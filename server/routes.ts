@@ -11128,6 +11128,56 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // ── Quote Request — tag thread + create shared task ─────────────────────
+  app.post("/api/inbox/quote-request", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    const userId = getSessionUserId(req);
+    const { threadId, title, linkedObjectType, linkedObjectId, participantIds = [] } = req.body;
+    if (!threadId) return res.status(400).json({ message: "threadId required" });
+    if (!title?.trim()) return res.status(400).json({ message: "title required" });
+    try {
+      // 1) Mark the thread as quote_requested
+      await db.execute(sql`
+        INSERT INTO email_threads (gmail_thread_id, workflow_state, association_status, updated_at)
+        VALUES (${threadId}, 'quote_requested', 'pending', NOW())
+        ON CONFLICT (gmail_thread_id)
+        DO UPDATE SET workflow_state = 'quote_requested', updated_at = NOW()`);
+
+      // 2) Create the task assigned to the current user
+      const due = new Date(); due.setDate(due.getDate() + 3);
+      const taskData: any = {
+        title: title.trim(),
+        description: `Quote request received — created from email.`,
+        dueDate: due,
+        priority: "high",
+        status: "pending",
+        ownerUserId: userId,
+        createdByUserId: userId,
+      };
+      if (linkedObjectType) taskData.linkedObjectType = String(linkedObjectType);
+      if (linkedObjectId) taskData.linkedObjectId = Number(linkedObjectId);
+      const task = await storage.createTask(taskData);
+
+      // 3) Add any selected participants as watchers
+      const validIds: number[] = [];
+      for (const pid of Array.isArray(participantIds) ? participantIds : []) {
+        const num = Number(pid);
+        if (!Number.isFinite(num) || num === userId) continue;
+        const [u] = await db.select({ id: users.id }).from(users).where(eq(users.id, num)).limit(1);
+        if (u) { validIds.push(num); }
+      }
+      for (const pid of validIds) {
+        await db.execute(sql`
+          INSERT INTO task_watchers (task_id, user_id) VALUES (${task.id}, ${pid})
+          ON CONFLICT DO NOTHING`);
+      }
+
+      res.status(201).json({ task, participantsAdded: validIds.length });
+    } catch (err: any) {
+      console.error("[quote-request]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/inbox/create-note-from-thread", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
     const userId = getSessionUserId(req);
     const { threadId, subject, snippet, fromEmail, fromName, linkedObjectType, linkedObjectId } = req.body;
