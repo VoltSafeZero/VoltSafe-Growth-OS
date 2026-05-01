@@ -1918,7 +1918,12 @@ function CrmContextPanel({
         {/* Quote Requested — dedicated action with popover */}
         <Popover open={showQuotePopover} onOpenChange={(open) => {
           if (open) {
-            const defaultTitle = hintSubject ? `Prepare quote: ${hintSubject}` : "Prepare quote";
+            const marinaName = topLinkedRecord?.objectName?.trim();
+            const defaultTitle = marinaName
+              ? `Prepare quote: ${marinaName}`
+              : hintSubject
+                ? `Prepare quote: ${hintSubject}`
+                : "Prepare quote";
             setQuoteTaskTitle(defaultTitle);
             setQuoteParticipants(new Set());
           }
