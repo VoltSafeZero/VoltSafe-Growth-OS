@@ -1,6 +1,6 @@
 export const PLATFORM_NAME = "VoltSafe Growth OS";
 export const ASSISTANT_NAME = "Cortex";
-export const TAGLINE = "Your marina sales intelligence platform";
+export const TAGLINE = "Where Prongless Power Meets Execution";
 
 export const BRANDING = {
   platformName: PLATFORM_NAME,

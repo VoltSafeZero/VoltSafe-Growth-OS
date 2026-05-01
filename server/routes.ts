@@ -5856,7 +5856,7 @@ export async function registerRoutes(
                   </td>
                   <td style="vertical-align:middle;">
                     <div style="font-size:19px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;line-height:1.2;">VoltSafe Growth OS</div>
-                    <div style="font-size:12px;color:rgba(255,255,255,0.65);margin-top:3px;letter-spacing:0.1px;">Marina Sales Intelligence Platform</div>
+                    <div style="font-size:12px;color:rgba(255,255,255,0.65);margin-top:3px;letter-spacing:0.1px;">Where Prongless Power Meets Execution</div>
                   </td>
                 </tr>
               </table>

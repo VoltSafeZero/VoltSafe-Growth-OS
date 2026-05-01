@@ -2933,7 +2933,7 @@ create_task, create_suggestion, create_notification, add_timeline_event, change_
 ### Dual-Brand Architecture
 - **Platform name:** VoltSafe Growth OS — shown in sidebar, login, browser tab, emails, all UI surfaces
 - **AI assistant name:** Cortex — the in-app chatbot/AI layer (formerly "Cortex AI")
-- **Tagline:** "Your marina sales intelligence platform"
+- **Tagline:** "Where Prongless Power Meets Execution"
 - **Centralized branding constants:** `client/src/lib/branding.ts` exports `PLATFORM_NAME`, `ASSISTANT_NAME`, `TAGLINE`, and the `BRANDING` object with derived strings (askAssistant, assistantSuggestions, assistantSearch, assistantBriefing, assistantSubtitle)
 
 ## User Preferences

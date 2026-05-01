@@ -146,7 +146,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => vo
           <CardTitle className="text-2xl font-bold">
             VoltSafe <span className="text-primary">Growth OS</span>
           </CardTitle>
-          <p className="text-sm text-muted-foreground mt-1">Your marina sales intelligence platform</p>
+          <p className="text-sm text-muted-foreground mt-1">Where Prongless Power Meets Execution</p>
         </CardHeader>
         <CardContent className="space-y-4">
 
