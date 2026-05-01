@@ -7,6 +7,7 @@ import {
   Bell, Globe, Users2, Truck, Factory, FlaskConical, Landmark, Circle,
   Newspaper, PlayCircle, FlaskRound, BellRing, MapPin, ShieldCheck, Tags,
   Zap, HelpCircle, ClipboardList, Snowflake, Search, Settings, Smartphone,
+  Mic,
 } from "lucide-react";
 
 // Note: a few items intentionally use a different icon on mobile than on desktop
@@ -90,6 +91,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "mission-control", label: "Mission Control", route: "/",                    icon: LayoutDashboard, exactMatch: true },
       { id: "inbox",           label: "Inbox",           route: "/gmail",               icon: Mail },
       { id: "calendar",        label: "Calendar",        route: "/execution/calendar",  icon: CalendarClock, permKey: "calendar" },
+      { id: "meeting-notes",   label: "Meeting Notes",   route: "/meeting-notes",       icon: Mic },
       { id: "tasks",           label: "Tasks",           route: "/execution/tasks",     icon: CheckSquare },
       { id: "activity",        label: { desktop: "Activity Feed", mobile: "Activity" }, route: "/activity", icon: BarChart3 },
     ],

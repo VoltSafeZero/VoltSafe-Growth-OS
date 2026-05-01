@@ -1,0 +1,96 @@
+We are now in Phase B.3 — UI ONLY.
+
+IMPORTANT:
+- Phase B.2 is already complete. Do NOT touch backend routes or services.
+- Do NOT modify schema.
+- Do NOT implement recording, audio, or AI.
+- Do NOT duplicate backend work again.
+- Focus ONLY on frontend UI shell.
+
+Goal:
+Make Cortex Meeting Notes visible and usable in the app (without recording/AI yet).
+
+Tasks:
+
+1. Add sidebar navigation:
+   - Label: "Meeting Notes"
+   - Route: /meeting-notes
+   - Place near Inbox / Calendar
+
+2. Add pages:
+   - client/src/pages/meeting-notes-index.tsx
+   - client/src/pages/meeting-notes-detail.tsx
+
+3. Wire routes in App.tsx:
+   - /meeting-notes
+   - /meeting-notes/:id
+
+4. Index page behavior:
+   - Fetch GET /api/meeting-notes
+   - Show list (simple, not overdesigned)
+   - Each item:
+     - title
+     - status badge
+     - created date
+   - Add "New Meeting Note" button:
+     - POST /api/meeting-notes
+     - redirect to /meeting-notes/:id
+
+5. Detail page:
+   - Fetch GET /api/meeting-notes/:id
+   - Header:
+     - editable title
+     - status badge
+     - source
+     - duration (if exists)
+   - Tabs:
+     - Summary
+     - Transcript
+     - Notes
+     - Action Items
+     - Follow-up
+
+6. Tabs behavior:
+   - Summary: show summary_text or empty state
+   - Transcript: show “No transcript yet”
+   - Notes:
+     - textarea bound to notes_text
+     - PATCH /api/meeting-notes/:id on blur/save
+   - Action Items:
+     - list existing items or empty state
+   - Follow-up:
+     - show followup_draft_text or empty
+
+7. Capture panel (stub ONLY):
+   - Show:
+     - "Start Recording" button
+     - Disabled or tooltip: “Recording coming in Phase B.4”
+   - No fake recording
+
+8. Styling:
+   - Keep it tight and clean (match inbox style)
+   - Avoid large whitespace
+   - Use existing card/button/tabs components
+
+9. Calendar integration (light):
+   - If easy, add:
+     - "Create Meeting Note" button in event modal
+   - If unclear, skip and report
+
+10. Tests/checks:
+   - TypeScript/LSP check
+   - tests/calendar-invite.unit.ts
+   - Manual smoke:
+     - open /meeting-notes
+     - create note
+     - open detail
+     - edit notes
+   - Confirm:
+     - no backend changes
+     - no schema changes
+
+Report:
+- files created
+- UI behavior working
+- what is stubbed
+- any blockers for B.4

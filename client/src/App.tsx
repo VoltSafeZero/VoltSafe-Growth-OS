@@ -82,6 +82,8 @@ import TerritoryRoutingPage from "@/pages/territory-routing";
 import MailboxSettingsPage from "@/pages/mailbox-settings";
 import MailboxHealthPage from "@/pages/mailbox-health";
 import HelpCenterPage from "@/pages/help-center";
+import MeetingNotesIndexPage from "@/pages/meeting-notes-index";
+import MeetingNotesDetailPage from "@/pages/meeting-notes-detail";
 import { GlobalSearch } from "@/components/global-search";
 import { DemonAtmospherics } from "@/components/demon-atmospherics";
 
@@ -269,6 +271,8 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       {/* ── Growth OS: Coming Soon stubs ──────────────────────────── */}
       <Route path="/activity">{() => wrap(<ActivityFeedPage />)}</Route>
       <Route path="/notes">{() => wrap(<NotesPage />)}</Route>
+      <Route path="/meeting-notes/:id">{(params) => wrap(<MeetingNotesDetailPage params={params as { id: string }} />)}</Route>
+      <Route path="/meeting-notes">{() => wrap(<MeetingNotesIndexPage />)}</Route>
       {(["renewals", "segments", "tags", "imports"] as const).map(slug => (
         <Route key={slug} path={`/${slug}`}>{() => wrap(
           <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-6">
