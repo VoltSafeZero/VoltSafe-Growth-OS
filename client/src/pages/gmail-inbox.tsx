@@ -1102,116 +1102,90 @@ function MessageBody({
   );
 
   return (
-    <div className="space-y-2.5">
-      {/* Reading-mode + zoom controls. Shown for ANY body (was previously
-          gated on isHtml only) — now plain-text emails go through the same
-          iframe path after client-side conversion, so the toolbar is
-          equally useful for them: Beautiful (rendered), Source (raw HTML
-          we built), Plain (the original text). */}
-      {body && (
-        <div className="flex items-center gap-2 -mt-1 -mr-1">
-          {/* Optional left-side slot — used by the inbox reader to inject a
-              rich-text formatting toolbar (Bold/Italic/Lists/Link/Clear).
-              Stays empty in non-inbox contexts. */}
-          {headerLeft && (
-            <div className="flex-shrink-0" data-testid="message-header-left">
-              {headerLeft}
-            </div>
-          )}
-          {/* Spacer — pushes the existing zoom + reading-mode cluster to the
-              right edge regardless of whether headerLeft is present. */}
-          <div className="flex-1" />
-          {mode === "beautiful" && (
-            <div
-              className="flex items-center gap-0.5 rounded-md bg-muted/30 p-0.5"
-              data-testid="reader-zoom-toggle"
-              role="radiogroup"
-              aria-label="Reader zoom"
-            >
-              <button
-                onClick={() => setZoom("fit")}
-                role="radio"
-                aria-checked={zoom === "fit"}
-                aria-label="Fit to pane"
-                data-testid="reader-zoom-fit"
-                className={`px-2 py-0.5 rounded text-[10.5px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
-                  zoom === "fit" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground/70 hover:text-foreground"
-                }`}
-                title={scaleApplied < 1 ? `Fit (${Math.round(scaleApplied * 100)}%)` : "Fit to pane"}
-              >
-                Fit{scaleApplied < 1 && zoom === "fit" ? ` ${Math.round(scaleApplied * 100)}%` : ""}
-              </button>
-              <button
-                onClick={() => setZoom("actual")}
-                role="radio"
-                aria-checked={zoom === "actual"}
-                aria-label="Actual size"
-                data-testid="reader-zoom-actual"
-                className={`px-2 py-0.5 rounded text-[10.5px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
-                  zoom === "actual" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground/70 hover:text-foreground"
-                }`}
-                title="Actual size (may scroll horizontally)"
-              >
-                100%
-              </button>
-            </div>
-          )}
-          <div
-            className="flex items-center gap-0.5"
-            data-testid="reading-mode-toggle"
-            role="radiogroup"
-            aria-label="Reading mode"
-          >
-            <ModeBtn k="beautiful" label="Beautiful" Icon={Sparkles} />
-            <ModeBtn k="raw" label="Source" Icon={Code2} />
-            <ModeBtn k="plain" label="Plain" Icon={Type} />
-          </div>
-        </div>
-      )}
-
+    <div>
       <AnimatePresence mode="wait">
         {mode === "beautiful" && (
-          <motion.div
-            ref={wrapperRef}
-            key="beautiful"
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.18 }}
-            className={`relative rounded-xl bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] ring-1 ring-border/30 ${
-              zoom === "fit" ? "overflow-hidden" : "overflow-x-auto"
-            }`}
-          >
-            {!iframeReady && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/60" />
+          /* Outer relative wrapper so controls can float above the
+             overflow-hidden iframe container without being clipped. */
+          <motion.div className="relative" key="beautiful-wrap" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18 }}>
+            {/* Floating controls — anchored to top-right of the body area.
+                Rendered outside the overflow-hidden motion.div so they are
+                never clipped by the iframe container's bounds. */}
+            {body && (
+              <div className="absolute top-2 right-2 z-[15] flex items-center gap-1 pointer-events-auto">
+                {headerLeft && (
+                  <div className="flex-shrink-0" data-testid="message-header-left">
+                    {headerLeft}
+                  </div>
+                )}
+                <div
+                  className="flex items-center gap-0.5 rounded-md bg-card/90 backdrop-blur-sm p-0.5 shadow-sm ring-1 ring-border/25"
+                  data-testid="reader-zoom-toggle"
+                  role="radiogroup"
+                  aria-label="Reader zoom"
+                >
+                  <button
+                    onClick={() => setZoom("fit")}
+                    role="radio"
+                    aria-checked={zoom === "fit"}
+                    aria-label="Fit to pane"
+                    data-testid="reader-zoom-fit"
+                    className={`px-2 py-0.5 rounded text-[10.5px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+                      zoom === "fit" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground/70 hover:text-foreground"
+                    }`}
+                    title={scaleApplied < 1 ? `Fit (${Math.round(scaleApplied * 100)}%)` : "Fit to pane"}
+                  >
+                    Fit{scaleApplied < 1 && zoom === "fit" ? ` ${Math.round(scaleApplied * 100)}%` : ""}
+                  </button>
+                  <button
+                    onClick={() => setZoom("actual")}
+                    role="radio"
+                    aria-checked={zoom === "actual"}
+                    aria-label="Actual size"
+                    data-testid="reader-zoom-actual"
+                    className={`px-2 py-0.5 rounded text-[10.5px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+                      zoom === "actual" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground/70 hover:text-foreground"
+                    }`}
+                    title="Actual size (may scroll horizontally)"
+                  >
+                    100%
+                  </button>
+                </div>
+                <div
+                  className="flex items-center gap-0.5 rounded-md bg-card/90 backdrop-blur-sm p-0.5 shadow-sm ring-1 ring-border/25"
+                  data-testid="reading-mode-toggle"
+                  role="radiogroup"
+                  aria-label="Reading mode"
+                >
+                  <ModeBtn k="beautiful" label="Beautiful" Icon={Sparkles} />
+                  <ModeBtn k="raw" label="Source" Icon={Code2} />
+                  <ModeBtn k="plain" label="Plain" Icon={Type} />
+                </div>
               </div>
             )}
-            <iframe
-              ref={iframeRef}
-              srcDoc={srcDoc}
-              // Sandbox notes:
-              //  - NO `allow-scripts` → inline event handlers, javascript:
-              //    URIs, and <script> tags inside email HTML cannot execute.
-              //  - `allow-same-origin` is required so the parent can read
-              //    iframe.contentDocument for the auto-resize logic above
-              //    (handleIframeLoad). Safe in combination with the missing
-              //    allow-scripts: same-origin without scripts cannot read
-              //    parent storage/cookies on its own.
-              //  - `allow-popups` lets <a target="_blank"> work for links.
-              //  - `allow-popups-to-escape-sandbox` ensures spawned tabs are
-              //    NOT themselves sandboxed (otherwise the destination site
-              //    would render with no scripts and look broken).
-              sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-              // Don't leak the parent URL (or any Referer) to email tracking
-              // pixels / image hosts loaded by the iframe.
-              referrerPolicy="no-referrer"
-              onLoad={handleIframeLoad}
-              title="Email content"
-              className={`w-full border-0 bg-white transition-opacity duration-300 ${iframeReady ? "opacity-100" : "opacity-0"}`}
-              style={{ minHeight: 240 }}
-              data-testid="iframe-email-body"
-            />
+            <div
+              ref={wrapperRef}
+              className={`relative rounded-xl bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] ring-1 ring-border/30 ${
+                zoom === "fit" ? "overflow-hidden" : "overflow-x-auto"
+              }`}
+            >
+              {!iframeReady && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-white">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/60" />
+                </div>
+              )}
+              <iframe
+                ref={iframeRef}
+                srcDoc={srcDoc}
+                sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                referrerPolicy="no-referrer"
+                onLoad={handleIframeLoad}
+                title="Email content"
+                className={`w-full border-0 bg-white transition-opacity duration-300 ${iframeReady ? "opacity-100" : "opacity-0"}`}
+                style={{ minHeight: 240 }}
+                data-testid="iframe-email-body"
+              />
+            </div>
           </motion.div>
         )}
 
@@ -1221,27 +1195,43 @@ function MessageBody({
             typographic treatment as any HTML email.) */}
 
         {mode === "raw" && (
-          <motion.pre
+          <motion.div
             key="raw"
             initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.18 }}
-            className="text-[11.5px] whitespace-pre-wrap font-mono text-foreground/85 leading-relaxed bg-muted/30 rounded-xl p-4 overflow-x-auto max-h-[600px] border border-border/40"
-            data-testid="text-email-body-raw"
           >
-            <code>{body}</code>
-          </motion.pre>
+            <div className="flex justify-end gap-0.5 mb-1.5" data-testid="reading-mode-toggle" role="radiogroup" aria-label="Reading mode">
+              <ModeBtn k="beautiful" label="Beautiful" Icon={Sparkles} />
+              <ModeBtn k="raw" label="Source" Icon={Code2} />
+              <ModeBtn k="plain" label="Plain" Icon={Type} />
+            </div>
+            <pre
+              className="text-[11.5px] whitespace-pre-wrap font-mono text-foreground/85 leading-relaxed bg-muted/30 rounded-xl p-4 overflow-x-auto max-h-[600px] border border-border/40"
+              data-testid="text-email-body-raw"
+            >
+              <code>{body}</code>
+            </pre>
+          </motion.div>
         )}
 
         {mode === "plain" && (
-          <motion.pre
+          <motion.div
             key="plain"
             initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.18 }}
-            className="text-[14.5px] whitespace-pre-wrap font-sans text-foreground/85 leading-[1.65]"
-            data-testid="text-email-body-plain-mode"
           >
-            {plainTextView}
-          </motion.pre>
+            <div className="flex justify-end gap-0.5 mb-1.5" data-testid="reading-mode-toggle" role="radiogroup" aria-label="Reading mode">
+              <ModeBtn k="beautiful" label="Beautiful" Icon={Sparkles} />
+              <ModeBtn k="raw" label="Source" Icon={Code2} />
+              <ModeBtn k="plain" label="Plain" Icon={Type} />
+            </div>
+            <pre
+              className="text-[14.5px] whitespace-pre-wrap font-sans text-foreground/85 leading-[1.65]"
+              data-testid="text-email-body-plain-mode"
+            >
+              {plainTextView}
+            </pre>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
@@ -2950,7 +2940,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         // Reader thread + per-message card
         readerThreadPx: "px-4", readerThreadPt: "pt-3", readerThreadGap: "space-y-3",
         msgHeaderPx: "px-5", msgHeaderPy: "py-2.5",
-        msgBodyPx: "px-5", msgBodyPy: "py-3",
+        msgBodyPx: "px-5", msgBodyPy: "py-2",
         msgAvatar: "w-9 h-9", msgAvatarText: "text-[12px]",
         msgSenderText: "text-[13.5px]",
         // Reply bar
@@ -6457,27 +6447,24 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     </div>
                   ) : (
                     <>
-                      <h1
-                        className={`font-semibold leading-[1.2] tracking-[-0.018em] text-foreground transition-[font-size] duration-300 ${focusMode ? "text-[26px] md:text-[30px]" : densityClasses.readerSubjectText}`}
-                        data-testid="text-thread-subject"
-                      >
-                        {focusedMsg?.subject || "(no subject)"}
-                      </h1>
-                      {focusedMsg && (
-                        <p className={`${focusMode ? "text-[13px] mt-2" : `text-[12px] ${densityClasses.readerMetaMt}`} text-muted-foreground/65 flex items-center gap-2 flex-wrap`}>
-                          <span className="tabular-nums font-medium">
-                            {selectedMessages.length} message{selectedMessages.length !== 1 ? "s" : ""}
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <h1
+                          className={`font-semibold leading-[1.2] tracking-[-0.018em] text-foreground transition-[font-size] duration-300 ${focusMode ? "text-[26px] md:text-[30px]" : densityClasses.readerSubjectText}`}
+                          data-testid="text-thread-subject"
+                        >
+                          {focusedMsg?.subject || "(no subject)"}
+                        </h1>
+                        {focusedMsg && !focusMode && (
+                          <span className="text-[11px] text-muted-foreground/40 tabular-nums font-medium flex-shrink-0 leading-none" data-testid="text-message-count">
+                            {selectedMessages.length > 1 ? `${selectedMessages.length} msgs` : "1 msg"}
                           </span>
-                          {isStarred(focusedMsg.labelIds) && (
-                            <>
-                              <span className="opacity-30">·</span>
-                              <span className="inline-flex items-center gap-1 text-amber-400/90">
-                                <Star className="h-3 w-3 fill-amber-400" /> Starred
-                              </span>
-                            </>
-                          )}
-                        </p>
-                      )}
+                        )}
+                        {focusedMsg && isStarred(focusedMsg.labelIds) && (
+                          <span className="inline-flex items-center gap-1 text-amber-400/90 text-[11px] font-medium flex-shrink-0 leading-none">
+                            <Star className="h-3 w-3 fill-amber-400" aria-hidden="true" /> Starred
+                          </span>
+                        )}
+                      </div>
                     </>
                   )}
                 </div>
