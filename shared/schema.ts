@@ -974,6 +974,8 @@ export const calendarEvents = pgTable("calendar_events", {
   externalEtag: text("external_etag"),
   externalProvider: text("external_provider"),
   externalCalendarId: text("external_calendar_id"),
+  // Booking link traceback — nullable; set when event was created via a booking link
+  bookingLinkRecipientId: integer("booking_link_recipient_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -2409,3 +2411,77 @@ export const winterKbArticles = pgTable("winter_kb_articles", {
 export const insertWinterKbArticleSchema = createInsertSchema(winterKbArticles).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertWinterKbArticle = z.infer<typeof insertWinterKbArticleSchema>;
 export type WinterKbArticle = typeof winterKbArticles.$inferSelect;
+
+// ============================================================================
+// Phase A.1 — Zoom OAuth + Booking Links (migration 0001)
+// ============================================================================
+
+// zoom_connections — one row per user who has connected their Zoom account
+export const zoomConnections = pgTable("zoom_connections", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  zoomUserId: text("zoom_user_id"),
+  zoomEmail: text("zoom_email"),
+  zoomAccountType: text("zoom_account_type"),
+  zoomPmi: text("zoom_pmi"),
+  zoomPmiUrl: text("zoom_pmi_url"),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  tokenExpiresAt: timestamp("token_expires_at").notNull(),
+  scope: text("scope"),
+  connectedAt: timestamp("connected_at").defaultNow().notNull(),
+  disconnectedAt: timestamp("disconnected_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertZoomConnectionSchema = createInsertSchema(zoomConnections).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertZoomConnection = z.infer<typeof insertZoomConnectionSchema>;
+export type ZoomConnection = typeof zoomConnections.$inferSelect;
+
+// booking_links — owner-defined link templates ("30-min intro", etc.)
+export const bookingLinks = pgTable("booking_links", {
+  id: serial("id").primaryKey(),
+  ownerUserId: integer("owner_user_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  slug: text("slug").notNull(),
+  slotMinutes: integer("slot_minutes").notNull().default(30),
+  bufferMinutes: integer("buffer_minutes").notNull().default(0),
+  advanceDays: integer("advance_days").notNull().default(14),
+  minNoticeHours: integer("min_notice_hours").notNull().default(4),
+  timeZone: text("time_zone").notNull().default("America/Los_Angeles"),
+  availability: jsonb("availability")
+    .$type<{ dow: number; start: string; end: string }[]>()
+    .notNull()
+    .default([]),
+  locationType: text("location_type").notNull().default("zoom"),
+  locationValue: text("location_value"),
+  requireRecipientMatch: boolean("require_recipient_match").notNull().default(true),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertBookingLinkSchema = createInsertSchema(bookingLinks).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertBookingLink = z.infer<typeof insertBookingLinkSchema>;
+export type BookingLink = typeof bookingLinks.$inferSelect;
+
+// booking_link_recipients — per-recipient token rows; what makes links recipient-only
+export const bookingLinkRecipients = pgTable("booking_link_recipients", {
+  id: serial("id").primaryKey(),
+  bookingLinkId: integer("booking_link_id").notNull(),
+  recipientEmail: text("recipient_email").notNull(),
+  token: text("token").notNull(),
+  sentAt: timestamp("sent_at"),
+  firstViewedAt: timestamp("first_viewed_at"),
+  viewCount: integer("view_count").notNull().default(0),
+  bookedCalendarEventId: integer("booked_calendar_event_id"),
+  bookedAt: timestamp("booked_at"),
+  revokedAt: timestamp("revoked_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertBookingLinkRecipientSchema = createInsertSchema(bookingLinkRecipients).omit({ id: true, createdAt: true });
+export type InsertBookingLinkRecipient = z.infer<typeof insertBookingLinkRecipientSchema>;
+export type BookingLinkRecipient = typeof bookingLinkRecipients.$inferSelect;
