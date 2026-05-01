@@ -26,7 +26,10 @@ import { SavedViewsBar } from "@/components/saved-views-bar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ExportButton } from "@/components/ui/export-button";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
-import type { Quote, Account } from "@shared/schema";
+import type { Quote, Account, Contact } from "@shared/schema";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
+import { ChevronsUpDown, Check } from "lucide-react";
 import { AttachmentsSection } from "@/components/attachments-section";
 
 const statusColors: Record<string, string> = {
@@ -963,9 +966,18 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
   const [tab, setTab] = useState("customer");
 
   const priceListsQuery = useQuery<PriceListAPI[]>({ queryKey: ["/api/price-lists"] });
+
   const [country, setCountry] = useState("US");
   const [currency, setCurrency] = useState("USD");
   const [accountId, setAccountId] = useState("");
+  const [contactId, setContactId] = useState("");
+  const [marinaComboOpen, setMarinaComboOpen] = useState(false);
+  const [marinaSearch, setMarinaSearch] = useState("");
+
+  const { data: contacts = [] } = useQuery<Contact[]>({
+    queryKey: ["/api/contacts", accountId || null],
+    queryFn: () => fetch(`/api/contacts${accountId ? `?accountId=${accountId}` : ""}`, { credentials: "include" }).then(r => r.json()),
+  });
   const [validDays, setValidDays] = useState("30");
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
@@ -1008,6 +1020,32 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
       setTaxRate(opt.taxRate);
       setTaxLabel(opt.taxLabel);
     }
+  };
+
+  const handleMarinaSelect = (acct: Account) => {
+    setAccountId(String(acct.id));
+    setCustomerName(acct.name);
+    setMarinaComboOpen(false);
+    setMarinaSearch("");
+    if (acct.slipCount) setSlipsCount(String(acct.slipCount));
+    // Auto-fill billing address from account address fields
+    const parts = [
+      acct.streetAddress,
+      [acct.city, acct.stateProvince, acct.postalZip].filter(Boolean).join(", "),
+      acct.country,
+    ].filter(Boolean);
+    if (parts.length) setMarinaAddress(parts.join("\n"));
+    // Auto-set country/currency if account country is recognized
+    if (acct.country) {
+      const countryUpper = acct.country.toUpperCase();
+      const match = COUNTRY_OPTIONS.find(o =>
+        o.code === countryUpper ||
+        o.label.toLowerCase() === acct.country!.toLowerCase()
+      );
+      if (match) handleCountryChange(match.code);
+    }
+    // Clear contact selection since marina changed
+    setContactId("");
   };
 
   const addFromCatalog = (item: CatalogItem) => {
@@ -1076,6 +1114,7 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
     }
     onSubmit({
       accountId: accountId ? Number(accountId) : undefined,
+      contactId: contactId ? Number(contactId) : undefined,
       country,
       currency,
       customerName: customerName || undefined,
@@ -1167,15 +1206,55 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label className="text-xs">Customer / Marina Name *</Label>
-                  <Input value={customerName} onChange={e => setCustomerName(e.target.value)} className={inputCls} placeholder="Bluewater Marina Inc." data-testid="input-customer-name" />
+                  <Label className="text-xs">Customer / Marina *</Label>
+                  <Popover open={marinaComboOpen} onOpenChange={setMarinaComboOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        data-testid="combobox-marina"
+                        className={`${inputCls} w-full justify-between font-normal ${!customerName ? "text-muted-foreground" : ""}`}
+                      >
+                        <span className="truncate">{customerName || "Select marina…"}</span>
+                        <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[320px] p-0" align="start">
+                      <Command>
+                        <CommandInput
+                          placeholder="Search marinas…"
+                          value={marinaSearch}
+                          onValueChange={setMarinaSearch}
+                          data-testid="input-marina-search"
+                        />
+                        <CommandEmpty>No marina found.</CommandEmpty>
+                        <CommandGroup className="max-h-56 overflow-y-auto">
+                          {accounts
+                            .filter(a => !marinaSearch || a.name.toLowerCase().includes(marinaSearch.toLowerCase()))
+                            .slice(0, 60)
+                            .map(a => (
+                              <CommandItem
+                                key={a.id}
+                                value={a.name}
+                                onSelect={() => handleMarinaSelect(a)}
+                                data-testid={`marina-option-${a.id}`}
+                              >
+                                <Check className={`mr-2 h-3.5 w-3.5 ${accountId === String(a.id) ? "opacity-100" : "opacity-0"}`} />
+                                {a.name}
+                              </CommandItem>
+                            ))}
+                        </CommandGroup>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div>
-                  <Label className="text-xs">Link to Account</Label>
-                  <Select value={accountId} onValueChange={setAccountId}>
-                    <SelectTrigger className={inputCls} data-testid="select-account"><SelectValue placeholder="Select account (optional)" /></SelectTrigger>
+                  <Label className="text-xs">Link to Contact <span className="text-muted-foreground">(optional)</span></Label>
+                  <Select value={contactId} onValueChange={setContactId}>
+                    <SelectTrigger className={inputCls} data-testid="select-contact"><SelectValue placeholder="Select contact (optional)" /></SelectTrigger>
                     <SelectContent>
-                      {accounts.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
+                      {contacts.length === 0 && <SelectItem value="_none" disabled>{accountId ? "No contacts for this marina" : "Select a marina first"}</SelectItem>}
+                      {contacts.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.name}{c.email ? ` — ${c.email}` : ""}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1484,7 +1563,7 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
           {total > 0 && <span className="text-sm font-bold">{fmtMoney(total, currency)}</span>}
           <Button
             onClick={handleSubmit}
-            disabled={isPending || !customerName}
+            disabled={isPending || !accountId}
             className="bg-primary text-primary-foreground"
             data-testid="button-submit-quote"
           >
