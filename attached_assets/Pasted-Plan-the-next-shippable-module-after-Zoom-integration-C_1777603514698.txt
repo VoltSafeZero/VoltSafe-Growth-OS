@@ -1,0 +1,242 @@
+Plan the next shippable module after Zoom integration: Cortex Meeting Notes.
+
+Reference product:
+Spark Mail has Meeting Notes inside the mail client. It connects to calendar, prompts recording for scheduled meetings, allows ad-hoc recording, transcribes audio, summarizes, creates notes/action items, and keeps everything inside the mail/calendar workflow.
+
+Goal:
+Create the same architecture and flow inside VoltSafe CMS, integrated with our mail + calendar + CRM/task system.
+
+Do NOT build yet unless asked. First produce a technical implementation plan.
+
+Module name:
+Cortex Meeting Notes
+
+Core UX:
+1. Scheduled meeting flow:
+   - User has a calendar event.
+   - VoltSafe detects upcoming meeting.
+   - User sees prompt/button: “Record Meeting”
+   - On click, recording starts.
+   - Meeting session links automatically to calendar event.
+   - After stop, AI generates:
+     - Summary
+     - Transcript
+     - Notes
+     - Decisions
+     - Action items
+     - Follow-up email draft
+   - Outputs are linked back to:
+     - calendar event
+     - related email thread if available
+     - CRM account/contact/lead/project if detected or selected
+
+2. Ad-hoc flow:
+   - User clicks “New Meeting Note” from Mail, Calendar, or global sidebar.
+   - User enters optional meeting title.
+   - User clicks Start.
+   - App records/transcribes.
+   - User clicks Stop.
+   - AI generates same outputs.
+   - User can manually link it to email/calendar/CRM records afterward.
+
+3. Mail client integration:
+   - Add “Meeting Notes” section in left sidebar similar to Spark.
+   - Show meeting note list by date.
+   - Each note has:
+     - title
+     - timestamp
+     - summary preview
+     - linked calendar event
+     - linked email thread/contact/account if available
+   - Detail view has tabs:
+     - AI Summary
+     - Transcript
+     - Notes
+     - Action Items
+     - Follow-up
+
+4. Calendar integration:
+   - Upcoming calendar events should show a “Record Meeting” / “Create Meeting Note” button.
+   - If a meeting has already been recorded, show “View Meeting Note.”
+   - Meeting notes should link to calendar_events.id.
+   - If the event has Zoom/Teams/Meet metadata, store meeting platform info.
+
+5. CRM/task integration:
+   - Allow extracted action items to become tasks.
+   - Allow summary to be added to CRM timeline.
+   - Allow note to link to:
+     - account
+     - contact
+     - lead
+     - opportunity
+     - project
+     - support ticket
+   - Suggest links based on attendees/email addresses/company names.
+
+Architecture requirements:
+- Build as production-grade module, not a demo.
+- Use additive-only schema.
+- Do not touch Phase A.1 unless already completed.
+- Do not modify existing PKs.
+- Do not break mail/calendar inbox behavior.
+- Respect existing permissions.
+
+Proposed DB tables:
+1. meeting_notes
+   - id serial pk
+   - uuid text unique
+   - title text
+   - status text: scheduled_prompted, recording, processing, completed, failed, cancelled
+   - source text: calendar, mail, adhoc, upload
+   - created_by integer not null
+   - calendar_event_id integer nullable
+   - email_thread_id text nullable
+   - email_message_id integer nullable
+   - linked_object_type text nullable
+   - linked_object_id integer nullable
+   - started_at timestamp
+   - ended_at timestamp
+   - duration_seconds integer
+   - platform text nullable: zoom, teams, meet, phone, in_person, other
+   - audio_storage_key text nullable
+   - raw_transcript_text text nullable
+   - clean_transcript_text text nullable
+   - summary_text text nullable
+   - notes_text text nullable
+   - decisions_text text nullable
+   - action_items_text text nullable
+   - followup_draft_text text nullable
+   - processing_error text nullable
+   - consent_noted boolean default false
+   - created_at timestamp default now
+   - updated_at timestamp default now
+
+2. meeting_note_transcript_chunks
+   - id serial pk
+   - meeting_note_id integer not null
+   - sequence_no integer not null
+   - speaker_label text nullable
+   - start_ms integer nullable
+   - end_ms integer nullable
+   - text text not null
+   - is_final boolean default false
+   - created_at timestamp default now
+
+3. meeting_note_action_items
+   - id serial pk
+   - meeting_note_id integer not null
+   - title text not null
+   - description text nullable
+   - owner_name text nullable
+   - owner_user_id integer nullable
+   - due_date timestamp nullable
+   - source_quote text nullable
+   - confidence_score numeric nullable
+   - status text default 'suggested'
+   - created_task_id integer nullable
+   - created_at timestamp default now
+
+4. meeting_note_participants
+   - id serial pk
+   - meeting_note_id integer not null
+   - name text nullable
+   - email text nullable
+   - user_id integer nullable
+   - contact_id integer nullable
+   - is_internal boolean default false
+   - speaker_label text nullable
+   - created_at timestamp default now
+
+5. meeting_note_links
+   - id serial pk
+   - meeting_note_id integer not null
+   - object_type text not null
+   - object_id integer not null
+   - relationship_type text nullable
+   - created_at timestamp default now
+
+API routes to plan:
+- GET /api/meeting-notes
+- POST /api/meeting-notes
+- GET /api/meeting-notes/:id
+- PATCH /api/meeting-notes/:id
+- POST /api/meeting-notes/:id/start
+- POST /api/meeting-notes/:id/stop
+- POST /api/meeting-notes/:id/audio-chunk
+- POST /api/meeting-notes/:id/process
+- POST /api/meeting-notes/:id/create-tasks
+- POST /api/meeting-notes/:id/add-to-timeline
+- POST /api/meeting-notes/:id/draft-followup
+- POST /api/meeting-notes/:id/link-record
+- GET /api/calendar/events/:id/meeting-note
+- POST /api/calendar/events/:id/create-meeting-note
+
+Frontend pages/components to plan:
+- MeetingNotesIndexPage
+- MeetingNoteDetailPage
+- MeetingNoteCapturePanel
+- MeetingNoteListItem
+- MeetingNoteSummaryTab
+- MeetingNoteTranscriptTab
+- MeetingNoteNotesTab
+- MeetingNoteActionItemsTab
+- MeetingNoteFollowupTab
+- CalendarMeetingNotePrompt
+- MailMeetingNotePrompt
+
+AI output requirements:
+- concise executive summary
+- detailed summary
+- decisions
+- action items with owners/dates
+- unresolved blockers
+- sales/customer signals
+- follow-up email draft
+- suggested CRM links
+- suggested tasks
+
+VoltSafe-specific intelligence:
+Detect:
+- marina names
+- customer/prospect names
+- 30A vs 50A discussion
+- NEC/code/compliance issues
+- pilot readiness
+- procurement blockers
+- dock rebuild timing
+- contractor names
+- funding/investor discussion
+- next-step commitments
+
+Permissions:
+- require login for all private endpoints
+- meeting notes visible only to creator/admin or users with linked-record access
+- task creation must respect task permissions
+- CRM/timeline writes must respect target record permissions
+- audio/transcript export should require meeting_notes.export or admin
+- deletion should require creator/admin
+
+Important implementation note:
+Do not attempt always-on stealth listening.
+Recording must be explicit with visible Start/Stop controls.
+Calendar prompt is allowed, but recording begins only after user action.
+
+Deliverable requested now:
+Produce a phased implementation plan only:
+Phase B.1 — schema proposal
+Phase B.2 — backend services/routes
+Phase B.3 — UI shell/list/detail
+Phase B.4 — recording/transcription pipeline
+Phase B.5 — AI summary/action extraction
+Phase B.6 — mail/calendar/CRM/task integration
+Phase B.7 — QA/security/pass
+
+For each phase include:
+- files likely touched
+- DB impact
+- API impact
+- risks
+- test plan
+- what “done” means
+
+Do not write code yet. Stop after the plan and wait for approval.

@@ -1,0 +1,77 @@
+Start Phase A.3: real Zoom OAuth flow.
+
+Scope:
+- Build only the Zoom OAuth connection flow.
+- Do NOT change schema unless absolutely required. If required, show SQL first.
+- Do NOT build booking UI yet.
+- Do NOT start Meeting Notes yet.
+- Do NOT restart the 5 known failing creds-drift workflows.
+- Keep booking link service untouched unless needed for Zoom meeting creation later.
+
+Goal:
+Allow a logged-in VoltSafe user to connect/disconnect their Zoom account through OAuth and persist the Zoom connection in zoom_connections.
+
+Required env vars:
+- ZOOM_CLIENT_ID
+- ZOOM_CLIENT_SECRET
+- ZOOM_REDIRECT_URI
+
+Backend deliverables:
+1. Add/finish Zoom OAuth helpers in server/services/zoom-service.ts:
+   - buildZoomAuthorizationUrl(userId)
+   - exchangeZoomCodeForTokens(code)
+   - fetchZoomUserProfile(accessToken)
+   - upsertZoomConnection(userId, tokenResponse, profile)
+   - refreshZoomTokenIfNeeded(userId)
+   - disconnectZoom(userId)
+
+2. Add routes:
+   - GET /api/zoom/oauth/start
+     - requireAuth
+     - generates auth URL
+     - stores CSRF/state token in session
+     - returns redirect URL or redirects directly depending existing app convention
+
+   - GET /api/zoom/oauth/callback
+     - validates state
+     - exchanges code for tokens
+     - fetches Zoom user profile
+     - stores connection in zoom_connections
+     - redirects user back to calendar/settings page with success/failure query param
+
+3. Security:
+   - use state parameter
+   - validate state against session
+   - never expose access_token or refresh_token to frontend
+   - handle missing env vars gracefully
+   - log only safe metadata, never tokens
+
+4. Existing routes:
+   - GET /api/zoom/connection should return:
+     - connected: boolean
+     - configured: boolean
+     - zoomEmail
+     - zoomUserId
+     - connectedAt
+     - disconnectedAt
+     - tokenExpiresAt
+     - no tokens
+
+   - POST /api/zoom/disconnect should keep working.
+
+5. Tests/checks:
+   - TypeScript/LSP check
+   - route smoke test for missing env vars
+   - route smoke test for oauth/start when configured if possible
+   - confirm unauthenticated users cannot start OAuth
+   - confirm callback rejects invalid state
+   - confirm tokens are not returned by any API
+   - do not fake live Zoom OAuth if env vars are missing
+
+Report back:
+- files changed
+- routes added/updated
+- env vars required
+- security checks implemented
+- tests/checks run
+- limitations / what Trevor must configure in Replit Secrets
