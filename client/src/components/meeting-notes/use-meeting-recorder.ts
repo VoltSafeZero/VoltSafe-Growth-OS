@@ -1,7 +1,7 @@
 /**
  * Phase B.4a — browser MediaRecorder hook.
- * Handles mic permission, timesliced chunk upload, retry queue, and timer.
- * No Whisper / transcription yet (Phase B.4b+).
+ * Handles mic permission, timesliced chunk upload, retry queue, timer, and
+ * Web Audio AnalyserNode for waveform visualisation.
  */
 
 import { useRef, useState, useCallback, useEffect } from "react";
@@ -43,6 +43,7 @@ export interface MeetingRecorderReturn {
   elapsedSeconds: number;
   lastChunkAt: Date | null;
   uploadErrors: number;
+  analyserNode: AnalyserNode | null;
   startRecording: (noteId: number) => Promise<void>;
   stopRecording: (noteId: number, onStopped: () => void) => void;
 }
@@ -65,6 +66,7 @@ export function useMeetingRecorder(): MeetingRecorderReturn {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [lastChunkAt, setLastChunkAt] = useState<Date | null>(null);
   const [uploadErrors, setUploadErrors] = useState(0);
+  const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
 
   // Refs so event-handler closures always see the latest values
   const recorderStateRef = useRef<RecorderState>("idle");
@@ -76,6 +78,7 @@ export function useMeetingRecorder(): MeetingRecorderReturn {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const onStoppedRef = useRef<(() => void) | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
   // Keep ref in sync so onstop closures read the right state
   function setRS(s: RecorderState) {
@@ -89,6 +92,10 @@ export function useMeetingRecorder(): MeetingRecorderReturn {
       if (timerRef.current) clearInterval(timerRef.current);
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
+      }
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close().catch(() => {});
+        audioCtxRef.current = null;
       }
     };
   }, []);
@@ -121,6 +128,21 @@ export function useMeetingRecorder(): MeetingRecorderReturn {
       }
 
       streamRef.current = stream;
+
+      // ── Web Audio AnalyserNode ────────────────────────────────────────────
+      try {
+        const ctx = new AudioContext();
+        audioCtxRef.current = ctx;
+        const source = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.75;
+        source.connect(analyser);
+        // Do NOT connect to ctx.destination — avoids mic feedback
+        setAnalyserNode(analyser);
+      } catch {
+        // Web Audio not available — waveform simply won't render
+      }
 
       // ── Chunk upload helpers (close over noteId / mimeType / stream) ──────
 
@@ -196,6 +218,12 @@ export function useMeetingRecorder(): MeetingRecorderReturn {
           clearInterval(timerRef.current);
           timerRef.current = null;
         }
+        // Close audio context and clear analyser
+        if (audioCtxRef.current) {
+          audioCtxRef.current.close().catch(() => {});
+          audioCtxRef.current = null;
+        }
+        setAnalyserNode(null);
         setRS("stopped");
         // Drain any final chunks before calling the stop callback
         await drainQueue();
@@ -245,6 +273,7 @@ export function useMeetingRecorder(): MeetingRecorderReturn {
     elapsedSeconds,
     lastChunkAt,
     uploadErrors,
+    analyserNode,
     startRecording,
     stopRecording,
   };

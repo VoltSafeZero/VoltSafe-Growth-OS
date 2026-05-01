@@ -1,9 +1,11 @@
 /**
  * Phase B.4a — Capture Panel component.
  * Handles consent, MediaRecorder lifecycle, chunk upload state, and start/stop.
+ * Premium UX: live timer, pulsing glow dot, waveform bars, "Listening…" label,
+ * subtle click sounds on start/stop.
  */
 
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -18,6 +20,111 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { useMeetingRecorder } from "./use-meeting-recorder";
+
+// ── Click sound synthesiser (no audio file needed) ────────────────────────────
+
+function playClick(type: "start" | "stop") {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    if (type === "start") {
+      osc.frequency.setValueAtTime(1040, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.08);
+    } else {
+      osc.frequency.setValueAtTime(660, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(330, ctx.currentTime + 0.12);
+    }
+
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.14);
+
+    osc.type = "sine";
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.14);
+    osc.onended = () => ctx.close();
+  } catch {
+    // AudioContext not available — silent fallback
+  }
+}
+
+// ── Waveform canvas component ─────────────────────────────────────────────────
+
+function WaveformBars({ analyserNode }: { analyserNode: AnalyserNode | null }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx2d = canvas.getContext("2d");
+    if (!ctx2d) return;
+
+    if (!analyserNode) {
+      // Draw a flat idle line
+      ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+      const barCount = 28;
+      const gap = 2;
+      const barW = Math.floor((canvas.width - gap * (barCount - 1)) / barCount);
+      for (let i = 0; i < barCount; i++) {
+        const x = i * (barW + gap);
+        ctx2d.fillStyle = "rgba(239,68,68,0.15)";
+        ctx2d.fillRect(x, canvas.height / 2 - 1, barW, 2);
+      }
+      return;
+    }
+
+    const bufferLength = analyserNode.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    const BAR_COUNT = 28;
+    const gap = 2;
+    const barW = Math.floor(
+      (canvas.width - gap * (BAR_COUNT - 1)) / BAR_COUNT,
+    );
+    const step = Math.floor(bufferLength / BAR_COUNT);
+
+    function draw() {
+      rafRef.current = requestAnimationFrame(draw);
+      analyserNode!.getByteFrequencyData(dataArray);
+
+      const w = canvas!.width;
+      const h = canvas!.height;
+      ctx2d!.clearRect(0, 0, w, h);
+
+      for (let i = 0; i < BAR_COUNT; i++) {
+        const raw = dataArray[i * step];
+        const pct = raw / 255;
+        // Minimum bar height so it never goes fully flat during quiet moments
+        const barH = Math.max(3, pct * h);
+        const x = i * (barW + gap);
+        const alpha = 0.35 + pct * 0.65;
+        ctx2d!.fillStyle = `rgba(239,68,68,${alpha.toFixed(2)})`;
+        ctx2d!.fillRect(x, h - barH, barW, barH);
+      }
+    }
+
+    draw();
+
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    };
+  }, [analyserNode]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={240}
+      height={32}
+      className="w-full h-8 rounded"
+      data-testid="canvas-waveform"
+    />
+  );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 type NoteCapture = {
   id: number;
@@ -34,6 +141,8 @@ function fmtSecs(total: number): string {
   const s = total % 60;
   return `${m}:${s < 10 ? "0" : ""}${s}`;
 }
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export function MeetingNoteCapturePanel({
   note,
@@ -56,6 +165,7 @@ export function MeetingNoteCapturePanel({
     elapsedSeconds,
     lastChunkAt,
     uploadErrors,
+    analyserNode,
     startRecording,
     stopRecording,
   } = useMeetingRecorder();
@@ -80,7 +190,7 @@ export function MeetingNoteCapturePanel({
     mutationFn: () =>
       apiRequest("POST", `/api/meeting-notes/${note.id}/start`, {}),
     onSuccess: async () => {
-      // MediaRecorder kicks off only after backend confirms status = recording
+      playClick("start");
       await startRecording(note.id);
       await queryClient.invalidateQueries({
         queryKey: ["/api/meeting-notes", note.id],
@@ -120,6 +230,7 @@ export function MeetingNoteCapturePanel({
   }
 
   function handleStop() {
+    playClick("stop");
     stopRecording(note.id, () => stopMutation.mutate());
   }
 
@@ -147,6 +258,43 @@ export function MeetingNoteCapturePanel({
           </span>
         )}
       </div>
+
+      {/* ── Recording live state ─────────────────────────────────────────── */}
+
+      {isActivelyRecording && (
+        <div className="flex flex-col gap-2" data-testid="recording-live-ui">
+          {/* Pulsing dot + "Listening…" + MM:SS timer */}
+          <div className="flex items-center gap-2.5">
+            {/* Glow dot */}
+            <span className="relative flex h-3 w-3 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-60" />
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500 shadow-[0_0_6px_2px_rgba(239,68,68,0.55)]" />
+            </span>
+
+            {/* "Listening…" label */}
+            <span
+              className="text-xs text-red-500 font-medium tracking-wide"
+              data-testid="text-listening"
+            >
+              Listening…
+            </span>
+
+            {/* Spacer */}
+            <span className="flex-1" />
+
+            {/* Timer */}
+            <span
+              className="text-sm font-mono tabular-nums font-semibold text-red-500"
+              data-testid="status-recording-timer"
+            >
+              {fmtSecs(elapsedSeconds)}
+            </span>
+          </div>
+
+          {/* Waveform */}
+          <WaveformBars analyserNode={analyserNode} />
+        </div>
+      )}
 
       {/* ── Status indicators ── */}
 
@@ -187,17 +335,6 @@ export function MeetingNoteCapturePanel({
         >
           <AlertCircle className="w-3.5 h-3.5 shrink-0" />
           Microphone error — check device settings
-        </div>
-      )}
-
-      {/* Live recording timer */}
-      {isActivelyRecording && (
-        <div
-          className="flex items-center gap-2 text-red-500 text-sm font-mono tabular-nums"
-          data-testid="status-recording-timer"
-        >
-          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
-          {fmtSecs(elapsedSeconds)}
         </div>
       )}
 
