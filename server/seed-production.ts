@@ -1015,6 +1015,157 @@ export async function migrateChangelogSchema(): Promise<void> {
   }
 }
 
+export async function migrateProductEngineSchema(): Promise<void> {
+  try {
+    // Extend price_lists with region and customer_segment
+    await db.execute(sql`ALTER TABLE price_lists ADD COLUMN IF NOT EXISTS region text`);
+    await db.execute(sql`ALTER TABLE price_lists ADD COLUMN IF NOT EXISTS customer_segment text`);
+    // Extend price_list_items with Commercial Engine fields
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS industry_code text NOT NULL DEFAULT 'GEN'`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS industry_name text NOT NULL DEFAULT 'General'`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS commercial_type text NOT NULL DEFAULT 'hardware'`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS product_family text`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS power_level text`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS pricing_model text NOT NULL DEFAULT 'one_time'`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS billing_interval text`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS is_primary_quote_item boolean NOT NULL DEFAULT false`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS item_currency text`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS notes_internal text`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS quote_description text`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS usage_unit text`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS royalty_type text`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS royalty_rate double precision`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS minimum_commitment text`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS licensing_terms text`);
+    await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS service_scope text`);
+
+    // Seed default VoltSafe product catalog if not already present
+    const existing = await db.execute(sql`SELECT id FROM price_lists WHERE name = 'VoltSafe Product Catalog' LIMIT 1`);
+    if ((existing.rows as any[]).length === 0) {
+      const listResult = await db.execute(sql`
+        INSERT INTO price_lists (name, currency, description, region, customer_segment)
+        VALUES ('VoltSafe Product Catalog', 'CAD', 'Default VoltSafe commercial product catalog — systems, hardware, software, services, and licensing.', 'Global', 'All')
+        RETURNING id
+      `);
+      const listId = (listResult.rows as any[])[0].id;
+
+      const products = [
+        {
+          sku: 'VS-MAR-SYS-30A-SLIP', name: 'VoltSafe Marine | 30A Smart Slip Kit',
+          description: 'Complete 30A shore power system per slip, combining prongless connection, real-time monitoring, and automated safety control.',
+          quote_description: 'Complete 30A smart shore power solution per slip.',
+          category: 'System', industry_code: 'MAR', industry_name: 'Marine',
+          commercial_type: 'system', product_family: 'Shore Power', power_level: '30A / 125V',
+          unit_type: 'per slip', pricing_model: 'one_time', item_currency: 'CAD', list_price: 1650,
+          is_primary_quote_item: true, sort_order: 1,
+        },
+        {
+          sku: 'VS-MAR-HW-30A-CONN', name: 'VoltSafe Marine | 30A Smart Connector',
+          description: 'Prongless magnetic connector eliminating arcing, corrosion, and exposed live contacts while enabling authenticated power delivery.',
+          quote_description: '30A prongless magnetic shore power connector.',
+          category: 'Hardware', industry_code: 'MAR', industry_name: 'Marine',
+          commercial_type: 'hardware', product_family: 'Shore Power', power_level: '30A / 125V',
+          unit_type: 'per connector', pricing_model: 'one_time', item_currency: 'CAD', list_price: 950,
+          is_primary_quote_item: false, sort_order: 2,
+        },
+        {
+          sku: 'VS-MAR-HW-30A-CTRL', name: 'VoltSafe Marine | 30A Smart Control Box',
+          description: 'Central control system enabling authenticated, safe shore power delivery with integrated monitoring and remote control.',
+          quote_description: 'Smart control system for 30A shore power applications.',
+          category: 'Hardware', industry_code: 'MAR', industry_name: 'Marine',
+          commercial_type: 'hardware', product_family: 'Shore Power', power_level: '30A / 125V',
+          unit_type: 'per unit', pricing_model: 'one_time', item_currency: 'CAD', list_price: 1200,
+          is_primary_quote_item: false, sort_order: 3,
+        },
+        {
+          sku: 'VS-MAR-SW-CORE', name: 'VoltSafe Marine | Marina OS',
+          description: 'Cloud-based marina management platform for real-time power monitoring, automated billing, remote control, alerts, and energy management.',
+          quote_description: 'Marina OS subscription for connected slips.',
+          category: 'Software', industry_code: 'MAR', industry_name: 'Marine',
+          commercial_type: 'software', product_family: 'Marina OS', power_level: 'CORE',
+          unit_type: 'per slip / month', pricing_model: 'recurring', item_currency: 'USD', list_price: 15,
+          is_recurring: true, billing_interval: 'monthly', is_primary_quote_item: true, sort_order: 4,
+        },
+        {
+          sku: 'VS-GEN-SRV-ENG-HR', name: 'VoltSafe | Engineering Services',
+          description: 'Professional engineering support for product design, integration, technical validation, partner enablement, and deployment planning.',
+          quote_description: 'VoltSafe engineering services.',
+          category: 'Services', industry_code: 'GEN', industry_name: 'General',
+          commercial_type: 'service', product_family: 'Professional Services', power_level: 'ENG',
+          unit_type: 'per hour', pricing_model: 'one_time', item_currency: 'CAD', list_price: 200,
+          is_primary_quote_item: false, sort_order: 5,
+        },
+        {
+          sku: 'VS-GEN-SRV-INTEG-PROJ', name: 'VoltSafe | Integration Package',
+          description: 'Custom integration package for partners or customers requiring engineering, technical, deployment, or system integration support.',
+          quote_description: 'Custom VoltSafe integration package.',
+          category: 'Services', industry_code: 'GEN', industry_name: 'General',
+          commercial_type: 'service', product_family: 'Professional Services', power_level: 'INTEG',
+          unit_type: 'per project', pricing_model: 'custom', item_currency: 'CAD', list_price: null,
+          is_primary_quote_item: false, sort_order: 6,
+        },
+        {
+          sku: 'VS-GEN-LIC-OEM', name: 'VoltSafe | OEM Licensing Program',
+          description: 'Licensing framework for partners building products powered by VoltSafe Technology, including commercial rights, technical enablement, and partner support.',
+          quote_description: 'OEM licensing program powered by VoltSafe Technology.',
+          category: 'Licensing', industry_code: 'GEN', industry_name: 'General',
+          commercial_type: 'licensing', product_family: 'Powered by VoltSafe', power_level: 'OEM',
+          unit_type: 'custom', pricing_model: 'custom', item_currency: 'CAD', list_price: null,
+          is_primary_quote_item: true, sort_order: 7,
+        },
+        {
+          sku: 'VS-GEN-LIC-ROYALTY', name: 'VoltSafe | Per-Unit Royalty',
+          description: 'Per-unit royalty for licensed products powered by VoltSafe Technology.',
+          quote_description: 'Per-unit royalty for licensed VoltSafe-enabled products.',
+          category: 'Licensing', industry_code: 'GEN', industry_name: 'General',
+          commercial_type: 'licensing', product_family: 'Powered by VoltSafe', power_level: 'ROYALTY',
+          unit_type: 'per licensed unit', pricing_model: 'usage', item_currency: 'CAD', list_price: 50,
+          usage_unit: 'licensed unit', is_primary_quote_item: false, sort_order: 8,
+        },
+      ];
+
+      for (const p of products) {
+        await db.execute(sql.raw(`
+          INSERT INTO price_list_items (
+            price_list_id, sku, name, description, quote_description, category,
+            industry_code, industry_name, commercial_type, product_family, power_level,
+            unit_type, pricing_model, billing_interval, item_currency,
+            list_price, is_recurring, is_primary_quote_item, is_active,
+            usage_unit, sort_order
+          ) VALUES (
+            ${listId},
+            ${p.sku ? `'${p.sku.replace(/'/g, "''")}'` : 'NULL'},
+            '${p.name.replace(/'/g, "''")}',
+            '${p.description.replace(/'/g, "''")}',
+            '${(p.quote_description || '').replace(/'/g, "''")}',
+            '${(p.category || '').replace(/'/g, "''")}',
+            '${p.industry_code}',
+            '${p.industry_name}',
+            '${p.commercial_type}',
+            ${p.product_family ? `'${p.product_family.replace(/'/g, "''")}'` : 'NULL'},
+            ${p.power_level ? `'${p.power_level.replace(/'/g, "''")}'` : 'NULL'},
+            '${p.unit_type}',
+            '${p.pricing_model}',
+            ${(p as any).billing_interval ? `'${(p as any).billing_interval}'` : 'NULL'},
+            ${p.item_currency ? `'${p.item_currency}'` : 'NULL'},
+            ${p.list_price !== null && p.list_price !== undefined ? p.list_price : 'NULL'},
+            ${(p as any).is_recurring ? 'true' : 'false'},
+            ${p.is_primary_quote_item ? 'true' : 'false'},
+            true,
+            ${(p as any).usage_unit ? `'${(p as any).usage_unit}'` : 'NULL'},
+            ${p.sort_order}
+          )
+          ON CONFLICT DO NOTHING
+        `));
+      }
+    }
+    console.log("[migration] Product engine schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Product engine schema migration error (non-fatal):", err);
+  }
+}
+
 export async function migrateTerritorySchema(): Promise<void> {
   try {
     await db.execute(sql`

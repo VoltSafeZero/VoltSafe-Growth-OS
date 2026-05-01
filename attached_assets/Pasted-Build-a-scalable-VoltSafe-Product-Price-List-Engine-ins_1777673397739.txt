@@ -1,0 +1,531 @@
+Build a scalable VoltSafe Product & Price List Engine inside the current VoltSafe CMS.
+
+GOAL
+Replace the simple product/price-list model with a future-proof commercial engine that supports:
+- Hardware products
+- System bundles
+- Software subscriptions
+- Usage-based pricing
+- Professional services
+- Licensing / OEM / partner programs
+- Future industries and power levels
+
+Do this cleanly, premium, simple, and additive-only. Do not break existing quote functionality.
+
+IMPORTANT DB SAFETY
+- Do NOT change existing primary keys.
+- Do NOT drop columns.
+- Do NOT rename existing tables/columns unless absolutely required.
+- Prefer additive columns/tables only.
+- Preserve existing products and price lists.
+- Add migration-safe logic only.
+
+CORE CONCEPT
+A product is not just hardware. A product is anything VoltSafe can monetize.
+
+Create this commercial structure:
+
+Commercial Types:
+1. system
+2. hardware
+3. software
+4. service
+5. licensing
+6. accessory
+
+Industries:
+- GEN = General / cross-industry
+- MAR = Marine
+- RV = Recreational Vehicle
+- RES = Residential
+- COM = Commercial
+- IND = Industrial
+- EV = Electric Vehicle
+- GRID = Grid / Utility
+
+Product Categories:
+- System
+- Hardware
+- Software
+- Services
+- Licensing
+- Accessories
+
+SKU FORMAT
+Use this structure:
+
+VS-[IND]-[COMMERCIAL_TYPE]-[POWER_OR_SCOPE]-[MODEL]
+
+Examples:
+VS-MAR-SYS-30A-SLIP
+VS-MAR-HW-30A-CONN
+VS-MAR-HW-30A-CTRL
+VS-MAR-SW-CORE
+VS-GEN-SRV-ENG-HR
+VS-GEN-SRV-INTEG-PROJ
+VS-GEN-LIC-OEM
+VS-GEN-LIC-ROYALTY
+
+Where:
+- IND = MAR, RV, RES, COM, IND, EV, GRID, GEN
+- COMMERCIAL_TYPE = SYS, HW, SW, SRV, LIC, ACC
+- POWER_OR_SCOPE = 30A, 50A, 125V, 240V, 480V, CORE, OEM, ENG, etc.
+- MODEL = SLIP, CONN, CTRL, PRO, ROYALTY, etc.
+
+CUSTOMER-FACING NAMING FORMAT
+Do not expose ugly SKU logic as the main product name.
+
+Use:
+VoltSafe [Industry] | [Power] [Product Name]
+
+Examples:
+VoltSafe Marine | 30A Smart Slip Kit
+VoltSafe Marine | 30A Smart Connector
+VoltSafe Marine | 30A Smart Control Box
+VoltSafe Marine | Marina OS
+VoltSafe | Engineering Services
+VoltSafe | OEM Licensing Program
+
+PRODUCT MODEL
+Extend the current product model to support these fields:
+
+Required:
+- sku
+- name
+- description
+- industry_code
+- industry_name
+- commercial_type
+- category
+- product_family
+- power_level
+- unit_type
+- pricing_model
+- currency
+- list_price
+- is_recurring
+- billing_interval
+- is_active
+- is_primary_quote_item
+- sort_order
+
+Optional:
+- parent_product_id
+- bundle_components
+- included_products
+- service_scope
+- licensing_terms
+- minimum_commitment
+- royalty_type
+- royalty_rate
+- usage_unit
+- notes_internal
+- quote_description
+- effective_start_date
+- effective_end_date
+
+PRICING MODELS
+Support these pricing model types:
+
+1. one_time
+Used for hardware, system kits, project services.
+
+2. recurring
+Used for software subscriptions.
+Fields:
+- billing_interval: monthly, annual
+
+3. usage
+Used for royalties, kWh, transaction fees, API usage, etc.
+Fields:
+- usage_unit
+- price_per_unit
+
+4. tiered
+Used for volume pricing.
+Fields:
+- tiers array:
+  - min_quantity
+  - max_quantity
+  - unit_price
+
+5. custom
+Used for licensing, partner deals, custom engineering packages.
+
+UNIT TYPES
+Create clean dropdown values:
+- per unit
+- per slip
+- per pedestal
+- per connector
+- per site
+- per project
+- per hour
+- per month
+- per year
+- per licensed unit
+- per kWh
+- custom
+
+UI REQUIREMENTS
+Update the Price Lists area so it feels like a premium pricing engine, not a spreadsheet.
+
+Add product form sections:
+1. Identity
+- SKU
+- Product Name
+- Industry
+- Commercial Type
+- Product Family
+- Power Level
+- Category
+
+2. Pricing
+- Pricing Model
+- Currency
+- List Price
+- Unit Type
+- Recurring toggle
+- Billing Interval
+
+3. Quote Behavior
+- Primary Quote Item toggle
+- Quote Description
+- Internal Notes
+- Active toggle
+
+4. Advanced
+- Bundle Components
+- Licensing Terms
+- Service Scope
+- Minimum Commitment
+- Royalty / Usage settings
+
+VISUAL PRIORITY
+In product tables:
+- Primary quote items should be visually emphasized.
+- Components should be visually secondary.
+- Recurring software should show a recurring badge.
+- Licensing should show a partner/licensing badge.
+- Services should show a services badge.
+- Inactive products should be muted.
+
+FILTERS
+Add filters:
+- Industry
+- Commercial Type
+- Category
+- Power Level
+- Pricing Model
+- Active / Inactive
+
+PRICE LIST STRUCTURE
+A price list should support:
+- Name
+- Region
+- Currency
+- Customer segment
+- Effective dates
+- Notes
+- Products included
+
+Example price list:
+Canada – Founder Marinas (2026)
+
+It should contain:
+1. Systems
+2. Hardware Components
+3. Software
+4. Services
+5. Licensing
+
+DEFAULT SEED PRODUCTS
+Seed the following products if they do not already exist.
+
+PRODUCT 1
+SKU: VS-MAR-SYS-30A-SLIP
+Name: VoltSafe Marine | 30A Smart Slip Kit
+Industry: Marine
+Industry Code: MAR
+Commercial Type: system
+Category: System
+Product Family: Shore Power
+Power Level: 30A / 125V
+Unit Type: per slip
+Pricing Model: one_time
+Currency: CAD
+List Price: 1650
+Primary Quote Item: true
+Description:
+Complete 30A shore power system per slip, combining prongless connection, real-time monitoring, and automated safety control.
+Quote Description:
+Complete 30A smart shore power solution per slip.
+
+PRODUCT 2
+SKU: VS-MAR-HW-30A-CONN
+Name: VoltSafe Marine | 30A Smart Connector
+Industry: Marine
+Industry Code: MAR
+Commercial Type: hardware
+Category: Hardware
+Product Family: Shore Power
+Power Level: 30A / 125V
+Unit Type: per connector
+Pricing Model: one_time
+Currency: CAD
+List Price: 950
+Primary Quote Item: false
+Description:
+Prongless magnetic connector eliminating arcing, corrosion, and exposed live contacts while enabling authenticated power delivery.
+Quote Description:
+30A prongless magnetic shore power connector.
+
+PRODUCT 3
+SKU: VS-MAR-HW-30A-CTRL
+Name: VoltSafe Marine | 30A Smart Control Box
+Industry: Marine
+Industry Code: MAR
+Commercial Type: hardware
+Category: Hardware
+Product Family: Shore Power
+Power Level: 30A / 125V
+Unit Type: per unit
+Pricing Model: one_time
+Currency: CAD
+List Price: 1200
+Primary Quote Item: false
+Description:
+Central control system enabling authenticated, safe shore power delivery with integrated monitoring and remote control.
+Quote Description:
+Smart control system for 30A shore power applications.
+
+PRODUCT 4
+SKU: VS-MAR-SW-CORE
+Name: VoltSafe Marine | Marina OS
+Industry: Marine
+Industry Code: MAR
+Commercial Type: software
+Category: Software
+Product Family: Marina OS
+Power Level: CORE
+Unit Type: per slip / month
+Pricing Model: recurring
+Currency: USD
+List Price: 15
+Recurring: true
+Billing Interval: monthly
+Primary Quote Item: true
+Description:
+Cloud-based marina management platform for real-time power monitoring, automated billing, remote control, alerts, and energy management.
+Quote Description:
+Marina OS subscription for connected slips.
+
+PRODUCT 5
+SKU: VS-GEN-SRV-ENG-HR
+Name: VoltSafe | Engineering Services
+Industry: General
+Industry Code: GEN
+Commercial Type: service
+Category: Services
+Product Family: Professional Services
+Power Level: ENG
+Unit Type: per hour
+Pricing Model: one_time
+Currency: CAD
+List Price: 200
+Primary Quote Item: false
+Description:
+Professional engineering support for product design, integration, technical validation, partner enablement, and deployment planning.
+Quote Description:
+VoltSafe engineering services.
+
+PRODUCT 6
+SKU: VS-GEN-SRV-INTEG-PROJ
+Name: VoltSafe | Integration Package
+Industry: General
+Industry Code: GEN
+Commercial Type: service
+Category: Services
+Product Family: Professional Services
+Power Level: INTEG
+Unit Type: per project
+Pricing Model: custom
+Currency: CAD
+List Price: null
+Primary Quote Item: false
+Description:
+Custom integration package for partners or customers requiring engineering, technical, deployment, or system integration support.
+Quote Description:
+Custom VoltSafe integration package.
+
+PRODUCT 7
+SKU: VS-GEN-LIC-OEM
+Name: VoltSafe | OEM Licensing Program
+Industry: General
+Industry Code: GEN
+Commercial Type: licensing
+Category: Licensing
+Product Family: Powered by VoltSafe
+Power Level: OEM
+Unit Type: custom
+Pricing Model: custom
+Currency: CAD
+List Price: null
+Primary Quote Item: true
+Description:
+Licensing framework for partners building products powered by VoltSafe Technology, including commercial rights, technical enablement, and partner support.
+Quote Description:
+OEM licensing program powered by VoltSafe Technology.
+
+PRODUCT 8
+SKU: VS-GEN-LIC-ROYALTY
+Name: VoltSafe | Per-Unit Royalty
+Industry: General
+Industry Code: GEN
+Commercial Type: licensing
+Category: Licensing
+Product Family: Powered by VoltSafe
+Power Level: ROYALTY
+Unit Type: per licensed unit
+Pricing Model: usage
+Currency: CAD
+List Price: 50
+Usage Unit: licensed unit
+Primary Quote Item: false
+Description:
+Per-unit royalty for licensed products powered by VoltSafe Technology.
+Quote Description:
+Per-unit royalty for licensed VoltSafe-enabled products.
+
+QUOTE ENGINE LOGIC
+Add a simple quote-builder abstraction.
+
+When adding a SYSTEM product:
+- Allow quantity input based on unit type.
+- If system product has included components, optionally show included components beneath it.
+- Do not clutter customer quote with internal components by default.
+
+When adding SOFTWARE:
+- Show recurring charge clearly.
+- Example: 120 slips × $15 USD/month.
+
+When adding SERVICES:
+- Allow hourly quantity or custom project amount.
+
+When adding LICENSING:
+- Allow:
+  - minimum commitment
+  - royalty rate
+  - estimated annual units
+  - custom notes
+  - term length
+
+For now, keep licensing flexible. Do not over-engineer legal terms.
+
+QUOTE DISPLAY RULES
+Customer-facing quote should group line items as:
+
+1. VoltSafe System
+2. Software & Intelligence
+3. Services
+4. Licensing / Partner Program
+
+Do not expose too many technical components unless the user selects “show detailed breakdown”.
+
+Add a toggle:
+- Simple Quote View
+- Detailed Quote View
+
+Simple View example:
+VoltSafe Marine | 30A Smart Slip Kit
+Quantity: 120 slips
+Unit Price: $1,650 CAD
+Total: $198,000 CAD
+
+VoltSafe Marine | Marina OS
+Quantity: 120 slips
+Price: $15 USD / slip / month
+
+Detailed View may show connectors, control boxes, and components.
+
+AUTO-SKU HELPER
+Add a helper that can generate a SKU from form fields:
+VS-[industry_code]-[commercial_type_code]-[power_level]-[model_code]
+
+Commercial type codes:
+system = SYS
+hardware = HW
+software = SW
+service = SRV
+licensing = LIC
+accessory = ACC
+
+Example:
+Industry: Marine
+Type: System
+Power: 30A
+Model: SLIP
+Generated SKU:
+VS-MAR-SYS-30A-SLIP
+
+VALIDATION
+Add validation:
+- SKU must be unique.
+- SKU should start with VS-
+- Industry code required.
+- Commercial type required.
+- Pricing model required.
+- Currency required unless pricing model is custom.
+- List price required unless pricing model is custom.
+- Billing interval required if pricing model is recurring.
+- Usage unit required if pricing model is usage.
+
+BACKWARD COMPATIBILITY
+Existing products should still render.
+If old products are missing new fields:
+- Default commercial_type to hardware.
+- Default pricing_model to one_time.
+- Default industry_code to MAR if product name references Shore Power or Marine.
+- Default category to existing category if available.
+
+ADMIN UX
+Add a “Commercial Engine” badge or section title on the Price Lists page.
+Use clean labels:
+- System
+- Hardware
+- Software
+- Services
+- Licensing
+
+Avoid jargon in customer-facing views.
+
+SUCCESS CRITERIA
+After implementation:
+1. Existing price list page still works.
+2. Existing products still show.
+3. New fields can be created and edited.
+4. Seed products appear correctly.
+5. Products can be filtered by industry and commercial type.
+6. Quote builder can add:
+   - 30A Slip Kit
+   - Marina OS recurring software
+   - Engineering Services
+   - OEM Licensing Program
+7. Simple quote view hides component noise.
+8. Detailed quote view can show component-level breakdown.
+9. No destructive database changes.
+10. TypeScript passes.
+
+DESIGN STYLE
+Make it look premium:
+- Clean cards
+- Tight spacing
+- Subtle badges
+- Clear hierarchy
+- Primary quote items visually stronger
+- Licensing and services clearly separated from normal hardware
+- Keep it simple enough that a new salesperson can use it without training.
+
+FINAL INTENT
+This is not just a product table.
+This is VoltSafe’s commercial operating system for pricing anything powered by VoltSafe Technology.
