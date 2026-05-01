@@ -2485,3 +2485,131 @@ export const bookingLinkRecipients = pgTable("booking_link_recipients", {
 export const insertBookingLinkRecipientSchema = createInsertSchema(bookingLinkRecipients).omit({ id: true, createdAt: true });
 export type InsertBookingLinkRecipient = z.infer<typeof insertBookingLinkRecipientSchema>;
 export type BookingLinkRecipient = typeof bookingLinkRecipients.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase B.1 — Cortex Meeting Notes
+// Migration: 0002_meeting_notes.sql (applied)
+//
+// UUID strategy: app-generated — caller must supply crypto.randomUUID().
+// pgcrypto / uuid-ossp not installed; no DB default on uuid column.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// meeting_notes — one row per meeting note session
+export const meetingNotes = pgTable("meeting_notes", {
+  id: serial("id").primaryKey(),
+  uuid: text("uuid").notNull().unique(),
+  title: text("title"),
+  status: text("status").notNull().default("scheduled_prompted"),
+  source: text("source").notNull(),
+  createdBy: integer("created_by").notNull(),
+  calendarEventId: integer("calendar_event_id"),
+  emailThreadId: text("email_thread_id"),
+  emailMessageId: integer("email_message_id"),
+  linkedObjectType: text("linked_object_type"),
+  linkedObjectId: integer("linked_object_id"),
+  startedAt: timestamp("started_at"),
+  endedAt: timestamp("ended_at"),
+  durationSeconds: integer("duration_seconds"),
+  platform: text("platform"),
+  audioStorageKey: text("audio_storage_key"),
+  rawTranscriptText: text("raw_transcript_text"),
+  cleanTranscriptText: text("clean_transcript_text"),
+  summaryText: text("summary_text"),
+  notesText: text("notes_text"),
+  decisionsText: text("decisions_text"),
+  actionItemsText: text("action_items_text"),
+  followupDraftText: text("followup_draft_text"),
+  processingError: text("processing_error"),
+  consentNoted: boolean("consent_noted").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertMeetingNoteSchema = createInsertSchema(meetingNotes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertMeetingNote = z.infer<typeof insertMeetingNoteSchema>;
+export type MeetingNote = typeof meetingNotes.$inferSelect;
+
+// meeting_note_transcript_chunks — one row per audio transcription chunk
+export const meetingNoteTranscriptChunks = pgTable("meeting_note_transcript_chunks", {
+  id: serial("id").primaryKey(),
+  meetingNoteId: integer("meeting_note_id").notNull(),
+  sequenceNo: integer("sequence_no").notNull(),
+  speakerLabel: text("speaker_label"),
+  startMs: integer("start_ms"),
+  endMs: integer("end_ms"),
+  text: text("text").notNull(),
+  isFinal: boolean("is_final").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertMeetingNoteTranscriptChunkSchema = createInsertSchema(meetingNoteTranscriptChunks).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertMeetingNoteTranscriptChunk = z.infer<typeof insertMeetingNoteTranscriptChunkSchema>;
+export type MeetingNoteTranscriptChunk = typeof meetingNoteTranscriptChunks.$inferSelect;
+
+// meeting_note_action_items — AI-extracted action items; status lifecycle:
+// suggested → accepted | rejected → task_created
+export const meetingNoteActionItems = pgTable("meeting_note_action_items", {
+  id: serial("id").primaryKey(),
+  meetingNoteId: integer("meeting_note_id").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  ownerName: text("owner_name"),
+  ownerUserId: integer("owner_user_id"),
+  dueDate: timestamp("due_date"),
+  sourceQuote: text("source_quote"),
+  confidenceScore: numeric("confidence_score", { precision: 4, scale: 3 }),
+  status: text("status").notNull().default("suggested"),
+  createdTaskId: integer("created_task_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertMeetingNoteActionItemSchema = createInsertSchema(meetingNoteActionItems).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertMeetingNoteActionItem = z.infer<typeof insertMeetingNoteActionItemSchema>;
+export type MeetingNoteActionItem = typeof meetingNoteActionItems.$inferSelect;
+
+// meeting_note_participants — people present in the meeting
+export const meetingNoteParticipants = pgTable("meeting_note_participants", {
+  id: serial("id").primaryKey(),
+  meetingNoteId: integer("meeting_note_id").notNull(),
+  name: text("name"),
+  email: text("email"),
+  userId: integer("user_id"),
+  contactId: integer("contact_id"),
+  isInternal: boolean("is_internal").notNull().default(false),
+  speakerLabel: text("speaker_label"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertMeetingNoteParticipantSchema = createInsertSchema(meetingNoteParticipants).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertMeetingNoteParticipant = z.infer<typeof insertMeetingNoteParticipantSchema>;
+export type MeetingNoteParticipant = typeof meetingNoteParticipants.$inferSelect;
+
+// meeting_note_links — explicit CRM object associations
+export const meetingNoteLinks = pgTable("meeting_note_links", {
+  id: serial("id").primaryKey(),
+  meetingNoteId: integer("meeting_note_id").notNull(),
+  objectType: text("object_type").notNull(),
+  objectId: integer("object_id").notNull(),
+  relationshipType: text("relationship_type"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertMeetingNoteLinkSchema = createInsertSchema(meetingNoteLinks).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertMeetingNoteLink = z.infer<typeof insertMeetingNoteLinkSchema>;
+export type MeetingNoteLink = typeof meetingNoteLinks.$inferSelect;
