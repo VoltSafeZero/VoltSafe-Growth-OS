@@ -127,13 +127,14 @@ const SOFTWARE_CATALOG: CatalogItem[] = [
 ];
 
 function makeLineItem(catalog: CatalogItem, qty = 1, discPct = 0): LineItem {
-  const unitPrice = catalog.listPrice * (1 - discPct / 100);
+  const basePrice = catalog.listPrice ?? 0;
+  const unitPrice = basePrice * (1 - discPct / 100);
   return {
-    name: `${catalog.sku} — ${catalog.name}`,
+    name: `${catalog.sku ? catalog.sku + " — " : ""}${catalog.name}`,
     description: catalog.description,
     category: catalog.category,
     qty,
-    listPrice: catalog.listPrice,
+    listPrice: basePrice,
     discountPercent: discPct,
     unitPrice,
     unitType: catalog.unitType,
@@ -947,18 +948,26 @@ function LineItemTable({ items, currency }: { items: any[]; currency: string }) 
   );
 }
 
-type PriceListItemAPI = { id: number; priceListId: number; sku: string; name: string; description: string; category: string; listPrice: number; unitType: string; isRecurring: boolean; sortOrder: number; };
+type PriceListItemAPI = { id: number; priceListId: number; sku: string; name: string; description: string; category: string; listPrice: number | null; unitType: string; isRecurring: boolean; sortOrder: number; commercialType?: string | null; pricingModel?: string | null; itemCurrency?: string | null; isPrimaryQuoteItem?: boolean | null; isActive?: boolean | null; };
 type PriceListAPI = { id: number; name: string; currency: string; description: string | null; items: PriceListItemAPI[] };
+
+// Map new commercial-engine categories to quote builder tabs
+function itemQuoteTab(item: PriceListItemAPI): "hardware" | "saas" {
+  const ct = (item.commercialType || "").toLowerCase();
+  const cat = (item.category || "").toLowerCase();
+  if (ct === "system" || ct === "hardware" || cat === "hardware" || cat === "system") return "hardware";
+  return "saas"; // software, service, licensing, accessory → saas tab
+}
 
 function priceListItemToCatalog(item: PriceListItemAPI): CatalogItem {
   return {
     sku: item.sku,
     name: item.name,
     description: item.description || "",
-    category: item.category === "saas" ? "saas" : "hardware",
-    listPrice: item.listPrice,
-    unitType: item.unitType || "unit",
-    isRecurring: item.isRecurring,
+    category: itemQuoteTab(item),
+    listPrice: item.listPrice ?? 0,
+    unitType: item.unitType || "per unit",
+    isRecurring: item.isRecurring || item.pricingModel === "recurring",
   };
 }
 
@@ -1019,10 +1028,10 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
   const allPriceLists = priceListsQuery.data ?? [];
   const activePriceList = allPriceLists.find(l => l.currency === currency) ?? null;
   const catalogHardware: CatalogItem[] = activePriceList
-    ? activePriceList.items.filter(i => i.category === "hardware").map(priceListItemToCatalog)
+    ? activePriceList.items.filter(i => i.isActive !== false && itemQuoteTab(i) === "hardware").map(priceListItemToCatalog)
     : HARDWARE_CATALOG;
   const catalogSaas: CatalogItem[] = activePriceList
-    ? activePriceList.items.filter(i => i.category === "saas").map(priceListItemToCatalog)
+    ? activePriceList.items.filter(i => i.isActive !== false && itemQuoteTab(i) === "saas").map(priceListItemToCatalog)
     : SOFTWARE_CATALOG;
 
   const handleCountryChange = (c: string) => {

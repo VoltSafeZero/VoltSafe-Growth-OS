@@ -3111,6 +3111,19 @@ Full CRUD notes module replacing the "Coming Soon" stub. Powered by `GET /api/no
 - **Automation:** Automatically generates XLSX and HTML invoices, stored as base64 assets. Provides print/download endpoints.
 - **Integration:** Quote files appear in the asset picker for Gmail integration.
 
+### Product & Price List Commercial Engine
+- **DB:** `price_lists` extended with `region`, `customer_segment`. `price_list_items` extended with 17 new commercial-engine fields: `industry_code`, `industry_name`, `commercial_type`, `product_family`, `power_level`, `pricing_model`, `billing_interval`, `is_active`, `is_primary_quote_item`, `item_currency`, `notes_internal`, `quote_description`, `usage_unit`, `royalty_type`, `royalty_rate`, `minimum_commitment`, `licensing_terms`, `service_scope`. `list_price` constraint made nullable to support custom/TBD pricing.
+- **Commercial Types:** system, hardware, software, service, licensing, accessory — each with distinct badge colors (cyan, blue, violet, sky, amber, emerald).
+- **Industries:** GEN, MAR, RV, RES, COM, IND, EV, GRID.
+- **Pricing Models:** one_time, recurring (with billing interval), usage/royalty (with usage unit), tiered, custom (null price).
+- **SKU Format:** `VS-[IND]-[COMMERCIAL_TYPE]-[POWER]-[MODEL]` with auto-generate helper in the product form.
+- **Seed Catalog:** "VoltSafe Product Catalog" price list seeded with 8 products: VS-MAR-SYS-30A-SLIP, VS-MAR-HW-30A-CONN, VS-MAR-HW-30A-CTRL, VS-MAR-SW-CORE (Marina OS, recurring USD), VS-GEN-SRV-ENG-HR, VS-GEN-SRV-INTEG-PROJ, VS-GEN-LIC-OEM, VS-GEN-LIC-ROYALTY.
+- **UI:** Premium commercial engine page at `/price-lists`. Product form has 4 sections: Identity (SKU/auto-build, industry, type, family, power), Pricing (model, currency, price, unit type), Quote Behavior (primary flag, active toggle, quote/internal descriptions), Advanced (collapsible — service scope, licensing terms, minimum commitment, royalty rate).
+- **Visual hierarchy:** Primary quote items have a star icon + highlighted row. Commercial type badges are color-coded. Recurring badge (violet) and usage badge (orange) on items. Inactive items muted.
+- **Filters:** Commercial type tabs + Industry dropdown + Pricing Model dropdown + Active/Inactive/All status toggle.
+- **Quote Builder integration:** `priceListItemToCatalog` maps new commercial types to quote tabs: system/hardware → Hardware tab; software/service/licensing/accessory → Software/Services tab. Handles null prices gracefully (defaults to 0).
+- **Migration:** `migrateProductEngineSchema()` in `server/seed-production.ts` runs all ALTER TABLE safely (IF NOT EXISTS).
+
 ### Database
 - **Type:** PostgreSQL with Drizzle ORM.
 - **Schema:** Comprehensive schema for all CMS modules.

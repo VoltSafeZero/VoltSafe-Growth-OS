@@ -12952,9 +12952,15 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
   app.post("/api/price-lists", requireAuth, async (req, res) => {
     try {
-      const { name, currency, description } = req.body;
+      const { name, currency, description, region, customerSegment } = req.body;
       if (!name?.trim()) return res.status(400).json({ message: "Name is required" });
-      const [list] = await db.insert(priceLists).values({ name: name.trim(), currency: currency || "USD", description: description || null }).returning();
+      const [list] = await db.insert(priceLists).values({
+        name: name.trim(),
+        currency: currency || "USD",
+        description: description || null,
+        region: region || null,
+        customerSegment: customerSegment || null,
+      }).returning();
       res.status(201).json({ ...list, items: [] });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -12963,11 +12969,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
   app.patch("/api/price-lists/:id", requireAuth, async (req, res) => {
     try {
-      const { name, currency, description } = req.body;
+      const { name, currency, description, region, customerSegment } = req.body;
       const updateData: any = { updatedAt: new Date() };
       if (name !== undefined) updateData.name = name;
       if (currency !== undefined) updateData.currency = currency;
       if (description !== undefined) updateData.description = description;
+      if (region !== undefined) updateData.region = region;
+      if (customerSegment !== undefined) updateData.customerSegment = customerSegment;
       const [updated] = await db.update(priceLists).set(updateData).where(eq(priceLists.id, Number(req.params.id))).returning();
       if (!updated) return res.status(404).json({ message: "Price list not found" });
       res.json(updated);
@@ -12989,7 +12997,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   app.post("/api/price-lists/:id/items", requireAuth, async (req, res) => {
     try {
       const priceListId = Number(req.params.id);
-      const { sku, name, description, category, listPrice, unitType, isRecurring, sortOrder } = req.body;
+      const {
+        sku, name, description, category, listPrice, unitType, isRecurring, sortOrder,
+        industryCode, industryName, commercialType, productFamily, powerLevel,
+        pricingModel, billingInterval, isActive, isPrimaryQuoteItem, itemCurrency,
+        notesInternal, quoteDescription, usageUnit, royaltyType, royaltyRate,
+        minimumCommitment, licensingTerms, serviceScope,
+      } = req.body;
       if (!name?.trim()) return res.status(400).json({ message: "Name is required" });
       const [item] = await db.insert(priceListItems).values({
         priceListId,
@@ -12997,10 +13011,28 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         name: name.trim(),
         description: description?.trim() || "",
         category: category || "hardware",
-        listPrice: Number(listPrice) || 0,
-        unitType: unitType?.trim() || "unit",
+        listPrice: listPrice !== null && listPrice !== undefined && listPrice !== "" ? Number(listPrice) : null as any,
+        unitType: unitType?.trim() || "per unit",
         isRecurring: !!isRecurring,
         sortOrder: Number(sortOrder) || 0,
+        industryCode: industryCode || "GEN",
+        industryName: industryName || "General",
+        commercialType: commercialType || "hardware",
+        productFamily: productFamily || null,
+        powerLevel: powerLevel || null,
+        pricingModel: pricingModel || "one_time",
+        billingInterval: billingInterval || null,
+        isActive: isActive !== undefined ? !!isActive : true,
+        isPrimaryQuoteItem: !!isPrimaryQuoteItem,
+        itemCurrency: itemCurrency || null,
+        notesInternal: notesInternal || null,
+        quoteDescription: quoteDescription || null,
+        usageUnit: usageUnit || null,
+        royaltyType: royaltyType || null,
+        royaltyRate: royaltyRate !== undefined ? Number(royaltyRate) : null as any,
+        minimumCommitment: minimumCommitment || null,
+        licensingTerms: licensingTerms || null,
+        serviceScope: serviceScope || null,
       }).returning();
       res.status(201).json(item);
     } catch (err: any) {
@@ -13010,16 +13042,40 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
   app.patch("/api/price-list-items/:id", requireAuth, async (req, res) => {
     try {
-      const { sku, name, description, category, listPrice, unitType, isRecurring, sortOrder } = req.body;
+      const {
+        sku, name, description, category, listPrice, unitType, isRecurring, sortOrder,
+        industryCode, industryName, commercialType, productFamily, powerLevel,
+        pricingModel, billingInterval, isActive, isPrimaryQuoteItem, itemCurrency,
+        notesInternal, quoteDescription, usageUnit, royaltyType, royaltyRate,
+        minimumCommitment, licensingTerms, serviceScope,
+      } = req.body;
       const updateData: any = {};
       if (sku !== undefined) updateData.sku = sku;
       if (name !== undefined) updateData.name = name;
       if (description !== undefined) updateData.description = description;
       if (category !== undefined) updateData.category = category;
-      if (listPrice !== undefined) updateData.listPrice = Number(listPrice);
+      if (listPrice !== undefined) updateData.listPrice = listPrice !== null && listPrice !== "" ? Number(listPrice) : null;
       if (unitType !== undefined) updateData.unitType = unitType;
       if (isRecurring !== undefined) updateData.isRecurring = !!isRecurring;
       if (sortOrder !== undefined) updateData.sortOrder = Number(sortOrder);
+      if (industryCode !== undefined) updateData.industryCode = industryCode;
+      if (industryName !== undefined) updateData.industryName = industryName;
+      if (commercialType !== undefined) updateData.commercialType = commercialType;
+      if (productFamily !== undefined) updateData.productFamily = productFamily;
+      if (powerLevel !== undefined) updateData.powerLevel = powerLevel;
+      if (pricingModel !== undefined) updateData.pricingModel = pricingModel;
+      if (billingInterval !== undefined) updateData.billingInterval = billingInterval;
+      if (isActive !== undefined) updateData.isActive = !!isActive;
+      if (isPrimaryQuoteItem !== undefined) updateData.isPrimaryQuoteItem = !!isPrimaryQuoteItem;
+      if (itemCurrency !== undefined) updateData.itemCurrency = itemCurrency;
+      if (notesInternal !== undefined) updateData.notesInternal = notesInternal;
+      if (quoteDescription !== undefined) updateData.quoteDescription = quoteDescription;
+      if (usageUnit !== undefined) updateData.usageUnit = usageUnit;
+      if (royaltyType !== undefined) updateData.royaltyType = royaltyType;
+      if (royaltyRate !== undefined) updateData.royaltyRate = royaltyRate !== null ? Number(royaltyRate) : null;
+      if (minimumCommitment !== undefined) updateData.minimumCommitment = minimumCommitment;
+      if (licensingTerms !== undefined) updateData.licensingTerms = licensingTerms;
+      if (serviceScope !== undefined) updateData.serviceScope = serviceScope;
       const [updated] = await db.update(priceListItems).set(updateData).where(eq(priceListItems.id, Number(req.params.id))).returning();
       if (!updated) return res.status(404).json({ message: "Item not found" });
       res.json(updated);

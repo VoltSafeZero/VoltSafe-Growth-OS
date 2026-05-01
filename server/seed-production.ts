@@ -1020,6 +1020,8 @@ export async function migrateProductEngineSchema(): Promise<void> {
     // Extend price_lists with region and customer_segment
     await db.execute(sql`ALTER TABLE price_lists ADD COLUMN IF NOT EXISTS region text`);
     await db.execute(sql`ALTER TABLE price_lists ADD COLUMN IF NOT EXISTS customer_segment text`);
+    // Allow list_price to be NULL (for custom-pricing products)
+    await db.execute(sql`ALTER TABLE price_list_items ALTER COLUMN list_price DROP NOT NULL`);
     // Extend price_list_items with Commercial Engine fields
     await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS industry_code text NOT NULL DEFAULT 'GEN'`);
     await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS industry_name text NOT NULL DEFAULT 'General'`);
@@ -1040,15 +1042,22 @@ export async function migrateProductEngineSchema(): Promise<void> {
     await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS licensing_terms text`);
     await db.execute(sql`ALTER TABLE price_list_items ADD COLUMN IF NOT EXISTS service_scope text`);
 
-    // Seed default VoltSafe product catalog if not already present
+    // Seed default VoltSafe product catalog if not already present (check for items, not just list)
     const existing = await db.execute(sql`SELECT id FROM price_lists WHERE name = 'VoltSafe Product Catalog' LIMIT 1`);
-    if ((existing.rows as any[]).length === 0) {
-      const listResult = await db.execute(sql`
-        INSERT INTO price_lists (name, currency, description, region, customer_segment)
-        VALUES ('VoltSafe Product Catalog', 'CAD', 'Default VoltSafe commercial product catalog — systems, hardware, software, services, and licensing.', 'Global', 'All')
-        RETURNING id
-      `);
-      const listId = (listResult.rows as any[])[0].id;
+    const catalogId = (existing.rows as any[])[0]?.id ?? null;
+    const hasItems = catalogId
+      ? Number(((await db.execute(sql`SELECT COUNT(*) as cnt FROM price_list_items WHERE price_list_id = ${catalogId}`)).rows[0] as any)?.cnt ?? 0) >= 8
+      : false;
+    if (!hasItems) {
+      let listId = catalogId;
+      if (!listId) {
+        const listResult = await db.execute(sql`
+          INSERT INTO price_lists (name, currency, description, region, customer_segment)
+          VALUES ('VoltSafe Product Catalog', 'CAD', 'Default VoltSafe commercial product catalog — systems, hardware, software, services, and licensing.', 'Global', 'All')
+          RETURNING id
+        `);
+        listId = (listResult.rows as any[])[0].id;
+      }
 
       const products = [
         {
