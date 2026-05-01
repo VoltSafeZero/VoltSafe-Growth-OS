@@ -113,6 +113,12 @@ export interface GroupOptions {
    * the row in its original list position until the user navigates away.
    */
   openThreadId?: string | null;
+  /**
+   * True only when the open thread was actually unread at the moment the user
+   * clicked it. Prevents already-read emails from being pushed into the unread
+   * bucket just because they happen to be selected.
+   */
+  openThreadWasUnread?: boolean;
 }
 
 /**
@@ -126,6 +132,7 @@ export function groupSmartInbox<M extends GroupableMessage>(
   if (!messages || messages.length === 0) return [];
   const pinned = options.pinnedThreadIds ?? new Set<string>();
   const openThreadId = options.openThreadId ?? null;
+  const openThreadWasUnread = options.openThreadWasUnread ?? false;
 
   // Bucket pass — each message lands in exactly one bucket so headers can't
   // double-count and we never render the same row twice.
@@ -141,9 +148,11 @@ export function groupSmartInbox<M extends GroupableMessage>(
     const starred = isStarredMsg(labels);
     const unread = isUnreadMsg(labels);
     const isPinned = pinned.has(m.threadId);
-    // If this is the currently-open thread that was just marked read, keep it
-    // in the same unread bucket so it doesn't jump down the list mid-read.
-    const isOpenAndJustRead = !unread && !starred && m.threadId === openThreadId;
+    // Only hold the thread in its unread bucket if it was ACTUALLY unread when
+    // the user clicked it. Without this guard, clicking an already-read email
+    // would push it up into the unread section.
+    const isOpenAndJustRead =
+      !unread && !starred && m.threadId === openThreadId && openThreadWasUnread;
 
     if (starred) {
       priority.push(m);

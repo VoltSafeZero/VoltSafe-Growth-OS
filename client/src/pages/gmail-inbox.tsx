@@ -2876,6 +2876,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     const params = new URLSearchParams(window.location.search);
     return params.get("thread") ?? null;
   });
+  // Tracks whether the currently-open thread was unread at the moment of click.
+  // Used by the smart-inbox grouper to keep it in the unread bucket only when
+  // it genuinely transitioned from unread→read (not when already read).
+  const [openThreadWasUnread, setOpenThreadWasUnread] = useState(false);
   const [returnPath] = useState<string | null>(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("return") ?? null;
@@ -4442,10 +4446,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     return groupSmartInbox(crmFilteredMessages, {
       pinnedThreadIds: pinnedAPI.pinned,
       // Keep the open thread in its original section while the user is reading
-      // it, even though its UNREAD label was already removed from the cache.
+      // it, only when it was genuinely unread at click time.
       openThreadId: selectedThreadId,
+      openThreadWasUnread,
     });
-  }, [isSmartView, crmFilteredMessages, pinnedAPI.pinned, selectedThreadId]);
+  }, [isSmartView, crmFilteredMessages, pinnedAPI.pinned, selectedThreadId, openThreadWasUnread]);
 
   const isLoading = tab === "other" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : sentQuery.isLoading;
   const error = tab === "other" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : sentQuery.error;
@@ -4573,6 +4578,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const handleSelectMessage = (msg: MessageSummary) => {
     setSelectedMessageId(msg.id);
     setSelectedThreadId(msg.threadId);
+    // Record whether this thread was unread at click time so the grouper can
+    // keep it in the unread bucket only during the genuine unread→read transition.
+    setOpenThreadWasUnread(isUnread(msg.labelIds));
     // Multi-mailbox Phase 1: capture the source account so thread reads + mutations target
     // the correct mailbox when we're in unified mode. Outside unified mode this is unused.
     setCurrentThreadAccountId(msg.sourceAccountId ?? null);
@@ -4607,6 +4615,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const handleBack = () => {
     setSelectedMessageId(null);
     setSelectedThreadId(null);
+    setOpenThreadWasUnread(false);
   };
 
   // Nudge the FAB up when the email reading pane is open so it never sits on
