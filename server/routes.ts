@@ -95,6 +95,7 @@ import {
 } from "./calendar-sync";
 import {
   lookupZoomConnection, disconnectZoom, toPublicZoomConnection, isZoomConfigured,
+  buildZoomAuthorizationUrl, exchangeZoomCodeForTokens, fetchZoomUserProfile, upsertZoomConnection,
 } from "./services/zoom-service";
 import {
   listBookingLinks, getBookingLink, createBookingLink, updateBookingLink,
@@ -23423,7 +23424,119 @@ export function registerConfluenceRoutes(app: Express) {
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Phase A.2 — Zoom connection + Booking links
+  // Phase A.3 — Zoom OAuth flow
   // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── GET /api/zoom/oauth/start ───────────────────────────────────────────
+  // Generates a Zoom OAuth authorization URL and stores a CSRF state token
+  // in the session. The frontend redirects the browser to the returned URL.
+  // Returns 503 if Zoom env vars are not configured.
+  app.get("/api/zoom/oauth/start", requireAuth, (req, res) => {
+    if (!isZoomConfigured()) {
+      return res.status(503).json({
+        configured: false,
+        message:
+          "Zoom OAuth is not configured. Add ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET, and ZOOM_REDIRECT_URI to Replit Secrets.",
+      });
+    }
+    try {
+      const state = crypto.randomBytes(32).toString("hex");
+      req.session.zoomOAuthState = state;
+      req.session.save((err) => {
+        if (err) {
+          console.error("[zoom-oauth] session.save error:", err);
+          return res.status(500).json({ message: "Session save failed — cannot start OAuth" });
+        }
+        let authUrl: string;
+        try {
+          authUrl = buildZoomAuthorizationUrl(state);
+        } catch (buildErr: any) {
+          return res.status(500).json({ message: buildErr.message });
+        }
+        console.log(
+          "[zoom-oauth] OAuth initiated userId:", req.session.userId,
+          "state:", state.slice(0, 8) + "...",
+        );
+        res.json({ authUrl });
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ── GET /api/zoom/oauth/callback ────────────────────────────────────────
+  // Zoom redirects the browser here after the user approves (or denies) access.
+  // Validates CSRF state, exchanges code for tokens, fetches Zoom profile,
+  // persists the connection, then redirects back to the SPA.
+  // No requireAuth middleware — the browser follows this redirect, but we
+  // verify the session manually (userId must be present).
+  app.get("/api/zoom/oauth/callback", async (req, res) => {
+    const { code, state, error: zoomError } = req.query as Record<string, string>;
+
+    // User explicitly denied access in the Zoom consent screen
+    if (zoomError) {
+      console.warn("[zoom-oauth] Zoom returned error param:", zoomError);
+      return res.redirect("/?zoom=cancelled");
+    }
+
+    // Session must still be valid (user must still be logged in)
+    const userId = req.session.userId as number | undefined;
+    if (!userId) {
+      console.warn("[zoom-oauth] Callback reached with no active session — user not logged in");
+      return res.redirect("/?zoom=error&reason=not_authenticated");
+    }
+
+    // CSRF state validation — compare query param against session value
+    const storedState = req.session.zoomOAuthState;
+    if (!state || !storedState || state !== storedState) {
+      console.warn(
+        "[zoom-oauth] State mismatch userId:", userId,
+        "received:", state?.slice(0, 8) ?? "(none)",
+        "expected:", storedState?.slice(0, 8) ?? "(none)",
+      );
+      return res.redirect("/?zoom=error&reason=state_mismatch");
+    }
+
+    // Consume the state immediately to prevent replay
+    req.session.zoomOAuthState = undefined;
+
+    if (!code) {
+      return res.redirect("/?zoom=error&reason=no_code");
+    }
+
+    try {
+      // Exchange authorization code → tokens (tokens are never logged or returned to client)
+      const tokens = await exchangeZoomCodeForTokens(code);
+
+      // Fetch the Zoom user's profile (zoomEmail, accountType, PMI, etc.)
+      const profile = await fetchZoomUserProfile(tokens.accessToken);
+
+      // Persist connection — upsert handles both first-connect and re-connect
+      await upsertZoomConnection(userId, {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        tokenExpiresAt: tokens.tokenExpiresAt,
+        scope: tokens.scope,
+        zoomUserId: profile.zoomUserId,
+        zoomEmail: profile.zoomEmail,
+        zoomAccountType: profile.zoomAccountType ?? undefined,
+        zoomPmi: profile.zoomPmi ?? undefined,
+        zoomPmiUrl: profile.zoomPmiUrl ?? undefined,
+      });
+
+      console.log(
+        "[zoom-oauth] Connected userId:", userId,
+        "zoomEmail:", profile.zoomEmail,
+        "accountType:", profile.zoomAccountType,
+      );
+
+      // Redirect to calendar with success signal — SPA reads ?zoom=connected to show toast
+      return res.redirect("/calendar?zoom=connected");
+    } catch (e: any) {
+      console.error("[zoom-oauth] Callback processing error:", e.message);
+      return res.redirect("/?zoom=error&reason=exchange_failed");
+    }
+  });
 
   // ── GET /api/zoom/connection ────────────────────────────────────────────
   // Returns the current user's Zoom connection status (no tokens exposed).

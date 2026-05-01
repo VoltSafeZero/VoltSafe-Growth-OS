@@ -42,6 +42,112 @@ export function isZoomConfigured(): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// OAuth helpers (Phase A.3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Builds the Zoom OAuth authorization URL.
+ * Caller generates + stores the `state` value (CSRF token) before calling.
+ * Throws if ZOOM_CLIENT_ID or ZOOM_REDIRECT_URI are not set.
+ */
+export function buildZoomAuthorizationUrl(state: string): string {
+  const clientId = getZoomClientId();
+  const redirectUri = getZoomRedirectUri();
+  if (!clientId || !redirectUri) {
+    throw new Error(
+      "Zoom OAuth not configured — ZOOM_CLIENT_ID and ZOOM_REDIRECT_URI must be set",
+    );
+  }
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    state,
+  });
+  return `https://zoom.us/oauth/authorize?${params.toString()}`;
+}
+
+export interface ZoomTokenResponse {
+  accessToken: string;
+  refreshToken: string;
+  tokenExpiresAt: Date;
+  scope: string;
+}
+
+/**
+ * Exchanges a Zoom authorization code for an access + refresh token pair.
+ * Throws on HTTP error or missing env vars.
+ * NEVER logs the returned tokens.
+ */
+export async function exchangeZoomCodeForTokens(code: string): Promise<ZoomTokenResponse> {
+  const clientId = getZoomClientId();
+  const clientSecret = getZoomClientSecret();
+  const redirectUri = getZoomRedirectUri();
+  if (!clientId || !clientSecret || !redirectUri) {
+    throw new Error("Zoom OAuth not configured — env vars missing");
+  }
+  const params = new URLSearchParams({
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: redirectUri,
+  });
+  const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+  const resp = await fetch("https://zoom.us/oauth/token", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${basicAuth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: params.toString(),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Zoom token exchange failed (${resp.status}): ${text.slice(0, 200)}`);
+  }
+  const json: any = await resp.json();
+  const expiresIn: number = json.expires_in ?? 3600;
+  return {
+    accessToken: json.access_token,
+    refreshToken: json.refresh_token,
+    tokenExpiresAt: new Date(Date.now() + expiresIn * 1000),
+    scope: json.scope ?? "",
+  };
+}
+
+export interface ZoomUserProfile {
+  zoomUserId: string;
+  zoomEmail: string;
+  zoomAccountType: string | null;
+  zoomPmi: string | null;
+  zoomPmiUrl: string | null;
+}
+
+/**
+ * Fetches the authenticated user's Zoom profile using their access token.
+ * Throws on HTTP errors — caller must catch.
+ * NEVER logs the access token.
+ */
+export async function fetchZoomUserProfile(accessToken: string): Promise<ZoomUserProfile> {
+  const resp = await fetch("https://api.zoom.us/v2/users/me", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Zoom profile fetch failed (${resp.status}): ${text.slice(0, 200)}`);
+  }
+  const json: any = await resp.json();
+  // Zoom account types: 1=basic, 2=pro, 3=corp/business
+  const accountTypeMap: Record<number, string> = { 1: "basic", 2: "pro", 3: "corp" };
+  return {
+    zoomUserId: json.id,
+    zoomEmail: json.email,
+    zoomAccountType: accountTypeMap[json.type as number] ?? String(json.type ?? "unknown"),
+    zoomPmi: json.pmi ? String(json.pmi) : null,
+    zoomPmiUrl: json.personal_meeting_url ?? null,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Connection lookup
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -227,9 +333,11 @@ export async function refreshZoomTokenIfNeeded(
 export interface ZoomConnectionPublic {
   connected: boolean;
   zoomEmail: string | null;
+  zoomUserId: string | null;
   zoomAccountType: string | null;
   zoomPmi: string | null;
   zoomPmiUrl: string | null;
+  tokenExpiresAt: Date | null;
   connectedAt: Date | null;
   disconnectedAt: Date | null;
 }
@@ -241,9 +349,11 @@ export function toPublicZoomConnection(
     return {
       connected: false,
       zoomEmail: null,
+      zoomUserId: null,
       zoomAccountType: null,
       zoomPmi: null,
       zoomPmiUrl: null,
+      tokenExpiresAt: null,
       connectedAt: null,
       disconnectedAt: row?.disconnectedAt ?? null,
     };
@@ -251,9 +361,11 @@ export function toPublicZoomConnection(
   return {
     connected: true,
     zoomEmail: row.zoomEmail,
+    zoomUserId: row.zoomUserId,
     zoomAccountType: row.zoomAccountType,
     zoomPmi: row.zoomPmi,
     zoomPmiUrl: row.zoomPmiUrl,
+    tokenExpiresAt: row.tokenExpiresAt,
     connectedAt: row.connectedAt,
     disconnectedAt: null,
   };

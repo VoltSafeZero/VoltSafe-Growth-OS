@@ -71,6 +71,7 @@ declare module "express-session" {
     mustChangePassword: boolean;
     webauthnRegChallenge: string;
     webauthnAuthChallenge: string;
+    zoomOAuthState?: string;
   }
 }
 
