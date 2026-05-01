@@ -111,7 +111,8 @@ import {
   createMeetingNoteSchema, updateMeetingNoteSchema,
   linkRecordSchema, draftFollowupSchema, createTasksSchema,
 } from "./services/meeting-notes-service";
-import { validateAudioChunk, storeChunkStub } from "./services/meeting-notes-audio";
+import { validateAudioChunk, storeChunk } from "./services/meeting-notes-audio";
+import { transcribeMeetingNote } from "./services/meeting-notes-transcription";
 
 // ── Auth rate limiters ─────────────────────────────────────────────────────
 // Defense in depth against credential stuffing, password-reset spam, and
@@ -23773,6 +23774,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // POST /api/meeting-notes/:id/stop — transition recording → processing
+  // Responds immediately with the updated note, then triggers transcription in background.
   app.post("/api/meeting-notes/:id/stop", requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
@@ -23785,6 +23787,12 @@ export function registerConfluenceRoutes(app: Express) {
         return res.status(status).json({ message: result.error });
       }
       res.json(result.note);
+      // Fire-and-forget transcription — client polls note status for completion
+      setImmediate(() => {
+        transcribeMeetingNote(id).catch((e: Error) =>
+          console.error(`[stop-route] transcription error noteId=${id}: ${e.message}`),
+        );
+      });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
@@ -23792,8 +23800,7 @@ export function registerConfluenceRoutes(app: Express) {
 
   // POST /api/meeting-notes/:id/audio-chunk
   // Accepts a binary audio chunk (audio/*). Validates status = recording,
-  // Content-Type, and Content-Length before draining the body.
-  // Phase B.2 stub: acknowledges the chunk without persisting audio.
+  // Content-Type, and Content-Length, then appends to the note's temp audio file.
   app.post("/api/meeting-notes/:id/audio-chunk", requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
@@ -23812,15 +23819,17 @@ export function registerConfluenceRoutes(app: Express) {
       const seqHeader = parseInt(String(req.headers["x-sequence-no"] ?? "0"), 10);
       const sequenceNo = isNaN(seqHeader) ? 0 : seqHeader;
 
-      const { bytes } = await storeChunkStub(id, sequenceNo, req);
+      const { bytes } = await storeChunk(id, sequenceNo, req);
       res.status(202).json({ accepted: true, sequenceNo, bytes });
     } catch (e: any) {
-      res.status(500).json({ message: e.message });
+      const httpStatus = (e as { httpStatus?: number }).httpStatus ?? 500;
+      res.status(httpStatus).json({ message: e.message });
     }
   });
 
   // POST /api/meeting-notes/:id/process
-  // Placeholder: validates status = processing. AI pipeline wired in Phase B.5.
+  // Retriggers transcription for notes stuck in processing (e.g. after a transient error).
+  // Responds immediately; transcription runs in background.
   app.post("/api/meeting-notes/:id/process", requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
@@ -23833,6 +23842,12 @@ export function registerConfluenceRoutes(app: Express) {
         return res.status(status).json({ message: result.error });
       }
       res.json({ queued: true, note: result.note });
+      // Re-run transcription in background (retry path)
+      setImmediate(() => {
+        transcribeMeetingNote(id).catch((e: Error) =>
+          console.error(`[process-route] transcription error noteId=${id}: ${e.message}`),
+        );
+      });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

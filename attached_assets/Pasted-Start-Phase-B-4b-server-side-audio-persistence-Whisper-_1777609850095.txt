@@ -1,0 +1,72 @@
+Start Phase B.4b: server-side audio persistence + Whisper transcription.
+
+Scope:
+- Do NOT implement AI summaries/action extraction yet.
+- Do NOT implement speaker diarization yet unless OpenAI response gives simple segments.
+- Do NOT change schema.
+- Do NOT touch Zoom/booking.
+- Do NOT restart the 5 known failing creds-drift workflows.
+
+Goal:
+Turn uploaded audio chunks from B.4a into a stored transcript.
+
+Backend deliverables:
+1. Update:
+   server/services/meeting-notes-audio.ts
+
+2. Create:
+   server/services/meeting-notes-transcription.ts
+
+3. Behavior:
+   - audio-chunk endpoint should append each chunk to a temp file per meeting note:
+     /tmp/voltsafe-meeting-notes/<meetingNoteId>/audio.webm
+   - Track chunk sequence numbers safely.
+   - Reject chunks larger than 1MB as already implemented.
+   - On stop:
+     - finalize the audio file
+     - call transcription service
+     - store raw_transcript_text on meeting_notes
+     - insert transcript segments/chunks into meeting_note_transcript_chunks where available
+     - keep status = processing for now if B.5 AI is next, or completed if no AI pipeline is triggered yet. Prefer processing with clear message that AI summary is next.
+
+4. Transcription:
+   - Use OpenAI audio transcription API.
+   - Prefer model:
+     gpt-4o-mini-transcribe
+   - If unsupported in current SDK, fallback to whisper-1.
+   - Use verbose JSON if available so we can store segments with timestamps.
+   - If only plain text available, store one transcript chunk sequence_no=0.
+
+5. Environment:
+   - Require OPENAI_API_KEY.
+   - If missing, stop gracefully:
+     - store processing_error
+     - return clear API error
+     - do not crash app
+
+6. Long audio:
+   - For now, enforce a safe max final audio size, e.g. 25MB.
+   - If exceeded, set processing_error and explain that long-audio chunk splitting is Phase B.4c.
+
+7. Route wiring:
+   - POST /api/meeting-notes/:id/stop should trigger transcription after final chunk drain.
+   - POST /api/meeting-notes/:id/process can retry transcription if raw_transcript_text is missing.
+   - Keep it synchronous for now only if acceptable; otherwise process in background with status polling. Prefer simple synchronous v1 unless it blocks too long.
+
+8. Tests/checks:
+   - TypeScript/LSP check
+   - tests/calendar-invite.unit.ts
+   - mock transcription test if available
+   - live smoke if OPENAI_API_KEY exists:
+     - record/upload small fake audio if possible
+     - stop note
+     - verify raw_transcript_text populated
+   - If OPENAI_API_KEY is missing, verify graceful error path.
+
+9. Report:
+   - files changed
+   - audio storage location
+   - transcription model used
+   - error handling
+   - checks run
+   - what remains for B.5
