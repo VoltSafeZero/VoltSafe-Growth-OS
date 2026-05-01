@@ -6683,12 +6683,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             // render as broken download links that 502 from /download.
                             const canDownload = a.id != null && a.downloadable !== false;
                             const downloadUrl = canDownload ? `/api/gmail/attachments/${a.id}/download` : null;
-                            const sharedClass = `flex items-center bg-card/60 border border-border/40 rounded-md transition-colors ${focusMode ? "gap-3 px-3.5 py-3 text-[13px] shadow-sm" : "gap-2 px-2.5 py-1.5 text-xs"} ${downloadUrl ? "hover:border-primary/55 hover:bg-card/90 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" : "hover:border-primary/40 hover:bg-card/80"}`;
-                            const titleAttr = `${a.mimeType} • ${a.sizeBytes ? Math.round(a.sizeBytes/1024) + " KB" : "size unknown"}${downloadUrl ? " — click to download" : ""}`;
+                            const isCalendar = (a.mimeType || "").toLowerCase().startsWith("text/calendar")
+                              || (a.filename || "").toLowerCase().endsWith(".ics");
+                            const sharedClass = `flex items-center bg-card/60 border border-border/40 rounded-md transition-colors ${focusMode ? "gap-3 px-3.5 py-3 text-[13px] shadow-sm" : "gap-2 px-2.5 py-1.5 text-xs"} ${downloadUrl ? "hover:border-primary/55 hover:bg-card/90 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" : "opacity-50 cursor-default select-none"}`;
+                            const titleAttr = `${a.mimeType} • ${a.sizeBytes ? Math.round(a.sizeBytes/1024) + " KB" : "size unknown"}${downloadUrl ? " — click to download" : " — inline attachment (not downloadable)"}`;
                             const inner = (
                               <>
-                                <div className={`flex items-center justify-center rounded-md bg-primary/10 text-primary flex-shrink-0 ${focusMode ? "h-9 w-9" : ""}`}>
-                                  <Paperclip className={focusMode ? "h-4 w-4" : "h-3 w-3 text-muted-foreground"} />
+                                <div className={`flex items-center justify-center rounded-md flex-shrink-0 ${isCalendar ? "bg-blue-500/10 text-blue-500" : "bg-primary/10 text-primary"} ${focusMode ? "h-9 w-9" : ""}`}>
+                                  {isCalendar
+                                    ? <CalendarClock className={focusMode ? "h-4 w-4" : "h-3 w-3"} />
+                                    : <Paperclip className={focusMode ? "h-4 w-4" : "h-3 w-3 text-muted-foreground"} />
+                                  }
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className={`truncate font-medium ${focusMode ? "max-w-none text-foreground" : "max-w-[260px]"}`}>{a.filename}</div>
@@ -6723,6 +6728,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                                 data-testid={`chip-attachment-${msg.id}-${i}`}
                                 className={sharedClass}
                                 title={titleAttr}
+                                aria-hidden="true"
                               >
                                 {inner}
                               </div>

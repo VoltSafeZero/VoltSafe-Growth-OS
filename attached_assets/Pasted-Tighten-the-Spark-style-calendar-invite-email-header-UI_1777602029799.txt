@@ -1,0 +1,77 @@
+Tighten the Spark-style calendar invite/email header UI to Superhuman-level polish.
+
+Scope rules:
+- Do NOT touch Phase A.1 migration.
+- Do NOT touch schema.
+- Do NOT start unrelated refactors.
+- Do NOT change backend parsing unless a UI issue proves it is necessary.
+- Focus only on visual polish and interaction quality for:
+  1. calendar invite card
+  2. attendee chips
+  3. TO/CC recipient chip rows
+  4. attachment chips related to calendar invites
+
+Target UX:
+Make the invite card feel premium, compact, readable, and calm — like Spark/Superhuman, not a dev dashboard.
+
+Polish requirements:
+1. Calendar invite card
+   - tighten spacing
+   - improve visual hierarchy
+   - make date badge elegant and compact
+   - make event title prominent but not huge
+   - make time/timezone easy to scan
+   - make recurring/cancelled states tasteful
+   - make empty/fallback states subtle
+   - avoid giant blocks of whitespace
+
+2. Join/location area
+   - Join button should be obvious but not loud
+   - location fallback should be clear and clickable if it is a URL
+   - “No conference link or location provided” should be subtle, not ugly
+
+3. Attendees
+   - attendee chips should be compact and elegant
+   - response indicators should be clear but not noisy
+   - attendee summary line should be small and useful
+   - +N more / Show fewer should feel smooth and polished
+   - chips should wrap cleanly on narrow widths
+
+4. TO/CC header rows
+   - first few recipients should show as neat chips
+   - +N more expansion should be clean
+   - avoid crowding the email header
+   - make long emails truncate gracefully
+   - preserve copyability/readability
+
+5. Attachment chips
+   - downloadable calendar invite attachments should look clickable
+   - non-downloadable inline artifacts should look disabled/non-clickable
+   - hover/focus states should be clear
+
+6. Responsive behavior
+   - desktop width should look premium
+   - narrow/mobile-ish width should not overflow
+   - compact/ultra inbox density should still look good
+
+Implementation notes:
+- Prefer small component-level styling changes.
+- Keep logic intact unless required.
+- Avoid huge redesign.
+- Use existing styling conventions/components.
+- Add aria labels/focus states if missing.
+- Keep the card visually dense but readable.
+
+Validation:
+- Run tests/calendar-invite.unit.ts
+- Run TypeScript/LSP check
+- If browser QA is still blocked, do not fake it. Report exact blocker.
+- If possible, create a static mock/demo screenshot using the real component. If not possible, say so.
+- Run architect/code review if available.
+
+Report back:
+- files changed
+- visual polish changes made
+- tests passing
+- remaining manual checks
+- confirmation that schema and Phase A.1 migration were untouched

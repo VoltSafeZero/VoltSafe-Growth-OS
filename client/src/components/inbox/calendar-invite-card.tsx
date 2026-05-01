@@ -1,13 +1,10 @@
-// Spark-style rich calendar-invite block.
+// Spark/Superhuman-style rich calendar-invite block.
 //
 // Rendered ABOVE the email body whenever the message has a text/calendar
-// attachment. Shows a date badge, event title, full date/time range with
-// timezone, optional Join meeting button (Teams/Zoom/Meet/Webex/etc), and
-// an attendee strip with response indicators.
+// attachment. Shows a compact date badge, event title, date/time range,
+// optional Join meeting button, and an attendee strip with response indicators.
 //
-// Data is fetched lazily from /api/gmail/attachments/:id/calendar-invite
-// (the parent passes the attachment DB id, NOT the message id, so the same
-// endpoint handles every kind of invite the inbox might encounter).
+// Data is fetched lazily from /api/gmail/attachments/:id/calendar-invite.
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -23,12 +20,11 @@ import {
   Repeat,
   AlertCircle,
   ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-// Cap the visible attendee strip — anything beyond this hides behind a
-// "+N more" expand. Picked at 8 because that's roughly the point at which
-// the chip row starts wrapping to a second line on a 720-wide thread pane.
+// Cap the visible attendee strip at 8 before collapsing to "+N more".
 const ATTENDEE_COLLAPSED_COUNT = 8;
 
 interface CalendarAttendee {
@@ -59,8 +55,7 @@ interface CalendarEventDetails {
 const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DOW_SHORT = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 
-// Deterministic gradient picker so the same email always lands on the same
-// avatar colour across renders / threads.
+// Deterministic avatar gradient — same email always gets the same colour.
 function avatarColor(email: string) {
   const palette = [
     "from-rose-500 to-rose-700",
@@ -84,10 +79,12 @@ function initialsOf(name: string | null, email: string) {
   return src.slice(0, 2).toUpperCase();
 }
 
+function looksLikeUrl(s: string) {
+  return /^https?:\/\//i.test(s.trim());
+}
+
 interface CalendarInviteCardProps {
-  /** email_attachments.id of the .ics row */
   attachmentId: number;
-  /** Helps us scope the test ids to a particular message */
   messageKey?: string | number;
 }
 
@@ -104,28 +101,27 @@ export function CalendarInviteCard({ attachmentId, messageKey }: CalendarInviteC
   if (isLoading) {
     return (
       <div
-        className="my-3 mx-5 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 flex items-center gap-2 text-xs text-muted-foreground"
+        className="my-2 mx-5 rounded-xl border border-primary/15 bg-primary/4 px-4 py-2.5 flex items-center gap-2 text-[11px] text-muted-foreground/70"
         data-testid={`card-calendar-invite-loading-${testKey}`}
       >
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
         Loading calendar invite…
       </div>
     );
   }
-  // Soft error: the body still renders right below us, so we don't want to
-  // hijack the email view with a giant alert. A subtle dimmed line keeps
-  // the existence of an attached invite visible without screaming.
+
   if (isError) {
     return (
       <div
-        className="my-3 mx-5 rounded-md border border-border/30 bg-muted/30 px-3 py-2 flex items-center gap-2 text-[11px] text-muted-foreground"
+        className="my-2 mx-5 rounded-lg border border-border/25 bg-muted/20 px-3 py-2 flex items-center gap-2 text-[10.5px] text-muted-foreground/55"
         data-testid={`card-calendar-invite-error-${testKey}`}
       >
-        <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
-        Calendar invite couldn't be parsed — you can still download the .ics from the attachments below.
+        <AlertCircle className="h-3 w-3 flex-shrink-0 opacity-70" />
+        Calendar invite couldn't be parsed — download the .ics from attachments below.
       </div>
     );
   }
+
   if (!data) return null;
 
   const start = data.start ? new Date(data.start) : null;
@@ -141,105 +137,134 @@ export function CalendarInviteCard({ attachmentId, messageKey }: CalendarInviteC
 
   return (
     <div
-      className={`my-3 mx-5 rounded-xl border overflow-hidden shadow-sm ${
+      className={`my-2 mx-5 rounded-xl border overflow-hidden ${
         isCancelled
-          ? "border-destructive/30 bg-destructive/5"
-          : "border-primary/30 bg-gradient-to-br from-primary/8 via-primary/4 to-background"
+          ? "border-destructive/25 bg-destructive/4"
+          : "border-border/50 bg-card/50"
       }`}
       data-testid={`card-calendar-invite-${testKey}`}
     >
-      <div className="px-4 py-3 sm:px-5 sm:py-4 flex items-start gap-4">
-        {/* Date badge */}
+      <div className="px-4 py-3 sm:px-5 flex items-start gap-3.5">
+        {/* ── Compact date badge ── */}
         {start && (
-          <div className="flex-shrink-0 w-14 sm:w-16 rounded-lg overflow-hidden border border-border/40 bg-background shadow-sm text-center">
-            <div className="bg-primary/15 text-primary text-[10px] font-bold uppercase tracking-wider py-1">
+          <div
+            className="flex-shrink-0 w-11 rounded-lg overflow-hidden border border-border/35 bg-background text-center shadow-sm"
+            aria-label={`${MONTHS_SHORT[start.getMonth()]} ${start.getDate()}`}
+          >
+            <div className="bg-primary/10 text-primary text-[9px] font-bold uppercase tracking-wider py-0.5">
               {MONTHS_SHORT[start.getMonth()]}
             </div>
-            <div className="py-1.5">
-              <div className="text-2xl sm:text-3xl font-bold leading-none tabular-nums" data-testid={`text-invite-day-${testKey}`}>
+            <div className="py-1">
+              <div
+                className="text-[20px] font-bold leading-none tabular-nums text-foreground"
+                data-testid={`text-invite-day-${testKey}`}
+              >
                 {start.getDate()}
               </div>
-              <div className="text-[10px] text-muted-foreground/70 mt-0.5 font-medium">
+              <div className="text-[9px] text-muted-foreground/60 mt-0.5 font-medium">
                 {DOW_SHORT[start.getDay()]}
               </div>
             </div>
           </div>
         )}
-        {/* Title + meta */}
-        <div className="flex-1 min-w-0 space-y-1.5">
-          <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider font-semibold">
-            <Calendar className="h-3 w-3 text-primary/80" />
-            <span className="text-primary/85">
+
+        {/* ── Title + meta ── */}
+        <div className="flex-1 min-w-0 space-y-1">
+          {/* Type label row */}
+          <div className="flex items-center gap-1.5 text-[9.5px] uppercase tracking-wider font-semibold text-muted-foreground/60">
+            <Calendar className="h-2.5 w-2.5 flex-shrink-0" aria-hidden="true" />
+            <span className={isCancelled ? "text-destructive/70" : "text-primary/70"}>
               {isCancelled ? "Cancelled invitation" : "Calendar invitation"}
             </span>
             {data.rrule && (
-              <span className="inline-flex items-center gap-0.5 text-muted-foreground/65 normal-case tracking-normal">
-                <Repeat className="h-3 w-3" /> Recurring
+              <span className="inline-flex items-center gap-0.5 normal-case tracking-normal text-muted-foreground/50 font-normal">
+                <Repeat className="h-2.5 w-2.5" aria-hidden="true" /> Recurring
               </span>
             )}
           </div>
+
+          {/* Event title */}
           <h3
-            className={`text-base sm:text-lg font-semibold leading-tight tracking-tight ${
-              isCancelled ? "line-through text-muted-foreground" : "text-foreground"
+            className={`text-[14.5px] font-semibold leading-snug tracking-tight ${
+              isCancelled ? "line-through text-muted-foreground/60" : "text-foreground"
             }`}
             data-testid={`text-invite-summary-${testKey}`}
           >
             {data.summary}
           </h3>
+
+          {/* Date / time */}
           {start && (
-            <div className="flex items-start gap-1.5 text-[12px] text-foreground/80">
-              <Clock className="h-3.5 w-3.5 text-muted-foreground/65 flex-shrink-0 mt-0.5" />
-              <span data-testid={`text-invite-when-${testKey}`}>
+            <div className="flex items-start gap-1 text-[11.5px] text-foreground/75">
+              <Clock className="h-3 w-3 text-muted-foreground/50 flex-shrink-0 mt-[1px]" aria-hidden="true" />
+              <span data-testid={`text-invite-when-${testKey}`} className="leading-snug">
                 {fmtFullDate(start)}
                 {!data.allDay && (
                   <>
                     {" · "}
                     {fmtTime(start)}
                     {end && (sameDay ? ` – ${fmtTime(end)}` : ` – ${fmtFullDate(end)} ${fmtTime(end)}`)}
-                    <span className="text-muted-foreground/55"> ({tz})</span>
+                    <span className="text-muted-foreground/45 text-[10.5px]"> {tz}</span>
                   </>
                 )}
               </span>
             </div>
           )}
+
+          {/* Location (separate from joinUrl) */}
           {data.location && data.location !== data.joinUrl && (
-            <div className="flex items-start gap-1.5 text-[12px] text-foreground/80">
-              <MapPin className="h-3.5 w-3.5 text-muted-foreground/65 flex-shrink-0 mt-0.5" />
-              <span className="break-all">{data.location}</span>
+            <div className="flex items-start gap-1 text-[11.5px] text-foreground/75">
+              <MapPin className="h-3 w-3 text-muted-foreground/50 flex-shrink-0 mt-[1px]" aria-hidden="true" />
+              {looksLikeUrl(data.location) ? (
+                <a
+                  href={data.location}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="break-all text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded"
+                >
+                  {data.location}
+                </a>
+              ) : (
+                <span className="break-words leading-snug">{data.location}</span>
+              )}
             </div>
           )}
+
+          {/* Join / no-link area */}
           {data.joinUrl ? (
-            <div className="pt-1">
+            <div className="pt-0.5">
               <Button
                 asChild
                 size="sm"
-                className="gap-1.5 h-7 text-[12px] font-medium"
+                className="h-6 px-2.5 gap-1 text-[11.5px] font-medium"
                 data-testid={`button-join-meeting-${testKey}`}
+                aria-label="Join meeting"
               >
-                <a href={data.joinUrl} target="_blank" rel="noopener noreferrer">
-                  <Video className="h-3.5 w-3.5" />
+                <a
+                  href={data.joinUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                >
+                  <Video className="h-3 w-3" aria-hidden="true" />
                   Join meeting
                 </a>
               </Button>
             </div>
           ) : (!data.location && !isCancelled) ? (
-            // Fallback hint: when the invite has neither a conference URL nor
-            // a physical location, surface that explicitly so the recipient
-            // doesn't think we just failed to find the link.
             <div
-              className="flex items-center gap-1.5 text-[11px] text-muted-foreground/65 italic pt-0.5"
+              className="flex items-center gap-1 text-[10.5px] text-muted-foreground/45 pt-0.5"
               data-testid={`text-invite-no-link-${testKey}`}
             >
-              <Video className="h-3 w-3 opacity-60" />
-              No conference link or location provided
+              <MapPin className="h-2.5 w-2.5 opacity-50" aria-hidden="true" />
+              No location or conference link
             </div>
           ) : null}
         </div>
       </div>
-      {/* Attendees */}
+
+      {/* ── Attendees strip ── */}
       {data.attendees.length > 0 && (() => {
-        // Aggregate response counts across all attendees so the header line
-        // gives a quick "12 accepted · 2 declined · 4 pending" summary.
         const counts = data.attendees.reduce(
           (acc, a) => {
             const k = (a.partstat || "").toUpperCase();
@@ -251,75 +276,76 @@ export function CalendarInviteCard({ attachmentId, messageKey }: CalendarInviteC
           },
           { accepted: 0, declined: 0, tentative: 0, pending: 0 },
         );
-        const totalRespondedShown =
-          counts.accepted || counts.declined || counts.tentative;
-        const showAllAttendees =
-          attendeesExpanded || data.attendees.length <= ATTENDEE_COLLAPSED_COUNT;
+        const hasResponses = counts.accepted + counts.declined + counts.tentative > 0;
+        const showAllAttendees = attendeesExpanded || data.attendees.length <= ATTENDEE_COLLAPSED_COUNT;
         const visibleAttendees = showAllAttendees
           ? data.attendees
           : data.attendees.slice(0, ATTENDEE_COLLAPSED_COUNT);
-        const hiddenAttendeeCount =
-          data.attendees.length - visibleAttendees.length;
+        const hiddenAttendeeCount = data.attendees.length - visibleAttendees.length;
 
         return (
-          <div className="border-t border-border/30 bg-background/40 px-4 py-3 sm:px-5">
-            <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 text-[10px] uppercase tracking-wider font-semibold text-muted-foreground/65 mb-2">
-              <span className="inline-flex items-center gap-1.5">
-                <Users className="h-3 w-3" />
+          <div className="border-t border-border/25 bg-background/25 px-4 py-2.5 sm:px-5">
+            {/* Summary header */}
+            <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0.5 mb-1.5">
+              <span className="inline-flex items-center gap-1 text-[9.5px] uppercase tracking-wider font-semibold text-muted-foreground/55">
+                <Users className="h-2.5 w-2.5" aria-hidden="true" />
                 <span data-testid={`text-attendee-count-${testKey}`}>
                   {data.attendees.length} attendee{data.attendees.length === 1 ? "" : "s"}
                 </span>
               </span>
-              {totalRespondedShown > 0 && (
+              {hasResponses && (
                 <span
-                  className="normal-case tracking-normal text-muted-foreground/55 font-normal"
+                  className="text-[10px] text-muted-foreground/50"
                   data-testid={`text-attendee-summary-${testKey}`}
                 >
                   ·
-                  {counts.accepted > 0 && <span className="ml-1 text-emerald-500/90">{counts.accepted} yes</span>}
-                  {counts.declined > 0 && <span className="ml-1 text-rose-500/90">{counts.declined} no</span>}
-                  {counts.tentative > 0 && <span className="ml-1 text-amber-500/90">{counts.tentative} maybe</span>}
-                  {counts.pending > 0 && <span className="ml-1 text-muted-foreground/55">{counts.pending} pending</span>}
+                  {counts.accepted > 0 && <span className="ml-1 text-emerald-500/80">{counts.accepted} yes</span>}
+                  {counts.declined > 0 && <span className="ml-1 text-rose-500/80">{counts.declined} no</span>}
+                  {counts.tentative > 0 && <span className="ml-1 text-amber-500/80">{counts.tentative} maybe</span>}
+                  {counts.pending > 0 && <span className="ml-1 text-muted-foreground/45">{counts.pending} pending</span>}
                 </span>
               )}
               {data.organizer && (
-                <span className="normal-case tracking-normal text-muted-foreground/50 font-normal">
-                  · organizer {data.organizer.name || data.organizer.email}
+                <span className="text-[10px] text-muted-foreground/40">
+                  · organizer: {data.organizer.name || data.organizer.email}
                 </span>
               )}
             </div>
-            <div className="flex flex-wrap gap-1.5">
+
+            {/* Chip list */}
+            <div className="flex flex-wrap gap-1">
               {visibleAttendees.map((a) => {
-                const isOrganizer =
-                  !!data.organizer?.email && a.email === data.organizer.email;
+                const isOrganizer = !!data.organizer?.email && a.email === data.organizer.email;
                 const partstat = (a.partstat || "").toUpperCase();
                 const indicator =
-                  partstat === "ACCEPTED"  ? <Check className="h-2.5 w-2.5 text-emerald-400" /> :
-                  partstat === "DECLINED"  ? <X className="h-2.5 w-2.5 text-rose-400" /> :
-                  partstat === "TENTATIVE" ? <HelpCircle className="h-2.5 w-2.5 text-amber-400" /> :
+                  partstat === "ACCEPTED"  ? <Check className="h-2.5 w-2.5 text-emerald-400 flex-shrink-0" aria-label="Accepted" /> :
+                  partstat === "DECLINED"  ? <X className="h-2.5 w-2.5 text-rose-400 flex-shrink-0" aria-label="Declined" /> :
+                  partstat === "TENTATIVE" ? <HelpCircle className="h-2.5 w-2.5 text-amber-400 flex-shrink-0" aria-label="Tentative" /> :
                   null;
                 return (
                   <a
                     key={a.email}
                     href={`mailto:${a.email}`}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-card/60 border border-border/30 pl-1 pr-2 py-0.5 hover:border-primary/40 hover:bg-card/90 transition-colors no-underline"
+                    className="inline-flex items-center gap-1 rounded-full bg-card/70 border border-border/30 pl-0.5 pr-1.5 py-0.5 hover:border-primary/35 hover:bg-card/90 transition-colors no-underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
                     title={
                       `${a.name || a.email}` +
                       (a.name && a.email !== a.name ? ` <${a.email}>` : "") +
                       (partstat ? ` · ${partstat}` : "")
                     }
                     data-testid={`chip-attendee-${testKey}-${a.email}`}
+                    aria-label={`${a.name || a.email}${partstat ? `, ${partstat}` : ""}`}
                   >
                     <div
-                      className={`h-4 w-4 rounded-full bg-gradient-to-br ${avatarColor(a.email)} text-[8px] font-bold text-white flex items-center justify-center select-none ring-1 ring-black/5`}
+                      className={`h-3.5 w-3.5 rounded-full bg-gradient-to-br ${avatarColor(a.email)} text-[7px] font-bold text-white flex items-center justify-center select-none ring-1 ring-black/5`}
+                      aria-hidden="true"
                     >
                       {initialsOf(a.name, a.email)}
                     </div>
-                    <span className="text-[11px] font-medium text-foreground/85 max-w-[160px] truncate">
-                      {a.name || a.email}
+                    <span className="text-[10.5px] font-medium text-foreground/80 max-w-[140px] truncate">
+                      {a.name || a.email.split("@")[0]}
                     </span>
                     {isOrganizer && (
-                      <span className="text-[8.5px] uppercase tracking-wider font-semibold text-primary/80">
+                      <span className="text-[8px] uppercase tracking-wider font-semibold text-primary/65 leading-none">
                         org
                       </span>
                     )}
@@ -327,24 +353,27 @@ export function CalendarInviteCard({ attachmentId, messageKey }: CalendarInviteC
                   </a>
                 );
               })}
+
               {hiddenAttendeeCount > 0 && (
                 <button
                   type="button"
                   onClick={() => setAttendeesExpanded(true)}
-                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary/85 hover:bg-primary/20 transition-colors px-2.5 py-0.5 text-[11px] font-medium"
+                  className="inline-flex items-center gap-0.5 rounded-full text-primary/70 hover:text-primary hover:bg-primary/8 transition-colors px-2 py-0.5 text-[10.5px] font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
                   data-testid={`button-expand-attendees-${testKey}`}
                 >
                   +{hiddenAttendeeCount} more
-                  <ChevronDown className="h-3 w-3" />
+                  <ChevronDown className="h-2.5 w-2.5" aria-hidden="true" />
                 </button>
               )}
+
               {attendeesExpanded && data.attendees.length > ATTENDEE_COLLAPSED_COUNT && (
                 <button
                   type="button"
                   onClick={() => setAttendeesExpanded(false)}
-                  className="inline-flex items-center rounded-full text-muted-foreground/60 hover:text-foreground transition-colors px-2.5 py-0.5 text-[11px]"
+                  className="inline-flex items-center gap-0.5 rounded-full text-muted-foreground/50 hover:text-foreground transition-colors px-2 py-0.5 text-[10.5px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
                   data-testid={`button-collapse-attendees-${testKey}`}
                 >
+                  <ChevronUp className="h-2.5 w-2.5" aria-hidden="true" />
                   Show less
                 </button>
               )}
