@@ -64,15 +64,21 @@ interface VerboseTranscription {
  * Attempt a single transcription call. Returns null on failure instead of throwing
  * so the caller can try the next fallback.
  */
+const MIME_TYPES: Record<"wav" | "mp3" | "webm", string> = {
+  wav:  "audio/wav",
+  mp3:  "audio/mpeg",
+  webm: "audio/webm",
+};
+
 async function tryTranscribe(
   client: OpenAI,
   audioBuffer: Buffer,
-  format: "wav" | "mp3",
+  format: "wav" | "mp3" | "webm",
   model: string,
   useVerbose: boolean,
 ): Promise<VerboseTranscription | null> {
   try {
-    const mimeType = format === "wav" ? "audio/wav" : "audio/mpeg";
+    const mimeType = MIME_TYPES[format] ?? "audio/webm";
     const file = await toFile(audioBuffer, `audio.${format}`, { type: mimeType });
 
     if (useVerbose) {
@@ -155,7 +161,7 @@ export async function transcribeMeetingNote(noteId: number): Promise<void> {
   // ── Convert audio ────────────────────────────────────────────────────────
 
   let audioBuffer: Buffer;
-  let format: "wav" | "mp3";
+  let format: "wav" | "mp3" | "webm";
 
   try {
     const raw = await fs.readFile(filePath);
@@ -276,7 +282,7 @@ async function markError(noteId: number, error: string): Promise<void> {
   try {
     await db
       .update(meetingNotes)
-      .set({ processingError: error, updatedAt: new Date() })
+      .set({ status: "failed", processingError: error, updatedAt: new Date() })
       .where(eq(meetingNotes.id, noteId));
   } catch (dbErr: unknown) {
     console.error(

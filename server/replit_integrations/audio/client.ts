@@ -91,16 +91,19 @@ export async function convertToWav(audioBuffer: Buffer): Promise<Buffer> {
 
 /**
  * Auto-detect and convert audio to OpenAI-compatible format.
- * - WAV/MP3: Pass through (already compatible)
- * - WebM/MP4/OGG: Convert to WAV via ffmpeg
+ * - WAV/MP3/WebM: Pass through (Whisper API supports all three natively)
+ * - MP4/OGG/unknown: Convert to WAV via ffmpeg (requires ffmpeg on server)
  */
 export async function ensureCompatibleFormat(
   audioBuffer: Buffer
-): Promise<{ buffer: Buffer; format: "wav" | "mp3" }> {
+): Promise<{ buffer: Buffer; format: "wav" | "mp3" | "webm" }> {
   const detected = detectAudioFormat(audioBuffer);
   if (detected === "wav") return { buffer: audioBuffer, format: "wav" };
   if (detected === "mp3") return { buffer: audioBuffer, format: "mp3" };
-  // Convert WebM, MP4, OGG, or unknown to WAV
+  // WebM (browser recording) — OpenAI Whisper natively supports webm/opus.
+  // Pass through directly; no ffmpeg needed.
+  if (detected === "webm") return { buffer: audioBuffer, format: "webm" };
+  // For MP4/OGG/unknown fall back to ffmpeg conversion.
   const wavBuffer = await convertToWav(audioBuffer);
   return { buffer: wavBuffer, format: "wav" };
 }
