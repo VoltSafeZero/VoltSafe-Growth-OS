@@ -99,6 +99,7 @@ import {
   buildZoomAuthorizationUrl, exchangeZoomCodeForTokens, fetchZoomUserProfile, upsertZoomConnection,
 } from "./services/zoom-service";
 import { createZoomMeetingForBooking } from "./services/zoom-meeting-service";
+import { generateICalString } from "./services/ical-generator";
 import {
   listBookingLinks, getBookingLink, createBookingLink, updateBookingLink,
   listRecipients, addRecipient, revokeRecipient, resolvePublicToken,
@@ -6356,13 +6357,14 @@ export async function registerRoutes(
       const invitees = (event.invitees ?? []).filter(Boolean);
       if (invitees.length === 0) return res.json({ sent: 0, total: 0 });
       const startDate = new Date(event.startTime);
-      const endDate = event.endTime ? new Date(event.endTime) : null;
+      const endDate = event.endTime ? new Date(event.endTime) : new Date(startDate.getTime() + 60 * 60_000);
       const tzNote = event.timeZone ? ` (${event.timeZone})` : "";
       const dateStr = startDate.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
       const timeStr = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-        + (endDate ? ` – ${endDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : "")
+        + ` – ${endDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
         + tzNote;
       const zoomUrl = event.meetingUrl && /zoom\.us/i.test(event.meetingUrl) ? event.meetingUrl : null;
+      const locationLine = zoomUrl ? zoomUrl : (event.location ?? "");
       const html = `<div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#222;">
   <h2 style="margin-bottom:4px;">${event.title}</h2>
   <p style="color:#555;margin:4px 0;"><strong>Date:</strong> ${dateStr}</p>
@@ -6370,11 +6372,35 @@ export async function registerRoutes(
   ${event.location && !zoomUrl ? `<p style="color:#555;margin:4px 0;"><strong>Location:</strong> ${event.location}</p>` : ""}
   ${zoomUrl ? `<p style="margin:16px 0;"><a href="${zoomUrl}" style="background:#2D8CFF;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">Join Zoom Meeting</a></p><p style="color:#888;font-size:12px;margin:0;">Or copy link: <a href="${zoomUrl}" style="color:#2D8CFF;">${zoomUrl}</a></p>` : ""}
   ${event.description ? `<p style="margin-top:16px;color:#444;white-space:pre-line;">${event.description}</p>` : ""}
+  <hr style="border:none;border-top:1px solid #eee;margin:20px 0;"/>
+  <p style="color:#888;font-size:12px;">A calendar invite (.ics) is attached — accept it to add this event to your calendar.</p>
 </div>`;
+
+      // Build the iCal string once — shared across all invitees (each gets their own ATTENDEE line).
+      let icalContent: string | undefined;
+      try {
+        const profile = await getProfile(userId);
+        const organizerEmail = profile.emailAddress || `user-${userId}@voltsafe.com`;
+        const organizerName = profile.displayName || organizerEmail;
+        icalContent = generateICalString({
+          uid: `event-${event.id}-${Date.now()}@voltsafe.com`,
+          summary: event.title,
+          description: event.description ?? undefined,
+          location: locationLine || undefined,
+          startTime: startDate,
+          endTime: endDate,
+          organizer: { name: organizerName, email: organizerEmail },
+          attendees: invitees.map((e) => ({ email: e })),
+        });
+      } catch (icalErr: any) {
+        console.warn("[send-invites] iCal generation failed (non-fatal):", icalErr.message);
+      }
+
       let sent = 0;
       for (const email of invitees) {
         try {
-          await sendEmail(userId, email, `Invitation: ${event.title}`, html);
+          await sendEmail(userId, email, `Invitation: ${event.title}`, html,
+            undefined, [], undefined, undefined, undefined, icalContent);
           sent++;
         } catch (err: any) {
           console.warn(`[send-invites] Failed to send to ${email}: ${err.message}`);
@@ -11427,7 +11453,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     // View-only shared-mailbox grants cannot send under any circumstance.
     if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
     try {
-      const { to, subject, body, threadId, attachmentIds, cc, bcc, enableTracking } = req.body;
+      const { to, subject, body, threadId, attachmentIds, cc, bcc, enableTracking, icalContent } = req.body;
       if (!to || !body) {
         return res.status(400).json({ message: "to and body are required" });
       }
@@ -11492,7 +11518,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         const result = await sendEmail(
           resolved.userId, to, subject || "", trackedBody,
           threadId, mimeAttachments, resolved.accountId,
-          cc || undefined, bcc || undefined
+          cc || undefined, bcc || undefined, icalContent || undefined
         );
 
         if (trackingEnabled && !trackingFailed && result?.id) {
@@ -11562,7 +11588,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           const result = await sendEmail(
             resolved.userId, r.email, subject || "", perBody,
             firstThreadId || undefined, mimeAttachments, resolved.accountId,
-            undefined, undefined
+            undefined, undefined, icalContent || undefined
           );
           if (!firstThreadId && result?.threadId) firstThreadId = String(result.threadId);
 
@@ -23822,18 +23848,46 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const userId = req.session.userId as number;
       if (!isZoomConfigured()) return res.status(503).json({ message: "Zoom OAuth is not configured on this server." });
-      const { topic, startTime, durationMinutes, agenda } = req.body as {
+      const { topic, startTime, durationMinutes, agenda, attendeeEmails, timezone } = req.body as {
         topic?: string; startTime?: string; durationMinutes?: number; agenda?: string;
+        attendeeEmails?: string[]; timezone?: string;
       };
       if (!startTime) return res.status(400).json({ message: "startTime is required" });
+      const start = new Date(startTime);
+      const dur = durationMinutes ?? 30;
+      const end = new Date(start.getTime() + dur * 60_000);
       const zoom = await createZoomMeetingForBooking(userId, {
         topic: topic || "Meeting",
-        startTime: new Date(startTime),
-        durationMinutes: durationMinutes ?? 30,
+        startTime: start,
+        durationMinutes: dur,
         agenda,
       });
       if (!zoom) return res.status(503).json({ message: "Could not create Zoom meeting — make sure your Zoom account is connected in Settings." });
-      res.json({ joinUrl: zoom.joinUrl, meetingId: zoom.meetingId });
+
+      // Build iCal invite so the email client shows Accept / Decline buttons.
+      let icalContent: string | null = null;
+      try {
+        const profile = await getProfile(userId);
+        const organizerEmail = profile.emailAddress || `user-${userId}@voltsafe.com`;
+        const organizerName = profile.displayName || organizerEmail;
+        const attendees = (attendeeEmails ?? [])
+          .filter(Boolean)
+          .map((e) => ({ email: e.trim() }));
+        icalContent = generateICalString({
+          uid: `zoom-${zoom.meetingId}-${Date.now()}@voltsafe.com`,
+          summary: topic || "Meeting",
+          description: agenda ?? `Join Zoom: ${zoom.joinUrl}`,
+          location: zoom.joinUrl,
+          startTime: start,
+          endTime: end,
+          organizer: { name: organizerName, email: organizerEmail },
+          attendees,
+        });
+      } catch (icalErr: any) {
+        console.warn("[zoom/meetings] iCal generation failed (non-fatal):", icalErr.message);
+      }
+
+      res.json({ joinUrl: zoom.joinUrl, meetingId: zoom.meetingId, icalContent });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

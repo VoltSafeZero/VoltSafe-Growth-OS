@@ -152,7 +152,8 @@ function buildMimeRaw(
   body: string,
   attachments: MimeAttachment[] = [],
   cc?: string,
-  bcc?: string
+  bcc?: string,
+  icalContent?: string,
 ): string {
   const R = "\r\n";
   const plainText = body
@@ -186,8 +187,13 @@ function buildMimeRaw(
   if (cc) extraHeaders.push(`Cc: ${cc}`);
   if (bcc) extraHeaders.push(`Bcc: ${bcc}`);
 
+  // iCal invite present → must use multipart/mixed so email clients show RSVP buttons.
+  // We embed it as an inline text/calendar part (triggers Gmail/Outlook RSVP UI) AND
+  // as an application/ics attachment (for Apple Mail and other clients).
+  const needsMixed = attachments.length > 0 || !!icalContent;
+
   let lines: string[];
-  if (attachments.length === 0) {
+  if (!needsMixed) {
     lines = [
       `From: ${from}`,
       `To: ${to}`,
@@ -212,6 +218,39 @@ function buildMimeRaw(
         "",
       ].join(R);
     });
+
+    const icalParts: string[] = [];
+    if (icalContent) {
+      const icalB64 = Buffer.from(icalContent, "utf-8")
+        .toString("base64")
+        .match(/.{1,76}/g)
+        ?.join(R) ?? "";
+      // Inline text/calendar triggers RSVP in Gmail and Outlook.
+      icalParts.push(
+        [
+          `--${outerBoundary}`,
+          `Content-Type: text/calendar; method=REQUEST; charset=UTF-8`,
+          "Content-Transfer-Encoding: base64",
+          "Content-Disposition: inline",
+          "",
+          icalB64,
+          "",
+        ].join(R),
+      );
+      // .ics attachment for Apple Mail / older clients.
+      icalParts.push(
+        [
+          `--${outerBoundary}`,
+          `Content-Type: application/ics; name="invite.ics"`,
+          "Content-Transfer-Encoding: base64",
+          `Content-Disposition: attachment; filename="invite.ics"`,
+          "",
+          icalB64,
+          "",
+        ].join(R),
+      );
+    }
+
     lines = [
       `From: ${from}`,
       `To: ${to}`,
@@ -225,6 +264,7 @@ function buildMimeRaw(
       "",
       altPart,
       "",
+      ...icalParts,
       ...attachParts,
       `--${outerBoundary}--`,
     ];
@@ -246,12 +286,13 @@ export async function sendEmail(
   attachments: MimeAttachment[] = [],
   accountId?: number,
   cc?: string,
-  bcc?: string
+  bcc?: string,
+  icalContent?: string,
 ) {
   const gmail = await getGmailClient(userId, accountId);
   const profileRes = await gmail.users.getProfile({ userId: "me" });
   const from = profileRes.data.emailAddress!;
-  const raw = buildMimeRaw(from, to, subject, body, attachments, cc, bcc);
+  const raw = buildMimeRaw(from, to, subject, body, attachments, cc, bcc, icalContent);
   const params: any = { userId: "me", requestBody: { raw } };
   if (threadId) params.requestBody.threadId = threadId;
   const res = await gmail.users.messages.send(params);

@@ -360,26 +360,38 @@ function ComposeDialog({
   }
   const [zoomStartTime, setZoomStartTime] = useState(defaultZoomStart);
   const [zoomDuration, setZoomDuration] = useState("30");
+  const [pendingIcal, setPendingIcal] = useState<string | null>(null);
   const zoomMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/zoom/meetings", {
-      topic: subject || "Meeting",
-      startTime: new Date(zoomStartTime).toISOString(),
-      durationMinutes: Number(zoomDuration),
-    }),
+    mutationFn: () => {
+      const attendeeEmails = to
+        ? to.split(",").map((e) => e.trim().replace(/^.*<|>.*$/g, "")).filter(Boolean)
+        : [];
+      return apiRequest("POST", "/api/zoom/meetings", {
+        topic: subject || "Meeting",
+        startTime: new Date(zoomStartTime).toISOString(),
+        durationMinutes: Number(zoomDuration),
+        attendeeEmails,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
+    },
     onSuccess: async (res) => {
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         toast({ title: "Could not create Zoom meeting", description: (err as any).message, variant: "destructive" });
         return;
       }
-      const data = await res.json() as { joinUrl: string };
+      const data = await res.json() as { joinUrl: string; meetingId?: string; icalContent?: string };
       const startDate = new Date(zoomStartTime);
       const dateStr = startDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
       const timeStr = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-      const insert = `\n\nI'd like to invite you to a Zoom meeting.\n📅 ${dateStr} at ${timeStr} (${zoomDuration} min)\n🔗 Join Zoom Meeting: ${data.joinUrl}`;
+      const insert = `\n\nYou're invited to a Zoom meeting.\n📅 ${dateStr} at ${timeStr} (${zoomDuration} min)\n🔗 Join Zoom Meeting: ${data.joinUrl}`;
       setBody((prev) => (prev || "") + insert);
+      if (data.icalContent) setPendingIcal(data.icalContent);
       setShowZoomPanel(false);
-      toast({ title: "Zoom meeting created", description: "Join link added to your email." });
+      toast({
+        title: "Zoom meeting created",
+        description: data.icalContent ? "Join link added. Calendar invite will be sent with the email." : "Join link added to your email.",
+      });
     },
     onError: () => toast({ title: "Network error — please try again", variant: "destructive" }),
   });
@@ -494,6 +506,7 @@ function ComposeDialog({
         ...(bcc ? { bcc } : {}),
         attachmentIds: attachedAssets.map((a) => a.id),
         ...(asAccountId ? { asAccountId } : {}),
+        ...(pendingIcal ? { icalContent: pendingIcal } : {}),
       });
       return res.json();
     },
@@ -558,6 +571,7 @@ function ComposeDialog({
         to, subject, body: htmlBody, threadId, scheduledAt,
         ...(cc ? { cc } : {}),
         ...(bcc ? { bcc } : {}),
+        ...(pendingIcal ? { icalContent: pendingIcal } : {}),
       });
       return res.json();
     },
@@ -649,6 +663,21 @@ function ComposeDialog({
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+
+          {pendingIcal && !showZoomPanel && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#2D8CFF]/10 border border-[#2D8CFF]/30 rounded-md">
+              <CalendarClock className="h-3.5 w-3.5 text-[#2D8CFF] flex-shrink-0" />
+              <span className="text-xs text-[#2D8CFF] font-medium flex-1">Calendar invite (.ics) will be sent with this email</span>
+              <button
+                onClick={() => setPendingIcal(null)}
+                className="text-[#2D8CFF]/60 hover:text-[#2D8CFF]"
+                title="Remove calendar invite"
+                data-testid="button-remove-ical"
+              >
+                <X className="h-3 w-3" />
+              </button>
             </div>
           )}
 
