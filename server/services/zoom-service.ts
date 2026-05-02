@@ -62,6 +62,7 @@ export function buildZoomAuthorizationUrl(state: string): string {
     response_type: "code",
     client_id: clientId,
     redirect_uri: redirectUri,
+    scope: "meeting:write:meeting meeting:read:meeting user:read:user",
     state,
   });
   return `https://zoom.us/oauth/authorize?${params.toString()}`;
