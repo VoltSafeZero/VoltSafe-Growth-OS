@@ -28,7 +28,8 @@ import {
   AlertCircle, Clock, Settings2, Apple, ChevronLeft, FlaskConical,
   CalendarCheck, ShieldAlert, Users, WifiOff, Wifi,
 } from "lucide-react";
-import { SiGooglecalendar } from "react-icons/si";
+import { SiGooglecalendar, SiZoom } from "react-icons/si";
+import { useLocation } from "wouter";
 import { startRegistration } from "@simplewebauthn/browser";
 import { formatDistanceToNow } from "date-fns";
 
@@ -36,6 +37,14 @@ type Credential = {
   id: number;
   deviceName: string | null;
   createdAt: string;
+};
+
+type ZoomConnection = {
+  connected: boolean;
+  configured: boolean;
+  zoomEmail: string | null;
+  zoomAccountType: string | null;
+  connectedAt: string | null;
 };
 
 type CalendarConnection = {
@@ -753,6 +762,7 @@ function TeamCalendarHealthSection() {
 
 export default function SettingsPage() {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(true);
   const [registering, setRegistering] = useState(false);
@@ -760,6 +770,7 @@ export default function SettingsPage() {
   const [supported, setSupported] = useState(false);
   const [caldavDialog, setCaldavDialog] = useState<"apple" | "caldav" | null>(null);
   const [syncingId, setSyncingId] = useState<number | null>(null);
+  const [zoomConnecting, setZoomConnecting] = useState(false);
 
   useEffect(() => {
     setSupported(
@@ -783,6 +794,58 @@ export default function SettingsPage() {
   // Calendar integrations
   const { data: integrations = [], isLoading: integrationsLoading } = useQuery<CalendarConnection[]>({
     queryKey: ["/api/calendar/integrations"],
+  });
+
+  // Zoom connection status
+  const { data: zoomConn, isLoading: zoomLoading, refetch: refetchZoom } = useQuery<ZoomConnection>({
+    queryKey: ["/api/zoom/connection"],
+    queryFn: () => fetch("/api/zoom/connection", { credentials: "include" }).then((r) => r.json()),
+    staleTime: 30_000,
+  });
+
+  // Handle ?zoom=connected / ?zoom=error redirect after OAuth callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const zoomParam = params.get("zoom");
+    if (!zoomParam) return;
+    // Strip param from URL without triggering a re-render
+    const clean = window.location.pathname;
+    window.history.replaceState({}, "", clean);
+    if (zoomParam === "connected") {
+      refetchZoom();
+      toast({ title: "Zoom connected", description: "Your Zoom account is now linked." });
+    } else if (zoomParam === "cancelled") {
+      toast({ title: "Zoom connection cancelled", variant: "destructive" });
+    } else if (zoomParam === "error") {
+      const reason = params.get("reason") ?? "unknown";
+      toast({ title: "Zoom connection failed", description: `Reason: ${reason}`, variant: "destructive" });
+    }
+  }, []);
+
+  const handleZoomConnect = async () => {
+    setZoomConnecting(true);
+    try {
+      const res = await fetch("/api/zoom/oauth/start", { credentials: "include" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Cannot start Zoom connection", description: data.message, variant: "destructive" });
+        return;
+      }
+      // Full-page redirect to Zoom OAuth
+      window.location.href = data.authUrl;
+    } catch {
+      toast({ title: "Network error — please try again", variant: "destructive" });
+      setZoomConnecting(false);
+    }
+  };
+
+  const zoomDisconnectMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/zoom/disconnect", {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/zoom/connection"] });
+      toast({ title: "Zoom disconnected", description: "Your Zoom account has been unlinked." });
+    },
+    onError: () => toast({ title: "Disconnect failed", variant: "destructive" }),
   });
 
   const disconnectMutation = useMutation({
@@ -989,6 +1052,85 @@ export default function SettingsPage() {
           <div className="text-xs text-muted-foreground bg-muted/30 rounded-lg px-3 py-2 mt-2">
             Calendar sync imports events from the past 2 months and next 6 months. Syncing runs automatically in the background.
           </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Zoom Integration ──────────────────────────────────────────────── */}
+      <Card className="border-border/50">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#2D8CFF]/10 flex items-center justify-center">
+              <SiZoom className="h-5 w-5 text-[#2D8CFF]" />
+            </div>
+            <div>
+              <CardTitle className="text-lg">Zoom</CardTitle>
+              <CardDescription>
+                Connect your Zoom account to automatically create meetings when bookings are confirmed.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {zoomLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Checking connection…
+            </div>
+          ) : !zoomConn?.configured ? (
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-700 dark:text-amber-400">
+                Zoom OAuth is not configured on this server. Add <code className="font-mono text-xs bg-amber-500/10 px-1 rounded">ZOOM_CLIENT_ID</code>,{" "}
+                <code className="font-mono text-xs bg-amber-500/10 px-1 rounded">ZOOM_CLIENT_SECRET</code>, and{" "}
+                <code className="font-mono text-xs bg-amber-500/10 px-1 rounded">ZOOM_REDIRECT_URI</code> to Replit Secrets.
+              </p>
+            </div>
+          ) : zoomConn.connected ? (
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-8 h-8 rounded-full bg-[#2D8CFF]/10 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="h-4 w-4 text-[#2D8CFF]" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{zoomConn.zoomEmail ?? "Zoom account"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {zoomConn.zoomAccountType ? `${zoomConn.zoomAccountType} account · ` : ""}
+                    {zoomConn.connectedAt
+                      ? `Connected ${formatDistanceToNow(new Date(zoomConn.connectedAt), { addSuffix: true })}`
+                      : "Connected"}
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0 gap-1.5 text-destructive hover:text-destructive border-destructive/30 hover:bg-destructive/10"
+                onClick={() => zoomDisconnectMutation.mutate()}
+                disabled={zoomDisconnectMutation.isPending}
+                data-testid="button-zoom-disconnect"
+              >
+                {zoomDisconnectMutation.isPending
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <Link2Off className="h-3.5 w-3.5" />}
+                Disconnect
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-muted-foreground">Not connected — bookings will not create Zoom meetings.</p>
+              <Button
+                size="sm"
+                className="shrink-0 gap-1.5 bg-[#2D8CFF] hover:bg-[#2680f0] text-white border-0"
+                onClick={handleZoomConnect}
+                disabled={zoomConnecting}
+                data-testid="button-zoom-connect"
+              >
+                {zoomConnecting
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <SiZoom className="h-3.5 w-3.5" />}
+                Connect Zoom
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 

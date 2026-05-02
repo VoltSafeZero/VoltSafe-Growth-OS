@@ -23652,14 +23652,14 @@ export function registerConfluenceRoutes(app: Express) {
     // User explicitly denied access in the Zoom consent screen
     if (zoomError) {
       console.warn("[zoom-oauth] Zoom returned error param:", zoomError);
-      return res.redirect("/?zoom=cancelled");
+      return res.redirect("/settings?zoom=cancelled");
     }
 
     // Session must still be valid (user must still be logged in)
     const userId = req.session.userId as number | undefined;
     if (!userId) {
       console.warn("[zoom-oauth] Callback reached with no active session — user not logged in");
-      return res.redirect("/?zoom=error&reason=not_authenticated");
+      return res.redirect("/settings?zoom=error&reason=not_authenticated");
     }
 
     // CSRF state validation — compare query param against session value
@@ -23670,14 +23670,14 @@ export function registerConfluenceRoutes(app: Express) {
         "received:", state?.slice(0, 8) ?? "(none)",
         "expected:", storedState?.slice(0, 8) ?? "(none)",
       );
-      return res.redirect("/?zoom=error&reason=state_mismatch");
+      return res.redirect("/settings?zoom=error&reason=state_mismatch");
     }
 
     // Consume the state immediately to prevent replay
     req.session.zoomOAuthState = undefined;
 
     if (!code) {
-      return res.redirect("/?zoom=error&reason=no_code");
+      return res.redirect("/settings?zoom=error&reason=no_code");
     }
 
     try {
@@ -23706,11 +23706,11 @@ export function registerConfluenceRoutes(app: Express) {
         "accountType:", profile.zoomAccountType,
       );
 
-      // Redirect to calendar with success signal — SPA reads ?zoom=connected to show toast
-      return res.redirect("/calendar?zoom=connected");
+      // Redirect to settings with success signal — SPA reads ?zoom=connected to show toast
+      return res.redirect("/settings?zoom=connected");
     } catch (e: any) {
       console.error("[zoom-oauth] Callback processing error:", e.message);
-      return res.redirect("/?zoom=error&reason=exchange_failed");
+      return res.redirect("/settings?zoom=error&reason=exchange_failed");
     }
   });
 
