@@ -23815,6 +23815,30 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // ── POST /api/zoom/meetings ─────────────────────────────────────────────
+  // Create a Zoom meeting on demand (e.g. from the email compose dialog).
+  // Body: { topic: string, startTime: string (ISO), durationMinutes: number }
+  app.post("/api/zoom/meetings", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      if (!isZoomConfigured()) return res.status(503).json({ message: "Zoom OAuth is not configured on this server." });
+      const { topic, startTime, durationMinutes, agenda } = req.body as {
+        topic?: string; startTime?: string; durationMinutes?: number; agenda?: string;
+      };
+      if (!startTime) return res.status(400).json({ message: "startTime is required" });
+      const zoom = await createZoomMeetingForBooking(userId, {
+        topic: topic || "Meeting",
+        startTime: new Date(startTime),
+        durationMinutes: durationMinutes ?? 30,
+        agenda,
+      });
+      if (!zoom) return res.status(503).json({ message: "Could not create Zoom meeting — make sure your Zoom account is connected in Settings." });
+      res.json({ joinUrl: zoom.joinUrl, meetingId: zoom.meetingId });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // ── GET /api/booking-links ──────────────────────────────────────────────
   // List all booking links owned by the current user.
   app.get("/api/booking-links", requireAuth, async (req, res) => {

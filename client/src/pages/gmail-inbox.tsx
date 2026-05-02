@@ -16,7 +16,7 @@ import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
   Clock, FileText, CalendarClock, CalendarX, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
   FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronUp, ChevronRight, Folder,
-  Reply, ReplyAll, Pencil, User, Building2, Zap, Flame,
+  Reply, ReplyAll, Pencil, User, Building2, Zap, Flame, Video,
   CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
   CheckCheck, ArrowLeft, ArrowUp, ClipboardList, StickyNote, ArchiveX, Square, Filter, Eye,
   Sparkles, Code2, Type, Rows3, Rows2, Inbox as InboxIcon,
@@ -346,6 +346,41 @@ function ComposeDialog({
   const [showScheduler, setShowScheduler] = useState(false);
   const [scheduledAt, setScheduledAt] = useState("");
   const [activeDraftId, setActiveDraftId] = useState(draftId);
+
+  // ── Zoom meeting panel ──────────────────────────────────────────────────
+  const [showZoomPanel, setShowZoomPanel] = useState(false);
+  // Default start time = now + 1 hour, rounded to nearest 30 min
+  function defaultZoomStart() {
+    const d = new Date(Date.now() + 60 * 60_000);
+    d.setMinutes(d.getMinutes() < 30 ? 30 : 0, 0, 0);
+    if (d.getMinutes() === 0) d.setHours(d.getHours() + (new Date().getMinutes() >= 30 ? 1 : 0));
+    return d.toISOString().slice(0, 16);
+  }
+  const [zoomStartTime, setZoomStartTime] = useState(defaultZoomStart);
+  const [zoomDuration, setZoomDuration] = useState("30");
+  const zoomMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/zoom/meetings", {
+      topic: subject || "Meeting",
+      startTime: new Date(zoomStartTime).toISOString(),
+      durationMinutes: Number(zoomDuration),
+    }),
+    onSuccess: async (res) => {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast({ title: "Could not create Zoom meeting", description: (err as any).message, variant: "destructive" });
+        return;
+      }
+      const data = await res.json() as { joinUrl: string };
+      const startDate = new Date(zoomStartTime);
+      const dateStr = startDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+      const timeStr = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      const insert = `\n\nI'd like to invite you to a Zoom meeting.\n📅 ${dateStr} at ${timeStr} (${zoomDuration} min)\n🔗 Join Zoom Meeting: ${data.joinUrl}`;
+      setBody((prev) => (prev || "") + insert);
+      setShowZoomPanel(false);
+      toast({ title: "Zoom meeting created", description: "Join link added to your email." });
+    },
+    onError: () => toast({ title: "Network error — please try again", variant: "destructive" }),
+  });
   const [attachedAssets, setAttachedAssets] = useState<{ id: number; name: string }[]>([]);
   const [showAssetPicker, setShowAssetPicker] = useState(false);
   const [assetCategoryFilter, setAssetCategoryFilter] = useState<string>("all");
@@ -601,6 +636,57 @@ function ComposeDialog({
             </div>
           )}
 
+          {showZoomPanel && canSend && (
+            <div className="flex flex-col gap-2 p-2.5 bg-muted/30 border border-[#2D8CFF]/30 rounded-md">
+              <div className="flex items-center gap-2">
+                <Video className="h-4 w-4 text-[#2D8CFF] flex-shrink-0" />
+                <span className="text-xs font-medium text-[#2D8CFF]">Add Zoom Meeting</span>
+                <button onClick={() => setShowZoomPanel(false)} className="ml-auto text-muted-foreground hover:text-foreground" data-testid="button-close-zoom-panel">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1 block">Date & Time</Label>
+                  <input
+                    type="datetime-local"
+                    value={zoomStartTime}
+                    min={new Date().toISOString().slice(0, 16)}
+                    onChange={(e) => setZoomStartTime(e.target.value)}
+                    className="w-full bg-transparent text-sm text-foreground outline-none border border-border/50 rounded px-2 py-1"
+                    data-testid="input-zoom-start-time"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1 block">Duration</Label>
+                  <Select value={zoomDuration} onValueChange={setZoomDuration}>
+                    <SelectTrigger className="h-8 text-sm" data-testid="select-zoom-duration">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="15">15 min</SelectItem>
+                      <SelectItem value="30">30 min</SelectItem>
+                      <SelectItem value="45">45 min</SelectItem>
+                      <SelectItem value="60">1 hour</SelectItem>
+                      <SelectItem value="90">1.5 hours</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => zoomMutation.mutate()}
+                disabled={!zoomStartTime || zoomMutation.isPending}
+                className="w-full bg-[#2D8CFF] hover:bg-[#2680f0] text-white gap-1.5"
+                data-testid="button-create-zoom-meeting"
+              >
+                {zoomMutation.isPending
+                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Creating…</>
+                  : <><Video className="h-3.5 w-3.5" /> Create Zoom Meeting & Insert Link</>}
+              </Button>
+            </div>
+          )}
+
           {showScheduler && canSend && (
             <div className="flex items-center gap-2 p-2.5 bg-muted/30 border border-border/50 rounded-md">
               <CalendarClock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -687,6 +773,18 @@ function ComposeDialog({
                   data-testid="button-attach-quote"
                 >
                   <Receipt className="h-4 w-4" />
+                </Button>
+              )}
+              {canSend && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={`h-8 w-8 ${showZoomPanel ? "text-[#2D8CFF]" : "text-muted-foreground hover:text-[#2D8CFF]"}`}
+                  onClick={() => { setShowZoomPanel((v) => !v); setZoomStartTime(defaultZoomStart()); }}
+                  title="Add Zoom Meeting"
+                  data-testid="button-toggle-zoom-panel"
+                >
+                  <Video className="h-4 w-4" />
                 </Button>
               )}
               {canSend && (
