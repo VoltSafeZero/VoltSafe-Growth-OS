@@ -98,6 +98,7 @@ import {
   lookupZoomConnection, disconnectZoom, toPublicZoomConnection, isZoomConfigured,
   buildZoomAuthorizationUrl, exchangeZoomCodeForTokens, fetchZoomUserProfile, upsertZoomConnection,
 } from "./services/zoom-service";
+import { createZoomMeetingForBooking } from "./services/zoom-meeting-service";
 import {
   listBookingLinks, getBookingLink, createBookingLink, updateBookingLink,
   listRecipients, addRecipient, revokeRecipient, resolvePublicToken,
@@ -6310,6 +6311,79 @@ export async function registerRoutes(
     const ok = await storage.deleteCalendarEvent(Number(req.params.id));
     if (!ok) return res.status(404).json({ message: "Event not found" });
     res.json({ message: "Deleted" });
+  });
+
+  // POST /api/calendar/events/:id/add-zoom
+  // Creates a Zoom meeting for an existing event and stores the join URL.
+  app.post("/api/calendar/events/:id/add-zoom", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId = req.session.userId!;
+      const event = await storage.getCalendarEvent(id);
+      if (!event || event.userId !== userId) return res.status(404).json({ message: "Event not found" });
+      if (!isZoomConfigured()) return res.status(503).json({ message: "Zoom OAuth is not configured on this server." });
+      const startTime = new Date(event.startTime);
+      const endTime = event.endTime ? new Date(event.endTime) : new Date(startTime.getTime() + 60 * 60_000);
+      const durationMinutes = Math.max(15, Math.round((endTime.getTime() - startTime.getTime()) / 60_000));
+      const zoom = await createZoomMeetingForBooking(userId, {
+        topic: event.title,
+        startTime,
+        durationMinutes,
+        timezone: event.timeZone ?? undefined,
+        agenda: event.description ?? undefined,
+      });
+      if (!zoom) return res.status(503).json({ message: "Could not create Zoom meeting — make sure your Zoom account is connected in Settings." });
+      const updated = await storage.updateCalendarEvent(id, {
+        meetingUrl: zoom.joinUrl,
+        location: zoom.joinUrl,
+      });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/calendar/events/:id/send-invites
+  // Sends a calendar invite email to each address in event.invitees via Gmail.
+  app.post("/api/calendar/events/:id/send-invites", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId = req.session.userId!;
+      const event = await storage.getCalendarEvent(id);
+      if (!event || event.userId !== userId) return res.status(404).json({ message: "Event not found" });
+      const invitees = (event.invitees ?? []).filter(Boolean);
+      if (invitees.length === 0) return res.json({ sent: 0, total: 0 });
+      const startDate = new Date(event.startTime);
+      const endDate = event.endTime ? new Date(event.endTime) : null;
+      const tzNote = event.timeZone ? ` (${event.timeZone})` : "";
+      const dateStr = startDate.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+      const timeStr = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+        + (endDate ? ` – ${endDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : "")
+        + tzNote;
+      const zoomUrl = event.meetingUrl && /zoom\.us/i.test(event.meetingUrl) ? event.meetingUrl : null;
+      const html = `<div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#222;">
+  <h2 style="margin-bottom:4px;">${event.title}</h2>
+  <p style="color:#555;margin:4px 0;"><strong>Date:</strong> ${dateStr}</p>
+  <p style="color:#555;margin:4px 0;"><strong>Time:</strong> ${timeStr}</p>
+  ${event.location && !zoomUrl ? `<p style="color:#555;margin:4px 0;"><strong>Location:</strong> ${event.location}</p>` : ""}
+  ${zoomUrl ? `<p style="margin:16px 0;"><a href="${zoomUrl}" style="background:#2D8CFF;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">Join Zoom Meeting</a></p><p style="color:#888;font-size:12px;margin:0;">Or copy link: <a href="${zoomUrl}" style="color:#2D8CFF;">${zoomUrl}</a></p>` : ""}
+  ${event.description ? `<p style="margin-top:16px;color:#444;white-space:pre-line;">${event.description}</p>` : ""}
+</div>`;
+      let sent = 0;
+      for (const email of invitees) {
+        try {
+          await sendEmail(userId, email, `Invitation: ${event.title}`, html);
+          sent++;
+        } catch (err: any) {
+          console.warn(`[send-invites] Failed to send to ${email}: ${err.message}`);
+        }
+      }
+      res.json({ sent, total: invitees.length });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
   });
 
   // ── Calendar integrations (sync providers) ─────────────────────────────────

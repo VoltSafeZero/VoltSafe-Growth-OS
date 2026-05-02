@@ -2073,10 +2073,41 @@ function EventDetailDialog({
   isDeleting: boolean;
 }) {
   const [editing, setEditing] = useState(false);
+  const { toast } = useToast();
 
   const now = new Date();
   const endTime = event.endTime ? new Date(event.endTime) : new Date(event.startTime);
   const isPast = endTime < now;
+
+  // Add Zoom meeting to this event (creates via Zoom API + stores joinUrl)
+  const addZoomMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/calendar/events/${event.id}/add-zoom`, {}),
+    onSuccess: async (res) => {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast({ title: "Could not add Zoom meeting", description: (err as any).message, variant: "destructive" });
+        return;
+      }
+      await queryClient.invalidateQueries({ queryKey: ["/api/calendar/events"] });
+      toast({ title: "Zoom meeting added", description: "Join link is now on this event." });
+    },
+    onError: () => toast({ title: "Network error — please try again", variant: "destructive" }),
+  });
+
+  // Send invite emails to all invitees
+  const sendInvitesMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/calendar/events/${event.id}/send-invites`, {}),
+    onSuccess: async (res) => {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast({ title: "Could not send invites", description: (err as any).message, variant: "destructive" });
+        return;
+      }
+      const data = await res.json();
+      toast({ title: `Invite${data.sent !== 1 ? "s" : ""} sent`, description: `${data.sent} of ${data.total} recipient${data.total !== 1 ? "s" : ""} emailed.` });
+    },
+    onError: () => toast({ title: "Network error — please try again", variant: "destructive" }),
+  });
 
   const { data: crmCtx, isLoading: crmLoading } = useQuery<CRMContext>({
     queryKey: ["/api/calendar/events", event.id, "crm-context"],
@@ -2163,7 +2194,7 @@ function EventDetailDialog({
           {/* Details tab */}
           <TabsContent value="details" className="flex-1 overflow-y-auto px-6 pb-4 mt-3">
             <div className="space-y-2.5 text-sm">
-              {event.meetingUrl && (() => {
+              {event.meetingUrl ? (() => {
                 const isZoomUrl = /zoom\.us/i.test(event.meetingUrl!);
                 return isZoomUrl ? (
                   <a
@@ -2184,7 +2215,21 @@ function EventDetailDialog({
                     </a>
                   </div>
                 );
-              })()}
+              })() : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full gap-2 border-[#2D8CFF]/40 text-[#2D8CFF] hover:bg-[#2D8CFF]/10"
+                  onClick={() => addZoomMutation.mutate()}
+                  disabled={addZoomMutation.isPending}
+                  data-testid="button-add-zoom"
+                >
+                  {addZoomMutation.isPending
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                    : <Video className="h-3.5 w-3.5 shrink-0" />}
+                  Add Zoom Meeting
+                </Button>
+              )}
               <div className="flex items-center gap-2">
                 <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span>
@@ -2236,6 +2281,25 @@ function EventDetailDialog({
             {/* Footer actions inside scroll */}
             <div className="mt-5 pt-4 border-t border-border/30 flex flex-col gap-2">
               <MeetingNoteAction eventId={event.id} zoomUrl={extractZoomUrl(event)} />
+              {event.invitees && event.invitees.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={() => sendInvitesMutation.mutate()}
+                  disabled={sendInvitesMutation.isPending || sendInvitesMutation.isSuccess}
+                  data-testid="button-send-invites"
+                >
+                  {sendInvitesMutation.isPending
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                    : sendInvitesMutation.isSuccess
+                      ? <CheckCheck className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                      : <Mail className="h-3.5 w-3.5 shrink-0" />}
+                  {sendInvitesMutation.isSuccess
+                    ? "Invites sent"
+                    : `Send Invite${event.invitees.length !== 1 ? "s" : ""} (${event.invitees.length})`}
+                </Button>
+              )}
               <div className="flex items-center justify-between gap-2">
                 <Button variant="destructive" size="sm" onClick={onDelete} disabled={isDeleting} data-testid="button-delete-event">
                   {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
