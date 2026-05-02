@@ -345,6 +345,8 @@ function ComposeDialog({
   }, [open, defaultTo, defaultCc, defaultBcc, defaultSubject]);
   const [showScheduler, setShowScheduler] = useState(false);
   const [scheduledAt, setScheduledAt] = useState("");
+  const [subjectError, setSubjectError] = useState(false);
+  const subjectRef = useRef<HTMLInputElement | null>(null);
   const [activeDraftId, setActiveDraftId] = useState(draftId);
 
   // ── Zoom meeting panel ──────────────────────────────────────────────────
@@ -601,8 +603,22 @@ function ComposeDialog({
           </div>
           {!threadId && (
             <div>
-              <Label className="text-xs">Subject</Label>
-              <Input value={subject} onChange={(e) => setSubject(e.target.value)} disabled={!canSend} data-testid="input-email-subject" />
+              <Label className="text-xs">
+                Subject <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                ref={subjectRef}
+                value={subject}
+                onChange={(e) => { setSubject(e.target.value); if (e.target.value.trim()) setSubjectError(false); }}
+                disabled={!canSend}
+                data-testid="input-email-subject"
+                className={subjectError ? "border-destructive focus-visible:ring-destructive" : ""}
+              />
+              {subjectError && (
+                <p className="text-xs text-destructive mt-1" data-testid="error-subject-required">
+                  Subject is required before sending.
+                </p>
+              )}
             </div>
           )}
           <div>
@@ -813,7 +829,15 @@ function ComposeDialog({
                 {scheduledAt ? (
                   <Button
                     size="sm"
-                    onClick={() => scheduleMutation.mutate()}
+                    onClick={() => {
+                      if (!threadId && !subject.trim()) {
+                        setSubjectError(true);
+                        subjectRef.current?.focus();
+                        subjectRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                        return;
+                      }
+                      scheduleMutation.mutate();
+                    }}
                     disabled={!to || !body || isWorking}
                     data-testid="button-schedule-send"
                     className="gap-1"
@@ -824,7 +848,15 @@ function ComposeDialog({
                 ) : (
                   <Button
                     size="sm"
-                    onClick={() => sendMutation.mutate()}
+                    onClick={() => {
+                      if (!threadId && !subject.trim()) {
+                        setSubjectError(true);
+                        subjectRef.current?.focus();
+                        subjectRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                        return;
+                      }
+                      sendMutation.mutate();
+                    }}
                     disabled={!to || !body || isWorking}
                     data-testid="button-send-email"
                   >
