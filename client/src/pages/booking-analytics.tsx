@@ -14,6 +14,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -185,6 +187,9 @@ function CommandCard({ kind, items, isAdmin }: {
   const [draftRecipient, setDraftRecipient] = useState<{ recipientId: number; bookingLinkId?: number } | null>(null);
   const [draftTone, setDraftTone] = useState<DraftTone>("warm");
   const [draftData, setDraftData] = useState<DraftResponse | null>(null);
+  const [editedSubject, setEditedSubject] = useState("");
+  const [editedBody, setEditedBody] = useState("");
+  const [gmailDraftId, setGmailDraftId] = useState<string | null>(null);
 
   const generateDraft = useMutation({
     mutationFn: async (vars: { kind: CardKind; recipientId: number; bookingLinkId?: number; tone: DraftTone }) => {
@@ -194,9 +199,41 @@ function CommandCard({ kind, items, isAdmin }: {
       );
       return (await res.json()) as DraftResponse;
     },
-    onSuccess: (data) => { setDraftData(data); },
+    onSuccess: (data) => {
+      setDraftData(data);
+      setEditedSubject(data.subject);
+      setEditedBody(data.body);
+      setGmailDraftId(null);
+    },
     onError: (err: any) => {
       toast({ title: "Could not generate draft", description: err?.message ?? "Unknown error", variant: "destructive" });
+    },
+  });
+
+  const createGmailDraft = useMutation({
+    mutationFn: async () => {
+      if (!draftRecipient) throw new Error("No recipient selected");
+      const res = await apiRequest("POST",
+        "/api/crm/booking-analytics/actions/create-gmail-draft",
+        {
+          kind, recipientId: draftRecipient.recipientId,
+          bookingLinkId: draftRecipient.bookingLinkId,
+          tone: draftTone,
+          subject: editedSubject, body: editedBody,
+        },
+      );
+      return (await res.json()) as { draftId: string; to: string; meta: { sentEmail: false } };
+    },
+    onSuccess: (data) => {
+      setGmailDraftId(data.draftId);
+      toast({ title: "Draft created in Gmail", description: `Saved to Drafts for ${data.to}` });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Could not create Gmail draft",
+        description: err?.message ?? "Unknown error",
+        variant: "destructive",
+      });
     },
   });
 
@@ -204,11 +241,15 @@ function CommandCard({ kind, items, isAdmin }: {
     setDraftRecipient({ recipientId, bookingLinkId });
     setDraftData(null);
     setDraftTone("warm");
+    setEditedSubject("");
+    setEditedBody("");
+    setGmailDraftId(null);
     setDraftOpen(true);
     generateDraft.mutate({ kind, recipientId, bookingLinkId, tone: "warm" });
   };
   const regenerateDraft = (tone: DraftTone) => {
     setDraftTone(tone);
+    setGmailDraftId(null);
     if (!draftRecipient) return;
     generateDraft.mutate({ kind, recipientId: draftRecipient.recipientId, bookingLinkId: draftRecipient.bookingLinkId, tone });
   };
@@ -367,23 +408,34 @@ function CommandCard({ kind, items, isAdmin }: {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs uppercase tracking-wide text-muted-foreground">Subject</label>
-                    <Button size="sm" variant="ghost" onClick={() => copyText(draftData.subject, "Subject")}
+                    <Button size="sm" variant="ghost" onClick={() => copyText(editedSubject, "Subject")}
                             data-testid="button-copy-draft-subject">
                       <Copy className="h-3 w-3 mr-1" />Copy
                     </Button>
                   </div>
-                  <div className="border rounded p-2 text-sm" data-testid="text-draft-subject">{draftData.subject}</div>
+                  <Input
+                    value={editedSubject}
+                    onChange={(e) => { setEditedSubject(e.target.value); setGmailDraftId(null); }}
+                    className="text-sm"
+                    data-testid="input-draft-subject"
+                  />
+                  <span className="hidden" data-testid="text-draft-subject">{editedSubject}</span>
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs uppercase tracking-wide text-muted-foreground">Body</label>
-                    <Button size="sm" variant="ghost" onClick={() => copyText(draftData.body, "Body")}
+                    <Button size="sm" variant="ghost" onClick={() => copyText(editedBody, "Body")}
                             data-testid="button-copy-draft-body">
                       <Copy className="h-3 w-3 mr-1" />Copy
                     </Button>
                   </div>
-                  <pre className="border rounded p-3 text-sm whitespace-pre-wrap font-sans bg-muted/30 max-h-72 overflow-y-auto"
-                       data-testid="text-draft-body">{draftData.body}</pre>
+                  <Textarea
+                    value={editedBody}
+                    onChange={(e) => { setEditedBody(e.target.value); setGmailDraftId(null); }}
+                    className="text-sm font-sans max-h-72 min-h-[10rem]"
+                    data-testid="textarea-draft-body"
+                  />
+                  <span className="hidden" data-testid="text-draft-body">{editedBody}</span>
                 </div>
                 <div className="border-l-2 border-amber-400 pl-3 text-xs text-muted-foreground"
                      data-testid="text-draft-next-action">
@@ -395,10 +447,21 @@ function CommandCard({ kind, items, isAdmin }: {
             )}
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => draftData && copyText(`Subject: ${draftData.subject}\n\n${draftData.body}`, "Full draft")}
+          <DialogFooter className="flex-wrap gap-2">
+            <Button variant="outline"
+                    onClick={() => copyText(`Subject: ${editedSubject}\n\n${editedBody}`, "Full draft")}
                     disabled={!draftData} data-testid="button-copy-draft-full">
               <Copy className="h-4 w-4 mr-1" />Copy full draft
+            </Button>
+            <Button
+              variant={gmailDraftId ? "secondary" : "default"}
+              onClick={() => createGmailDraft.mutate()}
+              disabled={!draftData || createGmailDraft.isPending || gmailDraftId != null}
+              data-testid="button-create-gmail-draft"
+            >
+              {gmailDraftId
+                ? (<><CheckCircle2 className="h-4 w-4 mr-1" />Draft created in Gmail</>)
+                : (<><Mail className="h-4 w-4 mr-1" />{createGmailDraft.isPending ? "Creating…" : "Create Gmail Draft"}</>)}
             </Button>
             <Button onClick={() => setDraftOpen(false)} data-testid="button-close-draft">Close</Button>
           </DialogFooter>

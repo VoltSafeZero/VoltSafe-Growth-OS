@@ -91,6 +91,7 @@ import {
   ALLOWED_TONES as DRAFT_ALLOWED_TONES,
   type Tone as DraftTone,
 } from "./services/booking-draft-assistant";
+import { createGmailDraftFromBooking } from "./services/booking-gmail-draft";
 import { seedDefaultRules } from "./services/engagement-defaults";
 import { composeDigest, getSectionsForRole, formatDigestAsHtml, formatDigestAsText, DEFAULT_ALERT_RULES as DC_DEFAULT_SECTIONS, type DigestSection } from "./services/digest-composer";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
@@ -24532,6 +24533,72 @@ export function registerConfluenceRoutes(app: Express) {
           recipientId, bookingLinkId, tone,
         });
         res.json(draft);
+      } catch (e: any) {
+        const status = e instanceof CommandActionError ? e.status : 400;
+        res.status(status).json({ message: e.message });
+      }
+    });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase J — Create Gmail Draft from Booking Draft Assistant
+  //   POST /api/crm/booking-analytics/actions/create-gmail-draft
+  //
+  // Creates a draft (NEVER sends) in the caller's Gmail Drafts folder using
+  // either edited modal text OR the deterministic Phase I template. Reuses
+  // Phase I owner-scoping (403 cross-owner) and the existing mailbox edit-
+  // access gate (403 view-only / no Gmail).
+  // ─────────────────────────────────────────────────────────────────────────
+  app.post("/api/crm/booking-analytics/actions/create-gmail-draft",
+    requireAuth, async (req, res) => {
+      try {
+        const callerId = (req.session as any).userId as number;
+        const isAdmin  = await callerIsAdminFromSession(req);
+        const body     = req.body ?? {};
+        const kind = body.kind;
+        if (typeof kind !== "string" || !COMMAND_ACTION_KINDS.includes(kind as CommandActionKind)) {
+          return res.status(400).json({ message: `Unsupported kind: ${kind}` });
+        }
+        const recipientId = Number(body.recipientId);
+        if (!Number.isInteger(recipientId) || recipientId <= 0) {
+          return res.status(400).json({ message: "recipientId must be a positive integer" });
+        }
+        const bookingLinkId = body.bookingLinkId != null ? Number(body.bookingLinkId) : undefined;
+        if (bookingLinkId != null && (!Number.isInteger(bookingLinkId) || bookingLinkId <= 0)) {
+          return res.status(400).json({ message: "bookingLinkId must be a positive integer" });
+        }
+        let tone: DraftTone | undefined = undefined;
+        if (body.tone != null) {
+          if (typeof body.tone !== "string"
+              || !DRAFT_ALLOWED_TONES.includes(body.tone as DraftTone)) {
+            return res.status(400).json({ message: `Unsupported tone: ${body.tone}` });
+          }
+          tone = body.tone as DraftTone;
+        }
+        // Reject placeholder edit fields up-front for clearer errors than the service.
+        if (body.subject !== undefined && typeof body.subject !== "string") {
+          return res.status(400).json({ message: "subject must be a string" });
+        }
+        if (body.body !== undefined && typeof body.body !== "string") {
+          return res.status(400).json({ message: "body must be a string" });
+        }
+        const asAccountId = body.asAccountId != null ? Number(body.asAccountId) : undefined;
+        if (asAccountId != null && (!Number.isInteger(asAccountId) || asAccountId <= 0)) {
+          return res.status(400).json({ message: "asAccountId must be a positive integer" });
+        }
+
+        // Mailbox resolution + edit-access gating live inside the service so
+        // this handler stays free of the registerRoutes-scoped helpers (which
+        // are unreachable from this registration scope).
+        const result = await createGmailDraftFromBooking({
+          callerUserId:  callerId,
+          callerIsAdmin: isAdmin,
+          kind:          kind as CommandActionKind,
+          recipientId, bookingLinkId, tone,
+          subject:       body.subject,
+          body:          body.body,
+          asAccountId,
+        });
+        res.json(result);
       } catch (e: any) {
         const status = e instanceof CommandActionError ? e.status : 400;
         res.status(status).json({ message: e.message });
