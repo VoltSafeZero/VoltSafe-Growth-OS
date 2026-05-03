@@ -86,6 +86,11 @@ import {
   ALLOWED_KINDS as COMMAND_ACTION_KINDS,
   type ActionKind as CommandActionKind,
 } from "./services/booking-command-actions";
+import {
+  generateFollowupDraft,
+  ALLOWED_TONES as DRAFT_ALLOWED_TONES,
+  type Tone as DraftTone,
+} from "./services/booking-draft-assistant";
 import { seedDefaultRules } from "./services/engagement-defaults";
 import { composeDigest, getSectionsForRole, formatDigestAsHtml, formatDigestAsText, DEFAULT_ALERT_RULES as DC_DEFAULT_SECTIONS, type DigestSection } from "./services/digest-composer";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
@@ -24481,6 +24486,52 @@ export function registerConfluenceRoutes(app: Express) {
           recipientId, bookingLinkId, note,
         });
         res.json(result);
+      } catch (e: any) {
+        const status = e instanceof CommandActionError ? e.status : 400;
+        res.status(status).json({ message: e.message });
+      }
+    });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase I — Booking Follow-Up Draft Assistant
+  //   POST /api/crm/booking-analytics/actions/generate-followup-draft
+  //
+  // Generates a SAFE follow-up email draft (no send). Same owner scoping as
+  // Phase H. CSRF enforced globally via csrfOriginGuard.
+  // ─────────────────────────────────────────────────────────────────────────
+  app.post("/api/crm/booking-analytics/actions/generate-followup-draft",
+    requireAuth, async (req, res) => {
+      try {
+        const callerId = (req.session as any).userId as number;
+        const isAdmin  = await callerIsAdminFromSession(req);
+        const body     = req.body ?? {};
+        const kind = body.kind;
+        if (typeof kind !== "string" || !COMMAND_ACTION_KINDS.includes(kind as CommandActionKind)) {
+          return res.status(400).json({ message: `Unsupported kind: ${kind}` });
+        }
+        const recipientId   = Number(body.recipientId);
+        if (!Number.isInteger(recipientId) || recipientId <= 0) {
+          return res.status(400).json({ message: "recipientId must be a positive integer" });
+        }
+        const bookingLinkId = body.bookingLinkId != null ? Number(body.bookingLinkId) : undefined;
+        if (bookingLinkId != null && (!Number.isInteger(bookingLinkId) || bookingLinkId <= 0)) {
+          return res.status(400).json({ message: "bookingLinkId must be a positive integer" });
+        }
+        let tone: DraftTone | undefined = undefined;
+        if (body.tone != null) {
+          if (typeof body.tone !== "string"
+              || !DRAFT_ALLOWED_TONES.includes(body.tone as DraftTone)) {
+            return res.status(400).json({ message: `Unsupported tone: ${body.tone}` });
+          }
+          tone = body.tone as DraftTone;
+        }
+        const draft = await generateFollowupDraft({
+          callerUserId:  callerId,
+          callerIsAdmin: isAdmin,
+          kind:          kind as CommandActionKind,
+          recipientId, bookingLinkId, tone,
+        });
+        res.json(draft);
       } catch (e: any) {
         const status = e instanceof CommandActionError ? e.status : 400;
         res.status(status).json({ message: e.message });

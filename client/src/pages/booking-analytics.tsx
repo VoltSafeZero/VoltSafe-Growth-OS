@@ -4,7 +4,7 @@ import {
   TrendingUp, Trophy, AlertTriangle, Users, Mail, MousePointerClick,
   CheckCircle2, Clock, Target, DollarSign, FileText, Zap, Eye,
   Flame, ArrowRight, RefreshCw, Trash2, Award, Droplets, LayoutDashboard,
-  PlusCircle, Copy,
+  PlusCircle, Copy, PenSquare,
 } from "lucide-react";
 import { Link as WLink } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,8 +12,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+
+type DraftTone = "short" | "warm" | "direct";
+interface DraftResponse {
+  subject: string;
+  body: string;
+  suggestedNextAction: string;
+  context: { recipientEmail: string; bookingLinkName: string };
+  meta: { kind: string; tone: DraftTone; sentEmail: false };
+}
 
 type LinkRow = {
   bookingLinkId: number; bookingLinkName: string;
@@ -170,6 +181,41 @@ function CommandCard({ kind, items, isAdmin }: {
   const Icon = meta.icon;
   const { toast } = useToast();
   const [actedKeys, setActedKeys] = useState<Set<string>>(new Set());
+  const [draftOpen, setDraftOpen] = useState(false);
+  const [draftRecipient, setDraftRecipient] = useState<{ recipientId: number; bookingLinkId?: number } | null>(null);
+  const [draftTone, setDraftTone] = useState<DraftTone>("warm");
+  const [draftData, setDraftData] = useState<DraftResponse | null>(null);
+
+  const generateDraft = useMutation({
+    mutationFn: async (vars: { kind: CardKind; recipientId: number; bookingLinkId?: number; tone: DraftTone }) => {
+      const res = await apiRequest("POST",
+        "/api/crm/booking-analytics/actions/generate-followup-draft",
+        vars,
+      );
+      return (await res.json()) as DraftResponse;
+    },
+    onSuccess: (data) => { setDraftData(data); },
+    onError: (err: any) => {
+      toast({ title: "Could not generate draft", description: err?.message ?? "Unknown error", variant: "destructive" });
+    },
+  });
+
+  const openDraft = (recipientId: number, bookingLinkId?: number) => {
+    setDraftRecipient({ recipientId, bookingLinkId });
+    setDraftData(null);
+    setDraftTone("warm");
+    setDraftOpen(true);
+    generateDraft.mutate({ kind, recipientId, bookingLinkId, tone: "warm" });
+  };
+  const regenerateDraft = (tone: DraftTone) => {
+    setDraftTone(tone);
+    if (!draftRecipient) return;
+    generateDraft.mutate({ kind, recipientId: draftRecipient.recipientId, bookingLinkId: draftRecipient.bookingLinkId, tone });
+  };
+  const copyText = async (text: string, label: string) => {
+    try { await navigator.clipboard.writeText(text); toast({ title: `${label} copied` }); }
+    catch { toast({ title: "Copy failed", description: "Clipboard unavailable", variant: "destructive" }); }
+  };
 
   const createTask = useMutation({
     mutationFn: async (vars: { kind: CardKind; recipientId: number; bookingLinkId?: number }) => {
@@ -222,8 +268,9 @@ function CommandCard({ kind, items, isAdmin }: {
           <div className="space-y-2">
             {items.map((c, idx) => {
               const acted = c.recipientId != null && actedKeys.has(`${c.recipientId}:${kind}`);
-              const showTaskBtn = TASK_ACTION_KINDS.has(kind) && c.recipientId != null;
-              const showCopyBtn = COPY_LINK_KINDS.has(kind) && c.bookingLinkId != null;
+              const showTaskBtn  = TASK_ACTION_KINDS.has(kind) && c.recipientId != null;
+              const showDraftBtn = TASK_ACTION_KINDS.has(kind) && c.recipientId != null;
+              const showCopyBtn  = COPY_LINK_KINDS.has(kind) && c.bookingLinkId != null;
               const innerRow = (
                 <div className="border rounded p-2 hover-elevate"
                      data-testid={`card-${kind.toLowerCase()}-${idx}`}>
@@ -244,8 +291,17 @@ function CommandCard({ kind, items, isAdmin }: {
               return (
                 <div key={idx} className="space-y-1">
                   {wrappedRow}
-                  {(showTaskBtn || showCopyBtn) && (
-                    <div className="flex gap-2 px-1">
+                  {(showTaskBtn || showCopyBtn || showDraftBtn) && (
+                    <div className="flex flex-wrap gap-2 px-1">
+                      {showDraftBtn && (
+                        <Button
+                          size="sm" variant="outline"
+                          onClick={(e) => { e.stopPropagation(); openDraft(c.recipientId!, c.bookingLinkId); }}
+                          data-testid={`button-draft-email-${kind.toLowerCase()}-${idx}`}
+                        >
+                          <PenSquare className="h-3 w-3 mr-1" />Draft email
+                        </Button>
+                      )}
                       {showTaskBtn && (
                         <Button
                           size="sm" variant="outline"
@@ -280,6 +336,74 @@ function CommandCard({ kind, items, isAdmin }: {
           </div>
         )}
       </CardContent>
+
+      <Dialog open={draftOpen} onOpenChange={setDraftOpen}>
+        <DialogContent className="max-w-2xl" data-testid="dialog-draft-email">
+          <DialogHeader>
+            <DialogTitle>Follow-up email draft</DialogTitle>
+            <DialogDescription>
+              Generated from CRM context. Review, personalize, and send from your own email client — nothing is sent automatically.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Tone</span>
+              <Select value={draftTone} onValueChange={(v) => regenerateDraft(v as DraftTone)}>
+                <SelectTrigger className="w-32 h-8" data-testid="select-draft-tone">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="warm">Warm</SelectItem>
+                  <SelectItem value="short">Short</SelectItem>
+                  <SelectItem value="direct">Direct</SelectItem>
+                </SelectContent>
+              </Select>
+              {generateDraft.isPending && <span className="text-xs text-muted-foreground">Generating…</span>}
+            </div>
+
+            {draftData ? (
+              <>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs uppercase tracking-wide text-muted-foreground">Subject</label>
+                    <Button size="sm" variant="ghost" onClick={() => copyText(draftData.subject, "Subject")}
+                            data-testid="button-copy-draft-subject">
+                      <Copy className="h-3 w-3 mr-1" />Copy
+                    </Button>
+                  </div>
+                  <div className="border rounded p-2 text-sm" data-testid="text-draft-subject">{draftData.subject}</div>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs uppercase tracking-wide text-muted-foreground">Body</label>
+                    <Button size="sm" variant="ghost" onClick={() => copyText(draftData.body, "Body")}
+                            data-testid="button-copy-draft-body">
+                      <Copy className="h-3 w-3 mr-1" />Copy
+                    </Button>
+                  </div>
+                  <pre className="border rounded p-3 text-sm whitespace-pre-wrap font-sans bg-muted/30 max-h-72 overflow-y-auto"
+                       data-testid="text-draft-body">{draftData.body}</pre>
+                </div>
+                <div className="border-l-2 border-amber-400 pl-3 text-xs text-muted-foreground"
+                     data-testid="text-draft-next-action">
+                  <strong>Next action:</strong> {draftData.suggestedNextAction}
+                </div>
+              </>
+            ) : (
+              <Skeleton className="h-48" data-testid="skeleton-draft" />
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => draftData && copyText(`Subject: ${draftData.subject}\n\n${draftData.body}`, "Full draft")}
+                    disabled={!draftData} data-testid="button-copy-draft-full">
+              <Copy className="h-4 w-4 mr-1" />Copy full draft
+            </Button>
+            <Button onClick={() => setDraftOpen(false)} data-testid="button-close-draft">Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
