@@ -1104,15 +1104,15 @@ export async function registerRoutes(
   app.use("/api/pipeline/rep-performance", requireAuth, requireNotAdvisor);
   app.use("/api/geocode", requireAuth);
 
-  app.get("/api/metrics", async (_req, res) => {
+  app.get("/api/metrics", requireAuth, requirePermission("crm", "view"), async (_req, res) => {
     res.json(await storage.getMetrics());
   });
 
-  app.get("/api/sales", async (_req, res) => {
+  app.get("/api/sales", requireAuth, requirePermission("crm", "view"), async (_req, res) => {
     res.json(await storage.getSales());
   });
 
-  app.get("/api/chart-data", async (_req, res) => {
+  app.get("/api/chart-data", requireAuth, requirePermission("crm", "view"), async (_req, res) => {
     res.json(await storage.getChartData());
   });
 
@@ -1299,7 +1299,7 @@ export async function registerRoutes(
     res.send(toCsv(data as any, cols));
   });
 
-  app.get("/api/comm-lists/export", requireAuth, async (_req, res) => {
+  app.get("/api/comm-lists/export", requireAuth, requirePermission("crm", "view"), async (_req, res) => {
     const data = await storage.getCommunicationLists();
     const cols: CsvColumn[] = [
       { key: "name", header: "Name" }, { key: "source", header: "Source" },
@@ -1310,7 +1310,7 @@ export async function registerRoutes(
     res.send(toCsv(data as any, cols));
   });
 
-  app.get("/api/campaigns/export", requireAuth, async (req, res) => {
+  app.get("/api/campaigns/export", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const { status } = req.query;
     const data = await storage.getCampaignDrafts({ status: status as string });
     const cols: CsvColumn[] = [
@@ -1325,7 +1325,7 @@ export async function registerRoutes(
 
   // ── End CSV Export Endpoints ────────────────────────────────────────
 
-  app.get("/api/marinas/states", async (_req, res) => {
+  app.get("/api/marinas/states", requireAuth, requirePermission("crm", "view"), async (_req, res) => {
     res.json(await storage.getMarinaStates());
   });
 
@@ -1341,11 +1341,11 @@ export async function registerRoutes(
     }));
   });
 
-  app.get("/api/dashboard/summary", async (_req, res) => {
+  app.get("/api/dashboard/summary", requireAuth, requirePermission("crm", "view"), async (_req, res) => {
     res.json(await storage.getDashboardSummary());
   });
 
-  app.get("/api/leads/nearby", async (req, res) => {
+  app.get("/api/leads/nearby", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const lat = Number(req.query.lat);
     const lng = Number(req.query.lng);
     const radiusKm = Number(req.query.radius) || 100;
@@ -1390,7 +1390,7 @@ export async function registerRoutes(
     res.json(results.rows);
   });
 
-  app.get("/api/geocode/search", async (req, res) => {
+  app.get("/api/geocode/search", requireAuth, async (req, res) => {
     const q = String(req.query.q || "").trim();
     if (!q) return res.status(400).json({ message: "q parameter required" });
     const limit = Math.min(Number(req.query.limit) || 1, 8);
@@ -1459,7 +1459,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/leads/states", async (_req, res) => {
+  app.get("/api/leads/states", requireAuth, requirePermission("crm", "view"), async (_req, res) => {
     res.json(await storage.getLeadStates());
   });
 
@@ -2659,7 +2659,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/accounts/:id/infrastructure", async (req, res) => {
+  app.get("/api/accounts/:id/infrastructure", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const profile = await storage.getInfrastructureProfile(Number(req.params.id));
     res.json(profile || null);
   });
@@ -4875,20 +4875,11 @@ export async function registerRoutes(
   });
 
   // ── Task quick actions ──────────────────────────────────────────────────
-  app.post("/api/tasks/:id/complete", async (req, res) => {
-    try {
-      const userId = getSessionUserId(req);
-      if (!userId) return res.status(401).json({ message: "Unauthorized" });
-      const taskId = Number(req.params.id);
-      const result = await storage.updateTask(taskId, { status: "done" });
-      if (!result) return res.status(404).json({ message: "Task not found" });
-      res.json({ ok: true, task: result });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
+  // NOTE: POST /api/tasks/:id/complete is handled by routes-tasks.ts (registered first
+  // with canEdit gate). The duplicate that previously lived here was dead code, removed
+  // as part of P0 anonymous-route lockdown (commit #2).
 
-  app.post("/api/tasks/:id/snooze", async (req, res) => {
+  app.post("/api/tasks/:id/snooze", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
     try {
       const userId = getSessionUserId(req);
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
@@ -4915,7 +4906,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/tasks/:id/reassign", async (req, res) => {
+  app.post("/api/tasks/:id/reassign", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
     try {
       const userId = getSessionUserId(req);
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
@@ -4930,7 +4921,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/comm-lists", async (_req, res) => {
+  app.get("/api/comm-lists", requireAuth, requirePermission("crm", "view"), async (_req, res) => {
     res.json(await storage.getCommunicationLists());
   });
 
@@ -4946,12 +4937,12 @@ export async function registerRoutes(
     res.json(result);
   });
 
-  app.get("/api/campaigns", async (req, res) => {
+  app.get("/api/campaigns", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const { status } = req.query;
     res.json(await storage.getCampaignDrafts({ status: status as string | undefined }));
   });
 
-  app.get("/api/campaigns/:id", async (req, res) => {
+  app.get("/api/campaigns/:id", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const campaign = await storage.getCampaignDraft(Number(req.params.id));
     if (!campaign) return res.status(404).json({ message: "Campaign not found" });
     res.json(campaign);
@@ -4970,7 +4961,7 @@ export async function registerRoutes(
   });
 
   // ── Comments ──────────────────────────────────────────────────────
-  app.get("/api/comments", async (req, res) => {
+  app.get("/api/comments", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const { objectType, objectId } = req.query;
     if (!objectType || !objectId) return res.status(400).json({ message: "objectType and objectId required" });
     res.json(await storage.getComments(objectType as string, Number(objectId)));
@@ -6050,7 +6041,7 @@ export async function registerRoutes(
   });
 
   // ── Team Workload ───────────────────────────────────────────────
-  app.get("/api/team-workload", async (_req, res) => {
+  app.get("/api/team-workload", requireAuth, requirePermission("team_workload", "view"), async (_req, res) => {
     res.json(await storage.getTeamWorkload());
   });
 

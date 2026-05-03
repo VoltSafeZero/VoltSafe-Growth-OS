@@ -44,15 +44,17 @@ Counts at the route-level middleware slot (single `app.X("/api/…", MIDDLEWARE,
 
 ## P0 — Anonymous read/write of real data (UNAUTHENTICATED, exploitable)
 
-> **STATUS — 2026-05-03 commit**: every route in this section that was in the
-> agreed scope has been patched with `requireAuth + requirePermission(...)`.
-> Regression suite `tests/p0-anonymous-routes.test.js` (84/84 passing) proves
-> anon → 401, viewer w/o module → 403, viewer w/ view → 200, viewer w/ edit
-> → write succeeds, master_admin → 200.
+> **STATUS — 2026-05-03 (commit #1 + #2)**: ALL P0 anonymous routes are now
+> gated. Commit #1 closed 26 routes (CSV exports + CRM/support/partnerships
+> reads + 2 mutations). Commit #2 closed the remaining 18: dashboard utility
+> reads, CRM utility reads, comm-lists/campaigns/comments reads, team-workload,
+> geocode/search, and the `/tasks/:id/{snooze,reassign,complete}` mutations
+> (with the dead-code `/complete` duplicate removed).
 >
-> Routes still **OPEN** (intentionally out of scope for the P0-anon commit and
-> deferred to a later focused commit) are explicitly tagged ⏳ below; the rest
-> are tagged ✅.
+> Combined regression coverage: `tests/p0-anonymous-routes.test.js` (84/84) +
+> `tests/p0-anonymous-routes-2.test.js` (72/72) — every route asserts:
+> anon → 401, viewer w/o module → 403, viewer w/ view → 200, viewer w/ edit →
+> write succeeds, master_admin → 200.
 
 All of these (originally) accept requests with **no session cookie at all** and return 200 + data, or perform a state-changing action.
 
@@ -72,20 +74,22 @@ All of these (originally) accept requests with **no session cookie at all** and 
 | Method | Path                                   | Status | Gate now applied / next-step                                                  |
 | ------ | -------------------------------------- | ------ | ----------------------------------------------------------------------------- |
 | GET    | `/api/marinas`                         | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
-| GET    | `/api/marinas/states`                  | ⏳     | Next commit — `requireAuth` minimum                                            |
-| GET    | `/api/leads/nearby`                    | ⏳     | Next commit — `requirePermission("crm", "view")`                               |
-| GET    | `/api/leads/states`                    | ⏳     | Next commit — `requireAuth` minimum                                            |
-| GET    | `/api/accounts/:id/infrastructure`     | ⏳     | Next commit — `requirePermission("crm", "view")`                               |
+| GET    | `/api/marinas/states`                  | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/leads/nearby`                    | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/leads/states`                    | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/accounts/:id/infrastructure`     | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
 | GET    | `/api/contacts`                        | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
 | GET    | `/api/opportunities`                   | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
 | GET    | `/api/opportunities/:id/stage-history` | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
 | GET    | `/api/tickets`                         | ✅     | `requireAuth, requirePermission("support", "view")`                            |
 | GET    | `/api/tickets/:id`                     | ✅     | `requireAuth, requirePermission("support", "view")`                            |
-| GET    | `/api/comm-lists`                      | ⏳     | Next commit — `requirePermission("communications", "view")`                    |
-| GET    | `/api/campaigns`                       | ⏳     | Next commit — `requirePermission("communications", "view")`                    |
-| GET    | `/api/campaigns/:id`                   | ⏳     | Next commit — `requirePermission("communications", "view")`                    |
-| GET    | `/api/comments`                        | ⏳     | Next commit — `requireAuth` + per-object scope                                 |
-| GET    | `/api/team-workload`                   | ⏳     | Next commit — `requirePermission("team_workload", "view")`                     |
+| GET    | `/api/comm-lists`                      | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/comm-lists/export`               | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/campaigns`                       | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/campaigns/:id`                   | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/campaigns/export`                | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/comments`                        | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/team-workload`                   | ✅     | `requireAuth, requirePermission("team_workload", "view")`                      |
 | GET    | `/api/partnerships`                    | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
 | GET    | `/api/partnerships/:id`                | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
 | GET    | `/api/ecosystem/organizations`         | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
@@ -98,11 +102,11 @@ All of these (originally) accept requests with **no session cookie at all** and 
 | GET    | `/api/ecosystem/events/:id`            | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
 | GET    | `/api/ecosystem/regions`               | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
 | GET    | `/api/ecosystem/regions/:id`           | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
-| GET    | `/api/dashboard/summary`               | ⏳     | Next commit — `requireAuth` minimum                                            |
-| GET    | `/api/metrics`                         | ⏳     | Next commit — `requireAuth` minimum                                            |
-| GET    | `/api/sales`                           | ⏳     | Next commit — `requireAuth` minimum                                            |
-| GET    | `/api/chart-data`                      | ⏳     | Next commit — `requireAuth` minimum                                            |
-| GET    | `/api/geocode/search`                  | ⏳     | Next commit — `requireAuth`                                                    |
+| GET    | `/api/dashboard/summary`               | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/metrics`                         | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/sales`                           | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/chart-data`                      | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/geocode/search`                  | ✅     | `requireAuth` (low-sensitivity Nominatim proxy)                                |
 
 ### P0.C — Anonymous mutations
 
@@ -110,11 +114,11 @@ All of these (originally) accept requests with **no session cookie at all** and 
 | ------ | ----------------------------------- | ------ | ----------------------------------------------------------------------------- |
 | POST   | `/api/leads/:id/geocode-address`    | ✅     | `requireAuth, requirePermission("crm", "edit")`                                |
 | POST   | `/api/comments`                     | ✅     | `requireAuth, requirePermission("crm", "edit")`                                |
-| POST   | `/api/tasks/:id/complete`           | ⏳     | Next commit — delete duplicate (gated copy lives in `routes-tasks.ts:463`)     |
-| POST   | `/api/tasks/:id/snooze`             | ⏳     | Next commit — same                                                             |
-| POST   | `/api/tasks/:id/reassign`           | ⏳     | Next commit — same                                                             |
+| POST   | `/api/tasks/:id/complete`           | ✅     | Duplicate **removed** from `server/routes.ts`; gated copy in `routes-tasks.ts:463` (`canEdit`) is the only handler |
+| POST   | `/api/tasks/:id/snooze`             | ✅     | `requireAuth, requirePermission("crm", "edit")`                                |
+| POST   | `/api/tasks/:id/reassign`           | ✅     | `requireAuth, requirePermission("crm", "edit")`                                |
 
-> The `/api/tasks/:id/{complete,snooze,reassign}` routes in `server/routes.ts` shadow the properly-gated copies in `server/routes-tasks.ts` (which use `canEdit = requirePermission("crm", "edit")`). Express's last-registered-wins for duplicates can lead to whichever was registered later being used. **Either delete the no-auth duplicates or unify them.**
+> ~~The `/api/tasks/:id/{complete,snooze,reassign}` routes in `server/routes.ts` shadow the properly-gated copies in `server/routes-tasks.ts`.~~ **Resolved in commit #2**: the bare `/complete` duplicate was deleted (the `routes-tasks.ts` copy with `canEdit` is the only handler now); `/snooze` and `/reassign` (which had no copy in `routes-tasks.ts`) were gated in place with `requireAuth, requirePermission("crm","edit")`.
 
 ---
 
