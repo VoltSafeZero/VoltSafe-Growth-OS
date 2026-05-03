@@ -1,0 +1,48 @@
+Pause the Zoom/booking work and the Edit Contact verification. Before continuing feature work, I want a focused QA audit of the current state of VoltSafe CMS — specifically the unified inbox we just shipped and the surrounding CRM workflows.
+This is a 2-3 hour scope, not a 2-3 day scope. Do not build a comprehensive Playwright test suite. Do not install Snyk, k6, OWASP ZAP, or Sentry. Do not generate 20 categories of automated tests.
+Instead, do the following in this order:
+1. Empty/loading/error state audit (30 min):
+Walk through every primary route in the app — Inbox, Calendar, Tasks, Contacts, Accounts, Opportunities, Quotes, Admin pages. For each route, identify:
+
+What does the page look like with no data?
+What does it look like during slow loading?
+What does it look like on an error response?
+Are there dead-end states (user can't navigate back, no clear next action)?
+
+Output: docs/EMPTY_STATE_AUDIT.md with one section per route, photo-realistic screenshot descriptions of each state, and specific recommendations. Recommendations only. No code changes yet.
+2. Permission boundary inspection (45 min):
+Specifically focus on the multi-account email work we just shipped. Verify that:
+
+A non-admin user with mail_team[X]={view: true, edit: false} cannot POST mutations against account X.
+Bulk operations correctly fan out per-account permissions.
+The new admin diagnostics endpoints (Commit 8) reject non-admins server-side, not just hide UI.
+Attachment access enforces account-level ACL.
+
+Approach: read the actual route code, identify any place where permission checks happen client-side only (a known anti-pattern). For each finding, note whether it's a real risk or theoretical. Write findings to docs/PERMISSION_AUDIT.md. No code changes yet.
+3. Quote math sanity check (30 min):
+If quote math code exists, identify the test coverage. If it's untested, propose a small focused test suite for: hardware one-time pricing, SaaS recurring pricing, multi-line totals, currency formatting, discount handling. Write proposed tests to docs/QUOTE_MATH_TESTS_PROPOSAL.md. Do not write the tests yet.
+4. Mobile layout smoke test (20 min):
+Run the app at 375px width (iPhone SE) and 768px width (iPad). For each major page, identify layout issues — overlapping elements, unreadable text, broken interactions. Write findings to docs/MOBILE_AUDIT.md. Recommendations only.
+5. Stop. Generate a unified summary doc:
+docs/QA_FINDINGS_SUMMARY.md that consolidates the four audits above. Categorize findings as:
+
+P0: blocker (data corruption, permission leak)
+P1: broken core workflow
+P2: frustrating UX
+P3: polish
+
+For each finding, include:
+
+One-sentence description
+Affected files/routes
+Suggested fix scope (small/medium/large)
+Whether it should be addressed before resuming Zoom/booking work
+
+Constraints:
+
+Read-only audit. No code changes.
+No new dependencies. No Playwright, no security scanners, no test frameworks.
+No schema changes or db:push.
+Time-box: 2-3 hours total. If you're approaching that limit, stop and report what you've found rather than continuing to dig.
+
+Begin.
