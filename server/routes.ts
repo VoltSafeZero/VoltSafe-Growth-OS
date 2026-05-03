@@ -107,6 +107,10 @@ import {
   createBookingLinkSchema, updateBookingLinkSchema, addRecipientSchema,
 } from "./services/booking-link-service";
 import {
+  sendBookingLink, resendBookingLink, listSentForCrmObject,
+  type CrmObjectType,
+} from "./services/booking-link-distribution";
+import {
   listMeetingNotes, createMeetingNote, getMeetingNoteDetail, updateMeetingNote,
   startRecording, stopRecording, processMeetingNote, createTasksFromActionItems,
   addNoteToTimeline, draftFollowup, linkRecord, updateActionItemStatus,
@@ -24178,6 +24182,102 @@ export function registerConfluenceRoutes(app: Express) {
       const ok = await revokeRecipient(recipientId, userId);
       if (!ok) return res.status(404).json({ message: "Recipient not found or already revoked" });
       res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase B — CRM distribution & tracking for booking links
+  // No schema changes; status derived from existing recipient columns.
+  // All endpoints are owner-scoped: a booking link's owner sees only their
+  // own outreach to a given CRM contact/lead's email address.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const sendBookingLinkSchema = z.object({
+    bookingLinkId: z.number().int().positive(),
+    objectType:    z.enum(["contact", "lead"]),
+    objectId:      z.number().int().positive(),
+    customMessage: z.string().max(2000).optional(),
+    recipientEmailOverride: z.string().email().optional(),
+    recipientNameOverride:  z.string().max(200).optional(),
+  });
+
+  // POST /api/crm/booking-link-send
+  app.post("/api/crm/booking-link-send", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const parsed = sendBookingLinkSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Validation error", errors: parsed.error.flatten() });
+      }
+      const [u] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
+      const ownerName = u?.name || "VoltSafe";
+      try {
+        const result = await sendBookingLink({
+          ownerUserId:   userId,
+          ownerName,
+          bookingLinkId: parsed.data.bookingLinkId,
+          objectType:    parsed.data.objectType,
+          objectId:      parsed.data.objectId,
+          customMessage: parsed.data.customMessage,
+          recipientEmailOverride: parsed.data.recipientEmailOverride,
+          recipientNameOverride:  parsed.data.recipientNameOverride,
+        });
+        res.status(201).json({
+          recipientId: result.recipient.id,
+          publicUrl:   result.publicUrl,
+          sentAt:      result.emailedAt,
+          recipientEmail: result.recipient.recipientEmail,
+        });
+      } catch (e: any) {
+        if (e.message === "OWNER_NOT_AUTHORIZED") {
+          return res.status(404).json({ message: "Booking link not found" });
+        }
+        if (e.message === "CRM_OBJECT_NO_EMAIL") {
+          return res.status(422).json({ message: "Contact/lead has no email on file" });
+        }
+        throw e;
+      }
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/crm/booking-link-status?objectType=contact&objectId=123
+  app.get("/api/crm/booking-link-status", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const objectType = String(req.query.objectType ?? "");
+      const objectId = parseInt(String(req.query.objectId ?? ""), 10);
+      if (objectType !== "contact" && objectType !== "lead") {
+        return res.status(400).json({ message: "objectType must be contact or lead" });
+      }
+      if (isNaN(objectId) || objectId <= 0) {
+        return res.status(400).json({ message: "objectId must be a positive integer" });
+      }
+      const recipients = await listSentForCrmObject(userId, objectType as CrmObjectType, objectId);
+      res.json({ recipients });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/crm/booking-link-recipients/:id/resend
+  app.post("/api/crm/booking-link-recipients/:id/resend", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const recipientId = parseInt(req.params.id, 10);
+      if (isNaN(recipientId)) return res.status(400).json({ message: "Invalid id" });
+      const [u] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
+      const ownerName = u?.name || "VoltSafe";
+      const result = await resendBookingLink(recipientId, userId, ownerName);
+      if (!result) return res.status(404).json({ message: "Recipient not found or already revoked" });
+      res.json({
+        recipientId: result.recipient.id,
+        publicUrl:   result.publicUrl,
+        sentAt:      result.emailedAt,
+      });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

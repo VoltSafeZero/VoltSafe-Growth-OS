@@ -21,6 +21,7 @@ import {
 import { RecordSummaryBar } from "@/components/record-summary-bar";
 import { ContactsPanel } from "@/components/contacts/contacts-panel";
 import { ScoreBadge } from "@/components/scores/score-badge";
+import { SendBookingLinkButton, BookingLinkStatusInline } from "@/components/SendBookingLinkButton";
 import { useLeadScores } from "@/hooks/use-scores";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
 import { lazy, Suspense } from "react";
@@ -1434,6 +1435,7 @@ function LeadDetailDialog({
                 <Badge variant="outline" className={stageInfo?.color || ""}>{stageInfo?.label || lead.status}</Badge>
                 {lead.source && <span className="text-xs text-muted-foreground">via {lead.source}</span>}
                 <span className="text-xs text-muted-foreground">· Created {new Date(lead.createdAt).toLocaleDateString()}</span>
+                <BookingLinkStatusInline objectType="lead" objectId={lead.id} />
               </div>
             </div>
           </div>
@@ -1743,6 +1745,14 @@ function LeadDetailDialog({
                   <ArrowRightLeft className="mr-2 h-4 w-4" /> Promote to Organization
                 </Button>
               ) : null}
+              {canEdit && lead.contactEmail && (
+                <SendBookingLinkButton
+                  objectType="lead"
+                  objectId={lead.id}
+                  recipientEmail={lead.contactEmail}
+                  recipientName={lead.contactName}
+                />
+              )}
               {canEdit && <Button variant="destructive" size="sm" onClick={onDelete} disabled={isDeleting} data-testid="button-delete-lead">
                 <Trash2 className="mr-2 h-4 w-4" /> Delete
               </Button>}

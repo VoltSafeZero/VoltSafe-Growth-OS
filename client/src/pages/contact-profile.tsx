@@ -22,6 +22,7 @@ import { SuggestedActionsCard } from "@/components/suggested-actions-card";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { useRef } from "react";
 import { Camera, Trash2 } from "lucide-react";
+import { SendBookingLinkButton, BookingLinkStatusInline } from "@/components/SendBookingLinkButton";
 
 const STAGE_LABEL: Record<string, string> = {
   inbound_new: "New", qualified: "Qualified", discovery: "Discovery",
@@ -295,6 +296,15 @@ export default function ContactProfilePage() {
                 <Pencil className="h-3.5 w-3.5" />
                 Edit
               </Button>
+              {contact.email && (
+                <SendBookingLinkButton
+                  objectType="contact"
+                  objectId={contact.id}
+                  recipientEmail={contact.email}
+                  recipientName={contact.name}
+                />
+              )}
+              <BookingLinkStatusInline objectType="contact" objectId={contact.id} />
               {overdueTasks.length > 0 && (
                 <Badge variant="destructive" className="text-xs">{overdueTasks.length} overdue</Badge>
               )}
