@@ -306,23 +306,37 @@ export async function commandCenter(
   leak.sort((a, b) => (b.quotedValue ?? 0) - (a.quotedValue ?? 0));
   const leakTrimmed = leak.slice(0, LEAK_LIMIT);
 
+  // ─── Phase H suppression — hide HOT/LEAK rows already actioned via task ────
+  // BOOKED_NO_QUOTE is already suppressed inside actionLists.bookedNoNextAction
+  // (any pending booking_followup task on the recipient hides it).
+  const suppressionRecipientIds = Array.from(new Set([
+    ...hot.map((c) => c.recipientId).filter((n): n is number => n != null),
+    ...leakTrimmed.map((c) => c.recipientId).filter((n): n is number => n != null),
+  ]));
+  const suppressedKeys = await pendingActionKeysFor(
+    suppressionRecipientIds,
+    ["HOT_OPENED_NOT_BOOKED", "REVENUE_LEAK"],
+  );
+  const hotFinal  = hot.filter((c) => !suppressedKeys.has(`${c.recipientId}:HOT_OPENED_NOT_BOOKED`));
+  const leakFinal = leakTrimmed.filter((c) => !suppressedKeys.has(`${c.recipientId}:REVENUE_LEAK`));
+
   const buckets = {
-    HOT_OPENED_NOT_BOOKED: hot,
+    HOT_OPENED_NOT_BOOKED: hotFinal,
     BOOKED_NO_QUOTE:       noQuote,
     REUSE_LINK:            reuse,
     REWRITE_LINK:          rewrite,
     REVENUE_WINNER:        winners,
-    REVENUE_LEAK:          leakTrimmed,
+    REVENUE_LEAK:          leakFinal,
   };
   const counts: Record<CardKind, number> = {
-    HOT_OPENED_NOT_BOOKED: hot.length,
+    HOT_OPENED_NOT_BOOKED: hotFinal.length,
     BOOKED_NO_QUOTE:       noQuote.length,
     REUSE_LINK:            reuse.length,
     REWRITE_LINK:          rewrite.length,
     REVENUE_WINNER:        winners.length,
-    REVENUE_LEAK:          leakTrimmed.length,
+    REVENUE_LEAK:          leakFinal.length,
   };
-  const allCards = [...hot, ...noQuote, ...reuse, ...rewrite, ...winners, ...leakTrimmed];
+  const allCards = [...hotFinal, ...noQuote, ...reuse, ...rewrite, ...winners, ...leakFinal];
   const totals = {
     highUrgency:   allCards.filter((c) => c.urgency === "high").length,
     mediumUrgency: allCards.filter((c) => c.urgency === "medium").length,

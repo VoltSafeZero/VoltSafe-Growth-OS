@@ -80,6 +80,12 @@ import {
 import {
   commandCenter, parseCommandCenterFilters,
 } from "./services/booking-command-center";
+import {
+  createFollowupTaskFromCommandCenter,
+  CommandActionError,
+  ALLOWED_KINDS as COMMAND_ACTION_KINDS,
+  type ActionKind as CommandActionKind,
+} from "./services/booking-command-actions";
 import { seedDefaultRules } from "./services/engagement-defaults";
 import { composeDigest, getSectionsForRole, formatDigestAsHtml, formatDigestAsText, DEFAULT_ALERT_RULES as DC_DEFAULT_SECTIONS, type DigestSection } from "./services/digest-composer";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
@@ -24442,6 +24448,44 @@ export function registerConfluenceRoutes(app: Express) {
       res.json(result);
     } catch (e: any) { res.status(400).json({ message: e.message }); }
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase H — Booking Command Center: One-Click Actions
+  //   POST /api/crm/booking-analytics/actions/create-followup-task
+  //
+  // CSRF: enforced globally by csrfOriginGuard (same-origin Origin/Referer).
+  // ─────────────────────────────────────────────────────────────────────────
+  app.post("/api/crm/booking-analytics/actions/create-followup-task",
+    requireAuth, async (req, res) => {
+      try {
+        const callerId = (req.session as any).userId as number;
+        const isAdmin  = await callerIsAdminFromSession(req);
+        const body     = req.body ?? {};
+        const kind = body.kind;
+        if (typeof kind !== "string" || !COMMAND_ACTION_KINDS.includes(kind as CommandActionKind)) {
+          return res.status(400).json({ message: `Unsupported kind: ${kind}` });
+        }
+        const recipientId   = Number(body.recipientId);
+        const bookingLinkId = body.bookingLinkId != null ? Number(body.bookingLinkId) : undefined;
+        const note          = typeof body.note === "string" ? body.note : undefined;
+        if (!Number.isInteger(recipientId) || recipientId <= 0) {
+          return res.status(400).json({ message: "recipientId must be a positive integer" });
+        }
+        if (bookingLinkId != null && (!Number.isInteger(bookingLinkId) || bookingLinkId <= 0)) {
+          return res.status(400).json({ message: "bookingLinkId must be a positive integer" });
+        }
+        const result = await createFollowupTaskFromCommandCenter({
+          callerUserId:  callerId,
+          callerIsAdmin: isAdmin,
+          kind:          kind as CommandActionKind,
+          recipientId, bookingLinkId, note,
+        });
+        res.json(result);
+      } catch (e: any) {
+        const status = e instanceof CommandActionError ? e.status : 400;
+        res.status(status).json({ message: e.message });
+      }
+    });
 
   app.get("/api/crm/booking-analytics/action-list", requireAuth, async (req, res) => {
     try {

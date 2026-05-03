@@ -1,15 +1,19 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   TrendingUp, Trophy, AlertTriangle, Users, Mail, MousePointerClick,
   CheckCircle2, Clock, Target, DollarSign, FileText, Zap, Eye,
   Flame, ArrowRight, RefreshCw, Trash2, Award, Droplets, LayoutDashboard,
+  PlusCircle, Copy,
 } from "lucide-react";
 import { Link as WLink } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 type LinkRow = {
   bookingLinkId: number; bookingLinkName: string;
@@ -151,6 +155,135 @@ function FunnelBar({ label, value, max, testId }: {
   );
 }
 
+// Phase H — kinds eligible for the "Create follow-up task" one-click action
+const TASK_ACTION_KINDS: ReadonlySet<CardKind> = new Set([
+  "HOT_OPENED_NOT_BOOKED", "BOOKED_NO_QUOTE", "REVENUE_LEAK",
+]);
+const COPY_LINK_KINDS: ReadonlySet<CardKind> = new Set([
+  "REUSE_LINK", "REVENUE_WINNER",
+]);
+
+function CommandCard({ kind, items, isAdmin }: {
+  kind: CardKind; items: CardItem[]; isAdmin: boolean;
+}) {
+  const meta = CARD_META[kind];
+  const Icon = meta.icon;
+  const { toast } = useToast();
+  const [actedKeys, setActedKeys] = useState<Set<string>>(new Set());
+
+  const createTask = useMutation({
+    mutationFn: async (vars: { kind: CardKind; recipientId: number; bookingLinkId?: number }) => {
+      return await apiRequest("POST",
+        "/api/crm/booking-analytics/actions/create-followup-task",
+        vars,
+      );
+    },
+    onSuccess: (data: any, vars) => {
+      const key = `${vars.recipientId}:${vars.kind}`;
+      setActedKeys((s) => new Set(s).add(key));
+      toast({
+        title: data?.created ? "Follow-up task created" : "Follow-up task already pending",
+        description: data?.created
+          ? "It now appears in Tasks for the link owner."
+          : "Existing pending task was returned (no duplicate created).",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/crm/booking-analytics/command-center"] });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Could not create task",
+        description: err?.message ?? "Unknown error",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const onCopy = async (bookingLinkId: number) => {
+    const url = `${window.location.origin}/booking-links/${bookingLinkId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({ title: "Link copied", description: url });
+    } catch {
+      toast({ title: "Copy failed", description: "Clipboard unavailable", variant: "destructive" });
+    }
+  };
+
+  return (
+    <Card data-testid={`bucket-${kind.toLowerCase()}`}>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Icon className={`h-4 w-4 ${meta.color}`} />
+          <h2 className="font-medium">{meta.label}</h2>
+          <Badge variant="outline" data-testid={`count-${kind.toLowerCase()}`}>{items.length}</Badge>
+        </div>
+        {items.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-2">Nothing here — clean slate.</p>
+        ) : (
+          <div className="space-y-2">
+            {items.map((c, idx) => {
+              const acted = c.recipientId != null && actedKeys.has(`${c.recipientId}:${kind}`);
+              const showTaskBtn = TASK_ACTION_KINDS.has(kind) && c.recipientId != null;
+              const showCopyBtn = COPY_LINK_KINDS.has(kind) && c.bookingLinkId != null;
+              const innerRow = (
+                <div className="border rounded p-2 hover-elevate"
+                     data-testid={`card-${kind.toLowerCase()}-${idx}`}>
+                  <div className="flex justify-between gap-2 items-start">
+                    <div className="font-medium text-sm truncate flex-1">{c.title}</div>
+                    <Badge variant={URGENCY_VARIANT[c.urgency]} className="whitespace-nowrap">{meta.badge}</Badge>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5 truncate">{c.subtitle}</div>
+                  <div className="text-xs mt-1 flex items-start gap-1">
+                    <ArrowRight className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground" />
+                    <span>{c.recommendation}</span>
+                  </div>
+                </div>
+              );
+              const wrappedRow = c.deepLink
+                ? <WLink href={c.deepLink} className="block">{innerRow}</WLink>
+                : innerRow;
+              return (
+                <div key={idx} className="space-y-1">
+                  {wrappedRow}
+                  {(showTaskBtn || showCopyBtn) && (
+                    <div className="flex gap-2 px-1">
+                      {showTaskBtn && (
+                        <Button
+                          size="sm" variant="outline"
+                          disabled={acted || createTask.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            createTask.mutate({
+                              kind, recipientId: c.recipientId!, bookingLinkId: c.bookingLinkId,
+                            });
+                          }}
+                          data-testid={`button-create-task-${kind.toLowerCase()}-${idx}`}
+                        >
+                          {acted
+                            ? (<><CheckCircle2 className="h-3 w-3 mr-1" />Task created</>)
+                            : (<><PlusCircle className="h-3 w-3 mr-1" />Create follow-up task</>)}
+                        </Button>
+                      )}
+                      {showCopyBtn && (
+                        <Button
+                          size="sm" variant="outline"
+                          onClick={(e) => { e.stopPropagation(); onCopy(c.bookingLinkId!); }}
+                          data-testid={`button-copy-link-${kind.toLowerCase()}-${idx}`}
+                        >
+                          <Copy className="h-3 w-3 mr-1" />Copy link
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function BookingAnalyticsPage() {
   const linksQ        = useQuery<{ rows: LinkRow[]; isAdmin: boolean }>({ queryKey: ["/api/crm/booking-analytics/links"] });
   const ownersQ       = useQuery<{ rows: OwnerRow[] }>({ queryKey: ["/api/crm/booking-analytics/owners"], enabled: !!linksQ.data?.isAdmin });
@@ -211,47 +344,13 @@ export default function BookingAnalyticsPage() {
 
           {commandQ.isLoading ? <Skeleton className="h-64" /> : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {(Object.keys(CARD_META) as CardKind[]).map((kind) => {
-                const meta  = CARD_META[kind];
-                const Icon  = meta.icon;
-                const items = commandQ.data?.buckets[kind] ?? [];
-                return (
-                  <Card key={kind} data-testid={`bucket-${kind.toLowerCase()}`}>
-                    <CardContent className="p-4 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <Icon className={`h-4 w-4 ${meta.color}`} />
-                        <h2 className="font-medium">{meta.label}</h2>
-                        <Badge variant="outline" data-testid={`count-${kind.toLowerCase()}`}>{items.length}</Badge>
-                      </div>
-                      {items.length === 0 ? (
-                        <p className="text-sm text-muted-foreground py-2">Nothing here — clean slate.</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {items.map((c, idx) => {
-                            const row = (
-                              <div className="border rounded p-2 hover-elevate"
-                                   data-testid={`card-${kind.toLowerCase()}-${idx}`}>
-                                <div className="flex justify-between gap-2 items-start">
-                                  <div className="font-medium text-sm truncate flex-1">{c.title}</div>
-                                  <Badge variant={URGENCY_VARIANT[c.urgency]} className="whitespace-nowrap">{meta.badge}</Badge>
-                                </div>
-                                <div className="text-xs text-muted-foreground mt-0.5 truncate">{c.subtitle}</div>
-                                <div className="text-xs mt-1 flex items-start gap-1">
-                                  <ArrowRight className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground" />
-                                  <span>{c.recommendation}</span>
-                                </div>
-                              </div>
-                            );
-                            return c.deepLink
-                              ? <WLink key={idx} href={c.deepLink} className="block">{row}</WLink>
-                              : <div key={idx}>{row}</div>;
-                          })}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
+              {(Object.keys(CARD_META) as CardKind[]).map((kind) => (
+                <CommandCard key={kind}
+                  kind={kind}
+                  items={commandQ.data?.buckets[kind] ?? []}
+                  isAdmin={!!commandQ.data?.isAdmin}
+                />
+              ))}
             </div>
           )}
         </TabsContent>
