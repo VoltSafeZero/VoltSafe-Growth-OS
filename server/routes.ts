@@ -8917,11 +8917,20 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       if (!Number.isFinite(attId)) return res.status(400).json({ error: "Invalid attachment id" });
       const sess = req.session as any;
       const userId = sess?.userId as number;
-      const { isAdmin } = await getSessionUserAccess(req.session);
+      const { isAdmin, mailTeamPerms } = await getSessionUserAccess(req.session);
       const { getAttachmentOwner, parseCalendarInviteForAttachment } = await import("./services/calendar-invite-parser");
       const owner = await getAttachmentOwner(attId);
       if (!owner) return res.status(404).json({ error: "Attachment not found" });
-      if (owner.ownerUserId !== userId && !isAdmin) {
+      // Allow access if: caller owns the parent message, is an admin, OR has
+      // a mail_team grant (view OR edit) on the message's source mailbox.
+      // The previous owner-or-admin-only check blocked legitimate shared-
+      // mailbox teammates from reading attachments on threads they could
+      // otherwise see in the inbox. See docs/PERMISSION_AUDIT.md (P2).
+      const sharedAcctId = owner.sourceAccountId;
+      const hasSharedAccess = sharedAcctId != null
+        && (mailTeamPerms[String(sharedAcctId)]?.view === true
+            || mailTeamPerms[String(sharedAcctId)]?.edit === true);
+      if (owner.ownerUserId !== userId && !isAdmin && !hasSharedAccess) {
         return res.status(403).json({ error: "Not allowed" });
       }
       const isCalendar =
@@ -8946,11 +8955,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       if (!Number.isFinite(attId)) return res.status(400).json({ error: "Invalid attachment id" });
       const sess = req.session as any;
       const userId = sess?.userId as number;
-      const { isAdmin } = await getSessionUserAccess(req.session);
+      const { isAdmin, mailTeamPerms } = await getSessionUserAccess(req.session);
       const { getAttachmentOwner, downloadGmailAttachment } = await import("./services/calendar-invite-parser");
       const owner = await getAttachmentOwner(attId);
       if (!owner) return res.status(404).json({ error: "Attachment not found" });
-      if (owner.ownerUserId !== userId && !isAdmin) {
+      // Same access model as /calendar-invite above: owner OR admin OR
+      // mail_team grant (view OR edit) on the message's source mailbox.
+      const sharedAcctId = owner.sourceAccountId;
+      const hasSharedAccess = sharedAcctId != null
+        && (mailTeamPerms[String(sharedAcctId)]?.view === true
+            || mailTeamPerms[String(sharedAcctId)]?.edit === true);
+      if (owner.ownerUserId !== userId && !isAdmin && !hasSharedAccess) {
         return res.status(403).json({ error: "Not allowed" });
       }
       const result = await downloadGmailAttachment(attId);
@@ -13264,7 +13279,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     return res.status(404).json({ message: "File data not found — please re-upload this asset" });
   }
 
-  app.get("/api/assets/:id/file", requireAuth, async (req, res) => {
+  // Asset reads — gate on the same "knowledge" module permission used by
+  // /api/asset-folders mutation routes. Assets have no per-record FK
+  // (no accountId/contactId/leadId on the table — see shared/schema.ts:1198),
+  // so the appropriate scope IS the workspace knowledge module.
+  // Previously these routes only checked requireAuth which permitted any
+  // authenticated user (including read-only viewers without knowledge access)
+  // to enumerate every asset by integer ID — IDOR. See docs/PERMISSION_AUDIT.md.
+  app.get("/api/assets/:id/file", requirePermission("knowledge", "view"), async (req, res) => {
     try {
       const [asset] = await db.select().from(assets).where(eq(assets.id, Number(req.params.id)));
       if (!asset) return res.status(404).json({ message: "Asset not found" });
@@ -13274,7 +13296,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
-  app.get("/api/assets/:id/download", requireAuth, async (req, res) => {
+  app.get("/api/assets/:id/download", requirePermission("knowledge", "view"), async (req, res) => {
     try {
       const [asset] = await db.select().from(assets).where(eq(assets.id, Number(req.params.id)));
       if (!asset) return res.status(404).json({ message: "Asset not found" });

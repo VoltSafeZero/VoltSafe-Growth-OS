@@ -128,6 +128,49 @@ if (owner.ownerUserId !== userId && !isAdmin) {
 
 ---
 
+---
+
+## RESOLVED — fixes shipped in this commit
+
+### ✅ P1-1: `/api/assets/:id/file` and `/api/assets/:id/download`
+
+Both routes now require `requirePermission("knowledge", "view")` instead of bare `requireAuth`. The `assets` table is a workspace-level flat file store with no per-record FKs (verified: only `uploadedBy` and `folderId`), so the appropriate scope is the existing `knowledge` permission module — the same module that gates `/api/asset-folders` mutations. This matches the project's existing ACL pattern rather than inventing a new one.
+
+Regression test: `tests/asset-permissions.test.js` (7 cases, all passing). Covers viewer-with-`knowledge=none` denied, viewer probing arbitrary IDs denied (403 before DB lookup), admin retains 200.
+
+### ✅ P2-1: Gmail attachment download blocks shared-mailbox teammates
+
+Both `/api/gmail/attachments/:id/download` and `/api/gmail/attachments/:id/calendar-invite` now also accept callers with a `mail_team[sourceAccountId]` grant (view OR edit). The previous check was owner-or-admin only.
+
+Regression test in same file: viewer with `mail_team[1].view=true` confirmed receiving 200 (not 403) on attachment 66831 anchored to source_account_id=1.
+
+---
+
+## SEPARATE TICKET — additional `requireAuth`-only `:id` routes worth a follow-up audit
+
+During the self-review for this commit I scanned every `app.(get|delete)("/api/.../:id")` route in `server/routes.ts`. Most have a second-line ACL inside the handler (`event.userId !== session.userId`, `WHERE id=X AND owner_user_id=Y`, `requireOwnerOrAdmin`, `resolveAccount`+`mail_team` checks). The following do NOT — they appear to return a record by integer ID with only `requireAuth`. None were modified in this commit; flagging only:
+
+| Route                                        | Line  | Risk                                                        |
+| -------------------------------------------- | ----- | ----------------------------------------------------------- |
+| `GET /api/email-messages/:id/associations`   | 12536 | Returns CRM associations for a message — should at minimum check the requester has `mail_team` access to the message's `sourceAccountId`. |
+| `GET /api/projects/:id`                      | 13863 | Returns full project record. No visible scope check.        |
+| `GET /api/projects/:id/certification`        | 13940 | Returns project certification data.                         |
+| `GET /api/projects/:id/milestones`           | 14032 | Returns project milestones.                                 |
+| `GET /api/projects/:id/tracker-sync`         | 14093 | Reads `tracker_sheet_url` and triggers sheet read.          |
+| `GET /api/projects/:id/tracker-alerts/state` | 14305 | Reads project alert state.                                  |
+| `GET /api/projects/:id/timeline`             | 14362 | Reads project timeline events.                              |
+| `GET /api/confluence/pages/:id`              | 13496 | Reads Confluence page contents.                             |
+| `GET /api/opportunities/:id/contacts`        | 15218 | Returns opportunity contact list.                           |
+| `GET /api/accounts/:id/contacts`             | 15247 | Returns account contact list.                               |
+| `GET /api/leads/:id/contacts`                | 15275 | Returns lead contact list.                                  |
+| `GET /api/gmail/accounts/:id/access`         | 11954 | Returns mailbox access info — likely benign but worth confirming. |
+
+**Suggested follow-up scope**: Decide which permission module gates each one (likely `crm.view` for opportunities/accounts/leads/contacts, `projects.view` if such a module exists or otherwise `crm.view`, `knowledge.view` for confluence). Then apply `requirePermission(module, "view")` to each. Estimated ~1.5 hours including a regression test mirror of `tests/asset-permissions.test.js`.
+
+Not done in this commit per instructions — separate ticket.
+
+---
+
 ## What I did NOT audit (out of scope, time-boxed)
 
 - CSRF protection on POST/DELETE endpoints (the app uses session cookies — worth a separate pass).

@@ -1,0 +1,28 @@
+Audit accepted. Fixing P1 IDOR + bundled P2 Gmail attachment access bug, in the same focused commit.
+Scope:
+
+/api/assets/:id/file and /api/assets/:id/download — both at server/routes.ts:13267, 13277. Add proper authorization check beyond requireAuth. Ownership/access logic should match the existing pattern for asset ACL (e.g., user owns the record the asset is attached to, OR has explicit shared access via the relationship/permission model — verify what's appropriate given how assets relate to accounts/contacts/leads).
+Gmail attachment download bug — same module per the audit. Currently blocks legitimate shared-mailbox teammates from accessing attachments on emails they have view permission for. Fix to align with the multi-account permission model already in place for /api/gmail/messages and /api/gmail/threads.
+
+Same testing discipline as the unified inbox commits:
+
+Implement.
+Add regression tests. Specifically: (a) test that user A cannot fetch user B's asset by guessing ID; (b) test that a user with mail_team[X].view access CAN download attachments on emails owned by account X.
+Architect-style self-review focused on: are there other endpoints with similar requireAuth-only patterns that should also be tightened? Specifically check any /api/* route that takes an integer ID and returns a record. If you find similar IDOR patterns elsewhere, flag them but don't fix in this commit — separate ticket.
+Make a Replit checkpoint.
+Stop and wait for my .dev verification.
+
+Verification path I'll run in .dev:
+
+Confirm I can still access my own assets normally.
+Confirm I can still access attachments on my own emails.
+(If feasible without setting up another user account) verify the new permission boundaries by checking the response from a hand-crafted fetch that tries to access an asset ID I shouldn't have access to.
+
+Constraints unchanged:
+
+No schema changes.
+No db:push.
+Standing rules apply.
+
+After this commit lands and is verified, resume Zoom/booking work — Phase A.1 schema migration, with the explicit SQL file + rollback procedure I requested.
+Begin.
