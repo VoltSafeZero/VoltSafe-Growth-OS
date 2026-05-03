@@ -116,6 +116,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "quotes",    label: "Quotes",    route: "/quotes",        icon: FileText,    permKey: "quoting", advisorHidden: true },
       { id: "renewals",  label: "Renewals",  route: "/renewals",      icon: RefreshCcw,                      advisorHidden: true },
       { id: "won",       label: { desktop: "Accounts Won", mobile: "Won" }, route: "/revenue/deals", icon: Trophy, permKey: "crm", advisorHidden: true },
+      { id: "booking-outreach", label: { desktop: "Booking Outreach", mobile: "Outreach" }, route: "/booking-outreach", icon: CalendarClock, permKey: "crm", advisorHidden: true },
       { id: "notes",     label: "Notes",     route: "/notes",         icon: StickyNote },
     ],
   },

@@ -108,6 +108,7 @@ import {
 } from "./services/booking-link-service";
 import {
   sendBookingLink, resendBookingLink, listSentForCrmObject,
+  listOutreach, summarizeOutreach, listOutreachOwners,
   type CrmObjectType,
 } from "./services/booking-link-distribution";
 import {
@@ -24278,6 +24279,77 @@ export function registerConfluenceRoutes(app: Express) {
         publicUrl:   result.publicUrl,
         sentAt:      result.emailedAt,
       });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase C — Booking Outreach Dashboard
+  // GET /api/crm/booking-outreach           — list (filters)
+  // GET /api/crm/booking-outreach/summary   — counts + rates
+  // GET /api/crm/booking-outreach/owners    — admin: distinct owners
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function parseOutreachFilters(req: any) {
+    const status = req.query.status ? String(req.query.status) : undefined;
+    const ownerUserId = req.query.ownerUserId ? parseInt(String(req.query.ownerUserId), 10) : undefined;
+    const bookingLinkId = req.query.bookingLinkId ? parseInt(String(req.query.bookingLinkId), 10) : undefined;
+    const dateFrom = req.query.dateFrom ? new Date(String(req.query.dateFrom)) : undefined;
+    const dateTo   = req.query.dateTo   ? new Date(String(req.query.dateTo))   : undefined;
+    const search   = req.query.search ? String(req.query.search).slice(0, 200) : undefined;
+    const ALLOWED_STATUS = new Set(["not_sent","sent","opened","booked","revoked"]);
+    if (status && !ALLOWED_STATUS.has(status)) return { error: "Bad status filter" };
+    if (ownerUserId != null && (isNaN(ownerUserId) || ownerUserId <= 0)) return { error: "Bad ownerUserId" };
+    if (bookingLinkId != null && (isNaN(bookingLinkId) || bookingLinkId <= 0)) return { error: "Bad bookingLinkId" };
+    if (dateFrom && isNaN(dateFrom.getTime())) return { error: "Bad dateFrom" };
+    if (dateTo && isNaN(dateTo.getTime())) return { error: "Bad dateTo" };
+    return {
+      filters: { status: status as any, ownerUserId, bookingLinkId, dateFrom, dateTo, search },
+    };
+  }
+
+  async function callerIsAdminFromSession(req: any): Promise<boolean> {
+    const sessRole = String(req.session?.globalRole || "");
+    if (sessRole === "master_admin" || sessRole === "admin") return true;
+    // Defensive: also re-read from DB in case session is stale.
+    const userId = req.session.userId as number;
+    const [u] = await db.select({ r: users.globalRole }).from(users).where(eq(users.id, userId)).limit(1);
+    return u?.r === "master_admin" || u?.r === "admin";
+  }
+
+  app.get("/api/crm/booking-outreach", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const isAdmin = await callerIsAdminFromSession(req);
+      const parsed = parseOutreachFilters(req);
+      if ("error" in parsed) return res.status(400).json({ message: parsed.error });
+      const rows = await listOutreach(userId, isAdmin, parsed.filters);
+      res.json({ rows, isAdmin });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/crm/booking-outreach/summary", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const isAdmin = await callerIsAdminFromSession(req);
+      const parsed = parseOutreachFilters(req);
+      if ("error" in parsed) return res.status(400).json({ message: parsed.error });
+      const summary = await summarizeOutreach(userId, isAdmin, parsed.filters);
+      res.json(summary);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/crm/booking-outreach/owners", requireAuth, async (req, res) => {
+    try {
+      const isAdmin = await callerIsAdminFromSession(req);
+      if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
+      const owners = await listOutreachOwners();
+      res.json({ owners });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

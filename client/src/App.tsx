@@ -56,6 +56,7 @@ import RelationshipIntelligencePage from "@/pages/relationship-intelligence";
 import ContactProfilePage from "@/pages/contact-profile";
 import AccountProfilePage from "@/pages/account-profile";
 import OpportunityProfilePage from "@/pages/opportunity-profile";
+import BookingOutreachPage from "@/pages/booking-outreach";
 import ActivityFeedPage from "@/pages/activity-feed";
 import NotesPage from "@/pages/notes-page";
 import TasksHubPage from "@/pages/tasks-hub";
@@ -275,6 +276,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/opportunities/:id">{(params) => guard("crm", isAdvisor ? <AccessDenied /> : <OpportunityProfilePage />)}</Route>
       <Route path="/opportunities">{() => guard("crm", isAdvisor ? <AccessDenied /> : <LeadsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
       <Route path="/quotes">{() => guard("quoting", isAdvisor ? <AccessDenied /> : <QuotesPage canEdit={isAdmin(role) || perms.quoting === "edit"} />)}</Route>
+      <Route path="/booking-outreach">{() => guard("crm", isAdvisor ? <AccessDenied /> : <BookingOutreachPage />)}</Route>
 
       {/* ── Growth OS: Coming Soon stubs ──────────────────────────── */}
       <Route path="/activity">{() => wrap(<ActivityFeedPage />)}</Route>
