@@ -237,33 +237,35 @@ export function MyCalendarWidget({ compact, isDragging, dragProps }: WidgetProps
               const dayEvents = byDay.get(key) ?? [];
               const isCurrent = isSameDay(d, today);
               return (
-                <div
-                  key={key}
-                  className={`flex flex-col items-center rounded-md py-1.5 ${
-                    isCurrent
-                      ? "bg-primary/15 ring-1 ring-primary/40"
-                      : "hover:bg-muted/40"
-                  }`}
-                  data-testid={`week-strip-${key}`}
-                >
-                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground/80 leading-none">
-                    {format(d, "EEEEE")}
-                  </span>
-                  <span className={`text-sm font-semibold leading-tight ${isCurrent ? "text-primary" : "text-foreground"}`}>
-                    {format(d, "d")}
-                  </span>
-                  <div className="flex items-center justify-center gap-0.5 h-1.5 mt-0.5">
-                    {dayEvents.slice(0, 3).map((_, i) => (
-                      <span
-                        key={i}
-                        className={`h-1 w-1 rounded-full ${isCurrent ? "bg-primary" : "bg-muted-foreground/50"}`}
-                      />
-                    ))}
-                    {dayEvents.length > 3 && (
-                      <span className={`h-1 w-1.5 rounded-full ${isCurrent ? "bg-primary" : "bg-muted-foreground/50"}`} />
-                    )}
+                <Link key={key} href={`/execution/calendar?date=${key}`} className="block">
+                  <div
+                    className={`flex flex-col items-center rounded-md py-1.5 cursor-pointer transition-colors ${
+                      isCurrent
+                        ? "bg-primary/15 ring-1 ring-primary/40 hover:bg-primary/20"
+                        : "hover:bg-muted/60"
+                    }`}
+                    data-testid={`week-strip-${key}`}
+                    title={format(d, "EEEE, MMMM d")}
+                  >
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground/80 leading-none">
+                      {format(d, "EEEEE")}
+                    </span>
+                    <span className={`text-sm font-semibold leading-tight ${isCurrent ? "text-primary" : "text-foreground"}`}>
+                      {format(d, "d")}
+                    </span>
+                    <div className="flex items-center justify-center gap-0.5 h-1.5 mt-0.5">
+                      {dayEvents.slice(0, 3).map((_, i) => (
+                        <span
+                          key={i}
+                          className={`h-1 w-1 rounded-full ${isCurrent ? "bg-primary" : "bg-muted-foreground/50"}`}
+                        />
+                      ))}
+                      {dayEvents.length > 3 && (
+                        <span className={`h-1 w-1.5 rounded-full ${isCurrent ? "bg-primary" : "bg-muted-foreground/50"}`} />
+                      )}
+                    </div>
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>

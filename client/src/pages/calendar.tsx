@@ -341,8 +341,21 @@ type CalendarPageProps = {
 };
 
 export default function CalendarPage({ permissions, currentUserId, isAdmin }: CalendarPageProps = {}) {
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [view, setView] = useState<ViewMode>("month");
+  const [currentDate, setCurrentDate] = useState<Date>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const d = params.get("date");
+    if (d) {
+      try {
+        const parsed = parseISO(d);
+        if (!isNaN(parsed.getTime())) return startOfDay(parsed);
+      } catch {}
+    }
+    return new Date();
+  });
+  const [view, setView] = useState<ViewMode>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("date") ? "day" : "month";
+  });
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [clickedSlot, setClickedSlot] = useState<{ date: Date; hour?: number } | null>(null);
