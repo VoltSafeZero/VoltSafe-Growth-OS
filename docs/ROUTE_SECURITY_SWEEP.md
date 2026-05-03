@@ -140,24 +140,56 @@ All of these (originally) accept requests with **no session cookie at all** and 
 > email-filters, inbox/bulk-mark-done, mail-folders/:id/domains, calendar
 > integrations, suggestions snooze/dismiss, /api/tasks/:id PUT) were
 > deliberately out of scope for this commit and remain ⏳.
+>
+> **STATUS — 2026-05-03 (commit #4)**: closed the remaining ⏳ P1 mutation rows.
+> Audit-confirmed false positives (gates already present) were left untouched
+> with explanatory notes; only genuinely under-gated routes were patched.
+>
+> Patched in commit #4:
+> - `POST /api/jira/issues`, `POST /api/jira/issues/:key/transitions` →
+>   `requirePermission("support", "edit")`.
+> - `POST /api/email-filters`, `DELETE /api/email-filters/:id` →
+>   `requirePermission("communications", "edit")` (matches comm-lists/campaigns).
+> - `PATCH /api/inbox/bulk-mark-done` → `requirePermission("crm", "edit")`
+>   (matches sibling inbox/create-* gates).
+> - `POST /api/mail-folders/:id/domains`, `DELETE /api/mail-folders/:id/domains/:domainId`,
+>   `DELETE /api/mail-folders/:id/emails/:emailId` → in-handler ownership ACL
+>   on the parent folder (`folder.ownerUserId === userId` OR admin).
+> - `POST /api/{,tasks/}suggestions/:id/{dismiss,snooze}` (4 routes) →
+>   escalated `crm.view` → `crm.edit`.
+>
+> Audit-confirmed safe (NO patch needed; flagged for documentation only):
+> `gmail/send` (already uses `requireAccountEditAccess`), `gmail/sync`
+> (`requireAdminOnly`), `gmail/sync-incremental` and `gmail/watch/{start,stop}`
+> (`requireOwnerOrAdmin`), `email-search/reindex` (inline admin check),
+> `calendar/events/{:id,:id/add-zoom,:id/send-invites}` and all
+> `calendar/integrations/*` writes (inline `event.userId === userId` /
+> `conn.userId === userId`), `PUT /api/tasks/:id` (BOLA-fixed inline
+> owner/creator/admin), `PUT/DELETE /api/mail-folders/:id` and
+> `POST /api/mail-folders` (per-user with `ownerUserId` filter).
+>
+> Regression: `tests/p1-undergated-mutations-2.test.js` (33/33) — anon → 401,
+> viewer with view perms → 403, viewer with edit perms → not 403, viewer
+> with edit perms still 403 on cross-owner mail-folder writes (in-handler
+> ACL), admin → not 403 on cross-owner mail-folder writes.
 
 ### P1.A — Mutations on `requireAuth` only (no module check)
 
 | Method | Path                                              | Line  | Risk                                                            | Recommended gate                       |
 | ------ | ------------------------------------------------- | ----- | --------------------------------------------------------------- | -------------------------------------- |
 | POST   | `/api/email-messages/:id/confirm` ✅              | 12625 | **Fixed in commit #3.** In-handler ACL added: owner of the email message OR `isAdmin` OR `mail_team[sourceAccountId].edit` — identical to the patched `/reassign` route. | `requireAuth` + in-handler ACL |
-| POST   | `/api/email-search/reindex`                       | 12474 | Triggers a workspace-wide email index rebuild                   | `requirePermission("communications", "edit")` or `requireAdmin` |
-| POST   | `/api/email-filters`                              | 12501 | Creates email filter (per-user or workspace?)                   | Verify scope; if workspace add `communications.edit` |
-| DELETE | `/api/email-filters/:id`                          | 12516 | Deletes any filter by id                                        | Same                                                       |
-| POST   | `/api/inbox/bulk-mark-done`                       | 11437 | Bulk patch inbox state                                          | `requirePermission("communications", "edit")` |
-| POST   | `/api/gmail/send`                                 | 11461 | Sends an email **as some Gmail account**. Needs per-mailbox edit ACL. | In-handler `mail_team[fromAccountId].edit` |
-| POST   | `/api/gmail/sync`                                 | 12178 | Triggers full sync                                              | `requireOwnerOrAdmin(accountId)` for the targeted mailbox |
-| POST   | `/api/gmail/sync-incremental`                     | 12310 | Same                                                            | Same                                                       |
-| POST   | `/api/gmail/watch/start`                          | 12330 | Sets up Gmail push subscription                                 | Owner or admin                                             |
-| POST   | `/api/gmail/watch/stop`                           | 12342 | Tears down push subscription                                    | Owner or admin                                             |
-| POST   | `/api/gmail/disconnect`                           | 12052 | Disconnects current user's Gmail integration (per-user; OK)     | False positive — keep `requireAuth`                       |
-| POST   | `/api/jira/issues`                                | 13443 | Creates Jira issues against the workspace's connected project   | `requirePermission("support", "edit")` (Jira is the support backend) |
-| POST   | `/api/jira/issues/:key/transitions`               | 13679 | Mutates Jira workflow                                           | Same                                                       |
+| POST   | `/api/email-search/reindex` ✅ (audit)            | 12465 | **Audit (commit #4)** — already gated by inline `globalRole === master_admin/admin` check (lines 12466-12470). No patch needed. |  |
+| POST   | `/api/email-filters` ✅                           | 12495 | **Fixed in commit #4** — `requirePermission("communications", "edit")` |  |
+| DELETE | `/api/email-filters/:id` ✅                       | 12510 | **Fixed in commit #4** — same |  |
+| PATCH  | `/api/inbox/bulk-mark-done` ✅                    | 11431 | **Fixed in commit #4** — `requirePermission("crm", "edit")` (matches sibling inbox/create-task-from-thread, etc.) |  |
+| POST   | `/api/gmail/send` ✅ (audit)                      | 11452 | **Audit (commit #4)** — already gated: `resolveAccount` + `requireAccountEditAccess` (lines 11455-11460). View-only shared-mailbox grants cannot send. |  |
+| POST   | `/api/gmail/sync` ✅ (audit)                      | 12169 | **Audit (commit #4)** — already gated by `requireAdminOnly` (line 12170). |  |
+| POST   | `/api/gmail/sync-incremental` ✅ (audit)          | 12301 | **Audit (commit #4)** — `requireOwnerOrAdmin(accountId)` if `accountId` provided, `requireAdminOnly` otherwise. |  |
+| POST   | `/api/gmail/watch/start` ✅ (audit)               | 12321 | **Audit (commit #4)** — `requireOwnerOrAdmin(accountId)`. |  |
+| POST   | `/api/gmail/watch/stop` ✅ (audit)                | 12333 | **Audit (commit #4)** — same. |  |
+| POST   | `/api/gmail/disconnect`                           | 12043 | Disconnects current user's Gmail integration (per-user; OK)     | False positive — keep `requireAuth`                       |
+| POST   | `/api/jira/issues` ✅                             | 13456 | **Fixed in commit #4** — `requirePermission("support", "edit")` (Jira is the support backend) |  |
+| POST   | `/api/jira/issues/:key/transitions` ✅            | 13692 | **Fixed in commit #4** — same |  |
 | POST   | `/api/price-lists` ✅                             | 13127 | **Fixed in commit #3** — `requireAuth, requirePermission("quoting", "edit")` |  |
 | PATCH  | `/api/price-lists/:id` ✅                         | 13144 | **Fixed in commit #3** — same |  |
 | DELETE | `/api/price-lists/:id` ✅                         | 13161 | **Fixed in commit #3** — same |  |
@@ -196,10 +228,23 @@ All of these (originally) accept requests with **no session cookie at all** and 
 | ------ | ----------------------------------------------- | ----- | --------------------------------------------------------- | ---------------- |
 | POST   | `/api/timeline/link-email` ✅                   | 12944 | **Fixed in commit #3** — escalated from `crm.view` to `requirePermission("crm", "edit")` |  |
 | DELETE | `/api/timeline/unlink-email/:id` ✅             | 12982 | **Fixed in commit #3** — same |  |
-| POST   | `/api/suggestions/:id/dismiss`                  | 2510  | Dismisses a workspace-shared suggestion. Currently `crm.view` — debatable; if dismiss is per-user-pref it should write to a per-user table; if it kills the suggestion globally it should be `crm.edit`. | Audit semantics, then either keep or escalate to `edit` |
-| POST   | `/api/suggestions/:id/snooze`                   | 2528  | Same                                                      | Same                                                       |
-| POST   | `/api/tasks/suggestions/:id/dismiss`            | 4255  | Same                                                      | Same                                                       |
-| POST   | `/api/tasks/suggestions/:id/snooze`             | 4277  | Same                                                      | Same                                                       |
+| POST   | `/api/suggestions/:id/dismiss` ✅               | 2513  | **Fixed in commit #4** — escalated `crm.view` → `crm.edit` (workspace-shared suggestion mutation). |  |
+| POST   | `/api/suggestions/:id/snooze` ✅                | 2531  | **Fixed in commit #4** — same. |  |
+| POST   | `/api/tasks/suggestions/:id/dismiss` ✅         | 4258  | **Fixed in commit #4** — same. |  |
+| POST   | `/api/tasks/suggestions/:id/snooze` ✅          | 4280  | **Fixed in commit #4** — same. |  |
+
+### P1.C — Mail-folder child writes missing parent-ownership ACL (commit #4)
+
+These three routes operate on rows scoped to a `mail_folders` parent but did not
+verify the caller owned that folder. Any authenticated user could mutate domain
+rules / un-assign emails on **any** folder by id. Fixed in commit #4 with an
+in-handler precheck on `mail_folders.owner_user_id` (admins bypass).
+
+| Method | Path                                                     | Line  | Status |
+| ------ | -------------------------------------------------------- | ----- | ------ |
+| POST   | `/api/mail-folders/:id/domains` ✅                       | 15519 | **Fixed in commit #4** — in-handler `folder.ownerUserId === userId` OR admin. |
+| DELETE | `/api/mail-folders/:id/domains/:domainId` ✅             | 15547 | **Fixed in commit #4** — same; also constrains DELETE to `folderId` so a domain id from another folder cannot be deleted via this URL. |
+| DELETE | `/api/mail-folders/:id/emails/:emailId` ✅               | 15623 | **Fixed in commit #4** — same. |
 | POST   | `/api/execution/digest`                         | 4831  | Generates digest (read-like effect, `crm.view` reasonable) | False positive — keep                                     |
 
 ---

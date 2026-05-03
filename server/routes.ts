@@ -2507,7 +2507,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/suggestions/:id/dismiss", requirePermission("crm", "view"), async (req, res) => {
+  app.post("/api/suggestions/:id/dismiss", requirePermission("crm", "edit"), async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ message: "Invalid suggestion id" });
 
@@ -2525,7 +2525,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/suggestions/:id/snooze", requirePermission("crm", "view"), async (req, res) => {
+  app.post("/api/suggestions/:id/snooze", requirePermission("crm", "edit"), async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ message: "Invalid suggestion id" });
     const days = Number(req.body?.days ?? 3);
@@ -4252,7 +4252,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/tasks/suggestions/:id/dismiss", requirePermission("crm", "view"), async (req, res) => {
+  app.post("/api/tasks/suggestions/:id/dismiss", requirePermission("crm", "edit"), async (req, res) => {
     const suggId = Number(req.params.id);
     if (!Number.isInteger(suggId) || suggId <= 0) return res.status(400).json({ message: "Invalid id" });
     const userId = getSessionUserId(req);
@@ -4274,7 +4274,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/tasks/suggestions/:id/snooze", requirePermission("crm", "view"), async (req, res) => {
+  app.post("/api/tasks/suggestions/:id/snooze", requirePermission("crm", "edit"), async (req, res) => {
     const suggId = Number(req.params.id);
     if (!Number.isInteger(suggId) || suggId <= 0) return res.status(400).json({ message: "Invalid id" });
     const days = Number(req.body?.days ?? 3);
@@ -11425,7 +11425,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   // PATCH /api/inbox/bulk-mark-done — mark threads as workflow_state=done, clears awaiting reply
-  app.patch("/api/inbox/bulk-mark-done", requireAuth, async (req, res) => {
+  app.patch("/api/inbox/bulk-mark-done", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
     const { threadIds } = req.body;
     if (!Array.isArray(threadIds) || !threadIds.length) {
       return res.status(400).json({ message: "threadIds array required" });
@@ -12489,7 +12489,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
-  app.post("/api/email-filters", requireAuth, async (req, res) => {
+  app.post("/api/email-filters", requireAuth, requirePermission("communications", "edit"), async (req, res) => {
     try {
       const { domain } = req.body;
       if (!domain) return res.status(400).json({ message: "domain required" });
@@ -12504,7 +12504,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
-  app.delete("/api/email-filters/:id", requireAuth, async (req, res) => {
+  app.delete("/api/email-filters/:id", requireAuth, requirePermission("communications", "edit"), async (req, res) => {
     try {
       await db.delete(emailFilters).where(eq(emailFilters.id, Number(req.params.id)));
       res.json({ success: true });
@@ -13450,7 +13450,7 @@ export function registerJiraRoutes(app: Express) {
     }
   });
 
-  app.post("/api/jira/issues", requireAuth, async (req, res) => {
+  app.post("/api/jira/issues", requireAuth, requirePermission("support", "edit"), async (req, res) => {
     try {
       const { getUncachableJiraClient, invalidateJiraToken } = await import("./jira-client");
       let client = await getUncachableJiraClient();
@@ -13686,7 +13686,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.post("/api/jira/issues/:key/transitions", requireAuth, async (req, res) => {
+  app.post("/api/jira/issues/:key/transitions", requireAuth, requirePermission("support", "edit"), async (req, res) => {
     try {
       const { getJiraCredentials, invalidateJiraToken } = await import("./jira-client");
       const { key } = req.params;
@@ -15516,6 +15516,16 @@ export function registerConfluenceRoutes(app: Express) {
   app.post("/api/mail-folders/:id/domains", requireAuth, async (req, res) => {
     try {
       const folderId = Number(req.params.id);
+      const userId = (req.session as any).userId as number;
+      // Ownership ACL: must own the parent folder (admins bypass).
+      const role = String((req.session as any).globalRole || "");
+      const isAdmin = role === "master_admin" || role === "admin";
+      const [folder] = await db.select({ ownerUserId: mailFolders.ownerUserId })
+        .from(mailFolders).where(eq(mailFolders.id, folderId)).limit(1);
+      if (!folder) return res.status(404).json({ message: "Folder not found" });
+      if (!isAdmin && folder.ownerUserId !== userId) {
+        return res.status(403).json({ message: "Not allowed" });
+      }
       const { domain, matchType } = req.body;
       if (!domain?.trim()) return res.status(400).json({ message: "Domain is required" });
       const { normalizeDomain } = await import("./services/email-folder-router");
@@ -15533,7 +15543,20 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.delete("/api/mail-folders/:id/domains/:domainId", requireAuth, async (req, res) => {
     try {
-      await db.delete(mailFolderDomains).where(eq(mailFolderDomains.id, Number(req.params.domainId)));
+      const folderId = Number(req.params.id);
+      const userId = (req.session as any).userId as number;
+      const role = String((req.session as any).globalRole || "");
+      const isAdmin = role === "master_admin" || role === "admin";
+      const [folder] = await db.select({ ownerUserId: mailFolders.ownerUserId })
+        .from(mailFolders).where(eq(mailFolders.id, folderId)).limit(1);
+      if (!folder) return res.status(404).json({ message: "Folder not found" });
+      if (!isAdmin && folder.ownerUserId !== userId) {
+        return res.status(403).json({ message: "Not allowed" });
+      }
+      await db.delete(mailFolderDomains).where(and(
+        eq(mailFolderDomains.id, Number(req.params.domainId)),
+        eq(mailFolderDomains.folderId, folderId),
+      ));
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -15596,9 +15619,19 @@ export function registerConfluenceRoutes(app: Express) {
   // Manual remove email from folder
   app.delete("/api/mail-folders/:id/emails/:emailId", requireAuth, async (req, res) => {
     try {
+      const folderId = Number(req.params.id);
+      const userId = (req.session as any).userId as number;
+      const role = String((req.session as any).globalRole || "");
+      const isAdmin = role === "master_admin" || role === "admin";
+      const [folder] = await db.select({ ownerUserId: mailFolders.ownerUserId })
+        .from(mailFolders).where(eq(mailFolders.id, folderId)).limit(1);
+      if (!folder) return res.status(404).json({ message: "Folder not found" });
+      if (!isAdmin && folder.ownerUserId !== userId) {
+        return res.status(403).json({ message: "Not allowed" });
+      }
       await db.delete(emailFolderAssignments).where(
         and(
-          eq(emailFolderAssignments.folderId, Number(req.params.id)),
+          eq(emailFolderAssignments.folderId, folderId),
           eq(emailFolderAssignments.emailId, Number(req.params.emailId))
         )
       );
