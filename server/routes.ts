@@ -77,6 +77,9 @@ import {
 import {
   revenueSummary, revenueAttribution, actionLists, parseRevenueFilters,
 } from "./services/booking-revenue-attribution";
+import {
+  commandCenter, parseCommandCenterFilters,
+} from "./services/booking-command-center";
 import { seedDefaultRules } from "./services/engagement-defaults";
 import { composeDigest, getSectionsForRole, formatDigestAsHtml, formatDigestAsText, DEFAULT_ALERT_RULES as DC_DEFAULT_SECTIONS, type DigestSection } from "./services/digest-composer";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
@@ -24424,6 +24427,19 @@ export function registerConfluenceRoutes(app: Express) {
       const filters  = parseRevenueFilters(req.query);
       const result   = await revenueAttribution(callerId, isAdmin, filters);
       res.json({ ...result, isAdmin });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase G — Booking Command Center
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get("/api/crm/booking-analytics/command-center", requireAuth, async (req, res) => {
+    try {
+      const callerId = (req.session as any).userId as number;
+      const isAdmin  = await callerIsAdminFromSession(req);
+      const filters  = parseCommandCenterFilters(req.query);
+      const result   = await commandCenter(callerId, isAdmin, filters);
+      res.json(result);
     } catch (e: any) { res.status(400).json({ message: e.message }); }
   });
 

@@ -1,0 +1,76 @@
+Build Phase G: Booking Command Center.
+
+Constraints:
+- No schema changes.
+- No db:push.
+- No new dependencies.
+- Preserve Phases A–F behavior and tests.
+- Do not restart the 5 failed test workflows: mail-permissions, mailbox-switching, permissions, tracking-multi-proof, tracking-proof.
+
+Goal:
+Add a prioritized action engine to Booking Analytics that converts booking/revenue analytics into clear next actions.
+
+Backend:
+Create server/services/booking-command-center.ts as pure analytics.
+
+Derive action cards:
+1. Hot opened-not-booked recipients
+   - opened >= 2 days ago
+   - not booked
+   - not revoked
+   - rank by CRM type: contact > lead > orphan, then most recent open
+
+2. Booked but no quote
+   - booked meeting exists
+   - no quote created after booking
+   - no pending booking_followup task
+
+3. High-converting links to reuse
+   - sent >= 5
+   - bookingRate >= 20%
+   - rank by booked count, bookingRate
+
+4. Underperforming links to rewrite
+   - sent >= 5
+   - bookingRate < 10%
+
+5. Revenue winners
+   - links with wonValue > 0
+   - rank by wonValue
+
+6. Revenue leakage
+   - booked meetings with quote generated but not accepted/won
+
+Endpoint:
+GET /api/crm/booking-analytics/command-center
+
+Security:
+- requireAuth
+- same SQL-layer owner scoping as Phase E/F
+- admin can filter by ownerUserId
+- non-admin ownerUserId ignored
+- no quote/contact/account probing outside scoped recipients
+
+Frontend:
+On /booking-analytics add a new first tab: Command Center.
+
+Show:
+- priority cards
+- action list grouped by urgency
+- recommended action text for each row
+- badges: Hot, Needs Quote, Rewrite Link, Reuse Link, Revenue Leak, Winner
+- deep links where existing CRM routes exist
+
+Testing:
+Add tests for:
+- each action bucket
+- ranking order
+- owner scoping
+- admin filtering
+- anonymous 401
+- bad filters 400
+- empty/null-safe response
+- no duplicate recipients or quotes
+
+Run Phase B–G booking suites and existing security suites.
+Return final report with files changed, endpoint, test counts, and architect audit.

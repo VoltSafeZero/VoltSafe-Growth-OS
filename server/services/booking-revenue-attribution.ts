@@ -74,7 +74,7 @@ function safeRate(num: number, den: number) { return den > 0 ? num / den : 0; }
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal — pull the in-scope recipients (owner-forced) and enrich with CRM
 // ─────────────────────────────────────────────────────────────────────────────
-interface ScopedRecipient {
+export interface ScopedRecipient {
   recipientId:    number;
   recipientEmail: string;
   bookingLinkId:  number;
@@ -90,7 +90,7 @@ interface ScopedRecipient {
   leadId?:        number | null;
 }
 
-async function loadScopedRecipients(
+export async function loadScopedRecipients(
   callerUserId: number, callerIsAdmin: boolean, f: RevenueFilters,
   opts: { onlyBooked?: boolean; onlyOpenedNotBooked?: boolean } = {},
 ): Promise<ScopedRecipient[]> {
@@ -168,7 +168,7 @@ async function loadScopedRecipients(
 // Bounded by the recipient set (which is itself owner-scoped), so this never
 // reveals quotes outside the caller's universe.
 // ─────────────────────────────────────────────────────────────────────────────
-interface QuoteRow {
+export interface QuoteRow {
   id: number;
   contactId: number | null;
   accountId: number | null;
@@ -178,7 +178,7 @@ interface QuoteRow {
   createdAt: Date;
 }
 
-async function loadQuotesFor(contactIds: number[], accountIds: number[]): Promise<QuoteRow[]> {
+export async function loadQuotesFor(contactIds: number[], accountIds: number[]): Promise<QuoteRow[]> {
   if (!contactIds.length && !accountIds.length) return [];
   const conds: any[] = [];
   if (contactIds.length) conds.push(inArray(quotes.contactId, contactIds));
@@ -198,7 +198,7 @@ async function loadQuotesFor(contactIds: number[], accountIds: number[]): Promis
   return rows.map((r) => ({ ...r, total: Number(r.total ?? 0) }));
 }
 
-function isQuoteWon(q: QuoteRow): boolean {
+export function isQuoteWon(q: QuoteRow): boolean {
   return q.status === "accepted" || q.acceptedAt != null;
 }
 
@@ -207,7 +207,7 @@ function isQuoteWon(q: QuoteRow): boolean {
  *   - quote.created_at must be strictly AFTER recipient.booked_at
  *   - quote must match recipient.contactId OR recipient.accountId
  */
-function attributeQuotes(rec: ScopedRecipient, allQuotes: QuoteRow[]): QuoteRow[] {
+export function attributeQuotes(rec: ScopedRecipient, allQuotes: QuoteRow[]): QuoteRow[] {
   if (!rec.bookedAt) return [];
   const bookedTime = rec.bookedAt.getTime();
   return allQuotes.filter((q) => {

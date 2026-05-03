@@ -3,7 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import {
   TrendingUp, Trophy, AlertTriangle, Users, Mail, MousePointerClick,
   CheckCircle2, Clock, Target, DollarSign, FileText, Zap, Eye,
+  Flame, ArrowRight, RefreshCw, Trash2, Award, Droplets, LayoutDashboard,
 } from "lucide-react";
+import { Link as WLink } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -75,6 +77,36 @@ type ActionListData = {
 const fmtMoney = (v: number) => `$${(v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 const fmtDate  = (s: string) => new Date(s).toLocaleDateString();
 
+type CardKind = "HOT_OPENED_NOT_BOOKED" | "BOOKED_NO_QUOTE" | "REUSE_LINK" | "REWRITE_LINK" | "REVENUE_WINNER" | "REVENUE_LEAK";
+type Urgency = "high" | "medium" | "low";
+interface CardItem {
+  kind: CardKind; urgency: Urgency;
+  title: string; subtitle: string; recommendation: string;
+  recipientId?: number; bookingLinkId?: number; bookingLinkName?: string;
+  ownerUserId?: number; ownerName?: string | null;
+  daysSinceOpen?: number; bookedAt?: string;
+  bookedMeetings?: number; bookingRate?: number;
+  quotedValue?: number; wonValue?: number; quoteToWinRate?: number;
+  crmType?: "contact" | "lead" | null;
+  deepLink?: string;
+}
+type CommandCenterResponse = {
+  isAdmin: boolean; generatedAt: string;
+  buckets: Record<CardKind, CardItem[]>;
+  counts: Record<CardKind, number>;
+  totals: { highUrgency: number; mediumUrgency: number; lowUrgency: number };
+};
+const CARD_META: Record<CardKind, { label: string; badge: string; icon: any; color: string }> = {
+  HOT_OPENED_NOT_BOOKED: { label: "Hot opens",        badge: "Hot",          icon: Flame,    color: "text-orange-500" },
+  BOOKED_NO_QUOTE:       { label: "Needs a quote",    badge: "Needs Quote",  icon: FileText, color: "text-amber-500" },
+  REUSE_LINK:            { label: "Reuse these",      badge: "Reuse Link",   icon: RefreshCw, color: "text-emerald-500" },
+  REWRITE_LINK:          { label: "Rewrite these",    badge: "Rewrite Link", icon: Trash2,   color: "text-red-500" },
+  REVENUE_WINNER:        { label: "Revenue winners",  badge: "Winner",       icon: Award,    color: "text-yellow-500" },
+  REVENUE_LEAK:          { label: "Revenue leakage",  badge: "Revenue Leak", icon: Droplets, color: "text-rose-500" },
+};
+const URGENCY_VARIANT: Record<Urgency, "destructive" | "default" | "secondary"> =
+  { high: "destructive", medium: "default", low: "secondary" };
+
 const fmtPct = (v: number) => `${(v * 100).toFixed(1)}%`;
 const fmtDuration = (sec: number | null) => {
   if (sec == null) return "—";
@@ -128,6 +160,7 @@ export default function BookingAnalyticsPage() {
   const revenueQ      = useQuery<RevenueSummary>({ queryKey: ["/api/crm/booking-analytics/revenue"] });
   const attributionQ  = useQuery<Attribution>({ queryKey: ["/api/crm/booking-analytics/attribution"] });
   const actionListQ   = useQuery<ActionListData>({ queryKey: ["/api/crm/booking-analytics/action-list"] });
+  const commandQ      = useQuery<CommandCenterResponse>({ queryKey: ["/api/crm/booking-analytics/command-center"] });
 
   const totals = useMemo(() => {
     const rows = linksQ.data?.rows ?? [];
@@ -159,6 +192,7 @@ export default function BookingAnalyticsPage() {
 
       <Tabs defaultValue="leaderboard" className="space-y-4">
         <TabsList>
+          <TabsTrigger value="command"     data-testid="tab-command">Command Center</TabsTrigger>
           <TabsTrigger value="leaderboard" data-testid="tab-leaderboard">Leaderboard</TabsTrigger>
           <TabsTrigger value="funnel"      data-testid="tab-funnel">Funnel</TabsTrigger>
           <TabsTrigger value="timing"      data-testid="tab-timing">Time to convert</TabsTrigger>
@@ -166,6 +200,61 @@ export default function BookingAnalyticsPage() {
           <TabsTrigger value="revenue"     data-testid="tab-revenue">Revenue Attribution</TabsTrigger>
           {linksQ.data?.isAdmin && <TabsTrigger value="owners" data-testid="tab-owners">By owner</TabsTrigger>}
         </TabsList>
+
+        {/* Command Center */}
+        <TabsContent value="command" className="space-y-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <MetricCard icon={AlertTriangle} label="High urgency"   value={(commandQ.data?.totals.highUrgency   ?? 0).toLocaleString()} testId="metric-cc-high" />
+            <MetricCard icon={Clock}         label="Medium urgency" value={(commandQ.data?.totals.mediumUrgency ?? 0).toLocaleString()} testId="metric-cc-medium" />
+            <MetricCard icon={CheckCircle2}  label="Low urgency"    value={(commandQ.data?.totals.lowUrgency    ?? 0).toLocaleString()} testId="metric-cc-low" />
+          </div>
+
+          {commandQ.isLoading ? <Skeleton className="h-64" /> : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {(Object.keys(CARD_META) as CardKind[]).map((kind) => {
+                const meta  = CARD_META[kind];
+                const Icon  = meta.icon;
+                const items = commandQ.data?.buckets[kind] ?? [];
+                return (
+                  <Card key={kind} data-testid={`bucket-${kind.toLowerCase()}`}>
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Icon className={`h-4 w-4 ${meta.color}`} />
+                        <h2 className="font-medium">{meta.label}</h2>
+                        <Badge variant="outline" data-testid={`count-${kind.toLowerCase()}`}>{items.length}</Badge>
+                      </div>
+                      {items.length === 0 ? (
+                        <p className="text-sm text-muted-foreground py-2">Nothing here — clean slate.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {items.map((c, idx) => {
+                            const row = (
+                              <div className="border rounded p-2 hover-elevate"
+                                   data-testid={`card-${kind.toLowerCase()}-${idx}`}>
+                                <div className="flex justify-between gap-2 items-start">
+                                  <div className="font-medium text-sm truncate flex-1">{c.title}</div>
+                                  <Badge variant={URGENCY_VARIANT[c.urgency]} className="whitespace-nowrap">{meta.badge}</Badge>
+                                </div>
+                                <div className="text-xs text-muted-foreground mt-0.5 truncate">{c.subtitle}</div>
+                                <div className="text-xs mt-1 flex items-start gap-1">
+                                  <ArrowRight className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground" />
+                                  <span>{c.recommendation}</span>
+                                </div>
+                              </div>
+                            );
+                            return c.deepLink
+                              ? <WLink key={idx} href={c.deepLink} className="block">{row}</WLink>
+                              : <div key={idx}>{row}</div>;
+                          })}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
 
         {/* Leaderboard */}
         <TabsContent value="leaderboard" className="space-y-6">
