@@ -70,6 +70,10 @@ import {
 } from "./tracking";
 import { startEngagementScheduler } from "./services/engagement-scheduler";
 import { runFollowupScan, startFollowupScheduler } from "./services/booking-followup-engine";
+import {
+  metricsPerLink, metricsPerOwner, metricsPerSegment, metricsTiming,
+  leaderboard as bookingLeaderboard, parseAnalyticsFilters,
+} from "./services/booking-conversion-analytics";
 import { seedDefaultRules } from "./services/engagement-defaults";
 import { composeDigest, getSectionsForRole, formatDigestAsHtml, formatDigestAsText, DEFAULT_ALERT_RULES as DC_DEFAULT_SECTIONS, type DigestSection } from "./services/digest-composer";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
@@ -24343,6 +24347,67 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase E — Booking Conversion Intelligence
+  // GET  /api/crm/booking-analytics/links        — per booking link
+  // GET  /api/crm/booking-analytics/owners       — per owner (admin only)
+  // GET  /api/crm/booking-analytics/segments     — contact vs lead vs orphan
+  // GET  /api/crm/booking-analytics/timing       — avg time-to-convert
+  // GET  /api/crm/booking-analytics/leaderboard  — top + underperforming
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get("/api/crm/booking-analytics/links", requireAuth, async (req, res) => {
+    try {
+      const callerId = (req.session as any).userId as number;
+      const isAdmin  = await callerIsAdminFromSession(req);
+      const filters  = parseAnalyticsFilters(req.query);
+      const rows = await metricsPerLink(callerId, isAdmin, filters);
+      res.json({ rows, isAdmin });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.get("/api/crm/booking-analytics/owners", requireAuth, async (req, res) => {
+    try {
+      const isAdmin = await callerIsAdminFromSession(req);
+      if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
+      const callerId = (req.session as any).userId as number;
+      const filters  = parseAnalyticsFilters(req.query);
+      const rows = await metricsPerOwner(callerId, true, filters);
+      res.json({ rows });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.get("/api/crm/booking-analytics/segments", requireAuth, async (req, res) => {
+    try {
+      const callerId = (req.session as any).userId as number;
+      const isAdmin  = await callerIsAdminFromSession(req);
+      const filters  = parseAnalyticsFilters(req.query);
+      const rows = await metricsPerSegment(callerId, isAdmin, filters);
+      res.json({ rows });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.get("/api/crm/booking-analytics/timing", requireAuth, async (req, res) => {
+    try {
+      const callerId = (req.session as any).userId as number;
+      const isAdmin  = await callerIsAdminFromSession(req);
+      const filters  = parseAnalyticsFilters(req.query);
+      const result = await metricsTiming(callerId, isAdmin, filters);
+      res.json(result);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.get("/api/crm/booking-analytics/leaderboard", requireAuth, async (req, res) => {
+    try {
+      const callerId = (req.session as any).userId as number;
+      const isAdmin  = await callerIsAdminFromSession(req);
+      const filters  = parseAnalyticsFilters(req.query);
+      const minSent  = req.query.minSent != null ? parseInt(String(req.query.minSent), 10) : undefined;
+      const topN     = req.query.topN    != null ? parseInt(String(req.query.topN),    10) : undefined;
+      const result = await bookingLeaderboard(callerId, isAdmin, filters, { minSent, topN });
+      res.json(result);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
   });
 
   // ─────────────────────────────────────────────────────────────────────────
