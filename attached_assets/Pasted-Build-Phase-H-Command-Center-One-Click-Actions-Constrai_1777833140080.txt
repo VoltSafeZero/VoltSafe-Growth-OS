@@ -1,0 +1,75 @@
+Build Phase H: Command Center One-Click Actions.
+
+Constraints:
+- No schema changes unless absolutely unavoidable.
+- No db:push.
+- No new dependencies.
+- Preserve Phases B–G behavior and tests.
+- Do not restart the 5 failed test workflows: mail-permissions, mailbox-switching, permissions, tracking-multi-proof, tracking-proof.
+
+Goal:
+Add safe, permission-gated one-click actions to the Booking Command Center.
+
+Actions:
+1. Create follow-up task
+   - For HOT_OPENED_NOT_BOOKED
+   - For BOOKED_NO_QUOTE
+   - For REVENUE_LEAK
+
+2. Mark booking action dismissed
+   - Soft-dismiss an action using existing task/follow-up pattern if possible.
+   - If no durable dismissal mechanism exists without schema change, skip dismissal and report why.
+
+3. Copy winning booking link
+   - For REUSE_LINK and REVENUE_WINNER
+   - Create a clear UI copy action if frontend clipboard utilities already exist.
+   - No backend needed unless existing pattern requires it.
+
+Backend:
+Add endpoint:
+POST /api/crm/booking-analytics/actions/create-followup-task
+
+Payload:
+{
+  kind,
+  recipientId,
+  bookingLinkId?,
+  note?
+}
+
+Rules:
+- requireAuth
+- CSRF protected
+- create task only if caller can access the scoped recipient
+- non-admins can only act on own scoped booking recipients
+- admin can act across owners if permitted
+- dedupe: if pending booking_followup task already exists for same recipientId + kind, return existing task instead of creating duplicate
+- sourceMeta must include:
+  {
+    source: "booking_command_center",
+    kind,
+    recipientId,
+    bookingLinkId
+  }
+
+Frontend:
+In Command Center cards:
+- Add “Create follow-up task” button for Hot opens, Needs quote, and Revenue leakage.
+- Disable/show completed state if task already exists after action.
+- Add “Copy link” button for Reuse/Winner cards if URL is available.
+- Toast success/failure.
+- Keep rows clickable via deep links.
+
+Testing:
+Add tests for:
+- create task success
+- duplicate prevention
+- non-admin cannot create task for another owner’s recipient
+- admin can create task when scoped filter allows
+- anonymous 401
+- malformed payload 400
+- unsupported kind 400
+- frontend action button rendering where expected
+
+Run Phase B–H booking suites and security suites.
+Return final report with files changed, endpoint, test counts, and architect audit.
