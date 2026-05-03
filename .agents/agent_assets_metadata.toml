@@ -24,3 +24,21 @@ id = "vMYqlDo69b8p5YXLJ6Z9S"
 uri = "file://exports/chatgpt_usa_marina_research_instructions.md"
 type = "text"
 title = "ChatGPT US Research Instructions (copy-paste prompt)"
+
+[[outputs]]
+id = "DTasbYmwGtNADA1TdHuzn"
+uri = "file://docs/ZOOM_PHASE_A4_AUDIT.md"
+type = "text"
+title = "Zoom Phase A.4 — UX & Polish Audit"
+
+[[outputs]]
+id = "biveY18qPyCs1w-r6Tn1K"
+uri = "file://screenshots/a4-public-already-booked.jpg"
+type = "image"
+title = "Public booking — refresh after booking now shows rejoin"
+
+[[outputs]]
+id = "4wCb1RnqOMXg-5jKyo2c8"
+uri = "file://screenshots/a4-public-unbooked.jpg"
+type = "image"
+title = "Public booking — first visit (slot picker)"

@@ -30,6 +30,11 @@ type BookingLinkInfo = {
   recipientEmail: string;
   alreadyBooked: boolean;
   bookedAt: string | null;
+  bookedEvent: {
+    startTime: string;
+    endTime: string;
+    zoomJoinUrl: string | null;
+  } | null;
 };
 
 type ConfirmResult = {
@@ -191,58 +196,81 @@ function SlotPicker({
 // ─── Success state ────────────────────────────────────────────────────────────
 
 function BookingSuccess({
-  result,
+  startTime,
+  endTime,
+  zoomJoinUrl,
+  zoomPassword,
   bookingName,
   recipientEmail,
+  expectsZoom,
+  headline,
+  subline,
 }: {
-  result: ConfirmResult;
+  startTime: string;
+  endTime: string;
+  zoomJoinUrl: string | null;
+  zoomPassword?: string | null;
   bookingName: string;
   recipientEmail: string;
+  /** True when the booking link's locationType is "zoom" — drives the
+   *  graceful copy when no join URL is available (owner has no Zoom
+   *  connection or Zoom create failed at confirmation time). */
+  expectsZoom: boolean;
+  headline: string;
+  subline: string;
 }) {
-  const startDate = new Date(result.startTime);
-  const endDate   = new Date(result.endTime);
+  const startDate = new Date(startTime);
+  const endDate   = new Date(endTime);
 
   return (
-    <div className="flex flex-col items-center gap-6 py-8 text-center">
+    <div className="flex flex-col items-center gap-6 py-8 text-center px-4">
       <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center">
         <CheckCircle2 className="w-8 h-8 text-emerald-500" />
       </div>
       <div>
         <h2 className="text-xl font-semibold text-foreground" data-testid="heading-booking-confirmed">
-          You're booked!
+          {headline}
         </h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          A calendar invitation will be sent to {recipientEmail}.
+        <p className="text-sm text-muted-foreground mt-1" data-testid="text-booking-subline">
+          {subline.replace("{email}", recipientEmail)}
         </p>
       </div>
 
       <div className="w-full max-w-sm bg-card border border-border/60 rounded-xl p-4 flex flex-col gap-3 text-sm text-left">
-        <div className="font-medium text-foreground">{bookingName}</div>
+        <div className="font-medium text-foreground" data-testid="text-booking-name">{bookingName}</div>
         <div className="flex items-center gap-2 text-muted-foreground">
           <CalendarDays className="w-4 h-4 shrink-0" />
-          <span>{format(startDate, "EEEE, MMMM d, yyyy")}</span>
+          <span data-testid="text-booking-date">{format(startDate, "EEEE, MMMM d, yyyy")}</span>
         </div>
         <div className="flex items-center gap-2 text-muted-foreground">
           <Clock className="w-4 h-4 shrink-0" />
-          <span>
+          <span data-testid="text-booking-time">
             {format(startDate, "h:mm a")} – {format(endDate, "h:mm a")}
           </span>
         </div>
-        {result.zoomJoinUrl && (
+        {zoomJoinUrl ? (
           <a
-            href={result.zoomJoinUrl}
+            href={zoomJoinUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 bg-[#2D8CFF] text-white rounded-lg px-4 py-2.5 font-medium hover:bg-[#2680f0] transition-colors mt-1"
+            className="flex items-center justify-center gap-2 bg-[#2D8CFF] text-white rounded-lg px-4 py-2.5 font-medium hover:bg-[#2680f0] transition-colors mt-1"
             data-testid="link-zoom-join-confirmed"
           >
             <Video className="w-4 h-4 shrink-0" />
             Join Zoom Meeting
           </a>
-        )}
-        {result.zoomPassword && (
+        ) : expectsZoom ? (
+          <div
+            className="flex items-start gap-2 text-xs text-amber-600 bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-2 mt-1"
+            data-testid="notice-zoom-pending"
+          >
+            <Video className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>The organiser will share Zoom meeting details by email.</span>
+          </div>
+        ) : null}
+        {zoomPassword && (
           <div className="text-xs text-muted-foreground">
-            Passcode: <span className="font-mono font-medium text-foreground">{result.zoomPassword}</span>
+            Passcode: <span className="font-mono font-medium text-foreground">{zoomPassword}</span>
           </div>
         )}
       </div>
@@ -316,13 +344,44 @@ export default function BookingPublicPage({ token }: { token: string }) {
     );
   }
 
+  const isZoom = info.bookingLink.locationType === "zoom";
+
+  // Already-booked path on page refresh: surface the SAME success view as a
+  // first-time confirmation, populated from the server-side bookedEvent
+  // projection. This means:
+  //   • the recipient can rejoin their Zoom meeting from the link
+  //   • date/time are visible
+  //   • if the calendar event was deleted out-of-band, fall back to a
+  //     simple "already booked" panel
   if (info.alreadyBooked && !confirmed) {
+    if (info.bookedEvent) {
+      return (
+        <div className="min-h-screen bg-background flex items-center justify-center p-4">
+          <div className="w-full max-w-xl">
+            <BookingSuccess
+              startTime={info.bookedEvent.startTime}
+              endTime={info.bookedEvent.endTime}
+              zoomJoinUrl={info.bookedEvent.zoomJoinUrl}
+              bookingName={info.bookingLink.name}
+              recipientEmail={info.recipientEmail}
+              expectsZoom={isZoom}
+              headline="You're booked"
+              subline={
+                info.bookedAt
+                  ? `Booked on ${format(new Date(info.bookedAt), "MMMM d, yyyy")}. Calendar invite was sent to {email}.`
+                  : "Calendar invite was sent to {email}."
+              }
+            />
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 gap-4">
         <div className="w-14 h-14 rounded-full bg-amber-500/10 flex items-center justify-center">
           <CheckCircle2 className="w-7 h-7 text-amber-500" />
         </div>
-        <h1 className="text-lg font-semibold text-foreground">Already booked</h1>
+        <h1 className="text-lg font-semibold text-foreground" data-testid="heading-already-booked">Already booked</h1>
         <p className="text-sm text-muted-foreground text-center max-w-sm">
           You've already booked a slot for <strong>{info.bookingLink.name}</strong>.
           {info.bookedAt && ` Booked on ${format(new Date(info.bookedAt), "MMMM d, yyyy")}.`}
@@ -336,16 +395,20 @@ export default function BookingPublicPage({ token }: { token: string }) {
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="w-full max-w-xl">
           <BookingSuccess
-            result={confirmed}
+            startTime={confirmed.startTime}
+            endTime={confirmed.endTime}
+            zoomJoinUrl={confirmed.zoomJoinUrl}
+            zoomPassword={confirmed.zoomPassword}
             bookingName={info.bookingLink.name}
             recipientEmail={info.recipientEmail}
+            expectsZoom={isZoom}
+            headline="You're booked!"
+            subline="A calendar invitation will be sent to {email}."
           />
         </div>
       </div>
     );
   }
-
-  const isZoom = info.bookingLink.locationType === "zoom";
 
   return (
     <div className="min-h-screen bg-background">

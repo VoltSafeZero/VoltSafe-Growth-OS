@@ -91,6 +91,27 @@ export type BookingLinkRow = typeof bookingLinks.$inferSelect;
 export type BookingLinkRecipientRow = typeof bookingLinkRecipients.$inferSelect;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Public-safe URL validation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Returns true iff `url` is a syntactically valid http/https URL whose
+ * hostname is exactly `zoom.us` or any subdomain of `zoom.us`. Uses the
+ * WHATWG URL parser so substring tricks like
+ * `https://evil.com#zoom.us/x`, `https://evil.com/zoom.us/x`, or
+ * `https://evil.com?zoom.us/` cannot slip past — the hostname is the
+ * authoritative origin component.
+ */
+export function isZoomJoinUrl(url: string | null | undefined): url is string {
+  if (!url || typeof url !== "string") return false;
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return false; }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+  const host = parsed.hostname.toLowerCase();
+  return host === "zoom.us" || host.endsWith(".zoom.us");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Booking link CRUD
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -318,6 +339,16 @@ export interface PublicBookingView {
   recipientEmail: string;
   alreadyBooked: boolean;
   bookedAt: Date | null;
+  /**
+   * If alreadyBooked, the projected event details so the recipient can rejoin
+   * after page refresh. Always omits any sensitive fields (startUrl, owner id,
+   * tokens). Null when not booked or the linked event has been deleted.
+   */
+  bookedEvent: {
+    startTime: Date;
+    endTime: Date;
+    zoomJoinUrl: string | null;
+  } | null;
 }
 
 /**
@@ -352,6 +383,30 @@ export async function resolvePublicToken(token: string): Promise<PublicBookingVi
     })
     .where(eq(bookingLinkRecipients.id, recipient.id));
 
+  // If already booked AND the calendar event still exists, surface the
+  // SAFE subset of event fields (start, end, join URL) so the public page
+  // can show a "rejoin" UI on refresh. Never project meetingUrl unless its
+  // hostname is zoom.us or a *.zoom.us subdomain (defence-in-depth via
+  // proper URL parsing — guards against the field being misused for
+  // non-zoom links we might persist later, and against URLs that merely
+  // *contain* the substring "zoom.us/" outside the hostname, e.g.
+  // "https://evil.com#zoom.us/...").
+  let bookedEvent: PublicBookingView["bookedEvent"] = null;
+  if (recipient.bookedAt && recipient.bookedCalendarEventId) {
+    const [evt] = await db
+      .select()
+      .from(calendarEvents)
+      .where(eq(calendarEvents.id, recipient.bookedCalendarEventId))
+      .limit(1);
+    if (evt) {
+      bookedEvent = {
+        startTime: evt.startTime,
+        endTime:   evt.endTime ?? evt.startTime,
+        zoomJoinUrl: isZoomJoinUrl(evt.meetingUrl) ? evt.meetingUrl : null,
+      };
+    }
+  }
+
   return {
     bookingLink: {
       name: link.name,
@@ -369,6 +424,7 @@ export async function resolvePublicToken(token: string): Promise<PublicBookingVi
     recipientEmail: recipient.recipientEmail,
     alreadyBooked: !!recipient.bookedAt,
     bookedAt: recipient.bookedAt,
+    bookedEvent,
   };
 }
 
