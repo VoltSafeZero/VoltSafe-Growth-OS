@@ -15,7 +15,7 @@
 import crypto from "crypto";
 import { db } from "../db";
 import { bookingLinks, bookingLinkRecipients, calendarEvents } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { createZoomMeetingForBooking } from "./zoom-meeting-service";
 
@@ -449,58 +449,178 @@ export async function confirmBooking(
   const endTime   = new Date(startTime.getTime() + link.slotMinutes * 60_000);
   const now       = new Date();
 
-  // 5. Try to create Zoom meeting (best-effort; null = no Zoom connection or creds missing)
-  const zoom = await createZoomMeetingForBooking(link.ownerUserId, {
-    topic:           link.name,
-    startTime,
-    durationMinutes: link.slotMinutes,
-    timezone:        link.timeZone ?? undefined,
-    attendeeEmail:   recipient.recipientEmail,
-    attendeeName:    data.attendeeName,
-    agenda:          link.description ?? undefined,
-  });
+  // 5. ATOMIC RESERVATION (Phase A.3 — concurrent-confirm race fix)
+  //
+  // Compare-and-set: only the request that flips `booked_at` from NULL to NOW()
+  // is allowed to proceed. Postgres UPDATE … WHERE booked_at IS NULL is atomic
+  // under the default READ COMMITTED isolation: only one concurrent UPDATE
+  // matches the predicate; the other observes the new value and matches 0 rows.
+  //
+  // We also include `revoked_at IS NULL` in the predicate so that a token
+  // revoked between the initial SELECT (step 1) and this reservation cannot
+  // sneak through (TOCTOU defence).
+  //
+  // This avoids holding a DB row lock across the (slow) Zoom API call, while
+  // still guaranteeing exactly-once semantics for first-time confirmation.
+  const reserved = await db
+    .update(bookingLinkRecipients)
+    .set({ bookedAt: now })
+    .where(and(
+      eq(bookingLinkRecipients.id, recipient.id),
+      isNull(bookingLinkRecipients.bookedAt),
+      isNull(bookingLinkRecipients.revokedAt),
+    ))
+    .returning({ id: bookingLinkRecipients.id });
 
-  // 6. Insert calendar event
-  const [calEvent] = await db
-    .insert(calendarEvents)
-    .values({
-      userId:                  link.ownerUserId,
-      title:                   link.name,
-      description:             link.description,
-      eventType:               "meeting",
+  if (reserved.length === 0) {
+    // We lost the race. The winner has reserved the recipient but may still
+    // be mid-flight (Zoom create + calendar insert). Re-read with a short
+    // bounded wait so the common case returns the canonical calendarEventId
+    // rather than a placeholder. Total wait <= ~500ms; well within the
+    // budget of an HTTP request the user is already waiting on.
+    const POLL_INTERVAL_MS = 100;
+    const POLL_MAX = 20; // 20 × 100ms = 2000ms ceiling — covers Zoom-create + DB commit under contention
+    let latest: typeof recipient | undefined;
+    for (let i = 0; i < POLL_MAX; i++) {
+      const [row] = await db
+        .select()
+        .from(bookingLinkRecipients)
+        .where(eq(bookingLinkRecipients.id, recipient.id))
+        .limit(1);
+      latest = row;
+      if (row?.bookedCalendarEventId) break;
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    }
+
+    const event = latest?.bookedCalendarEventId
+      ? await db
+          .select()
+          .from(calendarEvents)
+          .where(eq(calendarEvents.id, latest.bookedCalendarEventId))
+          .limit(1)
+          .then((r) => r[0])
+      : null;
+
+    console.log(
+      `[booking] race-loser token=${token.slice(0, 8)}… recipientId=${recipient.id} ` +
+      `existingCalEventId=${latest?.bookedCalendarEventId ?? "<in-flight>"}`,
+    );
+
+    return {
+      calendarEventId: latest?.bookedCalendarEventId ?? 0,
+      startTime:       event?.startTime ?? startTime,
+      endTime:         event?.endTime ?? endTime,
+      zoomJoinUrl:     event?.meetingUrl ?? null,
+      zoomMeetingId:   null,
+      zoomPassword:    null,
+      alreadyBooked:   true,
+    };
+  }
+
+  // 5b. Live-state revalidation: even though the reservation succeeded, the
+  // booking link itself may have been deactivated between the initial fetch
+  // (step 3) and the reservation. If so, release the reservation and 404.
+  const [linkLive] = await db
+    .select()
+    .from(bookingLinks)
+    .where(and(eq(bookingLinks.id, link.id), eq(bookingLinks.active, true)))
+    .limit(1);
+
+  if (!linkLive) {
+    await db
+      .update(bookingLinkRecipients)
+      .set({ bookedAt: null })
+      .where(eq(bookingLinkRecipients.id, recipient.id));
+    return null;
+  }
+
+  // 6. We won the reservation. Now do the slow / external work.
+  //
+  // Failure semantics:
+  //   - Zoom call (6a) is best-effort and never throws; null on failure.
+  //   - DB writes (6b + 6c) run inside a single transaction so they atomically
+  //     commit or both roll back. This means the catch block can safely clear
+  //     `booked_at` without ever creating a duplicate calendar_events row on
+  //     retry (architect-flagged hardening, Phase A.3).
+  let zoomMeeting: Awaited<ReturnType<typeof createZoomMeetingForBooking>> = null;
+  try {
+    // 6a. Try to create Zoom meeting (best-effort; never throws)
+    zoomMeeting = await createZoomMeetingForBooking(link.ownerUserId, {
+      topic:           link.name,
+      startTime,
+      durationMinutes: link.slotMinutes,
+      timezone:        link.timeZone ?? undefined,
+      attendeeEmail:   recipient.recipientEmail,
+      attendeeName:    data.attendeeName,
+      agenda:          link.description ?? undefined,
+    });
+
+    // 6b + 6c. Atomic: insert the calendar event AND link it back onto the
+    // (already-reserved) recipient row. If either fails, both roll back, and
+    // the outer catch will safely release the reservation.
+    const calEvent = await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(calendarEvents)
+        .values({
+          userId:                  link.ownerUserId,
+          title:                   link.name,
+          description:             link.description,
+          eventType:               "meeting",
+          startTime,
+          endTime,
+          allDay:                  false,
+          location:                zoomMeeting?.joinUrl ?? null,
+          meetingUrl:              zoomMeeting?.joinUrl ?? null,
+          status:                  "scheduled",
+          invitees:                [recipient.recipientEmail],
+          bookingLinkRecipientId:  recipient.id,
+          createdAt:               now,
+          updatedAt:               now,
+        })
+        .returning();
+
+      await tx
+        .update(bookingLinkRecipients)
+        .set({ bookedCalendarEventId: created.id })
+        .where(eq(bookingLinkRecipients.id, recipient.id));
+
+      return created;
+    });
+
+    console.log(
+      `[booking] confirmed token=${token.slice(0, 8)}… calEventId=${calEvent.id} zoom=${zoomMeeting ? zoomMeeting.meetingId : "none"}`,
+    );
+
+    return {
+      calendarEventId: calEvent.id,
       startTime,
       endTime,
-      allDay:                  false,
-      location:                zoom?.joinUrl ?? null,
-      meetingUrl:              zoom?.joinUrl ?? null,
-      status:                  "scheduled",
-      invitees:                [recipient.recipientEmail],
-      bookingLinkRecipientId:  recipient.id,
-      createdAt:               now,
-      updatedAt:               now,
-    })
-    .returning();
-
-  // 7. Mark recipient as booked
-  await db
-    .update(bookingLinkRecipients)
-    .set({
-      bookedAt:             now,
-      bookedCalendarEventId: calEvent.id,
-    })
-    .where(eq(bookingLinkRecipients.id, recipient.id));
-
-  console.log(
-    `[booking] confirmed token=${token.slice(0, 8)}… calEventId=${calEvent.id} zoom=${zoom ? zoom.meetingId : "none"}`,
-  );
-
-  return {
-    calendarEventId: calEvent.id,
-    startTime,
-    endTime,
-    zoomJoinUrl:   zoom?.joinUrl   ?? null,
-    zoomMeetingId: zoom?.meetingId ?? null,
-    zoomPassword:  zoom?.password  ?? null,
-    alreadyBooked: false,
-  };
+      zoomJoinUrl:   zoomMeeting?.joinUrl   ?? null,
+      zoomMeetingId: zoomMeeting?.meetingId ?? null,
+      zoomPassword:  zoomMeeting?.password  ?? null,
+      alreadyBooked: false,
+    };
+  } catch (err) {
+    // Transaction rolled back → no calendar_events row exists for this
+    // recipient, so it's safe to release the reservation. (Even if the Zoom
+    // meeting was created, it would only be orphaned on the Zoom side; we
+    // never persisted a reference to it locally.)
+    try {
+      await db
+        .update(bookingLinkRecipients)
+        .set({ bookedAt: null })
+        .where(and(
+          eq(bookingLinkRecipients.id, recipient.id),
+          // Defence-in-depth: only release if no calendar_event was linked.
+          // If somehow one exists (concurrent winner), leave booked_at alone.
+          isNull(bookingLinkRecipients.bookedCalendarEventId),
+        ));
+    } catch (releaseErr: unknown) {
+      console.error(
+        `[booking] failed to release reservation for recipientId=${recipient.id}:`,
+        (releaseErr as Error).message,
+      );
+    }
+    throw err;
+  }
 }
