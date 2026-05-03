@@ -91,7 +91,7 @@ import {
   ALLOWED_TONES as DRAFT_ALLOWED_TONES,
   type Tone as DraftTone,
 } from "./services/booking-draft-assistant";
-import { createGmailDraftFromBooking } from "./services/booking-gmail-draft";
+import { createGmailDraftFromBooking, DRAFT_APPROVAL_TASK_SOURCE } from "./services/booking-gmail-draft";
 import { seedDefaultRules } from "./services/engagement-defaults";
 import { composeDigest, getSectionsForRole, formatDigestAsHtml, formatDigestAsText, DEFAULT_ALERT_RULES as DC_DEFAULT_SECTIONS, type DigestSection } from "./services/digest-composer";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
@@ -24602,6 +24602,155 @@ export function registerConfluenceRoutes(app: Express) {
       } catch (e: any) {
         const status = e instanceof CommandActionError ? e.status : 400;
         res.status(status).json({ message: e.message });
+      }
+    });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase K — Gmail Draft Approval Queue
+  //
+  //   GET  /api/crm/booking-analytics/draft-approval-queue
+  //   POST /api/crm/booking-analytics/draft-approval-queue/:taskId/mark-reviewed
+  //
+  // Lists pending drafts created via Phase J. Scoping mirrors mailbox view
+  // permissions (admin / mailbox owner / mail_team[id].view=true), so a user
+  // can NEVER see drafts created against a mailbox they cannot view in the
+  // mail UI. There is NO send endpoint here; "mark reviewed" only updates
+  // task status — the draft remains in Gmail for the user to send manually.
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get("/api/crm/booking-analytics/draft-approval-queue",
+    requireAuth, async (req, res) => {
+      try {
+        const callerId = (req.session as any).userId as number;
+        const isAdmin  = await callerIsAdminFromSession(req);
+
+        // Mailbox accessibility for this caller (own + admin-all + mail_team view).
+        const [u] = await db.select({ permissions: users.permissions })
+          .from(users).where(eq(users.id, callerId)).limit(1);
+        const mailTeamPerms = ((u?.permissions as any)?.mail_team ?? {}) as Record<string, { view: boolean; edit: boolean }>;
+        const accessibleAcctIds = await getAccessibleAccountIds(callerId, isAdmin, mailTeamPerms);
+
+        // Empty mailbox set → empty queue. (Avoids a bogus ANY(NULL) query.)
+        if (accessibleAcctIds.length === 0) {
+          return res.json({ items: [], isAdmin });
+        }
+
+        const rows = await db.execute(sql`
+          SELECT
+            t.id                    AS "taskId",
+            t.status                AS "status",
+            t.created_at            AS "createdAt",
+            t.created_by_user_id    AS "createdByUserId",
+            t.owner_user_id         AS "ownerUserId",
+            t.completed_at          AS "completedAt",
+            t.completed_by_user_id  AS "completedByUserId",
+            t.source_meta           AS "sourceMeta",
+            cu.name                 AS "createdByName",
+            cu.email                AS "createdByEmail",
+            ou.name                 AS "ownerName",
+            cb.name                 AS "completedByName",
+            ea.email_address        AS "gmailAccountEmail",
+            bl.name                 AS "bookingLinkName"
+          FROM tasks t
+          LEFT JOIN users cu ON cu.id = t.created_by_user_id
+          LEFT JOIN users ou ON ou.id = t.owner_user_id
+          LEFT JOIN users cb ON cb.id = t.completed_by_user_id
+          LEFT JOIN email_accounts ea
+                 ON ea.id = ((t.source_meta->>'gmailAccountId')::int)
+          LEFT JOIN booking_links bl
+                 ON bl.id = ((t.source_meta->>'bookingLinkId')::int)
+          WHERE t.source = ${DRAFT_APPROVAL_TASK_SOURCE}
+            AND t.archived = false
+            AND ((t.source_meta->>'gmailAccountId')::int) = ANY(${sql.raw(
+                  `ARRAY[${accessibleAcctIds.join(",")}]::int[]`)})
+          ORDER BY t.created_at DESC
+          LIMIT 200
+        `);
+        const items = (rows as any).rows.map((r: any) => {
+          const sm = (r.sourceMeta || {}) as any;
+          return {
+            taskId:            r.taskId,
+            status:            r.status,
+            isReviewed:        r.status === "completed" || r.status === "done",
+            createdAt:         r.createdAt,
+            createdByUserId:   r.createdByUserId,
+            createdByName:     r.createdByName,
+            createdByEmail:    r.createdByEmail,
+            ownerUserId:       r.ownerUserId,
+            ownerName:         r.ownerName,
+            completedAt:       r.completedAt,
+            completedByName:   r.completedByName,
+            // Draft metadata (from sourceMeta — see booking-gmail-draft.ts)
+            draftId:           sm.draftId  ?? null,
+            messageId:         sm.messageId ?? null,
+            threadId:          sm.threadId ?? null,
+            gmailAccountId:    sm.gmailAccountId ?? null,
+            gmailAccountEmail: r.gmailAccountEmail,
+            recipientEmail:    sm.recipientEmail ?? null,
+            subject:           sm.subject ?? null,
+            body:              sm.body    ?? null,
+            tone:              sm.tone    ?? null,
+            isEdited:          sm.isEdited === true,
+            // CRM context
+            kind:              sm.draftKind        ?? null,
+            recipientId:       sm.draftRecipientId ?? null,
+            bookingLinkId:     sm.bookingLinkId    ?? null,
+            bookingLinkName:   r.bookingLinkName,
+          };
+        });
+        res.json({ items, isAdmin });
+      } catch (e: any) {
+        res.status(500).json({ message: e.message });
+      }
+    });
+
+  app.post("/api/crm/booking-analytics/draft-approval-queue/:taskId/mark-reviewed",
+    requireAuth, async (req, res) => {
+      try {
+        const callerId = (req.session as any).userId as number;
+        const isAdmin  = await callerIsAdminFromSession(req);
+        const taskId   = Number(req.params.taskId);
+        if (!Number.isInteger(taskId) || taskId <= 0) {
+          return res.status(400).json({ message: "taskId must be a positive integer" });
+        }
+
+        const [t] = await db.select({
+          id:         tasks.id,
+          source:     tasks.source,
+          status:     tasks.status,
+          sourceMeta: tasks.sourceMeta,
+        }).from(tasks).where(eq(tasks.id, taskId)).limit(1);
+        if (!t) return res.status(404).json({ message: "Draft approval task not found" });
+        if (t.source !== DRAFT_APPROVAL_TASK_SOURCE) {
+          return res.status(404).json({ message: "Draft approval task not found" });
+        }
+
+        // Scope check — caller must have view access to the mailbox.
+        const [u] = await db.select({ permissions: users.permissions })
+          .from(users).where(eq(users.id, callerId)).limit(1);
+        const mailTeamPerms = ((u?.permissions as any)?.mail_team ?? {}) as Record<string, { view: boolean; edit: boolean }>;
+        const accessibleAcctIds = await getAccessibleAccountIds(callerId, isAdmin, mailTeamPerms);
+        const gmailAcctId = Number(((t.sourceMeta as any) || {}).gmailAccountId);
+        if (!accessibleAcctIds.includes(gmailAcctId)) {
+          return res.status(403).json({ message: "Not allowed to review this draft" });
+        }
+
+        // Idempotent — already reviewed is a no-op success.
+        if (t.status === "completed" || t.status === "done") {
+          return res.json({ ok: true, taskId, alreadyReviewed: true });
+        }
+
+        await db.execute(sql`
+          UPDATE tasks
+             SET status               = 'completed',
+                 board_column         = 'done',
+                 completed_at         = NOW(),
+                 completed_by_user_id = ${callerId},
+                 updated_at           = NOW()
+           WHERE id = ${taskId}
+        `);
+        res.json({ ok: true, taskId, alreadyReviewed: false });
+      } catch (e: any) {
+        res.status(500).json({ message: e.message });
       }
     });
 

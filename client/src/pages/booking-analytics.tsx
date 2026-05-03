@@ -4,7 +4,7 @@ import {
   TrendingUp, Trophy, AlertTriangle, Users, Mail, MousePointerClick,
   CheckCircle2, Clock, Target, DollarSign, FileText, Zap, Eye,
   Flame, ArrowRight, RefreshCw, Trash2, Award, Droplets, LayoutDashboard,
-  PlusCircle, Copy, PenSquare,
+  PlusCircle, Copy, PenSquare, ExternalLink, Inbox,
 } from "lucide-react";
 import { Link as WLink } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
@@ -113,6 +113,20 @@ type CommandCenterResponse = {
   counts: Record<CardKind, number>;
   totals: { highUrgency: number; mediumUrgency: number; lowUrgency: number };
 };
+// Phase K — Draft Approval Queue row.
+type DraftQueueItem = {
+  taskId: number; status: string; isReviewed: boolean;
+  createdAt: string; createdByUserId: number | null;
+  createdByName: string | null; createdByEmail: string | null;
+  ownerUserId: number | null; ownerName: string | null;
+  completedAt: string | null; completedByName: string | null;
+  draftId: string | null; messageId: string | null; threadId: string | null;
+  gmailAccountId: number | null; gmailAccountEmail: string | null;
+  recipientEmail: string | null; subject: string | null; body: string | null;
+  tone: string | null; isEdited: boolean;
+  kind: string | null; recipientId: number | null;
+  bookingLinkId: number | null; bookingLinkName: string | null;
+};
 const CARD_META: Record<CardKind, { label: string; badge: string; icon: any; color: string }> = {
   HOT_OPENED_NOT_BOOKED: { label: "Hot opens",        badge: "Hot",          icon: Flame,    color: "text-orange-500" },
   BOOKED_NO_QUOTE:       { label: "Needs a quote",    badge: "Needs Quote",  icon: FileText, color: "text-amber-500" },
@@ -190,6 +204,7 @@ function CommandCard({ kind, items, isAdmin }: {
   const [editedSubject, setEditedSubject] = useState("");
   const [editedBody, setEditedBody] = useState("");
   const [gmailDraftId, setGmailDraftId] = useState<string | null>(null);
+  const [gmailMessageId, setGmailMessageId] = useState<string | null>(null);
 
   const generateDraft = useMutation({
     mutationFn: async (vars: { kind: CardKind; recipientId: number; bookingLinkId?: number; tone: DraftTone }) => {
@@ -222,10 +237,13 @@ function CommandCard({ kind, items, isAdmin }: {
           subject: editedSubject, body: editedBody,
         },
       );
-      return (await res.json()) as { draftId: string; to: string; meta: { sentEmail: false } };
+      return (await res.json()) as { draftId: string; messageId: string | null; to: string; meta: { sentEmail: false } };
     },
     onSuccess: (data) => {
       setGmailDraftId(data.draftId);
+      setGmailMessageId(data.messageId ?? null);
+      // Refresh the approval queue so the new draft shows up immediately.
+      queryClient.invalidateQueries({ queryKey: ["/api/crm/booking-analytics/draft-approval-queue"] });
       toast({ title: "Draft created in Gmail", description: `Saved to Drafts for ${data.to}` });
     },
     onError: (err: any) => {
@@ -244,12 +262,14 @@ function CommandCard({ kind, items, isAdmin }: {
     setEditedSubject("");
     setEditedBody("");
     setGmailDraftId(null);
+    setGmailMessageId(null);
     setDraftOpen(true);
     generateDraft.mutate({ kind, recipientId, bookingLinkId, tone: "warm" });
   };
   const regenerateDraft = (tone: DraftTone) => {
     setDraftTone(tone);
     setGmailDraftId(null);
+    setGmailMessageId(null);
     if (!draftRecipient) return;
     generateDraft.mutate({ kind, recipientId: draftRecipient.recipientId, bookingLinkId: draftRecipient.bookingLinkId, tone });
   };
@@ -415,7 +435,7 @@ function CommandCard({ kind, items, isAdmin }: {
                   </div>
                   <Input
                     value={editedSubject}
-                    onChange={(e) => { setEditedSubject(e.target.value); setGmailDraftId(null); }}
+                    onChange={(e) => { setEditedSubject(e.target.value); setGmailDraftId(null); setGmailMessageId(null); }}
                     className="text-sm"
                     data-testid="input-draft-subject"
                   />
@@ -431,7 +451,7 @@ function CommandCard({ kind, items, isAdmin }: {
                   </div>
                   <Textarea
                     value={editedBody}
-                    onChange={(e) => { setEditedBody(e.target.value); setGmailDraftId(null); }}
+                    onChange={(e) => { setEditedBody(e.target.value); setGmailDraftId(null); setGmailMessageId(null); }}
                     className="text-sm font-sans max-h-72 min-h-[10rem]"
                     data-testid="textarea-draft-body"
                   />
@@ -463,10 +483,169 @@ function CommandCard({ kind, items, isAdmin }: {
                 ? (<><CheckCircle2 className="h-4 w-4 mr-1" />Draft created in Gmail</>)
                 : (<><Mail className="h-4 w-4 mr-1" />{createGmailDraft.isPending ? "Creating…" : "Create Gmail Draft"}</>)}
             </Button>
+            {gmailDraftId && (
+              <Button asChild variant="outline" data-testid="link-view-gmail-draft">
+                <a
+                  href={gmailMessageId
+                    ? `https://mail.google.com/mail/u/0/#drafts/${gmailMessageId}`
+                    : `https://mail.google.com/mail/u/0/#drafts`}
+                  target="_blank" rel="noopener noreferrer"
+                >
+                  <ExternalLink className="h-4 w-4 mr-1" />View created Gmail draft
+                </a>
+              </Button>
+            )}
             <Button onClick={() => setDraftOpen(false)} data-testid="button-close-draft">Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </Card>
+  );
+}
+
+// ─── Phase K — Draft Approval Queue tab ────────────────────────────────────
+function DraftQueueTab({ queueQ }: {
+  queueQ: ReturnType<typeof useQuery<{ items: DraftQueueItem[]; isAdmin: boolean }>>;
+}) {
+  const { toast } = useToast();
+  const items = queueQ.data?.items ?? [];
+  const pending  = items.filter((i) => !i.isReviewed);
+  const reviewed = items.filter((i) =>  i.isReviewed);
+
+  const markReviewed = useMutation({
+    mutationFn: async (taskId: number) => {
+      const res = await apiRequest("POST",
+        `/api/crm/booking-analytics/draft-approval-queue/${taskId}/mark-reviewed`,
+        {},
+      );
+      return await res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/crm/booking-analytics/draft-approval-queue"] });
+      toast({ title: "Marked reviewed" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Could not mark reviewed", description: err?.message ?? "Unknown error", variant: "destructive" });
+    },
+  });
+
+  const copyText = async (text: string, label: string) => {
+    try { await navigator.clipboard.writeText(text); toast({ title: `${label} copied` }); }
+    catch { toast({ title: "Copy failed", description: "Clipboard unavailable", variant: "destructive" }); }
+  };
+
+  const openInGmail = (item: DraftQueueItem) => item.messageId
+    ? `https://mail.google.com/mail/u/0/#drafts/${item.messageId}`
+    : `https://mail.google.com/mail/u/0/#drafts`;
+
+  if (queueQ.isLoading) {
+    return <Skeleton className="h-64" data-testid="skeleton-draft-queue" />;
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-4">
+        <div className="flex items-center gap-2">
+          <Inbox className="h-4 w-4" />
+          <h2 className="font-medium" data-testid="text-draft-queue-title">Gmail Draft Approval Queue</h2>
+          <Badge variant="outline" className="ml-auto" data-testid="badge-draft-queue-pending">
+            {pending.length} pending
+          </Badge>
+          <Badge variant="secondary" data-testid="badge-draft-queue-reviewed">
+            {reviewed.length} reviewed
+          </Badge>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          These drafts are saved in Gmail Drafts — nothing has been sent. Open in Gmail to review and send manually.
+        </p>
+
+        {items.length === 0 ? (
+          <div className="text-sm text-muted-foreground py-8 text-center" data-testid="text-draft-queue-empty">
+            No drafts in your approval queue.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {[...pending, ...reviewed].map((item) => (
+              <div
+                key={item.taskId}
+                className={`border rounded-md p-3 space-y-2 ${item.isReviewed ? "opacity-60 bg-muted/30" : ""}`}
+                data-testid={`row-draft-queue-${item.taskId}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium truncate" data-testid={`text-draft-recipient-${item.taskId}`}>
+                        {item.recipientEmail ?? "(unknown)"}
+                      </span>
+                      {item.kind && (
+                        <Badge variant="outline" className="text-[10px]" data-testid={`badge-draft-kind-${item.taskId}`}>
+                          {item.kind}
+                        </Badge>
+                      )}
+                      {item.isReviewed && (
+                        <Badge variant="secondary" className="text-[10px]" data-testid={`badge-draft-reviewed-${item.taskId}`}>
+                          reviewed
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="text-sm" data-testid={`text-draft-subject-${item.taskId}`}>
+                      <strong>Subject:</strong> {item.subject ?? "(no subject)"}
+                    </div>
+                    <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1">
+                      {item.bookingLinkName && (
+                        <span data-testid={`text-draft-link-${item.taskId}`}>
+                          link: {item.bookingLinkName}
+                        </span>
+                      )}
+                      {item.gmailAccountEmail && (
+                        <span data-testid={`text-draft-mailbox-${item.taskId}`}>
+                          mailbox: {item.gmailAccountEmail}
+                        </span>
+                      )}
+                      {item.createdByName && (
+                        <span data-testid={`text-draft-created-by-${item.taskId}`}>
+                          by: {item.createdByName}
+                        </span>
+                      )}
+                      <span data-testid={`text-draft-created-at-${item.taskId}`}>
+                        {new Date(item.createdAt).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button asChild variant="outline" size="sm" data-testid={`link-draft-open-gmail-${item.taskId}`}>
+                    <a href={openInGmail(item)} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-3 w-3 mr-1" />Open in Gmail
+                    </a>
+                  </Button>
+                  <Button variant="outline" size="sm"
+                          onClick={() => copyText(item.subject ?? "", "Subject")}
+                          disabled={!item.subject}
+                          data-testid={`button-draft-copy-subject-${item.taskId}`}>
+                    <Copy className="h-3 w-3 mr-1" />Copy subject
+                  </Button>
+                  <Button variant="outline" size="sm"
+                          onClick={() => copyText(item.body ?? "", "Body")}
+                          disabled={!item.body}
+                          data-testid={`button-draft-copy-body-${item.taskId}`}>
+                    <Copy className="h-3 w-3 mr-1" />Copy body
+                  </Button>
+                  {!item.isReviewed && (
+                    <Button variant="default" size="sm"
+                            onClick={() => markReviewed.mutate(item.taskId)}
+                            disabled={markReviewed.isPending}
+                            data-testid={`button-draft-mark-reviewed-${item.taskId}`}>
+                      <CheckCircle2 className="h-3 w-3 mr-1" />Mark reviewed
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -481,6 +660,7 @@ export default function BookingAnalyticsPage() {
   const attributionQ  = useQuery<Attribution>({ queryKey: ["/api/crm/booking-analytics/attribution"] });
   const actionListQ   = useQuery<ActionListData>({ queryKey: ["/api/crm/booking-analytics/action-list"] });
   const commandQ      = useQuery<CommandCenterResponse>({ queryKey: ["/api/crm/booking-analytics/command-center"] });
+  const draftQueueQ   = useQuery<{ items: DraftQueueItem[]; isAdmin: boolean }>({ queryKey: ["/api/crm/booking-analytics/draft-approval-queue"] });
 
   const totals = useMemo(() => {
     const rows = linksQ.data?.rows ?? [];
@@ -518,6 +698,14 @@ export default function BookingAnalyticsPage() {
           <TabsTrigger value="timing"      data-testid="tab-timing">Time to convert</TabsTrigger>
           <TabsTrigger value="segments"    data-testid="tab-segments">CRM segment</TabsTrigger>
           <TabsTrigger value="revenue"     data-testid="tab-revenue">Revenue Attribution</TabsTrigger>
+          <TabsTrigger value="draft-queue" data-testid="tab-draft-queue">
+            Draft Queue
+            {(draftQueueQ.data?.items?.filter(i => !i.isReviewed).length ?? 0) > 0 && (
+              <Badge variant="secondary" className="ml-2" data-testid="badge-draft-queue-count">
+                {draftQueueQ.data!.items.filter(i => !i.isReviewed).length}
+              </Badge>
+            )}
+          </TabsTrigger>
           {linksQ.data?.isAdmin && <TabsTrigger value="owners" data-testid="tab-owners">By owner</TabsTrigger>}
         </TabsList>
 
@@ -847,6 +1035,11 @@ export default function BookingAnalyticsPage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* Draft Queue (Phase K) */}
+        <TabsContent value="draft-queue" className="space-y-4">
+          <DraftQueueTab queueQ={draftQueueQ} />
         </TabsContent>
 
         {/* Owners (admin) */}

@@ -18,7 +18,7 @@
 
 import { and, eq } from "drizzle-orm";
 import { db } from "../db";
-import { emailAccounts, users } from "@shared/schema";
+import { emailAccounts, users, tasks } from "@shared/schema";
 import { saveDraft } from "../gmail";
 import {
   generateFollowupDraft,
@@ -26,6 +26,17 @@ import {
   type DraftOutput,
 } from "./booking-draft-assistant";
 import { CommandActionError, type ActionKind } from "./booking-command-actions";
+
+/**
+ * Phase K — Draft Approval Queue source identifier.
+ * Exported so the queue endpoints can filter on `tasks.source` without a
+ * magic string. We deliberately use a DIFFERENT source value AND DIFFERENT
+ * sourceMeta keys (draftKind / draftRecipientId) than Phase H so that the
+ * Phase H suppression query in `pendingActionKeysFor()` (which matches on
+ * sourceMeta.recipientId + sourceMeta.kind) NEVER incorrectly hides
+ * command-center cards just because a draft was created.
+ */
+export const DRAFT_APPROVAL_TASK_SOURCE = "booking_draft_approval";
 
 export interface GmailDraftInput {
   callerUserId:    number;
@@ -109,12 +120,16 @@ async function resolveMailboxForEditOrThrow(
 
 export interface GmailDraftResult {
   draftId:   string;
+  /** Gmail message id (deep-linkable in Gmail UI). */
+  messageId: string | null;
   threadId:  string | null;
   to:        string;
   subject:   string;
   body:      string;
   source:    "edited" | "generated";
   context:   DraftOutput["context"];
+  /** Phase K — id of the approval-queue task row created alongside the draft. */
+  approvalTaskId: number;
   meta: {
     kind: ActionKind;
     tone: Tone;
@@ -201,11 +216,50 @@ export async function createGmailDraftFromBooking(
     throw new CommandActionError(503, `Gmail draft creation failed: ${e?.message ?? "unknown"}`);
   }
 
-  const draftId  = String(draftRes?.id ?? "");
-  const threadId = draftRes?.message?.threadId ? String(draftRes.message.threadId) : null;
+  const draftId   = String(draftRes?.id ?? "");
+  const messageId = draftRes?.message?.id ? String(draftRes.message.id) : null;
+  const threadId  = draftRes?.message?.threadId ? String(draftRes.message.threadId) : null;
   if (!draftId) {
     throw new CommandActionError(503, "Gmail did not return a draft id");
   }
+
+  // Phase K — write a Draft Approval Queue task row.
+  //   ownerUserId = mailbox owner so queue scoping aligns with mailbox view
+  //                 perms (admin / owner / mail_team[id].view=true).
+  //   sourceMeta uses DIFFERENT keys (draftKind / draftRecipientId) than
+  //                 Phase H so the existing suppression query never matches.
+  const [approvalTask] = await db.insert(tasks).values({
+    title:           `Review Gmail draft to ${generated.context.recipientEmail}`,
+    description:     null,
+    ownerUserId:     mailbox.acctOwnerUserId,
+    createdByUserId: input.callerUserId,
+    linkedObjectType: null,                     // queue rows live independently of CRM-task linking
+    linkedObjectId:   null,
+    accountId:       null,
+    status:          "pending",
+    priority:        "medium",
+    aiSuggested:     !isEdited,                 // pure-generated drafts mark as AI-suggested
+    source:          DRAFT_APPROVAL_TASK_SOURCE,
+    sourceLabel:     generated.context.contactName
+                       ?? generated.context.leadName
+                       ?? generated.context.recipientEmail,
+    sourceMeta: {
+      source:           "booking_draft_approval",
+      draftKind:        input.kind,             // intentionally NOT 'kind'
+      draftRecipientId: input.recipientId,      // intentionally NOT 'recipientId'
+      bookingLinkId:    input.bookingLinkId ?? null,
+      draftId,
+      messageId,
+      threadId,
+      gmailAccountId:   mailbox.accountId,
+      recipientEmail:   generated.context.recipientEmail,
+      subject,
+      body,
+      tone:             generated.meta.tone,
+      isEdited,
+    },
+  }).returning({ id: tasks.id });
+  const approvalTaskId = approvalTask.id;
 
   // Structured audit line — no PII beyond what's already in our logs.
   console.log(JSON.stringify({
@@ -218,15 +272,18 @@ export async function createGmailDraftFromBooking(
     source:        isEdited ? "edited" : "generated",
     gmailAcctId:   mailbox.accountId,
     draftId,
+    messageId,
+    approvalTaskId,
     sentEmail:     false,
   }));
 
   return {
-    draftId, threadId,
+    draftId, messageId, threadId,
     to:      generated.context.recipientEmail,
     subject, body,
     source:  isEdited ? "edited" : "generated",
     context: generated.context,
+    approvalTaskId,
     meta: {
       kind:           input.kind,
       tone:           generated.meta.tone,
