@@ -11951,6 +11951,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   // ── Phase 3: Mailbox access management ────────────────────────────────────
   // GET returns the owner + every active non-owner user's view/edit grant for
   // this mailbox (read from users.permissions.mail_team[accountId]).
+  // ACL: requireAuth here is the route-level gate; the per-mailbox owner-or-admin
+  // check is enforced inside the handler via `requireOwnerOrAdmin(req, res, accountId)`.
+  // Confirmed not an IDOR during the follow-up audit (docs/PERMISSION_AUDIT.md).
   app.get("/api/gmail/accounts/:id/access", requireAuth, async (req, res) => {
     try {
       const accountId = Number(req.params.id);
@@ -12533,9 +12536,29 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // ACL: associations expose CRM linkage for an email message — gate on the
+  // requester's mail_team access to the message's home mailbox so a user
+  // who has no access to mailbox X cannot enumerate which contacts/accounts
+  // a message belongs to. Owner/admin/mail_team[X].view all pass.
   app.get("/api/email-messages/:id/associations", requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId = (req.session as any).userId as number;
+      const [msg] = await db
+        .select({ ownerUserId: emailMessages.ownerUserId, sourceAccountId: emailMessages.sourceAccountId })
+        .from(emailMessages)
+        .where(eq(emailMessages.id, id))
+        .limit(1);
+      if (!msg) return res.status(404).json({ message: "Message not found" });
+      const { isAdmin, mailTeamPerms } = await getSessionUserAccess(req.session);
+      const sharedAcctId = msg.sourceAccountId;
+      const hasSharedAccess = sharedAcctId != null
+        && (mailTeamPerms[String(sharedAcctId)]?.view === true
+            || mailTeamPerms[String(sharedAcctId)]?.edit === true);
+      if (msg.ownerUserId !== userId && !isAdmin && !hasSharedAccess) {
+        return res.status(403).json({ message: "Not allowed" });
+      }
       const assocs = await db.select().from(emailAssociations)
         .where(eq(emailAssociations.emailMessageId, id));
       res.json(assocs);
@@ -13493,7 +13516,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.get("/api/confluence/pages/:id", requireAuth, async (req, res) => {
+  app.get("/api/confluence/pages/:id", requirePermission("knowledge", "view"), async (req, res) => {
     try {
       const { getConfluenceCredentials, invalidateConfluenceToken } = await import("./confluence-client");
       const { id } = req.params;
@@ -13860,7 +13883,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.get("/api/projects/:id", requireAuth, async (req, res) => {
+  app.get("/api/projects/:id", requirePermission("projects", "view"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
@@ -13937,7 +13960,7 @@ export function registerConfluenceRoutes(app: Express) {
   }
 
   // ── GET /api/projects/:id/certification ───────────────────────────────────────
-  app.get("/api/projects/:id/certification", requireAuth, async (req, res) => {
+  app.get("/api/projects/:id/certification", requirePermission("projects", "view"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
@@ -14029,7 +14052,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── GET /api/projects/:id/milestones ─────────────────────────────────────────
-  app.get("/api/projects/:id/milestones", requireAuth, async (req, res) => {
+  app.get("/api/projects/:id/milestones", requirePermission("projects", "view"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
@@ -14090,7 +14113,7 @@ export function registerConfluenceRoutes(app: Express) {
   // ── GET /api/projects/:id/tracker-sync ───────────────────────────────────────
   // Reads the configured Google Sheet as CSV (server-side to avoid CORS) and
   // computes live test counts using the stored column mappings.
-  app.get("/api/projects/:id/tracker-sync", requireAuth, async (req, res) => {
+  app.get("/api/projects/:id/tracker-sync", requirePermission("projects", "view"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
@@ -14302,7 +14325,7 @@ export function registerConfluenceRoutes(app: Express) {
 
   // ── GET /api/projects/:id/tracker-alerts/state ────────────────────────────────
   // Returns current stored alert state (conditions, last eval timestamp).
-  app.get("/api/projects/:id/tracker-alerts/state", requireAuth, async (req, res) => {
+  app.get("/api/projects/:id/tracker-alerts/state", requirePermission("projects", "view"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
@@ -14359,7 +14382,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── GET /api/projects/:id/timeline ────────────────────────────────────────────
-  app.get("/api/projects/:id/timeline", requireAuth, async (req, res) => {
+  app.get("/api/projects/:id/timeline", requirePermission("projects", "view"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
@@ -15215,7 +15238,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ─── Stage 3 — Opportunity Contacts ────────────────────────────────────
-  app.get("/api/opportunities/:id/contacts", requireAuth, async (req, res) => {
+  app.get("/api/opportunities/:id/contacts", requirePermission("crm", "view"), async (req, res) => {
     try {
       const data = await storage.getOpportunityContacts(Number(req.params.id));
       res.json(data);
@@ -15244,7 +15267,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ─── Account ↔ Contact links (many-to-many) ─────────────────────────────
-  app.get("/api/accounts/:id/contacts", requireAuth, async (req, res) => {
+  app.get("/api/accounts/:id/contacts", requirePermission("crm", "view"), async (req, res) => {
     try { res.json(await storage.getAccountContacts(Number(req.params.id))); }
     catch (err: any) { res.status(500).json({ message: err.message }); }
   });
@@ -15272,7 +15295,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ─── Lead ↔ Contact links (many-to-many) ────────────────────────────────
-  app.get("/api/leads/:id/contacts", requireAuth, async (req, res) => {
+  app.get("/api/leads/:id/contacts", requirePermission("crm", "view"), async (req, res) => {
     try { res.json(await storage.getLeadContacts(Number(req.params.id))); }
     catch (err: any) { res.status(500).json({ message: err.message }); }
   });

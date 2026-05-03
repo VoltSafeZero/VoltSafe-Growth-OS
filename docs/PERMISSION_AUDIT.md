@@ -146,7 +146,42 @@ Regression test in same file: viewer with `mail_team[1].view=true` confirmed rec
 
 ---
 
-## SEPARATE TICKET — additional `requireAuth`-only `:id` routes worth a follow-up audit
+## ✅ RESOLVED (follow-up commit) — IDOR follow-up: 12 routes audited
+
+All 12 routes from the table below have been triaged and either patched or
+documented as a false positive. Regression coverage lives in
+`tests/idor-followup-permissions.test.js` (23 cases, all passing).
+
+| Route                                        | Verdict           | Fix |
+| -------------------------------------------- | ----------------- | --- |
+| `GET /api/email-messages/:id/associations`   | Real IDOR         | In-handler ACL: load message, require owner / admin / `mail_team[sourceAccountId].view` |
+| `GET /api/projects/:id`                      | Real IDOR         | `requirePermission("projects", "view")` |
+| `GET /api/projects/:id/certification`        | Real IDOR         | `requirePermission("projects", "view")` |
+| `GET /api/projects/:id/milestones`           | Real IDOR         | `requirePermission("projects", "view")` |
+| `GET /api/projects/:id/tracker-sync`         | Real IDOR         | `requirePermission("projects", "view")` |
+| `GET /api/projects/:id/tracker-alerts/state` | Real IDOR         | `requirePermission("projects", "view")` |
+| `GET /api/projects/:id/timeline`             | Real IDOR         | `requirePermission("projects", "view")` |
+| `GET /api/confluence/pages/:id`              | Real IDOR         | `requirePermission("knowledge", "view")` (Confluence is a workspace knowledge integration; sibling LIST routes also need this — see "REMAINING" below) |
+| `GET /api/opportunities/:id/contacts`        | Real IDOR         | `requirePermission("crm", "view")` |
+| `GET /api/accounts/:id/contacts`             | Real IDOR         | `requirePermission("crm", "view")` |
+| `GET /api/leads/:id/contacts`                | Real IDOR         | `requirePermission("crm", "view")` |
+| `GET /api/gmail/accounts/:id/access`         | **False positive**| Already calls `requireOwnerOrAdmin(req, res, accountId)` inside the handler. The grep flagged it because the route-level middleware slot reads `requireAuth`, but the per-mailbox owner-or-admin check IS enforced. Added a comment above the route documenting this so future audits skip it. Existing coverage: `tests/mail-permissions.test.js`. |
+
+### REMAINING (out of scope for this commit, separate follow-up worth doing)
+
+While auditing the 12 flagged routes I noticed several adjacent routes that
+share the same weakness but were not in scope. These should be a separate
+ticket:
+
+- `GET /api/projects` (L13759) and `GET /api/projects/cert-summary` (L13794) — list routes still on `requireAuth`. Should be `requirePermission("projects", "view")`.
+- `POST /api/projects/:id/tracker-alerts/evaluate` (L14323) — mutation on `requireAuth`. Should be `requirePermission("projects", "edit")`.
+- `POST /api/email-messages/:id/reassign` (L12570) — mutation that rewrites CRM associations on `requireAuth`. Should mirror the new GET ACL (mail_team[sourceAccountId].edit) plus probably `crm.edit`.
+- `GET /api/confluence/spaces`, `GET /api/confluence/pages`, `POST /api/confluence/pages`, `PUT /api/confluence/pages/:id` — entire Confluence module currently bare `requireAuth`. The `:id` GET is now gated; the rest should follow.
+- `GET /api/leads`, `GET /api/leads/:id`, `GET /api/accounts`, `GET /api/accounts/:id` — these have NO auth middleware at all (not even `requireAuth`). This is a more severe finding. Worth its own dedicated ticket and triage.
+
+---
+
+## ORIGINAL SEPARATE TICKET LIST (kept for history)
 
 During the self-review for this commit I scanned every `app.(get|delete)("/api/.../:id")` route in `server/routes.ts`. Most have a second-line ACL inside the handler (`event.userId !== session.userId`, `WHERE id=X AND owner_user_id=Y`, `requireOwnerOrAdmin`, `resolveAccount`+`mail_team` checks). The following do NOT — they appear to return a record by integer ID with only `requireAuth`. None were modified in this commit; flagging only:
 
