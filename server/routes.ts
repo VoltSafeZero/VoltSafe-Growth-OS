@@ -69,6 +69,7 @@ import {
   generateTrackingId, injectTracking, recordOpen, recordClick, getEngagementStats,
 } from "./tracking";
 import { startEngagementScheduler } from "./services/engagement-scheduler";
+import { runFollowupScan, startFollowupScheduler } from "./services/booking-followup-engine";
 import { seedDefaultRules } from "./services/engagement-defaults";
 import { composeDigest, getSectionsForRole, formatDigestAsHtml, formatDigestAsText, DEFAULT_ALERT_RULES as DC_DEFAULT_SECTIONS, type DigestSection } from "./services/digest-composer";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
@@ -24344,6 +24345,21 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase D — Booking Follow-Up Automation
+  // POST /api/crm/booking-followups/run  — admin: trigger scan now
+  // ─────────────────────────────────────────────────────────────────────────
+  app.post("/api/crm/booking-followups/run", requireAuth, async (req, res) => {
+    try {
+      const isAdmin = await callerIsAdminFromSession(req);
+      if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
+      const result = await runFollowupScan();
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get("/api/crm/booking-outreach/owners", requireAuth, async (req, res) => {
     try {
       const isAdmin = await callerIsAdminFromSession(req);
@@ -24820,6 +24836,7 @@ export function registerConfluenceRoutes(app: Express) {
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
   seedAutomationTemplates().catch(err => console.error("[automations] seed error:", err));
   startEngagementScheduler();
+  startFollowupScheduler();
 
   // ── Awaiting-reply: initial computation on boot (non-blocking) ─────────────
   computeAwaitingReply().catch(err => console.error("[routes] computeAwaitingReply boot error:", err));
