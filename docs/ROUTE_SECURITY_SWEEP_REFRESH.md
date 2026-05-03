@@ -1,8 +1,8 @@
-# Route Security Sweep — Refresh (post commits #1–#4)
+# Route Security Sweep — Refresh (post commits #1–#5)
 
 **Date**: 2026-05-03
-**Scope**: read-only audit of `server/routes.ts` (24,569 lines) and `server/routes-tasks.ts` (890 lines)
-**No code, schema, or dependency changes were made.**
+**Scope**: read-only audit of `server/routes.ts` (~20k lines after commit #5 inserts) and `server/routes-tasks.ts` (890 lines)
+**Commit #5 (this update)**: 12 P1 routes patched + `POST /api/attachments` module gate. New regression suite `tests/p1-undergated-mutations-3.test.js` (47/47).
 
 This refresh re-evaluates the surface after:
 
@@ -10,6 +10,7 @@ This refresh re-evaluates the surface after:
 - Commit #2 — 18 P0 fixes + duplicate-route deletion (`tests/p0-anonymous-routes-2.test.js`)
 - Commit #3 — 14 P1 mutation-gate fixes (`tests/p1-undergated-mutations.test.js`)
 - Commit #4 — 9 P1 mutation-gate fixes + 3 mail-folder ownership ACLs (`tests/p1-undergated-mutations-2.test.js`)
+- **Commit #5 — 12 P1 mutation-gate fixes (7 thread-association mailbox ACLs + 4 crm.edit gates + 1 admin-only) and 1 attachment module gate** (`tests/p1-undergated-mutations-3.test.js`)
 
 ---
 
@@ -57,35 +58,32 @@ The 32 `app.use` mounts apply blanket gates to entire URL prefixes — for examp
 
 ## 3. Remaining P1 (mutation-gate / IDOR) routes
 
-**12 routes remain P1.** All are `requireAuth`-only handlers that perform workspace-shared writes or operate on rows owned by other users without an inline ownership check.
+**0 P1 routes remain after commit #5.** All 12 routes flagged in this section have been patched and the new `tests/p1-undergated-mutations-3.test.js` suite (47/47) regresses them.
 
-### P1 — Gmail thread-association mutations (highest priority)
+### Closed in commit #5 — Gmail thread-association mutations
 
-The `email-messages/:id/{reassign,confirm}` routes were patched in commits #2 / #3 to enforce `mail_team[sourceAccountId].edit`. These siblings mutate the same `emailAssociations` table by association id and do **not** carry that gate yet.
+The `email-messages/:id/{reassign,confirm}` routes were patched in commits #2 / #3 to enforce `mail_team[sourceAccountId].edit`. These siblings mutate the same `emailAssociations` table by association id and now carry the same gate via the new `requireThreadAssocEditAccess(req, res, emailMessageId)` helper (and `checkThreadAssocEditForBulk` for the per-item path).
 
-| Method | Path | Line | Risk |
-| ------ | ---- | ---- | ---- |
-| POST | `/api/gmail/thread-associations/confirm` | 9557 | Marks any association `isUserConfirmed=true` by id. Same IDOR shape as the patched `/email-messages/:id/confirm`. |
-| POST | `/api/gmail/thread-associations/reject` | 9612 | Deletes any association by id. |
-| POST | `/api/gmail/thread-associations/bulk-confirm` | 9686 | Bulk version. |
-| POST | `/api/gmail/thread-associations/bulk-reject` | 9788 | Bulk version. |
-| POST | `/api/gmail/thread-associations/manual` | 9886 | Inserts a manual association on any thread. |
-| POST | `/api/gmail/thread-associations/replace` | 9963 | Replaces association by id. |
-| POST | `/api/gmail/thread-associations/:threadId/refresh` | 10077 | Recomputes associations for any thread. |
+| Method | Path | Approx. line | Patch |
+| ------ | ---- | ------------ | ----- |
+| POST | `/api/gmail/thread-associations/confirm` | 9604 | Loads assoc → calls `requireThreadAssocEditAccess(assoc.emailMessageId)`. |
+| POST | `/api/gmail/thread-associations/reject` | 9665 | Same. |
+| POST | `/api/gmail/thread-associations/bulk-confirm` | 9740 | Per-item `checkThreadAssocEditForBulk(...)` — items without mailbox edit are skipped (200 with `skipped[]`). Replaces the previous `crm/partnerships` view-level section check, which was the wrong axis for thread-assoc mutations. |
+| POST | `/api/gmail/thread-associations/bulk-reject` | 9836 | Same. |
+| POST | `/api/gmail/thread-associations/manual` | 9942 | Resolves the thread's first message → gates on it. Returns 404 instead of silently no-op when no message can be found (would otherwise have masked an ACL gap). |
+| POST | `/api/gmail/thread-associations/replace` | 10025 | Section check (`crm`/`partnerships`) **kept** as a pre-filter; mailbox `requireThreadAssocEditAccess(old.emailMessageId)` added on top. |
+| POST | `/api/gmail/thread-associations/:threadId/refresh` | 10135 | Loads the thread's first message → gates on it. Returns 404 when no messages exist. |
 
-**Recommended gate**: load the `email_messages` row referenced by the association/thread, then call the same `requireAccountEditAccess(req, res, sourceAccountId)` helper used by `/email-messages/:id/{reassign,confirm}`.
+### Closed in commit #5 — Workspace-shared writes & module gate
 
-### P1 — Workspace-shared writes still on `requireAuth` only
-
-| Method | Path | Line | Risk | Recommended gate |
-| ------ | ---- | ---- | ---- | ---------------- |
-| POST | `/api/notes` | 14709 | Anyone authenticated can create a note attached to ANY CRM object id. (PUT/DELETE/PATCH already gate via `noteOwnerOrAdmin`.) | `requirePermission("crm", "edit")` |
-| POST | `/api/tags` | 14917 | Workspace-wide tag creation. | `requirePermission("crm", "edit")` |
-| POST | `/api/record-tags` | 14949 | Apply tag to ANY record by `recordType`+`recordId`. | `requirePermission("crm", "edit")` |
-| DELETE | `/api/record-tags` | 14958 | Remove tag from ANY record (query-string id). | `requirePermission("crm", "edit")` |
-| POST | `/api/data-quality/ignore` | 17424 | Suppresses workspace data-quality warnings. | `requirePermission("crm", "edit")` |
-
-> The `/api/data-quality/{ignore DELETE, fix PATCH}` routes are also `requireAuth`-only but operate on data-quality state that is workspace-shared; same `crm.edit` gate is appropriate. They are listed in §4 (P2 hardening) because they are admin-style cleanup actions rather than direct customer-data mutations.
+| Method | Path | Approx. line | Patch |
+| ------ | ---- | ------------ | ----- |
+| POST | `/api/notes` | 14775 | `requirePermission("crm", "edit")`. PUT/DELETE/PATCH continue to gate via `noteOwnerOrAdmin`. |
+| POST | `/api/tags` | 14983 | `requirePermission("crm", "edit")`. |
+| POST | `/api/record-tags` | 15015 | `requirePermission("crm", "edit")`. |
+| DELETE | `/api/record-tags` | 15024 | `requirePermission("crm", "edit")`. |
+| POST | `/api/data-quality/ignore` | 17491 | `requireAdmin` (workspace-shared cleanup state — admin only, not crm.edit). The companion `DELETE /api/data-quality/ignore/:id` and `PATCH /api/data-quality/fix` remain in §4 P2.A and should be promoted next. |
+| POST | `/api/attachments` | 5006 | Section-aware `attachmentSectionFor(objectType)` edit gate. Mirrors the GET handler's view-level gate; any non-admin uploader must hold `edit` on the section that owns the linked object (e.g. `crm.edit` for `account/lead/contact/...`, `quoting.edit` for `quote`, `projects.edit` for `project`, `support.edit` for `task`/`ticket`). On denial the just-uploaded temp file is `unlink`-ed before responding 403. |
 
 ---
 
@@ -155,16 +153,15 @@ Earlier sweeps surfaced one collision (`POST /api/tasks/:id/complete` defined bo
 
 ## 7. Top 10 recommended next fixes (priority order)
 
-1. **`/api/gmail/thread-associations/{confirm,reject,bulk-confirm,bulk-reject,manual,replace,:threadId/refresh}` (7 routes)** — add `requireAccountEditAccess(sourceAccountId)` derived from the association's anchor message. Direct continuation of commits #2/#3.
-2. **`POST /api/notes`** — `requirePermission("crm", "edit")`. Closes the last unprotected note-creation IDOR (PUT/DELETE/PATCH already do owner-or-admin).
-3. **`POST /api/tags` + `POST/DELETE /api/record-tags`** — `requirePermission("crm", "edit")`. Workspace-tag IDOR.
-4. **`POST /api/data-quality/ignore`, `DELETE /api/data-quality/ignore/:id`, `PATCH /api/data-quality/fix`** — `requirePermission("crm", "edit")`. Workspace data-quality state.
-5. **`POST/PATCH /api/procurement/*` writes** — escalate the existing `app.use(... "view")` mount to also require `crm.edit` (or new `procurement.edit`) for writes.
-6. **`POST/PATCH /api/deployments` and child writes** — `requirePermission("projects", "edit")`.
-7. **`POST/PUT /api/winter/{products,cases,kb,templates}` writes** — `requirePermission("support", "edit")`.
-8. **`POST /api/executive/brief/refresh`, `PATCH /api/executive/alerts/:id`** — module gate (executive view exists, no edit gate yet).
-9. **`POST /api/booking-links`, `PATCH /api/booking-links/:id`, `POST /api/booking-links/:id/recipients`, `POST /api/booking-links/recipients/:id/revoke`** — defensive ownership precheck on the link before delegating.
-10. **`POST /api/calendar/events`** — sets `userId` from session, but does not load the row first; calendar event creation is per-user so add the `requirePermission("calendar", "edit")` gate to keep the gate pattern consistent across the suite.
+Items 1–4 from the prior pass are **closed in commit #5**. Remaining list, renumbered:
+
+1. **`POST/PATCH /api/procurement/*` writes** — escalate the existing `app.use(... "view")` mount to also require `crm.edit` (or new `procurement.edit`) for writes.
+2. **`POST/PATCH /api/deployments` and child writes** — `requirePermission("projects", "edit")`.
+3. **`POST/PUT /api/winter/{products,cases,kb,templates}` writes** — `requirePermission("support", "edit")`.
+4. **`POST /api/executive/brief/refresh`, `PATCH /api/executive/alerts/:id`** — module gate (executive view exists, no edit gate yet).
+5. **`POST /api/booking-links`, `PATCH /api/booking-links/:id`, `POST /api/booking-links/:id/recipients`, `POST /api/booking-links/recipients/:id/revoke`** — defensive ownership precheck on the link before delegating.
+6. **`POST /api/calendar/events`** — sets `userId` from session, but does not load the row first; calendar event creation is per-user so add the `requirePermission("calendar", "edit")` gate to keep the gate pattern consistent across the suite.
+7. **`DELETE /api/data-quality/ignore/:id`, `PATCH /api/data-quality/fix`** — companions of the just-patched `POST /api/data-quality/ignore`. Should also be `requireAdmin` (workspace-shared cleanup).
 
 ---
 
@@ -187,25 +184,25 @@ Earlier sweeps surfaced one collision (`POST /api/tasks/:id/complete` defined bo
 | P1.C (new in commit #4) | `POST /api/mail-folders/:id/domains`, `DELETE /api/mail-folders/:id/domains/:domainId`, `DELETE /api/mail-folders/:id/emails/:emailId` | **Closed** — in-handler ownership ACL on parent folder (commit #4). |
 | P1.A — flagged but not actually under-gated | `gmail/send`, `gmail/sync`, `gmail/sync-incremental`, `gmail/watch/{start,stop}`, `email-search/reindex`, `calendar/events*` writes, all `calendar/integrations/*` writes, `PUT /api/tasks/:id`, `PUT/DELETE /api/mail-folders/:id`, `POST /api/mail-folders` | **Closed (audit only)** — gates already present (mostly inline). Documented as ✅ (audit) in `ROUTE_SECURITY_SWEEP.md`. |
 
-### Still open (carried into Top 10 above)
+### Closed in commit #5
 
 | Original section | Item | Refresh status |
 | ---------------- | ---- | -------------- |
-| P1.A | `POST /api/notes` | **Open** — listed in §3 / Top 10 #2. |
-| P1.A | `POST /api/tags`, `POST/DELETE /api/record-tags` | **Open** — Top 10 #3. |
-| P1.A | `POST /api/attachments` (module gate by objectType) | **Open** — listed at line 5005 in `ROUTE_SECURITY_SWEEP.md`; not yet patched. Verified `/api/attachments` is mounted under `app.use("/api/attachments", requireAuth)`, so it is auth-gated but not module-gated. Recommend a per-`objectType` switch (`crm.edit` for crm objects, `projects.edit` for projects, etc.). Carry into next sweep. |
+| P1.A | `POST /api/notes` | **Closed** — `crm.edit` (commit #5). |
+| P1.A | `POST /api/tags`, `POST/DELETE /api/record-tags` | **Closed** — `crm.edit` (commit #5). |
+| P1.A | `POST /api/attachments` (module gate by objectType) | **Closed** — section-aware `attachmentSectionFor(objectType)` edit gate (commit #5); temp file unlinked on denial. |
+| P1.A (new in this refresh) | All 7 `gmail/thread-associations/*` mutations | **Closed** — `requireThreadAssocEditAccess` / `checkThreadAssocEditForBulk` mailbox ACL (commit #5). |
+| P2.A subset | `POST /api/data-quality/ignore` | **Closed** — promoted to `requireAdmin` (commit #5). Companion DELETE/:id and PATCH /fix still open (Top 10 #7). |
 
-### New items first surfaced in this refresh
+### Still open
 
-The seven `gmail/thread-associations/*` mutations (Top 10 #1) were not individually called out in the original `ROUTE_SECURITY_SWEEP.md`. They appear to predate the email-messages reassign/confirm hardening and inherit the same IDOR pattern. **Promote to next P1 commit.**
-
-The procurement / deployments / winter / executive / data-quality write families (Top 10 #5–#8) were also out of scope for the original sweep. They are workspace-shared writes currently at `requireAuth` (with view-only `app.use` mounts where applicable). **Promote to a P2 commit.**
+The procurement / deployments / winter / executive write families (Top 10 #1–#4) remain out of scope and are tracked for a P2 commit.
 
 ---
 
 ## 9. Test coverage at end of refresh
 
-Read-only sweep — no new tests run. Reference green suites at the time of writing:
+Commit #5 adds `tests/p1-undergated-mutations-3.test.js` (47/47) and re-runs the full prior suite. All green:
 
 | Suite | Status |
 | ----- | ------ |
@@ -213,9 +210,17 @@ Read-only sweep — no new tests run. Reference green suites at the time of writ
 | `tests/p0-anonymous-routes-2.test.js` | 72/72 |
 | `tests/p1-undergated-mutations.test.js` | 45/45 |
 | `tests/p1-undergated-mutations-2.test.js` | 33/33 |
+| `tests/p1-undergated-mutations-3.test.js` (commit #5) | 47/47 |
 | `tests/security-triage-permissions.test.js` | 48/48 |
 | `tests/idor-followup-permissions.test.js` | 23/23 |
 | `tests/asset-permissions.test.js` | 7/7 |
-| **Total** | **312/312** |
+| **Total** | **359/359** |
 
-The five pre-existing failing test workflows (`mail-permissions`, `mailbox-switching`, `permissions`, `tracking-multi-proof`, `tracking-proof`) were untouched per standing rules.
+Coverage of the 47 commit-#5 assertions:
+
+- Phase 1 — anonymous → 401 on all 13 endpoints (incl. multipart attachment POST)
+- Phase 2 — viewer with workspace `view` perms → 403 on all 11 single-shot mutations + bulk routes return 200 with `skipped[]` (per-item ACL deny)
+- Phase 3 — viewer with workspace `edit` perms → CRM/section gates pass; thread-association routes still 403 (no `mail_team[1].edit`); admin-only `/data-quality/ignore` still 403
+- Phase 4 — `master_admin` → all thread-association + admin-only gates pass; bulk routes process per-item
+
+The five pre-existing failing test workflows (`mail-permissions`, `mailbox-switching`, `permissions`, `tracking-multi-proof`, `tracking-proof`) were untouched per standing rules — never restarted in this commit.

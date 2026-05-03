@@ -5008,6 +5008,27 @@ export async function registerRoutes(
       try { fs.unlinkSync(req.file.path); } catch {}
       return res.status(400).json({ message: "Valid objectType and objectId required" });
     }
+    // Commit #5: section-aware edit gate. The GET handler already gates on
+    // attachmentSectionFor(objectType) at view-level — POST must require edit
+    // on the same section so a viewer cannot upload a file to a record they
+    // can only read.
+    {
+      const userId = (req.session as any).userId as number;
+      const role = String((req.session as any).globalRole || "");
+      const isAdmin = role === "master_admin" || role === "admin";
+      if (!isAdmin) {
+        const section = attachmentSectionFor(String(objectType));
+        const [u] = await db.select({ permissions: users.permissions })
+          .from(users).where(eq(users.id, userId)).limit(1);
+        const perms = (u?.permissions as Record<string, string>) || {};
+        if ((perms[section] ?? "none") !== "edit") {
+          try { fs.unlinkSync(req.file.path); } catch {}
+          return res.status(403).json({
+            message: `Edit access required on ${section} to upload attachments`,
+          });
+        }
+      }
+    }
     try {
       const attachment = await storage.createAttachment({
         objectType,
@@ -9549,6 +9570,50 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // Commit #5 helpers — gate thread-association mutations on the home mailbox
+  // of the underlying email_message. Owner / admin / mail_team[acctId].edit.
+  // Mirrors the ACL on POST /api/email-messages/:id/{reassign,confirm}.
+  async function requireThreadAssocEditAccess(req: any, res: any, emailMessageId: number | null | undefined): Promise<boolean> {
+    if (!emailMessageId || !Number.isFinite(Number(emailMessageId))) {
+      res.status(404).json({ message: "Message not found" });
+      return false;
+    }
+    const userId = (req.session as any).userId as number;
+    const [msg] = await db
+      .select({ ownerUserId: emailMessages.ownerUserId, sourceAccountId: emailMessages.sourceAccountId })
+      .from(emailMessages)
+      .where(eq(emailMessages.id, Number(emailMessageId)))
+      .limit(1);
+    if (!msg) { res.status(404).json({ message: "Message not found" }); return false; }
+    const { isAdmin, mailTeamPerms } = await getSessionUserAccess(req.session);
+    const sharedAcctId = msg.sourceAccountId;
+    const hasSharedEdit = sharedAcctId != null && mailTeamPerms[String(sharedAcctId)]?.edit === true;
+    if (msg.ownerUserId !== userId && !isAdmin && !hasSharedEdit) {
+      res.status(403).json({ message: "Not allowed" });
+      return false;
+    }
+    return true;
+  }
+  async function checkThreadAssocEditForBulk(
+    userId: number, isAdmin: boolean,
+    mailTeamPerms: Record<string, { view?: boolean; edit?: boolean }>,
+    emailMessageId: number | null | undefined,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    if (!emailMessageId) return { ok: false, reason: "Message not found" };
+    const [msg] = await db
+      .select({ ownerUserId: emailMessages.ownerUserId, sourceAccountId: emailMessages.sourceAccountId })
+      .from(emailMessages)
+      .where(eq(emailMessages.id, Number(emailMessageId)))
+      .limit(1);
+    if (!msg) return { ok: false, reason: "Message not found" };
+    const sharedAcctId = msg.sourceAccountId;
+    const hasSharedEdit = sharedAcctId != null && mailTeamPerms[String(sharedAcctId)]?.edit === true;
+    if (msg.ownerUserId !== userId && !isAdmin && !hasSharedEdit) {
+      return { ok: false, reason: "No mailbox edit access" };
+    }
+    return { ok: true };
+  }
+
   // POST /api/gmail/thread-associations/confirm
   // User confirms an association:
   //   - marks isUserConfirmed=true (immutable from engine's perspective)
@@ -9564,6 +9629,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         .where(eq(emailAssociations.id, Number(associationId)));
 
       if (!assoc) return res.status(404).json({ message: "Association not found" });
+
+      // Commit #5: gate on the message's home mailbox (edit).
+      if (!(await requireThreadAssocEditAccess(req, res, assoc.emailMessageId))) return;
 
       // Mark association as user-confirmed (immutable — engine will not overwrite)
       await db.update(emailAssociations)
@@ -9619,6 +9687,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         .where(eq(emailAssociations.id, Number(associationId)));
 
       if (!assoc) return res.status(404).json({ message: "Association not found" });
+
+      // Commit #5: gate on the message's home mailbox (edit).
+      if (!(await requireThreadAssocEditAccess(req, res, assoc.emailMessageId))) return;
 
       // Log rejection so the engine skips this entity for this thread forever
       await db.insert(associationFeedback).values({
@@ -9702,7 +9773,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     if (!actor) return res.status(401).json({ message: "User not found" });
 
     const isAdmin = actor.globalRole === "master_admin" || actor.globalRole === "admin";
-    const perms = (actor.permissions as Record<string, string>) || {};
+    // Commit #5: per-item gate is mailbox-edit, not section. Section perms are
+    // workspace-wide and the wrong axis for thread-association mutations —
+    // mirror the single confirm/reject ACL (owner / admin / mail_team.edit).
+    const { mailTeamPerms } = await getSessionUserAccess(req.session);
 
     const confirmed: number[] = [];
     const skipped: Array<{ id: number; reason: string }> = [];
@@ -9723,15 +9797,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           continue;
         }
 
-        // Permission check
-        if (!isAdmin) {
-          const section = assoc.objectType === "partner" ? "partnerships" : "crm";
-          const level = perms[section] ?? "none";
-          if (level === "none") {
-            skipped.push({ id: assocId, reason: `No ${section} access` });
-            continue;
-          }
-        }
+        // Per-item mailbox edit ACL
+        const gate = await checkThreadAssocEditForBulk(userId, isAdmin, mailTeamPerms, assoc.emailMessageId);
+        if (!gate.ok) { skipped.push({ id: assocId, reason: gate.reason || "Not allowed" }); continue; }
 
         // Already confirmed — treat as no-op success
         if (assoc.isUserConfirmed) {
@@ -9803,7 +9871,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     if (!actor) return res.status(401).json({ message: "User not found" });
 
     const isAdmin = actor.globalRole === "master_admin" || actor.globalRole === "admin";
-    const perms = (actor.permissions as Record<string, string>) || {};
+    // Commit #5: per-item gate is mailbox-edit (see bulk-confirm).
+    const { mailTeamPerms } = await getSessionUserAccess(req.session);
 
     const rejected: number[] = [];
     const skipped: Array<{ id: number; reason: string }> = [];
@@ -9823,15 +9892,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           continue;
         }
 
-        // Permission check
-        if (!isAdmin) {
-          const section = assoc.objectType === "partner" ? "partnerships" : "crm";
-          const level = perms[section] ?? "none";
-          if (level === "none") {
-            skipped.push({ id: assocId, reason: `No ${section} access` });
-            continue;
-          }
-        }
+        // Per-item mailbox edit ACL
+        const gate = await checkThreadAssocEditForBulk(userId, isAdmin, mailTeamPerms, assoc.emailMessageId);
+        if (!gate.ok) { skipped.push({ id: assocId, reason: gate.reason || "Not allowed" }); continue; }
 
         // Write feedback
         await db.insert(associationFeedback).values({
@@ -9902,7 +9965,15 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         resolvedMsgId = firstMsg?.id || null;
       }
 
-      if (resolvedMsgId) {
+      // Commit #5: gate on the message's home mailbox (edit). Manual linking
+      // requires a resolvable message — without one we can't determine the
+      // mailbox to gate on, so refuse rather than silently no-op the assoc.
+      if (!resolvedMsgId) {
+        return res.status(404).json({ message: "No email message found for this thread" });
+      }
+      if (!(await requireThreadAssocEditAccess(req, res, resolvedMsgId))) return;
+
+      {
         // Check if association already exists
         const [existing] = await db
           .select({ id: emailAssociations.id })
@@ -9996,6 +10067,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
     if (!old) return res.status(404).json({ message: "Association not found" });
 
+    // Commit #5: in addition to the section-level perm check above, gate on
+    // the message's home mailbox (edit). Section perms alone let any crm:edit
+    // user mutate associations on mailboxes they have no access to.
+    if (!(await requireThreadAssocEditAccess(req, res, old.emailMessageId))) return;
+
     // ── No-op guard ──────────────────────────────────────────────────────────
     if (old.objectType === objectType && old.objectId === Number(objectId)) {
       return res.status(400).json({
@@ -10081,6 +10157,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         .select({ id: emailMessages.id })
         .from(emailMessages)
         .where(eq(emailMessages.gmailThreadId, threadId));
+
+      // Commit #5: gate on the thread's home mailbox (edit). If the thread has
+      // no messages we own/can-edit, refuse — re-running the association engine
+      // would write rows downstream of someone else's mailbox state.
+      if (msgs.length === 0) {
+        return res.status(404).json({ message: "No messages found for this thread" });
+      }
+      if (!(await requireThreadAssocEditAccess(req, res, msgs[0].id))) return;
 
       for (const msg of msgs) {
         await runAssociationEngine(msg.id);
@@ -14706,7 +14790,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.post("/api/notes", requireAuth, async (req, res) => {
+  app.post("/api/notes", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
     try {
       const userId = (req.session as any).userId;
       const [dbUser] = userId
@@ -14914,7 +14998,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.post("/api/tags", requireAuth, async (req, res) => {
+  app.post("/api/tags", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
     try {
       const tag = await storage.createTag(req.body);
       res.status(201).json(tag);
@@ -14946,7 +15030,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.post("/api/record-tags", requireAuth, async (req, res) => {
+  app.post("/api/record-tags", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
     try {
       const rt = await storage.addRecordTag(req.body);
       res.status(201).json(rt);
@@ -14955,7 +15039,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/record-tags", requireAuth, async (req, res) => {
+  app.delete("/api/record-tags", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
     try {
       const { tagId, recordType, recordId } = req.query as Record<string, string>;
       if (!tagId || !recordType || !recordId) return res.status(400).json({ message: "tagId, recordType, recordId required" });
@@ -17421,7 +17505,8 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── POST /api/data-quality/ignore ─────────────────────────────────────────
-  app.post("/api/data-quality/ignore", requireAuth, async (req, res) => {
+  // Commit #5: data-quality ignores are workspace-shared cleanup state — admin only.
+  app.post("/api/data-quality/ignore", requireAuth, requireAdmin, async (req, res) => {
     try {
       const { objectType, objectId, clusterKey, issueType, note } = req.body;
       if (!objectType || !issueType) return res.status(400).json({ message: "objectType and issueType required" });
