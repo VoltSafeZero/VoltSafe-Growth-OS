@@ -1480,7 +1480,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/leads", async (req, res) => {
+  app.get("/api/leads", requirePermission("crm", "view"), async (req, res) => {
     const { search, status, state, country, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getLeads({
       search: search as string | undefined,
@@ -1494,7 +1494,7 @@ export async function registerRoutes(
     }));
   });
 
-  app.get("/api/leads/:id", async (req, res) => {
+  app.get("/api/leads/:id", requirePermission("crm", "view"), async (req, res) => {
     const lead = await storage.getLead(Number(req.params.id));
     if (!lead) return res.status(404).json({ message: "Lead not found" });
     res.json(lead);
@@ -1993,7 +1993,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/accounts", async (req, res) => {
+  app.get("/api/accounts", requirePermission("crm", "view"), async (req, res) => {
     const { search, segment, leadStatus, priority, orgType, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getAccounts({
       search: search as string | undefined,
@@ -2629,7 +2629,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/accounts/:id", async (req, res) => {
+  app.get("/api/accounts/:id", requirePermission("crm", "view"), async (req, res) => {
     const account = await storage.getAccount(Number(req.params.id));
     if (!account) return res.status(404).json({ message: "Account not found" });
     res.json(account);
@@ -12567,9 +12567,28 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // ACL: reassign rewrites CRM associations for an email message. Gate on the
+  // requester's mail_team EDIT access to the message's home mailbox (owner /
+  // admin / mail_team[sourceAccountId].edit). Mirrors the GET associations ACL
+  // but requires edit instead of view since this mutates state.
   app.post("/api/email-messages/:id/reassign", requireAuth, async (req, res) => {
     try {
       const emailMsgId = Number(req.params.id);
+      if (!Number.isFinite(emailMsgId)) return res.status(400).json({ message: "Invalid id" });
+      const userId = (req.session as any).userId as number;
+      const [msg] = await db
+        .select({ ownerUserId: emailMessages.ownerUserId, sourceAccountId: emailMessages.sourceAccountId })
+        .from(emailMessages)
+        .where(eq(emailMessages.id, emailMsgId))
+        .limit(1);
+      if (!msg) return res.status(404).json({ message: "Message not found" });
+      const { isAdmin, mailTeamPerms } = await getSessionUserAccess(req.session);
+      const sharedAcctId = msg.sourceAccountId;
+      const hasSharedEdit = sharedAcctId != null
+        && mailTeamPerms[String(sharedAcctId)]?.edit === true;
+      if (msg.ownerUserId !== userId && !isAdmin && !hasSharedEdit) {
+        return res.status(403).json({ message: "Not allowed" });
+      }
       const { objectType, objectId, objectName, removeObjectType, removeObjectId } = req.body;
 
       if (removeObjectType && removeObjectId) {
@@ -13475,7 +13494,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   }
 
-  app.get("/api/confluence/spaces", requireAuth, async (req, res) => {
+  app.get("/api/confluence/spaces", requirePermission("knowledge", "view"), async (req, res) => {
     try {
       const { getConfluenceCredentials, invalidateConfluenceToken } = await import("./confluence-client");
       // Derive spaces from recent pages — no dedicated spaces endpoint is available
@@ -13495,7 +13514,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.get("/api/confluence/pages", requireAuth, async (req, res) => {
+  app.get("/api/confluence/pages", requirePermission("knowledge", "view"), async (req, res) => {
     try {
       const { getConfluenceCredentials, invalidateConfluenceToken } = await import("./confluence-client");
       const spaceKey = req.query.space as string | undefined;
@@ -13544,7 +13563,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.post("/api/confluence/pages", requireAuth, async (req, res) => {
+  app.post("/api/confluence/pages", requirePermission("knowledge", "edit"), async (req, res) => {
     try {
       const { getConfluenceCredentials, invalidateConfluenceToken } = await import("./confluence-client");
       const { title, spaceKey, parentId, body: bodyText } = req.body;
@@ -13577,7 +13596,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.put("/api/confluence/pages/:id", requireAuth, async (req, res) => {
+  app.put("/api/confluence/pages/:id", requirePermission("knowledge", "edit"), async (req, res) => {
     try {
       const { getConfluenceCredentials, invalidateConfluenceToken } = await import("./confluence-client");
       const { id } = req.params;
@@ -13779,7 +13798,7 @@ export function registerConfluenceRoutes(app: Express) {
     return sets;
   }
 
-  app.get("/api/projects", requireAuth, async (req, res) => {
+  app.get("/api/projects", requirePermission("projects", "view"), async (req, res) => {
     try {
       const { type, status, accountId, certFilter } = req.query as Record<string, string>;
       const wheres: string[] = [];
@@ -13814,7 +13833,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── GET /api/projects/cert-summary (Phase 1 dashboard) — BEFORE /:id ─────────
-  app.get("/api/projects/cert-summary", requireAuth, async (req, res) => {
+  app.get("/api/projects/cert-summary", requirePermission("projects", "view"), async (req, res) => {
     try {
       const now = new Date();
       const statsRows = await db.execute(sql.raw(`
@@ -14343,7 +14362,7 @@ export function registerConfluenceRoutes(app: Express) {
   // ── POST /api/projects/:id/tracker-alerts/evaluate ───────────────────────────
   // Accepts a SheetSyncSnapshot in the body (from the most recent sync) and runs
   // the full alert evaluation pipeline: conditions → outputs → cooldown state save.
-  app.post("/api/projects/:id/tracker-alerts/evaluate", requireAuth, async (req, res) => {
+  app.post("/api/projects/:id/tracker-alerts/evaluate", requirePermission("projects", "edit"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });

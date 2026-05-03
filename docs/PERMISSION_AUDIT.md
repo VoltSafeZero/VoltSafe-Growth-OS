@@ -167,17 +167,43 @@ documented as a false positive. Regression coverage lives in
 | `GET /api/leads/:id/contacts`                | Real IDOR         | `requirePermission("crm", "view")` |
 | `GET /api/gmail/accounts/:id/access`         | **False positive**| Already calls `requireOwnerOrAdmin(req, res, accountId)` inside the handler. The grep flagged it because the route-level middleware slot reads `requireAuth`, but the per-mailbox owner-or-admin check IS enforced. Added a comment above the route documenting this so future audits skip it. Existing coverage: `tests/mail-permissions.test.js`. |
 
-### REMAINING (out of scope for this commit, separate follow-up worth doing)
+### ✅ REMAINING — RESOLVED in security-triage commit
 
-While auditing the 12 flagged routes I noticed several adjacent routes that
-share the same weakness but were not in scope. These should be a separate
-ticket:
+All items previously listed as "REMAINING" have been audited and patched.
+Regression coverage lives in `tests/security-triage-permissions.test.js`
+(48 cases across 5 phases, all passing).
 
-- `GET /api/projects` (L13759) and `GET /api/projects/cert-summary` (L13794) — list routes still on `requireAuth`. Should be `requirePermission("projects", "view")`.
-- `POST /api/projects/:id/tracker-alerts/evaluate` (L14323) — mutation on `requireAuth`. Should be `requirePermission("projects", "edit")`.
-- `POST /api/email-messages/:id/reassign` (L12570) — mutation that rewrites CRM associations on `requireAuth`. Should mirror the new GET ACL (mail_team[sourceAccountId].edit) plus probably `crm.edit`.
-- `GET /api/confluence/spaces`, `GET /api/confluence/pages`, `POST /api/confluence/pages`, `PUT /api/confluence/pages/:id` — entire Confluence module currently bare `requireAuth`. The `:id` GET is now gated; the rest should follow.
-- `GET /api/leads`, `GET /api/leads/:id`, `GET /api/accounts`, `GET /api/accounts/:id` — these have NO auth middleware at all (not even `requireAuth`). This is a more severe finding. Worth its own dedicated ticket and triage.
+| Severity | Route                                              | Pre-fix middleware  | Post-fix gate                           |
+| -------- | -------------------------------------------------- | ------------------- | --------------------------------------- |
+| **P0**   | `GET /api/leads`                                   | _none_              | `requirePermission("crm", "view")`      |
+| **P0**   | `GET /api/leads/:id`                               | _none_              | `requirePermission("crm", "view")`      |
+| **P0**   | `GET /api/accounts`                                | _none_              | `requirePermission("crm", "view")`      |
+| **P0**   | `GET /api/accounts/:id`                            | _none_              | `requirePermission("crm", "view")`      |
+| P1       | `GET /api/projects`                                | `requireAuth`       | `requirePermission("projects", "view")` |
+| P1       | `GET /api/projects/cert-summary`                   | `requireAuth`       | `requirePermission("projects", "view")` |
+| P1       | `GET /api/confluence/spaces`                       | `requireAuth`       | `requirePermission("knowledge", "view")`|
+| P1       | `GET /api/confluence/pages`                        | `requireAuth`       | `requirePermission("knowledge", "view")`|
+| P1       | `POST /api/confluence/pages`                       | `requireAuth`       | `requirePermission("knowledge", "edit")`|
+| P1       | `PUT /api/confluence/pages/:id`                    | `requireAuth`       | `requirePermission("knowledge", "edit")`|
+| P1       | `POST /api/projects/:id/tracker-alerts/evaluate`   | `requireAuth`       | `requirePermission("projects", "edit")` |
+| P1       | `POST /api/email-messages/:id/reassign`            | `requireAuth`       | In-handler ACL: owner / admin / `mail_team[sourceAccountId].edit` |
+
+**P0 confirmation**: `GET /api/leads`, `GET /api/leads/:id`, `GET /api/accounts`,
+`GET /api/accounts/:id` were verified as having NO auth middleware — they accepted
+anonymous requests and returned full data. Now properly gated; anonymous → 401,
+authenticated without `crm.view` → 403, master_admin → 200.
+
+**Test phases proved**:
+1. Viewer with all module perms set to `none` → every flagged route returns 403.
+2. Viewer with `view` perms → read routes return 200; edit-required routes still 403.
+3. Viewer with `edit` perms → write routes pass the ACL gate (downstream may 200/400/410/503 depending on Confluence config and request body, but never 403).
+4. master_admin retains 200 on every read route.
+5. Unauthenticated → 401 on every flagged route (P0 items previously returned 200 with full data).
+
+**Per-mailbox boundary still enforced**: viewer with `mail_team[1].edit=true`
+attempting `POST /api/email-messages/{id}/reassign` on a message anchored to a
+different account (id 55450, source_account_id != 1) → 403. The ACL is
+per-mailbox, not workspace-wide.
 
 ---
 
