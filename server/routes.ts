@@ -1117,7 +1117,7 @@ export async function registerRoutes(
   });
 
   // ── CSV Export Endpoints ──────────────────────────────────────────
-  app.get("/api/marinas/export", async (req, res) => {
+  app.get("/api/marinas/export", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const { search, state } = req.query;
     const result = await storage.getMarinas({ search: search as string, state: state as string, page: 1, limit: 100000 });
     const cols: CsvColumn[] = [
@@ -1128,7 +1128,7 @@ export async function registerRoutes(
     res.send(toCsv(result.data as any, cols));
   });
 
-  app.get("/api/leads/export", async (req, res) => {
+  app.get("/api/leads/export", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const { search, status, country, state } = req.query;
     const result = await storage.getLeads({
       search: search as string, status: status as string,
@@ -1153,7 +1153,7 @@ export async function registerRoutes(
     res.send(toCsv(result.data as any, cols));
   });
 
-  app.get("/api/accounts/export", async (req, res) => {
+  app.get("/api/accounts/export", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const { search, segment } = req.query;
     const result = await storage.getAccounts({ search: search as string, segment: segment as string, page: 1, limit: 100000 });
     const cols: CsvColumn[] = [
@@ -1166,7 +1166,7 @@ export async function registerRoutes(
     res.send(toCsv(result.data as any, cols));
   });
 
-  app.get("/api/contacts/export", async (req, res) => {
+  app.get("/api/contacts/export", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const { accountId } = req.query;
     const data = await storage.getContacts({ accountId: accountId ? Number(accountId) : undefined });
     const cols: CsvColumn[] = [
@@ -1178,7 +1178,7 @@ export async function registerRoutes(
     res.send(toCsv(data as any, cols));
   });
 
-  app.get("/api/opportunities/export", async (req, res) => {
+  app.get("/api/opportunities/export", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const { stage, owner } = req.query;
     const result = await storage.getOpportunities({ stage: stage as string, owner: owner as string, page: 1, limit: 100000 });
     const cols: CsvColumn[] = [
@@ -1195,7 +1195,7 @@ export async function registerRoutes(
     res.send(toCsv(result.data as any, cols));
   });
 
-  app.get("/api/tickets/export", async (req, res) => {
+  app.get("/api/tickets/export", requireAuth, requirePermission("support", "view"), async (req, res) => {
     const { status, severity } = req.query;
     const result = await storage.getTickets({ status: status as string, severity: severity as string, page: 1, limit: 100000 });
     const cols: CsvColumn[] = [
@@ -1329,7 +1329,7 @@ export async function registerRoutes(
     res.json(await storage.getMarinaStates());
   });
 
-  app.get("/api/marinas", async (req, res) => {
+  app.get("/api/marinas", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const { search, state, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getMarinas({
       search: search as string | undefined,
@@ -1414,7 +1414,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/leads/:id/geocode-address", async (req, res) => {
+  app.post("/api/leads/:id/geocode-address", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
     const leadId = Number(req.params.id);
     const lead = await storage.getLead(leadId);
     if (!lead) return res.status(404).json({ message: "Lead not found" });
@@ -2692,7 +2692,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/contacts", async (req, res) => {
+  app.get("/api/contacts", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const { accountId, search } = req.query;
     res.json(await storage.getContacts({
       accountId: accountId ? Number(accountId) : undefined,
@@ -3088,7 +3088,7 @@ export async function registerRoutes(
     }
   );
 
-  app.get("/api/opportunities", async (req, res) => {
+  app.get("/api/opportunities", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const { accountId, stage, ownerId, forecastCategory, search, page, limit } = req.query;
     res.json(await storage.getOpportunities({
       accountId: accountId ? Number(accountId) : undefined,
@@ -3183,7 +3183,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/opportunities/:id/stage-history", async (req, res) => {
+  app.get("/api/opportunities/:id/stage-history", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     res.json(await storage.getDealStageHistory(Number(req.params.id)));
   });
 
@@ -3227,7 +3227,7 @@ export async function registerRoutes(
     res.json(result);
   });
 
-  app.get("/api/tickets", async (req, res) => {
+  app.get("/api/tickets", requireAuth, requirePermission("support", "view"), async (req, res) => {
     const { status, severity, assignedTo, page, limit } = req.query;
     res.json(await storage.getTickets({
       status: status as string | undefined,
@@ -3238,7 +3238,7 @@ export async function registerRoutes(
     }));
   });
 
-  app.get("/api/tickets/:id", async (req, res) => {
+  app.get("/api/tickets/:id", requireAuth, requirePermission("support", "view"), async (req, res) => {
     const ticket = await storage.getTicket(Number(req.params.id));
     if (!ticket) return res.status(404).json({ message: "Ticket not found" });
     res.json(ticket);
@@ -4976,7 +4976,7 @@ export async function registerRoutes(
     res.json(await storage.getComments(objectType as string, Number(objectId)));
   });
 
-  app.post("/api/comments", async (req, res) => {
+  app.post("/api/comments", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
     const data = {
       ...req.body,
       userId: req.session.userId,
@@ -6055,7 +6055,7 @@ export async function registerRoutes(
   });
 
   // ── Partnerships ───────────────────────────────────────────────
-  app.get("/api/partnerships", async (req, res) => {
+  app.get("/api/partnerships", requireAuth, requirePermission("partnerships", "view"), async (req, res) => {
     const { category, search, industryType } = req.query;
     res.json(await storage.getPartnerships({
       category: category as string | undefined,
@@ -6063,7 +6063,7 @@ export async function registerRoutes(
       industryType: industryType as string | undefined,
     }));
   });
-  app.get("/api/partnerships/:id", async (req, res) => {
+  app.get("/api/partnerships/:id", requireAuth, requirePermission("partnerships", "view"), async (req, res) => {
     const p = await storage.getPartnership(Number(req.params.id));
     if (!p) return res.status(404).json({ message: "Partnership not found" });
     res.json(p);
@@ -6093,10 +6093,10 @@ export async function registerRoutes(
   });
 
   // ── Ecosystem Organizations ────────────────────────────────────
-  app.get("/api/ecosystem/organizations", async (req, res) => {
+  app.get("/api/ecosystem/organizations", requireAuth, requirePermission("partnerships", "view"), async (req, res) => {
     res.json(await storage.getEcosystemOrganizations({ search: req.query.search as string | undefined }));
   });
-  app.get("/api/ecosystem/organizations/:id", async (req, res) => {
+  app.get("/api/ecosystem/organizations/:id", requireAuth, requirePermission("partnerships", "view"), async (req, res) => {
     const o = await storage.getEcosystemOrganization(Number(req.params.id));
     if (!o) return res.status(404).json({ message: "Organization not found" });
     res.json(o);
@@ -6118,13 +6118,13 @@ export async function registerRoutes(
   });
 
   // ── Ecosystem People ───────────────────────────────────────────
-  app.get("/api/ecosystem/people", async (req, res) => {
+  app.get("/api/ecosystem/people", requireAuth, requirePermission("partnerships", "view"), async (req, res) => {
     res.json(await storage.getEcosystemPeople({
       search: req.query.search as string | undefined,
       organizationId: req.query.organizationId ? Number(req.query.organizationId) : undefined,
     }));
   });
-  app.get("/api/ecosystem/people/:id", async (req, res) => {
+  app.get("/api/ecosystem/people/:id", requireAuth, requirePermission("partnerships", "view"), async (req, res) => {
     const p = await storage.getEcosystemPerson(Number(req.params.id));
     if (!p) return res.status(404).json({ message: "Person not found" });
     res.json(p);
@@ -6146,14 +6146,14 @@ export async function registerRoutes(
   });
 
   // ── Ecosystem Relationships ────────────────────────────────────
-  app.get("/api/ecosystem/relationships", async (req, res) => {
+  app.get("/api/ecosystem/relationships", requireAuth, requirePermission("partnerships", "view"), async (req, res) => {
     res.json(await storage.getEcosystemRelationships({
       entityType: req.query.entityType as string | undefined,
       entityId: req.query.entityId ? Number(req.query.entityId) : undefined,
       search: req.query.search as string | undefined,
     }));
   });
-  app.get("/api/ecosystem/relationships/:id", async (req, res) => {
+  app.get("/api/ecosystem/relationships/:id", requireAuth, requirePermission("partnerships", "view"), async (req, res) => {
     const r = await storage.getEcosystemRelationship(Number(req.params.id));
     if (!r) return res.status(404).json({ message: "Relationship not found" });
     res.json(r);
@@ -6179,10 +6179,10 @@ export async function registerRoutes(
   });
 
   // ── Ecosystem Events ───────────────────────────────────────────
-  app.get("/api/ecosystem/events", async (req, res) => {
+  app.get("/api/ecosystem/events", requireAuth, requirePermission("partnerships", "view"), async (req, res) => {
     res.json(await storage.getEcosystemEvents({ search: req.query.search as string | undefined }));
   });
-  app.get("/api/ecosystem/events/:id", async (req, res) => {
+  app.get("/api/ecosystem/events/:id", requireAuth, requirePermission("partnerships", "view"), async (req, res) => {
     const e = await storage.getEcosystemEvent(Number(req.params.id));
     if (!e) return res.status(404).json({ message: "Event not found" });
     res.json(e);
@@ -6208,10 +6208,10 @@ export async function registerRoutes(
   });
 
   // ── Ecosystem Regions ──────────────────────────────────────────
-  app.get("/api/ecosystem/regions", async (req, res) => {
+  app.get("/api/ecosystem/regions", requireAuth, requirePermission("partnerships", "view"), async (req, res) => {
     res.json(await storage.getEcosystemRegions({ search: req.query.search as string | undefined }));
   });
-  app.get("/api/ecosystem/regions/:id", async (req, res) => {
+  app.get("/api/ecosystem/regions/:id", requireAuth, requirePermission("partnerships", "view"), async (req, res) => {
     const r = await storage.getEcosystemRegion(Number(req.params.id));
     if (!r) return res.status(404).json({ message: "Region not found" });
     res.json(r);

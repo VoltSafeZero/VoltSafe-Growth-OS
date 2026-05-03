@@ -44,65 +44,75 @@ Counts at the route-level middleware slot (single `app.X("/api/…", MIDDLEWARE,
 
 ## P0 — Anonymous read/write of real data (UNAUTHENTICATED, exploitable)
 
-All of these accept requests with **no session cookie at all** and return 200 + data, or perform a state-changing action.
+> **STATUS — 2026-05-03 commit**: every route in this section that was in the
+> agreed scope has been patched with `requireAuth + requirePermission(...)`.
+> Regression suite `tests/p0-anonymous-routes.test.js` (84/84 passing) proves
+> anon → 401, viewer w/o module → 403, viewer w/ view → 200, viewer w/ edit
+> → write succeeds, master_admin → 200.
+>
+> Routes still **OPEN** (intentionally out of scope for the P0-anon commit and
+> deferred to a later focused commit) are explicitly tagged ⏳ below; the rest
+> are tagged ✅.
 
-### P0.A — CSV bulk-export endpoints (PII / pipeline leak)
+All of these (originally) accept requests with **no session cookie at all** and return 200 + data, or perform a state-changing action.
 
-| Method | Path                          | Line  | What leaks                                            | Recommended gate                       |
+### P0.A — CSV bulk-export endpoints (PII / pipeline leak) — ✅ ALL FIXED
+
+| Method | Path                          | Line  | What leaks                                            | Gate now applied                       |
 | ------ | ----------------------------- | ----- | ----------------------------------------------------- | -------------------------------------- |
-| GET    | `/api/marinas/export`         | 1120  | All marina records (name, address, phone, slips)     | `requirePermission("crm", "view")`     |
-| GET    | `/api/leads/export`           | 1131  | All leads (name, status, country, owner)             | `requirePermission("crm", "view")`     |
-| GET    | `/api/accounts/export`        | 1156  | All accounts (segment, region, slip count, tags)     | `requirePermission("crm", "view")`     |
-| GET    | `/api/contacts/export`        | 1169  | **All contact PII** (name, title, email, phone)      | `requirePermission("crm", "view")`     |
-| GET    | `/api/opportunities/export`   | 1181  | Full pipeline (title, stage, owner, est close)       | `requirePermission("crm", "view")`     |
-| GET    | `/api/tickets/export`         | 1198  | All tickets + requester names/emails                 | `requirePermission("support", "view")` |
+| GET    | `/api/marinas/export`         | 1123  | ✅ All marina records (name, address, phone, slips)  | `requireAuth, requirePermission("crm", "view")`     |
+| GET    | `/api/leads/export`           | 1134  | ✅ All leads (name, status, country, owner)          | `requireAuth, requirePermission("crm", "view")`     |
+| GET    | `/api/accounts/export`        | 1159  | ✅ All accounts (segment, region, slip count, tags)  | `requireAuth, requirePermission("crm", "view")`     |
+| GET    | `/api/contacts/export`        | 1172  | ✅ **All contact PII** (name, title, email, phone)   | `requireAuth, requirePermission("crm", "view")`     |
+| GET    | `/api/opportunities/export`   | 1184  | ✅ Full pipeline (title, stage, owner, est close)    | `requireAuth, requirePermission("crm", "view")`     |
+| GET    | `/api/tickets/export`         | 1201  | ✅ All tickets + requester names/emails              | `requireAuth, requirePermission("support", "view")` |
 
 ### P0.B — List/detail reads (CRM core)
 
-| Method | Path                                   | Line  | Risk                                          | Recommended gate                       |
-| ------ | -------------------------------------- | ----- | --------------------------------------------- | -------------------------------------- |
-| GET    | `/api/marinas`                         | 1332  | Full marina directory                         | `requirePermission("crm", "view")`     |
-| GET    | `/api/marinas/states`                  | 1328  | State list (low sensitivity)                  | `requireAuth` minimum                  |
-| GET    | `/api/leads/nearby`                    | 1348  | Geo-nearby leads (PII)                        | `requirePermission("crm", "view")`     |
-| GET    | `/api/leads/states`                    | 1462  | State list (low)                              | `requireAuth` minimum                  |
-| GET    | `/api/accounts/:id/infrastructure`     | 2662  | Infrastructure profile (per-account technical detail) | `requirePermission("crm", "view")` |
-| GET    | `/api/contacts`                        | 2695  | All contact PII (search by accountId)         | `requirePermission("crm", "view")`     |
-| GET    | `/api/opportunities`                   | 3091  | Full sales pipeline                           | `requirePermission("crm", "view")`     |
-| GET    | `/api/opportunities/:id/stage-history` | 3186  | Stage history of any opportunity              | `requirePermission("crm", "view")`     |
-| GET    | `/api/tickets`                         | 3230  | Support tickets list                          | `requirePermission("support", "view")` |
-| GET    | `/api/tickets/:id`                     | 3241  | Individual ticket (requester PII)             | `requirePermission("support", "view")` |
-| GET    | `/api/comm-lists`                      | 4933  | Communication lists                           | `requirePermission("communications", "view")` |
-| GET    | `/api/campaigns`                       | 4949  | Campaign drafts                               | `requirePermission("communications", "view")` |
-| GET    | `/api/campaigns/:id`                   | 4954  | Campaign draft detail                         | `requirePermission("communications", "view")` |
-| GET    | `/api/comments`                        | 4973  | All comments by `objectType`/`objectId` — anon IDOR | `requireAuth` + per-object scope |
-| GET    | `/api/team-workload`                   | 6053  | Workload distribution per teammate            | `requirePermission("team_workload", "view")` |
-| GET    | `/api/partnerships`                    | 6058  | Partnerships list                             | `requirePermission("partnerships", "view")` |
-| GET    | `/api/partnerships/:id`                | 6066  | Partnership detail                            | `requirePermission("partnerships", "view")` |
-| GET    | `/api/ecosystem/organizations`         | 6096  | Ecosystem org graph                           | `requirePermission("partnerships", "view")` |
-| GET    | `/api/ecosystem/organizations/:id`     | 6099  | Ecosystem org detail                          | `requirePermission("partnerships", "view")` |
-| GET    | `/api/ecosystem/people`                | 6121  | Ecosystem person list (PII)                   | `requirePermission("partnerships", "view")` |
-| GET    | `/api/ecosystem/people/:id`            | 6127  | Person detail (PII)                           | `requirePermission("partnerships", "view")` |
-| GET    | `/api/ecosystem/relationships`         | 6149  | Relationship graph                            | `requirePermission("partnerships", "view")` |
-| GET    | `/api/ecosystem/relationships/:id`     | 6156  | Relationship detail                           | `requirePermission("partnerships", "view")` |
-| GET    | `/api/ecosystem/events`                | 6182  | Events                                        | `requirePermission("partnerships", "view")` |
-| GET    | `/api/ecosystem/events/:id`            | 6185  | Event detail                                  | `requirePermission("partnerships", "view")` |
-| GET    | `/api/ecosystem/regions`               | 6211  | Regions                                       | `requirePermission("partnerships", "view")` |
-| GET    | `/api/ecosystem/regions/:id`           | 6214  | Region detail                                 | `requirePermission("partnerships", "view")` |
-| GET    | `/api/dashboard/summary`               | 1344  | Aggregate workspace metrics                   | `requireAuth` minimum                  |
-| GET    | `/api/metrics`                         | 1107  | Workspace metrics                             | `requireAuth` minimum                  |
-| GET    | `/api/sales`                           | 1111  | Aggregate sales chart                         | `requireAuth` minimum                  |
-| GET    | `/api/chart-data`                      | 1115  | Aggregate chart data                          | `requireAuth` minimum                  |
-| GET    | `/api/geocode/search`                  | 1393  | Proxies Nominatim — low sensitivity but unauthenticated egress / abuse vector | `requireAuth` |
+| Method | Path                                   | Status | Gate now applied / next-step                                                  |
+| ------ | -------------------------------------- | ------ | ----------------------------------------------------------------------------- |
+| GET    | `/api/marinas`                         | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/marinas/states`                  | ⏳     | Next commit — `requireAuth` minimum                                            |
+| GET    | `/api/leads/nearby`                    | ⏳     | Next commit — `requirePermission("crm", "view")`                               |
+| GET    | `/api/leads/states`                    | ⏳     | Next commit — `requireAuth` minimum                                            |
+| GET    | `/api/accounts/:id/infrastructure`     | ⏳     | Next commit — `requirePermission("crm", "view")`                               |
+| GET    | `/api/contacts`                        | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/opportunities`                   | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/opportunities/:id/stage-history` | ✅     | `requireAuth, requirePermission("crm", "view")`                                |
+| GET    | `/api/tickets`                         | ✅     | `requireAuth, requirePermission("support", "view")`                            |
+| GET    | `/api/tickets/:id`                     | ✅     | `requireAuth, requirePermission("support", "view")`                            |
+| GET    | `/api/comm-lists`                      | ⏳     | Next commit — `requirePermission("communications", "view")`                    |
+| GET    | `/api/campaigns`                       | ⏳     | Next commit — `requirePermission("communications", "view")`                    |
+| GET    | `/api/campaigns/:id`                   | ⏳     | Next commit — `requirePermission("communications", "view")`                    |
+| GET    | `/api/comments`                        | ⏳     | Next commit — `requireAuth` + per-object scope                                 |
+| GET    | `/api/team-workload`                   | ⏳     | Next commit — `requirePermission("team_workload", "view")`                     |
+| GET    | `/api/partnerships`                    | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
+| GET    | `/api/partnerships/:id`                | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
+| GET    | `/api/ecosystem/organizations`         | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
+| GET    | `/api/ecosystem/organizations/:id`     | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
+| GET    | `/api/ecosystem/people`                | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
+| GET    | `/api/ecosystem/people/:id`            | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
+| GET    | `/api/ecosystem/relationships`         | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
+| GET    | `/api/ecosystem/relationships/:id`     | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
+| GET    | `/api/ecosystem/events`                | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
+| GET    | `/api/ecosystem/events/:id`            | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
+| GET    | `/api/ecosystem/regions`               | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
+| GET    | `/api/ecosystem/regions/:id`           | ✅     | `requireAuth, requirePermission("partnerships", "view")`                       |
+| GET    | `/api/dashboard/summary`               | ⏳     | Next commit — `requireAuth` minimum                                            |
+| GET    | `/api/metrics`                         | ⏳     | Next commit — `requireAuth` minimum                                            |
+| GET    | `/api/sales`                           | ⏳     | Next commit — `requireAuth` minimum                                            |
+| GET    | `/api/chart-data`                      | ⏳     | Next commit — `requireAuth` minimum                                            |
+| GET    | `/api/geocode/search`                  | ⏳     | Next commit — `requireAuth`                                                    |
 
 ### P0.C — Anonymous mutations
 
-| Method | Path                                | Line  | Risk                                                         | Recommended gate |
-| ------ | ----------------------------------- | ----- | ------------------------------------------------------------ | ---------------- |
-| POST   | `/api/leads/:id/geocode-address`    | 1417  | Anonymous user can rewrite any lead's lat/lng                | `requirePermission("crm", "edit")` |
-| POST   | `/api/comments`                     | 4979  | Pulls `userId` from session — if absent, may insert NULL/crash. Either way no auth check. | `requireAuth` minimum, prefer per-object scope |
-| POST   | `/api/tasks/:id/complete`           | 4878  | Has in-handler 401 (`getSessionUserId`) ✅ but no `crm.edit` module gate — overlaps with the gated copy in `routes-tasks.ts` (L463) so this duplicate route silently bypasses the strict gate | Remove this duplicate or add `requirePermission("crm","edit")` |
-| POST   | `/api/tasks/:id/snooze`             | 4891  | Same as above                                                | Same                                                       |
-| POST   | `/api/tasks/:id/reassign`           | 4918  | Same — but reassign is more sensitive (changes ownership)    | `requirePermission("crm","edit")` + duplicate-check     |
+| Method | Path                                | Status | Gate now applied / next-step                                                  |
+| ------ | ----------------------------------- | ------ | ----------------------------------------------------------------------------- |
+| POST   | `/api/leads/:id/geocode-address`    | ✅     | `requireAuth, requirePermission("crm", "edit")`                                |
+| POST   | `/api/comments`                     | ✅     | `requireAuth, requirePermission("crm", "edit")`                                |
+| POST   | `/api/tasks/:id/complete`           | ⏳     | Next commit — delete duplicate (gated copy lives in `routes-tasks.ts:463`)     |
+| POST   | `/api/tasks/:id/snooze`             | ⏳     | Next commit — same                                                             |
+| POST   | `/api/tasks/:id/reassign`           | ⏳     | Next commit — same                                                             |
 
 > The `/api/tasks/:id/{complete,snooze,reassign}` routes in `server/routes.ts` shadow the properly-gated copies in `server/routes-tasks.ts` (which use `canEdit = requirePermission("crm", "edit")`). Express's last-registered-wins for duplicates can lead to whichever was registered later being used. **Either delete the no-auth duplicates or unify them.**
 
