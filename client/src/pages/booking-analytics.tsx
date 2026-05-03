@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   TrendingUp, Trophy, AlertTriangle, Users, Mail, MousePointerClick,
-  CheckCircle2, Clock, Target,
+  CheckCircle2, Clock, Target, DollarSign, FileText, Zap, Eye,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +35,45 @@ type Leaderboard = {
   underperforming: LinkRow[];
   minSent: number;
 };
+type RevenueSummary = {
+  bookedMeetings: number; bookedAttributable: number; bookedOrphan: number;
+  quotesGenerated: number; quotedValue: number;
+  wonQuotes: number; wonValue: number;
+  bookingToQuoteRate: number; quoteToWinRate: number;
+  isAdmin: boolean;
+};
+type AttributionRow = {
+  bookingLinkId: number; bookingLinkName: string;
+  ownerUserId: number; ownerName: string | null;
+  bookedMeetings: number; quotesGenerated: number; quotedValue: number;
+  wonQuotes: number; wonValue: number;
+  bookingToQuoteRate: number; quoteToWinRate: number;
+};
+type Attribution = {
+  perLink: AttributionRow[];
+  perOwner: Omit<AttributionRow, "bookingLinkId" | "bookingLinkName">[];
+  topRevenueLinks: (AttributionRow & { rank: number })[];
+  isAdmin: boolean;
+};
+type ActionListData = {
+  bookedNoNextAction: {
+    recipientId: number; recipientEmail: string;
+    bookingLinkId: number; bookingLinkName: string;
+    ownerUserId: number; ownerName: string | null;
+    bookedAt: string;
+    crm: { type: "contact" | "lead" | null; id: number | null; accountId: number | null };
+  }[];
+  openedNotBooked: {
+    recipientId: number; recipientEmail: string;
+    bookingLinkId: number; bookingLinkName: string;
+    ownerUserId: number; ownerName: string | null;
+    firstViewedAt: string; daysSinceOpen: number;
+    crm: { type: "contact" | "lead" | null; id: number | null; accountId: number | null };
+  }[];
+  isAdmin: boolean;
+};
+const fmtMoney = (v: number) => `$${(v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+const fmtDate  = (s: string) => new Date(s).toLocaleDateString();
 
 const fmtPct = (v: number) => `${(v * 100).toFixed(1)}%`;
 const fmtDuration = (sec: number | null) => {
@@ -86,6 +125,9 @@ export default function BookingAnalyticsPage() {
   const segmentsQ     = useQuery<{ rows: SegmentRow[] }>({ queryKey: ["/api/crm/booking-analytics/segments"] });
   const timingQ       = useQuery<Timing>({ queryKey: ["/api/crm/booking-analytics/timing"] });
   const leaderboardQ  = useQuery<Leaderboard>({ queryKey: ["/api/crm/booking-analytics/leaderboard"] });
+  const revenueQ      = useQuery<RevenueSummary>({ queryKey: ["/api/crm/booking-analytics/revenue"] });
+  const attributionQ  = useQuery<Attribution>({ queryKey: ["/api/crm/booking-analytics/attribution"] });
+  const actionListQ   = useQuery<ActionListData>({ queryKey: ["/api/crm/booking-analytics/action-list"] });
 
   const totals = useMemo(() => {
     const rows = linksQ.data?.rows ?? [];
@@ -121,6 +163,7 @@ export default function BookingAnalyticsPage() {
           <TabsTrigger value="funnel"      data-testid="tab-funnel">Funnel</TabsTrigger>
           <TabsTrigger value="timing"      data-testid="tab-timing">Time to convert</TabsTrigger>
           <TabsTrigger value="segments"    data-testid="tab-segments">CRM segment</TabsTrigger>
+          <TabsTrigger value="revenue"     data-testid="tab-revenue">Revenue Attribution</TabsTrigger>
           {linksQ.data?.isAdmin && <TabsTrigger value="owners" data-testid="tab-owners">By owner</TabsTrigger>}
         </TabsList>
 
@@ -295,6 +338,140 @@ export default function BookingAnalyticsPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Revenue Attribution */}
+        <TabsContent value="revenue" className="space-y-6">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <MetricCard icon={CheckCircle2} label="Booked meetings" value={(revenueQ.data?.bookedMeetings ?? 0).toLocaleString()}
+              sub={revenueQ.data ? `${revenueQ.data.bookedAttributable} CRM-matched · ${revenueQ.data.bookedOrphan} orphan` : undefined}
+              testId="metric-rev-booked" />
+            <MetricCard icon={FileText} label="Quotes generated" value={(revenueQ.data?.quotesGenerated ?? 0).toLocaleString()}
+              sub="created after booking" testId="metric-rev-quotes" />
+            <MetricCard icon={DollarSign} label="Quoted value" value={fmtMoney(revenueQ.data?.quotedValue ?? 0)} testId="metric-rev-quoted-value" />
+            <MetricCard icon={Trophy} label="Won value" value={fmtMoney(revenueQ.data?.wonValue ?? 0)}
+              sub={revenueQ.data ? `${revenueQ.data.wonQuotes} accepted` : undefined} testId="metric-rev-won-value" />
+            <MetricCard icon={Target} label="Booking → Quote" value={fmtPct(revenueQ.data?.bookingToQuoteRate ?? 0)}
+              sub={revenueQ.data ? `Quote → Win: ${fmtPct(revenueQ.data.quoteToWinRate)}` : undefined}
+              testId="metric-rev-rates" />
+          </div>
+
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-emerald-500" />
+                <h2 className="font-medium">Top revenue-producing booking links</h2>
+              </div>
+              {attributionQ.isLoading ? <Skeleton className="h-32" /> : (
+                (attributionQ.data?.topRevenueLinks ?? []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-2">No attributed revenue yet. Quotes created after a booking will appear here.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="text-xs uppercase text-muted-foreground border-b">
+                        <tr>
+                          <th className="text-left py-2 px-2">#</th>
+                          <th className="text-left py-2 px-2">Link</th>
+                          {attributionQ.data?.isAdmin && <th className="text-left py-2 px-2">Owner</th>}
+                          <th className="text-right py-2 px-2">Booked</th>
+                          <th className="text-right py-2 px-2">Quotes</th>
+                          <th className="text-right py-2 px-2">Quoted $</th>
+                          <th className="text-right py-2 px-2">Won $</th>
+                          <th className="text-right py-2 px-2">Win rate</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(attributionQ.data?.topRevenueLinks ?? []).map((r) => (
+                          <tr key={r.bookingLinkId} className="border-b last:border-0" data-testid={`row-rev-link-${r.bookingLinkId}`}>
+                            <td className="py-2 px-2 font-medium">{r.rank}</td>
+                            <td className="py-2 px-2">{r.bookingLinkName}</td>
+                            {attributionQ.data?.isAdmin && <td className="py-2 px-2 text-muted-foreground">{r.ownerName ?? "—"}</td>}
+                            <td className="py-2 px-2 text-right tabular-nums">{r.bookedMeetings}</td>
+                            <td className="py-2 px-2 text-right tabular-nums">{r.quotesGenerated}</td>
+                            <td className="py-2 px-2 text-right tabular-nums">{fmtMoney(r.quotedValue)}</td>
+                            <td className="py-2 px-2 text-right tabular-nums font-medium text-emerald-600 dark:text-emerald-400">{fmtMoney(r.wonValue)}</td>
+                            <td className="py-2 px-2 text-right tabular-nums">{fmtPct(r.quoteToWinRate)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-amber-500" />
+                  <h2 className="font-medium">Booked — no next action</h2>
+                  <Badge variant="outline" data-testid="badge-no-action-count">
+                    {actionListQ.data?.bookedNoNextAction.length ?? 0}
+                  </Badge>
+                </div>
+                {actionListQ.isLoading ? <Skeleton className="h-24" /> : (
+                  (actionListQ.data?.bookedNoNextAction ?? []).length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-2">Nothing stalled. Every booked meeting has a follow-up or a quote.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {(actionListQ.data?.bookedNoNextAction ?? []).map((r) => (
+                        <div key={r.recipientId} className="border rounded p-2"
+                             data-testid={`row-no-action-${r.recipientId}`}>
+                          <div className="flex justify-between gap-2">
+                            <div className="font-medium text-sm truncate">{r.recipientEmail}</div>
+                            <div className="text-xs text-muted-foreground whitespace-nowrap">booked {fmtDate(r.bookedAt)}</div>
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            {r.bookingLinkName}
+                            {actionListQ.data?.isAdmin && r.ownerName && ` · ${r.ownerName}`}
+                            {r.crm.type && ` · linked to ${r.crm.type}`}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Eye className="h-4 w-4 text-blue-500" />
+                  <h2 className="font-medium">Opened — not booked</h2>
+                  <Badge variant="outline" data-testid="badge-opened-count">
+                    {actionListQ.data?.openedNotBooked.length ?? 0}
+                  </Badge>
+                </div>
+                {actionListQ.isLoading ? <Skeleton className="h-24" /> : (
+                  (actionListQ.data?.openedNotBooked ?? []).length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-2">Everyone who opened has either booked or been actioned.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {(actionListQ.data?.openedNotBooked ?? []).map((r) => (
+                        <div key={r.recipientId} className="border rounded p-2"
+                             data-testid={`row-opened-not-booked-${r.recipientId}`}>
+                          <div className="flex justify-between gap-2">
+                            <div className="font-medium text-sm truncate">{r.recipientEmail}</div>
+                            <Badge variant={r.daysSinceOpen >= 2 ? "destructive" : "secondary"} className="whitespace-nowrap">
+                              {r.daysSinceOpen}d ago
+                            </Badge>
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            {r.bookingLinkName}
+                            {actionListQ.data?.isAdmin && r.ownerName && ` · ${r.ownerName}`}
+                            {r.crm.type && ` · ${r.crm.type}`}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         {/* Owners (admin) */}

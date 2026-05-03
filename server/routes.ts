@@ -74,6 +74,9 @@ import {
   metricsPerLink, metricsPerOwner, metricsPerSegment, metricsTiming,
   leaderboard as bookingLeaderboard, parseAnalyticsFilters,
 } from "./services/booking-conversion-analytics";
+import {
+  revenueSummary, revenueAttribution, actionLists, parseRevenueFilters,
+} from "./services/booking-revenue-attribution";
 import { seedDefaultRules } from "./services/engagement-defaults";
 import { composeDigest, getSectionsForRole, formatDigestAsHtml, formatDigestAsText, DEFAULT_ALERT_RULES as DC_DEFAULT_SECTIONS, type DigestSection } from "./services/digest-composer";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
@@ -24395,6 +24398,42 @@ export function registerConfluenceRoutes(app: Express) {
       const filters  = parseAnalyticsFilters(req.query);
       const result = await metricsTiming(callerId, isAdmin, filters);
       res.json(result);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase F — Booking Revenue Attribution
+  // GET /api/crm/booking-analytics/revenue      — totals + win rates
+  // GET /api/crm/booking-analytics/attribution  — per-link / per-owner / top-revenue
+  // GET /api/crm/booking-analytics/action-list  — booked-no-action + opened-not-booked
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get("/api/crm/booking-analytics/revenue", requireAuth, async (req, res) => {
+    try {
+      const callerId = (req.session as any).userId as number;
+      const isAdmin  = await callerIsAdminFromSession(req);
+      const filters  = parseRevenueFilters(req.query);
+      const summary  = await revenueSummary(callerId, isAdmin, filters);
+      res.json({ ...summary, isAdmin });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.get("/api/crm/booking-analytics/attribution", requireAuth, async (req, res) => {
+    try {
+      const callerId = (req.session as any).userId as number;
+      const isAdmin  = await callerIsAdminFromSession(req);
+      const filters  = parseRevenueFilters(req.query);
+      const result   = await revenueAttribution(callerId, isAdmin, filters);
+      res.json({ ...result, isAdmin });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.get("/api/crm/booking-analytics/action-list", requireAuth, async (req, res) => {
+    try {
+      const callerId = (req.session as any).userId as number;
+      const isAdmin  = await callerIsAdminFromSession(req);
+      const filters  = parseRevenueFilters(req.query);
+      const result   = await actionLists(callerId, isAdmin, filters);
+      res.json({ ...result, isAdmin });
     } catch (e: any) { res.status(400).json({ message: e.message }); }
   });
 
