@@ -12622,7 +12622,26 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   app.post("/api/email-messages/:id/confirm", requireAuth, async (req, res) => {
     try {
       const emailMsgId = Number(req.params.id);
+      if (!Number.isFinite(emailMsgId)) return res.status(400).json({ message: "Invalid id" });
       const { associationId } = req.body;
+      const userId = (req.session as any).userId as number;
+
+      // Same ACL as POST /api/email-messages/:id/reassign:
+      // owner of the message, admin, or mail_team[sourceAccountId].edit.
+      const [msg] = await db
+        .select({ ownerUserId: emailMessages.ownerUserId, sourceAccountId: emailMessages.sourceAccountId })
+        .from(emailMessages)
+        .where(eq(emailMessages.id, emailMsgId))
+        .limit(1);
+      if (!msg) return res.status(404).json({ message: "Message not found" });
+      const { isAdmin, mailTeamPerms } = await getSessionUserAccess(req.session);
+      const sharedAcctId = msg.sourceAccountId;
+      const hasSharedEdit = sharedAcctId != null
+        && mailTeamPerms[String(sharedAcctId)]?.edit === true;
+      if (msg.ownerUserId !== userId && !isAdmin && !hasSharedEdit) {
+        return res.status(403).json({ message: "Not allowed" });
+      }
+
       await db.update(emailAssociations)
         .set({ isUserConfirmed: true, updatedAt: new Date() })
         .where(
@@ -12919,7 +12938,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     });
   }
 
-  app.post("/api/timeline/link-email", requirePermission("crm", "view"), async (req, res) => {
+  app.post("/api/timeline/link-email", requirePermission("crm", "edit"), async (req, res) => {
     try {
       const { emailMessageId, objectType, objectId, objectName } = req.body;
       if (!emailMessageId || !objectType || !objectId) {
@@ -12957,7 +12976,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
-  app.delete("/api/timeline/unlink-email/:id", requirePermission("crm", "view"), async (req, res) => {
+  app.delete("/api/timeline/unlink-email/:id", requirePermission("crm", "edit"), async (req, res) => {
     try {
       const assocId = parseInt(req.params.id);
       if (isNaN(assocId)) return res.status(400).json({ message: "Invalid association id" });
@@ -13102,7 +13121,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
-  app.post("/api/price-lists", requireAuth, async (req, res) => {
+  app.post("/api/price-lists", requireAuth, requirePermission("quoting", "edit"), async (req, res) => {
     try {
       const { name, currency, description, region, customerSegment } = req.body;
       if (!name?.trim()) return res.status(400).json({ message: "Name is required" });
@@ -13119,7 +13138,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
-  app.patch("/api/price-lists/:id", requireAuth, async (req, res) => {
+  app.patch("/api/price-lists/:id", requireAuth, requirePermission("quoting", "edit"), async (req, res) => {
     try {
       const { name, currency, description, region, customerSegment } = req.body;
       const updateData: any = { updatedAt: new Date() };
@@ -13136,7 +13155,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
-  app.delete("/api/price-lists/:id", requireAuth, async (req, res) => {
+  app.delete("/api/price-lists/:id", requireAuth, requirePermission("quoting", "edit"), async (req, res) => {
     try {
       await db.delete(priceLists).where(eq(priceLists.id, Number(req.params.id)));
       res.json({ success: true });
@@ -13146,7 +13165,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   // Price List Items
-  app.post("/api/price-lists/:id/items", requireAuth, async (req, res) => {
+  app.post("/api/price-lists/:id/items", requireAuth, requirePermission("quoting", "edit"), async (req, res) => {
     try {
       const priceListId = Number(req.params.id);
       const {
@@ -13192,7 +13211,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
-  app.patch("/api/price-list-items/:id", requireAuth, async (req, res) => {
+  app.patch("/api/price-list-items/:id", requireAuth, requirePermission("quoting", "edit"), async (req, res) => {
     try {
       const {
         sku, name, description, category, listPrice, unitType, isRecurring, sortOrder,
@@ -13236,7 +13255,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
-  app.delete("/api/price-list-items/:id", requireAuth, async (req, res) => {
+  app.delete("/api/price-list-items/:id", requireAuth, requirePermission("quoting", "edit"), async (req, res) => {
     try {
       await db.delete(priceListItems).where(eq(priceListItems.id, Number(req.params.id)));
       res.json({ success: true });
@@ -16705,7 +16724,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── POST /api/install-workflows ────────────────────────────────────────────
-  app.post("/api/install-workflows", requireAuth, async (req, res) => {
+  app.post("/api/install-workflows", requireAuth, requirePermission("quoting", "edit"), async (req, res) => {
     try {
       const userId = (req as any).session?.userId;
       const { title, accountId, opportunityId, quoteId, ownerUserId, kickoffDate, targetCompletionDate, notes, siteAddress, totalAmount } = req.body;
@@ -16849,7 +16868,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── PATCH /api/install-workflows/:id ──────────────────────────────────────
-  app.patch("/api/install-workflows/:id", requireAuth, async (req, res) => {
+  app.patch("/api/install-workflows/:id", requireAuth, requirePermission("quoting", "edit"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const userId = (req as any).session?.userId;
@@ -16890,7 +16909,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── PATCH /api/install-workflows/:id/milestones/:mid ──────────────────────
-  app.patch("/api/install-workflows/:id/milestones/:mid", requireAuth, async (req, res) => {
+  app.patch("/api/install-workflows/:id/milestones/:mid", requireAuth, requirePermission("quoting", "edit"), async (req, res) => {
     try {
       const wfId = parseInt(req.params.id);
       const mid  = parseInt(req.params.mid);
@@ -16924,7 +16943,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── POST /api/install-workflows/:id/milestones ─────────────────────────────
-  app.post("/api/install-workflows/:id/milestones", requireAuth, async (req, res) => {
+  app.post("/api/install-workflows/:id/milestones", requireAuth, requirePermission("quoting", "edit"), async (req, res) => {
     try {
       const wfId = parseInt(req.params.id);
       const { name, description, dueDate, ownerUserId, sortOrder } = req.body;
@@ -16947,7 +16966,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── DELETE /api/install-workflows/:id/milestones/:mid ─────────────────────
-  app.delete("/api/install-workflows/:id/milestones/:mid", requireAuth, async (req, res) => {
+  app.delete("/api/install-workflows/:id/milestones/:mid", requireAuth, requirePermission("quoting", "edit"), async (req, res) => {
     try {
       await db.execute(sql.raw(`DELETE FROM install_milestones WHERE id = ${parseInt(req.params.mid)} AND workflow_id = ${parseInt(req.params.id)}`));
       res.json({ ok: true });
@@ -16957,7 +16976,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── DELETE /api/install-workflows/:id ──────────────────────────────────────
-  app.delete("/api/install-workflows/:id", requireAuth, async (req, res) => {
+  app.delete("/api/install-workflows/:id", requireAuth, requirePermission("quoting", "edit"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await db.execute(sql.raw(`DELETE FROM install_milestones WHERE workflow_id = ${id}`));

@@ -124,11 +124,28 @@ All of these (originally) accept requests with **no session cookie at all** and 
 
 ## P1 — Authenticated but missing module gate / under-gated mutations
 
+> **STATUS — 2026-05-03 (commit #3)**: in-scope P1 mutation routes patched.
+> Closed: `email-messages/:id/confirm` (mail_team[sourceAccountId].edit ACL —
+> same pattern as `/reassign`), all `/api/price-lists*` writes (`quoting.edit`),
+> all `/api/install-workflows*` writes (`quoting.edit`, matching the
+> already-gated sibling `install-workflows/from-quote/:quoteId`), and
+> `/api/timeline/{link-email,unlink-email/:id}` escalated from `crm.view`
+> to `crm.edit`.
+>
+> Regression: `tests/p1-undergated-mutations.test.js` (30/30) — anon → 401,
+> viewer with view perms → 403, viewer with edit perms → not 403, viewer
+> without mail_team perm → 403 on cross-mailbox confirm, admin → not 403.
+>
+> The remaining P1.A items (jira, gmail/{send,sync,watch}, email-search/reindex,
+> email-filters, inbox/bulk-mark-done, mail-folders/:id/domains, calendar
+> integrations, suggestions snooze/dismiss, /api/tasks/:id PUT) were
+> deliberately out of scope for this commit and remain ⏳.
+
 ### P1.A — Mutations on `requireAuth` only (no module check)
 
 | Method | Path                                              | Line  | Risk                                                            | Recommended gate                       |
 | ------ | ------------------------------------------------- | ----- | --------------------------------------------------------------- | -------------------------------------- |
-| POST   | `/api/email-messages/:id/confirm`                 | 12631 | Sibling of the now-fixed `/reassign`. Mutates `emailAssociations.isUserConfirmed` for ANY message id. Same IDOR risk we just patched on `/reassign`. | In-handler `mail_team[sourceAccountId].edit` ACL |
+| POST   | `/api/email-messages/:id/confirm` ✅              | 12625 | **Fixed in commit #3.** In-handler ACL added: owner of the email message OR `isAdmin` OR `mail_team[sourceAccountId].edit` — identical to the patched `/reassign` route. | `requireAuth` + in-handler ACL |
 | POST   | `/api/email-search/reindex`                       | 12474 | Triggers a workspace-wide email index rebuild                   | `requirePermission("communications", "edit")` or `requireAdmin` |
 | POST   | `/api/email-filters`                              | 12501 | Creates email filter (per-user or workspace?)                   | Verify scope; if workspace add `communications.edit` |
 | DELETE | `/api/email-filters/:id`                          | 12516 | Deletes any filter by id                                        | Same                                                       |
@@ -141,15 +158,18 @@ All of these (originally) accept requests with **no session cookie at all** and 
 | POST   | `/api/gmail/disconnect`                           | 12052 | Disconnects current user's Gmail integration (per-user; OK)     | False positive — keep `requireAuth`                       |
 | POST   | `/api/jira/issues`                                | 13443 | Creates Jira issues against the workspace's connected project   | `requirePermission("support", "edit")` (Jira is the support backend) |
 | POST   | `/api/jira/issues/:key/transitions`               | 13679 | Mutates Jira workflow                                           | Same                                                       |
-| POST   | `/api/price-lists`                                | 13114 | Creates price list (workspace shared, used by quoting)          | `requirePermission("quoting", "edit")` |
-| PATCH  | `/api/price-lists/:id`                            | 13131 | Edits price list                                                | Same                                                       |
-| DELETE | `/api/price-lists/:id`                            | 13148 | Deletes price list                                              | Same                                                       |
-| POST   | `/api/price-lists/:id/items`                      | 13158 | Adds line item                                                  | Same                                                       |
-| PATCH  | `/api/price-list-items/:id`                       | 13204 | Edits line item                                                 | Same                                                       |
-| DELETE | `/api/price-list-items/:id`                       | 13248 | Deletes line item                                               | Same                                                       |
-| POST   | `/api/install-workflows`                          | 16717 | Creates install workflow record (project-adjacent)              | `requirePermission("projects", "edit")` |
-| PATCH  | `/api/install-workflows/:id`                      | 16861 | Edits install workflow — no ownership check inline either       | Same                                                       |
-| PATCH  | `/api/install-workflows/:id/milestones/:mid`      | 16902 | Edits milestone                                                 | Same                                                       |
+| POST   | `/api/price-lists` ✅                             | 13127 | **Fixed in commit #3** — `requireAuth, requirePermission("quoting", "edit")` |  |
+| PATCH  | `/api/price-lists/:id` ✅                         | 13144 | **Fixed in commit #3** — same |  |
+| DELETE | `/api/price-lists/:id` ✅                         | 13161 | **Fixed in commit #3** — same |  |
+| POST   | `/api/price-lists/:id/items` ✅                   | 13171 | **Fixed in commit #3** — same |  |
+| PATCH  | `/api/price-list-items/:id` ✅                    | 13217 | **Fixed in commit #3** — same |  |
+| DELETE | `/api/price-list-items/:id` ✅                    | 13261 | **Fixed in commit #3** — same |  |
+| POST   | `/api/install-workflows` ✅                       | 16730 | **Fixed in commit #3** — `requireAuth, requirePermission("quoting", "edit")` (matches sibling `/install-workflows/from-quote/:quoteId`) |  |
+| PATCH  | `/api/install-workflows/:id` ✅                   | 16874 | **Fixed in commit #3** — same |  |
+| PATCH  | `/api/install-workflows/:id/milestones/:mid` ✅   | 16915 | **Fixed in commit #3** — same |  |
+| POST   | `/api/install-workflows/:id/milestones` ✅        | 16949 | **Fixed in commit #3** — same |  |
+| DELETE | `/api/install-workflows/:id/milestones/:mid` ✅   | 16972 | **Fixed in commit #3** — same |  |
+| DELETE | `/api/install-workflows/:id` ✅                   | 16982 | **Fixed in commit #3** — same |  |
 | POST   | `/api/notes`                                      | 14699 | Anyone authenticated can create a note attached to ANY CRM object | `requirePermission("crm", "edit")` |
 | POST   | `/api/tags`                                       | 14907 | Workspace-wide tag creation                                     | `requirePermission("crm", "edit")`     |
 | POST   | `/api/record-tags`                                | 14939 | Apply tag to ANY record by id                                   | `requirePermission("crm", "edit")`     |
@@ -174,8 +194,8 @@ All of these (originally) accept requests with **no session cookie at all** and 
 
 | Method | Path                                            | Line  | Risk                                                      | Recommended gate |
 | ------ | ----------------------------------------------- | ----- | --------------------------------------------------------- | ---------------- |
-| POST   | `/api/timeline/link-email`                      | 12931 | Inserts into `emailAssociations` — workspace-shared write on `crm.view` | `requirePermission("crm", "edit")` |
-| DELETE | `/api/timeline/unlink-email/:id`                | 12969 | Deletes any `emailAssociations` row by id — IDOR + write on `crm.view` | `requirePermission("crm", "edit")` |
+| POST   | `/api/timeline/link-email` ✅                   | 12944 | **Fixed in commit #3** — escalated from `crm.view` to `requirePermission("crm", "edit")` |  |
+| DELETE | `/api/timeline/unlink-email/:id` ✅             | 12982 | **Fixed in commit #3** — same |  |
 | POST   | `/api/suggestions/:id/dismiss`                  | 2510  | Dismisses a workspace-shared suggestion. Currently `crm.view` — debatable; if dismiss is per-user-pref it should write to a per-user table; if it kills the suggestion globally it should be `crm.edit`. | Audit semantics, then either keep or escalate to `edit` |
 | POST   | `/api/suggestions/:id/snooze`                   | 2528  | Same                                                      | Same                                                       |
 | POST   | `/api/tasks/suggestions/:id/dismiss`            | 4255  | Same                                                      | Same                                                       |
