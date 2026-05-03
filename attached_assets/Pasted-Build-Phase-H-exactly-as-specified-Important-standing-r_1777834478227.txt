@@ -1,0 +1,93 @@
+Build Phase H exactly as specified.
+
+Important standing rule:
+Do NOT restart these 5 failed test workflows under any circumstance:
+- mail-permissions
+- mailbox-switching
+- permissions
+- tracking-multi-proof
+- tracking-proof
+
+Start with an audit:
+1. Inspect existing task schema and booking_followup task pattern.
+2. Inspect CSRF patterns for POST routes.
+3. Inspect existing clipboard/toast utilities in the frontend.
+4. Confirm whether durable dismissal is possible without schema changes.
+
+Then implement:
+
+Backend:
+- Add POST /api/crm/booking-analytics/actions/create-followup-task
+- requireAuth + central CSRF guard
+- Validate payload:
+  - kind must be one of:
+    HOT_OPENED_NOT_BOOKED
+    BOOKED_NO_QUOTE
+    REVENUE_LEAK
+  - recipientId must be positive integer
+  - bookingLinkId optional positive integer
+  - note optional string
+- Scope recipient lookup through the same SQL-layer owner scoping used in Phases F/G.
+- Non-admin owner spoofing must not work.
+- Admin may act across owners only through scoped allowed access.
+- Dedupe pending booking_followup task by:
+  sourceMeta.source = "booking_command_center"
+  sourceMeta.kind = kind
+  sourceMeta.recipientId = recipientId
+  pending/open task state
+- If duplicate exists, return it instead of creating another.
+- Created task sourceMeta must include:
+  {
+    source: "booking_command_center",
+    kind,
+    recipientId,
+    bookingLinkId
+  }
+
+Dismissal:
+- Implement only if existing task/follow-up pattern supports durable soft-dismiss without schema changes.
+- If not possible, skip dismissal and clearly report why.
+
+Frontend:
+- In Command Center tab:
+  - Add “Create follow-up task” button for:
+    HOT_OPENED_NOT_BOOKED
+    BOOKED_NO_QUOTE
+    REVENUE_LEAK
+  - Button calls the new endpoint.
+  - Disable/show completed state after success or duplicate return.
+  - Toast success/failure.
+  - Add “Copy link” button for:
+    REUSE_LINK
+    REVENUE_WINNER
+    only if URL is available.
+  - Preserve row deep-link navigation.
+
+Tests:
+Add Phase H test file covering:
+- create task success
+- duplicate prevention
+- non-admin cannot create task for another owner’s recipient
+- admin can create task when scoped access allows
+- anonymous 401
+- malformed payload 400
+- unsupported kind 400
+- frontend buttons render only for correct card types
+- copy button renders for winning/reuse links only when URL exists
+
+Run:
+- Phase B booking-link-distribution
+- Phase C booking-outreach
+- Phase D booking-followup
+- Phase E booking-analytics
+- Phase F booking-revenue
+- Phase G booking-command-center
+- New Phase H tests
+- Existing p0/p1 security route suites
+
+Return final report:
+- files changed
+- endpoint added
+- dismissal decision
+- test counts
+- architect audit
