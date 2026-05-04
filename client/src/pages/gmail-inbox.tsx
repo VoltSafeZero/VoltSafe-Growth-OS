@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -592,68 +593,144 @@ function ComposeDialog({
   const isWorking = sendMutation.isPending || draftMutation.isPending || scheduleMutation.isPending || deleteDraftMutation.isPending;
   const minDatetime = new Date(Date.now() + 60000).toISOString().slice(0, 16);
 
+  // Auto-grow textarea to fit content
+  useEffect(() => {
+    const ta = bodyRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = Math.max(160, ta.scrollHeight) + "px";
+  }, [body]);
+
   return (
     <>
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{threadId ? "Reply" : draftId ? "Edit Draft" : "New Email"}</DialogTitle>
-        </DialogHeader>
-        {threadId && replyToSender && (
-          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60 bg-muted/20 rounded-md px-2.5 py-1.5 border border-border/20 -mt-1">
-            <Reply className="h-3 w-3 flex-shrink-0 text-muted-foreground/40" />
-            <span>Replying to <span className="font-medium text-foreground/70">{replyToSender}</span></span>
-          </div>
-        )}
-        <div className="space-y-3">
-          {!canSend && (
-            <p className="text-sm text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-              You have view-only access. Only trevor@voltsafe.com can send emails.
-            </p>
-          )}
-          <div>
-            <Label className="text-xs">To</Label>
-            <Input value={to} onChange={(e) => setTo(e.target.value)} placeholder="recipient@email.com" disabled={!canSend} data-testid="input-email-to" />
-          </div>
-          <div>
-            <Label className="text-xs">CC</Label>
-            <Input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="cc@email.com" disabled={!canSend} data-testid="input-email-cc" />
-          </div>
-          <div>
-            <Label className="text-xs">BCC</Label>
-            <Input value={bcc} onChange={(e) => setBcc(e.target.value)} placeholder="bcc@email.com" disabled={!canSend} data-testid="input-email-bcc" />
-          </div>
-          {!threadId && (
-            <div>
-              <Label className="text-xs">
-                Subject <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                ref={subjectRef}
-                value={subject}
-                onChange={(e) => { setSubject(e.target.value); if (e.target.value.trim()) setSubjectError(false); }}
-                disabled={!canSend}
-                data-testid="input-email-subject"
-                className={subjectError ? "border-destructive focus-visible:ring-destructive" : ""}
-              />
-              {subjectError && (
-                <p className="text-xs text-destructive mt-1" data-testid="error-subject-required">
-                  Subject is required before sending.
-                </p>
+    {open && createPortal(
+      <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[4vh]" data-testid="compose-overlay">
+        {/* Backdrop */}
+        <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" onClick={onClose} />
+
+        {/* Compose window — anchored top-center, resizes downward & rightward from bottom-right corner */}
+        <div
+          className="relative z-10 bg-card border border-border/40 rounded-xl shadow-2xl flex flex-col"
+          style={{
+            width: "min(82vw, 960px)",
+            height: "min(84vh, 880px)",
+            minWidth: 520,
+            minHeight: 420,
+            maxWidth: "97vw",
+            maxHeight: "96vh",
+            resize: "both",
+            overflow: "hidden",
+          }}
+          data-testid="compose-dialog"
+        >
+          {/* ── Header bar ──────────────────────────────────────────── */}
+          <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-border/30 bg-card/90 backdrop-blur-sm">
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-sm font-semibold">{threadId ? "Reply" : draftId ? "Edit Draft" : "New Email"}</h2>
+              {threadId && replyToSender && (
+                <span className="flex items-center gap-1 text-[11px] text-muted-foreground/55 bg-muted/25 rounded px-2 py-0.5 border border-border/20">
+                  <Reply className="h-2.5 w-2.5 flex-shrink-0" />
+                  <span>to <span className="font-medium text-foreground/65">{replyToSender}</span></span>
+                </span>
               )}
             </div>
-          )}
-          <div>
-            <Label className="text-xs">Message</Label>
-            <Textarea ref={bodyRef} value={body} onChange={(e) => setBody(e.target.value)} rows={6} placeholder="Write your message..." disabled={!canSend} data-testid="input-email-body" />
+            <button
+              onClick={onClose}
+              className="p-1 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+              data-testid="button-close-compose"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
 
-          <div className="border border-border/50 rounded-md p-3 bg-muted/20">
-            <div
-              className="text-sm opacity-70 pointer-events-none select-none"
-              dangerouslySetInnerHTML={{ __html: EMAIL_SIGNATURE_HTML }}
-            />
-          </div>
+          {/* ── Scrollable fields area ───────────────────────────────── */}
+          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+            <div className="flex flex-col gap-0 border-b border-border/20">
+              {!canSend && (
+                <div className="px-4 pt-3">
+                  <p className="text-sm text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                    You have view-only access. Only trevor@voltsafe.com can send emails.
+                  </p>
+                </div>
+              )}
+              {/* To */}
+              <div className="flex items-center gap-3 px-4 py-2 border-b border-border/15 hover:bg-muted/10 transition-colors">
+                <Label className="text-xs text-muted-foreground/60 w-8 flex-shrink-0">To</Label>
+                <input
+                  value={to}
+                  onChange={(e) => setTo(e.target.value)}
+                  placeholder="recipient@email.com"
+                  disabled={!canSend}
+                  data-testid="input-email-to"
+                  className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/35 disabled:opacity-50"
+                />
+              </div>
+              {/* CC */}
+              <div className="flex items-center gap-3 px-4 py-2 border-b border-border/15 hover:bg-muted/10 transition-colors">
+                <Label className="text-xs text-muted-foreground/60 w-8 flex-shrink-0">CC</Label>
+                <input
+                  value={cc}
+                  onChange={(e) => setCc(e.target.value)}
+                  placeholder="cc@email.com"
+                  disabled={!canSend}
+                  data-testid="input-email-cc"
+                  className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/35 disabled:opacity-50"
+                />
+              </div>
+              {/* BCC */}
+              <div className="flex items-center gap-3 px-4 py-2 border-b border-border/15 hover:bg-muted/10 transition-colors">
+                <Label className="text-xs text-muted-foreground/60 w-8 flex-shrink-0">BCC</Label>
+                <input
+                  value={bcc}
+                  onChange={(e) => setBcc(e.target.value)}
+                  placeholder="bcc@email.com"
+                  disabled={!canSend}
+                  data-testid="input-email-bcc"
+                  className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/35 disabled:opacity-50"
+                />
+              </div>
+              {/* Subject (new emails only) */}
+              {!threadId && (
+                <div className="flex items-center gap-3 px-4 py-2 border-b border-border/15 hover:bg-muted/10 transition-colors">
+                  <Label className="text-xs text-muted-foreground/60 w-8 flex-shrink-0">
+                    Sub <span className="text-destructive">*</span>
+                  </Label>
+                  <input
+                    ref={subjectRef as any}
+                    value={subject}
+                    onChange={(e) => { setSubject(e.target.value); if (e.target.value.trim()) setSubjectError(false); }}
+                    disabled={!canSend}
+                    data-testid="input-email-subject"
+                    className={`flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/35 disabled:opacity-50 ${subjectError ? "text-destructive" : ""}`}
+                    placeholder="Subject"
+                  />
+                  {subjectError && (
+                    <span className="text-xs text-destructive flex-shrink-0" data-testid="error-subject-required">Required</span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Message body — auto-grows with content */}
+            <div className="flex-1 px-4 pt-3 pb-1 flex flex-col gap-3">
+              <textarea
+                ref={bodyRef}
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                placeholder="Write your message..."
+                disabled={!canSend}
+                data-testid="input-email-body"
+                className="w-full bg-transparent text-sm outline-none resize-none placeholder:text-muted-foreground/35 disabled:opacity-50 leading-relaxed"
+                style={{ minHeight: 160, overflow: "hidden" }}
+              />
+
+              {/* Email signature preview */}
+              <div className="border border-border/30 rounded-md px-3 py-2.5 bg-muted/15">
+                <div
+                  className="text-sm opacity-60 pointer-events-none select-none"
+                  dangerouslySetInnerHTML={{ __html: EMAIL_SIGNATURE_HTML }}
+                />
+              </div>
 
           {/* Attached assets chips */}
           {attachedAssets.length > 0 && (
@@ -761,8 +838,10 @@ function ComposeDialog({
               )}
             </div>
           )}
+            </div>
+          </div>
 
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex-shrink-0 flex items-center justify-between gap-2 px-4 py-2.5 border-t border-border/30 bg-card/80">
             <div className="flex items-center gap-1">
               <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
               {canSend && (
@@ -904,8 +983,8 @@ function ComposeDialog({
             )}
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    , document.body)}
 
     {/* Asset picker dialog */}
     <Dialog open={showAssetPicker} onOpenChange={(v) => !v && setShowAssetPicker(false)}>
