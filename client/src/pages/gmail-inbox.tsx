@@ -3356,27 +3356,29 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     document.addEventListener("mouseup", onUp);
   }, []);
 
-  // Resizable top-header section in thread view (actions toolbar + subject header)
-  const [topHeaderH, setTopHeaderH] = useState<number | null>(() => {
-    try { const s = localStorage.getItem("inbox-top-header-h"); return s !== null && s !== "" ? Math.max(0, Math.min(300, Number(s))) : null; } catch { return null; }
+  // Two-state (expanded / mini) top header and bottom panel in thread view
+  const [topExpanded, setTopExpanded] = useState<boolean>(() => {
+    try { return localStorage.getItem("inbox-top-expanded") !== "false"; } catch { return true; }
   });
-  const topHeaderHRef = useRef(topHeaderH);
-  useEffect(() => { topHeaderHRef.current = topHeaderH; }, [topHeaderH]);
+  useEffect(() => {
+    try { localStorage.setItem("inbox-top-expanded", String(topExpanded)); } catch {}
+  }, [topExpanded]);
   const topHeaderRef = useRef<HTMLDivElement>(null);
 
   const handleTopDividerMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const startY = e.clientY;
-    const startH = topHeaderRef.current?.offsetHeight ?? 100;
+    let toggled = false;
     document.body.style.cursor = "row-resize";
     document.body.style.userSelect = "none";
     const onMove = (ev: MouseEvent) => {
-      const newH = Math.max(0, Math.min(300, startH + (ev.clientY - startY)));
-      topHeaderHRef.current = newH;
-      setTopHeaderH(newH);
+      if (toggled) return;
+      const delta = ev.clientY - startY;
+      if (delta < -20) { toggled = true; setTopExpanded(false); }
+      else if (delta > 20) { toggled = true; setTopExpanded(true); }
     };
     const onUp = () => {
-      try { localStorage.setItem("inbox-top-header-h", String(topHeaderHRef.current ?? "")); } catch {}
+      if (!toggled) setTopExpanded(v => !v);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       document.removeEventListener("mousemove", onMove);
@@ -3386,27 +3388,29 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     document.addEventListener("mouseup", onUp);
   }, []);
 
-  // Resizable bottom panel in thread view (reply bar + CRM panel)
-  const [bottomPanelH, setBottomPanelH] = useState<number | null>(() => {
-    try { const s = localStorage.getItem("inbox-bottom-panel-h"); return s !== null && s !== "" ? Math.max(0, Math.min(500, Number(s))) : null; } catch { return null; }
+  // Two-state (expanded / mini) bottom panel in thread view
+  const [bottomExpanded, setBottomExpanded] = useState<boolean>(() => {
+    try { return localStorage.getItem("inbox-bottom-expanded") !== "false"; } catch { return true; }
   });
-  const bottomPanelHRef = useRef(bottomPanelH);
-  useEffect(() => { bottomPanelHRef.current = bottomPanelH; }, [bottomPanelH]);
+  useEffect(() => {
+    try { localStorage.setItem("inbox-bottom-expanded", String(bottomExpanded)); } catch {}
+  }, [bottomExpanded]);
   const bottomPanelRef = useRef<HTMLDivElement>(null);
 
   const handleBottomDividerMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const startY = e.clientY;
-    const startH = bottomPanelRef.current?.offsetHeight ?? 100;
+    let toggled = false;
     document.body.style.cursor = "row-resize";
     document.body.style.userSelect = "none";
     const onMove = (ev: MouseEvent) => {
-      const newH = Math.max(0, Math.min(500, startH - (ev.clientY - startY)));
-      bottomPanelHRef.current = newH;
-      setBottomPanelH(newH);
+      if (toggled) return;
+      const delta = ev.clientY - startY;
+      if (delta > 20) { toggled = true; setBottomExpanded(false); }
+      else if (delta < -20) { toggled = true; setBottomExpanded(true); }
     };
     const onUp = () => {
-      try { localStorage.setItem("inbox-bottom-panel-h", String(bottomPanelHRef.current ?? "")); } catch {}
+      if (!toggled) setBottomExpanded(v => !v);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       document.removeEventListener("mousemove", onMove);
@@ -6718,11 +6722,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           return (
           <div className={`flex-1 flex flex-col min-h-0 transition-colors duration-300 ${focusMode ? "bg-gradient-to-b from-background via-background to-card/10" : ""}`}>
             {/* Resizable top header section (actions toolbar + subject header) */}
-            <div
-              ref={topHeaderRef}
-              className="flex-shrink-0 overflow-hidden"
-              style={topHeaderH !== null ? { height: topHeaderH } : undefined}
-            >
+            {!topExpanded && focusedMsg && (
+              <div
+                ref={topHeaderRef}
+                className="flex-shrink-0 h-9 flex items-center gap-2 border-b border-border/20 bg-card/15 px-3 cursor-pointer hover:bg-card/35 transition-colors group select-none"
+                onClick={() => setTopExpanded(true)}
+                data-testid="thread-header-mini"
+                title="Click to expand"
+              >
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-primary transition-colors flex-shrink-0" />
+                <span className="text-[12.5px] font-semibold text-foreground/75 truncate min-w-0 flex-1">{focusedMsg.subject || "(no subject)"}</span>
+                <span className="text-[11px] text-muted-foreground/45 flex-shrink-0 hidden sm:block">{parseSenderName(focusedMsg.from)}</span>
+                <span className="text-[10.5px] text-muted-foreground/35 tabular-nums flex-shrink-0 hidden md:block">{formatMessageHeaderDate(focusedMsg.date, focusedMsg.internalDate)}</span>
+              </div>
+            )}
+            {topExpanded && (
+            <div ref={topHeaderRef} className="flex-shrink-0">
             {/* Compact actions toolbar strip — sits flush above the subject header
                 in normal mode so it doesn't eat into the padded header area. */}
             {!focusMode && selectedThreadId && focusedMsg && (
@@ -6937,7 +6952,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               </div>
             </div>
 
-            </div>{/* /resizable-top-header */}
+            </div>
+            )}{/* /resizable-top-header */}
             {/* Top row-resize handle */}
             <div
               className="h-[5px] flex-shrink-0 cursor-row-resize group relative select-none"
@@ -7173,11 +7189,42 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               <div className="h-px w-full bg-border/50 group-hover:bg-primary/50 group-active:bg-primary transition-colors absolute top-1/2 -translate-y-1/2" />
             </div>
             {/* Resizable bottom panel (reply bar + CRM) */}
-            <div
-              ref={bottomPanelRef}
-              className="flex-shrink-0 overflow-hidden"
-              style={bottomPanelH !== null ? { height: bottomPanelH } : undefined}
-            >
+            {!bottomExpanded && (
+              <div
+                ref={bottomPanelRef}
+                className="flex-shrink-0 h-10 flex items-center gap-2 border-t border-border/20 bg-card/15 px-3"
+                data-testid="thread-bottom-mini"
+              >
+                {canSend && focusedMsg && (
+                  <>
+                    <button
+                      onClick={() => { setBottomExpanded(true); handleReply(focusedMsg); }}
+                      className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground/60 hover:text-primary transition-colors rounded-full px-2.5 py-1 hover:bg-primary/10"
+                    >
+                      <Reply className="h-3.5 w-3.5 flex-shrink-0" />
+                      <span className="truncate">Reply to {parseSenderName(focusedMsg.from)}</span>
+                    </button>
+                    <span className="text-muted-foreground/20 text-xs select-none">·</span>
+                    <button
+                      onClick={() => { setBottomExpanded(true); handleReplyAll(focusedMsg); }}
+                      className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground/60 hover:text-primary transition-colors rounded-full px-2 py-1 hover:bg-primary/10 flex-shrink-0"
+                    >
+                      <ReplyAll className="h-3.5 w-3.5 flex-shrink-0" />
+                      <span className="hidden sm:inline">Reply All</span>
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => setBottomExpanded(true)}
+                  className="ml-auto flex items-center gap-1 text-[10.5px] text-muted-foreground/35 hover:text-muted-foreground/60 transition-colors"
+                  title="Expand footer"
+                >
+                  <ChevronUp className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+            {bottomExpanded && (
+            <div ref={bottomPanelRef} className="flex-shrink-0">
             {/* Sticky reply bar */}
             {canSend && focusedMsg && (
               <div className={`flex-shrink-0 border-t border-border/30 transition-colors duration-300 ${focusMode ? "bg-gradient-to-t from-card/40 to-card/10 backdrop-blur-sm shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.4)]" : "bg-card/20"}`}>
@@ -7207,7 +7254,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             {!focusMode && (
               <CrmContextPanel key={selectedThreadId} threadId={selectedThreadId!} userPermissions={userPermissions} isAdminUser={isAdmin} returnPath={returnPath} hintSenderEmail={focusedMsg ? parseSenderEmail(focusedMsg.from) : undefined} hintSenderName={focusedMsg ? parseSenderName(focusedMsg.from) : undefined} hintSubject={focusedMsg?.subject ?? undefined} />
             )}
-            </div>{/* /resizable-bottom-panel */}
+            </div>
+            )}{/* /resizable-bottom-panel */}
           </div>
           );
         })()}
