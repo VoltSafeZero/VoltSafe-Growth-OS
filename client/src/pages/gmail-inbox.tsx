@@ -1270,60 +1270,75 @@ function MessageBody({
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   html, body {
-    margin: 0;
-    padding: 0;
+    margin: 0; padding: 0;
     background: #ffffff;
     color: #1a1a1a;
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-    font-size: 14.5px;
-    line-height: 1.6;
-    word-wrap: break-word;
-    overflow-wrap: anywhere;
-    -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
+    font-size: 14.5px; line-height: 1.6;
+    word-wrap: break-word; overflow-wrap: anywhere;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
     overflow-x: hidden;
   }
-  body { padding: 18px 20px; }
-  /* Normalize giant inline-styled newsletter widths */
-  body, body * { max-width: 100% !important; box-sizing: border-box; }
-  /* Tables: drop hardcoded widths, allow flexible layout */
-  table, table[width] { width: 100% !important; max-width: 100% !important; border-collapse: collapse; table-layout: auto !important; }
-  td, th { padding: 4px 6px; word-wrap: break-word; overflow-wrap: anywhere; }
-  td[width], th[width] { width: auto !important; }
-  /* Images: scale to pane, preserve aspect ratio, ignore hardcoded width/height attrs */
-  img, video { max-width: 100% !important; height: auto !important; border-radius: 4px; display: inline-block; }
-  img[width], img[height] { width: auto !important; height: auto !important; max-width: 100% !important; }
-  /* Buttons / CTA divs that newsletters often size to 600px */
-  a[role="button"], .btn, button, input[type="button"], input[type="submit"] {
-    border-radius: 6px !important;
-    max-width: 100% !important;
-    box-sizing: border-box;
-    display: inline-block;
-  }
+  body { padding: 12px 16px; }
+
+  /*
+   * RENDERING PHILOSOPHY: let the email's own HTML define layout — tables,
+   * cell widths, image sizes — exactly as the sender designed it.
+   * fitContent() already applies a CSS transform to shrink wide emails to fit
+   * the reading pane, so aggressive element-level !important overrides are
+   * counter-productive: they break table column ratios, explode small icons,
+   * and strip background-color boxes that rely on their exact cell dimensions.
+   *
+   * We ONLY apply the minimum overrides needed for security / sanity:
+   *   - Prevent horizontal overflow at the document level
+   *   - Let images scale down if they're wider than the body (but don't
+   *     force width:auto on images that have an explicit small width attr,
+   *     which would make a 32×32 logo render at its full 512px natural size)
+   *   - Preserve all background-color, border, and padding on table cells
+   */
+
+  /* Tables: keep the email's own border/padding/width attributes intact */
+  table { border-collapse: collapse; }
+  td, th { word-wrap: break-word; overflow-wrap: anywhere; vertical-align: top; }
+
+  /*
+   * Images: scale DOWN if wider than their container, but never scale UP
+   * a small image that has an explicit width attribute (e.g. a 32px logo).
+   * Crucially we do NOT set width:auto here — that would override the
+   * HTML width attribute and expand small icons to their natural full size.
+   */
+  img { max-width: 100%; height: auto; display: inline-block; }
+  video { max-width: 100%; height: auto; }
+
   /* Links */
-  a { color: #0b6ed4; text-decoration: none; border-bottom: 1px solid rgba(11,110,212,0.22); transition: border-color .15s ease; }
+  a { color: #0b6ed4; text-decoration: none; border-bottom: 1px solid rgba(11,110,212,0.2); transition: border-color .15s ease; }
   a:hover { border-bottom-color: rgba(11,110,212,0.6); }
+
   /* Code & quotes */
   pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  pre { white-space: pre-wrap; word-break: break-word; background: #f6f8fa; padding: 12px 14px; border-radius: 8px; font-size: 13px; max-width: 100% !important; overflow-x: auto; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #f6f8fa; padding: 12px 14px; border-radius: 8px; font-size: 13px; overflow-x: auto; }
   blockquote { border-left: 3px solid #d0d7de; margin: 14px 0; padding: 4px 14px; color: #57606a; }
   hr { border: none; border-top: 1px solid #d0d7de; margin: 18px 0; }
-  /* Heading scale — slightly tighter than newsletter defaults */
+
+  /* Typography — only kick in for plain-text emails; HTML emails supply their own */
   h1, h2, h3, h4 { color: #0d1117; line-height: 1.25; margin: 16px 0 8px; }
   h1 { font-size: 20px; } h2 { font-size: 17px; } h3 { font-size: 15.5px; } h4 { font-size: 14.5px; }
   p { margin: 6px 0; }
   ul, ol { padding-left: 22px; }
-  /* Tame inline font-size attacks from promotional emails */
+
+  /*
+   * Tame only extreme headline sizes from promotional spam — a 60px font
+   * in a scaled-down email breaks vertical rhythm even after transform scale.
+   * Anything below 40px is left alone so normal heading hierarchy is intact.
+   */
   [style*="font-size: 60"], [style*="font-size:60"],
-  [style*="font-size: 50"], [style*="font-size:50"],
-  [style*="font-size: 48"], [style*="font-size:48"],
+  [style*="font-size: 56"], [style*="font-size:56"],
+  [style*="font-size: 52"], [style*="font-size:52"],
+  [style*="font-size: 48"], [style*="font-size:48"] { font-size: 26px !important; line-height: 1.2 !important; }
+  [style*="font-size: 44"], [style*="font-size:44"],
   [style*="font-size: 40"], [style*="font-size:40"] { font-size: 22px !important; line-height: 1.25 !important; }
-  [style*="font-size: 36"], [style*="font-size:36"],
-  [style*="font-size: 32"], [style*="font-size:32"],
-  [style*="font-size: 30"], [style*="font-size:30"] { font-size: 19px !important; line-height: 1.3 !important; }
-  /* Common newsletter wrapper IDs/classes that have fixed pixel widths */
-  [width="600"], [width="640"], [width="700"], [width="800"] { width: 100% !important; max-width: 100% !important; }
-  /* Selection */
+
+  /* Selection highlight */
   ::selection { background: rgba(11,110,212,0.15); }
 </style>
 </head>
