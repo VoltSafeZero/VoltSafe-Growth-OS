@@ -1266,21 +1266,17 @@ function MessageBody({
     <div>
       <AnimatePresence mode="wait">
         {mode === "beautiful" && (
-          /* Outer relative wrapper so controls can float above the
-             overflow-hidden iframe container without being clipped. */
-          <motion.div className="relative" key="beautiful-wrap" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18 }}>
-            {/* Floating controls — anchored to top-right of the body area.
-                Rendered outside the overflow-hidden motion.div so they are
-                never clipped by the iframe container's bounds. */}
+          <motion.div key="beautiful-wrap" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18 }}>
+            {/* Controls row — sits ABOVE the email body, never overlapping it */}
             {body && (
-              <div className="absolute top-2 right-2 z-[15] flex items-center gap-1 pointer-events-auto">
+              <div className="flex items-center justify-end gap-1 mb-1.5 flex-wrap min-h-[28px]">
                 {headerLeft && (
-                  <div className="flex-shrink-0" data-testid="message-header-left">
+                  <div className="flex-shrink-0 mr-auto" data-testid="message-header-left">
                     {headerLeft}
                   </div>
                 )}
                 <div
-                  className="flex items-center gap-0.5 rounded-md bg-card/90 backdrop-blur-sm p-0.5 shadow-sm ring-1 ring-border/25"
+                  className="flex items-center gap-0.5 rounded-md bg-muted/30 p-0.5 ring-1 ring-border/20"
                   data-testid="reader-zoom-toggle"
                   role="radiogroup"
                   aria-label="Reader zoom"
@@ -1313,7 +1309,7 @@ function MessageBody({
                   </button>
                 </div>
                 <div
-                  className="flex items-center gap-0.5 rounded-md bg-card/90 backdrop-blur-sm p-0.5 shadow-sm ring-1 ring-border/25"
+                  className="flex items-center gap-0.5 rounded-md bg-muted/30 p-0.5 ring-1 ring-border/20"
                   data-testid="reading-mode-toggle"
                   role="radiogroup"
                   aria-label="Reading mode"
@@ -2052,8 +2048,35 @@ function CrmContextPanel({
           </button>
         </div>
       )}
-      {/* Workflow state pills + expand/collapse toggle — always visible */}
-      <div className="px-4 pt-2 pb-1.5 flex items-center gap-2 flex-wrap">
+      {/* CRM panel — single compact toggle; all actions live inside the expandable section */}
+      <div className="px-4 pt-2 pb-1.5 flex items-center gap-2">
+        <button
+          onClick={togglePanel}
+          data-testid="crm-panel-toggle"
+          title={panelExpanded ? "Collapse CRM panel" : "Expand CRM panel"}
+          className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60 hover:text-muted-foreground border border-border/30 hover:border-border/60 px-2.5 py-1 rounded-md transition-all"
+        >
+          <Tag className="h-3 w-3" />
+          <span className="font-medium">CRM</span>
+          {workflowState && workflowState !== "none" && (() => {
+            const pill = WORKFLOW_PILLS.find(p => p.value === workflowState);
+            const label = pill?.label ?? (workflowState === "quote_requested" ? "Quote Requested" : null);
+            if (!label) return null;
+            return (
+              <span className={`text-[10px] px-1.5 py-px rounded-full border font-medium ${pill?.activeClass ?? "text-violet-400 bg-violet-500/15 border-violet-500/40"}`}>
+                {label}
+              </span>
+            );
+          })()}
+          {workflowMutation.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+          {panelExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+        </button>
+      </div>
+
+      {panelExpanded && (
+      <>
+      {/* Workflow status pills + quick actions — inside the expandable CRM section */}
+      <div className="px-4 pb-1.5 flex items-center gap-1.5 flex-wrap">
         {WORKFLOW_PILLS.map(pill => {
           const isActive = workflowState === pill.value;
           return (
@@ -2073,7 +2096,6 @@ function CrmContextPanel({
           );
         })}
         {workflowMutation.isPending && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/50" />}
-
         {/* Quote Requested — dedicated action with popover */}
         <Popover open={showQuotePopover} onOpenChange={(open) => {
           if (open) {
@@ -2154,21 +2176,7 @@ function CrmContextPanel({
             </div>
           </PopoverContent>
         </Popover>
-
-        <div className="flex-1" />
-        <button
-          onClick={togglePanel}
-          data-testid="crm-panel-toggle"
-          title={panelExpanded ? "Collapse CRM panel" : "Expand CRM panel"}
-          className="flex items-center gap-1 text-[10px] text-muted-foreground/35 hover:text-muted-foreground/70 transition-colors px-1.5 py-0.5 rounded hover:bg-muted/30 flex-shrink-0"
-        >
-          <span className="font-medium tracking-wide uppercase">CRM</span>
-          {panelExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
-        </button>
       </div>
-
-      {panelExpanded && (
-      <>
       {/* Awaiting reply indicator */}
       {thread?.awaitingReplySince && (
         <div className="px-4 pb-1.5">
@@ -4944,6 +4952,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
   const selectedMessages = threadQuery.data?.messages || [];
   const focusedMsg = selectedMessages.find((m) => m.id === selectedMessageId) || selectedMessages[selectedMessages.length - 1];
+  // Newest-first display order (Spark Mail pattern): most recent email shown at top,
+  // older messages collapsed below it for reference.
+  const displayMessages = [...selectedMessages].reverse();
+  const [expandedOlderMsgIds, setExpandedOlderMsgIds] = useState<Set<string>>(new Set());
+  // Reset expanded set whenever the selected thread changes.
+  useEffect(() => { setExpandedOlderMsgIds(new Set()); }, [selectedThreadId]);
 
   // Parent-level slice of /api/gmail/thread-record so the actions toolbar can
   // read the current assignedUserId WITHOUT re-fetching when the insights
@@ -6860,14 +6874,36 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   ))}
                 </div>
               )}
-              {selectedMessages.map((msg, idx) => {
+              {displayMessages.map((msg, idx) => {
                 const initials = parseSenderName(msg.from).split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
-                const isLatest = idx === selectedMessages.length - 1;
+                const isLatest = idx === 0;
+                const isOlderExpanded = expandedOlderMsgIds.has(msg.id);
+                // Older (non-latest) messages: show a collapsed single-line summary
+                // until the user taps to expand — Spark Mail style.
+                if (!isLatest && !isOlderExpanded) {
+                  return (
+                    <button
+                      key={msg.id}
+                      onClick={() => setExpandedOlderMsgIds(prev => new Set([...prev, msg.id]))}
+                      className="w-full flex items-center gap-3 rounded-xl border border-border/20 bg-card/20 hover:bg-card/40 px-4 py-2.5 text-left transition-colors group"
+                      data-testid={`email-message-collapsed-${msg.id}`}
+                      title="Click to expand"
+                    >
+                      <div className={`h-6 w-6 rounded-full bg-gradient-to-br ${avatarColor(parseSenderEmail(msg.from))} text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0`}>
+                        {initials || "?"}
+                      </div>
+                      <span className="text-[12px] font-medium text-foreground/60 flex-shrink-0">{parseSenderName(msg.from)}</span>
+                      <span className="text-[12px] text-muted-foreground/45 truncate flex-1 min-w-0">{msg.subject || "(no subject)"}</span>
+                      <span className="text-[11px] text-muted-foreground/35 flex-shrink-0 tabular-nums">{formatMessageHeaderDate(msg.date, msg.internalDate)}</span>
+                      <ChevronDown className="h-3 w-3 text-muted-foreground/25 group-hover:text-muted-foreground/50 flex-shrink-0 transition-colors" />
+                    </button>
+                  );
+                }
                 return (
                   <div
                     key={msg.id}
                     className={`rounded-xl border overflow-hidden transition-shadow ${
-                      isLatest ? "border-border/60 shadow-sm" : "border-border/30 opacity-80"
+                      isLatest ? "border-border/60 shadow-sm" : "border-border/30"
                     }`}
                     data-testid={`email-message-${msg.id}`}
                   >
