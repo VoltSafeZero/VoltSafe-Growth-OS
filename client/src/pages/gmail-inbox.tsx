@@ -3500,6 +3500,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   }, []);
 
   const [selectedInboxIds, setSelectedInboxIds] = useState<Set<string>>(new Set());
+  const lastAnchorIdxRef = useRef<number>(-1);
   const [crmFilter, setCrmFilter] = useState<CrmInboxFilter>("all");
   const [quickTaskThreadId, setQuickTaskThreadId] = useState<string | null>(null);
   const [quickTaskTitle, setQuickTaskTitle] = useState("");
@@ -3942,6 +3943,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     // gate keeps us from burning cycles on a tab the user isn't looking at.
     refetchInterval: 15_000,
     refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -4887,6 +4889,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     });
   }, [isSmartView, crmFilteredMessages, pinnedAPI.pinned, selectedThreadId, openThreadWasUnread]);
 
+  // Ordered message list that matches what's actually displayed on screen.
+  // Keyboard nav + shift/cmd-click use this so arrow-key order matches visual order.
+  const navList = useMemo<MessageSummary[]>(() => {
+    if (tab === "drafts" || tab === "scheduled" || tab === "folder" || tab === "review") return [];
+    if (viewItems) return viewItems.filter((i): i is { kind: "msg"; section: any; msg: MessageSummary } => i.kind === "msg").map(i => i.msg);
+    return crmFilteredMessages ?? [];
+  }, [tab, viewItems, crmFilteredMessages]);
+
   const isLoading = tab === "other" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : sentQuery.isLoading;
   const error = tab === "other" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : sentQuery.error;
   // "Other" tab is a derived slice of the same inboxQuery — it must paginate too,
@@ -5128,6 +5138,34 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   });
   const readerAssignedUserId = readerThreadRecordQuery.data?.thread?.assignedUserId ?? null;
 
+  // ── Click handler with modifier support ─────────────────────────────────────
+  const handleEmailRowClick = (e: React.MouseEvent, msg: MessageSummary) => {
+    const idx = navList.findIndex(m => m.threadId === msg.threadId);
+    if (e.metaKey || e.ctrlKey) {
+      // Cmd/Ctrl+click → toggle this thread in bulk selection without opening it
+      e.preventDefault();
+      toggleInboxSelection(msg.threadId);
+      lastAnchorIdxRef.current = idx;
+    } else if (e.shiftKey && lastAnchorIdxRef.current >= 0 && idx >= 0) {
+      // Shift+click → select a range from the last anchor to here
+      e.preventDefault();
+      const lo = Math.min(lastAnchorIdxRef.current, idx);
+      const hi = Math.max(lastAnchorIdxRef.current, idx);
+      setSelectedInboxIds(prev => {
+        const next = new Set(prev);
+        for (let i = lo; i <= hi; i++) {
+          if (navList[i]) next.add(navList[i].threadId);
+        }
+        return next;
+      });
+    } else {
+      // Plain click → open thread; clear any bulk selection first
+      if (selectedInboxIds.size > 0) setSelectedInboxIds(new Set());
+      handleSelectMessage(msg);
+      lastAnchorIdxRef.current = idx;
+    }
+  };
+
   // ── Keyboard navigation ────────────────────────────────────────────────────
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -5135,7 +5173,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
-      const list = tab === "drafts" || tab === "scheduled" || tab === "folder" ? [] : activeMessages;
+      const list = navList;
       const currentIdx = list.findIndex(m => m.threadId === selectedThreadId);
 
       const focusRow = (msg: MessageSummary) => {
@@ -5194,7 +5232,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [tab, activeMessages, selectedThreadId, focusedMsg, canSend, selectedInboxIds, focusMode]);
+  }, [tab, navList, selectedThreadId, focusedMsg, canSend, selectedInboxIds, focusMode]);
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-hidden">
@@ -6502,10 +6540,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 <div
                   key={msg.id}
                   className={`relative group flex items-stretch transition-all duration-150 border-b border-border/20 ${
-                    isBulkChecked
-                      ? "bg-primary/10 border-l-[3px] border-l-primary/60"
-                      : isSelected
-                        ? "bg-primary/[0.13] border-l-[3px] border-l-primary shadow-[inset_0_0_0_1px_rgba(20,184,166,0.14),inset_4px_0_12px_-4px_rgba(20,184,166,0.08)]"
+                    isSelected
+                      ? "bg-primary/[0.13] border-l-[3px] border-l-primary shadow-[inset_0_0_0_1px_rgba(20,184,166,0.14),inset_4px_0_12px_-4px_rgba(20,184,166,0.08)]"
+                      : isBulkChecked
+                        ? "bg-primary/10 border-l-[3px] border-l-primary/60"
                         : "border-l-[3px] border-l-transparent hover:bg-muted/35 hover:border-l-primary/15"
                   }`}
                 >
@@ -6527,7 +6565,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     </div>
                   </div>
                   <button
-                    onClick={() => handleSelectMessage(msg)}
+                    onClick={(e) => handleEmailRowClick(e, msg)}
                     data-testid={`email-row-${msg.id}`}
                     className={`flex-1 text-left ${densityClasses.py} pr-14 min-w-0 transition-[padding] duration-200 outline-none focus:outline-none focus-visible:outline-none`}
                   >
