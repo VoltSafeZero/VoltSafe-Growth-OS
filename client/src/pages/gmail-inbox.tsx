@@ -312,6 +312,7 @@ function ComposeDialog({
   threadId,
   draftId,
   asAccountId,
+  replyToSender,
 }: {
   open: boolean;
   onClose: () => void;
@@ -324,6 +325,7 @@ function ComposeDialog({
   threadId?: string;
   draftId?: string;
   asAccountId?: number;
+  replyToSender?: string;
 }) {
   const { toast } = useToast();
   const [to, setTo] = useState(defaultTo);
@@ -597,6 +599,12 @@ function ComposeDialog({
         <DialogHeader>
           <DialogTitle>{threadId ? "Reply" : draftId ? "Edit Draft" : "New Email"}</DialogTitle>
         </DialogHeader>
+        {threadId && replyToSender && (
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60 bg-muted/20 rounded-md px-2.5 py-1.5 border border-border/20 -mt-1">
+            <Reply className="h-3 w-3 flex-shrink-0 text-muted-foreground/40" />
+            <span>Replying to <span className="font-medium text-foreground/70">{replyToSender}</span></span>
+          </div>
+        )}
         <div className="space-y-3">
           {!canSend && (
             <p className="text-sm text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
@@ -3168,7 +3176,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     return params.get("return") ?? null;
   });
   const [composeOpen, setComposeOpen] = useState(false);
-  const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string } | null>(null);
+  const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string; fromName?: string } | null>(null);
   const [tab, setTab] = useState<"inbox" | "sent" | "other" | "drafts" | "scheduled" | "folder" | "review">("inbox");
   const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set());
   const [inboxCategory, setInboxCategory] = useState<InboxCategory>("all");
@@ -4930,6 +4938,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       to: parseSenderEmail(msg.from),
       subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
       threadId: msg.threadId,
+      fromName: parseSenderName(msg.from),
     });
   };
 
@@ -4947,6 +4956,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       cc: allRecipients.length > 0 ? allRecipients.join(", ") : undefined,
       subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
       threadId: msg.threadId,
+      fromName: parseSenderName(msg.from),
     });
   };
 
@@ -6927,16 +6937,28 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             >
                               {parseSenderName(msg.from)}
                             </p>
-                            <span
-                              className="text-[11px] text-muted-foreground/70 whitespace-nowrap flex-shrink-0 tabular-nums font-medium"
-                              title={(() => {
-                                const d = msg.date ? new Date(msg.date) : msg.internalDate ? new Date(Number(msg.internalDate)) : null;
-                                return d && !isNaN(d.getTime()) ? d.toLocaleString() : "";
-                              })()}
-                              data-testid={`text-message-date-${msg.id}`}
-                            >
-                              {formatMessageHeaderDate(msg.date, msg.internalDate)}
-                            </span>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <span
+                                className="text-[11px] text-muted-foreground/70 whitespace-nowrap tabular-nums font-medium"
+                                title={(() => {
+                                  const d = msg.date ? new Date(msg.date) : msg.internalDate ? new Date(Number(msg.internalDate)) : null;
+                                  return d && !isNaN(d.getTime()) ? d.toLocaleString() : "";
+                                })()}
+                                data-testid={`text-message-date-${msg.id}`}
+                              >
+                                {formatMessageHeaderDate(msg.date, msg.internalDate)}
+                              </span>
+                              {!isLatest && isOlderExpanded && (
+                                <button
+                                  onClick={() => setExpandedOlderMsgIds(prev => { const next = new Set(prev); next.delete(msg.id); return next; })}
+                                  className="text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors p-0.5 rounded"
+                                  title="Collapse"
+                                  data-testid={`btn-collapse-message-${msg.id}`}
+                                >
+                                  <ChevronUp className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
                           </div>
                           <div className="text-[11px] text-muted-foreground/50 mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
                             <RecipientList label="To" raw={msg.to} />
@@ -7419,6 +7441,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         draftId={editingDraft?.draftId}
         threadId={editingDraft?.threadId || replyTo?.threadId}
         asAccountId={typeof activeAccountId === "number" ? activeAccountId : undefined}
+        replyToSender={replyTo?.fromName}
       />
 
       {/* Create Folder dialog */}
