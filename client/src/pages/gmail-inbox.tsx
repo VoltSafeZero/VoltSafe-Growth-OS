@@ -6611,10 +6611,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   key={msg.id}
                   className={`relative group flex items-stretch transition-all duration-150 border-b border-border/20 ${
                     isSelected
-                      ? "bg-primary/[0.13] border-l-[3px] border-l-primary shadow-[inset_0_0_0_1px_rgba(20,184,166,0.14),inset_4px_0_12px_-4px_rgba(20,184,166,0.08)]"
+                      ? "bg-primary/[0.13] hover:bg-primary/[0.21] border-l-[3px] border-l-primary shadow-[inset_0_0_0_1px_rgba(20,184,166,0.14),inset_4px_0_12px_-4px_rgba(20,184,166,0.08)]"
                       : isBulkChecked
                         ? "bg-primary/10 border-l-[3px] border-l-primary/60"
-                        : "border-l-[3px] border-l-transparent hover:bg-muted/35 hover:border-l-primary/15"
+                        : "border-l-[3px] border-l-transparent hover:bg-primary/[0.07] hover:border-l-primary/25"
                   }`}
                 >
                   {/* Checkbox — visible on hover or when any selection active */}
