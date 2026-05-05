@@ -2,20 +2,18 @@ import { db } from '../server/db';
 import { sql } from 'drizzle-orm';
 
 async function main() {
-  const rows = await db.execute(sql`
-    SELECT gmail_thread_id, gmail_message_id, from_email, sent_at, label_ids, direction
+  const res = await db.execute(sql.raw(`
+    SELECT gmail_message_id, gmail_thread_id, subject, from_email, sent_at, 
+           label_ids, all_participants
     FROM email_messages
-    WHERE from_email ILIKE '%boatbnbsd%' OR all_participants ILIKE '%boatbnbsd%'
+    WHERE source_account_id = 1
+      AND lower(coalesce(all_participants,'')) LIKE '%boatbnbsd@gmail.com%'
     ORDER BY sent_at DESC
-  `);
-  console.log("=== Emails + labels ===");
-  for (const r of rows.rows as any[]) {
-    console.log(String(r.sent_at).slice(0,10), "| direction=", r.direction, "| labels=", r.label_ids, "| from=", r.from_email);
-    console.log("  thread:", r.gmail_thread_id);
+  `));
+  const rows = ((res as any).rows ?? res) as any[];
+  console.log("=== All 8 messages with label_ids ===");
+  for (const r of rows) {
+    console.log(`${String(r.sent_at).slice(0,10)} | thread=${r.gmail_thread_id?.slice(0,12)} | label_ids=${r.label_ids} | from=${r.from_email} | subj=${r.subject?.slice(0,40)}`);
   }
-
-  // Check the gmail_accounts table name
-  const tbls = await db.execute(sql`SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename ILIKE '%gmail%' ORDER BY tablename`);
-  console.log("\nGmail tables:", tbls.rows);
 }
 main().catch(console.error).finally(() => process.exit(0));

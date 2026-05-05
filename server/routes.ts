@@ -8900,9 +8900,18 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         // request, defeating the cap's purpose.
         const remainingBudget = Math.max(0, SOFT_CAP - backfilledSoFar);
         const wantMore = Math.min(maxResults - local.messages.length, remainingBudget);
-        const beforeDate = local.oldestLocalSentAt
-          ? new Date(local.oldestLocalSentAt)
-          : null;
+        // For email-address searches (q contains "@"), do NOT apply a before: date
+        // restriction. The date boundary is designed to find older messages we don't
+        // have yet, but for email-address queries the user wants ALL messages
+        // involving that contact — including newer threads that the incremental sync
+        // might have missed. Passing null to fetchOlderFromGmail removes the
+        // before:<unix> clause, so Gmail returns the full result set for the query,
+        // which we then de-dupe and upsert. For standard inbox/sent paging (no @),
+        // keep the date boundary so we don't re-fetch what we already have.
+        const isEmailAddressSearch = !queryEmpty && q.includes("@") && !q.trim().startsWith("in:");
+        const beforeDate = isEmailAddressSearch
+          ? null
+          : (local.oldestLocalSentAt ? new Date(local.oldestLocalSentAt) : null);
 
         const { fetchOlderFromGmail } = await import("./services/gmail-history-backfill");
         const { encodeMsgCursorToken } = await import("./services/local-mailbox");
