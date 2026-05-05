@@ -3738,8 +3738,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Multi-mailbox Phase 1: "all" sentinel triggers the unified view that pulls from every
   // account the user can access (their own personal accounts + shared inboxes they have view perms on).
   const [activeAccountId, setActiveAccountId] = useState<number | "all" | null>(null);
-  const [mailboxDropdownOpen, setMailboxDropdownOpen] = useState(false);
-  const mailboxDropdownRef = useRef<HTMLDivElement>(null);
+  const [inboxViewPickerOpen, setInboxViewPickerOpen] = useState(false);
+  const inboxViewPickerRef = useRef<HTMLDivElement>(null);
   // Multi-mailbox Phase 1: when a message is opened from "All Inboxes", remember its source
   // account id so per-thread reads/mutations target the right mailbox (instead of sending the
   // literal "all" sentinel, which numeric-only routes coerce to NaN).
@@ -4944,13 +4944,23 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     });
   }, [isSmartView, crmFilteredMessages, pinnedAPI.pinned, selectedThreadId, openThreadWasUnread]);
 
+  // Unread-cards mode: filter inbox to only unread messages (keep open thread visible).
+  const isUnreadCardsView =
+    viewMode === "unread-cards" &&
+    tab === "inbox" && tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review";
+  const unreadCardsMessages = useMemo<MessageSummary[]>(() => {
+    if (!isUnreadCardsView || !crmFilteredMessages) return [];
+    return crmFilteredMessages.filter(m => isUnread(m.labelIds) || m.threadId === selectedThreadId);
+  }, [isUnreadCardsView, crmFilteredMessages, selectedThreadId]);
+
   // Ordered message list that matches what's actually displayed on screen.
   // Keyboard nav + shift/cmd-click use this so arrow-key order matches visual order.
   const navList = useMemo<MessageSummary[]>(() => {
     if (tab === "drafts" || tab === "scheduled" || tab === "folder" || tab === "review") return [];
+    if (isUnreadCardsView) return unreadCardsMessages;
     if (viewItems) return viewItems.filter((i): i is { kind: "msg"; section: any; msg: MessageSummary } => i.kind === "msg").map(i => i.msg);
     return crmFilteredMessages ?? [];
-  }, [tab, viewItems, crmFilteredMessages]);
+  }, [tab, isUnreadCardsView, unreadCardsMessages, viewItems, crmFilteredMessages]);
 
   const isLoading = tab === "other" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : sentQuery.isLoading;
   const error = tab === "other" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : sentQuery.error;
@@ -5249,17 +5259,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     }
   };
 
-  // ── Mailbox dropdown — close on outside click ─────────────────────────────
+  // ── Inbox view picker — close on outside click ────────────────────────────
   useEffect(() => {
-    if (!mailboxDropdownOpen) return;
+    if (!inboxViewPickerOpen) return;
     const handler = (e: MouseEvent) => {
-      if (mailboxDropdownRef.current && !mailboxDropdownRef.current.contains(e.target as Node)) {
-        setMailboxDropdownOpen(false);
+      if (inboxViewPickerRef.current && !inboxViewPickerRef.current.contains(e.target as Node)) {
+        setInboxViewPickerOpen(false);
       }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [mailboxDropdownOpen]);
+  }, [inboxViewPickerOpen]);
 
   // ── Keyboard navigation ────────────────────────────────────────────────────
   useEffect(() => {
@@ -5354,102 +5364,121 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           <span className="text-[12px] font-medium">Back</span>
         </button>
         <div className="w-px h-4 bg-border/50 flex-shrink-0" />
-        {/* ── Mailbox switcher (Spark-style) ─────────────────────────────── */}
-        <div className="relative min-w-0" ref={mailboxDropdownRef}>
+        {/* ── Inbox View Picker (Spark-style) ─────────────────────────── */}
+        <div className="relative min-w-0" ref={inboxViewPickerRef}>
           <button
             type="button"
-            onClick={() => setMailboxDropdownOpen(v => !v)}
-            data-testid="button-mailbox-switcher"
+            onClick={() => setInboxViewPickerOpen(v => !v)}
+            data-testid="button-inbox-view-picker"
             className="inline-flex items-center gap-1.5 h-7 px-1.5 rounded-md hover:bg-muted/50 transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none min-w-0 max-w-[240px]"
           >
             <Mail className="h-3.5 w-3.5 text-primary/70 flex-shrink-0" />
             <div className="min-w-0 text-left">
               <div className="text-[12px] font-semibold leading-tight text-foreground/80" data-testid="text-page-title">Mail</div>
               <div className="text-[10px] text-muted-foreground/65 truncate hidden sm:block leading-tight">
-                {activeAccountId === "all"
-                  ? "All Inboxes"
-                  : (connectedAccount?.emailAddress ?? profileQuery.data?.emailAddress ?? "")}
+                {viewMode === "smart" ? "Focused List" : viewMode === "unread-cards" ? "Unread Cards" : "Simple List"}
               </div>
             </div>
-            <ChevronDown className={`h-3 w-3 text-muted-foreground/55 flex-shrink-0 transition-transform duration-150 ${mailboxDropdownOpen ? "rotate-180" : ""}`} />
+            <ChevronDown className={`h-3 w-3 text-muted-foreground/55 flex-shrink-0 transition-transform duration-150 ${inboxViewPickerOpen ? "rotate-180" : ""}`} />
           </button>
 
-          {mailboxDropdownOpen && (
-            <div className="absolute left-0 top-full mt-1.5 z-50 w-72 rounded-xl border border-border/60 bg-popover shadow-xl shadow-black/10 py-2 animate-in fade-in-0 zoom-in-95 duration-100 origin-top-left">
-              <div className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">
-                Choose Mailbox
+          {inboxViewPickerOpen && (
+            <div className="absolute left-0 top-full mt-1.5 z-50 rounded-xl border border-border/60 bg-popover shadow-xl shadow-black/10 p-3 animate-in fade-in-0 zoom-in-95 duration-100 origin-top-left" style={{ width: 380 }}>
+              <div className="text-[11px] font-semibold text-foreground/70 mb-2.5 px-0.5">Choose your Inbox View</div>
+              <div className="flex gap-2.5">
+                {([
+                  {
+                    key: "smart" as const,
+                    name: "Focused List",
+                    sub: "Smart Inbox",
+                    illustration: (
+                      <svg viewBox="0 0 72 52" fill="none" className="w-full h-full">
+                        <rect width="72" height="52" rx="4" fill="currentColor" className="text-muted/40" />
+                        <rect x="6" y="7" width="20" height="2.5" rx="1.25" fill="currentColor" className="text-amber-400/80" />
+                        <rect x="6" y="12" width="60" height="7" rx="2" fill="currentColor" className="text-muted-foreground/10" />
+                        <circle cx="10" cy="15.5" r="2.5" fill="currentColor" className="text-amber-400/70" />
+                        <rect x="15" y="13.5" width="22" height="1.5" rx="0.75" fill="currentColor" className="text-foreground/60" />
+                        <rect x="15" y="16" width="32" height="1" rx="0.5" fill="currentColor" className="text-muted-foreground/40" />
+                        <rect x="6" y="22" width="28" height="2" rx="1" fill="currentColor" className="text-primary/60" />
+                        <rect x="6" y="27" width="60" height="7" rx="2" fill="currentColor" className="text-muted-foreground/10" />
+                        <circle cx="10" cy="30.5" r="2.5" fill="currentColor" className="text-blue-400/70" />
+                        <rect x="15" y="28.5" width="26" height="1.5" rx="0.75" fill="currentColor" className="text-foreground/60" />
+                        <rect x="15" y="31" width="36" height="1" rx="0.5" fill="currentColor" className="text-muted-foreground/40" />
+                        <rect x="6" y="37" width="60" height="7" rx="2" fill="currentColor" className="text-muted-foreground/10" />
+                        <circle cx="10" cy="40.5" r="2.5" fill="currentColor" className="text-blue-400/50" />
+                        <rect x="15" y="38.5" width="20" height="1.5" rx="0.75" fill="currentColor" className="text-foreground/40" />
+                        <rect x="15" y="41" width="30" height="1" rx="0.5" fill="currentColor" className="text-muted-foreground/25" />
+                      </svg>
+                    ),
+                  },
+                  {
+                    key: "unread-cards" as const,
+                    name: "Unread Cards",
+                    sub: "Smart Inbox",
+                    illustration: (
+                      <svg viewBox="0 0 72 52" fill="none" className="w-full h-full">
+                        <rect width="72" height="52" rx="4" fill="currentColor" className="text-muted/40" />
+                        <rect x="6" y="6" width="60" height="18" rx="3" fill="currentColor" className="text-primary/10" stroke="currentColor" strokeWidth="0.75" strokeOpacity="0.4" />
+                        <circle cx="12" cy="15" r="4" fill="currentColor" className="text-primary/50" />
+                        <rect x="19" y="9.5" width="24" height="2" rx="1" fill="currentColor" className="text-foreground/70" />
+                        <rect x="19" y="13" width="38" height="1.5" rx="0.75" fill="currentColor" className="text-muted-foreground/45" />
+                        <rect x="19" y="16" width="28" height="1.5" rx="0.75" fill="currentColor" className="text-muted-foreground/30" />
+                        <rect x="6" y="27" width="60" height="18" rx="3" fill="currentColor" className="text-muted-foreground/8" />
+                        <circle cx="12" cy="36" r="4" fill="currentColor" className="text-blue-400/40" />
+                        <rect x="19" y="30.5" width="20" height="2" rx="1" fill="currentColor" className="text-foreground/50" />
+                        <rect x="19" y="34" width="34" height="1.5" rx="0.75" fill="currentColor" className="text-muted-foreground/30" />
+                        <rect x="19" y="37" width="24" height="1.5" rx="0.75" fill="currentColor" className="text-muted-foreground/20" />
+                      </svg>
+                    ),
+                  },
+                  {
+                    key: "classic" as const,
+                    name: "Simple List",
+                    sub: "Classic Inbox",
+                    illustration: (
+                      <svg viewBox="0 0 72 52" fill="none" className="w-full h-full">
+                        <rect width="72" height="52" rx="4" fill="currentColor" className="text-muted/40" />
+                        {[0,1,2,3].map((i) => (
+                          <g key={i}>
+                            <rect x="6" y={7 + i * 11} width="60" height="8" rx="1.5" fill="currentColor" className="text-muted-foreground/10" />
+                            <circle cx="10.5" cy={11 + i * 11} r="2" fill="currentColor" className="text-muted-foreground/40" />
+                            <rect x="15" y={9 + i * 11} width={i === 0 ? 24 : i === 1 ? 18 : i === 2 ? 22 : 16} height="1.5" rx="0.75" fill="currentColor" className="text-foreground/50" />
+                            <rect x="15" y={12 + i * 11} width={i === 0 ? 36 : i === 1 ? 40 : i === 2 ? 32 : 38} height="1" rx="0.5" fill="currentColor" className="text-muted-foreground/30" />
+                          </g>
+                        ))}
+                      </svg>
+                    ),
+                  },
+                ] as const).map(({ key, name, sub, illustration }) => {
+                  const active = viewMode === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      data-testid={`inbox-view-option-${key}`}
+                      onClick={() => { setViewMode(key); setInboxViewPickerOpen(false); }}
+                      className={`flex-1 flex flex-col rounded-lg border-2 transition-all duration-150 overflow-hidden focus-visible:ring-2 focus-visible:ring-primary/40 outline-none ${
+                        active
+                          ? "border-primary shadow-[0_0_0_1px_rgba(20,184,166,0.25)] bg-primary/5"
+                          : "border-border/50 hover:border-border bg-muted/20 hover:bg-muted/40"
+                      }`}
+                    >
+                      <div className="w-full aspect-[72/52] p-1.5">
+                        {illustration}
+                      </div>
+                      <div className="px-2 pb-2 pt-1 text-left">
+                        <div className={`text-[11px] font-semibold leading-tight ${active ? "text-primary" : "text-foreground/80"}`}>{name}</div>
+                        <div className="text-[9.5px] text-muted-foreground/55 leading-tight mt-0.5">{sub}</div>
+                      </div>
+                      {active && (
+                        <div className="px-2 pb-1.5">
+                          <CheckCheck className="h-3 w-3 text-primary" />
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
-
-              {/* All Inboxes — only when multiple accounts exist */}
-              {(accountsQuery.data ?? []).length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => { setActiveAccountId("all"); setMailboxDropdownOpen(false); }}
-                  data-testid="mailbox-option-all"
-                  className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${activeAccountId === "all" ? "bg-primary/10" : ""}`}
-                >
-                  <div className="h-7 w-7 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
-                    <Inbox className="h-3.5 w-3.5 text-primary/80" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className={`text-[12px] font-medium leading-tight ${activeAccountId === "all" ? "text-primary" : "text-foreground"}`}>All Inboxes</div>
-                    <div className="text-[10px] text-muted-foreground/55 leading-tight">Combined view</div>
-                  </div>
-                  {activeAccountId === "all" && <CheckCheck className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
-                </button>
-              )}
-
-              {/* Personal account */}
-              {personalAccount && (() => {
-                const isActive = activeAccountId !== "all" && (activeAccountId === null || activeAccountId === personalAccount.id);
-                return (
-                  <button
-                    type="button"
-                    onClick={() => { setActiveAccountId(null); setMailboxDropdownOpen(false); }}
-                    data-testid={`mailbox-option-${personalAccount.id}`}
-                    className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${isActive ? "bg-primary/10" : ""}`}
-                  >
-                    <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center flex-shrink-0 text-[11px] font-bold text-foreground/70">
-                      {(personalAccount.emailAddress?.[0] ?? "?").toUpperCase()}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className={`text-[12px] font-medium leading-tight truncate ${isActive ? "text-primary" : "text-foreground"}`}>{personalAccount.emailAddress}</div>
-                      <div className="text-[10px] text-muted-foreground/55 leading-tight">Personal</div>
-                    </div>
-                    {isActive && <CheckCheck className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
-                  </button>
-                );
-              })()}
-
-              {/* Shared / team accounts */}
-              {sharedAccounts.length > 0 && (
-                <div className="mt-1 pt-1 border-t border-border/30">
-                  <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/40">
-                    Team Inboxes
-                  </div>
-                  {sharedAccounts.map(acct => {
-                    const isActive = activeAccountId === acct.id;
-                    return (
-                      <button
-                        key={acct.id}
-                        type="button"
-                        onClick={() => { setActiveAccountId(acct.id); setMailboxDropdownOpen(false); }}
-                        data-testid={`mailbox-option-${acct.id}`}
-                        className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${isActive ? "bg-primary/10" : ""}`}
-                      >
-                        <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center flex-shrink-0 text-[11px] font-bold text-foreground/70">
-                          {(acct.emailAddress?.[0] ?? "?").toUpperCase()}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className={`text-[12px] font-medium leading-tight truncate ${isActive ? "text-primary" : "text-foreground"}`}>{acct.emailAddress}</div>
-                          <div className="text-[10px] text-muted-foreground/55 leading-tight">{acct.displayName ?? "Team Inbox"}</div>
-                        </div>
-                        {isActive && <CheckCheck className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -5471,42 +5500,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           {/* Commit 4: the inbox is always sourced from the local mirror —
               the Source selector and ?mailSource= URL param were removed. */}
           <LocalSearchButton />
-          {/* Inbox view-mode picker — Smart (sectioned) vs Classic (flat).
-              Only meaningful on the inbox tab; we still render it elsewhere so
-              it doesn't pop in/out as users navigate between Sent/Drafts/etc.
-              Mirrors Spark's Focused-List vs Simple-List choice but distilled
-              into a single inline radiogroup that matches the density toggle. */}
-          <div
-            className="hidden md:inline-flex items-center gap-0.5 p-0.5 rounded-md border border-border/50 bg-background/60"
-            role="radiogroup"
-            aria-label="Inbox view mode"
-            data-testid="view-mode-toggle"
-          >
-            {([
-              { key: "smart" as const,   icon: LayoutList, label: "Smart Inbox — group by Priority, Unread categories, Pinned, Seen" },
-              { key: "classic" as const, icon: ListIcon,   label: "Classic Inbox — flat chronological list" },
-            ]).map(({ key, icon: Icon, label }) => {
-              const active = viewMode === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  title={label}
-                  data-testid={`button-view-${key}`}
-                  onClick={() => setViewMode(key)}
-                  className={`h-6 w-7 inline-flex items-center justify-center rounded-[4px] transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none ${
-                    active
-                      ? "bg-primary/15 text-primary"
-                      : "text-muted-foreground/55 hover:text-foreground hover:bg-muted/50"
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-                </button>
-              );
-            })}
-          </div>
           {/* Density toggle — Comfortable / Compact / Ultra */}
           <div
             className="hidden md:inline-flex items-center gap-0.5 p-0.5 rounded-md border border-border/50 bg-background/60"
@@ -6694,7 +6687,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               </div>
             )}
             {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && (
-              viewItems ?? (crmFilteredMessages ?? []).map((m) => ({ kind: "msg" as const, section: "flat" as SmartSectionId, msg: m }))
+              isUnreadCardsView
+                ? unreadCardsMessages.map((m) => ({ kind: "msg" as const, section: "flat" as SmartSectionId, msg: m }))
+                : viewItems ?? (crmFilteredMessages ?? []).map((m) => ({ kind: "msg" as const, section: "flat" as SmartSectionId, msg: m }))
             )?.map((item) => {
               // Smart-Inbox section header — purely visual, not a clickable
               // mail row. Rendered inline so we don't break the surrounding
@@ -6751,13 +6746,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               return (
                 <div
                   key={msg.id}
-                  className={`relative group flex items-stretch transition-all duration-150 border-b border-border/20 ${
-                    isSelected
-                      ? "bg-primary/[0.13] hover:bg-primary/[0.21] border-l-[3px] border-l-primary shadow-[inset_0_0_0_1px_rgba(20,184,166,0.14),inset_4px_0_12px_-4px_rgba(20,184,166,0.08)]"
-                      : isBulkChecked
-                        ? "bg-primary/10 border-l-[3px] border-l-primary/60"
-                        : "border-l-[3px] border-l-transparent hover:bg-primary/[0.07] hover:border-l-primary/25"
-                  }`}
+                  className={isUnreadCardsView
+                    ? `relative group flex items-stretch transition-all duration-150 mx-2 my-1.5 rounded-xl border shadow-sm ${
+                        isSelected
+                          ? "bg-primary/[0.13] border-primary/50 shadow-primary/10"
+                          : isBulkChecked
+                            ? "bg-primary/10 border-primary/40"
+                            : "border-border/50 bg-card hover:bg-muted/40 hover:border-border hover:shadow-md"
+                      }`
+                    : `relative group flex items-stretch transition-all duration-150 border-b border-border/20 ${
+                        isSelected
+                          ? "bg-primary/[0.13] hover:bg-primary/[0.21] border-l-[3px] border-l-primary shadow-[inset_0_0_0_1px_rgba(20,184,166,0.14),inset_4px_0_12px_-4px_rgba(20,184,166,0.08)]"
+                          : isBulkChecked
+                            ? "bg-primary/10 border-l-[3px] border-l-primary/60"
+                            : "border-l-[3px] border-l-transparent hover:bg-primary/[0.07] hover:border-l-primary/25"
+                      }`
+                  }
                 >
                   {/* Checkbox — visible on hover or when any selection active */}
                   <div

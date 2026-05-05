@@ -21,7 +21,7 @@ import { useCallback, useEffect, useState } from "react";
 /* Types                                                              */
 /* ------------------------------------------------------------------ */
 
-export type InboxViewMode = "classic" | "smart";
+export type InboxViewMode = "classic" | "smart" | "unread-cards";
 
 export type SmartCategory = "people" | "notifications" | "newsletters";
 
@@ -268,7 +268,7 @@ function readViewMode(): InboxViewMode {
   if (typeof window === "undefined") return "classic";
   try {
     const v = window.localStorage.getItem(VIEW_MODE_KEY);
-    return v === "smart" ? "smart" : "classic";
+    return v === "smart" ? "smart" : v === "unread-cards" ? "unread-cards" : "classic";
   } catch {
     return "classic";
   }
