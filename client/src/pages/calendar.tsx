@@ -354,7 +354,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
   });
   const [view, setView] = useState<ViewMode>(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get("date") ? "day" : "month";
+    return params.get("date") ? "day" : "day";
   });
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
