@@ -20,6 +20,7 @@ import {
   Users,
 } from "lucide-react";
 import { format } from "date-fns";
+import { DatePicker } from "@/components/ui/date-picker";
 
 const PRIORITY_META: Record<string, { label: string; dot: string }> = {
   low:    { label: "Low",    dot: "bg-slate-400" },
@@ -650,21 +651,11 @@ function DueDateButton({ task, onChanged }: any) {
         <div className="space-y-3">
           <div className="space-y-1">
             <label className="text-xs font-semibold text-muted-foreground">Start date</label>
-            <Input
-              type="date"
-              value={startVal}
-              onChange={(e) => setStartVal(e.target.value)}
-              data-testid="input-start-date"
-            />
+            <DatePicker value={startVal} onChange={setStartVal} placeholder="Pick a start date" data-testid="input-start-date" />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-semibold text-muted-foreground">End date</label>
-            <Input
-              type="date"
-              value={dueVal}
-              onChange={(e) => setDueVal(e.target.value)}
-              data-testid="input-due-date"
-            />
+            <DatePicker value={dueVal} onChange={setDueVal} placeholder="Pick an end date" data-testid="input-due-date" />
           </div>
           {rangeInvalid && (
             <p className="text-xs text-destructive" data-testid="text-date-range-error">
@@ -1412,13 +1403,7 @@ function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: number) => void;
             <label className="text-sm font-medium flex items-center gap-1.5">
               <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" /> Due date
             </label>
-            <Input
-              type="date"
-              value={dueDate}
-              onChange={e => setDueDate(e.target.value)}
-              className="h-9"
-              data-testid="input-new-task-due-date"
-            />
+            <DatePicker value={dueDate} onChange={setDueDate} data-testid="input-new-task-due-date" />
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium flex items-center gap-1.5">

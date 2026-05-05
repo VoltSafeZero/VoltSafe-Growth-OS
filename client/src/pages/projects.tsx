@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -1156,7 +1157,9 @@ function CertificationDetailPanel({ projectId, projectName }: { projectId: numbe
     <div className="space-y-1">
       <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">{label}</div>
       {editing
-        ? <Input type={type} className="h-7 text-xs" defaultValue={v(fkey)} onChange={e => set(fkey, e.target.value || null)} placeholder={ph} />
+        ? type === "date"
+          ? <DatePicker value={v(fkey) || ""} onChange={val => set(fkey, val || null)} placeholder={ph || "Pick a date"} />
+          : <Input type={type} className="h-7 text-xs" defaultValue={v(fkey)} onChange={e => set(fkey, e.target.value || null)} placeholder={ph} />
         : <div className="text-sm">{v(fkey) || <span className="italic text-muted-foreground/30">—</span>}</div>}
     </div>
   );
@@ -1607,11 +1610,11 @@ function ProjectEditDialog({ project, onClose }: { project: Project; onClose: ()
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Start Date</Label>
-              <Input value={startDate} onChange={e => setStartDate(e.target.value)} type="date" className="mt-1 h-8 text-sm" />
+              <div className="mt-1"><DatePicker value={startDate} onChange={setStartDate} placeholder="Start date" /></div>
             </div>
             <div>
               <Label className="text-xs">End Date</Label>
-              <Input value={endDate} onChange={e => setEndDate(e.target.value)} type="date" className="mt-1 h-8 text-sm" />
+              <div className="mt-1"><DatePicker value={endDate} onChange={setEndDate} placeholder="End date" /></div>
             </div>
           </div>
           <div className="flex gap-2 justify-end pt-1">

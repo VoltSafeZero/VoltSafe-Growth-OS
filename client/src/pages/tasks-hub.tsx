@@ -23,6 +23,7 @@ import {
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 import { TaskBoard } from "@/components/tasks/task-board";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
+import { Calendar } from "@/components/ui/calendar";
 
 type HubTask = {
   id: number;
@@ -191,7 +192,7 @@ function DueDatePicker({ taskId, currentDate, onSave }: {
   onSave: (date: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [val, setVal] = useState(currentDate ? currentDate.split("T")[0] : "");
+  const dateVal = currentDate ? currentDate.split("T")[0] : "";
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -200,18 +201,22 @@ function DueDatePicker({ taskId, currentDate, onSave }: {
           {currentDate ? formatDate(currentDate, true) : "Set date"}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-48 p-2" align="end">
-        <p className="text-xs font-medium mb-1.5">Change due date</p>
-        <Input
-          type="date"
-          value={val}
-          onChange={e => setVal(e.target.value)}
-          className="h-8 text-xs"
+      <PopoverContent className="w-auto p-0" align="end">
+        <Calendar
+          mode="single"
+          selected={dateVal ? new Date(dateVal + "T00:00:00") : undefined}
+          onSelect={(d) => {
+            if (d) {
+              const yyyy = d.getFullYear();
+              const mm = String(d.getMonth() + 1).padStart(2, "0");
+              const dd = String(d.getDate()).padStart(2, "0");
+              onSave(`${yyyy}-${mm}-${dd}`);
+              setOpen(false);
+            }
+          }}
+          initialFocus
           data-testid={`input-duedate-${taskId}`}
         />
-        <Button size="sm" className="w-full mt-2 h-7 text-xs" onClick={() => { if (val) { onSave(val); setOpen(false); } }}>
-          Save
-        </Button>
       </PopoverContent>
     </Popover>
   );

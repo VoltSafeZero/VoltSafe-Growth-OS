@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { ScoreBadge } from "@/components/scores/score-badge";
+import { DatePicker } from "@/components/ui/date-picker";
 import { useDeploymentRiskScores } from "@/hooks/use-scores";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { AttachmentsSection } from "@/components/attachments-section";
@@ -164,8 +165,7 @@ function CreateDeploymentButton() {
           className="h-8 text-xs" placeholder="Address" data-testid="deploy-address" />
         <Input value={region} onChange={e => setRegion(e.target.value)}
           className="h-8 text-xs" placeholder="Region" data-testid="deploy-region" />
-        <Input type="date" value={targetGoLive} onChange={e => setTargetGoLive(e.target.value)}
-          className="h-8 text-xs" placeholder="Target go-live" data-testid="deploy-target-go-live" />
+        <DatePicker value={targetGoLive} onChange={setTargetGoLive} placeholder="Target go-live" data-testid="deploy-target-go-live" />
         <Input type="number" value={docksCount} onChange={e => setDocksCount(e.target.value)}
           className="h-8 text-xs" placeholder="Number of docks" data-testid="deploy-docks-count" />
         <div className="flex gap-2">

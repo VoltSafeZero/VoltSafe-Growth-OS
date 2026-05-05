@@ -1808,12 +1808,11 @@ function PostMeetingTab({ event, opportunities, onDone }: {
               className="h-8 text-sm"
               data-testid="input-task-title"
             />
-            <Input
-              type="date"
+            <DatePickerField
               value={taskDueDate}
-              onChange={e => setTaskDueDate(e.target.value)}
-              className="h-8 text-sm"
-              data-testid="input-task-due-date"
+              onChange={setTaskDueDate}
+              label=""
+              testId="input-task-due-date"
             />
           </div>
         )}

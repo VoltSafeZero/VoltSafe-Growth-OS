@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -183,13 +184,11 @@ function BackfillPanel({ mailboxId, emailAddress }: { mailboxId: number; emailAd
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label className="text-[10px] text-muted-foreground">From date (optional)</Label>
-              <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                className="h-7 text-xs mt-0.5" data-testid="input-backfill-from" />
+              <DatePicker value={dateFrom} onChange={setDateFrom} placeholder="From date" data-testid="input-backfill-from" />
             </div>
             <div>
               <Label className="text-[10px] text-muted-foreground">To date (optional)</Label>
-              <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                className="h-7 text-xs mt-0.5" data-testid="input-backfill-to" />
+              <DatePicker value={dateTo} onChange={setDateTo} placeholder="To date" data-testid="input-backfill-to" />
             </div>
           </div>
           <Button size="sm" variant="outline" className="h-7 text-xs w-full gap-1.5"

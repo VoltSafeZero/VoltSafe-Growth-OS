@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "wouter";
+import { DatePicker } from "@/components/ui/date-picker";
 import { useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -267,14 +268,7 @@ function TaskModal({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="task-due" className="text-xs">Due date <span className="text-muted-foreground">(optional)</span></Label>
-            <Input
-              id="task-due"
-              data-testid="input-task-due"
-              type="date"
-              value={dueDate}
-              onChange={e => setDueDate(e.target.value)}
-              className="text-sm"
-            />
+            <DatePicker value={dueDate} onChange={setDueDate} placeholder="Pick a due date" data-testid="input-task-due" />
           </div>
           {item && (
             <p className="text-[11px] text-muted-foreground">

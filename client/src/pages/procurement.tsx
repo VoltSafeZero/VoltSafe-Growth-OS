@@ -1,4 +1,5 @@
 import { useState, Fragment } from "react";
+import { DatePicker } from "@/components/ui/date-picker";
 import { AttachmentsSection } from "@/components/attachments-section";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -116,8 +117,7 @@ function CreatePOButton({ suppliers }: { suppliers: Supplier[] }) {
             {suppliers.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Input type="date" value={expectedDate} onChange={e => setExpectedDate(e.target.value)}
-          className="h-8 text-xs" placeholder="Expected delivery" data-testid="po-expected-date" />
+        <DatePicker value={expectedDate} onChange={setExpectedDate} placeholder="Expected delivery" data-testid="po-expected-date" />
         <Input value={notes} onChange={e => setNotes(e.target.value)}
           className="h-8 text-xs" placeholder="Notes (optional)" data-testid="po-notes" />
         <div className="flex gap-2">
