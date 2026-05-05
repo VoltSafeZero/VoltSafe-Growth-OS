@@ -5,8 +5,7 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Plus, X, Mail, Phone, Briefcase, StickyNote, Pencil, Check } from "lucide-react";
+import { Plus, X, Mail, Phone, StickyNote, Pencil, Check, Search, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ContactAvatar } from "./contact-avatar";
 import { CreateContactDialog } from "./create-contact-dialog";
@@ -291,31 +290,63 @@ function AddContactPopover({
             <Plus className="h-3.5 w-3.5" /> Add contact
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-80 p-0" align="end">
-          <Command shouldFilter={false}>
-            <CommandInput placeholder="Search contacts…" value={search} onValueChange={setSearch} data-testid="input-search-contact" />
-            <CommandList>
-              <CommandGroup>
-                <CommandItem onSelect={() => openCreateDialog()} className="text-primary font-medium" data-testid="option-create-new-contact">
-                  <Plus className="h-3.5 w-3.5 mr-2 text-primary" /> New Contact
-                </CommandItem>
-              </CommandGroup>
-              <CommandGroup heading="Existing">
+        <PopoverContent className="w-80 p-2" align="end">
+          {/* Search input */}
+          <div className="relative mb-2">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              autoFocus
+              placeholder="Search contacts…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="h-8 pl-8 text-sm"
+              data-testid="input-search-contact"
+            />
+          </div>
+
+          {/* New Contact — use onMouseDown so it fires before Radix closes the popover */}
+          <button
+            onMouseDown={(e) => { e.preventDefault(); openCreateDialog(); }}
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-primary font-medium hover:bg-accent transition-colors mb-1"
+            data-testid="option-create-new-contact"
+          >
+            <Plus className="h-3.5 w-3.5" /> New Contact
+          </button>
+
+          {/* Existing contacts list */}
+          {filtered.length > 0 && (
+            <div className="border-t border-border/40 pt-1 mt-1">
+              <p className="px-2 pb-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Existing</p>
+              <div className="max-h-[220px] overflow-y-auto space-y-0.5">
                 {filtered.slice(0, 15).map((c: any) => (
-                  <CommandItem key={c.id} value={String(c.id)} onSelect={() => link.mutate(c.id)} data-testid={`option-contact-${c.id}`}>
-                    <div className="flex items-center gap-2 w-full">
-                      <ContactAvatar name={c.name} avatarUrl={c.avatarUrl} size="xs" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs font-medium truncate">{c.name}</div>
-                        <div className="text-[10px] text-muted-foreground truncate">{c.email || c.title || "—"}</div>
-                      </div>
+                  <button
+                    key={c.id}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      link.mutate(c.id);
+                    }}
+                    disabled={link.isPending}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent transition-colors text-left disabled:opacity-50"
+                    data-testid={`option-contact-${c.id}`}
+                  >
+                    <ContactAvatar name={c.name} avatarUrl={c.avatarUrl} size="xs" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-medium truncate">{c.name}</div>
+                      <div className="text-[10px] text-muted-foreground truncate">{c.email || c.title || "—"}</div>
                     </div>
-                  </CommandItem>
+                    {link.isPending && <Loader2 className="h-3 w-3 animate-spin flex-shrink-0 text-muted-foreground" />}
+                  </button>
                 ))}
-                {filtered.length === 0 && <CommandEmpty><div className="py-2 text-xs text-center text-muted-foreground">No existing contacts found</div></CommandEmpty>}
-              </CommandGroup>
-            </CommandList>
-          </Command>
+              </div>
+            </div>
+          )}
+
+          {filtered.length === 0 && search.length > 0 && (
+            <p className="py-3 text-xs text-center text-muted-foreground">No contacts found for "{search}"</p>
+          )}
+          {filtered.length === 0 && search.length === 0 && contacts.length > 0 && (
+            <p className="py-3 text-xs text-center text-muted-foreground">All contacts already linked.</p>
+          )}
         </PopoverContent>
       </Popover>
 
