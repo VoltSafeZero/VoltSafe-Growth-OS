@@ -30,6 +30,11 @@ const PRIORITY_META: Record<string, { label: string; dot: string }> = {
 
 type Props = {
   taskId: number | null;
+  /** When true the Sheet opens in "new task" creation mode. After saving,
+   *  onCreated is called with the new task id and the drawer transitions to
+   *  the full detail view for that task. */
+  createMode?: boolean;
+  onCreated?: (taskId: number) => void;
   onOpenChange: (open: boolean) => void;
   onTaskChanged?: () => void;
 };
@@ -61,8 +66,8 @@ function fmtDateTime(v?: string | null) {
   try { return format(new Date(v), "MMM d 'at' h:mma"); } catch { return null; }
 }
 
-export function TaskDetailDrawer({ taskId, onOpenChange, onTaskChanged }: Props) {
-  const open = taskId != null;
+export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, onTaskChanged }: Props) {
+  const open = taskId != null || !!createMode;
   const { toast } = useToast();
   const qc = useQueryClient();
   const { columns: taskColumns } = useTaskColumns();
@@ -70,13 +75,13 @@ export function TaskDetailDrawer({ taskId, onOpenChange, onTaskChanged }: Props)
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/tasks", taskId, "full"],
     queryFn: () => fetch(`/api/tasks/${taskId}/full`, { credentials: "include" }).then(r => r.json()),
-    enabled: open,
+    enabled: open && taskId != null,
   });
 
   const { data: comments = [] } = useQuery<any[]>({
     queryKey: ["/api/tasks", taskId, "comments"],
     queryFn: () => fetch(`/api/tasks/${taskId}/comments`, { credentials: "include" }).then(r => r.json()),
-    enabled: open,
+    enabled: open && taskId != null,
   });
 
   const { data: allLabels = [] } = useQuery<any[]>({
@@ -219,6 +224,13 @@ export function TaskDetailDrawer({ taskId, onOpenChange, onTaskChanged }: Props)
         onDrop={handleDrop}
       >
         <div className="relative min-h-full">
+        {/* ── Create-mode form (shown when no taskId exists yet) ─────────── */}
+        {createMode && taskId == null ? (
+          <NewTaskForm
+            onCreated={(id) => { onTaskChanged?.(); onCreated?.(id); }}
+            onCancel={() => onOpenChange(false)}
+          />
+        ) : null}
         {dragActive && t && (
           <div
             className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-primary/10 border-4 border-dashed border-primary rounded-lg"
@@ -230,7 +242,7 @@ export function TaskDetailDrawer({ taskId, onOpenChange, onTaskChanged }: Props)
             </div>
           </div>
         )}
-        {isLoading || !t ? (
+        {!(createMode && taskId == null) && ((isLoading || !t) ? (
           <div className="p-6 space-y-3">
             <Skeleton className="h-8 w-2/3" />
             <Skeleton className="h-4 w-1/2" />
@@ -433,7 +445,7 @@ export function TaskDetailDrawer({ taskId, onOpenChange, onTaskChanged }: Props)
               )}
             </div>
           </>
-        )}
+        ))}
         </div>
       </SheetContent>
     </Sheet>
@@ -1261,6 +1273,189 @@ function AttachmentsBlock({
           })}
         </ul>
       )}
+    </div>
+  );
+}
+
+// ─── NewTaskForm ─────────────────────────────────────────────────────────────
+// Displayed inside the Sheet when the drawer is opened in createMode.
+// All key task fields are shown upfront — the user came to the Task Hub
+// intentionally, so we give them the full creation form, not a quick capture.
+
+function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: number) => void; onCancel: () => void }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { columns: cols } = useTaskColumns();
+
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [priority, setPriority] = useState("medium");
+  const [column, setColumn] = useState("backlog");
+  const [ownerUserId, setOwnerUserId] = useState<string>("me");
+
+  const { data: me } = useQuery<{ id: number; name: string }>({ queryKey: ["/api/auth/me"] });
+  const { data: users = [] } = useQuery<{ id: number; name: string }[]>({ queryKey: ["/api/users"] });
+
+  const resolvedOwner = ownerUserId === "me" ? (me?.id ?? null) : Number(ownerUserId);
+
+  const createMut = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/tasks", {
+        title: title.trim(),
+        description: description.trim() || null,
+        dueDate: dueDate || null,
+        priority,
+        status: "pending",
+        boardColumn: column,
+        ownerUserId: resolvedOwner,
+      });
+      if (!res.ok) {
+        const msg = await res.text().catch(() => "");
+        throw new Error(msg || `HTTP ${res.status}`);
+      }
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ["/api/tasks/board"] });
+      qc.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
+      toast({ title: "Task created" });
+      onCreated(data.id);
+    },
+    onError: (e: any) => toast({ title: "Failed to create task", description: e.message, variant: "destructive" }),
+  });
+
+  const canSubmit = title.trim().length > 0 && !createMut.isPending;
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="px-6 py-5 border-b">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <Flag className="h-5 w-5 text-primary" />
+          New Task
+        </h2>
+        <p className="text-xs text-muted-foreground mt-0.5">Fill in as much detail as you need, then create the task.</p>
+      </div>
+
+      {/* Fields */}
+      <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+
+        {/* Title */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">Task title <span className="text-destructive">*</span></label>
+          <Input
+            autoFocus
+            placeholder="What needs to get done?"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && canSubmit) createMut.mutate(); }}
+            className="text-base"
+            data-testid="input-new-task-title"
+          />
+        </div>
+
+        {/* Description */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">Description</label>
+          <Textarea
+            placeholder="Add context, links, or acceptance criteria…"
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            rows={4}
+            className="resize-none"
+            data-testid="input-new-task-description"
+          />
+        </div>
+
+        {/* Due date + Priority */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium flex items-center gap-1.5">
+              <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" /> Due date
+            </label>
+            <Input
+              type="date"
+              value={dueDate}
+              onChange={e => setDueDate(e.target.value)}
+              className="h-9"
+              data-testid="input-new-task-due-date"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground" /> Priority
+            </label>
+            <Select value={priority} onValueChange={setPriority}>
+              <SelectTrigger className="h-9" data-testid="select-new-task-priority">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PRIORITY_OPTIONS.map(p => (
+                  <SelectItem key={p} value={p}>
+                    <span className="flex items-center gap-2">
+                      <span className={`h-2 w-2 rounded-full ${PRIORITY_META[p]?.dot}`} />
+                      {PRIORITY_META[p]?.label}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Board column + Assignee */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium flex items-center gap-1.5">
+              <MoveRight className="h-3.5 w-3.5 text-muted-foreground" /> Board column
+            </label>
+            <Select value={column} onValueChange={setColumn}>
+              <SelectTrigger className="h-9" data-testid="select-new-task-column">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {cols.map(c => (
+                  <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium flex items-center gap-1.5">
+              <User className="h-3.5 w-3.5 text-muted-foreground" /> Assign to
+            </label>
+            <Select value={ownerUserId} onValueChange={setOwnerUserId}>
+              <SelectTrigger className="h-9" data-testid="select-new-task-assignee">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="me">Me ({me?.name ?? "…"})</SelectItem>
+                {users.filter(u => u.id !== me?.id).map(u => (
+                  <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="px-6 py-4 border-t flex items-center justify-end gap-3">
+        <Button variant="ghost" size="sm" onClick={onCancel} data-testid="button-new-task-cancel">
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          className="gap-1.5 min-w-[120px]"
+          onClick={() => createMut.mutate()}
+          disabled={!canSubmit}
+          data-testid="button-new-task-create"
+        >
+          {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          Create Task
+        </Button>
+      </div>
     </div>
   );
 }

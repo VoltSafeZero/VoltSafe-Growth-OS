@@ -585,6 +585,7 @@ export default function TasksHubPage() {
   const queryClient = useQueryClient();
   const [view, setView] = useState<ViewTab>("board");
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
+  const [creatingNew, setCreatingNew] = useState(false);
 
   // Allow any list-row component to request the drawer via a window event
   useEffect(() => {
@@ -714,7 +715,7 @@ export default function TasksHubPage() {
   });
 
   const openCapture = () => {
-    window.dispatchEvent(new CustomEvent("open-quick-capture", { detail: { tab: "task" } }));
+    setCreatingNew(true);
   };
 
   const counts = data?.counts;
@@ -983,7 +984,9 @@ export default function TasksHubPage() {
 
       <TaskDetailDrawer
         taskId={openTaskId}
-        onOpenChange={(o) => !o && setOpenTaskId(null)}
+        createMode={creatingNew}
+        onCreated={(id) => { setCreatingNew(false); setOpenTaskId(id); }}
+        onOpenChange={(o) => { if (!o) { setOpenTaskId(null); setCreatingNew(false); } }}
         onTaskChanged={() => {
           queryClient.invalidateQueries({ queryKey: ["/api/tasks/board"] });
           queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
