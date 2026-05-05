@@ -1,15 +1,17 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
-import { Building2, Mail, Phone, Search, UserCircle2, Tag, ClipboardList } from "lucide-react";
+import { Building2, Mail, Phone, Search, UserCircle2, Tag, ClipboardList, UserPlus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
+import { CreateContactDialog } from "@/components/contacts/create-contact-dialog";
 import type { Contact, Account, SavedView } from "@shared/schema";
 
 type ContactWithAccount = Contact & { accountName?: string };
@@ -21,6 +23,7 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
   const [highlightedContactId, setHighlightedContactId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [activeViewId, setActiveViewId] = useState<number | null>(null);
+  const [createContactOpen, setCreateContactOpen] = useState(false);
 
   // Bulk task form state
   const [bulkTaskTitle, setBulkTaskTitle] = useState("");
@@ -173,15 +176,28 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
               All contacts across your accounts
             </p>
           </div>
-          <div className="relative w-64">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search contacts..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 h-9 bg-secondary/30 border-transparent focus-visible:border-primary/50 rounded-lg"
-              data-testid="input-search-contacts"
-            />
+          <div className="flex items-center gap-2">
+            {canEdit && (
+              <Button
+                size="sm"
+                onClick={() => setCreateContactOpen(true)}
+                className="gap-1.5 shrink-0"
+                data-testid="button-new-contact-header"
+              >
+                <UserPlus className="w-4 h-4" />
+                New Contact
+              </Button>
+            )}
+            <div className="relative w-64">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search contacts..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9 h-9 bg-secondary/30 border-transparent focus-visible:border-primary/50 rounded-lg"
+                data-testid="input-search-contacts"
+              />
+            </div>
           </div>
         </div>
         <SavedViewsBar
@@ -380,6 +396,16 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
           </>
         )}
       </div>
+
+      <CreateContactDialog
+        open={createContactOpen}
+        onOpenChange={setCreateContactOpen}
+        accountId={null}
+        onCreated={(created) => {
+          queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+          navigate(`/contacts/${created.id}`);
+        }}
+      />
     </div>
   );
 }

@@ -1074,7 +1074,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
   return (
     <>
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[90vh] sm:max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[90vh] sm:max-h-[85vh] overflow-y-auto overflow-x-hidden w-full">
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -1174,7 +1174,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                   <DetailField label="Organization Type" value={getOrgTypeLabel(account.orgType)} />
                   <DetailField label="Legal Name" value={account.legalName} />
                   <DetailField label="Website" value={account.website} icon={<Globe className="h-3 w-3" />} />

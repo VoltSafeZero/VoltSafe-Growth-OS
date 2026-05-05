@@ -295,9 +295,11 @@ function AddContactPopover({
           <Command shouldFilter={false}>
             <CommandInput placeholder="Search contacts…" value={search} onValueChange={setSearch} data-testid="input-search-contact" />
             <CommandList>
-              <CommandEmpty>
-                <div className="py-2 text-xs">No matches</div>
-              </CommandEmpty>
+              <CommandGroup>
+                <CommandItem onSelect={() => openCreateDialog()} className="text-primary font-medium" data-testid="option-create-new-contact">
+                  <Plus className="h-3.5 w-3.5 mr-2 text-primary" /> New Contact
+                </CommandItem>
+              </CommandGroup>
               <CommandGroup heading="Existing">
                 {filtered.slice(0, 15).map((c: any) => (
                   <CommandItem key={c.id} value={String(c.id)} onSelect={() => link.mutate(c.id)} data-testid={`option-contact-${c.id}`}>
@@ -310,11 +312,7 @@ function AddContactPopover({
                     </div>
                   </CommandItem>
                 ))}
-              </CommandGroup>
-              <CommandGroup heading="Or">
-                <CommandItem onSelect={() => openCreateDialog()} data-testid="option-create-new-contact">
-                  <Plus className="h-3 w-3 mr-2" /> Create new contact
-                </CommandItem>
+                {filtered.length === 0 && <CommandEmpty><div className="py-2 text-xs text-center text-muted-foreground">No existing contacts found</div></CommandEmpty>}
               </CommandGroup>
             </CommandList>
           </Command>
