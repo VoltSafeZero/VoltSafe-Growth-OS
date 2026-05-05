@@ -314,6 +314,9 @@ function ComposeDialog({
   draftId,
   asAccountId,
   replyToSender,
+  defaultQuotedHtml = "",
+  defaultQuotedFrom = "",
+  defaultQuotedDate = "",
 }: {
   open: boolean;
   onClose: () => void;
@@ -327,6 +330,9 @@ function ComposeDialog({
   draftId?: string;
   asAccountId?: number;
   replyToSender?: string;
+  defaultQuotedHtml?: string;
+  defaultQuotedFrom?: string;
+  defaultQuotedDate?: string;
 }) {
   const { toast } = useToast();
   const [to, setTo] = useState(defaultTo);
@@ -736,6 +742,23 @@ function ComposeDialog({
                   dangerouslySetInnerHTML={{ __html: EMAIL_SIGNATURE_HTML }}
                 />
               </div>
+
+              {/* Quoted original email (reply only) */}
+              {threadId && defaultQuotedHtml && (
+                <div className="border border-border/25 rounded-md overflow-hidden">
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/20 border-b border-border/20">
+                    <Reply className="h-3 w-3 text-muted-foreground/50 flex-shrink-0" />
+                    <span className="text-[11px] text-muted-foreground/60 truncate">
+                      {defaultQuotedFrom && <span className="font-medium">{parseSenderName(defaultQuotedFrom)}</span>}
+                      {defaultQuotedDate && <span className="ml-1">· {defaultQuotedDate}</span>}
+                    </span>
+                  </div>
+                  <div
+                    className="px-3 py-2.5 text-sm text-foreground/70 max-h-64 overflow-y-auto"
+                    dangerouslySetInnerHTML={{ __html: defaultQuotedHtml }}
+                  />
+                </div>
+              )}
 
           {/* Attached assets chips */}
           {attachedAssets.length > 0 && (
@@ -3281,7 +3304,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     return params.get("return") ?? null;
   });
   const [composeOpen, setComposeOpen] = useState(false);
-  const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string; fromName?: string } | null>(null);
+  const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string; fromName?: string; quotedHtml?: string; quotedFrom?: string; quotedDate?: string } | null>(null);
   const [tab, setTab] = useState<"inbox" | "sent" | "other" | "drafts" | "scheduled" | "folder" | "review">("inbox");
   const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set());
   const [inboxCategory, setInboxCategory] = useState<InboxCategory>("all");
@@ -5166,11 +5189,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   }, []);
 
   const handleReply = (msg: ThreadMessage) => {
+    const dateStr = msg.date || (msg.internalDate ? new Date(Number(msg.internalDate)).toLocaleString() : "");
     setReplyTo({
       to: parseSenderEmail(msg.from),
       subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
       threadId: msg.threadId,
       fromName: parseSenderName(msg.from),
+      quotedHtml: msg.body || "",
+      quotedFrom: msg.from || "",
+      quotedDate: dateStr,
     });
   };
 
@@ -5183,12 +5210,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       .split(/,\s*/)
       .map((e) => e.trim())
       .filter((e) => e && parseSenderEmail(e).toLowerCase() !== ownEmail);
+    const dateStr = msg.date || (msg.internalDate ? new Date(Number(msg.internalDate)).toLocaleString() : "");
     setReplyTo({
       to: parseSenderEmail(msg.from),
       cc: allRecipients.length > 0 ? allRecipients.join(", ") : undefined,
       subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
       threadId: msg.threadId,
       fromName: parseSenderName(msg.from),
+      quotedHtml: msg.body || "",
+      quotedFrom: msg.from || "",
+      quotedDate: dateStr,
     });
   };
 
@@ -5219,9 +5250,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Newest-first display order (Spark Mail pattern): most recent email shown at top,
   // older messages collapsed below it for reference.
   const displayMessages = [...selectedMessages].reverse();
-  const [expandedOlderMsgIds, setExpandedOlderMsgIds] = useState<Set<string>>(new Set());
-  // Reset expanded set whenever the selected thread changes.
-  useEffect(() => { setExpandedOlderMsgIds(new Set()); }, [selectedThreadId]);
 
   // Parent-level slice of /api/gmail/thread-record so the actions toolbar can
   // read the current assignedUserId WITHOUT re-fetching when the insights
@@ -7359,28 +7387,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               {displayMessages.map((msg, idx) => {
                 const initials = parseSenderName(msg.from).split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
                 const isLatest = idx === 0;
-                const isOlderExpanded = expandedOlderMsgIds.has(msg.id);
-                // Older (non-latest) messages: show a collapsed single-line summary
-                // until the user taps to expand — Spark Mail style.
-                if (!isLatest && !isOlderExpanded) {
-                  return (
-                    <button
-                      key={msg.id}
-                      onClick={() => setExpandedOlderMsgIds(prev => new Set([...prev, msg.id]))}
-                      className="w-full flex items-center gap-3 rounded-xl border border-border/20 bg-card/20 hover:bg-card/40 px-4 py-2.5 text-left transition-colors group"
-                      data-testid={`email-message-collapsed-${msg.id}`}
-                      title="Click to expand"
-                    >
-                      <div className={`h-6 w-6 rounded-full bg-gradient-to-br ${avatarColor(parseSenderEmail(msg.from))} text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0`}>
-                        {initials || "?"}
-                      </div>
-                      <span className="text-[12px] font-medium text-foreground/60 flex-shrink-0">{parseSenderName(msg.from)}</span>
-                      <span className="text-[12px] text-muted-foreground/45 truncate flex-1 min-w-0">{msg.subject || "(no subject)"}</span>
-                      <span className="text-[11px] text-muted-foreground/35 flex-shrink-0 tabular-nums">{formatMessageHeaderDate(msg.date, msg.internalDate)}</span>
-                      <ChevronDown className="h-3 w-3 text-muted-foreground/25 group-hover:text-muted-foreground/50 flex-shrink-0 transition-colors" />
-                    </button>
-                  );
-                }
                 return (
                   <div
                     key={msg.id}
@@ -7420,16 +7426,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                               >
                                 {formatMessageHeaderDate(msg.date, msg.internalDate)}
                               </span>
-                              {!isLatest && isOlderExpanded && (
-                                <button
-                                  onClick={() => setExpandedOlderMsgIds(prev => { const next = new Set(prev); next.delete(msg.id); return next; })}
-                                  className="text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors p-0.5 rounded"
-                                  title="Collapse"
-                                  data-testid={`btn-collapse-message-${msg.id}`}
-                                >
-                                  <ChevronUp className="h-3.5 w-3.5" />
-                                </button>
-                              )}
                             </div>
                           </div>
                           <div className="text-[11px] text-muted-foreground/50 mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
@@ -7980,6 +7976,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         threadId={editingDraft?.threadId || replyTo?.threadId}
         asAccountId={typeof activeAccountId === "number" ? activeAccountId : undefined}
         replyToSender={replyTo?.fromName}
+        defaultQuotedHtml={replyTo?.quotedHtml || ""}
+        defaultQuotedFrom={replyTo?.quotedFrom || ""}
+        defaultQuotedDate={replyTo?.quotedDate || ""}
       />
 
       {/* Create Folder dialog */}
