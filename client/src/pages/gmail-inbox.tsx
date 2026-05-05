@@ -17,7 +17,7 @@ import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
   Clock, FileText, CalendarClock, CalendarX, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
   FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronUp, ChevronRight, Folder,
-  Reply, ReplyAll, Forward, Pencil, User, Building2, Zap, Flame, Video,
+  Reply, ReplyAll, Forward, Pencil, User, Building2, Zap, Flame, Video, UserPlus,
   CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
   CheckCheck, ArrowLeft, ArrowUp, ClipboardList, StickyNote, ArchiveX, Square, Filter, Eye,
   Sparkles, Code2, Type, Rows3, Rows2, Inbox as InboxIcon,
@@ -33,6 +33,7 @@ import {
   type SmartSectionId,
 } from "@/components/inbox/smart-inbox-grouper";
 import { EmailActionsToolbar } from "@/components/inbox/email-actions-toolbar";
+import { SmartAddContactDialog } from "@/components/contacts/smart-add-contact-dialog";
 import { EmailFormatToolbar } from "@/components/inbox/email-format-toolbar";
 import { RecipientList } from "@/components/inbox/recipient-list";
 import { CalendarInviteCard } from "@/components/inbox/calendar-invite-card";
@@ -3304,6 +3305,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     return params.get("return") ?? null;
   });
   const [composeOpen, setComposeOpen] = useState(false);
+  const [smartContactOpen, setSmartContactOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string; fromName?: string; quotedHtml?: string; quotedFrom?: string; quotedDate?: string } | null>(null);
   const [tab, setTab] = useState<"inbox" | "sent" | "other" | "drafts" | "scheduled" | "folder" | "review">("inbox");
   const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set());
@@ -7638,6 +7640,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     <Forward className="h-3.5 w-3.5 group-hover:text-primary transition-colors" />
                     <span className="hidden sm:inline">Forward</span>
                   </button>
+                  <button
+                    onClick={() => setSmartContactOpen(true)}
+                    data-testid="button-smart-add-contact"
+                    title="Smart Add Contact — AI extracts contact info from this email"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-border/40 bg-background/60 text-[12px] text-muted-foreground hover:border-primary/40 hover:text-foreground hover:bg-background transition-all group flex-shrink-0"
+                  >
+                    <UserPlus className="h-3.5 w-3.5 group-hover:text-primary transition-colors" />
+                    <span className="hidden sm:inline">Add Contact</span>
+                  </button>
                   <span className="text-[10px] text-muted-foreground/35 font-mono hidden lg:block">r</span>
                 </div>
               </div>
@@ -7692,6 +7703,18 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         )}
         </div>
       </div>
+
+      {/* Smart Add Contact dialog */}
+      {focusedMsg && (
+        <SmartAddContactDialog
+          open={smartContactOpen}
+          onClose={() => setSmartContactOpen(false)}
+          fromName={parseSenderName(focusedMsg.from)}
+          fromEmail={parseSenderEmail(focusedMsg.from)}
+          subject={focusedMsg.subject || ""}
+          body={focusedMsg.body || ""}
+        />
+      )}
 
       {/* Snippets Manager dialog */}
       <SnippetsManagerDialog open={snippetsManagerOpen} onClose={() => setSnippetsManagerOpen(false)} />

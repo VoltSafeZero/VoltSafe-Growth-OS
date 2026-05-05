@@ -3116,6 +3116,53 @@ export async function registerRoutes(
     }
   );
 
+  app.post("/api/contacts/extract-from-email",
+    requirePermission("crm", "edit"),
+    async (req, res) => {
+      try {
+        const { subject, fromName, fromEmail, body } = req.body;
+        if (!body && !fromEmail) return res.status(400).json({ message: "Email content required" });
+
+        const plainText = (body as string || "")
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/&nbsp;/g, " ")
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .replace(/\s{2,}/g, "\n")
+          .trim()
+          .slice(0, 5000);
+
+        const extracted = await callContactExtractor([
+          {
+            role: "system",
+            content:
+              "You extract contact information from an email message, focusing on the SENDER's details. " +
+              "Pay special attention to the email signature at the bottom which typically contains: full name, job title, company/organization name, phone number, address, website, and social media links. " +
+              "For marina contacts: 'company' should be the marina name, 'address' may include the marina location. " +
+              "Return ONLY a JSON object with these fields (use null when unknown): " +
+              "firstName, lastName, name (full name), title, email, phone, linkedinUrl, company, website, address, notes. " +
+              "Normalize phone numbers to international format when possible.",
+          },
+          {
+            role: "user",
+            content: `Extract the sender's contact details from this email.\n\nFrom: ${fromName || ""} <${fromEmail || ""}>\nSubject: ${subject || ""}\n\nBody:\n${plainText}`,
+          },
+        ]);
+
+        if (!extracted.email && fromEmail) extracted.email = fromEmail;
+        if (!extracted.name && fromName) extracted.name = fromName;
+
+        res.json({ extracted });
+      } catch (e: any) {
+        console.error("[extract-from-email] failed:", e?.message || e);
+        res.status(500).json({ message: e?.message || "Failed to extract contact info" });
+      }
+    }
+  );
+
   app.get("/api/opportunities", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const { accountId, stage, ownerId, forecastCategory, search, page, limit } = req.query;
     res.json(await storage.getOpportunities({
