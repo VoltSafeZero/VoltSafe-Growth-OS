@@ -17,7 +17,7 @@ import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
   Clock, FileText, CalendarClock, CalendarX, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
   FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronUp, ChevronRight, Folder,
-  Reply, ReplyAll, Pencil, User, Building2, Zap, Flame, Video,
+  Reply, ReplyAll, Forward, Pencil, User, Building2, Zap, Flame, Video,
   CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
   CheckCheck, ArrowLeft, ArrowUp, ClipboardList, StickyNote, ArchiveX, Square, Filter, Eye,
   Sparkles, Code2, Type, Rows3, Rows2, Inbox as InboxIcon,
@@ -3396,7 +3396,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [snippetsManagerOpen, setSnippetsManagerOpen] = useState(false);
   const { snippets } = useSnippets();
   // ── Compose seed (cmdk → contact / snippet → fresh compose) ────────────
-  const [composeInitial, setComposeInitial] = useState<{ to?: string; body?: string } | null>(null);
+  const [composeInitial, setComposeInitial] = useState<{ to?: string; subject?: string; body?: string } | null>(null);
   // ── Cmd+K / Ctrl+K listener ────────────────────────────────────────────
   // Registered in CAPTURE phase + stopImmediatePropagation so the inbox
   // palette is the *only* ⌘K target while this page is mounted (preempts
@@ -5164,6 +5164,28 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
       threadId: msg.threadId,
       fromName: parseSenderName(msg.from),
+    });
+  };
+
+  const handleForward = (msg: ThreadMessage) => {
+    // Build the forwarded-message attribution block (plain text, same convention
+    // as Gmail/Spark: dashes, then From/Date/Subject/To metadata, then body).
+    const bodyText = msg.isHtml ? htmlToPlainText(msg.body || "") : (msg.body || "");
+    const dateStr = msg.date || (msg.internalDate ? new Date(Number(msg.internalDate)).toUTCString() : "");
+    const fwdBlock = [
+      "---------- Forwarded message ----------",
+      `From: ${msg.from || ""}`,
+      `Date: ${dateStr}`,
+      `Subject: ${msg.subject || ""}`,
+      `To: ${msg.to || ""}`,
+      "",
+      bodyText,
+    ].join("\n");
+    setReplyTo(null);
+    setComposeInitial({
+      to: "",
+      subject: msg.subject.startsWith("Fwd:") ? msg.subject : `Fwd: ${msg.subject}`,
+      body: fwdBlock,
     });
   };
 
@@ -7090,17 +7112,30 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     );
                   })()}
                   {canSend && focusedMsg && (
-                    <motion.button
-                      whileTap={{ scale: 0.92 }}
-                      whileHover={{ scale: 1.05 }}
-                      title="Reply (r)"
-                      aria-label="Reply to this thread"
-                      data-testid="button-reply-header"
-                      onClick={() => handleReply(focusedMsg)}
-                      className="p-2 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none"
-                    >
-                      <Reply className="h-4 w-4" aria-hidden="true" />
-                    </motion.button>
+                    <>
+                      <motion.button
+                        whileTap={{ scale: 0.92 }}
+                        whileHover={{ scale: 1.05 }}
+                        title="Reply (r)"
+                        aria-label="Reply to this thread"
+                        data-testid="button-reply-header"
+                        onClick={() => handleReply(focusedMsg)}
+                        className="p-2 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none"
+                      >
+                        <Reply className="h-4 w-4" aria-hidden="true" />
+                      </motion.button>
+                      <motion.button
+                        whileTap={{ scale: 0.92 }}
+                        whileHover={{ scale: 1.05 }}
+                        title="Forward"
+                        aria-label="Forward this email"
+                        data-testid="button-forward-header"
+                        onClick={() => handleForward(focusedMsg)}
+                        className="p-2 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none"
+                      >
+                        <Forward className="h-4 w-4" aria-hidden="true" />
+                      </motion.button>
+                    </>
                   )}
                   {canSend && selectedThreadId && tab === "inbox" && (
                     <motion.button
@@ -7410,6 +7445,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       <ReplyAll className="h-3.5 w-3.5 flex-shrink-0" />
                       <span className="hidden sm:inline">Reply All</span>
                     </button>
+                    <span className="text-muted-foreground/20 text-xs select-none">·</span>
+                    <button
+                      onClick={() => { setBottomExpanded(true); handleForward(focusedMsg); }}
+                      data-testid="button-forward-mini"
+                      className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground/60 hover:text-primary transition-colors rounded-full px-2 py-1 hover:bg-primary/10 flex-shrink-0"
+                    >
+                      <Forward className="h-3.5 w-3.5 flex-shrink-0" />
+                      <span className="hidden sm:inline">Forward</span>
+                    </button>
                   </>
                 )}
                 <button
@@ -7443,6 +7487,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   >
                     <ReplyAll className="h-3.5 w-3.5 group-hover:text-primary transition-colors" />
                     <span className="hidden sm:inline">Reply All</span>
+                  </button>
+                  <button
+                    onClick={() => handleForward(focusedMsg)}
+                    data-testid="button-forward-bar"
+                    title="Forward"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-border/40 bg-background/60 text-[12px] text-muted-foreground hover:border-primary/40 hover:text-foreground hover:bg-background transition-all group flex-shrink-0"
+                  >
+                    <Forward className="h-3.5 w-3.5 group-hover:text-primary transition-colors" />
+                    <span className="hidden sm:inline">Forward</span>
                   </button>
                   <span className="text-[10px] text-muted-foreground/35 font-mono hidden lg:block">r</span>
                 </div>
@@ -7776,7 +7829,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         canSend={canSend}
         defaultTo={editingDraft?.to || replyTo?.to || composeInitial?.to || ""}
         defaultCc={replyTo?.cc || ""}
-        defaultSubject={editingDraft?.subject || replyTo?.subject || ""}
+        defaultSubject={editingDraft?.subject || replyTo?.subject || composeInitial?.subject || ""}
         defaultBody={editingDraft?.body || composeInitial?.body || ""}
         draftId={editingDraft?.draftId}
         threadId={editingDraft?.threadId || replyTo?.threadId}
