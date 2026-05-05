@@ -8886,12 +8886,47 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         // it — confusing for the UI to interpret.
         const capReachedNow = newCount >= SOFT_CAP;
 
+        // After the overflow upserts, strip UNREAD from any pre-2026-05-01 rows
+        // that Gmail returned with UNREAD still set (our bulk mark-read cleaned the
+        // local DB but Gmail's label index can lag, causing re-insertion of UNREAD
+        // on overflow fetches). Use rows.length (not inserted) because upsertMessageById
+        // also UPDATES existing rows with Gmail's current labels — reverting our cleanup.
+        // Best-effort — never block the response.
+        if (backfill.rows.length > 0) {
+          try {
+            await db.execute(sql`
+              UPDATE email_messages
+              SET label_ids = (
+                SELECT COALESCE(jsonb_agg(lbl), '[]'::jsonb)
+                FROM jsonb_array_elements_text(label_ids::jsonb) AS lbl
+                WHERE lbl != 'UNREAD'
+              )
+              WHERE source_account_id = ${acct.id}
+                AND sent_at < '2026-05-01'
+                AND label_ids::text ILIKE '%UNREAD%'
+            `);
+          } catch (e) {
+            // non-fatal
+          }
+        }
+
         // De-dupe just in case a row appears in BOTH the local slice and the
         // backfill — shouldn't happen with second-precision `before:`, but
         // it's a cheap safety net that costs O(n).
         const localIds = new Set(local.messages.map((m: any) => m.id));
         const overflowed = backfill.rows.filter(r => !localIds.has(r.id));
-        const combined = [...local.messages, ...overflowed];
+        // Also strip UNREAD from old emails in the response payload itself so the
+        // client renders them as read immediately (before the next DB refresh).
+        const PRE_MAY_2026 = new Date("2026-05-01").getTime();
+        const stripOldUnread = (msgs: any[]) => msgs.map(m => {
+          if (!m.labelIds || !Array.isArray(m.labelIds)) return m;
+          const sentMs = m.sentAt ? new Date(m.sentAt).getTime() : 0;
+          if (sentMs < PRE_MAY_2026 && m.labelIds.includes("UNREAD")) {
+            return { ...m, labelIds: m.labelIds.filter((l: string) => l !== "UNREAD") };
+          }
+          return m;
+        });
+        const combined = [...stripOldUnread(local.messages), ...stripOldUnread(overflowed)];
 
         // Emit a fresh keyset cursor pointing at the OLDEST row we returned —
         // either the last local row (if backfill yielded nothing) or the

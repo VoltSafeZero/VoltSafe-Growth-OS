@@ -4981,13 +4981,19 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
+    // Use the email list scroll container as root so the observer fires relative
+    // to the internal scroll position — not the outer viewport. With the default
+    // viewport root, elements clipped inside an overflow:hidden ancestor register
+    // as non-intersecting even when the user has scrolled close to them, so the
+    // auto-load never re-triggers after the first fire.
+    const scrollRoot = inboxScrollRef.current ?? undefined;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMoreRef.current && !isLoadingMoreRef.current) {
           loadMoreRef.current();
         }
       },
-      { rootMargin: "600px 0px", threshold: 0 }
+      { root: scrollRoot, rootMargin: "400px 0px", threshold: 0 }
     );
     observer.observe(el);
     return () => observer.disconnect();
