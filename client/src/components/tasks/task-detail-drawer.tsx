@@ -905,9 +905,27 @@ function DependenciesButton({ task, deps, onChanged }: any) {
 
 function ChecklistBlock({ checklist, onChanged }: any) {
   const [newItem, setNewItem] = useState("");
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
   const total = checklist.items.length;
   const done = checklist.items.filter((i: any) => i.completed).length;
   const pct = total ? Math.round((done / total) * 100) : 0;
+
+  const addItem = async () => {
+    const content = newItem.trim();
+    if (!content) return;
+    setSaving(true);
+    try {
+      await apiRequest("POST", `/api/task-checklists/${checklist.id}/items`, { content });
+      setNewItem("");
+      onChanged();
+    } catch (e: any) {
+      toast({ title: "Couldn't add item", description: e.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <Section title={checklist.title} icon={<ListChecks className="h-4 w-4" />}>
       <div className="space-y-2">
@@ -917,11 +935,16 @@ function ChecklistBlock({ checklist, onChanged }: any) {
             <div className="h-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
           </div>
           <button
+            type="button"
             className="text-xs hover:text-destructive ml-2"
             onClick={async () => {
               if (confirm("Delete this checklist?")) {
-                await apiRequest("DELETE", `/api/task-checklists/${checklist.id}`);
-                onChanged();
+                try {
+                  await apiRequest("DELETE", `/api/task-checklists/${checklist.id}`);
+                  onChanged();
+                } catch (e: any) {
+                  toast({ title: "Couldn't delete checklist", description: e.message, variant: "destructive" });
+                }
               }
             }}
             data-testid={`button-delete-checklist-${checklist.id}`}
@@ -929,50 +952,65 @@ function ChecklistBlock({ checklist, onChanged }: any) {
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
-        <ul className="space-y-1">
-          {checklist.items.map((i: any) => (
-            <li key={i.id} className="flex items-center gap-2 group" data-testid={`checklist-item-${i.id}`}>
-              <Checkbox
-                checked={i.completed}
-                onCheckedChange={async (c) => {
-                  await apiRequest("PATCH", `/api/task-checklist-items/${i.id}`, { completed: !!c });
-                  onChanged();
-                }}
-              />
-              <span className={`text-sm flex-1 ${i.completed ? "line-through text-muted-foreground" : ""}`}>{i.content}</span>
-              <button
-                className="opacity-0 group-hover:opacity-100 text-xs text-muted-foreground hover:text-destructive"
-                onClick={async () => {
-                  await apiRequest("DELETE", `/api/task-checklist-items/${i.id}`);
-                  onChanged();
-                }}
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </li>
-          ))}
-        </ul>
+
+        {total === 0 ? (
+          <p className="text-xs text-muted-foreground italic py-1">
+            No items yet — type below and press Enter or click + to add one.
+          </p>
+        ) : (
+          <ul className="space-y-1">
+            {checklist.items.map((i: any) => (
+              <li key={i.id} className="flex items-center gap-2 group" data-testid={`checklist-item-${i.id}`}>
+                <Checkbox
+                  checked={!!i.completed}
+                  data-testid={`checkbox-item-${i.id}`}
+                  onCheckedChange={async (c) => {
+                    try {
+                      await apiRequest("PATCH", `/api/task-checklist-items/${i.id}`, { completed: !!c });
+                      onChanged();
+                    } catch (e: any) {
+                      toast({ title: "Couldn't update item", description: e.message, variant: "destructive" });
+                    }
+                  }}
+                />
+                <span className={`text-sm flex-1 ${i.completed ? "line-through text-muted-foreground" : ""}`}>{i.content}</span>
+                <button
+                  type="button"
+                  className="opacity-0 group-hover:opacity-100 text-xs text-muted-foreground hover:text-destructive"
+                  onClick={async () => {
+                    try {
+                      await apiRequest("DELETE", `/api/task-checklist-items/${i.id}`);
+                      onChanged();
+                    } catch (e: any) {
+                      toast({ title: "Couldn't remove item", description: e.message, variant: "destructive" });
+                    }
+                  }}
+                  data-testid={`button-delete-item-${i.id}`}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
         <div className="flex gap-1">
           <Input
             value={newItem}
             onChange={(e) => setNewItem(e.target.value)}
-            onKeyDown={async (e) => {
-              if (e.key === "Enter" && newItem.trim()) {
-                await apiRequest("POST", `/api/task-checklists/${checklist.id}/items`, { content: newItem.trim() });
-                setNewItem(""); onChanged();
-              }
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); addItem(); }
             }}
             placeholder="Add an item…"
             className="h-8 text-sm"
             data-testid={`input-new-item-${checklist.id}`}
           />
           <Button
+            type="button"
             size="sm"
-            disabled={!newItem.trim()}
-            onClick={async () => {
-              await apiRequest("POST", `/api/task-checklists/${checklist.id}/items`, { content: newItem.trim() });
-              setNewItem(""); onChanged();
-            }}
+            disabled={!newItem.trim() || saving}
+            onClick={addItem}
+            data-testid={`button-add-item-${checklist.id}`}
           >
             <Plus className="h-3.5 w-3.5" />
           </Button>
