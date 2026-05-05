@@ -9128,6 +9128,53 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             (m: any) => !((m.body || "").trim()) && !((m.subject || "").trim())
           );
           if (source === "local" || !everyMsgEmpty) {
+            // On-demand HTML backfill: if any message in the thread lacks body_html,
+            // fetch from Gmail in parallel now, update the DB, and patch the response
+            // so the user sees rich HTML on first open rather than plain text.
+            // Subsequent opens are served instantly from the local cache.
+            // Cap at 10: long threads with many historical messages are handled
+            // by the scheduled HTML backfill workflow, not on-demand fetch.
+            const msgsLackingHtml = local.messages.filter((m: any) => !m.isHtml).slice(0, 10);
+            if (msgsLackingHtml.length > 0) {
+              try {
+                const { getGmailClient } = await import("./gmail-oauth");
+                const { parseGmailMessage } = await import("./services/email-parser");
+                // Determine which accountId owns messages in this thread
+                const [threadAcctRow] = await db
+                  .select({ sourceAccountId: emailMessages.sourceAccountId, emailAddress: emailAccounts.emailAddress })
+                  .from(emailMessages)
+                  .innerJoin(emailAccounts, eq(emailMessages.sourceAccountId, emailAccounts.id))
+                  .where(eq(emailMessages.gmailThreadId, req.params.id))
+                  .limit(1);
+                const backfillAccountId = threadAcctRow?.sourceAccountId ?? resolved.accountId;
+                const myDomain = (threadAcctRow?.emailAddress?.split("@")[1] || "voltsafe.com").toLowerCase();
+                if (backfillAccountId) {
+                  const gmail = await getGmailClient(resolved.userId, backfillAccountId);
+                  await Promise.allSettled(msgsLackingHtml.map(async (m: any) => {
+                    try {
+                      const gmailMsg = await gmail.users.messages.get({ userId: "me", id: m.id, format: "full" });
+                      const parsed = parseGmailMessage(gmailMsg.data as any, myDomain);
+                      if (parsed.bodyHtml) {
+                        await db.update(emailMessages)
+                          .set({ bodyHtml: parsed.bodyHtml })
+                          .where(eq(emailMessages.gmailMessageId, m.id));
+                        m.body = parsed.bodyHtml;
+                        m.isHtml = true;
+                      } else {
+                        // No HTML part in source — store empty string so future backfill passes skip it
+                        await db.update(emailMessages)
+                          .set({ bodyHtml: "" })
+                          .where(eq(emailMessages.gmailMessageId, m.id));
+                      }
+                    } catch (e: any) {
+                      console.warn(`[on-demand-html] msg=${m.id} fetch failed: ${e.message?.slice(0, 120)}`);
+                    }
+                  }));
+                }
+              } catch (e: any) {
+                console.warn(`[on-demand-html] gmail client error: ${e.message?.slice(0, 120)}`);
+              }
+            }
             res.setHeader("X-Mail-Source", "local");
             return res.json(local);
           }
