@@ -3740,6 +3740,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [activeAccountId, setActiveAccountId] = useState<number | "all" | null>(null);
   const [inboxViewPickerOpen, setInboxViewPickerOpen] = useState(false);
   const inboxViewPickerRef = useRef<HTMLDivElement>(null);
+  const inboxViewPickerBtnRef = useRef<HTMLButtonElement>(null);
+  const [inboxViewPickerAnchor, setInboxViewPickerAnchor] = useState<{ top: number; left: number } | null>(null);
   // Multi-mailbox Phase 1: when a message is opened from "All Inboxes", remember its source
   // account id so per-thread reads/mutations target the right mailbox (instead of sending the
   // literal "all" sentinel, which numeric-only routes coerce to NaN).
@@ -5263,7 +5265,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   useEffect(() => {
     if (!inboxViewPickerOpen) return;
     const handler = (e: MouseEvent) => {
-      if (inboxViewPickerRef.current && !inboxViewPickerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const insideBtn = inboxViewPickerBtnRef.current?.contains(target);
+      const insidePanel = inboxViewPickerRef.current?.contains(target);
+      if (!insideBtn && !insidePanel) {
         setInboxViewPickerOpen(false);
       }
     };
@@ -5365,10 +5370,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         </button>
         <div className="w-px h-4 bg-border/50 flex-shrink-0" />
         {/* ── Inbox View Picker (Spark-style) ─────────────────────────── */}
-        <div className="relative min-w-0" ref={inboxViewPickerRef}>
+        <div className="relative min-w-0">
           <button
+            ref={inboxViewPickerBtnRef}
             type="button"
-            onClick={() => setInboxViewPickerOpen(v => !v)}
+            onClick={() => {
+              if (!inboxViewPickerOpen) {
+                const rect = inboxViewPickerBtnRef.current?.getBoundingClientRect();
+                if (rect) setInboxViewPickerAnchor({ top: rect.bottom + 6, left: rect.left });
+              }
+              setInboxViewPickerOpen(v => !v);
+            }}
             data-testid="button-inbox-view-picker"
             className="inline-flex items-center gap-1.5 h-7 px-1.5 rounded-md hover:bg-muted/50 transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none min-w-0 max-w-[240px]"
           >
@@ -5382,8 +5394,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             <ChevronDown className={`h-3 w-3 text-muted-foreground/55 flex-shrink-0 transition-transform duration-150 ${inboxViewPickerOpen ? "rotate-180" : ""}`} />
           </button>
 
-          {inboxViewPickerOpen && (
-            <div className="absolute left-0 top-full mt-1.5 z-50 rounded-xl border border-border/60 bg-popover shadow-xl shadow-black/10 p-3 animate-in fade-in-0 zoom-in-95 duration-100 origin-top-left" style={{ width: 380 }}>
+          {inboxViewPickerOpen && inboxViewPickerAnchor && createPortal(
+            <div
+              ref={inboxViewPickerRef}
+              className="fixed z-[99999] rounded-xl border border-border/60 bg-popover shadow-xl shadow-black/20 p-3 animate-in fade-in-0 zoom-in-95 duration-100 origin-top-left"
+              style={{ top: inboxViewPickerAnchor.top, left: inboxViewPickerAnchor.left, width: 380 }}
+            >
               <div className="text-[11px] font-semibold text-foreground/70 mb-2.5 px-0.5">Choose your Inbox View</div>
               <div className="flex gap-2.5">
                 {([
@@ -5480,7 +5496,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 })}
               </div>
             </div>
-          )}
+          , document.body)}
         </div>
         <div className="ml-auto flex items-center gap-2">
           {!canSend && (
