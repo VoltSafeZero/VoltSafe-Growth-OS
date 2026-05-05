@@ -5246,6 +5246,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+
+      // Cmd/Ctrl+A → select all visible email threads (prevent browser text-select)
+      if ((e.metaKey || e.ctrlKey) && (e.key === "a" || e.key === "A") && !e.altKey) {
+        if (tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review") {
+          e.preventDefault();
+          selectAllInboxThreads();
+          return;
+        }
+      }
+
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       const list = navList;
