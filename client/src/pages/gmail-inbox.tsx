@@ -4650,6 +4650,35 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
   });
 
+  const markAllInboxReadMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/gmail/mark-all-inbox-read", {
+        ...(activeAccountId && activeAccountId !== "all" ? { asAccountId: activeAccountId } : {}),
+      });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json() as Promise<{ success: number; failed: number; total: number }>;
+    },
+    onSuccess: ({ success }) => {
+      queryClient.setQueryData(
+        ["/api/gmail/messages", "inbox", searchQuery, activeAccountId],
+        (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
+          old ? {
+            ...old,
+            messages: old.messages.map(m => ({
+              ...m,
+              labelIds: m.labelIds.filter(l => l !== "UNREAD"),
+            })),
+          } : old,
+      );
+      setInboxExtra(prev => prev.map(m => ({
+        ...m,
+        labelIds: m.labelIds.filter(l => l !== "UNREAD"),
+      })));
+      toast({ title: `Marked ${success} message${success !== 1 ? "s" : ""} as read` });
+    },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
   const bulkArchiveMutation = useMutation({
     mutationFn: async () => {
       const threadIds = Array.from(selectedInboxIds);
@@ -5815,7 +5844,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 </div>
                 {/* CRM fast filters — horizontally scrollable on mobile */}
                 <div className="overflow-x-auto -mx-3 px-3">
-                  <div className="flex gap-1 min-w-max pt-0.5">
+                  <div className="flex items-center gap-1 min-w-max pt-0.5">
                   {([
                     { key: "all",         label: "All",           icon: <Filter className="h-3 w-3" />,       count: null },
                     { key: "unread",      label: "Unread",        icon: <MailOpen className="h-3 w-3" />,     count: inboxUnreadCount || null },
@@ -5845,6 +5874,23 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       )}
                     </motion.button>
                   );})}
+                  {inboxUnreadCount > 0 && (
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
+                      whileHover={{ scale: 1.04 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 22 }}
+                      onClick={() => markAllInboxReadMutation.mutate()}
+                      disabled={markAllInboxReadMutation.isPending}
+                      data-testid="button-mark-all-inbox-read"
+                      title="Mark all inbox messages as read"
+                      className={`ml-1 flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-colors whitespace-nowrap bg-muted/25 text-muted-foreground/65 hover:bg-emerald-500/15 hover:text-emerald-400 ring-1 ring-inset ring-transparent hover:ring-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed`}
+                    >
+                      {markAllInboxReadMutation.isPending
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <CheckCheck className="h-3 w-3" />}
+                      Mark all read
+                    </motion.button>
+                  )}
                   </div>
                 </div>
 
@@ -6828,15 +6874,26 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     )}
                   </button>
                 ) : crmFilteredMessages && crmFilteredMessages.length > 0 ? (
-                  // Commit 4: the "Switch to live Gmail / Switch to local archive"
-                  // CTAs were removed along with the mailSource toggle — the inbox
-                  // is always sourced from the local mirror now, so the shortfall
-                  // branches no longer apply (any gap is a backfill issue, not a
-                  // source-toggle issue, and surfaces in Mailbox Health instead).
-                  <span className="inline-flex items-center gap-1.5 text-muted-foreground/45 tabular-nums" data-testid="status-all-caught-up">
-                    <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
-                    You're all caught up · {crmFilteredMessages.length} message{crmFilteredMessages.length !== 1 ? "s" : ""}
-                  </span>
+                  <div className="flex flex-col items-center gap-1.5" data-testid="status-all-caught-up">
+                    <span className="inline-flex items-center gap-1.5 text-muted-foreground/45 tabular-nums text-[11px]">
+                      <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
+                      You're all caught up · {crmFilteredMessages.length.toLocaleString()} message{crmFilteredMessages.length !== 1 ? "s" : ""}
+                    </span>
+                    {(tab === "inbox" || tab === "other") && (
+                      <button
+                        data-testid="button-load-older-gmail"
+                        onClick={() => {
+                          setInboxExtra([]);
+                          setInboxNextToken(null);
+                          queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages", "inbox", searchQuery, activeAccountId] });
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] text-muted-foreground/50 hover:text-muted-foreground/80 hover:bg-muted/30 transition-colors"
+                      >
+                        <RefreshCw className="h-2.5 w-2.5" />
+                        Load older messages
+                      </button>
+                    )}
+                  </div>
                 ) : null}
               </div>
             )}

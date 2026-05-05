@@ -95,7 +95,7 @@ export async function fetchOlderFromGmail(
       noMoreHistory: false,
     };
   }
-  const p = doFetch(account, before, limit).finally(() => inFlight.delete(key));
+  const p = doFetch(account, before, limit, labelFilter).finally(() => inFlight.delete(key));
   inFlight.set(key, p);
   return p;
 }
@@ -104,6 +104,7 @@ async function doFetch(
   account: { id: number; userId: number; emailAddress: string },
   before: Date | null,
   limit: number,
+  labelFilter?: string,
 ): Promise<BackfillResult> {
   const t0 = Date.now();
   const result: BackfillResult = {
@@ -124,7 +125,7 @@ async function doFetch(
     return result;
   }
 
-  let q = Q_BASE;
+  let q = labelFilter ?? Q_BASE;
   if (before) {
     const unix = Math.floor(before.getTime() / 1000);
     q = `${q} before:${unix}`;

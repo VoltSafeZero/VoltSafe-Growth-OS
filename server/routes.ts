@@ -8806,14 +8806,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         const acct: any = (resolved as any).acct;
         // Overflow eligibility:
         //  • single-account only (unified-mode fan-out is a later commit);
-        //  • EMPTY query only — Gmail's q-syntax doesn't 1:1 map to our
-        //    local q-translator (has:attachment, mime:, etc), so blindly
-        //    backfilling with a different filter would pollute filtered
-        //    pages with unrelated rows. The user is paginating off the
-        //    bottom of an UNFILTERED inbox; that's the only safe trigger.
-        //    Plumbing q translation into Gmail is a future commit.
+        //  • Empty query OR "in:inbox" only — Gmail's q-syntax doesn't 1:1
+        //    map to our local q-translator (has:attachment, mime:, etc), so
+        //    blindly backfilling with an arbitrary filter would pollute pages
+        //    with unrelated rows. "in:inbox" is safe because we can pass it
+        //    verbatim to the Gmail backfill query.
         const queryEmpty = !q || q.trim() === "";
-        const canOverflow = !isUnified && !!acct?.id && !!acct?.emailAddress && queryEmpty;
+        const isInboxOnlyQuery = q?.trim() === "in:inbox";
+        const canOverflow = !isUnified && !!acct?.id && !!acct?.emailAddress && (queryEmpty || isInboxOnlyQuery);
 
         const sess = req.session as any;
         const SOFT_CAP = 5000;
@@ -8839,7 +8839,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           // UI shows it as "you've hit your session's history-load limit;
           // reload to fetch more".
           if (capReached && local.localExhausted && local.messages.length < maxResults &&
-              !isUnified && !!acct?.id && queryEmpty) {
+              !isUnified && !!acct?.id && (queryEmpty || isInboxOnlyQuery)) {
             body.historyLoadCapReached = true;
           }
           return res.json(body);
@@ -8862,6 +8862,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           { id: acct.id, userId: resolved.userId, emailAddress: acct.emailAddress },
           beforeDate,
           wantMore,
+          isInboxOnlyQuery ? "in:inbox" : undefined,
         );
 
         // Track newly-persisted rows against the per-session soft cap. Skipped
@@ -11085,6 +11086,62 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       res.json({ success, failed });
     } catch (err: any) {
       res.status(503).json({ message: "Gmail API error", error: err.message });
+    }
+  });
+
+  // ── Mark ALL unread inbox messages as read (single-account) ──────────────
+  // Fetches every INBOX+UNREAD message from the local mirror, calls Gmail
+  // batchModify in 100-message batches, then mirrors the change locally.
+  app.post("/api/gmail/mark-all-inbox-read", requireAuth, async (req, res) => {
+    const userId = (req.session as any).userId;
+    const rawAcc = req.body.asAccountId;
+    const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+    const numAcc = (rawAcc != null && rawAcc !== "all") ? Number(rawAcc) : undefined;
+    const resolved = await resolveAccount(userId, numAcc, _ia, _mtp);
+    if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
+    if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
+    try {
+      const unreadRows = await db
+        .select({ gmailMessageId: emailMessages.gmailMessageId })
+        .from(emailMessages)
+        .where(
+          and(
+            eq(emailMessages.sourceAccountId, resolved.accountId),
+            sql`label_ids @> ARRAY['INBOX']::text[]`,
+            sql`label_ids @> ARRAY['UNREAD']::text[]`,
+          )
+        );
+      if (unreadRows.length === 0) return res.json({ success: 0, failed: 0, total: 0 });
+      const ids = unreadRows.map(r => r.gmailMessageId).filter(Boolean) as string[];
+      const gmail = await getGmailClient(resolved.userId, resolved.accountId);
+      let success = 0; let failed = 0;
+      const succeededIds: string[] = [];
+      const BATCH = 100;
+      for (let i = 0; i < ids.length; i += BATCH) {
+        const batch = ids.slice(i, i + BATCH);
+        try {
+          await gmail.users.messages.batchModify({
+            userId: "me",
+            requestBody: { ids: batch, removeLabelIds: ["UNREAD"] },
+          });
+          success += batch.length;
+          succeededIds.push(...batch);
+        } catch (e: any) {
+          console.error(`[mark-all-inbox-read] batch i=${i} failed:`, e.message);
+          failed += batch.length;
+        }
+      }
+      if (succeededIds.length > 0) {
+        try {
+          const { mirrorLabelChangeForMessages } = await import("./services/local-label-mirror");
+          await mirrorLabelChangeForMessages(succeededIds, resolved.accountId, { remove: ["UNREAD"] });
+        } catch (mirrorErr: any) {
+          console.error(`[mark-all-inbox-read] mirror failed (non-fatal):`, mirrorErr.message);
+        }
+      }
+      return res.json({ success, failed, total: ids.length });
+    } catch (err: any) {
+      return res.status(503).json({ message: "Gmail API error", error: err.message });
     }
   });
 
