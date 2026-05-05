@@ -10908,6 +10908,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
     try {
       await markMessageRead(resolved.userId, req.params.id, resolved.accountId);
+      // Mirror the label change to the local DB so the next local-source fetch
+      // doesn't re-surface UNREAD. Best-effort — never block the response.
+      try {
+        const { mirrorLabelChangeForMessages } = await import("./services/local-label-mirror");
+        await mirrorLabelChangeForMessages([req.params.id], resolved.accountId ?? null, { remove: ["UNREAD"] });
+      } catch (mirrorErr: any) {
+        console.error("[mark-read] local mirror failed (non-fatal):", mirrorErr.message);
+      }
       res.json({ success: true });
     } catch (err: any) {
       res.status(503).json({ message: "Failed to mark as read", error: err.message });
