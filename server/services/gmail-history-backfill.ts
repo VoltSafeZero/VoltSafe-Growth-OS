@@ -62,14 +62,17 @@ export type BackfillResult = {
   tookMs: number;
 };
 
-const inFlight = new Map<number, Promise<BackfillResult>>();
+const inFlight = new Map<string, Promise<BackfillResult>>();
 
 export async function fetchOlderFromGmail(
   account: { id: number; userId: number; emailAddress: string },
   before: Date | null,
   limit: number,
+  labelFilter?: string,
 ): Promise<BackfillResult> {
-  const key = account.id;
+  // Key on (accountId + query) so concurrent searches with different
+  // query strings don't share the same in-flight lock and cancel each other.
+  const key = `${account.id}:${labelFilter ?? ""}`;
   const existing = inFlight.get(key);
   if (existing) {
     // Another caller is already backfilling this account. Wait for them, but

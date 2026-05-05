@@ -8806,14 +8806,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         const acct: any = (resolved as any).acct;
         // Overflow eligibility:
         //  • single-account only (unified-mode fan-out is a later commit);
-        //  • Empty query OR "in:inbox" only — Gmail's q-syntax doesn't 1:1
-        //    map to our local q-translator (has:attachment, mime:, etc), so
-        //    blindly backfilling with an arbitrary filter would pollute pages
-        //    with unrelated rows. "in:inbox" is safe because we can pass it
-        //    verbatim to the Gmail backfill query.
+        //  • Any query including free-text / email-address searches — these are
+        //    passed verbatim to Gmail's messages.list q parameter so the remote
+        //    index is searched, results persisted, and returned combined with the
+        //    local slice. This fixes the "only 4 results vs 59 in Spark" gap for
+        //    contact-email searches (e.g. zbirming@portofsandiego.org).
+        //    Complex local-only filters (has:attachment, mime:, filename:) that
+        //    have no Gmail-API equivalent still work: Gmail ignores them or
+        //    returns a superset, which the local post-filter then narrows.
         const queryEmpty = !q || q.trim() === "";
         const isInboxOnlyQuery = q?.trim() === "in:inbox";
-        const canOverflow = !isUnified && !!acct?.id && !!acct?.emailAddress && (queryEmpty || isInboxOnlyQuery);
+        const canOverflow = !isUnified && !!acct?.id && !!acct?.emailAddress;
 
         const sess = req.session as any;
         const SOFT_CAP = 5000;
@@ -8835,11 +8838,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           };
           // Only surface the cap signal when overflow WOULD have triggered
           // were it not for the cap — not on every paginated page request,
-          // not when the user has a filter active, not in unified mode. The
-          // UI shows it as "you've hit your session's history-load limit;
-          // reload to fetch more".
+          // and not in unified mode. Works for all query types now.
           if (capReached && local.localExhausted && local.messages.length < maxResults &&
-              !isUnified && !!acct?.id && (queryEmpty || isInboxOnlyQuery)) {
+              !isUnified && !!acct?.id) {
             body.historyLoadCapReached = true;
           }
           return res.json(body);
@@ -8858,11 +8859,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
         const { fetchOlderFromGmail } = await import("./services/gmail-history-backfill");
         const { encodeMsgCursorToken } = await import("./services/local-mailbox");
+        // For search queries, pass q verbatim to Gmail so the remote full-text
+        // index is searched — this is what lets "zbirming@portofsandiego.org"
+        // find all 59 Gmail threads instead of only the ~4 in the local mirror.
+        // For empty queries, pass undefined so doFetch uses Q_BASE ("in:inbox OR
+        // in:sent"), fetching all mail directions as usual.
+        const gmailFilter = queryEmpty ? undefined : q;
         const backfill = await fetchOlderFromGmail(
           { id: acct.id, userId: resolved.userId, emailAddress: acct.emailAddress },
           beforeDate,
           wantMore,
-          isInboxOnlyQuery ? "in:inbox" : undefined,
+          gmailFilter,
         );
 
         // Track newly-persisted rows against the per-session soft cap. Skipped
