@@ -354,8 +354,19 @@ export async function listLocalMessages(p: {
   where.push(...qWhere);
   if (freeText) {
     const lit = `'${safe(freeText)}'`;
-    const tsv = `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(from_name,'') || ' ' || coalesce(from_email,'') || ' ' || coalesce(snippet,'') || ' ' || coalesce(body_text,''))`;
-    where.push(`${tsv} @@ plainto_tsquery('english', ${lit})`);
+    // all_participants covers from + to + cc, so recipient searches work even
+    // when to_emails is not in the pre-built FTS GIN index.
+    const tsv = `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(from_name,'') || ' ' || coalesce(from_email,'') || ' ' || coalesce(snippet,'') || ' ' || coalesce(body_text,'') || ' ' || coalesce(all_participants,''))`;
+    const ftsCond = `${tsv} @@ plainto_tsquery('english', ${lit})`;
+    // For email-address queries, also do a direct trigram ILIKE on all_participants
+    // as a fallback — FTS tokenisation of '@' and domain suffixes can miss exact
+    // email-address matches that the trigram index catches reliably.
+    if (freeText.includes('@')) {
+      const lc = safe(freeText.toLowerCase());
+      where.push(`(${ftsCond} OR lower(coalesce(all_participants,'')) LIKE '%${lc}%')`);
+    } else {
+      where.push(ftsCond);
+    }
   }
 
   const cursorClause = buildMsgCursorClause(cursor); // "" if no cursor
@@ -470,8 +481,14 @@ export async function listLocalThreads(p: {
   where.push(...qWhere);
   if (freeText) {
     const lit = `'${safe(freeText)}'`;
-    const tsv = `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(from_name,'') || ' ' || coalesce(from_email,'') || ' ' || coalesce(snippet,'') || ' ' || coalesce(body_text,''))`;
-    where.push(`${tsv} @@ plainto_tsquery('english', ${lit})`);
+    const tsv = `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(from_name,'') || ' ' || coalesce(from_email,'') || ' ' || coalesce(snippet,'') || ' ' || coalesce(body_text,'') || ' ' || coalesce(all_participants,''))`;
+    const ftsCond = `${tsv} @@ plainto_tsquery('english', ${lit})`;
+    if (freeText.includes('@')) {
+      const lc = safe(freeText.toLowerCase());
+      where.push(`(${ftsCond} OR lower(coalesce(all_participants,'')) LIKE '%${lc}%')`);
+    } else {
+      where.push(ftsCond);
+    }
   }
   const whereSql = `WHERE ${where.join(" AND ")}`;
   // The cursor on threads operates on the OUTER one-row-per-thread projection,

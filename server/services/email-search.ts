@@ -62,9 +62,10 @@ export async function ensureSearchIndexes(): Promise<void> {
 export type SearchParams = {
   ownerUserId?: number | null;        // restrict to one user's mailboxes
   accountId?: number | null;          // restrict to one source account
-  q?: string;                         // free-text query (FTS)
+  q?: string;                         // free-text query (FTS + all_participants ILIKE for @ terms)
   from?: string;                      // sender substring (email or name) — case-insensitive
   to?: string;                        // recipient substring — case-insensitive
+  participants?: string;              // any-participant substring (from OR to OR cc) — case-insensitive
   domain?: string;                    // exact from_domain match (lowercased)
   dateFrom?: string;                  // ISO date (>=)
   dateTo?: string;                    // ISO date (<=)
@@ -112,6 +113,7 @@ export async function searchEmails(p: SearchParams): Promise<SearchResult> {
   if (p.accountId != null) where.push(`source_account_id = ${Number(p.accountId)}`);
   if (p.from) where.push(`(lower(coalesce(from_email,'')) LIKE '%${safe(p.from.toLowerCase())}%' OR lower(coalesce(from_name,'')) LIKE '%${safe(p.from.toLowerCase())}%')`);
   if (p.to) where.push(`lower(coalesce(to_emails,'')) LIKE '%${safe(p.to.toLowerCase())}%'`);
+  if (p.participants) where.push(`lower(coalesce(all_participants,'')) LIKE '%${safe(p.participants.toLowerCase())}%'`);
   if (p.domain) where.push(`from_domain = '${safe(p.domain.toLowerCase())}'`);
   if (p.dateFrom) where.push(`sent_at >= '${safe(p.dateFrom)}'`);
   if (p.dateTo) where.push(`sent_at <= '${safe(p.dateTo)}'`);
@@ -124,9 +126,20 @@ export async function searchEmails(p: SearchParams): Promise<SearchResult> {
   let orderBy = "sent_at DESC NULLS LAST, id DESC";
   if (q) {
     const qLit = `'${safe(q)}'`;
-    const tsv = `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(from_name,'') || ' ' || coalesce(from_email,'') || ' ' || coalesce(snippet,'') || ' ' || coalesce(body_text,''))`;
+    // all_participants covers from + to + cc so recipient searches ("I emailed zach@…")
+    // work even though to_emails isn't in the pre-built GIN index.
+    const tsv = `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(from_name,'') || ' ' || coalesce(from_email,'') || ' ' || coalesce(snippet,'') || ' ' || coalesce(body_text,'') || ' ' || coalesce(all_participants,''))`;
     const tsq = `plainto_tsquery('english', ${qLit})`;
-    where.push(`${tsv} @@ ${tsq}`);
+    const ftsCond = `${tsv} @@ ${tsq}`;
+    // For email-address queries, the trigram index on all_participants gives a
+    // fast exact substring match that FTS tokenisation can miss (e.g. the @
+    // and domain suffix may not tokenise identically in tsvector vs tsquery).
+    if (q.includes('@')) {
+      const lc = safe(q.toLowerCase());
+      where.push(`(${ftsCond} OR lower(coalesce(all_participants,'')) LIKE '%${lc}%')`);
+    } else {
+      where.push(ftsCond);
+    }
     rankExpr = `ts_rank(${tsv}, ${tsq}) AS rank`;
     snippetExpr = `ts_headline('english', coalesce(body_text, snippet, ''), ${tsq}, 'StartSel=<<,StopSel=>>,MaxFragments=1,MaxWords=18,MinWords=6') AS snippet`;
     orderBy = "rank DESC, sent_at DESC NULLS LAST";

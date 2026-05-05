@@ -12559,6 +12559,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         q: req.query.q as string | undefined,
         from: req.query.from as string | undefined,
         to: req.query.to as string | undefined,
+        participants: req.query.participants as string | undefined,
         domain: req.query.domain as string | undefined,
         dateFrom: req.query.dateFrom as string | undefined,
         dateTo: req.query.dateTo as string | undefined,

@@ -3059,6 +3059,7 @@ function LocalSearchButton() {
   const [, setLocation] = useLocation();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
+  const [participants, setParticipants] = useState("");
   const [from, setFrom] = useState("");
   const [domain, setDomain] = useState("");
   const [direction, setDirection] = useState<string>("");
@@ -3068,6 +3069,7 @@ function LocalSearchButton() {
 
   const params = new URLSearchParams();
   if (q) params.set("q", q);
+  if (participants) params.set("participants", participants);
   if (from) params.set("from", from);
   if (domain) params.set("domain", domain);
   if (direction) params.set("direction", direction);
@@ -3082,7 +3084,7 @@ function LocalSearchButton() {
       if (!r.ok) throw new Error(await r.text());
       return r.json();
     },
-    enabled: submitted && (q.length > 0 || from.length > 0 || domain.length > 0 || direction.length > 0 || dateFrom.length > 0 || dateTo.length > 0),
+    enabled: submitted && (q.length > 0 || participants.length > 0 || from.length > 0 || domain.length > 0 || direction.length > 0 || dateFrom.length > 0 || dateTo.length > 0),
   });
 
   const onSubmit = (e: React.FormEvent) => {
@@ -3114,10 +3116,14 @@ function LocalSearchButton() {
         <form onSubmit={onSubmit} className="grid grid-cols-2 gap-3 mt-4">
           <div className="col-span-2">
             <Label className="text-[11px] text-muted-foreground">Search text (subject, body, sender)</Label>
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="invoice, refund, etc." data-testid="input-local-search-q" autoFocus />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="invoice, refund, contract…" data-testid="input-local-search-q" autoFocus />
+          </div>
+          <div className="col-span-2">
+            <Label className="text-[11px] text-muted-foreground">Contact / Participants (email address or name — searches sent AND received)</Label>
+            <Input value={participants} onChange={(e) => setParticipants(e.target.value)} placeholder="zach@portofsandiego.org" data-testid="input-local-search-participants" />
           </div>
           <div>
-            <Label className="text-[11px] text-muted-foreground">From (email or name)</Label>
+            <Label className="text-[11px] text-muted-foreground">From only (sender)</Label>
             <Input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="stripe" data-testid="input-local-search-from" />
           </div>
           <div>
@@ -3148,7 +3154,7 @@ function LocalSearchButton() {
               {search.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Search className="h-3.5 w-3.5 mr-1.5" />}
               Search
             </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => { setQ(""); setFrom(""); setDomain(""); setDirection(""); setDateFrom(""); setDateTo(""); setSubmitted(false); }} data-testid="button-local-search-clear">
+            <Button type="button" size="sm" variant="ghost" onClick={() => { setQ(""); setParticipants(""); setFrom(""); setDomain(""); setDirection(""); setDateFrom(""); setDateTo(""); setSubmitted(false); }} data-testid="button-local-search-clear">
               Clear
             </Button>
             {search.data && (
@@ -3947,7 +3953,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", "50");
-      params.set("q", searchQuery ? `in:inbox ${searchQuery}` : "in:inbox");
+      // When searching, drop the folder restriction so results span all mail
+      // (inbox + sent + archived). This matches Gmail's own search behaviour
+      // and ensures contacts known only from sent emails are still findable.
+      params.set("q", searchQuery ? searchQuery : "in:inbox");
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
@@ -4232,7 +4241,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", "50");
-      params.set("q", searchQuery ? `in:sent ${searchQuery}` : "in:sent");
+      params.set("q", searchQuery ? searchQuery : "in:sent");
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
@@ -4308,7 +4317,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     try {
       const params = new URLSearchParams();
       params.set("limit", "50");
-      params.set("q", searchQuery ? `in:inbox ${searchQuery}` : "in:inbox");
+      params.set("q", searchQuery ? searchQuery : "in:inbox");
       params.set("pageToken", inboxNextToken);
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
@@ -4358,7 +4367,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     try {
       const params = new URLSearchParams();
       params.set("limit", "50");
-      params.set("q", searchQuery ? `in:sent ${searchQuery}` : "in:sent");
+      params.set("q", searchQuery ? searchQuery : "in:sent");
       params.set("pageToken", sentNextToken);
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
