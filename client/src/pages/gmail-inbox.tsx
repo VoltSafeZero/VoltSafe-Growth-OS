@@ -3574,7 +3574,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       if (!res.ok) return { awaitingReply: [], hot: [], unlinked: [] };
       return res.json();
     },
-    enabled: ["awaiting-reply", "hot", "unlinked"].includes(crmFilter),
+    enabled: ["needs-reply", "awaiting-reply", "hot", "unlinked"].includes(crmFilter),
     refetchInterval: 60_000,
   });
 
@@ -4915,7 +4915,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     // removed from cache — the grouper handles keeping it in the right section.
     crmFilter === "unread"         ? activeMessages.filter(m => isUnread(m.labelIds) || m.threadId === selectedThreadId) :
     crmFilter === "starred"        ? activeMessages.filter(m => isStarred(m.labelIds)) :
-    crmFilter === "needs-reply"    ? activeMessages.filter(m => isUnread(m.labelIds) || m.threadId === selectedThreadId) :
+    crmFilter === "needs-reply"    ? activeMessages.filter(m => triageAwaitingSet.has(m.threadId) || m.threadId === selectedThreadId) :
     crmFilter === "follow-up"      ? activeMessages.filter(m => isStarred(m.labelIds)) :
     crmFilter === "awaiting-reply" ? activeMessages.filter(m => triageAwaitingSet.has(m.threadId)) :
     crmFilter === "hot"            ? activeMessages.filter(m => triageHotSet.has(m.threadId)) :
