@@ -689,8 +689,13 @@ function ComposeDialog({
                   className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/35 disabled:opacity-50"
                 />
               </div>
-              {/* Subject (new emails only) */}
-              {!threadId && (
+              {/* Subject */}
+              {threadId ? (
+                <div className="flex items-center gap-3 px-4 py-2 border-b border-border/15 bg-muted/5">
+                  <Label className="text-xs text-muted-foreground/60 w-8 flex-shrink-0">Sub</Label>
+                  <span className="flex-1 text-sm text-foreground/70 truncate" data-testid="text-reply-subject">{subject || "(no subject)"}</span>
+                </div>
+              ) : (
                 <div className="flex items-center gap-3 px-4 py-2 border-b border-border/15 hover:bg-muted/10 transition-colors">
                   <Label className="text-xs text-muted-foreground/60 w-8 flex-shrink-0">
                     Sub <span className="text-destructive">*</span>
