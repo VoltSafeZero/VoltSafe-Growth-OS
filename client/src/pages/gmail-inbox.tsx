@@ -3738,6 +3738,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Multi-mailbox Phase 1: "all" sentinel triggers the unified view that pulls from every
   // account the user can access (their own personal accounts + shared inboxes they have view perms on).
   const [activeAccountId, setActiveAccountId] = useState<number | "all" | null>(null);
+  const [mailboxDropdownOpen, setMailboxDropdownOpen] = useState(false);
+  const mailboxDropdownRef = useRef<HTMLDivElement>(null);
   // Multi-mailbox Phase 1: when a message is opened from "All Inboxes", remember its source
   // account id so per-thread reads/mutations target the right mailbox (instead of sending the
   // literal "all" sentinel, which numeric-only routes coerce to NaN).
@@ -5247,6 +5249,18 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     }
   };
 
+  // ── Mailbox dropdown — close on outside click ─────────────────────────────
+  useEffect(() => {
+    if (!mailboxDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (mailboxDropdownRef.current && !mailboxDropdownRef.current.contains(e.target as Node)) {
+        setMailboxDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [mailboxDropdownOpen]);
+
   // ── Keyboard navigation ────────────────────────────────────────────────────
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -5340,14 +5354,104 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           <span className="text-[12px] font-medium">Back</span>
         </button>
         <div className="w-px h-4 bg-border/50 flex-shrink-0" />
-        <Mail className="h-3.5 w-3.5 text-primary/70 flex-shrink-0" />
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <h1 className="text-[12px] font-semibold leading-tight text-foreground/80" data-testid="text-page-title">Mail</h1>
-            {profileQuery.data?.emailAddress && (
-              <span className="text-[10px] text-muted-foreground/65 truncate hidden sm:block">{profileQuery.data.emailAddress}</span>
-            )}
-          </div>
+        {/* ── Mailbox switcher (Spark-style) ─────────────────────────────── */}
+        <div className="relative min-w-0" ref={mailboxDropdownRef}>
+          <button
+            type="button"
+            onClick={() => setMailboxDropdownOpen(v => !v)}
+            data-testid="button-mailbox-switcher"
+            className="inline-flex items-center gap-1.5 h-7 px-1.5 rounded-md hover:bg-muted/50 transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none min-w-0 max-w-[240px]"
+          >
+            <Mail className="h-3.5 w-3.5 text-primary/70 flex-shrink-0" />
+            <div className="min-w-0 text-left">
+              <div className="text-[12px] font-semibold leading-tight text-foreground/80" data-testid="text-page-title">Mail</div>
+              <div className="text-[10px] text-muted-foreground/65 truncate hidden sm:block leading-tight">
+                {activeAccountId === "all"
+                  ? "All Inboxes"
+                  : (connectedAccount?.emailAddress ?? profileQuery.data?.emailAddress ?? "")}
+              </div>
+            </div>
+            <ChevronDown className={`h-3 w-3 text-muted-foreground/55 flex-shrink-0 transition-transform duration-150 ${mailboxDropdownOpen ? "rotate-180" : ""}`} />
+          </button>
+
+          {mailboxDropdownOpen && (
+            <div className="absolute left-0 top-full mt-1.5 z-50 w-72 rounded-xl border border-border/60 bg-popover shadow-xl shadow-black/10 py-2 animate-in fade-in-0 zoom-in-95 duration-100 origin-top-left">
+              <div className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">
+                Choose Mailbox
+              </div>
+
+              {/* All Inboxes — only when multiple accounts exist */}
+              {(accountsQuery.data ?? []).length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => { setActiveAccountId("all"); setMailboxDropdownOpen(false); }}
+                  data-testid="mailbox-option-all"
+                  className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${activeAccountId === "all" ? "bg-primary/10" : ""}`}
+                >
+                  <div className="h-7 w-7 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
+                    <Inbox className="h-3.5 w-3.5 text-primary/80" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className={`text-[12px] font-medium leading-tight ${activeAccountId === "all" ? "text-primary" : "text-foreground"}`}>All Inboxes</div>
+                    <div className="text-[10px] text-muted-foreground/55 leading-tight">Combined view</div>
+                  </div>
+                  {activeAccountId === "all" && <CheckCheck className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
+                </button>
+              )}
+
+              {/* Personal account */}
+              {personalAccount && (() => {
+                const isActive = activeAccountId !== "all" && (activeAccountId === null || activeAccountId === personalAccount.id);
+                return (
+                  <button
+                    type="button"
+                    onClick={() => { setActiveAccountId(null); setMailboxDropdownOpen(false); }}
+                    data-testid={`mailbox-option-${personalAccount.id}`}
+                    className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${isActive ? "bg-primary/10" : ""}`}
+                  >
+                    <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center flex-shrink-0 text-[11px] font-bold text-foreground/70">
+                      {(personalAccount.emailAddress?.[0] ?? "?").toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className={`text-[12px] font-medium leading-tight truncate ${isActive ? "text-primary" : "text-foreground"}`}>{personalAccount.emailAddress}</div>
+                      <div className="text-[10px] text-muted-foreground/55 leading-tight">Personal</div>
+                    </div>
+                    {isActive && <CheckCheck className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
+                  </button>
+                );
+              })()}
+
+              {/* Shared / team accounts */}
+              {sharedAccounts.length > 0 && (
+                <div className="mt-1 pt-1 border-t border-border/30">
+                  <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/40">
+                    Team Inboxes
+                  </div>
+                  {sharedAccounts.map(acct => {
+                    const isActive = activeAccountId === acct.id;
+                    return (
+                      <button
+                        key={acct.id}
+                        type="button"
+                        onClick={() => { setActiveAccountId(acct.id); setMailboxDropdownOpen(false); }}
+                        data-testid={`mailbox-option-${acct.id}`}
+                        className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors hover:bg-muted/50 ${isActive ? "bg-primary/10" : ""}`}
+                      >
+                        <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center flex-shrink-0 text-[11px] font-bold text-foreground/70">
+                          {(acct.emailAddress?.[0] ?? "?").toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className={`text-[12px] font-medium leading-tight truncate ${isActive ? "text-primary" : "text-foreground"}`}>{acct.emailAddress}</div>
+                          <div className="text-[10px] text-muted-foreground/55 leading-tight">{acct.displayName ?? "Team Inbox"}</div>
+                        </div>
+                        {isActive && <CheckCheck className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="ml-auto flex items-center gap-2">
           {!canSend && (
