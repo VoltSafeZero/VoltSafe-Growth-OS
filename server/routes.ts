@@ -25116,6 +25116,25 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // DELETE /api/meeting-notes/:id — hard-delete a note and all child rows
+  app.delete("/api/meeting-notes/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId  = req.session.userId!;
+      const isAdmin = sessionIsAdmin(req.session);
+      const { deleteMeetingNote } = await import("./services/meeting-notes-service");
+      const result = await deleteMeetingNote(id, userId, isAdmin);
+      if (!result.ok) {
+        const status = result.error === "Not found" ? 404 : 403;
+        return res.status(status).json({ message: result.error });
+      }
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // POST /api/meeting-notes/:id/start — transition → recording
   // Requires consentNoted = true on the note before this call succeeds.
   app.post("/api/meeting-notes/:id/start", requireAuth, async (req, res) => {

@@ -510,6 +510,25 @@ export async function linkRecord(
   return { ok: true, linkId: link.id };
 }
 
+// ── Delete ────────────────────────────────────────────────────────────────────
+
+export async function deleteMeetingNote(
+  id: number, userId: number, isAdmin: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  const [note] = await db.select().from(meetingNotes).where(eq(meetingNotes.id, id)).limit(1);
+  if (!note) return { ok: false, error: "Not found" };
+  if (!canAccess(note, userId, isAdmin)) return { ok: false, error: "Forbidden" };
+
+  // Cascade-delete child rows then the note itself
+  await db.delete(meetingNoteLinks).where(eq(meetingNoteLinks.meetingNoteId, id));
+  await db.delete(meetingNoteParticipants).where(eq(meetingNoteParticipants.meetingNoteId, id));
+  await db.delete(meetingNoteActionItems).where(eq(meetingNoteActionItems.meetingNoteId, id));
+  await db.delete(meetingNoteTranscriptChunks).where(eq(meetingNoteTranscriptChunks.meetingNoteId, id));
+  await db.delete(meetingNotes).where(eq(meetingNotes.id, id));
+
+  return { ok: true };
+}
+
 // ── Calendar event integration ────────────────────────────────────────────────
 
 export async function getMeetingNoteByCalendarEvent(

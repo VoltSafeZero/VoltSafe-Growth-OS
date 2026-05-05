@@ -8,6 +8,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { useToast } from "@/hooks/use-toast";
@@ -18,7 +23,7 @@ import {
   CalendarClock, Mail, Hash, Upload, Loader2, FileText,
   ListChecks, MessageSquare, Sparkles, Send, Plus,
   CheckCheck, X, Activity, Link2, Building2, User,
-  Copy, RefreshCw, RotateCcw, Wand2, UserCheck, ExternalLink,
+  Copy, RefreshCw, RotateCcw, Wand2, UserCheck, ExternalLink, Trash2,
 } from "lucide-react";
 import { MeetingNoteCapturePanel } from "@/components/meeting-notes/meeting-note-capture-panel";
 import { SiZoom } from "react-icons/si";
@@ -566,6 +571,7 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
   const [activeTab, setActiveTab] = useState("summary");
   const [justCompleted, setJustCompleted] = useState(false);
   const [highlightedTabs, setHighlightedTabs] = useState<Set<string>>(new Set());
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const prevStatusRef = useRef<string | null>(null);
 
@@ -624,6 +630,24 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
     }
     prevStatusRef.current = note.status;
   }, [note?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/meeting-notes/${noteId}`, undefined);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).message || "Delete failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/meeting-notes"] });
+      toast({ title: "Meeting note deleted" });
+      navigate("/meeting-notes");
+    },
+    onError: (e: Error) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
+  });
 
   // Retry / Regenerate mutation — POST /api/meeting-notes/:id/process
   const retryMutation = useMutation({
@@ -776,15 +800,50 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
     <div className="flex flex-col h-full min-h-0 overflow-y-auto bg-background">
       <div className="max-w-4xl w-full mx-auto px-4 py-5 flex flex-col gap-4">
 
-        {/* Back link */}
-        <button
-          onClick={() => navigate("/meeting-notes")}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
-          data-testid="link-back-meeting-notes"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Meeting Notes
-        </button>
+        {/* Back link + delete */}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => navigate("/meeting-notes")}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
+            data-testid="link-back-meeting-notes"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Meeting Notes
+          </button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 gap-1.5"
+            onClick={() => setDeleteConfirmOpen(true)}
+            data-testid="button-delete-meeting-note"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete
+          </Button>
+        </div>
+
+        <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete meeting note?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete this meeting note, its transcript, action items, and all linked records. This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel data-testid="button-delete-cancel">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                data-testid="button-delete-confirm"
+              >
+                {deleteMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Trash2 className="w-3.5 h-3.5 mr-1.5" />}
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Header row */}
         <div className="flex flex-col gap-2">
