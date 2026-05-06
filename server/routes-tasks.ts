@@ -252,6 +252,21 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
   const canView = requirePermission("crm", "view");
   const canEdit = requirePermission("crm", "edit");
 
+  // ── CRM auto-link rules: bootstrap (idempotent) ─────────────────────────
+  db.execute(sql`
+    CREATE TABLE IF NOT EXISTS crm_auto_link_rules (
+      id SERIAL PRIMARY KEY,
+      domain TEXT NOT NULL,
+      object_type TEXT NOT NULL,
+      object_id INTEGER NOT NULL,
+      object_name TEXT,
+      created_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(domain, object_type, object_id)
+    )
+  `).then(() => console.log("[migration] CRM auto-link rules schema migration complete."))
+    .catch(e => console.error("[crm-auto-link-rules] migration error:", e.message));
+
   // ── Column shares: bootstrap (idempotent) ────────────────────────────────
   db.execute(sql`
     CREATE TABLE IF NOT EXISTS task_column_shares (

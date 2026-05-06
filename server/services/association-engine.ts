@@ -150,6 +150,70 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
     }
   }
 
+  // ── Domain auto-link rules ────────────────────────────────────────────────
+  // Check admin-defined domain rules before running normal scoring signals.
+  // Matching rules produce pre-confirmed associations (isUserConfirmed=true)
+  // that never appear in the CRM Review queue.
+  const earlyDomains = [
+    ...new Set(
+      externalParticipants
+        .map(e => e.split("@")[1]?.toLowerCase())
+        .filter((d): d is string => !!d && d.length > 3)
+    ),
+  ];
+  if (earlyDomains.length > 0) {
+    try {
+      for (const domain of earlyDomains) {
+        const ruleRows = await db.execute(
+          sql`SELECT * FROM crm_auto_link_rules WHERE domain = ${domain}`
+        );
+        for (const rule of ruleRows.rows as any[]) {
+          if (rejectedKeys.has(`${rule.object_type}:${rule.object_id}`)) continue;
+          if (confirmedByType.has(rule.object_type)) continue;
+          const [existingAssoc] = await db
+            .select({ id: emailAssociations.id })
+            .from(emailAssociations)
+            .where(and(
+              eq(emailAssociations.emailMessageId, emailMessageId),
+              eq(emailAssociations.objectType, rule.object_type),
+              eq(emailAssociations.objectId, rule.object_id)
+            ))
+            .limit(1);
+          if (!existingAssoc) {
+            await db.insert(emailAssociations).values({
+              emailMessageId,
+              objectType: rule.object_type,
+              objectId: rule.object_id,
+              objectName: rule.object_name ?? "",
+              confidenceScore: 100,
+              associationReasonJson: JSON.stringify([
+                `Auto-link rule: @${rule.domain} → ${rule.object_name ?? rule.object_type + " #" + rule.object_id}`,
+              ]),
+              isAuto: false,
+              isUserConfirmed: true,
+            });
+          }
+          const threadUpdates: Record<string, any> = { associationStatus: "associated", updatedAt: new Date() };
+          if (rule.object_type === "contact") threadUpdates.primaryContactId = rule.object_id;
+          else if (rule.object_type === "account") threadUpdates.primaryAccountId = rule.object_id;
+          else if (rule.object_type === "lead") threadUpdates.primaryLeadId = rule.object_id;
+          else if (rule.object_type === "opportunity") threadUpdates.primaryOpportunityId = rule.object_id;
+          else if (rule.object_type === "partner") threadUpdates.primaryPartnerId = rule.object_id;
+          if (threadRecord) {
+            await db.update(emailThreads).set(threadUpdates).where(eq(emailThreads.gmailThreadId, msg.gmailThreadId));
+          } else {
+            await db.insert(emailThreads)
+              .values({ gmailThreadId: msg.gmailThreadId, ...threadUpdates })
+              .onConflictDoUpdate({ target: emailThreads.gmailThreadId, set: threadUpdates });
+          }
+          confirmedByType.set(rule.object_type, rule.object_id);
+        }
+      }
+    } catch {
+      // Table may not exist on first boot before migration completes — fail gracefully
+    }
+  }
+
   const normalizedSubject = (msg.normalizedSubject || msg.subject || "").toLowerCase();
   const bodySnippet = (msg.bodyText || "").slice(0, 600).toLowerCase();
   const candidates: AssocCandidate[] = [];

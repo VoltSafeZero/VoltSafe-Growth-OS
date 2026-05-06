@@ -9815,6 +9815,52 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     return { ok: true };
   }
 
+  // ── CRM Auto-Link Rules ────────────────────────────────────────────────────
+  // Domain-level rules that bypass the CRM Review queue entirely:
+  // any email from @domain is pre-confirmed and linked directly to the CRM record.
+
+  // GET /api/crm/auto-link-rules
+  app.get("/api/crm/auto-link-rules", requireAuth, async (req, res) => {
+    try {
+      const rows = await db.execute(sql`SELECT * FROM crm_auto_link_rules ORDER BY created_at DESC`);
+      res.json(rows.rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/crm/auto-link-rules
+  app.post("/api/crm/auto-link-rules", requireAuth, async (req, res) => {
+    const { domain, objectType, objectId, objectName } = req.body;
+    if (!domain || !objectType || !objectId) {
+      return res.status(400).json({ message: "domain, objectType, and objectId are required" });
+    }
+    const cleanDomain = String(domain).toLowerCase().trim().replace(/^@/, "");
+    const userId = (req.session as any)?.userId ?? null;
+    try {
+      await db.execute(sql`
+        INSERT INTO crm_auto_link_rules (domain, object_type, object_id, object_name, created_by)
+        VALUES (${cleanDomain}, ${String(objectType)}, ${Number(objectId)}, ${objectName ?? null}, ${userId})
+        ON CONFLICT (domain, object_type, object_id) DO UPDATE SET object_name = ${objectName ?? null}
+      `);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // DELETE /api/crm/auto-link-rules/:id
+  app.delete("/api/crm/auto-link-rules/:id", requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+    try {
+      await db.execute(sql`DELETE FROM crm_auto_link_rules WHERE id = ${id}`);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // POST /api/gmail/thread-associations/confirm
   // User confirms an association:
   //   - marks isUserConfirmed=true (immutable from engine's perspective)

@@ -3312,6 +3312,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [inboxCategory, setInboxCategory] = useState<InboxCategory>("all");
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
   const [showFolderSettings, setShowFolderSettings] = useState<number | null>(null);
+  const [showAutoLinkRules, setShowAutoLinkRules] = useState(false);
+  const [newRuleDomain, setNewRuleDomain] = useState("");
+  const [newRuleObjType, setNewRuleObjType] = useState<"lead" | "account" | "contact" | "partner">("lead");
+  const [newRuleObjId, setNewRuleObjId] = useState("");
+  const [newRuleObjName, setNewRuleObjName] = useState("");
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderDomainInput, setNewFolderDomainInput] = useState("");
@@ -4549,6 +4554,76 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   });
 
   const HIGH_CONFIDENCE_THRESHOLD = 75;
+
+  // Domain auto-link rules
+  type AutoLinkRule = {
+    id: number;
+    domain: string;
+    object_type: string;
+    object_id: number;
+    object_name: string | null;
+    created_at: string;
+  };
+  const autoLinkRulesQuery = useQuery<AutoLinkRule[]>({
+    queryKey: ["/api/crm/auto-link-rules"],
+    queryFn: async () => {
+      const res = await fetch("/api/crm/auto-link-rules", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: showAutoLinkRules,
+  });
+  const createRuleMutation = useMutation({
+    mutationFn: async (rule: { domain: string; objectType: string; objectId: number; objectName: string }) => {
+      const res = await apiRequest("POST", "/api/crm/auto-link-rules", rule);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/crm/auto-link-rules"] });
+      setNewRuleDomain("");
+      setNewRuleObjId("");
+      setNewRuleObjName("");
+      toast({ title: "Auto-link rule saved", description: "Future emails from this domain will be linked automatically." });
+    },
+    onError: (err: any) => toast({ title: "Failed to save rule", description: err.message, variant: "destructive" }),
+  });
+  const deleteRuleMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/crm/auto-link-rules/${id}`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/crm/auto-link-rules"] });
+      toast({ title: "Rule deleted" });
+    },
+  });
+  const confirmAndAutoLinkMutation = useMutation({
+    mutationFn: async ({ items, domain, objectType, objectId, objectName }: {
+      items: Array<{ associationId: number; threadId: string }>;
+      domain: string; objectType: string; objectId: number; objectName: string;
+    }) => {
+      const [confirmRes] = await Promise.all([
+        apiRequest("POST", "/api/gmail/thread-associations/bulk-confirm", { items }),
+        apiRequest("POST", "/api/crm/auto-link-rules", { domain, objectType, objectId, objectName }),
+      ]);
+      if (!confirmRes.ok) throw new Error("Confirm failed");
+      return confirmRes.json() as Promise<BulkResult>;
+    },
+    onSuccess: (result, vars) => {
+      advanceReviewSelection(new Set(vars.items.map(i => i.threadId)));
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/crm/auto-link-rules"] });
+      setSelectedReviewIds(new Set());
+      toast({
+        title: `Confirmed + auto-link rule set for @${vars.domain}`,
+        description: `Future emails from @${vars.domain} will link to ${vars.objectName} automatically.`,
+      });
+    },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
 
   type BulkResult = {
     confirmed?: number[];
@@ -6406,7 +6481,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     </div>
                     <div className="flex items-center gap-1.5 px-2 py-1.5">
                     {selectedReviewIds.size === 0 ? (
-                      /* No selection — show quick-select helper */
+                      /* No selection — show quick-select helper + rules button */
+                      <>
                       <button
                         onClick={selectHighConfidence}
                         data-testid="button-select-high-confidence"
@@ -6416,6 +6492,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         <CheckCheck className="h-3 w-3" />
                         Select high-confidence (≥{HIGH_CONFIDENCE_THRESHOLD}%)
                       </button>
+                      <button
+                        onClick={() => setShowAutoLinkRules(true)}
+                        data-testid="button-auto-link-rules"
+                        className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors px-1.5 py-1 rounded hover:bg-muted/40"
+                        title="Manage domain auto-link rules"
+                      >
+                        <Zap className="h-3 w-3" />
+                        Auto-link rules
+                      </button>
+                      </>
                     ) : (
                       /* Active selection — show count + actions */
                       <>
@@ -6526,15 +6612,19 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           )}
                         </button>
 
-                        {/* Per-row confirm / reject buttons */}
-                        {cand && (
+                        {/* Per-row confirm / reject / auto-link buttons */}
+                        {cand && (() => {
+                          const senderDomain = item.latestMessage.fromEmail?.split("@")[1]?.toLowerCase() ?? "";
+                          const canAutoLink = !!senderDomain && !!cand.objectId && !!cand.objectType;
+                          const isBusy = bulkConfirmMutation.isPending || bulkRejectMutation.isPending || confirmAndAutoLinkMutation.isPending;
+                          return (
                           <div className="flex flex-col justify-center gap-1 pr-2 flex-shrink-0">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 bulkConfirmMutation.mutate([{ associationId: cand.id, threadId: item.gmailThreadId }]);
                               }}
-                              disabled={bulkConfirmMutation.isPending || bulkRejectMutation.isPending}
+                              disabled={isBusy}
                               data-testid={`button-confirm-row-${item.gmailThreadId}`}
                               title="Confirm — link this thread to the CRM record"
                               className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-500/15 text-green-400 hover:bg-green-500/30 transition-colors disabled:opacity-40"
@@ -6546,15 +6636,36 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                                 e.stopPropagation();
                                 bulkRejectMutation.mutate([{ associationId: cand.id, threadId: item.gmailThreadId }]);
                               }}
-                              disabled={bulkConfirmMutation.isPending || bulkRejectMutation.isPending}
+                              disabled={isBusy}
                               data-testid={`button-reject-row-${item.gmailThreadId}`}
                               title="Reject — dismiss this suggestion"
                               className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors disabled:opacity-40"
                             >
                               <X className="h-3 w-3" /> No
                             </button>
+                            {canAutoLink && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  confirmAndAutoLinkMutation.mutate({
+                                    items: [{ associationId: cand.id, threadId: item.gmailThreadId }],
+                                    domain: senderDomain,
+                                    objectType: cand.objectType,
+                                    objectId: cand.objectId,
+                                    objectName: cand.objectName ?? cand.objectType,
+                                  });
+                                }}
+                                disabled={isBusy}
+                                data-testid={`button-autolink-row-${item.gmailThreadId}`}
+                                title={`Confirm + always auto-link @${senderDomain} to ${cand.objectName ?? cand.objectType}`}
+                                className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary/70 hover:bg-primary/20 transition-colors disabled:opacity-40"
+                              >
+                                <Zap className="h-3 w-3" /> Auto
+                              </button>
+                            )}
                           </div>
-                        )}
+                          );
+                        })()}
                       </div>
                     );
                   })}
@@ -8249,6 +8360,122 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           </Dialog>
         );
       })()}
+
+      {/* ── Domain Auto-Link Rules dialog ────────────────────────────── */}
+      <Dialog open={showAutoLinkRules} onOpenChange={setShowAutoLinkRules}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-primary" />
+              Domain Auto-Link Rules
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            When an email arrives from a matching domain, it is automatically linked to the CRM record without going through the review queue.
+          </p>
+
+          {/* Existing rules */}
+          <div className="space-y-1.5 max-h-48 overflow-y-auto">
+            {autoLinkRulesQuery.isLoading && (
+              <div className="flex items-center gap-2 py-4 justify-center text-muted-foreground text-sm">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading rules…
+              </div>
+            )}
+            {!autoLinkRulesQuery.isLoading && (autoLinkRulesQuery.data ?? []).length === 0 && (
+              <p className="text-sm text-muted-foreground/60 text-center py-4">No rules yet. Add one below.</p>
+            )}
+            {(autoLinkRulesQuery.data ?? []).map((rule) => (
+              <div key={rule.id} className="flex items-center gap-2 px-3 py-2 rounded border border-border/40 bg-muted/20">
+                <AtSign className="h-3.5 w-3.5 text-primary/60 shrink-0" />
+                <span className="text-sm font-mono text-foreground/80 truncate flex-1">{rule.domain}</span>
+                <span className="text-xs text-muted-foreground/60 shrink-0">→</span>
+                <span className="text-xs text-muted-foreground truncate max-w-[130px]">{rule.object_name ?? `${rule.object_type} #${rule.object_id}`}</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary/70 font-medium capitalize shrink-0">{rule.object_type}</span>
+                <button
+                  onClick={() => deleteRuleMutation.mutate(rule.id)}
+                  disabled={deleteRuleMutation.isPending}
+                  className="shrink-0 text-muted-foreground/40 hover:text-destructive transition-colors"
+                  title="Delete this rule"
+                  data-testid={`button-delete-rule-${rule.id}`}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Add new rule */}
+          <div className="border-t border-border/30 pt-4 space-y-3">
+            <p className="text-xs font-medium text-foreground/70">Add a new rule</p>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center border border-border/50 rounded bg-background px-2 py-1 gap-1 flex-1">
+                <AtSign className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <input
+                  className="text-sm bg-transparent outline-none flex-1 min-w-0 placeholder:text-muted-foreground/50"
+                  placeholder="leamington.ca"
+                  value={newRuleDomain}
+                  onChange={e => setNewRuleDomain(e.target.value.replace(/^@/, ""))}
+                  data-testid="input-rule-domain"
+                />
+              </div>
+              <Select value={newRuleObjType} onValueChange={v => setNewRuleObjType(v as any)}>
+                <SelectTrigger className="w-[100px] text-xs h-8" data-testid="select-rule-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="lead">Lead</SelectItem>
+                  <SelectItem value="account">Account</SelectItem>
+                  <SelectItem value="contact">Contact</SelectItem>
+                  <SelectItem value="partner">Partner</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center border border-border/50 rounded bg-background px-2 py-1 gap-1 flex-1">
+                <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <input
+                  className="text-sm bg-transparent outline-none flex-1 min-w-0 placeholder:text-muted-foreground/50"
+                  placeholder="CRM record name (display)"
+                  value={newRuleObjName}
+                  onChange={e => setNewRuleObjName(e.target.value)}
+                  data-testid="input-rule-name"
+                />
+              </div>
+              <div className="flex items-center border border-border/50 rounded bg-background px-2 py-1 gap-1 w-[90px]">
+                <Hash className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <input
+                  className="text-sm bg-transparent outline-none flex-1 min-w-0 placeholder:text-muted-foreground/50"
+                  placeholder="ID"
+                  value={newRuleObjId}
+                  onChange={e => setNewRuleObjId(e.target.value.replace(/\D/g, ""))}
+                  data-testid="input-rule-id"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground/60">
+              Tip: You can find the CRM record ID from its detail page URL (e.g. /accounts/<strong>42</strong>).
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setShowAutoLinkRules(false)}>Close</Button>
+              <Button
+                size="sm"
+                disabled={!newRuleDomain.trim() || !newRuleObjId || !newRuleObjName.trim() || createRuleMutation.isPending}
+                onClick={() => createRuleMutation.mutate({
+                  domain: newRuleDomain.trim(),
+                  objectType: newRuleObjType,
+                  objectId: Number(newRuleObjId),
+                  objectName: newRuleObjName.trim(),
+                })}
+                data-testid="button-save-rule"
+                className="gap-1.5"
+              >
+                {createRuleMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                Save Rule
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
