@@ -18,7 +18,7 @@ import {
   Clock, FileText, CalendarClock, CalendarX, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
   FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronUp, ChevronRight, Folder,
   Reply, ReplyAll, Forward, Pencil, User, Building2, Zap, Flame, Video, UserPlus,
-  CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
+  Check, CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
   CheckCheck, ArrowLeft, ArrowUp, ClipboardList, StickyNote, ArchiveX, Square, Filter, Eye,
   Sparkles, Code2, Type, Rows3, Rows2, Inbox as InboxIcon,
   Maximize2, Minimize2, Pin, PinOff, LayoutList, List as ListIcon,
@@ -6371,8 +6371,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 </div>
               ) : (
                 <>
-                  {/* ── Bulk action bar ─────────────────────────────────── */}
-                  <div className="sticky top-0 z-10 flex items-center gap-1.5 px-2 py-1.5 bg-background/95 backdrop-blur border-b border-border/30">
+                  {/* ── Explainer + bulk action bar ──────────────────── */}
+                  <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border/30">
+                    {/* What is CRM Review */}
+                    <div className="px-3 py-2 border-b border-border/20 bg-amber-500/5">
+                      <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium mb-0.5">What to do here</p>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        These email threads were auto-matched to CRM records. Click <span className="font-medium text-green-500">✓ Confirm</span> to link the thread to that record, or <span className="font-medium text-red-400">✗ Reject</span> to dismiss. Use the checkbox to select multiple and act in bulk.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 px-2 py-1.5">
                     {selectedReviewIds.size === 0 ? (
                       /* No selection — show quick-select helper */
                       <button
@@ -6421,6 +6429,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       </>
                     )}
                   </div>
+                  </div>
 
                   {/* ── Queue rows ─────────────────────────────────────── */}
                   {(reviewQueueQuery.data?.items || []).map((item) => {
@@ -6464,7 +6473,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
                         {/* Row content — click opens thread */}
                         <button
-                          className="flex-1 text-left py-3 pr-3 min-w-0"
+                          className="flex-1 text-left py-3 min-w-0"
                           onClick={() => { setSelectedThreadId(item.gmailThreadId); setSelectedMessageId(null); }}
                         >
                           <div className="flex items-center justify-between gap-2 mb-[3px]">
@@ -6492,6 +6501,36 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             </div>
                           )}
                         </button>
+
+                        {/* Per-row confirm / reject buttons */}
+                        {cand && (
+                          <div className="flex flex-col justify-center gap-1 pr-2 flex-shrink-0">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                bulkConfirmMutation.mutate([{ associationId: cand.id, threadId: item.gmailThreadId }]);
+                              }}
+                              disabled={bulkConfirmMutation.isPending || bulkRejectMutation.isPending}
+                              data-testid={`button-confirm-row-${item.gmailThreadId}`}
+                              title="Confirm — link this thread to the CRM record"
+                              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-500/15 text-green-400 hover:bg-green-500/30 transition-colors disabled:opacity-40"
+                            >
+                              <Check className="h-3 w-3" /> Yes
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                bulkRejectMutation.mutate([{ associationId: cand.id, threadId: item.gmailThreadId }]);
+                              }}
+                              disabled={bulkConfirmMutation.isPending || bulkRejectMutation.isPending}
+                              data-testid={`button-reject-row-${item.gmailThreadId}`}
+                              title="Reject — dismiss this suggestion"
+                              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors disabled:opacity-40"
+                            >
+                              <X className="h-3 w-3" /> No
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
