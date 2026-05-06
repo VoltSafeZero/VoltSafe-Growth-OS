@@ -10012,6 +10012,25 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           } else {
             await db.insert(emailThreads).values({ gmailThreadId: threadId, ...updates });
           }
+
+          // Sweep: delete all OTHER unconfirmed auto-associations for this thread
+          // so the thread fully exits the review queue (not just the one we confirmed).
+          const threadMsgIds = (await db
+            .select({ id: emailMessages.id })
+            .from(emailMessages)
+            .where(eq(emailMessages.gmailThreadId, threadId))
+          ).map(m => m.id);
+
+          if (threadMsgIds.length > 0) {
+            await db.delete(emailAssociations).where(
+              and(
+                inArray(emailAssociations.emailMessageId, threadMsgIds),
+                eq(emailAssociations.isAuto, true),
+                eq(emailAssociations.isUserConfirmed, false),
+                sql`${emailAssociations.id} != ${assocId}`
+              )
+            );
+          }
         }
 
         confirmed.push(assocId);
@@ -10106,6 +10125,24 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             if (Object.keys(clears).length > 1) {
               await db.update(emailThreads).set(clears).where(eq(emailThreads.gmailThreadId, threadId));
             }
+          }
+
+          // Sweep: delete ALL other unconfirmed auto-associations for this thread
+          // so the thread fully exits the review queue after a reject action.
+          const threadMsgIds = (await db
+            .select({ id: emailMessages.id })
+            .from(emailMessages)
+            .where(eq(emailMessages.gmailThreadId, threadId))
+          ).map(m => m.id);
+
+          if (threadMsgIds.length > 0) {
+            await db.delete(emailAssociations).where(
+              and(
+                inArray(emailAssociations.emailMessageId, threadMsgIds),
+                eq(emailAssociations.isAuto, true),
+                eq(emailAssociations.isUserConfirmed, false)
+              )
+            );
           }
         }
 
