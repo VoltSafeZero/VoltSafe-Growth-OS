@@ -184,13 +184,15 @@ async function loadTaskFull(taskId: number) {
       ou.name AS owner_name,
       cb.name AS completed_by_name,
       lu.name AS last_updated_by_name,
-      a.name AS account_name
+      a.name AS account_name,
+      co.name AS contact_name
     FROM tasks t
     LEFT JOIN users cu ON cu.id = t.created_by_user_id
     LEFT JOIN users ou ON ou.id = t.owner_user_id
     LEFT JOIN users cb ON cb.id = t.completed_by_user_id
     LEFT JOIN users lu ON lu.id = t.last_updated_by_user_id
     LEFT JOIN accounts a ON a.id = t.account_id
+    LEFT JOIN contacts co ON co.id = t.linked_object_id AND t.linked_object_type = 'contact'
     WHERE t.id = ${taskId}
     LIMIT 1
   `);
@@ -433,6 +435,9 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       setIf("owner_user_id", "ownerUserId", (v) => (v == null ? null : Number(v)), "assignee");
       setIf("completion_notes", "completionNotes", (v) => (v == null ? null : String(v)), "completion notes");
       setIf("archived", "archived", Boolean, "archived");
+      setIf("linked_object_type", "linkedObjectType", (v) => (v == null ? null : String(v)), "linked contact type");
+      setIf("linked_object_id", "linkedObjectId", (v) => (v == null ? null : Number(v)), "linked contact");
+      setIf("account_id", "accountId", (v) => (v == null ? null : Number(v)), "organization");
 
       if (!fragments.length) return res.json({ success: true, noop: true });
 

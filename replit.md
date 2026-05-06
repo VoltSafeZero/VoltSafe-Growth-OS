@@ -77,7 +77,7 @@ npm run db:push
 - **True Duplicate Merge Engine:** Safe, audited, field-resolution-driven merge for accounts, contacts, and leads.
 - **Projects — Safety Certification Extension:** Manages certification projects with milestones, attachments, and smart alerting.
 - **Customer Success + Renewals Layer:** Tracks customer health, renewals, and expansion opportunities with automated reminders.
-- **Trello-style Tasks System:** Kanban board and list views for task management with dependencies, labels, checklists, and saved views.
+- **Trello-style Tasks System:** Kanban board and list views for task management with dependencies, labels, checklists, and saved views. Tasks support optional CRM linking — a Contact (via `linkedObjectType='contact'`/`linkedObjectId`) and an Organization/Marina (via `accountId`) — editable from both the create form and the task detail drawer.
 - **Help Center & AI Training System:** In-app documentation, training handbooks, and an AI-powered knowledge base.
 - **Weather Forecast Widget:** User-customizable dashboard widget displaying weather for saved locations.
 
@@ -94,7 +94,7 @@ Dark mode by default.
 - **`react-grid-layout` v2:** The component `react-grid-layout` requires v2-specific props (`dragConfig`, `resizeConfig`) and careful handling of the `static` flag to enable drag-and-drop functionality.
 - **Drizzle `and()` with `ne()`/`not(eq())`:** This combination can generate invalid SQL. Use `db.execute(sql.raw(...))` for complex queries involving multiple `NOT EQUAL` conditions.
 - **`tsx` and CJS `node-ical` imports:** Namespace imports (`import * as ical from "node-ical"`) might result in `undefined` properties at runtime for CJS dependencies under `tsx` with `esModuleInterop`. Prefer default imports (`import ical from "node-ical"`).
-- **`routes.ts` edits:** Large edits to `server/routes.ts` might not trigger reliable `tsx` watcher restarts; manual `restart_workflow "Start application"` may be required.
+- **`routes.ts` / `routes-tasks.ts` edits:** Large edits to either routes file might not trigger reliable `tsx` watcher restarts; manual `restart_workflow "Start application"` is required after backend edits.
 - **SES Runtime Errors:** `(unknown runtime error)` overlays often stem from browser extension injections into sandboxed iframes. A Vite plugin filter is in place to suppress these non-actionable errors.
 
 ## Pointers

@@ -17,7 +17,7 @@ import {
   Tag, Calendar as CalendarIcon, ListChecks, User, Link2, MoveRight, AlertTriangle,
   Trash2, Plus, X, Check, MessageSquare, Activity, Lock, RotateCcw, ChevronDown, Flag,
   Paperclip, UploadCloud, Download, FileText, FileImage, FileVideo, File as FileIcon, Loader2,
-  Users,
+  Users, Building2, UserCircle,
 } from "lucide-react";
 import { format } from "date-fns";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -369,16 +369,50 @@ export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, 
                 />
               </Section>
 
-              {/* Linked context */}
-              {(t.account_name || t.linked_object_type) && (
-                <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs flex items-center gap-2">
-                  <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-muted-foreground">Linked to:</span>
-                  <span className="font-medium">
-                    {t.account_name || `${t.linked_object_type} #${t.linked_object_id}`}
-                  </span>
+              {/* CRM Links */}
+              <div className="rounded-md border bg-muted/30 px-3 py-2.5 text-xs space-y-2.5">
+                <p className="flex items-center gap-1.5 font-medium text-muted-foreground">
+                  <Link2 className="h-3.5 w-3.5" /> CRM Links
+                </p>
+                <div className="flex items-center gap-2 min-w-0">
+                  <UserCircle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-muted-foreground shrink-0 w-[4.5rem]">Contact</span>
+                  <CrmLinkCombobox
+                    type="contact"
+                    value={
+                      t.linked_object_type === "contact" && t.linked_object_id
+                        ? { id: Number(t.linked_object_id), label: t.contact_name || `Contact #${t.linked_object_id}` }
+                        : null
+                    }
+                    onChange={async (v) => {
+                      if (v) await patchTask.mutateAsync({ linkedObjectType: "contact", linkedObjectId: v.id });
+                      else await patchTask.mutateAsync({ linkedObjectType: null, linkedObjectId: null });
+                    }}
+                  />
                 </div>
-              )}
+                <div className="flex items-center gap-2 min-w-0">
+                  <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-muted-foreground shrink-0 w-[4.5rem]">Org / Marina</span>
+                  <CrmLinkCombobox
+                    type="account"
+                    value={
+                      t.account_id
+                        ? { id: Number(t.account_id), label: t.account_name || `Account #${t.account_id}` }
+                        : null
+                    }
+                    onChange={async (v) => {
+                      if (v) await patchTask.mutateAsync({ accountId: v.id });
+                      else await patchTask.mutateAsync({ accountId: null });
+                    }}
+                  />
+                </div>
+                {t.linked_object_type && t.linked_object_type !== "contact" && t.linked_object_id && (
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                    <Link2 className="h-3 w-3" />
+                    <span>Also linked to: <span className="font-medium text-foreground capitalize">{t.linked_object_type} #{t.linked_object_id}</span></span>
+                  </div>
+                )}
+              </div>
 
               {/* Dependencies */}
               {data.dependencies.length > 0 && (
@@ -1306,6 +1340,132 @@ function AttachmentsBlock({
   );
 }
 
+// ─── CrmLinkCombobox ─────────────────────────────────────────────────────────
+// Searchable dropdown for linking a task to a Contact or Account/Marina.
+// Calls onChange(null) to clear, or onChange({ id, label }) to set.
+
+function CrmLinkCombobox({
+  type,
+  value,
+  onChange,
+  disabled,
+}: {
+  type: "contact" | "account";
+  value: { id: number; label: string } | null;
+  onChange: (v: { id: number; label: string } | null) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [debounced, setDebounced] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const contactQ = useQuery<any[]>({
+    queryKey: ["/api/contacts", "task-link", debounced],
+    queryFn: () =>
+      fetch(`/api/contacts?search=${encodeURIComponent(debounced)}`, { credentials: "include" })
+        .then((r) => r.json()),
+    enabled: open && type === "contact",
+    staleTime: 15000,
+  });
+  const accountQ = useQuery<any>({
+    queryKey: ["/api/accounts", "task-link", debounced],
+    queryFn: () =>
+      fetch(`/api/accounts?search=${encodeURIComponent(debounced)}&limit=20`, { credentials: "include" })
+        .then((r) => r.json()),
+    enabled: open && type === "account",
+    staleTime: 15000,
+  });
+
+  const isFetching = type === "contact" ? contactQ.isFetching : accountQ.isFetching;
+  const items: { id: number; label: string; sub?: string }[] =
+    type === "contact"
+      ? (contactQ.data ?? []).map((c: any) => ({ id: c.id, label: c.name, sub: c.email }))
+      : (accountQ.data?.data ?? []).map((a: any) => ({
+          id: a.id,
+          label: a.name,
+          sub: a.orgType ? a.orgType.replace(/_/g, " ") : undefined,
+        }));
+
+  const placeholder = type === "contact" ? "Search contacts…" : "Search organizations & marinas…";
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        if (!v) setSearch("");
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          className={`flex items-center gap-1 min-w-0 ${disabled ? "opacity-50 pointer-events-none" : ""}`}
+          disabled={disabled}
+        >
+          {value ? (
+            <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded border bg-background hover:bg-accent max-w-[160px]">
+              <span className="flex-1 truncate font-medium">{value.label}</span>
+              <span
+                className="text-muted-foreground hover:text-foreground ml-0.5"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChange(null);
+                }}
+              >
+                <X className="h-3 w-3" />
+              </span>
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-xs text-primary hover:underline px-1 py-0.5 rounded">
+              <Plus className="h-3 w-3" />
+              {type === "contact" ? "Link contact" : "Link organization"}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-2" align="start">
+        <Input
+          placeholder={placeholder}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="h-8 mb-2 text-sm"
+          autoFocus
+        />
+        {isFetching && (
+          <div className="text-center py-2 text-xs text-muted-foreground flex items-center justify-center gap-1.5">
+            <Loader2 className="h-3 w-3 animate-spin" /> Searching…
+          </div>
+        )}
+        <div className="max-h-52 overflow-y-auto space-y-0.5">
+          {!isFetching && items.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-3">
+              {debounced ? "No results found" : "Type to search…"}
+            </p>
+          )}
+          {items.map((r) => (
+            <button
+              key={r.id}
+              className="w-full text-left px-2 py-1.5 text-sm rounded hover:bg-accent"
+              onClick={() => {
+                onChange(r);
+                setOpen(false);
+                setSearch("");
+              }}
+            >
+              <div className="font-medium truncate">{r.label}</div>
+              {r.sub && <div className="text-xs text-muted-foreground truncate">{r.sub}</div>}
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // ─── NewTaskForm ─────────────────────────────────────────────────────────────
 // Displayed inside the Sheet when the drawer is opened in createMode.
 // All key task fields are shown upfront — the user came to the Task Hub
@@ -1322,6 +1482,8 @@ function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: number) => void;
   const [priority, setPriority] = useState("medium");
   const [column, setColumn] = useState("backlog");
   const [ownerUserId, setOwnerUserId] = useState<string>("me");
+  const [linkedContact, setLinkedContact] = useState<{ id: number; label: string } | null>(null);
+  const [linkedAccount, setLinkedAccount] = useState<{ id: number; label: string } | null>(null);
 
   const { data: me } = useQuery<{ id: number; name: string }>({ queryKey: ["/api/auth/me"] });
   const { data: users = [] } = useQuery<{ id: number; name: string }[]>({ queryKey: ["/api/users"] });
@@ -1338,6 +1500,8 @@ function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: number) => void;
         status: "pending",
         boardColumn: column,
         ownerUserId: resolvedOwner,
+        ...(linkedContact ? { linkedObjectType: "contact", linkedObjectId: linkedContact.id } : {}),
+        ...(linkedAccount ? { accountId: linkedAccount.id } : {}),
       });
       if (!res.ok) {
         const msg = await res.text().catch(() => "");
@@ -1459,6 +1623,40 @@ function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: number) => void;
                 ))}
               </SelectContent>
             </Select>
+          </div>
+        </div>
+
+        {/* CRM Links */}
+        <div className="space-y-2 pt-1">
+          <label className="text-sm font-medium flex items-center gap-1.5">
+            <Link2 className="h-3.5 w-3.5 text-muted-foreground" /> CRM Links
+            <span className="text-muted-foreground font-normal text-xs">(optional)</span>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <UserCircle className="h-3 w-3" /> Contact
+              </p>
+              <div className="border rounded-md px-2 py-1.5 bg-background min-h-[34px] flex items-center">
+                <CrmLinkCombobox
+                  type="contact"
+                  value={linkedContact}
+                  onChange={setLinkedContact}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Building2 className="h-3 w-3" /> Organization / Marina
+              </p>
+              <div className="border rounded-md px-2 py-1.5 bg-background min-h-[34px] flex items-center">
+                <CrmLinkCombobox
+                  type="account"
+                  value={linkedAccount}
+                  onChange={setLinkedAccount}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>
