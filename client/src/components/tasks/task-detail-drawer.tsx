@@ -17,7 +17,7 @@ import {
   Tag, Calendar as CalendarIcon, ListChecks, User, Link2, MoveRight, AlertTriangle,
   Trash2, Plus, X, Check, MessageSquare, Activity, Lock, RotateCcw, ChevronDown, Flag,
   Paperclip, UploadCloud, Download, FileText, FileImage, FileVideo, File as FileIcon, Loader2,
-  Users, Building2, UserCircle,
+  Users, Building2, UserCircle, ExternalLink,
 } from "lucide-react";
 import { format } from "date-fns";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -405,6 +405,16 @@ export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, 
                       else await patchTask.mutateAsync({ accountId: null });
                     }}
                   />
+                  {t.account_id && (
+                    <a
+                      href={`/accounts/${t.account_id}`}
+                      className="shrink-0 text-primary/60 hover:text-primary transition-colors"
+                      title={`Open ${t.account_name || "organization"} detail page`}
+                      data-testid="link-account-detail"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  )}
                 </div>
                 {t.linked_object_type && t.linked_object_type !== "contact" && t.linked_object_id && (
                   <div className="flex items-center gap-1.5 text-muted-foreground">
