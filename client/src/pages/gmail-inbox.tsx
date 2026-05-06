@@ -4570,6 +4570,28 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     return { title, description, variant: failed > 0 ? ("destructive" as const) : undefined };
   }
 
+  function advanceReviewSelection(actedThreadIds: Set<string>) {
+    // Optimistically remove acted-on items from the cache immediately
+    const currentItems: ReviewQueueItem[] =
+      (queryClient.getQueryData(["/api/gmail/review-queue"]) as any)?.items ?? [];
+    queryClient.setQueryData(
+      ["/api/gmail/review-queue"],
+      (old: { items: ReviewQueueItem[]; total: number } | undefined) => {
+        if (!old) return old;
+        const remaining = old.items.filter(i => !actedThreadIds.has(i.gmailThreadId));
+        return { ...old, items: remaining, total: Math.max(0, old.total - actedThreadIds.size) };
+      }
+    );
+    // If the currently-open thread was just acted on, advance to the next one
+    if (selectedThreadId && actedThreadIds.has(selectedThreadId)) {
+      const remaining = currentItems.filter(i => !actedThreadIds.has(i.gmailThreadId));
+      const prevIdx = currentItems.findIndex(i => i.gmailThreadId === selectedThreadId);
+      const next = remaining[Math.min(prevIdx, remaining.length - 1)] ?? null;
+      setSelectedThreadId(next?.gmailThreadId ?? null);
+      setSelectedMessageId(null);
+    }
+  }
+
   const bulkConfirmMutation = useMutation({
     mutationFn: async (items: Array<{ associationId: number; threadId: string }>) => {
       const res = await apiRequest("POST", "/api/gmail/thread-associations/bulk-confirm", { items });
@@ -4579,7 +4601,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       }
       return res.json() as Promise<BulkResult>;
     },
-    onSuccess: (result) => {
+    onSuccess: (result, items) => {
+      advanceReviewSelection(new Set(items.map(i => i.threadId)));
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue/stats"] });
       setSelectedReviewIds(new Set());
@@ -4598,7 +4621,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       }
       return res.json() as Promise<BulkResult>;
     },
-    onSuccess: (result) => {
+    onSuccess: (result, items) => {
+      advanceReviewSelection(new Set(items.map(i => i.threadId)));
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue/stats"] });
       setSelectedReviewIds(new Set());
