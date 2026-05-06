@@ -296,6 +296,20 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
   });
 
+  const deleteAccountMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/accounts/${id}`);
+      if (!res.ok) throw new Error((await res.json()).message || "Delete failed");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      toast({ title: "Organization deleted" });
+    },
+    onError: (err: any) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
+  });
+
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -632,7 +646,30 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                         Next: {account.nextAction}
                       </p>
                     )}
-                    <div className="mt-3 pt-2 border-t border-border/30 flex justify-end">
+                    <div className="mt-3 pt-2 border-t border-border/30 flex items-center justify-between">
+                      {canEdit && (
+                        <div onClick={e => e.stopPropagation()}>
+                          {deletingId === account.id ? (
+                            <span className="flex items-center gap-1.5 text-xs">
+                              <span className="text-red-400 font-medium">Delete?</span>
+                              <button
+                                onClick={() => { deleteAccountMutation.mutate(account.id); setDeletingId(null); }}
+                                className="text-red-400 hover:text-red-300 underline"
+                                data-testid={`button-confirm-delete-card-${account.id}`}
+                              >Yes</button>
+                              <button onClick={() => setDeletingId(null)} className="text-muted-foreground hover:text-foreground underline">No</button>
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => setDeletingId(account.id)}
+                              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-red-400 transition-colors"
+                              data-testid={`button-delete-card-${account.id}`}
+                            >
+                              <Trash2 className="h-3 w-3" /> Delete
+                            </button>
+                          )}
+                        </div>
+                      )}
                       <Link href={`/accounts/${account.id}`}>
                         <div onClick={e => e.stopPropagation()} className="flex items-center gap-1 text-xs text-primary hover:underline cursor-pointer" data-testid={`link-account-profile-${account.id}`}>
                           View Profile <ChevronRight className="h-3 w-3" />
@@ -949,6 +986,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
   const [editMode, setEditMode] = useState(false);
   const [showFolderDialog, setShowFolderDialog] = useState(false);
   const [folderName, setFolderName] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [folderDomainInput, setFolderDomainInput] = useState("");
 
   const { data: freshAccount } = useQuery<Account>({
@@ -1045,6 +1083,32 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
   const sourceLead = sourceLeadData?.lead ?? null;
   const conversionHistory = sourceLeadData?.history ?? [];
 
+  const deleteAccountMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/accounts/${account.id}`);
+      if (!res.ok) throw new Error((await res.json()).message || "Delete failed");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      toast({ title: "Organization deleted" });
+      onClose();
+    },
+    onError: (err: any) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
+  });
+
+  const setPrimaryContactMutation = useMutation({
+    mutationFn: async (contactId: number) => {
+      const res = await apiRequest("PUT", `/api/contacts/${contactId}`, { isPrimary: true });
+      if (!res.ok) throw new Error("Failed to set primary");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", { accountId: account.id }] });
+      toast({ title: "Primary contact updated" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
   const createFolderFromAccountMutation = useMutation({
     mutationFn: async ({ name, domains }: { name: string; domains: string[] }) => {
       const res = await apiRequest("POST", "/api/mail-folders/from-account", {
@@ -1088,6 +1152,34 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
                     <ExternalLink className="h-3 w-3" /> Intelligence Profile
                   </button>
                 </Link>
+                {canEdit && !confirmDelete && (
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    className="inline-flex items-center gap-1 text-xs rounded-md border border-red-500/20 bg-red-500/5 text-red-400 px-2 py-0.5 cursor-pointer transition-colors hover:bg-red-500/15 hover:border-red-500/40"
+                    data-testid="button-delete-org"
+                  >
+                    <Trash2 className="h-3 w-3" /> Delete
+                  </button>
+                )}
+                {confirmDelete && (
+                  <span className="flex items-center gap-1.5 text-xs">
+                    <span className="text-red-400 font-medium">Delete "{account.name}"?</span>
+                    <button
+                      onClick={() => deleteAccountMutation.mutate()}
+                      disabled={deleteAccountMutation.isPending}
+                      className="inline-flex items-center gap-1 text-xs rounded-md border border-red-500/40 bg-red-500/15 text-red-400 px-2 py-0.5 cursor-pointer transition-colors hover:bg-red-500/25"
+                      data-testid="button-confirm-delete-org"
+                    >
+                      {deleteAccountMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Yes, delete"}
+                    </button>
+                    <button
+                      onClick={() => setConfirmDelete(false)}
+                      className="inline-flex items-center gap-1 text-xs rounded-md border border-border/50 bg-secondary/50 px-2 py-0.5 cursor-pointer transition-colors hover:bg-secondary"
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <Badge variant="outline" className={segmentColors[account.segment] || ""}>{account.segment}</Badge>
@@ -1426,20 +1518,45 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
                         {contact.name.charAt(0)}
                       </div>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-medium truncate">{contact.name}</p>
-                          {contact.isPrimary && <Badge variant="outline" className="text-[10px] px-1 py-0 bg-primary/10 text-primary border-primary/20 shrink-0">Primary</Badge>}
+                          {contact.isPrimary
+                            ? <Badge variant="outline" className="text-[10px] px-1 py-0 bg-primary/10 text-primary border-primary/20 shrink-0 flex items-center gap-0.5"><Star className="h-2.5 w-2.5" /> Primary</Badge>
+                            : canEdit && (
+                              <button
+                                onClick={() => setPrimaryContactMutation.mutate(contact.id)}
+                                disabled={setPrimaryContactMutation.isPending}
+                                className="text-[10px] px-1.5 py-0.5 rounded border border-border/40 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors shrink-0"
+                                data-testid={`button-set-primary-${contact.id}`}
+                                title="Set as primary contact"
+                              >
+                                Set primary
+                              </button>
+                            )
+                          }
                         </div>
                         <p className="text-xs text-muted-foreground truncate">
                           {contact.title || contact.persona || contact.roleType || "—"}
-                          {contact.relationshipStrength && <span className="ml-2">· {contact.relationshipStrength}</span>}
+                          {contact.phone && <span className="ml-2">· {contact.phone}</span>}
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 text-sm text-muted-foreground shrink-0">
-                      {contact.email && <span className="hidden md:flex items-center gap-1"><Mail className="h-3 w-3" /> {contact.email}</span>}
-                      {contact.phone && <span className="hidden md:flex items-center gap-1"><Phone className="h-3 w-3" /> {contact.phone}</span>}
-                      {contact.linkedinUrl && <a href={contact.linkedinUrl} target="_blank" rel="noreferrer" className="hover:text-primary"><LinkIcon className="h-3 w-3" /></a>}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {contact.email && (
+                        <a
+                          href={`mailto:${contact.email}`}
+                          className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border border-primary/20 bg-primary/5 text-primary hover:bg-primary/15 hover:border-primary/40 transition-colors"
+                          data-testid={`button-email-contact-${contact.id}`}
+                          title={contact.email}
+                        >
+                          <Mail className="h-3 w-3" /> Email
+                        </a>
+                      )}
+                      {contact.linkedinUrl && (
+                        <a href={contact.linkedinUrl} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-primary" title="LinkedIn">
+                          <LinkIcon className="h-3.5 w-3.5" />
+                        </a>
+                      )}
                     </div>
                   </div>
                 ))}
