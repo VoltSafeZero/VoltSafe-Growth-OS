@@ -710,7 +710,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
           canEdit={canEdit}
           onOpenLead={(leadId) => {
             setSelectedAccount(null);
-            setLocation(`/opportunities?selected=${leadId}`);
+            setLocation(`/opportunities/${leadId}`);
           }}
         />
       )}

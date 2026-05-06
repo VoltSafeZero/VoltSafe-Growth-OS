@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -125,6 +125,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
   const [pendingOrgId, setPendingOrgId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [activeViewId, setActiveViewId] = useState<number | null>(null);
+  const [, setLocation] = useLocation();
   const toggleSelect = (id: number) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const { toast } = useToast();
   const { scoreMap: leadScores } = useLeadScores(view === "list");
@@ -705,9 +706,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
           canEdit={canEdit}
           onOpenLead={(leadId) => {
             setSelectedOrg(null);
-            fetch(`/api/leads/${leadId}`, { credentials: "include" })
-              .then(r => r.ok ? r.json() : null)
-              .then(lead => { if (lead) setSelectedLead(lead); });
+            setLocation(`/opportunities/${leadId}`);
           }}
         />
       )}
