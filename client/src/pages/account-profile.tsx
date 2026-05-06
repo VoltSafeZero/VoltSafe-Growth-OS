@@ -12,8 +12,9 @@ import {
   ArrowLeft, Mail, Phone, Building2, Users, Zap, CheckSquare,
   CalendarDays, TrendingUp, MessageSquare, AlertTriangle, RefreshCw,
   MapPin, Globe, Clock, ExternalLink, Send, Plus, User, Anchor, Pin,
-  DollarSign, Package, BarChart2,
+  DollarSign, Package, BarChart2, Pencil,
 } from "lucide-react";
+import { AccountDetailDialog } from "./accounts";
 import { formatDistanceToNow, format, isPast } from "date-fns";
 import { Link } from "wouter";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
@@ -115,6 +116,7 @@ export default function AccountProfilePage() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
   const [, navigate] = useLocation();
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
 
   const { data, isLoading, isError, refetch } = useQuery<ProfileData>({
     queryKey: ["/api/accounts", id, "profile"],
@@ -158,6 +160,13 @@ export default function AccountProfilePage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5" data-testid="account-profile-page">
+      {editDialogOpen && (
+        <AccountDetailDialog
+          account={account as any}
+          onClose={() => { setEditDialogOpen(false); refetch(); }}
+          canEdit={true}
+        />
+      )}
       {/* Back */}
       <Button variant="ghost" size="sm" onClick={() => navigate("/accounts")}
         className="gap-1.5 text-muted-foreground hover:text-foreground" data-testid="button-back">
@@ -222,6 +231,9 @@ export default function AccountProfilePage() {
               </div>
             </div>
             <div className="flex-shrink-0 flex flex-col gap-2 sm:items-end">
+              <Button variant="outline" size="sm" onClick={() => setEditDialogOpen(true)} className="gap-1.5" data-testid="button-edit-org">
+                <Pencil className="h-3.5 w-3.5" /> Edit
+              </Button>
               {overdueTasks.length > 0 && (
                 <Badge variant="destructive" className="text-xs">{overdueTasks.length} overdue</Badge>
               )}
