@@ -1,9 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
 
+export type ColumnShare = {
+  id: number;
+  userId: number;
+  userName: string;
+  permission: "view" | "edit";
+  sharedByUserId: number;
+  sharedByName: string;
+};
+
 export type TaskColumn = {
   value: string;
   label: string;
   color: string;
+  shares?: ColumnShare[];
 };
 
 export const DEFAULT_TASK_COLUMNS: TaskColumn[] = [
@@ -51,7 +61,7 @@ export function columnSwatchClass(color: string): string {
 export function useTaskColumns() {
   const q = useQuery<TaskColumn[]>({
     queryKey: ["/api/task-columns"],
-    staleTime: 60_000,
+    staleTime: 30_000,
   });
   const columns = q.data && q.data.length > 0 ? q.data : DEFAULT_TASK_COLUMNS;
   return { columns, isLoading: q.isLoading };

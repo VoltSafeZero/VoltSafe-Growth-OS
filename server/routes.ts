@@ -3972,7 +3972,34 @@ export async function registerRoutes(
 
   app.get("/api/task-columns", requireAuth, async (_req, res) => {
     try {
-      res.json(await readTaskColumns());
+      const columns = await readTaskColumns();
+      let sharesBySlug: Record<string, any[]> = {};
+      try {
+        const sharesRaw: any = await db.execute(sql`
+          SELECT s.id, s.column_slug AS "columnSlug",
+            s.shared_with_user_id AS "userId",
+            u1.name AS "userName",
+            s.permission,
+            s.shared_by_user_id AS "sharedByUserId",
+            u2.name AS "sharedByName"
+          FROM task_column_shares s
+          JOIN users u1 ON u1.id = s.shared_with_user_id
+          JOIN users u2 ON u2.id = s.shared_by_user_id
+          ORDER BY s.column_slug, s.created_at
+        `);
+        for (const row of (sharesRaw.rows ?? [])) {
+          if (!sharesBySlug[row.columnSlug]) sharesBySlug[row.columnSlug] = [];
+          sharesBySlug[row.columnSlug].push({
+            id: row.id,
+            userId: row.userId,
+            userName: row.userName,
+            permission: row.permission,
+            sharedByUserId: row.sharedByUserId,
+            sharedByName: row.sharedByName,
+          });
+        }
+      } catch { /* table may not exist on first boot */ }
+      res.json(columns.map(c => ({ ...c, shares: sharesBySlug[c.value] ?? [] })));
     } catch (err: any) {
       res.status(500).json({ message: err?.message || "Failed to load columns" });
     }

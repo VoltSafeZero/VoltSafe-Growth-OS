@@ -251,6 +251,21 @@ async function loadTaskFull(taskId: number) {
 export function registerTaskRoutes(app: Express, requireAuth: any) {
   const canView = requirePermission("crm", "view");
   const canEdit = requirePermission("crm", "edit");
+
+  // ── Column shares: bootstrap (idempotent) ────────────────────────────────
+  db.execute(sql`
+    CREATE TABLE IF NOT EXISTS task_column_shares (
+      id SERIAL PRIMARY KEY,
+      column_slug TEXT NOT NULL,
+      shared_by_user_id INTEGER NOT NULL,
+      shared_with_user_id INTEGER NOT NULL,
+      permission TEXT NOT NULL DEFAULT 'view',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(column_slug, shared_with_user_id)
+    )
+  `).then(() => console.log("[migration] Column shares schema migration complete."))
+    .catch(e => console.error("[task-column-shares] migration error:", e.message));
+
   // ── Full task detail ──────────────────────────────────────────────────────
   app.get("/api/tasks/:id/full", canView, async (req, res) => {
     try {
@@ -888,6 +903,93 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
         FROM tasks WHERE title ILIKE ${like} AND id <> ${exclude} AND archived = false
         ORDER BY id DESC LIMIT 20`);
       res.json(r.rows ?? []);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Column sharing ────────────────────────────────────────────────────────
+  app.get("/api/task-columns/shares", canView, async (_req, res) => {
+    try {
+      const r: any = await db.execute(sql`
+        SELECT s.id, s.column_slug AS "columnSlug",
+          s.shared_with_user_id AS "userId",
+          u1.name AS "userName",
+          s.permission,
+          s.shared_by_user_id AS "sharedByUserId",
+          u2.name AS "sharedByName",
+          s.created_at AS "createdAt"
+        FROM task_column_shares s
+        JOIN users u1 ON u1.id = s.shared_with_user_id
+        JOIN users u2 ON u2.id = s.shared_by_user_id
+        ORDER BY s.column_slug, s.created_at
+      `);
+      const bySlug: Record<string, any[]> = {};
+      for (const row of (r.rows ?? [])) {
+        if (!bySlug[row.columnSlug]) bySlug[row.columnSlug] = [];
+        bySlug[row.columnSlug].push(row);
+      }
+      res.json(bySlug);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/task-columns/:slug/shares", requireAuth, async (req, res) => {
+    try {
+      const { slug } = req.params;
+      if (!SLUG_RE.test(slug)) return res.status(400).json({ message: "Invalid column slug" });
+      const actorId = uid(req);
+      const targetUserId = Number(req.body?.userId);
+      const permission = req.body?.permission;
+      if (!["view", "edit"].includes(permission)) {
+        return res.status(400).json({ message: "Permission must be 'view' or 'edit'" });
+      }
+      if (!Number.isFinite(targetUserId)) {
+        return res.status(400).json({ message: "Invalid userId" });
+      }
+      const cols = await loadCustomColumnValues();
+      if (!cols.includes(slug)) return res.status(404).json({ message: "Column not found" });
+      await db.execute(sql`
+        INSERT INTO task_column_shares (column_slug, shared_by_user_id, shared_with_user_id, permission)
+        VALUES (${slug}, ${actorId}, ${targetUserId}, ${permission})
+        ON CONFLICT (column_slug, shared_with_user_id) DO UPDATE SET permission = ${permission}
+      `);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/task-columns/:slug/shares/:userId", requireAuth, async (req, res) => {
+    try {
+      const { slug, userId: targetUserIdStr } = req.params;
+      const permission = req.body?.permission;
+      if (!["view", "edit"].includes(permission)) {
+        return res.status(400).json({ message: "Permission must be 'view' or 'edit'" });
+      }
+      const targetId = Number(targetUserIdStr);
+      if (!Number.isFinite(targetId)) return res.status(400).json({ message: "Invalid userId" });
+      await db.execute(sql`
+        UPDATE task_column_shares SET permission = ${permission}
+        WHERE column_slug = ${slug} AND shared_with_user_id = ${targetId}
+      `);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/task-columns/:slug/shares/:userId", requireAuth, async (req, res) => {
+    try {
+      const { slug, userId: targetUserIdStr } = req.params;
+      const targetId = Number(targetUserIdStr);
+      if (!Number.isFinite(targetId)) return res.status(400).json({ message: "Invalid userId" });
+      await db.execute(sql`
+        DELETE FROM task_column_shares
+        WHERE column_slug = ${slug} AND shared_with_user_id = ${targetId}
+      `);
+      res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

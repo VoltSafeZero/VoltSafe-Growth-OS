@@ -19,12 +19,12 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   CalendarDays, ListChecks, MessageSquare, Lock, User as UserIcon, Check,
-  Search, Filter, Bookmark, BookmarkPlus, Save, Trash2, X, ChevronDown, Settings, ArrowRight, GripVertical,
+  Search, Filter, Bookmark, BookmarkPlus, Save, Trash2, X, ChevronDown, Settings, ArrowRight, GripVertical, Users, Eye,
 } from "lucide-react";
 import { format, isToday, isPast } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useTaskColumns, columnBorderClass } from "@/hooks/use-task-columns";
-import { ManageColumnsDialog } from "@/components/tasks/manage-columns-dialog";
+import { ManageColumnsDialog, ColumnShareDialog } from "@/components/tasks/manage-columns-dialog";
 
 const PRIORITY_DOT: Record<string, string> = {
   urgent: "bg-red-500",
@@ -68,6 +68,7 @@ export function TaskBoard({ view, onOpenTask }: Props) {
   const [saveOpen, setSaveOpen] = useState(false);
   const [newViewName, setNewViewName] = useState("");
   const [newViewDefault, setNewViewDefault] = useState(false);
+  const [shareColSlug, setShareColSlug] = useState<string | null>(null);
 
   const { data: me } = useQuery<{ id: number; globalRole?: string }>({
     queryKey: ["/api/auth/me"],
@@ -75,7 +76,7 @@ export function TaskBoard({ view, onOpenTask }: Props) {
   });
   const isAdmin = me?.globalRole === "master_admin" || me?.globalRole === "admin";
 
-  // Workspace-wide custom columns (admin-managed via "Manage columns" dialog)
+  // Workspace-wide custom columns
   const { columns: columnDefs } = useTaskColumns();
   const [manageOpen, setManageOpen] = useState(false);
 
@@ -98,12 +99,21 @@ export function TaskBoard({ view, onOpenTask }: Props) {
       const col = columnDefs.find(c => c.value === val);
       if (col) ordered.push(col);
     }
-    // Append any workspace columns not yet in the user's saved order
     for (const col of columnDefs) {
       if (!colOrderOverride.includes(col.value)) ordered.push(col);
     }
     return ordered;
   }, [columnDefs, colOrderOverride]);
+
+  // Get current user's explicit permission on a column
+  // No share record (or admin) → full edit; share with 'view' → view-only
+  const getColPermission = (colSlug: string): "view" | "edit" => {
+    if (isAdmin || !me?.id) return "edit";
+    const col = columnDefs.find(c => c.value === colSlug);
+    const share = col?.shares?.find(s => s.userId === me.id);
+    if (!share) return "edit";
+    return share.permission as "view" | "edit";
+  };
 
   function handleColumnDrop(targetColValue: string) {
     if (!draggingColValue || draggingColValue === targetColValue) return;
@@ -154,7 +164,6 @@ export function TaskBoard({ view, onOpenTask }: Props) {
     return (Object.values(delegatedData.grouped) as any[][]).flat();
   }, [delegatedData?.grouped]);
 
-  // On first load, apply default saved view if any
   useEffect(() => {
     if (activeViewId !== null) return;
     const def = savedViews.find(v => v.isDefault);
@@ -171,7 +180,6 @@ export function TaskBoard({ view, onOpenTask }: Props) {
     return base;
   }, [data?.grouped, columnDefs]);
 
-  // Apply filters client-side
   const filteredGrouped = useMemo(() => {
     const out: Record<string, any[]> = {};
     for (const c of columnDefs) out[c.value] = [];
@@ -207,6 +215,13 @@ export function TaskBoard({ view, onOpenTask }: Props) {
 
   const handleDrop = async (col: string) => {
     if (draggingId == null) return;
+    // Enforce view-only permission
+    if (getColPermission(col) === "view") {
+      toast({ title: "View only", description: "You don't have permission to move tasks into this column.", variant: "destructive" });
+      setDraggingId(null);
+      setDragOverCol(null);
+      return;
+    }
     const id = draggingId;
     setDraggingId(null);
     setDragOverCol(null);
@@ -282,8 +297,10 @@ export function TaskBoard({ view, onOpenTask }: Props) {
 
   const updateFilter = (patch: Partial<Filters>) => {
     setFilters(f => ({ ...f, ...patch }));
-    setActiveViewId(null); // mark filters as dirty (no longer matching the saved view)
+    setActiveViewId(null);
   };
+
+  const shareColDef = columnDefs.find(c => c.value === shareColSlug);
 
   return (
     <div className="space-y-3">
@@ -377,7 +394,6 @@ export function TaskBoard({ view, onOpenTask }: Props) {
           </Button>
         )}
 
-        {/* Saved views */}
         <div className="flex-1" />
 
         <DropdownMenu>
@@ -449,19 +465,18 @@ export function TaskBoard({ view, onOpenTask }: Props) {
             Reset order
           </Button>
         )}
-        {isAdmin && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs gap-1"
-            onClick={() => setManageOpen(true)}
-            data-testid="button-manage-columns"
-            title="Add, rename, reorder, or delete board columns (admin)"
-          >
-            <Settings className="h-3 w-3" />
-            Manage columns
-          </Button>
-        )}
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs gap-1"
+          onClick={() => setManageOpen(true)}
+          data-testid="button-manage-columns"
+          title={isAdmin ? "Add, rename, reorder, or delete board columns" : "Manage column sharing"}
+        >
+          <Settings className="h-3 w-3" />
+          {isAdmin ? "Manage columns" : "Column sharing"}
+        </Button>
       </div>
 
       {/* Board */}
@@ -481,10 +496,13 @@ export function TaskBoard({ view, onOpenTask }: Props) {
             const cards: any[] = filteredGrouped[col.value] || [];
             const isColOver = dragOverCol === col.value && draggingColValue !== null && draggingColValue !== col.value;
             const isTaskOver = dragOverCol === col.value && draggingId !== null;
+            const colPerm = getColPermission(col.value);
+            const isViewOnly = colPerm === "view";
+            const shareCount = (col.shares ?? []).length;
             return (
               <div
                 key={col.value}
-                className={`w-72 flex-shrink-0 flex flex-col rounded-lg border-2 ${columnBorderClass(col.color)} bg-muted/40 transition-all ${isTaskOver ? "bg-muted/80 ring-2 ring-primary" : ""} ${isColOver ? "ring-2 ring-primary/60 scale-[1.01]" : ""} ${draggingColValue === col.value ? "opacity-50" : ""}`}
+                className={`w-72 flex-shrink-0 flex flex-col rounded-lg border-2 ${columnBorderClass(col.color)} bg-muted/40 transition-all ${isTaskOver && !isViewOnly ? "bg-muted/80 ring-2 ring-primary" : ""} ${isColOver ? "ring-2 ring-primary/60 scale-[1.01]" : ""} ${draggingColValue === col.value ? "opacity-50" : ""}`}
                 onDragOver={(e) => { e.preventDefault(); setDragOverCol(col.value); }}
                 onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverCol(null); }}
                 onDrop={() => {
@@ -507,13 +525,33 @@ export function TaskBoard({ view, onOpenTask }: Props) {
                   >
                     <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
                   </div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex-1">{col.label}</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex-1 flex items-center gap-1.5">
+                    {col.label}
+                    {isViewOnly && (
+                      <span title="You have view-only access to this column">
+                        <Eye className="h-3 w-3 text-amber-500" />
+                      </span>
+                    )}
+                  </div>
                   <Badge variant="secondary" className="h-5 text-xs">{cards.length}</Badge>
+                  <button
+                    className={`h-5 w-5 rounded flex items-center justify-center transition-opacity relative ${shareCount > 0 ? "opacity-80 text-primary" : "opacity-0 group-hover/colheader:opacity-60"} hover:!opacity-100`}
+                    title="Manage column sharing"
+                    onClick={() => setShareColSlug(col.value)}
+                    data-testid={`button-col-share-${col.value}`}
+                  >
+                    <Users className="h-3.5 w-3.5" />
+                    {shareCount > 0 && (
+                      <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-primary text-primary-foreground text-[8px] flex items-center justify-center font-bold leading-none">
+                        {shareCount}
+                      </span>
+                    )}
+                  </button>
                 </div>
-                <div className="flex-1 p-2 space-y-2 max-h-[calc(100vh-340px)] overflow-y-auto">
+                <div className={`flex-1 p-2 space-y-2 max-h-[calc(100vh-340px)] overflow-y-auto ${isViewOnly ? "opacity-80" : ""}`}>
                   {cards.length === 0 ? (
                     <div className="text-xs text-muted-foreground italic text-center py-6">
-                      {filterCount > 0 ? "No matches" : "Drop tasks here"}
+                      {filterCount > 0 ? "No matches" : isViewOnly ? "View only" : "Drop tasks here"}
                     </div>
                   ) : (
                     cards.map((t: any) => (
@@ -599,8 +637,16 @@ export function TaskBoard({ view, onOpenTask }: Props) {
         </DialogContent>
       </Dialog>
 
-      {isAdmin && (
-        <ManageColumnsDialog open={manageOpen} onOpenChange={setManageOpen} />
+      <ManageColumnsDialog open={manageOpen} onOpenChange={setManageOpen} isAdmin={isAdmin} />
+
+      {shareColSlug && shareColDef && (
+        <ColumnShareDialog
+          slug={shareColSlug}
+          label={shareColDef.label}
+          shares={shareColDef.shares ?? []}
+          open={!!shareColSlug}
+          onOpenChange={(v) => { if (!v) setShareColSlug(null); }}
+        />
       )}
     </div>
   );
