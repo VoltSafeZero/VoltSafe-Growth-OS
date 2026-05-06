@@ -178,7 +178,7 @@ function AccessTab({ user, currentUserId }: { user: AdminUser; currentUserId: nu
   }
 
   function updateMailTeam(inboxId: number, field: "view" | "edit", value: boolean) {
-    const current = perms.mail_team[String(inboxId)] ?? { view: true, edit: true };
+    const current = perms.mail_team[String(inboxId)] ?? { view: false, edit: false };
     const updated: UserPermissions = {
       ...perms,
       mail_team: {
@@ -247,7 +247,7 @@ function AccessTab({ user, currentUserId }: { user: AdminUser; currentUserId: nu
         )}
         <div className="space-y-2">
           {(teamAccountsQuery.data ?? []).map((acct) => {
-            const entry = perms.mail_team[String(acct.id)] ?? { view: true, edit: true };
+            const entry = perms.mail_team[String(acct.id)] ?? { view: false, edit: false };
             return (
               <div key={acct.id} className="flex items-center gap-3 py-1 rounded-md bg-secondary/10 px-3">
                 <span className="flex-shrink-0 h-6 w-6 rounded-full bg-teal-900/60 text-teal-300 flex items-center justify-center text-[11px] font-bold">
