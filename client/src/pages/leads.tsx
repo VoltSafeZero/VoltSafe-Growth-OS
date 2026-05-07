@@ -1422,14 +1422,15 @@ function LeadDetailDialog({
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] sm:max-h-[85vh] overflow-y-auto overflow-x-hidden">
+      <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] sm:max-h-[85vh] overflow-y-auto overflow-x-hidden p-0">
+        <div className="w-full min-w-0 overflow-hidden p-6 pb-4">
         <DialogHeader>
           <div className="flex items-start gap-3">
             <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
               <Anchor className="w-5 h-5 text-primary" />
             </div>
-            <div className="flex-1 min-w-0">
-              <DialogTitle className="text-xl leading-tight">{lead.company}</DialogTitle>
+            <div className="flex-1 min-w-0 overflow-hidden">
+              <DialogTitle className="text-xl leading-tight break-words">{lead.company}</DialogTitle>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <Badge variant="outline" className={stageInfo?.color || ""}>{stageInfo?.label || lead.status}</Badge>
                 {lead.source && <span className="text-xs text-muted-foreground">via {lead.source}</span>}
@@ -1535,9 +1536,9 @@ function LeadDetailDialog({
                   <Label className="text-xs text-muted-foreground mb-1 block pointer-events-none">Location</Label>
                   <div className="flex items-start gap-2">
                     <MapPin className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                    <div className="text-sm flex-1">
-                      {lead.streetAddress && <p className="font-medium">{lead.streetAddress}</p>}
-                      <p className="text-muted-foreground">
+                    <div className="text-sm flex-1 min-w-0 overflow-hidden">
+                      {lead.streetAddress && <p className="font-medium break-words">{lead.streetAddress}</p>}
+                      <p className="text-muted-foreground break-words">
                         {[lead.city, lead.state, lead.zipCode].filter(Boolean).join(", ")}
                         {lead.country && <span className="ml-1">{lead.country === "CA" ? "Canada" : lead.country === "US" ? "USA" : lead.country}</span>}
                       </p>
@@ -1548,25 +1549,25 @@ function LeadDetailDialog({
               );
             })()}
 
-            <div className="rounded-lg border border-border/50 p-3">
+            <div className="rounded-lg border border-border/50 p-3 overflow-hidden">
               <Label className="text-xs text-muted-foreground mb-2 block">Contact Information</Label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
+                <div className="min-w-0 overflow-hidden">
                   <p className="text-xs text-muted-foreground">Name</p>
-                  <p className="text-sm font-medium">{lead.contactName === "Marina Contact" ? <span className="text-muted-foreground italic">Not set — click Edit to add</span> : lead.contactName}</p>
+                  <p className="text-sm font-medium break-words overflow-hidden">{lead.contactName === "Marina Contact" ? <span className="text-muted-foreground italic">Not set — click Edit to add</span> : lead.contactName}</p>
                 </div>
-                <div>
+                <div className="min-w-0 overflow-hidden">
                   <p className="text-xs text-muted-foreground">Email</p>
                   {lead.contactEmail ? (
-                    <p className="text-sm flex items-center gap-1"><Mail className="h-3 w-3 text-muted-foreground" />{lead.contactEmail}</p>
+                    <p className="text-sm flex items-center gap-1 min-w-0"><Mail className="h-3 w-3 text-muted-foreground shrink-0" /><span className="break-all overflow-hidden">{lead.contactEmail}</span></p>
                   ) : (
                     <p className="text-sm text-muted-foreground italic">Not set</p>
                   )}
                 </div>
-                <div>
+                <div className="min-w-0 overflow-hidden">
                   <p className="text-xs text-muted-foreground">Phone</p>
                   {lead.contactPhone ? (
-                    <p className="text-sm flex items-center gap-1"><Phone className="h-3 w-3 text-muted-foreground" />{lead.contactPhone}</p>
+                    <p className="text-sm flex items-center gap-1 min-w-0"><Phone className="h-3 w-3 text-muted-foreground shrink-0" /><span className="break-all overflow-hidden">{lead.contactPhone}</span></p>
                   ) : (
                     <p className="text-sm text-muted-foreground italic">Not set</p>
                   )}
@@ -1575,21 +1576,21 @@ function LeadDetailDialog({
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="rounded-lg border border-border/50 p-3">
+              <div className="rounded-lg border border-border/50 p-3 min-w-0 overflow-hidden">
                 <p className="text-xs text-muted-foreground">Slips</p>
                 <p className="text-lg font-semibold">{!lead.slips || lead.slips === "-" ? "—" : Number(lead.slips).toLocaleString()}</p>
               </div>
-              <div className="rounded-lg border border-border/50 p-3">
+              <div className="rounded-lg border border-border/50 p-3 min-w-0 overflow-hidden">
                 <p className="text-xs text-muted-foreground">Segment</p>
-                <p className="text-sm font-medium">{lead.segment || "—"}</p>
+                <p className="text-sm font-medium break-words">{lead.segment || "—"}</p>
               </div>
-              <div className="rounded-lg border border-border/50 p-3">
+              <div className="rounded-lg border border-border/50 p-3 min-w-0 overflow-hidden">
                 <p className="text-xs text-muted-foreground">Country</p>
-                <p className="text-sm font-medium">{lead.country === "CA" ? "Canada" : lead.country === "US" ? "USA" : lead.country || "—"}</p>
+                <p className="text-sm font-medium break-words">{lead.country === "CA" ? "Canada" : lead.country === "US" ? "USA" : lead.country || "—"}</p>
               </div>
-              <div className="rounded-lg border border-border/50 p-3">
+              <div className="rounded-lg border border-border/50 p-3 min-w-0 overflow-hidden">
                 <p className="text-xs text-muted-foreground">Source</p>
-                <p className="text-sm font-medium">{lead.source || "—"}</p>
+                <p className="text-sm font-medium break-words">{lead.source || "—"}</p>
               </div>
             </div>
 
@@ -1600,25 +1601,25 @@ function LeadDetailDialog({
                 </Label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {lead.dealAmount != null && (
-                    <div>
+                    <div className="min-w-0 overflow-hidden">
                       <p className="text-xs text-muted-foreground">Amount</p>
                       <p className="text-lg font-semibold text-emerald-400">${Number(lead.dealAmount).toLocaleString()}</p>
                     </div>
                   )}
                   {lead.dealProbability != null && (
-                    <div>
+                    <div className="min-w-0 overflow-hidden">
                       <p className="text-xs text-muted-foreground">Probability</p>
                       <p className="text-sm font-medium">{lead.dealProbability}%</p>
                     </div>
                   )}
                   {lead.primaryValueDriver && (
-                    <div>
+                    <div className="min-w-0 overflow-hidden">
                       <p className="text-xs text-muted-foreground">Value Driver</p>
-                      <p className="text-sm font-medium">{lead.primaryValueDriver}</p>
+                      <p className="text-sm font-medium break-words">{lead.primaryValueDriver}</p>
                     </div>
                   )}
                   {lead.estCloseDate && (
-                    <div>
+                    <div className="min-w-0 overflow-hidden">
                       <p className="text-xs text-muted-foreground">Est. Close</p>
                       <p className="text-sm font-medium">{new Date(lead.estCloseDate).toLocaleDateString()}</p>
                     </div>
@@ -1669,11 +1670,11 @@ function LeadDetailDialog({
             )}
 
             {(lead.nextStep || lead.dueDate) && (
-              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 overflow-hidden">
                 <Label className="text-xs text-primary mb-1 block flex items-center gap-1">
                   <Calendar className="h-3 w-3" /> Next Step
                 </Label>
-                <p className="text-sm font-medium">{lead.nextStep || "—"}</p>
+                <p className="text-sm font-medium break-words overflow-hidden">{lead.nextStep || "—"}</p>
                 {lead.dueDate && (
                   <p className="text-xs text-muted-foreground mt-1">Due: {new Date(lead.dueDate).toLocaleDateString()}</p>
                 )}
@@ -1758,6 +1759,7 @@ function LeadDetailDialog({
             </div>
           </div>
         )}
+        </div>
       </DialogContent>
     </Dialog>
   );
