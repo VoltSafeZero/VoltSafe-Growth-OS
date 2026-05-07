@@ -3307,6 +3307,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [composeOpen, setComposeOpen] = useState(false);
   const [smartContactOpen, setSmartContactOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string; fromName?: string; quotedHtml?: string; quotedFrom?: string; quotedDate?: string } | null>(null);
+  const [shownSenderEmailIds, setShownSenderEmailIds] = useState<Set<string>>(new Set());
+  const toggleSenderEmail = (msgId: string) => setShownSenderEmailIds(prev => { const n = new Set(prev); n.has(msgId) ? n.delete(msgId) : n.add(msgId); return n; });
   const [tab, setTab] = useState<"inbox" | "sent" | "other" | "drafts" | "scheduled" | "folder" | "review">("inbox");
   const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set());
   const [inboxCategory, setInboxCategory] = useState<InboxCategory>("all");
@@ -7584,13 +7586,19 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         </div>
                         <div className="flex-1 min-w-0 pt-0.5">
                           <div className="flex items-baseline justify-between gap-2">
-                            <p
-                              className={`font-semibold ${densityClasses.msgSenderText} text-foreground leading-tight tracking-[-0.005em] truncate`}
-                              title={parseSenderEmail(msg.from)}
+                            <button
+                              type="button"
+                              onClick={() => toggleSenderEmail(msg.id)}
+                              className={`font-semibold ${densityClasses.msgSenderText} text-foreground leading-tight tracking-[-0.005em] truncate text-left hover:text-primary transition-colors cursor-pointer`}
                               data-testid={`text-sender-${msg.id}`}
                             >
                               {parseSenderName(msg.from)}
-                            </p>
+                              {shownSenderEmailIds.has(msg.id) && parseSenderEmail(msg.from) && (
+                                <span className="ml-1.5 font-normal text-[11px] text-muted-foreground tracking-normal">
+                                  &lt;{parseSenderEmail(msg.from)}&gt;
+                                </span>
+                              )}
+                            </button>
                             <div className="flex items-center gap-1 flex-shrink-0">
                               <span
                                 className="text-[11px] text-muted-foreground/70 whitespace-nowrap tabular-nums font-medium"
