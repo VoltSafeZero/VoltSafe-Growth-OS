@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
   ClipboardList, UserPlus, TrendingUp, CalendarDays, StickyNote,
@@ -51,6 +50,8 @@ function NoteForm({ onClose }: { onClose: () => void }) {
   );
 }
 
+const nativeSelectCls = "w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer";
+
 function TaskForm({ onClose, prefill }: { onClose: () => void; prefill?: any }) {
   const { toast } = useToast();
   const [title, setTitle] = useState(prefill?.title || "");
@@ -60,12 +61,11 @@ function TaskForm({ onClose, prefill }: { onClose: () => void; prefill?: any }) 
 
   const { data: me } = useQuery<{ id: number; name: string }>({
     queryKey: ["/api/auth/me"],
-    queryFn: () => fetch("/api/auth/me", { credentials: "include" }).then(r => r.json()),
   });
-  const { data: users = [] } = useQuery<{ id: number; name: string }[]>({
+  const { data: rawUsers } = useQuery<{ id: number; name: string }[]>({
     queryKey: ["/api/users"],
-    queryFn: () => fetch("/api/users", { credentials: "include" }).then(r => r.json()),
   });
+  const users = Array.isArray(rawUsers) ? rawUsers : [];
 
   const resolvedOwnerUserId = ownerUserId === "me" ? (me?.id ?? null) : Number(ownerUserId);
 
@@ -103,27 +103,31 @@ function TaskForm({ onClose, prefill }: { onClose: () => void; prefill?: any }) 
         </div>
         <div>
           <Label className="text-xs mb-1.5 block">Priority</Label>
-          <Select value={priority} onValueChange={setPriority}>
-            <SelectTrigger data-testid="select-priority"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="high">High</SelectItem>
-              <SelectItem value="medium">Medium</SelectItem>
-              <SelectItem value="low">Low</SelectItem>
-            </SelectContent>
-          </Select>
+          <select
+            value={priority}
+            onChange={e => setPriority(e.target.value)}
+            className={nativeSelectCls}
+            data-testid="select-priority"
+          >
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
         </div>
       </div>
       <div>
         <Label className="text-xs mb-1.5 block">Assign to</Label>
-        <Select value={ownerUserId} onValueChange={setOwnerUserId}>
-          <SelectTrigger data-testid="select-assignee"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="me">Me{me?.name ? ` (${me.name})` : ""}</SelectItem>
-            {users.filter(u => u.id !== me?.id).map(u => (
-              <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <select
+          value={ownerUserId}
+          onChange={e => setOwnerUserId(e.target.value)}
+          className={nativeSelectCls}
+          data-testid="select-assignee"
+        >
+          <option value="me">Me{me?.name ? ` (${me.name})` : ""}</option>
+          {users.filter(u => u.id !== me?.id).map(u => (
+            <option key={u.id} value={String(u.id)}>{u.name}</option>
+          ))}
+        </select>
       </div>
       <Button className="w-full" onClick={() => mutation.mutate()} disabled={!title.trim() || mutation.isPending} data-testid="button-create-task">
         {mutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating…</> : "Create Task"}
@@ -244,15 +248,17 @@ function OpportunityForm({ onClose }: { onClose: () => void }) {
         </div>
         <div>
           <Label className="text-xs mb-1.5 block">Stage</Label>
-          <Select value={stage} onValueChange={setStage}>
-            <SelectTrigger data-testid="select-opp-stage"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="qualifying">Qualifying</SelectItem>
-              <SelectItem value="proposal">Proposal</SelectItem>
-              <SelectItem value="negotiation">Negotiation</SelectItem>
-              <SelectItem value="verbal_commit">Verbal Commit</SelectItem>
-            </SelectContent>
-          </Select>
+          <select
+            value={stage}
+            onChange={e => setStage(e.target.value)}
+            className={nativeSelectCls}
+            data-testid="select-opp-stage"
+          >
+            <option value="qualifying">Qualifying</option>
+            <option value="proposal">Proposal</option>
+            <option value="negotiation">Negotiation</option>
+            <option value="verbal_commit">Verbal Commit</option>
+          </select>
         </div>
       </div>
       <div>
