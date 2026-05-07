@@ -9424,6 +9424,118 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // GET /api/gmail/thread-participants/:threadId
+  // Returns all unique, real-person external participants from every message in the thread.
+  // For each participant we indicate whether they are already in the CRM (contacts table).
+  // "Generic" role-address prefixes (info@, support@, sales@, etc.) are filtered out because
+  // those represent organisations, not individual people.
+  app.get("/api/gmail/thread-participants/:threadId", requireAuth, async (req, res) => {
+    const threadId = String(req.params.threadId);
+    const INTERNAL_DOMAIN = "voltsafe.com";
+
+    const GENERIC_PREFIXES = new Set([
+      "info", "contact", "contacts", "support", "sales", "hello", "team",
+      "admin", "billing", "hr", "jobs", "careers", "legal", "press", "media",
+      "marketing", "newsletter", "help", "service", "customerservice",
+      "feedback", "enquiries", "enquiry", "webmaster", "postmaster",
+      "office", "reception", "general", "noreply", "no-reply", "donotreply",
+      "do-not-reply", "mail", "email", "accounts", "payroll", "finance",
+      "news", "updates", "notifications", "alerts", "security", "privacy",
+      "compliance", "orders", "invoice", "invoices", "payments",
+      "subscriptions", "customercare", "helpcenter", "hello", "hey",
+      "enquiry", "enquiries", "accounting", "ops", "operations", "it",
+      "tech", "techsupport", "purchase", "purchasing", "procurement",
+      "vendor", "vendors", "partner", "partners",
+    ]);
+
+    function isGenericEmail(email: string): boolean {
+      const prefix = email.split("@")[0]?.toLowerCase() ?? "";
+      if (GENERIC_PREFIXES.has(prefix)) return true;
+      if (/no.?reply|do.?not.?reply|noreply|donotreply|mailer.?daemon/i.test(prefix)) return true;
+      return false;
+    }
+
+    try {
+      const messages = await db
+        .select({
+          fromEmail: emailMessages.fromEmail,
+          fromName:  emailMessages.fromName,
+          toEmails:  emailMessages.toEmails,
+          ccEmails:  emailMessages.ccEmails,
+        })
+        .from(emailMessages)
+        .where(eq(emailMessages.gmailThreadId, threadId))
+        .orderBy(sql`${emailMessages.sentAt} ASC NULLS LAST`);
+
+      if (messages.length === 0) return res.json([]);
+
+      // Build email → name map (first non-empty name wins)
+      const emailNameMap = new Map<string, string>();
+      for (const msg of messages) {
+        if (msg.fromEmail) {
+          const e = msg.fromEmail.toLowerCase().trim();
+          if (!emailNameMap.has(e)) emailNameMap.set(e, msg.fromName?.trim() ?? "");
+          else if (!emailNameMap.get(e) && msg.fromName?.trim()) emailNameMap.set(e, msg.fromName.trim());
+        }
+        const toList: string[] = JSON.parse(msg.toEmails || "[]");
+        const ccList: string[] = JSON.parse(msg.ccEmails || "[]");
+        for (const raw of [...toList, ...ccList]) {
+          const e = raw.toLowerCase().trim();
+          if (e && !emailNameMap.has(e)) emailNameMap.set(e, "");
+        }
+      }
+
+      // Filter: external + not generic
+      const external = Array.from(emailNameMap.keys()).filter(email => {
+        const domain = email.split("@")[1]?.toLowerCase() ?? "";
+        if (!domain) return false;
+        if (domain === INTERNAL_DOMAIN) return false;
+        if (isGenericEmail(email)) return false;
+        return true;
+      });
+
+      if (external.length === 0) return res.json([]);
+
+      // Resolve each against the contacts table
+      const results = await Promise.all(external.map(async (email) => {
+        const name = emailNameMap.get(email) ?? "";
+        const domain = email.split("@")[1]?.toLowerCase() ?? "";
+
+        const [contact] = await db
+          .select({ id: contacts.id, name: contacts.name, accountId: contacts.accountId })
+          .from(contacts)
+          .where(sql`LOWER(${contacts.email}) = ${email}`)
+          .limit(1);
+
+        if (contact) {
+          let accountName: string | null = null;
+          if (contact.accountId) {
+            const [acct] = await db
+              .select({ name: accounts.name })
+              .from(accounts)
+              .where(eq(accounts.id, contact.accountId))
+              .limit(1);
+            accountName = acct?.name ?? null;
+          }
+          return { email, name, domain, status: "contact" as const, contactId: contact.id, contactName: contact.name, accountId: contact.accountId, accountName };
+        }
+
+        return { email, name, domain, status: "unknown" as const, contactId: null, contactName: null, accountId: null, accountName: null };
+      }));
+
+      // Sort: unlinked first (action needed), then linked contacts
+      results.sort((a, b) => {
+        if (a.status === "unknown" && b.status !== "unknown") return -1;
+        if (a.status !== "unknown" && b.status === "unknown") return 1;
+        return a.email.localeCompare(b.email);
+      });
+
+      res.json(results);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // PATCH /api/gmail/thread-record/:threadId — upsert workflow state / snooze / follow-up / reply status
   // Phase 4: this mutates per-thread mailbox-workflow state (snooze, replyStatus, etc).
   // For threads we already have stored, enforce edit access on the owning mailbox so view-only

@@ -1568,6 +1568,17 @@ type CrmSearchResult = {
   meta: string;
 };
 
+type ParticipantInfo = {
+  email: string;
+  name: string;
+  domain: string;
+  status: "contact" | "unknown";
+  contactId: number | null;
+  contactName: string | null;
+  accountId: number | null;
+  accountName: string | null;
+};
+
 const TYPE_CFG = {
   contact:     { label: "Contact",     Icon: User,       bg: "bg-sky-500/10",     text: "text-sky-400",     border: "border-sky-500/25",     href: "/contacts" },
   account:     { label: "Account",     Icon: Building2,  bg: "bg-violet-500/10",  text: "text-violet-400",  border: "border-violet-500/25",  href: "/accounts" },
@@ -1715,6 +1726,9 @@ function CrmContextPanel({
   const [showCreateAccountForm, setShowCreateAccountForm] = useState(false);
   const [aName, setAName] = useState("");
 
+  const [showParticipants, setShowParticipants] = useState(true);
+  const [participantDialogTarget, setParticipantDialogTarget] = useState<{ email: string; name: string } | null>(null);
+
   const [showQuickTask, setShowQuickTask] = useState(false);
   const [quickTaskTitle, setQuickTaskTitleLocal] = useState("");
 
@@ -1769,6 +1783,17 @@ function CrmContextPanel({
       return res.json();
     },
     enabled: !!threadId,
+  });
+
+  const participantsQuery = useQuery<ParticipantInfo[]>({
+    queryKey: ["/api/gmail/thread-participants", threadId],
+    queryFn: async () => {
+      const res = await fetch(`/api/gmail/thread-participants/${encodeURIComponent(threadId)}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!threadId,
+    staleTime: 30_000,
   });
 
   const searchQuery = useQuery<CrmSearchResult[]>({
@@ -2441,6 +2466,64 @@ function CrmContextPanel({
         </div>
       )}
 
+      {/* People on this thread — participant training panel */}
+      {canEditCrm && (participantsQuery.data?.length ?? 0) > 0 && (
+        <div className="px-4 pb-2">
+          <button
+            onClick={() => setShowParticipants(v => !v)}
+            data-testid="participants-toggle"
+            className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors mb-1.5 w-full"
+          >
+            <Users className="h-3 w-3" />
+            <span className="font-medium">People</span>
+            <span className="ml-0.5 text-[10px] bg-muted/40 px-1.5 py-0 rounded-full">
+              {participantsQuery.data?.length}
+            </span>
+            {showParticipants ? <ChevronDown className="h-2.5 w-2.5 ml-0.5" /> : <ChevronRight className="h-2.5 w-2.5 ml-0.5" />}
+          </button>
+
+          {showParticipants && (
+            <div className="space-y-1.5" data-testid="participants-list">
+              {participantsQuery.data?.map(p => (
+                <div key={p.email} className="flex items-start gap-1.5 min-w-0">
+                  {p.status === "contact" ? (
+                    <>
+                      <CheckCircle2 className="h-3 w-3 text-emerald-400/80 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[11px] text-foreground/80 truncate block leading-tight">{p.contactName}</span>
+                        {p.accountName && (
+                          <span className="text-[10px] text-muted-foreground/50 truncate block">{p.accountName}</span>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <User className="h-3 w-3 text-muted-foreground/35 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        {p.name && (
+                          <span className="text-[11px] text-foreground/70 truncate block leading-tight">{p.name}</span>
+                        )}
+                        <span className={`truncate block text-muted-foreground/50 ${p.name ? "text-[10px]" : "text-[11px] text-foreground/60"}`}>
+                          {p.email}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => setParticipantDialogTarget({ email: p.email, name: p.name })}
+                        data-testid={`add-contact-participant-${p.email.replace(/@|\./g, "-")}`}
+                        className="flex-shrink-0 flex items-center gap-0.5 text-[10px] text-sky-400/70 hover:text-sky-400 border border-sky-500/20 hover:border-sky-500/50 px-1.5 py-[2px] rounded transition-all"
+                      >
+                        <UserPlus className="h-2.5 w-2.5" />
+                        Add
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* CRM Association Review Panel */}
       <div className="px-4 pb-3">
         {/* Section header */}
@@ -3073,6 +3156,23 @@ function CrmContextPanel({
       </div>
       </>
       )}
+
+      {/* Participant → Add Contact dialog */}
+      <SmartAddContactDialog
+        open={participantDialogTarget !== null}
+        onClose={() => setParticipantDialogTarget(null)}
+        fromEmail={participantDialogTarget?.email ?? ""}
+        fromName={participantDialogTarget?.name ?? ""}
+        subject={hintSubject ?? ""}
+        body=""
+        onSaved={async () => {
+          setParticipantDialogTarget(null);
+          try { await refreshAssocMutation.mutateAsync(); } catch {}
+          queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-participants", threadId] });
+          queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-associations", threadId] });
+          queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", threadId] });
+        }}
+      />
     </div>
   );
 }
