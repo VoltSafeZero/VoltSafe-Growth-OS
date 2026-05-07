@@ -42,3 +42,9 @@ id = "4wCb1RnqOMXg-5jKyo2c8"
 uri = "file://screenshots/a4-public-unbooked.jpg"
 type = "image"
 title = "Public booking — first visit (slot picker)"
+
+[[outputs]]
+id = "DFFAJtt5TEAdO6Wwc38vx"
+uri = "file://PORTABILITY_FIX_PLAN.md"
+type = "text"
+title = "PORTABILITY_FIX_PLAN.md"
