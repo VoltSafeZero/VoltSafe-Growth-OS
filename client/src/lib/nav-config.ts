@@ -109,8 +109,8 @@ export const NAV_CONFIG: NavSection[] = [
     permKey: "crm",
     advisorHidden: true,
     items: [
+      { id: "pipeline",  label: "Snapshot",  route: "/pipeline",      icon: GitBranch,   permKey: "crm",     advisorHidden: true },
       { id: "leads",     label: "Leads",     route: "/opportunities", icon: Sparkles,    permKey: "crm",     advisorHidden: true },
-      { id: "pipeline",  label: "Pipeline",  route: "/pipeline",      icon: GitBranch,   permKey: "crm",     advisorHidden: true },
       { id: "accounts",  label: "Organizations",  route: "/accounts",      icon: Building2,   permKey: "crm",     advisorHidden: true },
       { id: "contacts",  label: "Contacts",  route: "/contacts",      icon: Contact,     permKey: "crm",     advisorHidden: true },
       { id: "quotes",    label: "Quotes",    route: "/quotes",        icon: FileText,    permKey: "quoting", advisorHidden: true },
