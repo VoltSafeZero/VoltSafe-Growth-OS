@@ -2789,6 +2789,39 @@ export async function registerRoutes(
         processed++;
       }
 
+      // After the engine runs, promote any lead-level associations up to the account.
+      // This mirrors what the lead→account conversion flow does so the account file
+      // always has its own direct associations (not just inherited ones).
+      if (fromLeadId && processed > 0) {
+        const freshLeadAssocs = await db.select().from(emailAssociations)
+          .where(and(eq(emailAssociations.objectType, "lead"), eq(emailAssociations.objectId, fromLeadId)));
+        for (const la of freshLeadAssocs) {
+          const [existing] = await db
+            .select({ id: emailAssociations.id })
+            .from(emailAssociations)
+            .where(and(
+              eq(emailAssociations.emailMessageId, la.emailMessageId),
+              eq(emailAssociations.objectType, "account"),
+              eq(emailAssociations.objectId, accountId)
+            ))
+            .limit(1);
+          if (!existing) {
+            await db.insert(emailAssociations).values({
+              emailMessageId: la.emailMessageId,
+              objectType: "account",
+              objectId: accountId,
+              objectName: (account as any).name,
+              confidenceScore: la.confidenceScore,
+              associationReasonJson: JSON.stringify([
+                `Promoted from source lead #${fromLeadId} during email reindex`,
+              ]),
+              isAuto: false,
+              isUserConfirmed: false,
+            });
+          }
+        }
+      }
+
       // Also do a general incremental sync to pull in any brand-new messages
       const { syncIncremental } = await import("./services/gmail-incremental");
       const syncResult = await syncIncremental();
