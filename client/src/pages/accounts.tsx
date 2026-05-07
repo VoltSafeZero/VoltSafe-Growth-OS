@@ -1067,6 +1067,10 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
 
   const [sourcePanelOpen, setSourcePanelOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [showRelinkUI, setShowRelinkUI] = useState(false);
+  const [relinkSearch, setRelinkSearch] = useState("");
+  const [relinkResults, setRelinkResults] = useState<any[]>([]);
+  const [relinkSearching, setRelinkSearching] = useState(false);
   const hasSourceLead = Boolean((account as any).convertedFromLeadId);
 
   const { data: sourceLeadData, isLoading: sourceLeadLoading } = useQuery<{
@@ -1095,6 +1099,53 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
     },
     onError: (err: any) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
   });
+
+  const unlinkLeadMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PUT", `/api/accounts/${account.id}`, { convertedFromLeadId: null });
+      if (!res.ok) throw new Error("Failed to unlink lead");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts", account.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts", account.id, "source-lead"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      setShowRelinkUI(false);
+      setRelinkSearch("");
+      setRelinkResults([]);
+      toast({ title: "Lead link removed" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const linkLeadMutation = useMutation({
+    mutationFn: async (leadId: number) => {
+      const res = await apiRequest("PUT", `/api/accounts/${account.id}`, { convertedFromLeadId: leadId });
+      if (!res.ok) throw new Error("Failed to link lead");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts", account.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts", account.id, "source-lead"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      setShowRelinkUI(false);
+      setRelinkSearch("");
+      setRelinkResults([]);
+      toast({ title: "Lead linked" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  async function searchLeads(q: string) {
+    if (!q.trim()) { setRelinkResults([]); return; }
+    setRelinkSearching(true);
+    try {
+      const res = await fetch(`/api/leads?search=${encodeURIComponent(q)}&limit=8`, { credentials: "include" });
+      const data = await res.json();
+      setRelinkResults(data?.data ?? []);
+    } catch { setRelinkResults([]); }
+    finally { setRelinkSearching(false); }
+  }
 
   const setPrimaryContactMutation = useMutation({
     mutationFn: async (contactId: number) => {
@@ -1327,20 +1378,88 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
                   />
                 </div>
 
-                {hasSourceLead && (
+                {(hasSourceLead || (canEdit && !hasSourceLead)) && (
                   <div className="border-t border-emerald-500/20 pt-4" data-testid="section-source-lead">
-                    <button
-                      onClick={() => setSourcePanelOpen(o => !o)}
-                      className="flex items-center gap-2 w-full text-left mb-3"
-                      data-testid="button-toggle-source-lead"
-                    >
-                      {sourcePanelOpen
-                        ? <ChevronDown className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                        : <ChevronRight className="h-3.5 w-3.5 text-emerald-400 shrink-0" />}
-                      <ArrowRightLeft className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                      <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Source Lead</span>
-                      <span className="text-xs text-muted-foreground">· Lead #{(account as any).convertedFromLeadId}</span>
-                    </button>
+                    <div className="flex items-center gap-2 mb-3">
+                      <button
+                        onClick={() => setSourcePanelOpen(o => !o)}
+                        className="flex items-center gap-2 flex-1 text-left"
+                        data-testid="button-toggle-source-lead"
+                      >
+                        {sourcePanelOpen
+                          ? <ChevronDown className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                          : <ChevronRight className="h-3.5 w-3.5 text-emerald-400 shrink-0" />}
+                        <ArrowRightLeft className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                        <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Source Lead</span>
+                        {hasSourceLead && <span className="text-xs text-muted-foreground">· Lead #{(account as any).convertedFromLeadId}</span>}
+                        {!hasSourceLead && <span className="text-xs text-muted-foreground italic">· none linked</span>}
+                      </button>
+                      {canEdit && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          {hasSourceLead && !showRelinkUI && (
+                            <button
+                              onClick={() => { setShowRelinkUI(true); setSourcePanelOpen(true); }}
+                              className="text-[10px] px-1.5 py-0.5 rounded border border-border/40 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+                              data-testid="button-change-lead-link"
+                            >Change</button>
+                          )}
+                          {hasSourceLead && !showRelinkUI && (
+                            <button
+                              onClick={() => unlinkLeadMutation.mutate()}
+                              disabled={unlinkLeadMutation.isPending}
+                              className="text-[10px] px-1.5 py-0.5 rounded border border-red-500/20 text-red-400 hover:bg-red-500/10 hover:border-red-500/40 transition-colors"
+                              data-testid="button-unlink-lead"
+                            >
+                              {unlinkLeadMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin inline" /> : "Unlink"}
+                            </button>
+                          )}
+                          {(!hasSourceLead || showRelinkUI) && (
+                            <button
+                              onClick={() => { setShowRelinkUI(!showRelinkUI); setSourcePanelOpen(true); }}
+                              className="text-[10px] px-1.5 py-0.5 rounded border border-primary/20 text-primary hover:bg-primary/10 hover:border-primary/40 transition-colors"
+                              data-testid="button-link-lead"
+                            >{showRelinkUI ? "Cancel" : "Link to Lead"}</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {showRelinkUI && (
+                      <div className="mb-3 p-3 rounded-lg border border-border/50 bg-secondary/10 space-y-2" data-testid="section-relink-lead">
+                        <p className="text-xs text-muted-foreground font-medium">Search for a lead to link:</p>
+                        <div className="relative">
+                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                          <input
+                            type="text"
+                            value={relinkSearch}
+                            onChange={e => { setRelinkSearch(e.target.value); searchLeads(e.target.value); }}
+                            placeholder="Type marina or company name…"
+                            className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md border border-border/50 bg-background/50 focus:outline-none focus:border-primary/50"
+                            data-testid="input-relink-search"
+                          />
+                          {relinkSearching && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                        </div>
+                        {relinkResults.length > 0 && (
+                          <div className="space-y-1 max-h-48 overflow-y-auto">
+                            {relinkResults.map((lead: any) => (
+                              <button
+                                key={lead.id}
+                                onClick={() => linkLeadMutation.mutate(lead.id)}
+                                disabled={linkLeadMutation.isPending}
+                                className="w-full text-left px-3 py-2 rounded-md hover:bg-primary/10 transition-colors flex items-center justify-between gap-2"
+                                data-testid={`button-relink-lead-${lead.id}`}
+                              >
+                                <span className="text-sm font-medium truncate">{lead.company}</span>
+                                <span className="text-[10px] text-muted-foreground shrink-0">#{lead.id} · {lead.status}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {relinkSearch.trim() && !relinkSearching && relinkResults.length === 0 && (
+                          <p className="text-xs text-muted-foreground italic text-center py-1">No leads found</p>
+                        )}
+                      </div>
+                    )}
 
                     {sourcePanelOpen && (
                       <>
@@ -1348,7 +1467,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
                           <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />Loading source lead…
                           </div>
-                        ) : sourceLead ? (
+                        ) : !hasSourceLead ? null : sourceLead ? (
                           <div className="space-y-3">
                             <div className="rounded-lg border border-border/50 bg-secondary/10 p-3 space-y-3" data-testid="card-source-lead">
                               <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-sm">
