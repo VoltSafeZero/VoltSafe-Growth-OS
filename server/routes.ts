@@ -2720,6 +2720,85 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/accounts/:id/reindex-emails
+  // Runs the association engine for all email messages whose threads include a
+  // participant whose email/domain can be linked to this account or its source lead.
+  // This backfills email_associations for accounts that were missing website/contactEmail
+  // data at the time their emails originally arrived.
+  app.post("/api/accounts/:id/reindex-emails", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const accountId = Number(req.params.id);
+      const account = await storage.getAccount(accountId);
+      if (!account) return res.status(404).json({ message: "Account not found" });
+
+      const acctName = (account as any).name as string ?? "";
+      const fromLeadId = (account as any).convertedFromLeadId as number | null | undefined;
+
+      // Collect lead company name for additional domain-name matching
+      let leadCompany = "";
+      if (fromLeadId) {
+        const lead = await storage.getLead(fromLeadId);
+        if (lead) leadCompany = lead.company ?? "";
+      }
+
+      // Build a list of name tokens (≥4 chars) to search for in participant emails
+      const nameTokens = [acctName, leadCompany]
+        .join(" ")
+        .toLowerCase()
+        .split(/[\s\-_&/,.()+]+/)
+        .filter(t => t.length >= 4);
+
+      // Find all messages whose all_participants contains a domain token matching
+      // the account/lead name — use a UNION of per-token searches to avoid complex SQL
+      const seenMsgIds = new Set<number>();
+      for (const token of [...new Set(nameTokens)]) {
+        const rows = await db.execute(
+          sql.raw(`
+            SELECT id FROM email_messages
+            WHERE all_participants ILIKE '%@%${token}%'
+            LIMIT 500
+          `)
+        );
+        for (const r of rows.rows as any[]) {
+          seenMsgIds.add(Number(r.id));
+        }
+      }
+
+      // Also include any messages already associated with this account or its lead
+      if (fromLeadId) {
+        const leadAssocMsgs = await db.execute(
+          sql.raw(`
+            SELECT email_message_id AS id FROM email_associations
+            WHERE object_type = 'lead' AND object_id = ${fromLeadId}
+          `)
+        );
+        for (const r of leadAssocMsgs.rows as any[]) seenMsgIds.add(Number(r.id));
+      }
+      const directAssocMsgs = await db.execute(
+        sql.raw(`
+          SELECT email_message_id AS id FROM email_associations
+          WHERE object_type = 'account' AND object_id = ${accountId}
+        `)
+      );
+      for (const r of directAssocMsgs.rows as any[]) seenMsgIds.add(Number(r.id));
+
+      const msgIds = [...seenMsgIds];
+      let processed = 0;
+      for (const msgId of msgIds) {
+        await runAssociationEngine(msgId);
+        processed++;
+      }
+
+      // Also do a general incremental sync to pull in any brand-new messages
+      const { syncIncremental } = await import("./services/gmail-incremental");
+      const syncResult = await syncIncremental();
+
+      res.json({ ok: true, messagesReindexed: processed, syncResult });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/contacts", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const { accountId, search } = req.query;
     res.json(await storage.getContacts({
@@ -13206,7 +13285,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const { objectType, objectId } = req.query;
       if (!objectType || !objectId) return res.status(400).json({ message: "objectType and objectId required" });
 
-      const assocs = await db.select().from(emailAssociations)
+      const directAssocs = await db.select().from(emailAssociations)
         .where(
           and(
             eq(emailAssociations.objectType, objectType as string),
@@ -13214,6 +13293,50 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           )
         )
         .orderBy(emailAssociations.createdAt);
+
+      // For accounts: also pull in emails linked to (a) the source lead this account
+      // was promoted from, and (b) any contacts associated with this account.
+      // This ensures the Activity tab is populated even when associations were stored
+      // against the lead record rather than the account record.
+      let inheritedAssocs: (typeof directAssocs) = [];
+      if (objectType === "account") {
+        const acctRow = await db
+          .select({ convertedFromLeadId: accounts.convertedFromLeadId })
+          .from(accounts)
+          .where(eq(accounts.id, Number(objectId)))
+          .limit(1);
+        const leadId = acctRow[0]?.convertedFromLeadId;
+
+        // Lead associations
+        if (leadId) {
+          const leadAssocs = await db.select().from(emailAssociations)
+            .where(and(eq(emailAssociations.objectType, "lead"), eq(emailAssociations.objectId, leadId)));
+          inheritedAssocs.push(...leadAssocs);
+        }
+
+        // Contact associations (contacts belonging to this account)
+        const acctContacts = await db
+          .select({ id: contacts.id })
+          .from(contacts)
+          .where(eq(contacts.accountId, Number(objectId)));
+        if (acctContacts.length > 0) {
+          const contactIds = acctContacts.map(c => c.id);
+          const contactAssocs = await db.select().from(emailAssociations)
+            .where(and(eq(emailAssociations.objectType, "contact"), inArray(emailAssociations.objectId, contactIds)));
+          inheritedAssocs.push(...contactAssocs);
+        }
+      }
+
+      // Merge direct + inherited, deduplicate by emailMessageId (direct wins over inherited)
+      const seenMsgIds = new Set(directAssocs.map(a => a.emailMessageId));
+      const merged = [...directAssocs];
+      for (const a of inheritedAssocs) {
+        if (!seenMsgIds.has(a.emailMessageId)) {
+          seenMsgIds.add(a.emailMessageId);
+          merged.push(a);
+        }
+      }
+      const assocs = merged;
 
       if (assocs.length === 0) return res.json([]);
 

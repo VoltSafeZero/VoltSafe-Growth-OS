@@ -319,11 +319,21 @@ export function EmailsTab({ objectType, objectId }: { objectType: string; object
 
   const syncMutation = useMutation({
     mutationFn: async () => {
+      // For accounts: run the smart reindex which also backfills historical associations
+      // (matches emails by account/lead company name when website/contactEmail are absent).
+      // For other object types: fall back to a generic incremental Gmail sync.
+      if (objectType === "account") {
+        const res = await apiRequest("POST", `/api/accounts/${objectId}/reindex-emails`);
+        return res.json();
+      }
       const res = await apiRequest("POST", "/api/gmail/sync?limit=50");
       return res.json();
     },
     onSuccess: (data) => {
-      toast({ title: `Sync complete`, description: `${data.newMessages} new messages processed` });
+      const reindexed = data.messagesReindexed != null
+        ? `${data.messagesReindexed} message${data.messagesReindexed !== 1 ? "s" : ""} scanned`
+        : `${data.newMessages ?? 0} new messages processed`;
+      toast({ title: "Sync complete", description: reindexed });
       queryClient.invalidateQueries({ queryKey: ["/api/crm-emails", objectType, objectId] });
     },
     onError: (err: any) => {

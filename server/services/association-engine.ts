@@ -346,7 +346,7 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
     }
   }
 
-  // ── Signal 4: Domain → Lead (+30, NEW) ───────────────────────────────────
+  // ── Signal 4: Domain → Lead (+30) ────────────────────────────────────────
   const participantDomains = [
     ...new Set(
       externalParticipants
@@ -369,6 +369,56 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
       score = applyThreadBonus(score, threadRecord, reasons);
       if (nameInText(lead.company, normalizedSubject) || nameInText(lead.company, bodySnippet)) {
         score += 20;
+        reasons.push("Lead company name in subject/body");
+      }
+      score = applyPenalties(score, msg, reasons);
+      if (score > 0) {
+        candidates.push({ objectType: "lead", objectId: lead.id, objectName: lead.company, score, reasons, isAmbiguous: false });
+      }
+    }
+  }
+
+  // ── Signal 4b: Domain base → Account/Lead name fallback (+18/+18) ─────────
+  // Fires when Signal 2 (website match) and Signal 4 (contactEmail match) both
+  // miss — e.g. account has no website set, or lead has no contactEmail.
+  // Uses the bare hostname component ("leamington" from "leamington.ca") as a
+  // fuzzy name token. Score intentionally below auto-apply thresholds so matches
+  // appear as review candidates rather than being silently applied.
+  for (const domain of participantDomains) {
+    const domainBase = domain.split(".")[0];
+    if (domainBase.length < 4) continue;
+
+    // 4b-i: account name contains domain base
+    const nameAccounts = await db
+      .select({ id: accounts.id, name: accounts.name })
+      .from(accounts)
+      .where(ilike(accounts.name, `%${domainBase}%`));
+    for (const acct of nameAccounts) {
+      if (isRejected("account", acct.id)) continue;
+      if (candidates.some(c => c.objectType === "account" && c.objectId === acct.id)) continue;
+      const reasons: string[] = [`Account name "${acct.name}" contains domain token "${domainBase}" (@${domain})`];
+      let score = 18;
+      score = applyThreadBonus(score, threadRecord, reasons);
+      score = applyPenalties(score, msg, reasons);
+      if (score > 0) {
+        candidates.push({ objectType: "account", objectId: acct.id, objectName: acct.name, score, reasons, isAmbiguous: false });
+      }
+    }
+
+    // 4b-ii: lead company name contains domain base
+    const nameLeads = await db
+      .select({ id: leads.id, company: leads.company })
+      .from(leads)
+      .where(ilike(leads.company, `%${domainBase}%`));
+    for (const lead of nameLeads) {
+      if (linkedLeadIds.has(lead.id)) continue;
+      if (isRejected("lead", lead.id)) continue;
+      linkedLeadIds.add(lead.id);
+      const reasons: string[] = [`Lead company "${lead.company}" contains domain token "${domainBase}" (@${domain})`];
+      let score = 18;
+      score = applyThreadBonus(score, threadRecord, reasons);
+      if (nameInText(lead.company, normalizedSubject) || nameInText(lead.company, bodySnippet)) {
+        score += 15;
         reasons.push("Lead company name in subject/body");
       }
       score = applyPenalties(score, msg, reasons);
