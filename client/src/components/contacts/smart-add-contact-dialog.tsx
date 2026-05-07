@@ -125,7 +125,7 @@ export function SmartAddContactDialog({
       const res = await fetch(`/api/accounts?search=${encodeURIComponent(orgSearch)}&limit=8`, { credentials: "include" });
       if (!res.ok) return [];
       const data = await res.json();
-      return (data.accounts || data || []).slice(0, 8).map((a: any) => ({ id: a.id, name: a.name }));
+      return (data.data || data.accounts || data || []).slice(0, 8).map((a: any) => ({ id: a.id, name: a.name }));
     },
     enabled: orgSearch.length >= 2 && orgMode === "pick" && !selectedOrg,
   });
