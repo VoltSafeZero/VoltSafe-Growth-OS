@@ -5990,11 +5990,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         {(scheduledQuery.data?.length ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "scheduled" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{scheduledQuery.data?.length}</span>}
                       </button>
                     </>}
-                    <button onClick={() => { setTab("other"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-other"
-                      className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "other" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
-                      <FolderX className="h-3.5 w-3.5" /><span className="flex-1 text-left">Other</span>
-                      {inboxOther.length > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-muted text-muted-foreground">{inboxOther.length}</span>}
-                    </button>
                     {((reviewStatsQuery.data?.needsReview ?? 0) > 0 || tab === "review") && (
                       <button onClick={() => { setTab("review"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-review"
                         className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "review" ? "bg-amber-500/15 text-amber-400" : "text-amber-500/80 hover:bg-amber-500/10 hover:text-amber-400"}`}>
@@ -6215,42 +6210,53 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
           {/* Category pills + Search */}
           <div className={`flex-shrink-0 ${densityClasses.chipsRootPad} ${densityClasses.chipsRootGap} border-b border-border/50`}>
+            {(tab === "inbox" || tab === "other") && (
+              <div className="overflow-x-auto -mx-3 px-3">
+                <div className="flex gap-1 min-w-max">
+                {([
+                  { key: "all",         label: "All",         icon: <Inbox className="h-3 w-3" />,     count: inboxMain.length },
+                  { key: "priority",    label: "Priority",    icon: <Star className="h-3 w-3" />,      count: priorityCount },
+                  { key: "people",      label: "People",      icon: <Users className="h-3 w-3" />,     count: peopleCount },
+                  { key: "newsletters", label: "Newsletters", icon: <Newspaper className="h-3 w-3" />, count: newslettersCount },
+                  { key: "updates",     label: "Updates",     icon: <Bell className="h-3 w-3" />,      count: updatesCount },
+                  { key: "other",       label: "Other",       icon: <FolderX className="h-3 w-3" />,   count: inboxOther.length },
+                ] as { key: InboxCategory | "other"; label: string; icon: React.ReactNode; count: number }[]).map(({ key, label, icon, count }) => {
+                  const active = key === "other" ? tab === "other" : (tab === "inbox" && inboxCategory === key);
+                  return (
+                  <motion.button
+                    key={key}
+                    whileTap={{ scale: 0.95 }}
+                    whileHover={{ scale: 1.04 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 22 }}
+                    onClick={() => {
+                      if (key === "other") {
+                        setTab("other");
+                        setSelectedMessageId(null);
+                        setSelectedThreadId(null);
+                      } else {
+                        setTab("inbox");
+                        setInboxCategory(key as InboxCategory);
+                      }
+                    }}
+                    data-testid={`inbox-category-${key}`}
+                    className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-colors whitespace-nowrap ${
+                      active
+                        ? key === "priority"
+                          ? "bg-amber-500/15 text-amber-300 ring-1 ring-inset ring-amber-400/40 shadow-[0_0_12px_-2px_rgba(251,191,36,0.35)]"
+                          : "bg-primary/12 text-primary ring-1 ring-inset ring-primary/40 shadow-[0_0_12px_-2px_rgba(20,184,166,0.35)]"
+                        : "bg-muted/40 text-muted-foreground/85 hover:bg-muted/70 hover:text-foreground ring-1 ring-inset ring-transparent"
+                    }`}
+                  >
+                    {icon}
+                    {label}
+                    {count > 0 && <span className={`ml-0.5 tabular-nums ${active ? "opacity-90" : "opacity-60"}`}>{count}</span>}
+                  </motion.button>
+                );})}
+                </div>
+              </div>
+            )}
             {tab === "inbox" && (
               <>
-                {/* Category pills — horizontally scrollable on mobile */}
-                <div className="overflow-x-auto -mx-3 px-3">
-                  <div className="flex gap-1 min-w-max">
-                  {([
-                    { key: "all",         label: "All",         icon: <Inbox className="h-3 w-3" />,     count: inboxMain.length },
-                    { key: "priority",    label: "Priority",    icon: <Star className="h-3 w-3" />,      count: priorityCount },
-                    { key: "people",      label: "People",      icon: <Users className="h-3 w-3" />,     count: peopleCount },
-                    { key: "newsletters", label: "Newsletters", icon: <Newspaper className="h-3 w-3" />, count: newslettersCount },
-                    { key: "updates",     label: "Updates",     icon: <Bell className="h-3 w-3" />,      count: updatesCount },
-                  ] as { key: InboxCategory; label: string; icon: React.ReactNode; count: number }[]).map(({ key, label, icon, count }) => {
-                    const active = inboxCategory === key;
-                    return (
-                    <motion.button
-                      key={key}
-                      whileTap={{ scale: 0.95 }}
-                      whileHover={{ scale: 1.04 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 22 }}
-                      onClick={() => setInboxCategory(key)}
-                      data-testid={`inbox-category-${key}`}
-                      className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-colors whitespace-nowrap ${
-                        active
-                          ? key === "priority"
-                            ? "bg-amber-500/15 text-amber-300 ring-1 ring-inset ring-amber-400/40 shadow-[0_0_12px_-2px_rgba(251,191,36,0.35)]"
-                            : "bg-primary/12 text-primary ring-1 ring-inset ring-primary/40 shadow-[0_0_12px_-2px_rgba(20,184,166,0.35)]"
-                          : "bg-muted/40 text-muted-foreground/85 hover:bg-muted/70 hover:text-foreground ring-1 ring-inset ring-transparent"
-                      }`}
-                    >
-                      {icon}
-                      {label}
-                      {count > 0 && <span className={`ml-0.5 tabular-nums ${active ? "opacity-90" : "opacity-60"}`}>{count}</span>}
-                    </motion.button>
-                  );})}
-                  </div>
-                </div>
                 {/* CRM fast filters — horizontally scrollable on mobile */}
                 <div className="overflow-x-auto -mx-3 px-3">
                   <div className="flex items-center gap-1 min-w-max pt-0.5">
