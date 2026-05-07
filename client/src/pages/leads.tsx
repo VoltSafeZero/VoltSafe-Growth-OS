@@ -1422,7 +1422,7 @@ function LeadDetailDialog({
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] sm:max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] sm:max-h-[85vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <div className="flex items-start gap-3">
             <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
@@ -1643,28 +1643,28 @@ function LeadDetailDialog({
             {lead.competitors && (
               <div className="rounded-lg border border-border/50 p-3">
                 <Label className="text-xs text-muted-foreground mb-1 block">Competitors</Label>
-                <p className="text-sm">{lead.competitors}</p>
+                <p className="text-sm break-words">{lead.competitors}</p>
               </div>
             )}
 
             {lead.roiStory && (
               <div className="rounded-lg border border-border/50 p-3">
                 <Label className="text-xs text-muted-foreground mb-1 block">ROI Story</Label>
-                <p className="text-sm whitespace-pre-wrap">{lead.roiStory}</p>
+                <p className="text-sm whitespace-pre-wrap break-words">{lead.roiStory}</p>
               </div>
             )}
 
             {lead.closedWonNotes && (
               <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-3">
                 <Label className="text-xs text-green-400 mb-1 block">Won Notes</Label>
-                <p className="text-sm whitespace-pre-wrap">{lead.closedWonNotes}</p>
+                <p className="text-sm whitespace-pre-wrap break-words">{lead.closedWonNotes}</p>
               </div>
             )}
 
             {lead.closedLostReason && (
               <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
                 <Label className="text-xs text-red-400 mb-1 block">Lost Reason</Label>
-                <p className="text-sm whitespace-pre-wrap">{lead.closedLostReason}</p>
+                <p className="text-sm whitespace-pre-wrap break-words">{lead.closedLostReason}</p>
               </div>
             )}
 
@@ -1694,7 +1694,7 @@ function LeadDetailDialog({
             {lead.notes && (
               <div className="rounded-lg border border-border/50 p-3">
                 <Label className="text-xs text-muted-foreground mb-1 block">Notes</Label>
-                <p className="text-sm whitespace-pre-wrap">{lead.notes}</p>
+                <p className="text-sm whitespace-pre-wrap break-words">{lead.notes}</p>
               </div>
             )}
 
