@@ -89,7 +89,7 @@ export interface IStorage {
   ensureAccountForLead(leadId: number): Promise<void>;
   backfillAccountsForLeads(): Promise<number>;
 
-  getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; page?: number; limit?: number }): Promise<{ data: Account[]; total: number; page: number; totalPages: number }>;
+  getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; page?: number; limit?: number; onlyPromoted?: boolean }): Promise<{ data: Account[]; total: number; page: number; totalPages: number }>;
   getAccount(id: number): Promise<Account | undefined>;
   createAccount(data: InsertAccount): Promise<Account>;
   updateAccount(id: number, data: Partial<InsertAccount>): Promise<Account | undefined>;
@@ -617,7 +617,7 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
+  async getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string; onlyPromoted?: boolean }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -642,6 +642,9 @@ export class DatabaseStorage implements IStorage {
     }
     if (options?.orgType) {
       conditions.push(eq(accounts.orgType, options.orgType));
+    }
+    if (options?.onlyPromoted) {
+      conditions.push(sql`(accounts.converted_from_lead_id IS NULL OR EXISTS (SELECT 1 FROM leads WHERE leads.id = accounts.converted_from_lead_id AND leads.status = 'converted'))`);
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;

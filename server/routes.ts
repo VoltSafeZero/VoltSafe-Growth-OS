@@ -1183,7 +1183,7 @@ export async function registerRoutes(
 
   app.get("/api/accounts/export", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const { search, segment } = req.query;
-    const result = await storage.getAccounts({ search: search as string, segment: segment as string, page: 1, limit: 100000 });
+    const result = await storage.getAccounts({ search: search as string, segment: segment as string, page: 1, limit: 100000, onlyPromoted: true });
     const cols: CsvColumn[] = [
       { key: "name", header: "Name" }, { key: "segment", header: "Segment" },
       { key: "region", header: "Region" }, { key: "timezone", header: "Timezone" },
@@ -2033,6 +2033,7 @@ export async function registerRoutes(
       limit: limit ? Number(limit) : undefined,
       sortBy: sortBy as string | undefined,
       sortOrder: sortOrder as string | undefined,
+      onlyPromoted: true,
     }));
   });
 
