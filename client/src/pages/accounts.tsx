@@ -988,6 +988,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
   const [folderName, setFolderName] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmDemote, setConfirmDemote] = useState(false);
+  const [confirmConvert, setConfirmConvert] = useState(false);
   const [folderDomainInput, setFolderDomainInput] = useState("");
 
   const { data: freshAccount } = useQuery<Account>({
@@ -1118,6 +1119,21 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
     onError: (err: any) => toast({ title: "Demote failed", description: err.message, variant: "destructive" }),
   });
 
+  const convertToLeadMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/accounts/${account.id}/to-lead`);
+      if (!res.ok) throw new Error((await res.json()).message || "Convert failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({ title: "Converted to Lead", description: "A new lead has been created from this organization. It's now hidden from the Organizations list." });
+      onClose();
+    },
+    onError: (err: any) => toast({ title: "Convert failed", description: err.message, variant: "destructive" }),
+  });
+
   const unlinkLeadMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("PUT", `/api/accounts/${account.id}`, { convertedFromLeadId: null });
@@ -1221,7 +1237,35 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
                     <ExternalLink className="h-3 w-3" /> Intelligence Profile
                   </button>
                 </Link>
-                {canEdit && hasSourceLead && sourceLead?.status === "converted" && !confirmDemote && !confirmDelete && (
+                {canEdit && !hasSourceLead && !confirmConvert && !confirmDemote && !confirmDelete && (
+                  <button
+                    onClick={() => setConfirmConvert(true)}
+                    className="inline-flex items-center gap-1 text-xs rounded-md border border-amber-500/30 bg-amber-500/10 text-amber-400 px-2 py-0.5 cursor-pointer transition-colors hover:bg-amber-500/20 hover:border-amber-500/50"
+                    data-testid="button-convert-to-lead"
+                  >
+                    <ArrowRightLeft className="h-3 w-3" /> Convert to Lead
+                  </button>
+                )}
+                {confirmConvert && (
+                  <span className="flex items-center gap-1.5 text-xs">
+                    <span className="text-amber-400 font-medium">Create a lead from this org? It will be hidden here until re-promoted.</span>
+                    <button
+                      onClick={() => convertToLeadMutation.mutate()}
+                      disabled={convertToLeadMutation.isPending}
+                      className="inline-flex items-center gap-1 text-xs rounded-md border border-amber-500/40 bg-amber-500/15 text-amber-400 px-2 py-0.5 cursor-pointer transition-colors hover:bg-amber-500/25"
+                      data-testid="button-confirm-convert"
+                    >
+                      {convertToLeadMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Yes, convert"}
+                    </button>
+                    <button
+                      onClick={() => setConfirmConvert(false)}
+                      className="inline-flex items-center gap-1 text-xs rounded-md border border-border/50 bg-secondary/50 px-2 py-0.5 cursor-pointer transition-colors hover:bg-secondary"
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                )}
+                {canEdit && hasSourceLead && sourceLead?.status === "converted" && !confirmDemote && !confirmDelete && !confirmConvert && (
                   <button
                     onClick={() => setConfirmDemote(true)}
                     className="inline-flex items-center gap-1 text-xs rounded-md border border-amber-500/30 bg-amber-500/10 text-amber-400 px-2 py-0.5 cursor-pointer transition-colors hover:bg-amber-500/20 hover:border-amber-500/50"

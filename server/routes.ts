@@ -2021,6 +2021,45 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/accounts/:id/to-lead — convert a manually-created org into a new Lead
+  // Creates a fresh lead from the account's data, then sets convertedFromLeadId on the
+  // account so the onlyPromoted filter hides it from the Organizations list.
+  app.post("/api/accounts/:id/to-lead", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const account = await storage.getAccount(Number(req.params.id));
+      if (!account) return res.status(404).json({ message: "Organization not found" });
+      if (account.convertedFromLeadId) return res.status(400).json({ message: "Organization is already linked to a source lead — use Demote to Lead instead" });
+
+      const newLead = await storage.createLead({
+        company: account.name,
+        contactName: "",
+        status: "new",
+        city: account.city ?? undefined,
+        state: account.stateProvince ?? undefined,
+        country: account.country ?? undefined,
+        segment: account.segment ?? undefined,
+        slips: account.slipCount != null ? String(account.slipCount) : undefined,
+        ownerUserId: account.assignedToUserId ?? undefined,
+        notes: account.notes ?? undefined,
+        tags: account.tags ?? undefined,
+        source: "converted_from_org",
+      });
+
+      await storage.updateAccount(account.id, { convertedFromLeadId: newLead.id });
+
+      await storage.createActivity({
+        linkedObjectType: "lead",
+        linkedObjectId: newLead.id,
+        type: "status_change",
+        summary: `Lead created from Organization "${account.name}" (account #${account.id}). Organization hidden from Organizations list pending re-promotion.`,
+      });
+
+      res.json({ leadId: newLead.id, accountId: account.id });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/accounts", requirePermission("crm", "view"), async (req, res) => {
     const { search, segment, leadStatus, priority, orgType, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getAccounts({
