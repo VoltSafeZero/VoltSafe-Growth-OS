@@ -6697,15 +6697,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       >
                         {/* Checkbox — stops propagation so row click still works */}
                         <div
-                          className="flex items-center justify-center px-2 flex-shrink-0 cursor-pointer"
+                          className="flex items-center justify-center px-2.5 flex-shrink-0 cursor-pointer group/cb"
                           onClick={(e) => { e.stopPropagation(); toggleReviewSelection(item.gmailThreadId); }}
                           data-testid={`review-checkbox-${item.gmailThreadId}`}
                           title={isChecked ? "Deselect" : "Select for bulk action"}
                         >
-                          <div className={`h-3.5 w-3.5 rounded border transition-colors flex items-center justify-center flex-shrink-0 ${
+                          <div className={`h-4 w-4 rounded border-2 transition-colors flex items-center justify-center flex-shrink-0 ${
                             isChecked
                               ? "bg-amber-500 border-amber-500"
-                              : "border-border/50 hover:border-amber-400"
+                              : "border-muted-foreground/40 group-hover/cb:border-amber-400"
                           }`}>
                             {isChecked && <CheckCheck className="h-2.5 w-2.5 text-white" />}
                           </div>
@@ -6748,7 +6748,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           const canAutoLink = !!senderDomain && !!cand.objectId && !!cand.objectType;
                           const isBusy = bulkConfirmMutation.isPending || bulkRejectMutation.isPending || confirmAndAutoLinkMutation.isPending;
                           return (
-                          <div className="flex flex-col justify-center gap-1 pr-2 flex-shrink-0">
+                          <div className="flex flex-col justify-center gap-1 pr-2.5 pl-1 flex-shrink-0">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -6757,7 +6757,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                               disabled={isBusy}
                               data-testid={`button-confirm-row-${item.gmailThreadId}`}
                               title="Confirm — link this thread to the CRM record"
-                              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-500/15 text-green-400 hover:bg-green-500/30 transition-colors disabled:opacity-40"
+                              className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-green-500/25 text-green-400 hover:bg-green-500/40 border border-green-500/30 transition-colors disabled:opacity-40"
                             >
                               <Check className="h-3 w-3" /> Yes
                             </button>
@@ -6769,7 +6769,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                               disabled={isBusy}
                               data-testid={`button-reject-row-${item.gmailThreadId}`}
                               title="Reject — dismiss this suggestion"
-                              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors disabled:opacity-40"
+                              className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-red-500/20 text-red-400 hover:bg-red-500/35 border border-red-500/30 transition-colors disabled:opacity-40"
                             >
                               <X className="h-3 w-3" /> No
                             </button>
@@ -6788,7 +6788,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                                 disabled={isBusy}
                                 data-testid={`button-autolink-row-${item.gmailThreadId}`}
                                 title={`Confirm + always auto-link @${senderDomain} to ${cand.objectName ?? cand.objectType}`}
-                                className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary/70 hover:bg-primary/20 transition-colors disabled:opacity-40"
+                                className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-primary/15 text-primary hover:bg-primary/25 border border-primary/25 transition-colors disabled:opacity-40"
                               >
                                 <Zap className="h-3 w-3" /> Auto
                               </button>
