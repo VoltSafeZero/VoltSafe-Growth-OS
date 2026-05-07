@@ -2308,12 +2308,34 @@ function CrmContextPanel({
           </PopoverContent>
         </Popover>
       </div>
-      {/* Awaiting reply indicator */}
+      {/* Awaiting reply indicator — with inline resolution actions */}
       {thread?.awaitingReplySince && (
         <div className="px-4 pb-1.5">
-          <div className="flex items-center gap-1.5 text-[11px] text-amber-400/80 bg-amber-500/8 border border-amber-500/20 rounded-md px-2.5 py-1.5" data-testid="awaiting-reply-badge">
-            <Clock className="h-3 w-3 flex-shrink-0" />
-            <span>Awaiting reply since {new Date(thread.awaitingReplySince).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+          <div className="flex items-center gap-2 bg-amber-500/8 border border-amber-500/20 rounded-md px-2.5 py-1.5" data-testid="awaiting-reply-badge">
+            <Clock className="h-3 w-3 flex-shrink-0 text-amber-400/80" />
+            <span className="text-[11px] text-amber-400/80 flex-1 min-w-0">
+              Awaiting reply since {new Date(thread.awaitingReplySince).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            </span>
+            <button
+              type="button"
+              data-testid="button-mark-replied"
+              disabled={workflowMutation.isPending}
+              onClick={() => workflowMutation.mutate("done")}
+              className="flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 transition-colors disabled:opacity-50 whitespace-nowrap"
+            >
+              <CheckCheck className="h-2.5 w-2.5" />
+              Replied
+            </button>
+            <button
+              type="button"
+              data-testid="button-no-reply-needed"
+              disabled={workflowMutation.isPending}
+              onClick={() => workflowMutation.mutate("waiting_on_them")}
+              className="flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 transition-colors disabled:opacity-50 whitespace-nowrap"
+            >
+              <X className="h-2.5 w-2.5" />
+              No Reply Needed
+            </button>
           </div>
         </div>
       )}
