@@ -987,6 +987,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
   const [showFolderDialog, setShowFolderDialog] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDemote, setConfirmDemote] = useState(false);
   const [folderDomainInput, setFolderDomainInput] = useState("");
 
   const { data: freshAccount } = useQuery<Account>({
@@ -1100,6 +1101,23 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
     onError: (err: any) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
   });
 
+  const demoteMutation = useMutation({
+    mutationFn: async () => {
+      const leadId = (account as any).convertedFromLeadId;
+      if (!leadId) throw new Error("No source lead linked");
+      const res = await apiRequest("POST", `/api/leads/${leadId}/unconvert`);
+      if (!res.ok) throw new Error((await res.json()).message || "Demote failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({ title: "Demoted to Lead", description: "The organization has been removed from the Organizations list and the lead is active again." });
+      onClose();
+    },
+    onError: (err: any) => toast({ title: "Demote failed", description: err.message, variant: "destructive" }),
+  });
+
   const unlinkLeadMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("PUT", `/api/accounts/${account.id}`, { convertedFromLeadId: null });
@@ -1203,7 +1221,35 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
                     <ExternalLink className="h-3 w-3" /> Intelligence Profile
                   </button>
                 </Link>
-                {canEdit && !confirmDelete && (
+                {canEdit && hasSourceLead && sourceLead?.status === "converted" && !confirmDemote && !confirmDelete && (
+                  <button
+                    onClick={() => setConfirmDemote(true)}
+                    className="inline-flex items-center gap-1 text-xs rounded-md border border-amber-500/30 bg-amber-500/10 text-amber-400 px-2 py-0.5 cursor-pointer transition-colors hover:bg-amber-500/20 hover:border-amber-500/50"
+                    data-testid="button-demote-to-lead"
+                  >
+                    <ArrowRightLeft className="h-3 w-3" /> Demote to Lead
+                  </button>
+                )}
+                {confirmDemote && (
+                  <span className="flex items-center gap-1.5 text-xs">
+                    <span className="text-amber-400 font-medium">Undo promotion? The org disappears from this list — the lead becomes active again.</span>
+                    <button
+                      onClick={() => demoteMutation.mutate()}
+                      disabled={demoteMutation.isPending}
+                      className="inline-flex items-center gap-1 text-xs rounded-md border border-amber-500/40 bg-amber-500/15 text-amber-400 px-2 py-0.5 cursor-pointer transition-colors hover:bg-amber-500/25"
+                      data-testid="button-confirm-demote"
+                    >
+                      {demoteMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Yes, demote"}
+                    </button>
+                    <button
+                      onClick={() => setConfirmDemote(false)}
+                      className="inline-flex items-center gap-1 text-xs rounded-md border border-border/50 bg-secondary/50 px-2 py-0.5 cursor-pointer transition-colors hover:bg-secondary"
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                )}
+                {canEdit && !confirmDelete && !confirmDemote && (
                   <button
                     onClick={() => setConfirmDelete(true)}
                     className="inline-flex items-center gap-1 text-xs rounded-md border border-red-500/20 bg-red-500/5 text-red-400 px-2 py-0.5 cursor-pointer transition-colors hover:bg-red-500/15 hover:border-red-500/40"
