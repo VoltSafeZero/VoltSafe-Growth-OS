@@ -113,7 +113,7 @@ function getOrgTypeLabel(value: string | null | undefined) {
 export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
-  const [segmentFilter, setSegmentFilter] = useState("all");
+  const [segmentFilter, setSegmentFilter] = useState("marina");
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [orgTypeFilter, setOrgTypeFilter] = useState("all");
