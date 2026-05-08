@@ -174,9 +174,20 @@ export function EmailTokenInput({
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
-    if (v.endsWith(",")) {
-      const t = v.slice(0, -1).trim();
-      if (t) addToken(t);
+    if (v.includes(",")) {
+      // Handle both typed comma-confirmations and pasted comma-separated lists.
+      // Split on every comma: parts before the last are definitely complete tokens;
+      // the last part is either empty (trailing comma) or still being typed.
+      const parts = v.split(",");
+      const hasTrailingComma = v.endsWith(",");
+      const complete = (hasTrailingComma ? parts : parts.slice(0, -1))
+        .map(s => s.trim()).filter(Boolean);
+      const remaining = hasTrailingComma ? "" : parts[parts.length - 1].trim();
+      if (complete.length > 0) {
+        commitTokens([...tokens, ...complete]);
+      }
+      setInputVal(remaining);
+      setOpen(false);
     } else {
       setInputVal(v);
     }
