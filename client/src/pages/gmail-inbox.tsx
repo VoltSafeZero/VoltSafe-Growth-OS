@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
+import { EmailTokenInput } from "@/components/email/email-autocomplete";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -663,37 +664,34 @@ function ComposeDialog({
               {/* To */}
               <div className="flex items-center gap-3 px-4 py-2 border-b border-border/15 hover:bg-muted/10 transition-colors">
                 <Label className="text-xs text-muted-foreground/60 w-8 flex-shrink-0">To</Label>
-                <input
+                <EmailTokenInput
                   value={to}
-                  onChange={(e) => setTo(e.target.value)}
+                  onChange={setTo}
                   placeholder="recipient@email.com"
                   disabled={!canSend}
                   data-testid="input-email-to"
-                  className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/35 disabled:opacity-50"
                 />
               </div>
               {/* CC */}
               <div className="flex items-center gap-3 px-4 py-2 border-b border-border/15 hover:bg-muted/10 transition-colors">
                 <Label className="text-xs text-muted-foreground/60 w-8 flex-shrink-0">CC</Label>
-                <input
+                <EmailTokenInput
                   value={cc}
-                  onChange={(e) => setCc(e.target.value)}
+                  onChange={setCc}
                   placeholder="cc@email.com"
                   disabled={!canSend}
                   data-testid="input-email-cc"
-                  className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/35 disabled:opacity-50"
                 />
               </div>
               {/* BCC */}
               <div className="flex items-center gap-3 px-4 py-2 border-b border-border/15 hover:bg-muted/10 transition-colors">
                 <Label className="text-xs text-muted-foreground/60 w-8 flex-shrink-0">BCC</Label>
-                <input
+                <EmailTokenInput
                   value={bcc}
-                  onChange={(e) => setBcc(e.target.value)}
+                  onChange={setBcc}
                   placeholder="bcc@email.com"
                   disabled={!canSend}
                   data-testid="input-email-bcc"
-                  className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/35 disabled:opacity-50"
                 />
               </div>
               {/* Subject */}

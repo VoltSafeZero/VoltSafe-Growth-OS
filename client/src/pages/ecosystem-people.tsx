@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { EmailAutocompleteInput } from "@/components/email/email-autocomplete";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -230,7 +231,7 @@ function PersonForm({ initial, onSubmit, isPending }: { initial?: EcosystemPerso
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label>Email</Label>
-          <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} data-testid="input-person-email" />
+          <EmailAutocompleteInput value={form.email ?? ""} onChange={(v) => setForm({ ...form, email: v })} data-testid="input-person-email" />
         </div>
         <div>
           <Label>Phone</Label>

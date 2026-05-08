@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { EmailAutocompleteInput } from "@/components/email/email-autocomplete";
 import { Link, useLocation } from "wouter";
 import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -1253,7 +1254,7 @@ function ConvertToOrgDialog({
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Email</Label>
-                    <Input value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder={lead.contactEmail || "email@example.com"} type="email" data-testid="input-contact-email" />
+                    <EmailAutocompleteInput value={contactEmail} onChange={setContactEmail} placeholder={lead.contactEmail || "email@example.com"} data-testid="input-contact-email" />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Phone</Label>
@@ -1954,7 +1955,7 @@ function CreateLeadForm({ onSubmit, isPending }: { onSubmit: (data: Record<strin
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label>Email</Label>
-          <Input type="email" value={form.contactEmail} onChange={(e) => setForm(f => ({ ...f, contactEmail: e.target.value }))} data-testid="input-contact-email" />
+          <EmailAutocompleteInput value={form.contactEmail ?? ""} onChange={(v) => setForm(f => ({ ...f, contactEmail: v }))} data-testid="input-contact-email" />
         </div>
         <div>
           <Label>Phone</Label>

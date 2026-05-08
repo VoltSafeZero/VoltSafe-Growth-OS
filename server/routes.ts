@@ -564,6 +564,64 @@ export async function registerRoutes(
     recordClick(trackingId, safeUrl, ip, ua).catch(() => {});
   });
 
+  // ── Email Address Autocomplete ────────────────────────────────────────────
+  // Unions CRM contacts + email history (senders + sent-to recipients) to power
+  // the compose-dialog To/CC/BCC chips and all email fields in the CRM.
+  app.get("/api/email-autocomplete", requireAuth, async (req, res) => {
+    try {
+      const q = String(req.query.q ?? "").trim().toLowerCase();
+      if (q.length < 1) return res.json({ suggestions: [] });
+      const safe = q.replace(/'/g, "''");
+
+      // 1. CRM contacts — highest quality (name + email, ordered by name)
+      const contactRows = await db.execute(sql.raw(`
+        SELECT name, email
+        FROM contacts
+        WHERE email IS NOT NULL AND email != ''
+          AND (lower(email) LIKE '%${safe}%' OR lower(coalesce(name,'')) LIKE '%${safe}%')
+        ORDER BY name
+        LIMIT 12
+      `));
+
+      // 2. Email history — unique senders (people who emailed you / your team)
+      const fromRows = await db.execute(sql.raw(`
+        SELECT DISTINCT from_email AS email, from_name AS name
+        FROM email_messages
+        WHERE from_email IS NOT NULL AND from_email != ''
+          AND (lower(from_email) LIKE '%${safe}%' OR lower(coalesce(from_name,'')) LIKE '%${safe}%')
+        LIMIT 12
+      `));
+
+      // 3. Sent-to history — unique recipients you've addressed before
+      const sentToRows = await db.execute(sql.raw(`
+        SELECT DISTINCT elem AS email
+        FROM email_messages,
+          json_array_elements_text(to_emails::json) AS elem
+        WHERE label_ids ILIKE '%"SENT"%'
+          AND to_emails IS NOT NULL AND to_emails != '[]'
+          AND lower(elem) LIKE '%${safe}%'
+        LIMIT 12
+      `));
+
+      const seen = new Set<string>();
+      const suggestions: Array<{ name: string | null; email: string }> = [];
+
+      const add = (name: string | null, email: string | null) => {
+        if (!email) return;
+        const key = email.toLowerCase();
+        if (!seen.has(key)) { seen.add(key); suggestions.push({ name: name || null, email }); }
+      };
+
+      for (const r of ((contactRows as any).rows ?? []) as any[]) add(r.name, r.email);
+      for (const r of ((fromRows as any).rows ?? []) as any[]) add(r.name, r.email);
+      for (const r of ((sentToRows as any).rows ?? []) as any[]) add(null, r.email);
+
+      res.json({ suggestions: suggestions.slice(0, 12) });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Engagement Stats API (authenticated) ───────────────────────────────────
   app.get("/api/email-engagement/:trackingId", requireAuth, async (req, res) => {
     try {

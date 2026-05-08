@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Camera, Link2, Sparkles, Loader2, RotateCcw, ImagePlus, Building2, ChevronsUpDown, Plus, X } from "lucide-react";
+import { EmailAutocompleteInput } from "@/components/email/email-autocomplete";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -500,7 +501,7 @@ export function CreateContactDialog({
             </div>
             <div className="space-y-1">
               <Label htmlFor="contact-email" className="text-xs">Email</Label>
-              <Input id="contact-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} data-testid="input-contact-email" />
+              <EmailAutocompleteInput id="contact-email" value={email} onChange={setEmail} data-testid="input-contact-email" />
             </div>
             <div className="space-y-1">
               <Label htmlFor="contact-phone" className="text-xs">Phone</Label>

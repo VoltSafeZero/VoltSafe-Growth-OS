@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { EmailAutocompleteInput } from "@/components/email/email-autocomplete";
 import { useLocation, Link } from "wouter";
 import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -2423,7 +2424,7 @@ function CreateContactForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
       <div><Label>Full Name</Label><Input value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Auto-generated from first/last if blank" data-testid="input-contact-name" /></div>
       <div><Label>Title</Label><Input value={form.title} onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))} data-testid="input-contact-title" /></div>
       <div className="grid grid-cols-2 gap-3">
-        <div><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => setForm(f => ({ ...f, email: e.target.value }))} data-testid="input-contact-email" /></div>
+        <div><Label>Email</Label><EmailAutocompleteInput value={form.email ?? ""} onChange={(v) => setForm(f => ({ ...f, email: v }))} data-testid="input-contact-email" /></div>
         <div><Label>Phone</Label><Input value={form.phone} onChange={(e) => setForm(f => ({ ...f, phone: e.target.value }))} data-testid="input-contact-phone" /></div>
       </div>
       <div className="grid grid-cols-2 gap-3">

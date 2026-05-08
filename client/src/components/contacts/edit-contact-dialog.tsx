@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Save } from "lucide-react";
+import { EmailAutocompleteInput } from "@/components/email/email-autocomplete";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -223,14 +224,12 @@ export function EditContactDialog({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="edit-contact-email">Email</Label>
-              <Input
+              <EmailAutocompleteInput
                 id="edit-contact-email"
-                type="email"
                 value={form.email}
-                onChange={(e) => setField("email", e.target.value)}
+                onChange={(v) => setField("email", v)}
                 placeholder="name@example.com"
                 data-testid="input-edit-contact-email"
-                autoComplete="off"
               />
             </div>
             <div className="space-y-1.5">
