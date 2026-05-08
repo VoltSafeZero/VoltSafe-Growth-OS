@@ -5,10 +5,11 @@ import { requirePermission } from "./auth";
 
 // ── System columns: permanent, shared, always present for every user ─────────
 export const SYSTEM_COLUMNS = [
-  { value: "backlog",     label: "Backlog",       color: "slate"  },
-  { value: "blocked",     label: "Blocked",        color: "amber"  },
-  { value: "delegated",   label: "Delegated",      color: "violet" },
-  { value: "today_tasks", label: "Today's Tasks",  color: "teal"   },
+  { value: "backlog",     label: "Backlog",               color: "slate"   },
+  { value: "blocked",     label: "Blocked",               color: "amber"   },
+  { value: "delegated",   label: "Delegated",             color: "violet"  },
+  { value: "today_tasks", label: "Today's Tasks",         color: "teal"    },
+  { value: "done",        label: "Done",                  color: "emerald" },
 ] as const;
 const SYSTEM_COL_SLUGS = new Set(SYSTEM_COLUMNS.map(c => c.value));
 const USER_COL_RE = /^u(\d+)_([a-z0-9_]{1,32})$/;

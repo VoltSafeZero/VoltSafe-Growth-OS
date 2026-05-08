@@ -298,7 +298,7 @@ export function ManageColumnsDialog({
           <DialogHeader>
             <DialogTitle>Manage task board columns</DialogTitle>
             <DialogDescription>
-              The 4 permanent columns are shared with your whole team. Add personal columns below — they're private to you unless you share them.
+              The 5 permanent columns are shared with your whole team. Add personal columns below — they're private to you unless you share them.
             </DialogDescription>
           </DialogHeader>
 

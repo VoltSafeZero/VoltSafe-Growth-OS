@@ -91,20 +91,21 @@ export function TaskBoard({ view, onOpenTask }: Props) {
     } catch { /* ignore */ }
   }, [me?.id]);
 
-  // System columns always appear first (fixed order), then user's personal columns (reorderable)
+  // DONE is always pinned as the rightmost column.
+  // All other columns (system + personal) are freely reorderable by the user.
   const displayColumns = useMemo(() => {
-    const systemCols = columnDefs.filter(c => c.isSystem);
-    const personalCols = columnDefs.filter(c => !c.isSystem);
-    if (!colOrderOverride.length) return [...systemCols, ...personalCols];
-    const ordered: typeof personalCols = [];
+    const doneDef = columnDefs.find(c => c.value === "done");
+    const otherCols = columnDefs.filter(c => c.value !== "done");
+    if (!colOrderOverride.length) return doneDef ? [...otherCols, doneDef] : otherCols;
+    const ordered: typeof otherCols = [];
     for (const val of colOrderOverride) {
-      const col = personalCols.find(c => c.value === val);
+      const col = otherCols.find(c => c.value === val);
       if (col) ordered.push(col);
     }
-    for (const col of personalCols) {
+    for (const col of otherCols) {
       if (!colOrderOverride.includes(col.value)) ordered.push(col);
     }
-    return [...systemCols, ...ordered];
+    return doneDef ? [...ordered, doneDef] : ordered;
   }, [columnDefs, colOrderOverride]);
 
   // Get current user's explicit permission on a column
@@ -119,7 +120,9 @@ export function TaskBoard({ view, onOpenTask }: Props) {
 
   function handleColumnDrop(targetColValue: string) {
     if (!draggingColValue || draggingColValue === targetColValue) return;
-    const current = displayColumns.map(c => c.value);
+    // DONE is always pinned rightmost — cannot be moved or used as a drop target for reordering
+    if (draggingColValue === "done" || targetColValue === "done") return;
+    const current = displayColumns.filter(c => c.value !== "done").map(c => c.value);
     const fromIdx = current.indexOf(draggingColValue);
     const toIdx = current.indexOf(targetColValue);
     if (fromIdx === -1 || toIdx === -1) return;
@@ -506,7 +509,7 @@ export function TaskBoard({ view, onOpenTask }: Props) {
                 data-testid={`column-${col.value}`}
               >
                 <div className="px-3 py-2 flex items-center gap-1.5 border-b border-inherit group/colheader">
-                  {col.isSystem ? (
+                  {col.value === "done" ? (
                     <div className="p-0.5 -ml-1 w-5 shrink-0" />
                   ) : (
                     <div

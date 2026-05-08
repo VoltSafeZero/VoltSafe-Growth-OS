@@ -19,12 +19,14 @@ export type TaskColumn = {
   shares?: ColumnShare[];
 };
 
-// The 4 permanent system columns — always present for every user in this order
+// The 5 permanent system columns — always present for every user.
+// DONE is always pinned as the rightmost column; all others are freely reorderable.
 export const DEFAULT_TASK_COLUMNS: TaskColumn[] = [
-  { value: "blocked",     label: "BLOCKERS",             color: "amber",  isSystem: true },
-  { value: "delegated",   label: "DELEGATED (To Others)", color: "violet", isSystem: true },
-  { value: "backlog",     label: "Backlog",               color: "slate",  isSystem: true },
-  { value: "today_tasks", label: "Today's Tasks",         color: "teal",   isSystem: true },
+  { value: "blocked",     label: "BLOCKERS",              color: "amber",   isSystem: true },
+  { value: "delegated",   label: "DELEGATED (To Others)", color: "violet",  isSystem: true },
+  { value: "backlog",     label: "Backlog",                color: "slate",   isSystem: true },
+  { value: "today_tasks", label: "Today's Tasks",          color: "teal",    isSystem: true },
+  { value: "done",        label: "Done",                   color: "emerald", isSystem: true },
 ];
 
 export const COLUMN_COLOR_OPTIONS = [

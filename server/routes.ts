@@ -4184,10 +4184,11 @@ export async function registerRoutes(
     try {
       const userId = (req.session as any)?.userId as number | undefined;
       const SYS_COLS = [
-        { value: "backlog",     label: "Backlog",       color: "slate"  },
-        { value: "blocked",     label: "Blocked",        color: "amber"  },
-        { value: "delegated",   label: "Delegated",      color: "violet" },
-        { value: "today_tasks", label: "Today's Tasks",  color: "teal"   },
+        { value: "backlog",     label: "Backlog",               color: "slate"   },
+        { value: "blocked",     label: "Blocked",               color: "amber"   },
+        { value: "delegated",   label: "Delegated",             color: "violet"  },
+        { value: "today_tasks", label: "Today's Tasks",         color: "teal"    },
+        { value: "done",        label: "Done",                  color: "emerald" },
       ];
       const USER_COL_RE_LOCAL = /^u(\d+)_([a-z0-9_]{1,32})$/;
 
@@ -6328,6 +6329,21 @@ export async function registerRoutes(
       invitedBy: req.session.userId,
       mustChangePassword: true,
     }).returning();
+
+    // Seed 4 default personal columns for the new user (non-blocking)
+    const _defaultPersonalCols = [
+      { slug: "my_col_1", label: "My Column 1", color: "blue"   },
+      { slug: "my_col_2", label: "My Column 2", color: "violet" },
+      { slug: "my_col_3", label: "My Column 3", color: "teal"   },
+      { slug: "my_col_4", label: "My Column 4", color: "slate"  },
+    ];
+    Promise.all(_defaultPersonalCols.map((c, i) =>
+      db.execute(sql`
+        INSERT INTO user_task_columns (user_id, slug, label, color, sort_order)
+        VALUES (${created.id}, ${c.slug}, ${c.label}, ${c.color}, ${i})
+        ON CONFLICT (user_id, slug) DO NOTHING
+      `)
+    )).catch(() => {});
 
     // Send welcome email (non-blocking — user is created regardless of email success)
     const SYSTEM_SENDER_ID = 4; // Trevor's account used as the system sender
