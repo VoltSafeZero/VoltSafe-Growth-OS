@@ -361,20 +361,6 @@ export function QuickCapture() {
 
   return (
     <>
-      {/* Floating action button — position driven by fabStyle so pages can nudge
-          it out of the way of their own bottom-right controls via the "fab-nudge"
-          custom event.  Hidden on mobile (handled by the bottom nav instead). */}
-      <button
-        id="quick-capture-fab"
-        onClick={() => handleOpen()}
-        className="fixed z-50 w-12 h-12 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-[bottom,right,transform,box-shadow] duration-300 hidden md:flex items-center justify-center"
-        style={fabStyle}
-        title="Quick capture (⌘K)"
-        data-testid="button-quick-capture"
-      >
-        <Plus className="h-6 w-6" />
-      </button>
-
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md p-0 overflow-hidden">
           <div className="px-5 pt-5 pb-3 border-b border-border/50">

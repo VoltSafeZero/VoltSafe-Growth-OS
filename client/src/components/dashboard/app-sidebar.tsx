@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { ChevronRight, Sun, Moon, Flame, Ghost } from "lucide-react";
+import { ChevronRight, Sun, Moon, Flame, Ghost, Plus } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Link, useLocation } from "wouter";
 import voltSafeVIcon from "@assets/Screenshot_2026-04-15_at_7.26.57_PM_1776306420926.png";
@@ -193,6 +193,18 @@ export function AppSidebar({
           })}
 
         </nav>
+
+        {/* Quick Capture button — right-aligned, sits between nav and theme toggle */}
+        <div className="px-3 pt-2 pb-1 flex justify-end">
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("open-quick-capture", { detail: { tab: "task" } }))}
+            className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground shadow hover:shadow-md hover:scale-105 active:scale-95 transition-all"
+            title="Quick capture"
+            data-testid="button-quick-capture"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
 
         {/* Theme toggle — 4-segment pill: Light / Dark / Demon Dark / Demon Light.
             Demon Dark = the breach itself. Demon Light = the breach seen through

@@ -715,7 +715,7 @@ const COLUMN_LABEL: Record<string, string> = {
   backlog: "Backlog",
   todo: "To Do",
   in_progress: "In Progress",
-  blocked: "Blocked",
+  blocked: "BLOCKERS",
   done: "Done",
 };
 
