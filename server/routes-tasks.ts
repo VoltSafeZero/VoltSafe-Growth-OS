@@ -386,7 +386,8 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       } else if (view === "team" && admin) {
         whereFilter = ""; // admin sees everyone
       } else {
-        whereFilter = `AND t.owner_user_id = ${userId}`;
+        // Default: my assigned tasks + tasks I created and delegated to others
+        whereFilter = `AND (t.owner_user_id = ${userId} OR (t.created_by_user_id = ${userId} AND t.owner_user_id IS NOT NULL AND t.owner_user_id != ${userId}))`;
       }
 
       const rows: any = await db.execute(sql.raw(`
@@ -435,6 +436,8 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
         if (!colSet.has(col)) col = fallback;
         // Auto-blocked override only applies when "blocked" is still a column
         if (col !== "done" && t.openDependencies > 0 && colSet.has("blocked")) col = "blocked";
+        // Auto-delegated override: tasks I created but assigned to someone else → delegated column
+        if (col !== "done" && t.createdByUserId === userId && t.ownerUserId != null && t.ownerUserId !== userId && colSet.has("delegated")) col = "delegated";
         grouped[col].push(t);
       }
       res.json({ columns: colValues, grouped, total: tasks.length });
