@@ -5268,7 +5268,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     // `!isLoading && !error`, so we MUST include those in deps — otherwise on first
     // render `sentinelRef.current` is null (sentinel not yet in DOM) and the observer
     // never attaches, breaking infinite scroll until the user manually switches tabs.
-  }, [tab, isLoading, error]);
+    //
+    // `hasMore` is also included to fix a race condition on team-inbox first load:
+    // the observer fires immediately after attachment (sentinel visible in the empty
+    // scroll container) but at that instant `hasMoreRef.current` is still false because
+    // Effect B (setInboxNextToken) hasn't run yet. Adding `hasMore` here forces the
+    // observer to re-attach once Effect B sets the token and `hasMore` flips to true,
+    // so the sentinel fires again with the correct ref value and triggers the first load.
+  }, [tab, isLoading, error, hasMore]);
 
   // ── Visible-list starvation auto-chain (Apr 2026, hardening pass 3) ──
   // The IntersectionObserver only fires when the sentinel's intersection state CHANGES.
@@ -5304,16 +5311,23 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     if (autoChainRef.current.key !== inboxChainKey) {
       autoChainRef.current = { key: inboxChainKey, count: 0 };
     }
-    if (crmFilteredMessages.length >= 25) return;
+    // Guard on navList.length (the count actually rendered on screen) rather than
+    // crmFilteredMessages.length. In "unread-cards" view all read messages are
+    // filtered out of navList, so crmFilteredMessages.length could be 50+ while
+    // the visible list is 0 — causing all three team-inbox bugs:
+    //   (1) blank list with no empty-state, (2) category pills appear empty,
+    //   (3) no further pages load.  Using navList.length here makes the chain
+    // keep fetching until it finds enough unread messages (or exhausts the budget).
+    if (navList.length >= 25) return;
     if (autoChainRef.current.count >= 25) {
       if (autoChainExhaustedKey !== inboxChainKey) setAutoChainExhaustedKey(inboxChainKey);
-      dbg("autoChain:exhausted", { ctx: inboxChainKey, visible: crmFilteredMessages.length, count: autoChainRef.current.count });
+      dbg("autoChain:exhausted", { ctx: inboxChainKey, visible: navList.length, count: autoChainRef.current.count });
       return;
     }
     autoChainRef.current.count += 1;
-    dbg("autoChain:fire", { ctx: inboxChainKey, iter: autoChainRef.current.count, visible: crmFilteredMessages.length });
+    dbg("autoChain:fire", { ctx: inboxChainKey, iter: autoChainRef.current.count, visible: navList.length });
     loadMore();
-  }, [tab, hasMore, isLoadingMore, inboxChainKey, crmFilteredMessages.length, loadMore, autoChainExhaustedKey]);
+  }, [tab, hasMore, isLoadingMore, inboxChainKey, navList.length, loadMore, autoChainExhaustedKey]);
   // Strictly scope: only render the "more available" CTA when (a) we exhausted THIS chain key,
   // (b) we're on a tab where auto-chain even applies, and (c) hasMore is still true.
   const autoChainExhausted =
