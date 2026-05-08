@@ -7,6 +7,11 @@ function decodeBase64(data: string) {
   return Buffer.from(data.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8");
 }
 
+function rfc2047EncodeHeader(value: string): string {
+  if (/^[\x00-\x7F]*$/.test(value)) return value;
+  return `=?UTF-8?B?${Buffer.from(value, "utf-8").toString("base64")}?=`;
+}
+
 function extractBody(payload: any): string {
   if (!payload) return "";
   if (payload.body?.data) return decodeBase64(payload.body.data);
@@ -198,7 +203,7 @@ function buildMimeRaw(
       `From: ${from}`,
       `To: ${to}`,
       ...extraHeaders,
-      `Subject: ${subject || ""}`,
+      `Subject: ${rfc2047EncodeHeader(subject || "")}`,
       "MIME-Version: 1.0",
       `Content-Type: multipart/alternative; boundary="${innerBoundary}"`,
       "",
@@ -255,7 +260,7 @@ function buildMimeRaw(
       `From: ${from}`,
       `To: ${to}`,
       ...extraHeaders,
-      `Subject: ${subject || ""}`,
+      `Subject: ${rfc2047EncodeHeader(subject || "")}`,
       "MIME-Version: 1.0",
       `Content-Type: multipart/mixed; boundary="${outerBoundary}"`,
       "",

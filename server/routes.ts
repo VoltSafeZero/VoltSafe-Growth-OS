@@ -12305,10 +12305,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       for (const e of toList)  pushUnique(e, "to");
       for (const e of ccList)  pushUnique(e, "cc");
       for (const e of bccList) pushUnique(e, "bcc");
-      const fanoutMode = recipients.length > 1;
-
-      // ── Single-recipient (preserved legacy behavior) ─────────────────────
-      if (!fanoutMode) {
+      // Always send as a single RFC-compliant email with proper To/Cc/Bcc headers.
+      // Fanout (one send per recipient) broke reply-all semantics: each person only
+      // saw their own address in To instead of seeing the full To/Cc distribution.
+      if (true) {
         const trackingId = generateTrackingId();
         let trackedBody = body;
         let trackingFailed = false;
@@ -12359,7 +12359,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           trackingId:      trackingEnabled && !trackingFailed ? trackingId : null,
           trackingEnabled,
           trackingFailed:  trackingEnabled && trackingFailed,
-          recipientCount:  1,
+          recipientCount:  recipients.length,
           fanout:          false,
         });
       }
