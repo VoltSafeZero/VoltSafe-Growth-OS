@@ -454,7 +454,7 @@ export function SmartAddContactDialog({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-xs flex items-center gap-1.5">
-                  <Building2 className="h-3 w-3" /> Organization
+                  <Building2 className="h-3 w-3" /> Account
                 </Label>
                 <div className="flex gap-1">
                   {(["pick", "new", "skip"] as const).map(m => (

@@ -11,7 +11,7 @@
 2. [Navigation](#navigation)
 3. [Today Page](#today-page)
 4. [Command Center](#command-center)
-5. [Accounts (Organizations)](#accounts)
+5. [Accounts](#accounts)
 6. [Contacts (People)](#contacts)
 7. [Opportunities (Leads & Deals)](#opportunities)
 8. [Pipeline](#pipeline)
@@ -154,7 +154,7 @@ An Account is a **company** or **organization**. For VoltSafe, this is usually a
 - All notes and activities
 
 **How to find an account:**
-1. Click **Relationships → Organizations** in the sidebar.
+1. Click **Pipeline → Accounts** in the sidebar.
 2. Use the search bar at the top to type the company name.
 3. Click the company name to open its full profile.
 

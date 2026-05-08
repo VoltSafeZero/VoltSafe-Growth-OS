@@ -210,11 +210,11 @@ function PersonForm({ initial, onSubmit, isPending }: { initial?: EcosystemPerso
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <Label>Organization Name</Label>
+          <Label>Account Name</Label>
           <Input value={form.organizationName} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} data-testid="input-person-org" />
         </div>
         <div>
-          <Label>Organization ID</Label>
+          <Label>Account ID</Label>
           <Input type="number" value={form.organizationId} onChange={(e) => setForm({ ...form, organizationId: e.target.value })} data-testid="input-person-org-id" />
         </div>
       </div>

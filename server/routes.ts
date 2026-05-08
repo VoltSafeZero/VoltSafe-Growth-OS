@@ -2051,7 +2051,7 @@ export async function registerRoutes(
         linkedObjectType: "lead",
         linkedObjectId: newLead.id,
         type: "status_change",
-        summary: `Lead created from Organization "${account.name}" (account #${account.id}). Organization hidden from Organizations list pending re-promotion.`,
+        summary: `Lead created from Account "${account.name}" (account #${account.id}). Account hidden from Accounts list pending re-promotion.`,
       });
 
       res.json({ leadId: newLead.id, accountId: account.id });

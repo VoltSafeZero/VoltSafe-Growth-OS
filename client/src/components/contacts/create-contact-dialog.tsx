@@ -519,7 +519,7 @@ export function CreateContactDialog({
           {needsOrgPicker && (
             <div className="space-y-1">
               <div className="flex items-baseline justify-between gap-2">
-                <Label className="text-xs">Organization</Label>
+                <Label className="text-xs">Account</Label>
                 <span className="text-[11px] text-muted-foreground">Optional — link later</span>
               </div>
               <Popover open={orgPickerOpen} onOpenChange={setOrgPickerOpen}>

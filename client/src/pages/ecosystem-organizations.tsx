@@ -47,7 +47,7 @@ export default function EcosystemOrganizationsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/ecosystem/organizations"] });
       setCreateOpen(false);
-      toast({ title: "Organization created" });
+      toast({ title: "Account created" });
     },
     onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to create organization", variant: "destructive" }); },
   });
@@ -60,7 +60,7 @@ export default function EcosystemOrganizationsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/ecosystem/organizations"] });
       setSelected(null);
-      toast({ title: "Organization updated" });
+      toast({ title: "Account updated" });
     },
     onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to update organization", variant: "destructive" }); },
   });
@@ -72,7 +72,7 @@ export default function EcosystemOrganizationsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/ecosystem/organizations"] });
       setSelected(null);
-      toast({ title: "Organization deleted" });
+      toast({ title: "Account deleted" });
     },
     onError: (err: any) => { toast({ title: "Error", description: err?.message || "Failed to delete organization", variant: "destructive" }); },
   });
@@ -81,17 +81,17 @@ export default function EcosystemOrganizationsPage() {
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Ecosystem Organizations</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Manage organizations in the VoltSafe ecosystem.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Ecosystem Accounts</h1>
+          <p className="text-muted-foreground mt-1 text-sm">Manage accounts in the VoltSafe ecosystem.</p>
         </div>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button className="bg-primary text-primary-foreground" data-testid="button-create-org">
-              <Plus className="mr-2 h-4 w-4" /> New Organization
+              <Plus className="mr-2 h-4 w-4" /> New Account
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>Create Organization</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>Create Account</DialogTitle></DialogHeader>
             <OrgForm onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
           </DialogContent>
         </Dialog>
@@ -148,7 +148,7 @@ export default function EcosystemOrganizationsPage() {
         <Dialog open onOpenChange={() => setSelected(null)}>
           <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Edit Organization</DialogTitle>
+              <DialogTitle>Edit Account</DialogTitle>
             </DialogHeader>
             <OrgForm
               initial={selected}
@@ -204,7 +204,7 @@ function OrgForm({ initial, onSubmit, isPending }: { initial?: EcosystemOrganiza
         <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required data-testid="input-org-name" />
       </div>
       <div>
-        <Label>Organization Type</Label>
+        <Label>Account Type</Label>
         <Select value={form.organizationType} onValueChange={(v) => setForm({ ...form, organizationType: v })}>
           <SelectTrigger data-testid="select-org-type"><SelectValue placeholder="Select type" /></SelectTrigger>
           <SelectContent>
@@ -256,7 +256,7 @@ function OrgForm({ initial, onSubmit, isPending }: { initial?: EcosystemOrganiza
         <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} data-testid="input-org-notes" />
       </div>
       <Button type="submit" disabled={isPending || !form.name} className="w-full" data-testid="button-submit-org">
-        {isPending ? "Saving..." : initial ? "Update Organization" : "Create Organization"}
+        {isPending ? "Saving..." : initial ? "Update Account" : "Create Account"}
       </Button>
     </form>
   );

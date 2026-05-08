@@ -261,7 +261,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
       setCreateOpen(false);
-      toast({ title: "Organization created" });
+      toast({ title: "Account created" });
     },
   });
 
@@ -272,7 +272,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
-      toast({ title: "Organization stage updated" });
+      toast({ title: "Account stage updated" });
     },
   });
 
@@ -303,7 +303,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
-      toast({ title: "Organization deleted" });
+      toast({ title: "Account deleted" });
     },
     onError: (err: any) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
   });
@@ -315,8 +315,8 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Organizations</h1>
-            <p className="text-muted-foreground mt-1 text-sm">Manage marina organizations and prospects.</p>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" data-testid="text-page-title">Accounts</h1>
+            <p className="text-muted-foreground mt-1 text-sm">Manage marina accounts and prospects.</p>
           </div>
           <div className="flex items-center border border-border/50 rounded-xl overflow-hidden">
             <Button variant={view === "list" ? "secondary" : "ghost"} size="default" onClick={() => setView("list")} className="rounded-none px-3" data-testid="button-list-view"><List className="h-5 w-5" /></Button>
@@ -336,11 +336,11 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
                 <Button className="bg-primary text-primary-foreground" data-testid="button-create-account">
-                  <Plus className="mr-2 h-4 w-4" /> New Organization
+                  <Plus className="mr-2 h-4 w-4" /> New Account
                 </Button>
               </DialogTrigger>
               <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
-                <DialogHeader><DialogTitle>Create Organization</DialogTitle></DialogHeader>
+                <DialogHeader><DialogTitle>Create Account</DialogTitle></DialogHeader>
                 <CreateAccountForm onSubmit={(d) => createMutation.mutate(d)} isPending={createMutation.isPending} />
               </DialogContent>
             </Dialog>
@@ -910,8 +910,8 @@ function AccountsMapView({ accounts, onSelect }: { accounts: Account[]; onSelect
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center gap-3">
         <MapPin className="h-10 w-10 text-muted-foreground/40" />
-        <p className="text-muted-foreground">No organizations have location coordinates yet.</p>
-        <p className="text-xs text-muted-foreground">Organizations converted from marina leads will appear on the map once coordinates are available.</p>
+        <p className="text-muted-foreground">No accounts have location coordinates yet.</p>
+        <p className="text-xs text-muted-foreground">Accounts converted from marina leads will appear on the map once coordinates are available.</p>
       </div>
     );
   }
@@ -1052,7 +1052,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
       setEditMode(false);
-      toast({ title: "Organization updated" });
+      toast({ title: "Account updated" });
     },
   });
 
@@ -1096,7 +1096,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
-      toast({ title: "Organization deleted" });
+      toast({ title: "Account deleted" });
       onClose();
     },
     onError: (err: any) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
@@ -1113,7 +1113,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
-      toast({ title: "Demoted to Lead", description: "The organization has been removed from the Organizations list and the lead is active again." });
+      toast({ title: "Demoted to Lead", description: "The account has been removed from the Accounts list and the lead is active again." });
       onClose();
     },
     onError: (err: any) => toast({ title: "Demote failed", description: err.message, variant: "destructive" }),
@@ -1128,7 +1128,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
-      toast({ title: "Converted to Lead", description: "A new lead has been created from this organization. It's now hidden from the Organizations list." });
+      toast({ title: "Converted to Lead", description: "A new lead has been created from this account. It's now hidden from the Accounts list." });
       onClose();
     },
     onError: (err: any) => toast({ title: "Convert failed", description: err.message, variant: "destructive" }),
@@ -1408,7 +1408,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
                 )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                  <DetailField label="Organization Type" value={getOrgTypeLabel(account.orgType)} />
+                  <DetailField label="Account Type" value={getOrgTypeLabel(account.orgType)} />
                   <DetailField label="Legal Name" value={account.legalName} />
                   <DetailField label="Website" value={account.website} icon={<Globe className="h-3 w-3" />} />
                   <DetailField label="Marina Type" value={account.marinaType} />
@@ -1648,9 +1648,9 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
                                       let parsed: Record<string, string> = {};
                                       try { parsed = JSON.parse(entry.notes || "{}"); } catch {}
                                       const actionLabel = parsed.action === "created"
-                                        ? "Promoted to new Organization"
+                                        ? "Promoted to new Account"
                                         : parsed.action === "linked"
-                                          ? "Linked to existing Organization"
+                                          ? "Linked to existing Account"
                                           : "Conversion event";
                                       return (
                                         <div key={entry.id} className="text-xs" data-testid={`history-entry-${entry.id}`}>
@@ -2176,7 +2176,7 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
         <div><Label className="text-xs">Legal Name</Label><Input value={form.legalName} onChange={(e) => setForm(f => ({ ...f, legalName: e.target.value }))} data-testid="input-edit-legal-name" /></div>
         <div><Label className="text-xs">Website</Label><Input value={form.website} onChange={(e) => setForm(f => ({ ...f, website: e.target.value }))} data-testid="input-edit-website" /></div>
         <div>
-          <Label className="text-xs">Organization Type</Label>
+          <Label className="text-xs">Account Type</Label>
           <Select value={form.orgType} onValueChange={(v) => setForm(f => ({ ...f, orgType: v }))}>
             <SelectTrigger data-testid="select-edit-org-type"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -2319,7 +2319,7 @@ function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
     <form onSubmit={(e) => { e.preventDefault(); onSubmit({ ...form, slipCount: form.slipCount ? Number(form.slipCount) : undefined }); }} className="space-y-4">
       <div><Label>Name *</Label><Input value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} required data-testid="input-account-name" /></div>
       <div>
-        <Label>Organization Type</Label>
+        <Label>Account Type</Label>
         <Select value={form.orgType} onValueChange={(v) => setForm(f => ({ ...f, orgType: v }))}>
           <SelectTrigger data-testid="select-account-org-type"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -2398,7 +2398,7 @@ function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
         </div>
       </div>
       <div><Label>Notes</Label><Textarea value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} data-testid="input-account-notes" /></div>
-      <Button type="submit" className="w-full bg-primary text-primary-foreground" disabled={isPending} data-testid="button-submit-account">{isPending ? "Creating..." : "Create Organization"}</Button>
+      <Button type="submit" className="w-full bg-primary text-primary-foreground" disabled={isPending} data-testid="button-submit-account">{isPending ? "Creating..." : "Create Account"}</Button>
     </form>
   );
 }

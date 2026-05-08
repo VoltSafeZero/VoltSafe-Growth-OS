@@ -69,7 +69,7 @@
 | Gmail Inbox (`/gmail`) | Email linked to CRM |
 | Tasks Hub (`/execution/tasks`) | Your to-do list |
 | Contacts (`/contacts`) | Who to call |
-| Accounts (`/accounts`) | Organizations you sell to |
+| Accounts (`/accounts`) | Accounts you sell to |
 
 **Daily routine (30 minutes total):**
 

@@ -1657,7 +1657,7 @@ function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: number) => void;
             </div>
             <div className="space-y-1.5">
               <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Building2 className="h-3 w-3" /> Organization / Marina
+                <Building2 className="h-3 w-3" /> Account / Marina
               </p>
               <div className="border rounded-md px-2 py-1.5 bg-background min-h-[34px] flex items-center">
                 <CrmLinkCombobox

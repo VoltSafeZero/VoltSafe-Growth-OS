@@ -1508,7 +1508,7 @@ function CreateContactInlineForm({ email, accountId, accountName, onCreated }: {
       </div>
       {!accountId && (
         <div className="space-y-1">
-          <Label className="text-xs">Organization</Label>
+          <Label className="text-xs">Account</Label>
           <Input value={newAccountName} onChange={e => setNewAccountName(e.target.value)} placeholder="Company / marina name" className="h-7 text-xs" data-testid="input-new-contact-org" />
         </div>
       )}
@@ -1596,7 +1596,7 @@ function CRMContextTab({ eventId, crmCtx, isLoading }: { eventId: number; crmCtx
       {matchedAccounts.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-            <Building2 className="h-3.5 w-3.5" /> Organizations ({matchedAccounts.length})
+            <Building2 className="h-3.5 w-3.5" /> Accounts ({matchedAccounts.length})
           </p>
           {matchedAccounts.map(a => (
             <div key={a.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/40 bg-card" data-testid={`crm-account-${a.id}`}>

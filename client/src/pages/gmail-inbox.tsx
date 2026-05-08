@@ -1663,7 +1663,7 @@ function ScoreBadge({ score }: { score: number | null }) {
 
 const RESTRICTED_LABELS: Record<string, string> = {
   contact:     "Linked Contact",
-  account:     "Linked Organization",
+  account:     "Linked Account",
   lead:        "Linked Lead",
   opportunity: "Linked Lead",
   partner:     "Linked Partner",
@@ -1983,7 +1983,7 @@ function CrmContextPanel({
     onError: (err: any) => {
       const msg = err.message || "Unknown error";
       if (msg.includes("DOMAIN_CONFLICT")) {
-        toast({ title: "Organization already exists", description: msg, variant: "destructive" });
+        toast({ title: "Account already exists", description: msg, variant: "destructive" });
       } else if (msg.includes("CONTACT_EXISTS")) {
         toast({ title: "Contact already exists", description: msg, variant: "destructive" });
       } else {
@@ -2031,7 +2031,7 @@ function CrmContextPanel({
     },
     onSuccess: async (result: any) => {
       setShowCreateAccountForm(false);
-      toast({ title: `Organization created: ${result?.account?.name ?? aName}` });
+      toast({ title: `Account created: ${result?.account?.name ?? aName}` });
       try { await refreshAssocMutation.mutateAsync(); } catch {}
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-associations", threadId] });
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", threadId] });
@@ -2039,7 +2039,7 @@ function CrmContextPanel({
     onError: (err: any) => {
       const msg = err.message || "Unknown error";
       if (msg.includes("DOMAIN_CONFLICT")) {
-        toast({ title: "Organization for this domain already exists", description: msg, variant: "destructive" });
+        toast({ title: "Account for this domain already exists", description: msg, variant: "destructive" });
       } else {
         toast({ title: "Failed to create organization", description: msg, variant: "destructive" });
       }
@@ -2079,7 +2079,7 @@ function CrmContextPanel({
       if (!cSelectedAccount) { toast({ title: "Please select an organization", variant: "destructive" }); return; }
       payload.accountId = cSelectedAccount.id;
     } else {
-      if (!cNewOrgName.trim()) { toast({ title: "Organization name is required", variant: "destructive" }); return; }
+      if (!cNewOrgName.trim()) { toast({ title: "Account name is required", variant: "destructive" }); return; }
       payload.orgName = cNewOrgName.trim();
       payload.orgType = cNewOrgType || "unclassified";
     }
@@ -2656,7 +2656,7 @@ function CrmContextPanel({
                       className="flex items-center gap-1 text-[10px] text-violet-400/70 hover:text-violet-400 border border-violet-500/20 hover:border-violet-500/50 px-2 py-[2px] rounded transition-all"
                     >
                       <Plus className="h-2.5 w-2.5" />
-                      Organization
+                      Account
                     </button>
                   </div>
                 )}
@@ -2722,14 +2722,14 @@ function CrmContextPanel({
               return (
                 <div className="border border-violet-500/20 rounded bg-violet-500/5 p-2.5 space-y-2 text-[11px]" data-testid="create-account-form">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-medium text-violet-400/80">New Organization</span>
+                    <span className="text-[10px] font-medium text-violet-400/80">New Account</span>
                     <button onClick={() => setShowCreateAccountForm(false)} className="text-muted-foreground/40 hover:text-muted-foreground"><X className="h-3 w-3" /></button>
                   </div>
                   {domain && (
                     <div className="text-[10px] text-muted-foreground/50">Domain: <span className="text-muted-foreground/70">{domain}</span></div>
                   )}
                   <div className="space-y-0.5">
-                    <label className="text-[10px] text-muted-foreground/60 font-medium">Organization name *</label>
+                    <label className="text-[10px] text-muted-foreground/60 font-medium">Account name *</label>
                     <input
                       value={aName}
                       onChange={e => setAName(e.target.value)}
@@ -2746,7 +2746,7 @@ function CrmContextPanel({
                       data-testid="create-account-submit-btn"
                       className="flex-1 py-1 text-[10px] font-medium rounded bg-violet-500/80 hover:bg-violet-500 text-white disabled:opacity-40 transition-colors"
                     >
-                      {isPending ? "Creating…" : "Create Organization"}
+                      {isPending ? "Creating…" : "Create Account"}
                     </button>
                     <button onClick={() => setShowCreateAccountForm(false)} disabled={isPending} className="px-2 py-1 text-[10px] text-muted-foreground/50 hover:text-muted-foreground border border-border/30 rounded">Cancel</button>
                   </div>
@@ -2799,7 +2799,7 @@ function CrmContextPanel({
 
                   {/* Organization section */}
                   <div className="space-y-1.5">
-                    <label className="text-[10px] text-muted-foreground/60 font-medium">Organization *</label>
+                    <label className="text-[10px] text-muted-foreground/60 font-medium">Account *</label>
 
                     {/* Toggle existing / new */}
                     <div className="flex gap-1">
@@ -2887,7 +2887,7 @@ function CrmContextPanel({
                         <input
                           value={cNewOrgName}
                           onChange={e => setCNewOrgName(e.target.value)}
-                          placeholder="Organization name"
+                          placeholder="Account name"
                           data-testid="new-org-name-input"
                           disabled={isPending}
                           className="w-full px-2 py-1 text-[11px] bg-muted/20 border border-border/30 rounded focus:outline-none focus:border-border/70 placeholder:text-muted-foreground/40"

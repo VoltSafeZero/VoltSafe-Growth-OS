@@ -321,7 +321,7 @@ export default function RelationshipIntelligencePage() {
           <Card className="border-border/50">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                Top Organizations by Volume
+                Top Accounts by Volume
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -512,7 +512,7 @@ export default function RelationshipIntelligencePage() {
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
               <Building2 className="w-4 h-4 text-sky-400" />
-              Top Organizations by Email Volume
+              Top Accounts by Email Volume
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -525,7 +525,7 @@ export default function RelationshipIntelligencePage() {
                 <table className="w-full text-sm" data-testid="table-orgs-volume">
                   <thead>
                     <tr className="border-b border-border/50">
-                      <SortTh label="Organization" onClick={() => orgsSort.toggleSort("accountName")}>
+                      <SortTh label="Account" onClick={() => orgsSort.toggleSort("accountName")}>
                         <orgsSort.SortIcon col="accountName" />
                       </SortTh>
                       <SortTh label="Type" onClick={() => orgsSort.toggleSort("orgType")}>

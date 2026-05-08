@@ -259,7 +259,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       setSelectedLead(null);
-      toast({ title: "Lead unconverted", description: data?.description ?? "Lead status restored. Organization preserved." });
+      toast({ title: "Lead unconverted", description: data?.description ?? "Lead status restored. Account preserved." });
     },
     onError: (err: any) => toast({ title: "Unconvert failed", description: err.message, variant: "destructive" }),
   });
@@ -645,11 +645,11 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                             </Button>
                           </Link>
                           {canEdit && (lead.status === "converted" ? (
-                            <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); unconvertMutation.mutate(lead.id); }} data-testid={`button-unconvert-${lead.id}`} title="Revert lead status (Organization preserved)">
+                            <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); unconvertMutation.mutate(lead.id); }} data-testid={`button-unconvert-${lead.id}`} title="Revert lead status (Account preserved)">
                               <Undo2 className="h-4 w-4" />
                             </Button>
                           ) : lead.status !== "lost" ? (
-                            <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setConvertDialogLead(lead); }} data-testid={`button-convert-${lead.id}`} title="Promote to Organization">
+                            <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setConvertDialogLead(lead); }} data-testid={`button-convert-${lead.id}`} title="Promote to Account">
                               <ArrowRightLeft className="h-4 w-4" />
                             </Button>
                           ) : null)}
@@ -1007,7 +1007,7 @@ function ConvertToOrgDialog({
             <Building2 className="h-5 w-5 text-primary" />Convert Lead
           </DialogTitle>
           <DialogDescription>
-            Converting <strong>{lead.company}</strong> into an Organization, Contact, and optional Opportunity.
+            Converting <strong>{lead.company}</strong> into an Account, Contact, and optional Opportunity.
           </DialogDescription>
         </DialogHeader>
 
@@ -1051,7 +1051,7 @@ function ConvertToOrgDialog({
 
                 {accountMatches.length > 0 && (
                   <div className="space-y-1.5">
-                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Organization Matches</p>
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Account Matches</p>
                     <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
                       {accountMatches.map(m => (
                         <div key={m.id} className={`flex items-center gap-3 p-2.5 rounded-lg border transition-colors ${selectedAccountMatch?.id === m.id ? "border-primary/50 bg-primary/5" : "border-border/50 bg-secondary/20"}`} data-testid={`match-org-${m.id}`}>
@@ -1123,7 +1123,7 @@ function ConvertToOrgDialog({
           <div className="space-y-4" data-testid="convert-step-configure">
             {/* Account */}
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Organization</p>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Account</p>
               <div className="space-y-1.5">
                 <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${accountMode === "new" ? "border-primary/50 bg-primary/5" : "border-border/40 hover:bg-secondary/30"}`}
                   onClick={() => setAccountMode("new")} data-testid="radio-account-new">
@@ -1131,7 +1131,7 @@ function ConvertToOrgDialog({
                     {accountMode === "new" && <div className="w-2 h-2 rounded-full bg-primary" />}
                   </div>
                   <div>
-                    <p className="text-sm font-medium">Create new Organization</p>
+                    <p className="text-sm font-medium">Create new Account</p>
                     <p className="text-[11px] text-muted-foreground">from lead data for <strong>{lead.company}</strong></p>
                   </div>
                 </label>
@@ -1201,7 +1201,7 @@ function ConvertToOrgDialog({
                 </div>
                 <div>
                   <p className="text-sm font-medium">Create Opportunity</p>
-                  <p className="text-[11px] text-muted-foreground">Start a deal record linked to this Organization</p>
+                  <p className="text-[11px] text-muted-foreground">Start a deal record linked to this Account</p>
                 </div>
               </label>
             </div>
@@ -1221,7 +1221,7 @@ function ConvertToOrgDialog({
             {accountMode === "new" && (
               <div className="space-y-3 p-3 rounded-lg border border-border/40 bg-secondary/10">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <Building2 className="h-3.5 w-3.5" />New Organization
+                  <Building2 className="h-3.5 w-3.5" />New Account
                 </p>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2 space-y-1">
@@ -1229,7 +1229,7 @@ function ConvertToOrgDialog({
                     <Input value={orgName} onChange={e => setOrgName(e.target.value)} placeholder={lead.company} data-testid="input-org-name" />
                   </div>
                   <div className="col-span-2 space-y-1">
-                    <Label className="text-xs">Organization Type</Label>
+                    <Label className="text-xs">Account Type</Label>
                     <Select value={orgType} onValueChange={setOrgType}>
                       <SelectTrigger data-testid="select-convert-org-type"><SelectValue /></SelectTrigger>
                       <SelectContent>
@@ -1304,7 +1304,7 @@ function ConvertToOrgDialog({
               <div className="flex items-start gap-3 p-3">
                 <Building2 className="h-4 w-4 text-primary mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-xs text-muted-foreground">Organization</p>
+                  <p className="text-xs text-muted-foreground">Account</p>
                   {accountMode === "link" && selectedAccountMatch ? (
                     <p className="text-sm font-medium">Link to <span className="text-primary">{selectedAccountMatch.name}</span></p>
                   ) : (
@@ -1479,8 +1479,8 @@ function LeadDetailDialog({
                   <div className="rounded-lg border border-border/40 bg-muted/30 p-3 flex items-center gap-3" data-testid="banner-promoted-org-unavailable">
                     <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs text-muted-foreground font-medium">Promoted to Organization</p>
-                      <p className="text-sm text-muted-foreground italic">Organization unavailable (may have been deleted)</p>
+                      <p className="text-xs text-muted-foreground font-medium">Promoted to Account</p>
+                      <p className="text-sm text-muted-foreground italic">Account unavailable (may have been deleted)</p>
                     </div>
                   </div>
                 ) : linkedOrg && onOpenOrg ? (
@@ -1491,7 +1491,7 @@ function LeadDetailDialog({
                   >
                     <Building2 className="h-4 w-4 text-emerald-400 shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs text-emerald-400 font-medium">Promoted to Organization</p>
+                      <p className="text-xs text-emerald-400 font-medium">Promoted to Account</p>
                       <p className="text-sm font-semibold truncate">{linkedOrg.name}</p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -1505,7 +1505,7 @@ function LeadDetailDialog({
                   <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 flex items-center gap-3" data-testid="banner-promoted-org">
                     <Building2 className="h-4 w-4 text-emerald-400 shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs text-emerald-400 font-medium">Promoted to Organization</p>
+                      <p className="text-xs text-emerald-400 font-medium">Promoted to Account</p>
                       {linkedOrg ? (
                         <p className="text-sm font-semibold truncate">{linkedOrg.name}</p>
                       ) : (
@@ -1737,12 +1737,12 @@ function LeadDetailDialog({
 
             <div className="flex gap-2 justify-end pt-4 border-t border-border/50">
               {canEdit && lead.status === "converted" ? (
-                <Button variant="outline" onClick={onUnconvert} disabled={isUnconverting} data-testid="button-unconvert-detail" title="Revert lead status — Organization is preserved">
+                <Button variant="outline" onClick={onUnconvert} disabled={isUnconverting} data-testid="button-unconvert-detail" title="Revert lead status — Account is preserved">
                   <Undo2 className="mr-2 h-4 w-4" /> Revert Lead Status
                 </Button>
               ) : canEdit && lead.status !== "lost" ? (
                 <Button variant="outline" onClick={onConvert} disabled={isConverting} data-testid="button-convert-detail">
-                  <ArrowRightLeft className="mr-2 h-4 w-4" /> Promote to Organization
+                  <ArrowRightLeft className="mr-2 h-4 w-4" /> Promote to Account
                 </Button>
               ) : null}
               {canEdit && lead.contactEmail && (

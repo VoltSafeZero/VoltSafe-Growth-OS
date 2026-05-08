@@ -201,12 +201,12 @@ function PartnerForm({ initialData, onSubmit, isPending, onCancel }: {
       {/* ── CORE ─────────────────────────────────────────── */}
       <div className="space-y-3">
         <div>
-          <Label htmlFor="pf-name">Organization Name *</Label>
+          <Label htmlFor="pf-name">Account Name *</Label>
           <Input id="pf-name" value={form.name} onChange={(e) => set("name", e.target.value)} required data-testid="input-partner-name" />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label htmlFor="pf-orgtype">Organization Type</Label>
+            <Label htmlFor="pf-orgtype">Account Type</Label>
             <Select value={form.organizationType} onValueChange={(v) => set("organizationType", v)}>
               <SelectTrigger id="pf-orgtype" data-testid="select-org-type"><SelectValue placeholder="Select type" /></SelectTrigger>
               <SelectContent>

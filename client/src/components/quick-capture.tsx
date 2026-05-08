@@ -220,7 +220,7 @@ function OpportunityForm({ onClose }: { onClose: () => void }) {
         });
         accountId = accRes.id;
       } else {
-        throw new Error("Organization is required");
+        throw new Error("Account is required");
       }
       return apiRequest("POST", "/api/opportunities", {
         title: title.trim(), accountId, stage,
@@ -243,7 +243,7 @@ function OpportunityForm({ onClose }: { onClose: () => void }) {
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <Label className="text-xs mb-1.5 block">Organization *</Label>
+          <Label className="text-xs mb-1.5 block">Account *</Label>
           <Input value={company} onChange={e => setCompany(e.target.value)} placeholder="Harbour Marina" data-testid="input-opp-org" />
         </div>
         <div>
