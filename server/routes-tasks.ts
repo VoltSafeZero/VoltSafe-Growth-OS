@@ -437,7 +437,11 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
         // Auto-blocked override only applies when "blocked" is still a column
         if (col !== "done" && t.openDependencies > 0 && colSet.has("blocked")) col = "blocked";
         // Auto-delegated override: tasks I created but assigned to someone else → delegated column
-        if (col !== "done" && t.createdByUserId === userId && t.ownerUserId != null && t.ownerUserId !== userId && colSet.has("delegated")) col = "delegated";
+        // Guard against completed tasks: check original boardColumn AND status so that a task
+        // completed by its assignee (board_column='done', status='completed') doesn't leak back
+        // into the delegated column after the fallback remaps 'done' → 'backlog' above.
+        const isDone = String(t.boardColumn) === "done" || t.status === "completed" || t.status === "done";
+        if (!isDone && t.createdByUserId === userId && t.ownerUserId != null && t.ownerUserId !== userId && colSet.has("delegated")) col = "delegated";
         grouped[col].push(t);
       }
       res.json({ columns: colValues, grouped, total: tasks.length });
