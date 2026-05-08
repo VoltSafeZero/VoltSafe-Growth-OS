@@ -3,25 +3,58 @@ import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { requirePermission } from "./auth";
 
-const BOARD_COLUMNS = ["backlog", "todo", "in_progress", "blocked", "done"] as const;
-type BoardColumn = (typeof BOARD_COLUMNS)[number];
-
-// Workspace-wide custom columns (lives in system_settings as a JSON blob under
-// key='task_columns'). When unset, falls back to the built-in 5. Kept here as a
-// tiny helper so the board endpoint groups by whatever the admin configured.
-async function loadCustomColumnValues(): Promise<string[]> {
-  try {
-    const r: any = await db.execute(sql`SELECT value FROM system_settings WHERE key = 'task_columns' LIMIT 1`);
-    const row = r.rows?.[0];
-    if (!row) return [...BOARD_COLUMNS];
-    const parsed = JSON.parse(row.value);
-    if (Array.isArray(parsed?.columns) && parsed.columns.length > 0) {
-      return parsed.columns.map((c: any) => String(c.value));
-    }
-  } catch { /* fall through */ }
-  return [...BOARD_COLUMNS];
-}
+// ── System columns: permanent, shared, always present for every user ─────────
+export const SYSTEM_COLUMNS = [
+  { value: "backlog",     label: "Backlog",       color: "slate"  },
+  { value: "blocked",     label: "Blocked",        color: "amber"  },
+  { value: "delegated",   label: "Delegated",      color: "violet" },
+  { value: "today_tasks", label: "Today's Tasks",  color: "teal"   },
+] as const;
+const SYSTEM_COL_SLUGS = new Set(SYSTEM_COLUMNS.map(c => c.value));
+const USER_COL_RE = /^u(\d+)_([a-z0-9_]{1,32})$/;
+const ALLOWED_COL_COLORS = new Set([
+  "slate","blue","violet","amber","emerald","rose","teal","red","orange","cyan","pink","lime",
+]);
 const SLUG_RE = /^[a-z0-9_]{1,32}$/;
+
+// Kept for backward compat — now just returns system column slugs
+async function loadCustomColumnValues(): Promise<string[]> {
+  return SYSTEM_COLUMNS.map(c => c.value);
+}
+
+// Load all columns visible to a specific user:
+//   1. The 4 permanent system columns
+//   2. User's own personal columns
+//   3. Personal columns of other users shared with this user
+async function loadColumnsForUser(userId: number): Promise<{value: string; label: string; color: string}[]> {
+  const cols: {value: string; label: string; color: string}[] = [...SYSTEM_COLUMNS];
+  try {
+    const own: any = await db.execute(sql`
+      SELECT slug, label, color FROM user_task_columns
+      WHERE user_id = ${userId} ORDER BY sort_order, id
+    `);
+    for (const r of (own.rows ?? [])) {
+      cols.push({ value: `u${userId}_${r.slug}`, label: r.label, color: r.color });
+    }
+    const sharedSlugs: any = await db.execute(sql`
+      SELECT DISTINCT column_slug FROM task_column_shares WHERE shared_with_user_id = ${userId}
+    `);
+    for (const r of (sharedSlugs.rows ?? [])) {
+      const slug = r.column_slug as string;
+      if (cols.find(c => c.value === slug)) continue;
+      const m = slug.match(USER_COL_RE);
+      if (!m) continue;
+      const ownId = Number(m[1]);
+      const bareSlug = m[2];
+      const cd: any = await db.execute(sql`
+        SELECT label, color FROM user_task_columns
+        WHERE user_id = ${ownId} AND slug = ${bareSlug} LIMIT 1
+      `);
+      if (cd.rows?.[0]) cols.push({ value: slug, label: cd.rows[0].label, color: cd.rows[0].color });
+    }
+  } catch { /* tables may not exist yet on first boot */ }
+  return cols;
+}
 
 function uid(req: Request): number | null {
   const u = (req.session as any)?.userId;
@@ -281,6 +314,47 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
   `).then(() => console.log("[migration] Column shares schema migration complete."))
     .catch(e => console.error("[task-column-shares] migration error:", e.message));
 
+  // ── Per-user personal columns: bootstrap ─────────────────────────────────
+  db.execute(sql`
+    CREATE TABLE IF NOT EXISTS user_task_columns (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      slug TEXT NOT NULL,
+      label TEXT NOT NULL,
+      color TEXT NOT NULL DEFAULT 'slate',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_id, slug)
+    )
+  `).then(async () => {
+    console.log("[migration] User task columns schema migration complete.");
+    // One-time: migrate old workspace custom columns to master_admin's personal columns
+    try {
+      const adminRow: any = await db.execute(sql`SELECT id FROM users WHERE global_role = 'master_admin' LIMIT 1`);
+      const adminId = adminRow.rows?.[0]?.id;
+      if (!adminId) return;
+      const settingsRow: any = await db.execute(sql`SELECT value FROM system_settings WHERE key = 'task_columns' LIMIT 1`);
+      if (!settingsRow.rows?.[0]) return;
+      const parsed = JSON.parse(settingsRow.rows[0].value);
+      const oldCols = (parsed.columns || []).filter((c: any) => !SYSTEM_COL_SLUGS.has(c.value));
+      for (let i = 0; i < oldCols.length; i++) {
+        const col = oldCols[i];
+        if (!SLUG_RE.test(col.value)) continue;
+        await db.execute(sql`
+          INSERT INTO user_task_columns (user_id, slug, label, color, sort_order)
+          VALUES (${adminId}, ${col.value}, ${col.label || col.value}, ${col.color || 'slate'}, ${i})
+          ON CONFLICT (user_id, slug) DO NOTHING
+        `);
+        // Re-slug tasks: old bare slug → u{adminId}_{slug}
+        await db.execute(sql.raw(
+          `UPDATE tasks SET board_column = 'u${adminId}_${col.value}' WHERE board_column = '${col.value}'`
+        ));
+      }
+    } catch (e: any) {
+      console.warn("[user-task-columns] old-col migration warning:", e.message);
+    }
+  }).catch(e => console.error("[user-task-columns] migration error:", e.message));
+
   // ── Full task detail ──────────────────────────────────────────────────────
   app.get("/api/tasks/:id/full", canView, async (req, res) => {
     try {
@@ -350,9 +424,10 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       // Use the workspace's currently configured columns so custom columns
       // appear on the board. Anything pointing at an unknown column gets
       // dropped into "backlog" (the guaranteed fallback).
-      const colValues = await loadCustomColumnValues();
+      const allCols = await loadColumnsForUser(userId);
+      const colValues = allCols.map(c => c.value);
       const colSet = new Set(colValues);
-      const fallback = colSet.has("backlog") ? "backlog" : colValues[0];
+      const fallback = "backlog";
       const grouped: Record<string, any[]> = {};
       for (const v of colValues) grouped[v] = [];
       for (const t of tasks) {
@@ -375,10 +450,12 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       const id = Number(req.params.id);
       const userId = uid(req);
       const { boardColumn, sortOrder } = req.body || {};
-      if (typeof boardColumn !== "string" || !SLUG_RE.test(boardColumn)) {
+      const isValidBoardCol = typeof boardColumn === "string" && (SLUG_RE.test(boardColumn) || USER_COL_RE.test(boardColumn));
+      if (!isValidBoardCol) {
         return res.status(400).json({ message: "Invalid column" });
       }
-      const allowedCols = await loadCustomColumnValues();
+      const allAllowedCols = await loadColumnsForUser(userId!);
+      const allowedCols = allAllowedCols.map(c => c.value);
       if (!allowedCols.includes(boardColumn)) {
         return res.status(400).json({ message: "Unknown column" });
       }
@@ -963,8 +1040,9 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       if (!Number.isFinite(targetUserId)) {
         return res.status(400).json({ message: "Invalid userId" });
       }
-      const cols = await loadCustomColumnValues();
-      if (!cols.includes(slug)) return res.status(404).json({ message: "Column not found" });
+      if (!SYSTEM_COL_SLUGS.has(slug) && !USER_COL_RE.test(slug)) {
+        return res.status(400).json({ message: "Invalid column slug" });
+      }
       await db.execute(sql`
         INSERT INTO task_column_shares (column_slug, shared_by_user_id, shared_with_user_id, permission)
         VALUES (${slug}, ${actorId}, ${targetUserId}, ${permission})
@@ -1006,6 +1084,63 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       `);
       res.json({ success: true });
     } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Bulk replace a user's personal columns ────────────────────────────────
+  app.put("/api/task-columns/user", requireAuth, async (req, res) => {
+    try {
+      const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const incoming = Array.isArray(req.body?.columns) ? req.body.columns : null;
+      if (incoming === null) return res.status(400).json({ message: "columns array required" });
+      if (incoming.length > 20) return res.status(400).json({ message: "Max 20 personal columns" });
+
+      const cleaned: Array<{ value: string; label: string; color: string }> = [];
+      const seen = new Set<string>();
+      for (const raw of incoming) {
+        const value = String(raw?.value || "").trim().toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 32);
+        const label = String(raw?.label || "").trim().slice(0, 60);
+        const color = String(raw?.color || "slate").trim().toLowerCase();
+        if (!value || !label) continue;
+        if (seen.has(value)) continue;
+        seen.add(value);
+        cleaned.push({ value, label, color: ALLOWED_COL_COLORS.has(color) ? color : "slate" });
+      }
+
+      // Fetch current slugs for this user
+      const existing: any = await db.execute(sql`
+        SELECT slug FROM user_task_columns WHERE user_id = ${userId}
+      `);
+      const existingSlugs = new Set((existing.rows ?? []).map((r: any) => r.slug as string));
+      const newSlugs = new Set(cleaned.map(c => c.value));
+
+      // Delete removed columns — move their tasks to backlog
+      for (const slug of existingSlugs) {
+        if (!newSlugs.has(slug)) {
+          const fullSlug = `u${userId}_${slug}`;
+          await db.execute(sql.raw(
+            `UPDATE tasks SET board_column = 'backlog' WHERE board_column = '${fullSlug}'`
+          ));
+          await db.execute(sql`DELETE FROM user_task_columns WHERE user_id = ${userId} AND slug = ${slug}`);
+          await db.execute(sql`DELETE FROM task_column_shares WHERE column_slug = ${fullSlug}`);
+        }
+      }
+
+      // Upsert remaining in given order
+      for (let i = 0; i < cleaned.length; i++) {
+        const { value, label, color } = cleaned[i];
+        await db.execute(sql`
+          INSERT INTO user_task_columns (user_id, slug, label, color, sort_order)
+          VALUES (${userId}, ${value}, ${label}, ${color}, ${i})
+          ON CONFLICT (user_id, slug) DO UPDATE SET label = ${label}, color = ${color}, sort_order = ${i}
+        `);
+      }
+
+      res.json({ success: true, count: cleaned.length });
+    } catch (err: any) {
+      console.error("[task-columns/user PUT]", err.message);
       res.status(500).json({ message: err.message });
     }
   });

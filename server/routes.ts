@@ -4122,9 +4122,17 @@ export async function registerRoutes(
     return DEFAULT_TASK_COLUMNS;
   }
 
-  app.get("/api/task-columns", requireAuth, async (_req, res) => {
+  app.get("/api/task-columns", requireAuth, async (req, res) => {
     try {
-      const columns = await readTaskColumns();
+      const userId = (req.session as any)?.userId as number | undefined;
+      const SYS_COLS = [
+        { value: "backlog",     label: "Backlog",       color: "slate"  },
+        { value: "blocked",     label: "Blocked",        color: "amber"  },
+        { value: "delegated",   label: "Delegated",      color: "violet" },
+        { value: "today_tasks", label: "Today's Tasks",  color: "teal"   },
+      ];
+      const USER_COL_RE_LOCAL = /^u(\d+)_([a-z0-9_]{1,32})$/;
+
       let sharesBySlug: Record<string, any[]> = {};
       try {
         const sharesRaw: any = await db.execute(sql`
@@ -4142,16 +4150,55 @@ export async function registerRoutes(
         for (const row of (sharesRaw.rows ?? [])) {
           if (!sharesBySlug[row.columnSlug]) sharesBySlug[row.columnSlug] = [];
           sharesBySlug[row.columnSlug].push({
-            id: row.id,
-            userId: row.userId,
-            userName: row.userName,
+            id: row.id, userId: row.userId, userName: row.userName,
             permission: row.permission,
-            sharedByUserId: row.sharedByUserId,
-            sharedByName: row.sharedByName,
+            sharedByUserId: row.sharedByUserId, sharedByName: row.sharedByName,
           });
         }
       } catch { /* table may not exist on first boot */ }
-      res.json(columns.map(c => ({ ...c, shares: sharesBySlug[c.value] ?? [] })));
+
+      const result: any[] = SYS_COLS.map(c => ({
+        ...c, isSystem: true, isOwn: false, shares: sharesBySlug[c.value] ?? [],
+      }));
+
+      if (userId) {
+        try {
+          const own: any = await db.execute(sql`
+            SELECT slug, label, color FROM user_task_columns
+            WHERE user_id = ${userId} ORDER BY sort_order, id
+          `);
+          for (const r of (own.rows ?? [])) {
+            const fullSlug = `u${userId}_${r.slug}`;
+            result.push({
+              value: fullSlug, label: r.label, color: r.color,
+              isSystem: false, isOwn: true, ownerId: userId,
+              shares: sharesBySlug[fullSlug] ?? [],
+            });
+          }
+          const sharedSlugs: any = await db.execute(sql`
+            SELECT DISTINCT column_slug FROM task_column_shares WHERE shared_with_user_id = ${userId}
+          `);
+          for (const r of (sharedSlugs.rows ?? [])) {
+            const slug = r.column_slug as string;
+            if (result.find(c => c.value === slug)) continue;
+            const m = slug.match(USER_COL_RE_LOCAL);
+            if (!m) continue;
+            const ownId = Number(m[1]);
+            const bareSlug = m[2];
+            const cd: any = await db.execute(sql`
+              SELECT label, color FROM user_task_columns
+              WHERE user_id = ${ownId} AND slug = ${bareSlug} LIMIT 1
+            `);
+            if (cd.rows?.[0]) result.push({
+              value: slug, label: cd.rows[0].label, color: cd.rows[0].color,
+              isSystem: false, isOwn: false, ownerId: ownId,
+              shares: sharesBySlug[slug] ?? [],
+            });
+          }
+        } catch { /* user_task_columns may not exist on first boot */ }
+      }
+
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err?.message || "Failed to load columns" });
     }

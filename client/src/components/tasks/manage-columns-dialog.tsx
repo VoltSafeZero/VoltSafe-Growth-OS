@@ -6,7 +6,6 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -24,6 +23,8 @@ function slugify(label: string): string {
     .replace(/^_+|_+$/g, "")
     .slice(0, 32) || "column";
 }
+
+const USER_COL_PREFIX_RE = /^u\d+_/;
 
 type Draft = TaskColumn & { _isNew?: boolean };
 
@@ -199,41 +200,46 @@ export function ColumnShareDialog({
 
 // ── Manage Columns Dialog ─────────────────────────────────────────────────
 export function ManageColumnsDialog({
-  open, onOpenChange, isAdmin = true,
+  open, onOpenChange,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  isAdmin?: boolean;
 }) {
   const { toast } = useToast();
   const { columns } = useTaskColumns();
+
+  const { data: me } = useQuery<{ id: number }>({
+    queryKey: ["/api/auth/me"],
+    queryFn: () => fetch("/api/auth/me", { credentials: "include" }).then(r => r.json()),
+    enabled: open,
+  });
+
+  const systemCols = columns.filter(c => c.isSystem);
   const [draft, setDraft] = useState<Draft[]>([]);
-  const [shareSlug, setShareSlug] = useState<string | null>(null);
+  const [shareTarget, setShareTarget] = useState<{ slug: string; label: string; shares: ColumnShare[] } | null>(null);
 
   useEffect(() => {
-    if (open) setDraft(columns.map(c => ({ ...c })));
+    if (open) {
+      setDraft(
+        columns
+          .filter(c => !c.isSystem && c.isOwn)
+          .map(c => ({ ...c, value: c.value.replace(USER_COL_PREFIX_RE, "") }))
+      );
+    }
   }, [open, columns]);
 
   const save = useMutation({
     mutationFn: async (cols: Draft[]) => {
-      const payload = { columns: cols.map(({ _isNew, shares, ...c }) => c) };
-      return apiRequest("PUT", "/api/admin/task-columns", payload);
+      const payload = {
+        columns: cols.map(({ _isNew, shares, isSystem, isOwn, ownerId, ...c }) => c),
+      };
+      return apiRequest("PUT", "/api/task-columns/user", payload);
     },
-    onSuccess: async (resp: any) => {
-      let movedCount = 0;
-      try {
-        const json = await resp.json?.();
-        movedCount = json?.movedTaskCount ?? 0;
-      } catch { /* ignore */ }
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/task-columns"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/board"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
-      toast({
-        title: "Columns saved",
-        description: movedCount > 0
-          ? `Moved ${movedCount} task${movedCount === 1 ? "" : "s"} to Backlog.`
-          : undefined,
-      });
+      toast({ title: "Your columns saved" });
       onOpenChange(false);
     },
     onError: (err: any) => toast({
@@ -252,38 +258,38 @@ export function ManageColumnsDialog({
       return next;
     });
   };
+
   const add = () => {
-    if (draft.length >= 12) {
-      toast({ title: "Max 12 columns", variant: "destructive" });
+    if (draft.length >= 16) {
+      toast({ title: "Max 16 personal columns", variant: "destructive" });
       return;
     }
-    setDraft(prev => [...prev, { value: `column_${prev.length + 1}`, label: "New column", color: "slate", _isNew: true }]);
+    setDraft(prev => [...prev, { value: `col_${Date.now()}`, label: "New column", color: "slate", _isNew: true }]);
   };
+
   const remove = (idx: number) => {
-    const col = draft[idx];
-    if (col.value === "backlog") {
-      toast({ title: "Backlog can't be deleted", description: "It's the fallback column when others are removed.", variant: "destructive" });
-      return;
-    }
     setDraft(prev => prev.filter((_, i) => i !== idx));
   };
+
+  const updateLabel = (idx: number, label: string) => {
+    setDraft(prev => prev.map((c, i) => {
+      if (i !== idx) return c;
+      if (c._isNew) return { ...c, label, value: slugify(label) };
+      return { ...c, label };
+    }));
+  };
+
   const updateField = (idx: number, patch: Partial<Draft>) => {
     setDraft(prev => prev.map((c, i) => i === idx ? { ...c, ...patch } : c));
   };
-  const updateLabel = (idx: number, label: string) => {
-    const col = draft[idx];
-    if (col._isNew) {
-      updateField(idx, { label, value: slugify(label) });
-    } else {
-      updateField(idx, { label });
-    }
-  };
 
   const removedExisting = columns
-    .filter(c => !draft.some(d => d.value === c.value))
+    .filter(c => !c.isSystem && c.isOwn)
+    .filter(c => {
+      const bare = c.value.replace(USER_COL_PREFIX_RE, "");
+      return !draft.some(d => d.value === bare);
+    })
     .map(c => c.label);
-
-  const shareCol = columns.find(c => c.value === shareSlug);
 
   return (
     <>
@@ -292,99 +298,134 @@ export function ManageColumnsDialog({
           <DialogHeader>
             <DialogTitle>Manage task board columns</DialogTitle>
             <DialogDescription>
-              {isAdmin
-                ? "Add, rename, reorder, or delete columns. You can also share any column with specific team members."
-                : "View columns and manage who has access to each one."}
+              The 4 permanent columns are shared with your whole team. Add personal columns below — they're private to you unless you share them.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
-            {draft.map((c, i) => {
-              const shareCount = (c.shares ?? []).length;
-              return (
-                <div
-                  key={`${c.value}-${i}`}
-                  className="flex items-center gap-2 p-2 rounded border border-border bg-card"
-                  data-testid={`row-column-${c.value}`}
-                >
-                  {isAdmin && (
-                    <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-                  )}
-                  <span className={`h-3 w-3 rounded-full shrink-0 ${columnSwatchClass(c.color)}`} aria-hidden />
-                  {isAdmin ? (
-                    <Input
-                      value={c.label}
-                      onChange={(e) => updateLabel(i, e.target.value)}
-                      placeholder="Column name"
-                      className="h-8 flex-1 min-w-0"
-                      data-testid={`input-label-${c.value}`}
-                    />
-                  ) : (
-                    <span className="flex-1 text-sm font-medium min-w-0 truncate">{c.label}</span>
-                  )}
-                  {isAdmin && (
-                    <select
-                      value={c.color}
-                      onChange={(e) => updateField(i, { color: e.target.value })}
-                      className="h-8 rounded border border-input bg-background px-2 text-xs"
-                      data-testid={`select-color-${c.value}`}
+          <div className="space-y-4 max-h-[55vh] overflow-y-auto pr-1">
+            {/* System columns — locked */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+                <Lock className="h-3 w-3" /> Permanent columns (visible to all team members)
+              </p>
+              <div className="space-y-1.5">
+                {systemCols.map(c => {
+                  const shareCount = (c.shares ?? []).length;
+                  return (
+                    <div
+                      key={c.value}
+                      className="flex items-center gap-2 p-2 rounded border border-border bg-muted/30"
+                      data-testid={`row-system-column-${c.value}`}
                     >
-                      {COLUMN_COLOR_OPTIONS.map(opt => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                    </select>
-                  )}
+                      <Lock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <span className={`h-3 w-3 rounded-full shrink-0 ${columnSwatchClass(c.color)}`} aria-hidden />
+                      <span className="flex-1 text-sm font-medium min-w-0 truncate">{c.label}</span>
+                      <Button
+                        size="icon"
+                        variant={shareCount > 0 ? "secondary" : "ghost"}
+                        className="h-8 w-8 relative shrink-0"
+                        title={`Share this column${shareCount > 0 ? ` (${shareCount} user${shareCount === 1 ? "" : "s"})` : ""}`}
+                        onClick={() => setShareTarget({ slug: c.value, label: c.label, shares: c.shares ?? [] })}
+                        data-testid={`button-share-${c.value}`}
+                      >
+                        <Users className="h-3.5 w-3.5" />
+                        {shareCount > 0 && (
+                          <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-primary text-primary-foreground text-[9px] flex items-center justify-center font-bold">
+                            {shareCount}
+                          </span>
+                        )}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
 
-                  <Button
-                    size="icon"
-                    variant={shareCount > 0 ? "secondary" : "ghost"}
-                    className="h-8 w-8 relative shrink-0"
-                    title={`Manage sharing${shareCount > 0 ? ` (${shareCount} user${shareCount === 1 ? "" : "s"})` : ""}`}
-                    onClick={() => setShareSlug(c.value)}
-                    data-testid={`button-share-${c.value}`}
-                  >
-                    <Users className="h-3.5 w-3.5" />
-                    {shareCount > 0 && (
-                      <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-primary text-primary-foreground text-[9px] flex items-center justify-center font-bold">
-                        {shareCount}
-                      </span>
-                    )}
-                  </Button>
-
-                  {isAdmin && (
-                    <>
+            {/* User's personal columns — editable */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+                My personal columns (private unless shared)
+              </p>
+              <div className="space-y-1.5">
+                {draft.length === 0 && (
+                  <div className="text-xs text-muted-foreground italic text-center py-4 border border-dashed rounded-md">
+                    No personal columns yet — add one below
+                  </div>
+                )}
+                {draft.map((c, i) => {
+                  const fullSlug = me?.id ? `u${me.id}_${c.value}` : c.value;
+                  const existingDef = columns.find(col => col.value === fullSlug);
+                  const shareCount = (existingDef?.shares ?? []).length;
+                  return (
+                    <div
+                      key={`${c.value}-${i}`}
+                      className="flex items-center gap-2 p-2 rounded border border-border bg-card"
+                      data-testid={`row-column-${c.value}`}
+                    >
+                      <GripVertical className="h-4 w-4 text-muted-foreground shrink-0 cursor-grab" />
+                      <span className={`h-3 w-3 rounded-full shrink-0 ${columnSwatchClass(c.color)}`} aria-hidden />
+                      <Input
+                        value={c.label}
+                        onChange={(e) => updateLabel(i, e.target.value)}
+                        placeholder="Column name"
+                        className="h-8 flex-1 min-w-0"
+                        data-testid={`input-label-${c.value}`}
+                      />
+                      <select
+                        value={c.color}
+                        onChange={(e) => updateField(i, { color: e.target.value })}
+                        className="h-8 rounded border border-input bg-background px-2 text-xs"
+                        data-testid={`select-color-${c.value}`}
+                      >
+                        {COLUMN_COLOR_OPTIONS.map(opt => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                      {!c._isNew && me?.id && (
+                        <Button
+                          size="icon"
+                          variant={shareCount > 0 ? "secondary" : "ghost"}
+                          className="h-8 w-8 relative shrink-0"
+                          title={`Share with teammates${shareCount > 0 ? ` (${shareCount})` : ""}`}
+                          onClick={() => setShareTarget({
+                            slug: fullSlug,
+                            label: c.label,
+                            shares: existingDef?.shares ?? [],
+                          })}
+                          data-testid={`button-share-${c.value}`}
+                        >
+                          <Users className="h-3.5 w-3.5" />
+                          {shareCount > 0 && (
+                            <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-primary text-primary-foreground text-[9px] flex items-center justify-center font-bold">
+                              {shareCount}
+                            </span>
+                          )}
+                        </Button>
+                      )}
                       <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => move(i, -1)} disabled={i === 0} data-testid={`button-up-${c.value}`}>
                         <ArrowUp className="h-3.5 w-3.5" />
                       </Button>
                       <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => move(i, 1)} disabled={i === draft.length - 1} data-testid={`button-down-${c.value}`}>
                         <ArrowDown className="h-3.5 w-3.5" />
                       </Button>
-                      {c.value === "backlog" ? (
-                        <span className="h-8 w-8 inline-flex items-center justify-center text-muted-foreground" title="Backlog can't be deleted">
-                          <Lock className="h-3.5 w-3.5" />
-                        </span>
-                      ) : (
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => remove(i)} data-testid={`button-delete-${c.value}`}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                    </>
-                  )}
-                </div>
-              );
-            })}
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => remove(i)} data-testid={`button-delete-${c.value}`}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
-          {isAdmin && (
-            <div className="flex items-center justify-between pt-2">
-              <Button variant="outline" size="sm" onClick={add} data-testid="button-add-column">
-                <Plus className="h-3.5 w-3.5 mr-1" /> Add column
-              </Button>
-              <span className="text-xs text-muted-foreground">{draft.length} / 12</span>
-            </div>
-          )}
+          <div className="flex items-center justify-between pt-2 border-t border-border">
+            <Button variant="outline" size="sm" onClick={add} data-testid="button-add-column">
+              <Plus className="h-3.5 w-3.5 mr-1" /> Add column
+            </Button>
+            <span className="text-xs text-muted-foreground">{draft.length} personal {draft.length === 1 ? "column" : "columns"}</span>
+          </div>
 
-          {isAdmin && removedExisting.length > 0 && (
+          {removedExisting.length > 0 && (
             <div className="text-xs rounded border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 p-2 text-amber-900 dark:text-amber-200">
               On save, tasks in <strong>{removedExisting.join(", ")}</strong> will be moved to <strong>Backlog</strong>.
             </div>
@@ -392,24 +433,22 @@ export function ManageColumnsDialog({
 
           <DialogFooter>
             <Button variant="ghost" onClick={() => onOpenChange(false)} data-testid="button-cancel-columns">
-              {isAdmin ? "Cancel" : "Close"}
+              Cancel
             </Button>
-            {isAdmin && (
-              <Button onClick={() => save.mutate(draft)} disabled={save.isPending} data-testid="button-save-columns">
-                {save.isPending ? "Saving…" : "Save columns"}
-              </Button>
-            )}
+            <Button onClick={() => save.mutate(draft)} disabled={save.isPending} data-testid="button-save-columns">
+              {save.isPending ? "Saving…" : "Save columns"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {shareSlug && shareCol && (
+      {shareTarget && (
         <ColumnShareDialog
-          slug={shareSlug}
-          label={shareCol.label}
-          shares={shareCol.shares ?? []}
-          open={!!shareSlug}
-          onOpenChange={(v) => { if (!v) setShareSlug(null); }}
+          slug={shareTarget.slug}
+          label={shareTarget.label}
+          shares={shareTarget.shares}
+          open={!!shareTarget}
+          onOpenChange={(v) => { if (!v) setShareTarget(null); }}
         />
       )}
     </>

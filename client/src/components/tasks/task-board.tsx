@@ -91,18 +91,20 @@ export function TaskBoard({ view, onOpenTask }: Props) {
     } catch { /* ignore */ }
   }, [me?.id]);
 
-  // Apply user's column order on top of workspace column definitions
+  // System columns always appear first (fixed order), then user's personal columns (reorderable)
   const displayColumns = useMemo(() => {
-    if (!colOrderOverride.length) return columnDefs;
-    const ordered: typeof columnDefs = [];
+    const systemCols = columnDefs.filter(c => c.isSystem);
+    const personalCols = columnDefs.filter(c => !c.isSystem);
+    if (!colOrderOverride.length) return [...systemCols, ...personalCols];
+    const ordered: typeof personalCols = [];
     for (const val of colOrderOverride) {
-      const col = columnDefs.find(c => c.value === val);
+      const col = personalCols.find(c => c.value === val);
       if (col) ordered.push(col);
     }
-    for (const col of columnDefs) {
+    for (const col of personalCols) {
       if (!colOrderOverride.includes(col.value)) ordered.push(col);
     }
-    return ordered;
+    return [...systemCols, ...ordered];
   }, [columnDefs, colOrderOverride]);
 
   // Get current user's explicit permission on a column
@@ -472,10 +474,10 @@ export function TaskBoard({ view, onOpenTask }: Props) {
           className="h-8 text-xs gap-1"
           onClick={() => setManageOpen(true)}
           data-testid="button-manage-columns"
-          title={isAdmin ? "Add, rename, reorder, or delete board columns" : "Manage column sharing"}
+          title="Add, rename, reorder or share your board columns"
         >
           <Settings className="h-3 w-3" />
-          {isAdmin ? "Manage columns" : "Column sharing"}
+          Manage columns
         </Button>
       </div>
 
@@ -515,16 +517,20 @@ export function TaskBoard({ view, onOpenTask }: Props) {
                 data-testid={`column-${col.value}`}
               >
                 <div className="px-3 py-2 flex items-center gap-1.5 border-b border-inherit group/colheader">
-                  <div
-                    draggable
-                    onDragStart={(e) => { e.stopPropagation(); setDraggingColValue(col.value); setDraggingId(null); }}
-                    onDragEnd={() => { setDraggingColValue(null); setDragOverCol(null); }}
-                    className="cursor-grab active:cursor-grabbing p-0.5 -ml-1 rounded opacity-0 group-hover/colheader:opacity-60 hover:!opacity-100 transition-opacity"
-                    title="Drag to reorder column"
-                    data-testid={`grip-column-${col.value}`}
-                  >
-                    <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
-                  </div>
+                  {col.isSystem ? (
+                    <div className="p-0.5 -ml-1 w-5 shrink-0" />
+                  ) : (
+                    <div
+                      draggable
+                      onDragStart={(e) => { e.stopPropagation(); setDraggingColValue(col.value); setDraggingId(null); }}
+                      onDragEnd={() => { setDraggingColValue(null); setDragOverCol(null); }}
+                      className="cursor-grab active:cursor-grabbing p-0.5 -ml-1 rounded opacity-0 group-hover/colheader:opacity-60 hover:!opacity-100 transition-opacity"
+                      title="Drag to reorder column"
+                      data-testid={`grip-column-${col.value}`}
+                    >
+                      <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+                    </div>
+                  )}
                   <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex-1 flex items-center gap-1.5">
                     {col.label}
                     {isViewOnly && (
@@ -637,7 +643,7 @@ export function TaskBoard({ view, onOpenTask }: Props) {
         </DialogContent>
       </Dialog>
 
-      <ManageColumnsDialog open={manageOpen} onOpenChange={setManageOpen} isAdmin={isAdmin} />
+      <ManageColumnsDialog open={manageOpen} onOpenChange={setManageOpen} />
 
       {shareColSlug && shareColDef && (
         <ColumnShareDialog

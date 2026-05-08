@@ -13,15 +13,18 @@ export type TaskColumn = {
   value: string;
   label: string;
   color: string;
+  isSystem?: boolean;
+  isOwn?: boolean;
+  ownerId?: number;
   shares?: ColumnShare[];
 };
 
+// The 4 permanent system columns — always present for every user in this order
 export const DEFAULT_TASK_COLUMNS: TaskColumn[] = [
-  { value: "backlog",     label: "Backlog",     color: "slate"   },
-  { value: "todo",        label: "To do",       color: "blue"    },
-  { value: "in_progress", label: "In progress", color: "violet"  },
-  { value: "blocked",     label: "Blocked",     color: "amber"   },
-  { value: "done",        label: "Done",        color: "emerald" },
+  { value: "backlog",     label: "Backlog",       color: "slate",  isSystem: true },
+  { value: "blocked",     label: "Blocked",        color: "amber",  isSystem: true },
+  { value: "delegated",   label: "Delegated",      color: "violet", isSystem: true },
+  { value: "today_tasks", label: "Today's Tasks",  color: "teal",   isSystem: true },
 ];
 
 export const COLUMN_COLOR_OPTIONS = [
