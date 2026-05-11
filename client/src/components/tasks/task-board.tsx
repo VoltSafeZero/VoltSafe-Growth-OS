@@ -108,14 +108,19 @@ export function TaskBoard({ view, onOpenTask }: Props) {
     return doneDef ? [...ordered, doneDef] : ordered;
   }, [columnDefs, colOrderOverride]);
 
-  // Get current user's explicit permission on a column
-  // No share record (or admin) → full edit; share with 'view' → view-only
+  // Get current user's explicit permission on a column.
+  // System/permanent columns are always editable by everyone — share records on
+  // them are informational only and must not restrict drag-and-drop.
   const getColPermission = (colSlug: string): "view" | "edit" => {
     if (isAdmin || !me?.id) return "edit";
     const col = columnDefs.find(c => c.value === colSlug);
-    const share = col?.shares?.find(s => s.userId === me.id);
-    if (!share) return "edit";
-    return share.permission as "view" | "edit";
+    if (col?.isSystem) return "edit";          // permanent columns: always edit
+    if (!col?.isOwn && col?.ownerId !== me.id) {
+      // Shared personal column: check the share record for this user
+      const share = col?.shares?.find(s => s.userId === me.id);
+      if (share) return share.permission as "view" | "edit";
+    }
+    return "edit";                             // own personal columns: always edit
   };
 
   function handleColumnDrop(targetColValue: string) {

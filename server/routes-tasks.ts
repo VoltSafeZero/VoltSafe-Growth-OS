@@ -453,7 +453,9 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
   });
 
   // ── Move/reorder card on the board ────────────────────────────────────────
-  app.patch("/api/tasks/:id/board", canEdit, async (req, res) => {
+  // canView (not canEdit): moving your own card on your personal board is a
+  // personal workspace action and should be available to all CRM-visible users.
+  app.patch("/api/tasks/:id/board", canView, async (req, res) => {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
