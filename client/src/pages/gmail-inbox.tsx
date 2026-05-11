@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
@@ -6268,38 +6269,100 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             )}
             {tab === "inbox" && (
               <>
-                {/* CRM fast filters — horizontally scrollable on mobile */}
-                <div className="overflow-x-auto -mx-3 px-3">
-                  <div className="flex items-center gap-1 min-w-max pt-0.5">
+                {/* CRM filter bar — flex-wrap so items flow to next line at narrow widths instead of clipping */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                  {/* Core pills: All, Unread, Starred, Hot */}
                   {([
-                    { key: "all",         label: "All",           icon: <Filter className="h-3 w-3" />,       count: null },
-                    { key: "unread",      label: "Unread",        icon: <MailOpen className="h-3 w-3" />,     count: inboxUnreadCount || null },
-                    { key: "starred",     label: "Starred",       icon: <Star className="h-3 w-3" />,         count: null },
-                    { key: "needs-reply", label: "Needs Reply",   icon: <Reply className="h-3 w-3" />,        count: null },
-                    { key: "follow-up",   label: "Follow Up",     icon: <ClipboardList className="h-3 w-3" />, count: null },
-                  ] as { key: CrmInboxFilter; label: string; icon: React.ReactNode; count: number | null }[]).map(({ key, label, icon, count }) => {
+                    { key: "all",     label: "All",     icon: <Filter className="h-3 w-3" />,   activeColor: "bg-violet-500/15 text-violet-300 ring-violet-400/40 shadow-[0_0_10px_-2px_rgba(167,139,250,0.3)]", count: null },
+                    { key: "unread",  label: "Unread",  icon: <MailOpen className="h-3 w-3" />, activeColor: "bg-blue-500/15 text-blue-300 ring-blue-400/40 shadow-[0_0_10px_-2px_rgba(96,165,250,0.3)]",    count: inboxUnreadCount || null },
+                    { key: "starred", label: "Starred", icon: <Star className="h-3 w-3" />,     activeColor: "bg-amber-500/15 text-amber-300 ring-amber-400/40 shadow-[0_0_10px_-2px_rgba(251,191,36,0.3)]",  count: null },
+                    { key: "hot",     label: "Hot",     icon: <Flame className="h-3 w-3" />,    activeColor: "bg-rose-500/15 text-rose-400 ring-rose-400/40 shadow-[0_0_10px_-2px_rgba(251,113,133,0.3)]",   count: triageSummary.hot || null },
+                  ] as { key: CrmInboxFilter; label: string; icon: React.ReactNode; activeColor: string; count: number | null }[]).map(({ key, label, icon, activeColor, count }) => {
                     const active = crmFilter === key;
                     return (
-                    <motion.button
-                      key={key}
-                      whileTap={{ scale: 0.95 }}
-                      whileHover={{ scale: 1.04 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 22 }}
-                      onClick={() => setCrmFilter(key)}
-                      data-testid={`crm-filter-${key}`}
-                      className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-colors whitespace-nowrap ${
-                        active
-                          ? "bg-violet-500/15 text-violet-300 ring-1 ring-inset ring-violet-400/40 shadow-[0_0_12px_-2px_rgba(167,139,250,0.35)]"
-                          : "bg-muted/25 text-muted-foreground/65 hover:bg-muted/55 hover:text-foreground/85 ring-1 ring-inset ring-transparent"
-                      }`}
-                    >
-                      {icon}
-                      {label}
-                      {count !== null && count > 0 && (
-                        <span className={`ml-0.5 text-[10px] tabular-nums ${active ? "opacity-90" : "opacity-70"}`}>{count}</span>
-                      )}
-                    </motion.button>
-                  );})}
+                      <motion.button
+                        key={key}
+                        whileTap={{ scale: 0.95 }}
+                        whileHover={{ scale: 1.04 }}
+                        transition={{ type: "spring", stiffness: 500, damping: 22 }}
+                        onClick={() => setCrmFilter(key)}
+                        data-testid={`crm-filter-${key}`}
+                        className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-all whitespace-nowrap ring-1 ring-inset ${
+                          active ? activeColor : "bg-muted/30 text-muted-foreground/65 hover:bg-muted/55 hover:text-foreground/85 ring-transparent"
+                        }`}
+                      >
+                        {icon}
+                        {label}
+                        {count !== null && count > 0 && (
+                          <span className={`ml-0.5 text-[10px] tabular-nums ${active ? "opacity-90" : "opacity-60"}`}>{count}</span>
+                        )}
+                      </motion.button>
+                    );
+                  })}
+
+                  {/* TO DOs dropdown — consolidates Needs Reply, Follow Up, Awaiting Reply, Unlinked */}
+                  {(() => {
+                    const todoKeys: CrmInboxFilter[] = ["needs-reply", "follow-up", "awaiting-reply", "unlinked"];
+                    const isTodoActive = todoKeys.includes(crmFilter);
+                    const todoItems = [
+                      { key: "needs-reply"    as CrmInboxFilter, label: "Needs Reply",    icon: <Reply className="h-3 w-3" />,        count: null,                         colorCls: "text-blue-400"   },
+                      { key: "follow-up"      as CrmInboxFilter, label: "Follow Up",      icon: <ClipboardList className="h-3 w-3" />, count: null,                         colorCls: "text-amber-400"  },
+                      { key: "awaiting-reply" as CrmInboxFilter, label: "Awaiting Reply", icon: <Clock className="h-3 w-3" />,         count: triageSummary.awaitingReply,  colorCls: "text-orange-400" },
+                      { key: "unlinked"       as CrmInboxFilter, label: "Unlinked",       icon: <Link2 className="h-3 w-3" />,         count: triageSummary.unlinked,       colorCls: "text-slate-400"  },
+                    ];
+                    const totalCount = triageSummary.awaitingReply + triageSummary.unlinked;
+                    const activeTodo = todoItems.find(i => i.key === crmFilter);
+                    return (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            whileHover={{ scale: 1.04 }}
+                            transition={{ type: "spring", stiffness: 500, damping: 22 }}
+                            data-testid="crm-filter-todos"
+                            className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-all whitespace-nowrap ring-1 ring-inset ${
+                              isTodoActive
+                                ? "bg-orange-500/15 text-orange-300 ring-orange-400/40 shadow-[0_0_10px_-2px_rgba(251,146,60,0.3)]"
+                                : "bg-muted/30 text-muted-foreground/65 hover:bg-muted/55 hover:text-foreground/85 ring-transparent"
+                            }`}
+                          >
+                            <ClipboardList className="h-3 w-3" />
+                            {isTodoActive && activeTodo ? activeTodo.label : "To Dos"}
+                            {isTodoActive && activeTodo?.count ? (
+                              <span className="ml-0.5 text-[10px] tabular-nums opacity-90">{activeTodo.count}</span>
+                            ) : !isTodoActive && totalCount > 0 ? (
+                              <span className="ml-0.5 text-[10px] tabular-nums opacity-60">{totalCount}</span>
+                            ) : null}
+                            <ChevronDown className="h-2.5 w-2.5 ml-0.5 opacity-50" />
+                          </motion.button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-48 p-1">
+                          <DropdownMenuLabel className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wide px-2 py-1">Action Required</DropdownMenuLabel>
+                          <DropdownMenuSeparator className="my-1" />
+                          {todoItems.map(({ key, label, icon, count, colorCls }) => {
+                            const active = crmFilter === key;
+                            return (
+                              <DropdownMenuItem
+                                key={key}
+                                onClick={() => setCrmFilter(active ? "all" : key)}
+                                data-testid={`todo-filter-${key}`}
+                                className={`flex items-center gap-2 text-xs px-2 py-1.5 rounded cursor-pointer ${active ? "bg-muted/60 font-semibold " + colorCls : ""}`}
+                              >
+                                <span className={active ? colorCls : "text-muted-foreground"}>{icon}</span>
+                                <span className="flex-1">{label}</span>
+                                {count !== null && count > 0 && (
+                                  <span className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-full font-semibold ${active ? "bg-muted/80 opacity-90" : "bg-muted/50 text-muted-foreground opacity-70"}`}>{count}</span>
+                                )}
+                                {active && <Check className="h-3 w-3 opacity-70 flex-shrink-0" />}
+                              </DropdownMenuItem>
+                            );
+                          })}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    );
+                  })()}
+
+                  {/* Mark all read */}
                   {inboxUnreadCount > 0 && (
                     <motion.button
                       whileTap={{ scale: 0.95 }}
@@ -6309,68 +6372,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       disabled={markAllInboxReadMutation.isPending}
                       data-testid="button-mark-all-inbox-read"
                       title="Mark all inbox messages as read"
-                      className={`ml-1 flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-colors whitespace-nowrap bg-muted/25 text-muted-foreground/65 hover:bg-emerald-500/15 hover:text-emerald-400 ring-1 ring-inset ring-transparent hover:ring-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed`}
+                      className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-all whitespace-nowrap ring-1 ring-inset ring-transparent bg-muted/30 text-muted-foreground/65 hover:bg-emerald-500/15 hover:text-emerald-300 hover:ring-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed`}
                     >
-                      {markAllInboxReadMutation.isPending
-                        ? <Loader2 className="h-3 w-3 animate-spin" />
-                        : <CheckCheck className="h-3 w-3" />}
+                      {markAllInboxReadMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCheck className="h-3 w-3" />}
                       Mark all read
                     </motion.button>
                   )}
-                  </div>
-                </div>
-
-                {/* Triage filters — Awaiting Reply / Hot / Unlinked */}
-                <div className="overflow-x-auto -mx-3 px-3">
-                  <div className="flex gap-1 min-w-max pt-0.5">
-                  {([
-                    {
-                      key: "awaiting-reply",
-                      label: "Awaiting Reply",
-                      icon: <Clock className="h-3 w-3" />,
-                      count: triageSummary.awaitingReply,
-                      activeClass: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
-                    },
-                    {
-                      key: "hot",
-                      label: "Hot / Engaged",
-                      icon: <Flame className="h-3 w-3" />,
-                      count: triageSummary.hot,
-                      activeClass: "bg-rose-500/20 text-rose-400 border border-rose-500/30",
-                    },
-                    {
-                      key: "unlinked",
-                      label: "Unlinked",
-                      icon: <Link2 className="h-3 w-3" />,
-                      count: triageSummary.unlinked,
-                      activeClass: "bg-slate-500/20 text-slate-300 border border-slate-500/30",
-                    },
-                  ] as { key: CrmInboxFilter; label: string; icon: React.ReactNode; count: number; activeClass: string }[]).map(({ key, label, icon, count, activeClass }) => {
-                    const active = crmFilter === key;
-                    return (
-                    <motion.button
-                      key={key}
-                      whileTap={{ scale: 0.95 }}
-                      whileHover={{ scale: 1.04 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 22 }}
-                      onClick={() => setCrmFilter(active ? "all" : key)}
-                      data-testid={`triage-filter-${key}`}
-                      className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-colors whitespace-nowrap ring-1 ring-inset ${
-                        active
-                          ? `${activeClass.replace('border ', 'ring-')} shadow-[0_0_12px_-2px_currentColor]`
-                          : "bg-muted/25 text-muted-foreground/65 hover:bg-muted/55 hover:text-foreground/85 ring-transparent"
-                      }`}
-                    >
-                      {icon}
-                      {label}
-                      {count > 0 && (
-                        <span className={`ml-0.5 text-[10px] px-1 py-0 rounded-full font-semibold tabular-nums ${
-                          active ? "opacity-90" : "bg-muted/60 opacity-80"
-                        }`}>{count}</span>
-                      )}
-                    </motion.button>
-                  );})}
-                  </div>
                 </div>
               </>
             )}
