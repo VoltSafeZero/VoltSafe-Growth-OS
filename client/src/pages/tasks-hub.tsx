@@ -774,16 +774,17 @@ export default function TasksHubPage() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="border-b border-border/50 bg-background/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="px-4 md:px-6 pt-5 pb-3">
+        <div className="px-4 md:px-6 pt-2 pb-2">
           <div className="flex items-center justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
-                <CheckSquare className="h-5 w-5 text-primary" />
-                Tasks Hub
-              </h1>
-              <p className="text-xs text-muted-foreground mt-0.5">Your execution queue</p>
-            </div>
-            <div className="flex items-center gap-2">
+            {/* Title + search grouped together on the left */}
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex-shrink-0">
+                <h1 className="text-xl font-bold tracking-tight flex items-center gap-2 leading-none">
+                  <CheckSquare className="h-5 w-5 text-primary flex-shrink-0" />
+                  Tasks Hub
+                </h1>
+                <p className="text-xs text-muted-foreground mt-0.5 pl-7">Your execution queue</p>
+              </div>
               <div className="relative hidden sm:block">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                 <Input
@@ -795,6 +796,9 @@ export default function TasksHubPage() {
                   data-testid="input-task-search"
                 />
               </div>
+            </div>
+            {/* Action buttons on the right */}
+            <div className="flex items-center gap-2 flex-shrink-0">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="h-8 text-xs gap-1 border-border/50" data-testid="button-group-by">
