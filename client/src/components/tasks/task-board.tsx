@@ -91,21 +91,18 @@ export function TaskBoard({ view, onOpenTask }: Props) {
     } catch { /* ignore */ }
   }, [me?.id]);
 
-  // DONE is always pinned as the rightmost column.
-  // All other columns (system + personal) are freely reorderable by the user.
+  // All columns (system + personal, including DONE) are freely reorderable by the user.
   const displayColumns = useMemo(() => {
-    const doneDef = columnDefs.find(c => c.value === "done");
-    const otherCols = columnDefs.filter(c => c.value !== "done");
-    if (!colOrderOverride.length) return doneDef ? [...otherCols, doneDef] : otherCols;
-    const ordered: typeof otherCols = [];
+    if (!colOrderOverride.length) return columnDefs;
+    const ordered: typeof columnDefs = [];
     for (const val of colOrderOverride) {
-      const col = otherCols.find(c => c.value === val);
+      const col = columnDefs.find(c => c.value === val);
       if (col) ordered.push(col);
     }
-    for (const col of otherCols) {
+    for (const col of columnDefs) {
       if (!colOrderOverride.includes(col.value)) ordered.push(col);
     }
-    return doneDef ? [...ordered, doneDef] : ordered;
+    return ordered;
   }, [columnDefs, colOrderOverride]);
 
   // Get current user's explicit permission on a column.
@@ -125,9 +122,7 @@ export function TaskBoard({ view, onOpenTask }: Props) {
 
   function handleColumnDrop(targetColValue: string) {
     if (!draggingColValue || draggingColValue === targetColValue) return;
-    // DONE is always pinned rightmost — cannot be moved or used as a drop target for reordering
-    if (draggingColValue === "done" || targetColValue === "done") return;
-    const current = displayColumns.filter(c => c.value !== "done").map(c => c.value);
+    const current = displayColumns.map(c => c.value);
     const fromIdx = current.indexOf(draggingColValue);
     const toIdx = current.indexOf(targetColValue);
     if (fromIdx === -1 || toIdx === -1) return;
@@ -514,20 +509,16 @@ export function TaskBoard({ view, onOpenTask }: Props) {
                 data-testid={`column-${col.value}`}
               >
                 <div className="px-3 py-2 flex items-center gap-1.5 border-b border-inherit group/colheader">
-                  {col.value === "done" ? (
-                    <div className="p-0.5 -ml-1 w-5 shrink-0" />
-                  ) : (
-                    <div
-                      draggable
-                      onDragStart={(e) => { e.stopPropagation(); setDraggingColValue(col.value); setDraggingId(null); }}
-                      onDragEnd={() => { setDraggingColValue(null); setDragOverCol(null); }}
-                      className="cursor-grab active:cursor-grabbing p-0.5 -ml-1 rounded opacity-0 group-hover/colheader:opacity-60 hover:!opacity-100 transition-opacity"
-                      title="Drag to reorder column"
-                      data-testid={`grip-column-${col.value}`}
-                    >
-                      <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
-                    </div>
-                  )}
+                  <div
+                    draggable
+                    onDragStart={(e) => { e.stopPropagation(); setDraggingColValue(col.value); setDraggingId(null); }}
+                    onDragEnd={() => { setDraggingColValue(null); setDragOverCol(null); }}
+                    className="cursor-grab active:cursor-grabbing p-0.5 -ml-1 rounded opacity-0 group-hover/colheader:opacity-60 hover:!opacity-100 transition-opacity"
+                    title="Drag to reorder column"
+                    data-testid={`grip-column-${col.value}`}
+                  >
+                    <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+                  </div>
                   <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex-1 flex items-center gap-1.5">
                     {col.label}
                     {isViewOnly && (

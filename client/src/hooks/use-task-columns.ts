@@ -20,7 +20,7 @@ export type TaskColumn = {
 };
 
 // The 5 permanent system columns — always present for every user.
-// DONE is always pinned as the rightmost column; all others are freely reorderable.
+// All columns (system + personal, including DONE) are freely reorderable by the user.
 export const DEFAULT_TASK_COLUMNS: TaskColumn[] = [
   { value: "blocked",     label: "BLOCKERS",              color: "amber",   isSystem: true },
   { value: "delegated",   label: "DELEGATED (To Others)", color: "violet",  isSystem: true },
