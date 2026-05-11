@@ -869,6 +869,13 @@ function ComposeDialog({
             </div>
           </div>
 
+          {/* Rich formatting toolbar — always visible inside the compose dialog */}
+          {canSend && (
+            <div className="flex-shrink-0 px-3 py-1.5 border-t border-border/20 bg-card/50">
+              <EmailFormatToolbar />
+            </div>
+          )}
+
           <div className="flex-shrink-0 flex items-center justify-between gap-2 px-4 py-2.5 border-t border-border/30 bg-card/80">
             <div className="flex items-center gap-1">
               <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
