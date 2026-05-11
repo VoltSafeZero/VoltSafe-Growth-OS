@@ -5150,13 +5150,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     : [];
 
   const categorizedInbox =
-    inboxCategory === "priority" ? inboxMain.filter((m) => isStarred(m.labelIds)) :
-    inboxCategory === "all"      ? inboxMain :
+    inboxCategory === "priority"    ? inboxMain.filter((m) => isStarred(m.labelIds)) :
+    inboxCategory === "all"         ? inboxMain :
+    // "newsletters" tab consolidates newsletters + updates (automated/notification emails)
+    inboxCategory === "newsletters" ? inboxMain.filter((m) => {
+                                        const cat = getEmailCategory(m.labelIds);
+                                        return cat === "newsletters" || cat === "updates";
+                                      }) :
     inboxMain.filter((m) => getEmailCategory(m.labelIds) === inboxCategory);
 
   const priorityCount = inboxMain.filter((m) => isStarred(m.labelIds)).length;
   const peopleCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "people").length;
-  const newslettersCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "newsletters").length;
+  // newsletters tab consolidates newsletters + updates counts
+  const newslettersCount = inboxMain.filter((m) => {
+    const cat = getEmailCategory(m.labelIds);
+    return cat === "newsletters" || cat === "updates";
+  }).length;
   const updatesCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "updates").length;
   const inboxUnreadCount = inboxMain.filter((m) => isUnread(m.labelIds)).length;
 
@@ -5284,13 +5293,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   //
   // Fix: auto-chain whenever the rendered list is starved (< 25 visible) AND more pages exist,
   // regardless of WHY it's starved (blocked-domain stripping, category, CRM, or all three).
-  // Bounded to 25 chained pages (1,250 raw messages) per context to prevent runaway loops.
-  // Cap raised from 10 → 25 (Apr 2026 hardening pass 4) because heavy-spam mailboxes (~1k+ msgs
-  // with aggressive blocked-domain lists) routinely exhausted the 10-page budget before the
-  // viewport filled, leaving the user with a starved list and no auto-resume. The chain resets
-  // when tab/account/search/source/category/CRM changes (new context = new budget). When the
-  // budget is exhausted but `hasMore` stays true, the sentinel renders an explicit "Load more"
-  // button so the user has a manual escape hatch — never silently stops with rows missing.
+  // Budget raised to 200 pages (10,000 raw messages) so the auto-chain runs for a very long
+  // time without exhausting, enabling continuous-scroll without manual "Load more" clicks.
+  // The chain resets when tab/account/search/source/category/CRM changes (new context = new
+  // budget). When the budget is exhausted but `hasMore` stays true, the sentinel renders an
+  // explicit "Load more" button so the user has a manual escape hatch — never silently stops.
   const autoChainRef = useRef({ key: "", count: 0 });
   // Use STATE (not ref) so the "more available" CTA re-renders the moment the budget is exhausted.
   const [autoChainExhaustedKey, setAutoChainExhaustedKey] = useState<string | null>(null);
@@ -5317,7 +5324,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     //   (3) no further pages load.  Using navList.length here makes the chain
     // keep fetching until it finds enough unread messages (or exhausts the budget).
     if (navList.length >= 25) return;
-    if (autoChainRef.current.count >= 25) {
+    if (autoChainRef.current.count >= 200) {
       if (autoChainExhaustedKey !== inboxChainKey) setAutoChainExhaustedKey(inboxChainKey);
       dbg("autoChain:exhausted", { ctx: inboxChainKey, visible: navList.length, count: autoChainRef.current.count });
       return;
@@ -6226,14 +6233,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               <div className="overflow-x-auto -mx-3 px-3">
                 <div className="flex gap-1 min-w-max">
                 {([
-                  { key: "all",         label: "All",         icon: <Inbox className="h-3 w-3" />,     count: inboxMain.length },
-                  { key: "priority",    label: "Priority",    icon: <Star className="h-3 w-3" />,      count: priorityCount },
-                  { key: "people",      label: "People",      icon: <Users className="h-3 w-3" />,     count: peopleCount },
-                  { key: "newsletters", label: "Newsletters", icon: <Newspaper className="h-3 w-3" />, count: newslettersCount },
-                  { key: "updates",     label: "Updates",     icon: <Bell className="h-3 w-3" />,      count: updatesCount },
-                  { key: "other",       label: "Other",       icon: <FolderX className="h-3 w-3" />,   count: inboxOther.length },
-                ] as { key: InboxCategory | "other"; label: string; icon: React.ReactNode; count: number }[]).map(({ key, label, icon, count }) => {
-                  const active = key === "other" ? tab === "other" : (tab === "inbox" && inboxCategory === key);
+                  { key: "all",         label: "All",          icon: <Inbox className="h-3 w-3" />,     count: inboxMain.length },
+                  { key: "priority",    label: "Priority",     icon: <Star className="h-3 w-3" />,      count: priorityCount },
+                  { key: "people",      label: "People",       icon: <Users className="h-3 w-3" />,     count: peopleCount },
+                  { key: "newsletters", label: "Newsletters",  icon: <Newspaper className="h-3 w-3" />, count: newslettersCount },
+                ] as { key: InboxCategory; label: string; icon: React.ReactNode; count: number }[]).map(({ key, label, icon, count }) => {
+                  const active = tab === "inbox" && inboxCategory === key;
                   return (
                   <motion.button
                     key={key}
@@ -6241,14 +6246,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     whileHover={{ scale: 1.04 }}
                     transition={{ type: "spring", stiffness: 500, damping: 22 }}
                     onClick={() => {
-                      if (key === "other") {
-                        setTab("other");
-                        setSelectedMessageId(null);
-                        setSelectedThreadId(null);
-                      } else {
-                        setTab("inbox");
-                        setInboxCategory(key as InboxCategory);
-                      }
+                      setTab("inbox");
+                      setInboxCategory(key);
                     }}
                     data-testid={`inbox-category-${key}`}
                     className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-colors whitespace-nowrap ${
