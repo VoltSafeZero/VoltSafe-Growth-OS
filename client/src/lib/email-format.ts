@@ -189,8 +189,16 @@ function nodeToText(node: Node): string {
   const childText = () => Array.from(el.childNodes).map(nodeToText).join("");
 
   switch (tag) {
+    // Collapse <br> to a space rather than a newline.
+    // Word and Google Docs insert <br> tags at each word-wrap boundary to
+    // preserve the source document's fixed page width. If we keep those as \n,
+    // buildEmailHtml turns them into hard <br/> tags and the recipient's email
+    // client renders the narrow column the sender saw — it never reflows to
+    // the recipient's screen width. Paragraph boundaries (from <p>, <div>,
+    // headings, etc.) still produce proper \n separators, so actual paragraph
+    // spacing is preserved.
     case "br":
-      return "\n";
+      return " ";
 
     case "p":
     case "section":
