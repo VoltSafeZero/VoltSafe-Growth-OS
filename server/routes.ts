@@ -12272,6 +12272,39 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // POST /api/gmail/upload-attachment — quick file upload for compose drag-and-drop.
+  // Does NOT require knowledge permissions — any authenticated user who can compose email
+  // can upload an attachment. Stores the file as an asset and returns { id, name, mimeType }.
+  app.post("/api/gmail/upload-attachment", requireAuth, assetUpload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file provided" });
+      const mimeType = req.file.mimetype;
+      let category = "general";
+      if (mimeType.startsWith("image/")) category = "image";
+      else if (mimeType === "application/pdf") category = "document";
+      else if (["application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"].includes(mimeType)) category = "document";
+      else if (["application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/csv"].includes(mimeType)) category = "spreadsheet";
+      else if (["application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"].includes(mimeType)) category = "presentation";
+      const fileData = req.file.buffer.toString("base64");
+      const [asset] = await db.insert(assets).values({
+        name: req.file.originalname,
+        originalName: req.file.originalname,
+        mimeType,
+        size: req.file.size,
+        filePath: "",
+        fileData,
+        category,
+        description: null,
+        tags: "",
+        folderId: null,
+        uploadedBy: (req.session as any).userId ?? null,
+      }).returning();
+      res.json({ id: asset.id, name: asset.name, mimeType: asset.mimeType });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/gmail/send", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;

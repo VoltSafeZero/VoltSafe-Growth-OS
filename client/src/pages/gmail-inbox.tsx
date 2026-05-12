@@ -443,6 +443,38 @@ function ComposeDialog({
   const [assetCategoryFilter, setAssetCategoryFilter] = useState<string>("all");
   const [showQuotePicker, setShowQuotePicker] = useState(false);
 
+  // Drag-and-drop attachment state
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [uploadingFiles, setUploadingFiles] = useState<string[]>([]);
+  const dragCounterRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const uploadFiles = async (files: FileList | File[]) => {
+    const fileArr = Array.from(files);
+    for (const file of fileArr) {
+      setUploadingFiles(prev => [...prev, file.name]);
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        const res = await fetch("/api/gmail/upload-attachment", {
+          method: "POST",
+          body: form,
+          credentials: "include",
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ message: "Upload failed" }));
+          throw new Error(err.message || "Upload failed");
+        }
+        const asset = await res.json();
+        setAttachedAssets(prev => [...prev, { id: asset.id, name: asset.name }]);
+      } catch (e: any) {
+        toast({ title: `Failed to attach ${file.name}`, description: e.message, variant: "destructive" });
+      } finally {
+        setUploadingFiles(prev => prev.filter(n => n !== file.name));
+      }
+    }
+  };
+
   // Ref to the message textarea so the format-bus handler (below) can
   // wrap the current selection with the appropriate markdown markers.
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
@@ -698,7 +730,44 @@ function ComposeDialog({
             overflow: "hidden",
           }}
           data-testid="compose-dialog"
+          onDragEnter={(e) => {
+            e.preventDefault();
+            dragCounterRef.current++;
+            if (e.dataTransfer.types.includes("Files")) setIsDragOver(true);
+          }}
+          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            dragCounterRef.current--;
+            if (dragCounterRef.current <= 0) { dragCounterRef.current = 0; setIsDragOver(false); }
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            dragCounterRef.current = 0;
+            setIsDragOver(false);
+            if (e.dataTransfer.files?.length) uploadFiles(e.dataTransfer.files);
+          }}
         >
+          {/* Hidden file input for click-to-upload */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => { if (e.target.files?.length) uploadFiles(e.target.files); e.target.value = ""; }}
+            data-testid="input-file-upload"
+          />
+
+          {/* Drag-over overlay */}
+          {isDragOver && (
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-primary/[0.08] border-2 border-dashed border-primary/60 rounded-xl pointer-events-none">
+              <div className="flex flex-col items-center gap-3 bg-card/90 backdrop-blur-sm border border-primary/30 rounded-2xl px-8 py-6 shadow-xl">
+                <Paperclip className="h-10 w-10 text-primary" />
+                <p className="text-primary font-semibold text-base">Drop to attach</p>
+                <p className="text-muted-foreground text-sm">Files will be attached to this email</p>
+              </div>
+            </div>
+          )}
           {/* ── Header bar ──────────────────────────────────────────── */}
           <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-border/30 bg-card/90 backdrop-blur-sm">
             <div className="flex items-center gap-2.5">
@@ -831,8 +900,8 @@ function ComposeDialog({
                 </div>
               )}
 
-          {/* Attached assets chips */}
-          {attachedAssets.length > 0 && (
+          {/* Attached assets chips + uploading indicators */}
+          {(attachedAssets.length > 0 || uploadingFiles.length > 0) && (
             <div className="flex flex-wrap gap-1.5 pt-1">
               {attachedAssets.map((a) => (
                 <div key={a.id} className="flex items-center gap-1 bg-primary/10 border border-primary/20 rounded-md px-2 py-0.5 text-xs">
@@ -845,6 +914,12 @@ function ComposeDialog({
                   >
                     <X className="h-2.5 w-2.5" />
                   </button>
+                </div>
+              ))}
+              {uploadingFiles.map((fname) => (
+                <div key={fname} className="flex items-center gap-1 bg-muted/60 border border-border/40 rounded-md px-2 py-0.5 text-xs text-muted-foreground">
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                  <span className="max-w-[160px] truncate">{fname}</span>
                 </div>
               ))}
             </div>
@@ -988,15 +1063,18 @@ function ComposeDialog({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={`h-8 w-8 ${attachedAssets.length > 0 ? "text-primary" : "text-muted-foreground"}`}
+                  className={`h-8 w-8 relative ${(attachedAssets.length > 0 || uploadingFiles.length > 0) ? "text-primary" : "text-muted-foreground"}`}
                   onClick={() => setShowAssetPicker(true)}
-                  title="Attach asset"
+                  title="Attach file — or drag & drop onto the compose window"
                   data-testid="button-attach-asset"
                 >
-                  <Paperclip className="h-4 w-4" />
-                  {attachedAssets.length > 0 && (
+                  {uploadingFiles.length > 0
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Paperclip className="h-4 w-4" />
+                  }
+                  {(attachedAssets.length + uploadingFiles.length) > 0 && (
                     <span className="absolute -top-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-primary text-[9px] text-primary-foreground flex items-center justify-center font-medium">
-                      {attachedAssets.length}
+                      {attachedAssets.length + uploadingFiles.length}
                     </span>
                   )}
                 </Button>
@@ -1098,6 +1176,25 @@ function ComposeDialog({
         <DialogHeader>
           <DialogTitle>Attach a File</DialogTitle>
         </DialogHeader>
+        {/* Upload from computer */}
+        <button
+          className="flex items-center gap-3 w-full border border-dashed border-border/60 hover:border-primary/50 hover:bg-primary/5 rounded-lg px-3 py-2.5 text-left transition-colors group"
+          onClick={() => { fileInputRef.current?.click(); setShowAssetPicker(false); }}
+          data-testid="button-upload-from-computer"
+        >
+          <div className="h-8 w-8 rounded-md bg-muted/60 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/10">
+            <Paperclip className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
+          </div>
+          <div>
+            <p className="text-sm font-medium">Upload from computer</p>
+            <p className="text-xs text-muted-foreground">Select any file from your device</p>
+          </div>
+        </button>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground/50 -my-0.5">
+          <div className="flex-1 h-px bg-border/40" />
+          <span>or pick from saved assets</span>
+          <div className="flex-1 h-px bg-border/40" />
+        </div>
         {/* Category filter */}
         <div className="flex gap-1 flex-wrap pb-1">
           {["all", "quotes", "general", "proposal", "presentation"].map(cat => (
