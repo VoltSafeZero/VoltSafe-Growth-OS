@@ -107,6 +107,22 @@ export async function migrateEmailSchema(): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_email_folder_assignments_email ON email_folder_assignments(email_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_mail_folder_domains_folder ON mail_folder_domains(folder_id)`);
 
+    // Full-text search GIN index v2 — includes all_participants so CC/BCC
+    // recipient searches use an index scan instead of a sequential scan.
+    // Applied here (startup migration) so production gets it on first boot.
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS idx_email_fts_v2 ON email_messages USING gin (
+        to_tsvector('english',
+          coalesce(subject, '') || ' ' ||
+          coalesce(from_name, '') || ' ' ||
+          coalesce(from_email, '') || ' ' ||
+          coalesce(snippet, '') || ' ' ||
+          coalesce(body_text, '') || ' ' ||
+          coalesce(all_participants, '')
+        )
+      )
+    `));
+
     // Backfill: assign all existing emails to Trevor (user_id = 4)
     await db.execute(sql`
       UPDATE email_messages SET owner_user_id = 4 WHERE owner_user_id IS NULL
