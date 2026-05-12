@@ -304,6 +304,18 @@ function buildEmailHtml(messageText: string): string {
   return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111;line-height:1.6;margin-bottom:24px;">${escaped}</div>\n${EMAIL_SIGNATURE_HTML}`;
 }
 
+function buildForwardedBlockHtml(from: string, date: string, subject: string, to: string, bodyHtml: string): string {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return `<div style="margin-top:24px;padding-top:16px;border-top:2px solid #e0e0e0;font-family:Arial,sans-serif;font-size:13px;color:#555;">
+<p style="margin:0 0 8px 0;font-weight:bold;color:#333;">---------- Forwarded message ----------</p>
+<p style="margin:0 0 2px 0;"><b>From:</b> ${esc(from)}</p>
+<p style="margin:0 0 2px 0;"><b>Date:</b> ${esc(date)}</p>
+<p style="margin:0 0 2px 0;"><b>Subject:</b> ${esc(subject)}</p>
+<p style="margin:0 0 12px 0;"><b>To:</b> ${esc(to)}</p>
+<div style="color:#444;">${bodyHtml}</div>
+</div>`;
+}
+
 function ComposeDialog({
   open,
   onClose,
@@ -320,6 +332,9 @@ function ComposeDialog({
   defaultQuotedHtml = "",
   defaultQuotedFrom = "",
   defaultQuotedDate = "",
+  isForward = false,
+  forwardSubject = "",
+  forwardTo = "",
 }: {
   open: boolean;
   onClose: () => void;
@@ -336,6 +351,9 @@ function ComposeDialog({
   defaultQuotedHtml?: string;
   defaultQuotedFrom?: string;
   defaultQuotedDate?: string;
+  isForward?: boolean;
+  forwardSubject?: string;
+  forwardTo?: string;
 }) {
   const { toast } = useToast();
   const [to, setTo] = useState(defaultTo);
@@ -511,7 +529,10 @@ function ComposeDialog({
 
   const sendMutation = useMutation({
     mutationFn: async () => {
-      const htmlBody = buildEmailHtml(body);
+      const htmlBody = buildEmailHtml(body)
+        + (isForward && defaultQuotedHtml
+          ? buildForwardedBlockHtml(defaultQuotedFrom, defaultQuotedDate, forwardSubject, forwardTo, defaultQuotedHtml)
+          : "");
       const res = await apiRequest("POST", "/api/gmail/send", {
         to, subject, body: htmlBody, threadId,
         ...(cc ? { cc } : {}),
@@ -635,7 +656,7 @@ function ComposeDialog({
           {/* ── Header bar ──────────────────────────────────────────── */}
           <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-border/30 bg-card/90 backdrop-blur-sm">
             <div className="flex items-center gap-2.5">
-              <h2 className="text-sm font-semibold">{threadId ? "Reply" : draftId ? "Edit Draft" : "New Email"}</h2>
+              <h2 className="text-sm font-semibold">{isForward ? "Forward" : threadId ? "Reply" : draftId ? "Edit Draft" : "New Email"}</h2>
               {threadId && replyToSender && (
                 <span className="flex items-center gap-1 text-[11px] text-muted-foreground/55 bg-muted/25 rounded px-2 py-0.5 border border-border/20">
                   <Reply className="h-2.5 w-2.5 flex-shrink-0" />
@@ -743,14 +764,17 @@ function ComposeDialog({
                 />
               </div>
 
-              {/* Quoted original email (reply only) */}
-              {threadId && defaultQuotedHtml && (
+              {/* Quoted original email (reply) / forwarded block (forward) */}
+              {(threadId || isForward) && defaultQuotedHtml && (
                 <div className="border border-border/25 rounded-md overflow-hidden">
                   <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/20 border-b border-border/20">
-                    <Reply className="h-3 w-3 text-muted-foreground/50 flex-shrink-0" />
+                    {isForward
+                      ? <Forward className="h-3 w-3 text-muted-foreground/50 flex-shrink-0" />
+                      : <Reply className="h-3 w-3 text-muted-foreground/50 flex-shrink-0" />}
                     <span className="text-[11px] text-muted-foreground/60 truncate">
-                      {defaultQuotedFrom && <span className="font-medium">{parseSenderName(defaultQuotedFrom)}</span>}
-                      {defaultQuotedDate && <span className="ml-1">· {defaultQuotedDate}</span>}
+                      {isForward
+                        ? <span className="font-medium">Forwarded message</span>
+                        : (<>{defaultQuotedFrom && <span className="font-medium">{parseSenderName(defaultQuotedFrom)}</span>}{defaultQuotedDate && <span className="ml-1">· {defaultQuotedDate}</span>}</>)}
                     </span>
                   </div>
                   <div
@@ -3561,7 +3585,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [snippetsManagerOpen, setSnippetsManagerOpen] = useState(false);
   const { snippets } = useSnippets();
   // ── Compose seed (cmdk → contact / snippet → fresh compose) ────────────
-  const [composeInitial, setComposeInitial] = useState<{ to?: string; subject?: string; body?: string } | null>(null);
+  const [composeInitial, setComposeInitial] = useState<{ to?: string; subject?: string; body?: string; isForward?: boolean; quotedHtml?: string; quotedFrom?: string; quotedDate?: string; forwardSubject?: string; forwardTo?: string } | null>(null);
   // ── Cmd+K / Ctrl+K listener ────────────────────────────────────────────
   // Registered in CAPTURE phase + stopImmediatePropagation so the inbox
   // palette is the *only* ⌘K target while this page is mounted (preempts
@@ -5476,24 +5500,23 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   };
 
   const handleForward = (msg: ThreadMessage) => {
-    // Build the forwarded-message attribution block (plain text, same convention
-    // as Gmail/Spark: dashes, then From/Date/Subject/To metadata, then body).
-    const bodyText = msg.isHtml ? htmlToPlainText(msg.body || "") : (msg.body || "");
     const dateStr = msg.date || (msg.internalDate ? new Date(Number(msg.internalDate)).toUTCString() : "");
-    const fwdBlock = [
-      "---------- Forwarded message ----------",
-      `From: ${msg.from || ""}`,
-      `Date: ${dateStr}`,
-      `Subject: ${msg.subject || ""}`,
-      `To: ${msg.to || ""}`,
-      "",
-      bodyText,
-    ].join("\n");
+    // Pass the original email body as HTML for the forwarded block visual preview.
+    // The body is empty so the user types their own message at the top; the
+    // forwarded block is appended after the signature by buildForwardedBlockHtml()
+    // when the email is actually sent.
+    const quotedHtml = msg.isHtml ? (msg.body || "") : `<pre style="font-family:inherit;white-space:pre-wrap;">${(msg.body || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</pre>`;
     setReplyTo(null);
     setComposeInitial({
       to: "",
       subject: msg.subject.startsWith("Fwd:") ? msg.subject : `Fwd: ${msg.subject}`,
-      body: fwdBlock,
+      body: "",
+      isForward: true,
+      quotedHtml,
+      quotedFrom: msg.from || "",
+      quotedDate: dateStr,
+      forwardSubject: msg.subject || "",
+      forwardTo: msg.to || "",
     });
   };
 
@@ -8320,9 +8343,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         </CommandList>
       </CommandDialog>
 
-      {/* Compose / Reply dialog */}
+      {/* Compose / Reply / Forward dialog */}
       <ComposeDialog
-        key={editingDraft?.draftId ?? (replyTo ? `reply-${replyTo.threadId}` : "compose")}
+        key={editingDraft?.draftId ?? (replyTo ? `reply-${replyTo.threadId}` : composeInitial?.isForward ? `fwd-${composeInitial.subject}` : "compose")}
         open={composeOpen || !!replyTo || !!editingDraft || !!composeInitial}
         onClose={() => { setComposeOpen(false); setReplyTo(null); setEditingDraft(null); setComposeInitial(null); }}
         canSend={canSend}
@@ -8334,9 +8357,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         threadId={editingDraft?.threadId || replyTo?.threadId}
         asAccountId={typeof activeAccountId === "number" ? activeAccountId : undefined}
         replyToSender={replyTo?.fromName}
-        defaultQuotedHtml={replyTo?.quotedHtml || ""}
-        defaultQuotedFrom={replyTo?.quotedFrom || ""}
-        defaultQuotedDate={replyTo?.quotedDate || ""}
+        defaultQuotedHtml={replyTo?.quotedHtml || composeInitial?.quotedHtml || ""}
+        defaultQuotedFrom={replyTo?.quotedFrom || composeInitial?.quotedFrom || ""}
+        defaultQuotedDate={replyTo?.quotedDate || composeInitial?.quotedDate || ""}
+        isForward={!!composeInitial?.isForward}
+        forwardSubject={composeInitial?.forwardSubject || ""}
+        forwardTo={composeInitial?.forwardTo || ""}
       />
 
       {/* Create Folder dialog */}
