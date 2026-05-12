@@ -29,7 +29,17 @@ function useEmailSuggestions(query: string): Suggestion[] {
         const res = await fetch(`/api/email-autocomplete?q=${encodeURIComponent(q)}`, { credentials: "include" });
         if (!res.ok) return;
         const data = await res.json();
-        setSuggestions(data.suggestions ?? []);
+        const raw: Suggestion[] = data.suggestions ?? [];
+        // Always surface @voltsafe.com addresses first — internal teammates
+        // are almost always the intended recipient when the domain matches.
+        const sorted = [...raw].sort((a, b) => {
+          const aInternal = a.email.toLowerCase().endsWith("@voltsafe.com");
+          const bInternal = b.email.toLowerCase().endsWith("@voltsafe.com");
+          if (aInternal && !bInternal) return -1;
+          if (!aInternal && bInternal) return 1;
+          return 0;
+        });
+        setSuggestions(sorted);
       } catch { /* network errors are silent */ }
     }, 160);
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
