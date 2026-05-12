@@ -1,0 +1,86 @@
+Fix VoltSafe Mail compose formatting so pasted content can never carry ugly external fonts, sizes, colors, spacing, or hidden inline styles into outbound emails.
+
+Problem:
+Users paste AI-written or externally formatted text into VoltSafe Mail. It can look fine inside the composer, but when the email is sent and opened by the recipient, mixed fonts, font sizes, line spacing, colors, and hidden HTML styles become visible. This makes the sender look unprofessional.
+
+Goal:
+Any pasted content in any VoltSafe Mail compose surface must automatically normalize to VoltSafe Mail’s default email formatting before the user can send.
+
+Requirements:
+
+1. Apply this globally to every email composer:
+   - New email
+   - Reply
+   - Reply all
+   - Forward
+   - Draft editing
+   - Booking draft assistant email drafts
+   - Any CRM-linked email composer
+   - Any future reusable compose component
+
+2. On paste:
+   - Intercept paste events inside the rich text editor.
+   - Strip external HTML styles by default.
+   - Remove font-family, font-size, line-height, color, background-color, margin, padding, span styles, Word/Google Docs junk, AI/editor copied formatting, and unnecessary inline CSS.
+   - Preserve only safe semantic structure:
+     - paragraphs
+     - line breaks
+     - bold
+     - italic
+     - underline
+     - ordered/unordered lists
+     - links
+   - Convert pasted content into clean editor-native HTML matching the composer’s default style.
+
+3. Default VoltSafe Mail email style:
+   - Use one consistent font family across all outgoing email body text.
+   - Use one consistent body font size.
+   - Use consistent paragraph spacing.
+   - Use consistent line height.
+   - Ensure pasted content visually matches manually typed content.
+   - Make this consistent both in the composer and in the final sent email HTML.
+
+4. Before send:
+   - Add a final sanitization/normalization pass on the outbound email body.
+   - This is mandatory. Do not rely only on paste handling.
+   - The send endpoint must normalize the HTML before sending through Gmail.
+   - This protects against browser quirks, dragged content, restored drafts, programmatic inserts, and old dirty drafts.
+
+5. Draft safety:
+   - When saving drafts, store normalized HTML.
+   - When loading existing drafts, clean/normalize them before displaying or sending.
+   - Do not corrupt existing legitimate links or basic formatting.
+
+6. UX:
+   - Pasted content should instantly appear in the correct VoltSafe Mail style.
+   - No extra user action required.
+   - Do not add a “paste as plain text” burden to users.
+   - Optional: add a small non-intrusive toast like “Pasted content formatting cleaned” only if it does not annoy users.
+
+7. Testing:
+   Add tests proving that pasted content from these sources is cleaned:
+   - Google Docs
+   - Microsoft Word
+   - Gmail
+   - ChatGPT/Claude AI output
+   - Web pages
+   - Text with different fonts and sizes
+   - Text with inline spans and nested CSS
+   - Bulleted and numbered lists
+   - Links
+
+8. Acceptance criteria:
+   - User pastes mixed-format content into the composer.
+   - It immediately matches the surrounding typed text.
+   - User sends the email.
+   - Recipient receives email with one consistent body font, size, line height, and paragraph style.
+   - No mixed hidden formatting survives.
+   - Links, bold, italics, underline, and lists still work.
+   - This works across all VoltSafe Mail compose flows.
+
+Implementation guidance:
+Create one shared formatting utility used by both frontend composer paste handling and backend send/draft normalization. Do not duplicate logic in scattered components.
+
+Use a whitelist-based sanitizer, not a blacklist-based one. Strip everything unless explicitly allowed.
+
+Please audit the current VoltSafe Mail compose architecture first, identify every compose/send/draft path, then implement this as a reusable global solution with tests. Do not make unrelated changes.

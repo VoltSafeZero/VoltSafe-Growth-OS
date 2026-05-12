@@ -9,9 +9,7 @@
  *   htmlToEditorText(html)             — clipboard HTML → editor markdown text (browser only)
  */
 
-const BODY_STYLE =
-  "font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111111;" +
-  "line-height:1.6;margin-bottom:24px;";
+import { VOLTSAFE_BODY_STYLE, VOLTSAFE_LINK_COLOR } from "@shared/email-style";
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -26,7 +24,7 @@ const BODY_STYLE =
  *   ~~text~~  →  <s>text</s>
  *   [label](url)  →  <a href="url">label</a>
  *   - item / * item  →  <ul><li>…</li></ul>
- *   1. item          →  <ol><li>…</li></ol>
+ *   1. item          →  <ol><li>…</li></ul>
  *   blank lines  →  visual spacing
  *   all other text   →  escaped + <br/> separated
  *
@@ -36,7 +34,7 @@ const BODY_STYLE =
  */
 export function buildEmailHtml(text: string, appendHtml = ""): string {
   const body = markdownToHtml(text);
-  return `<div style="${BODY_STYLE}">${body}</div>${appendHtml}`;
+  return `<div style="${VOLTSAFE_BODY_STYLE}">${body}</div>${appendHtml}`;
 }
 
 /**
@@ -47,18 +45,18 @@ export function buildEmailHtml(text: string, appendHtml = ""): string {
  * Runs in the browser — uses DOMParser.
  *
  * Preserved structure:
- *   underline     → <u>text</u>   (format toolbar native)
- *   ordered list  → 1. 2. 3. prefixes
- *   unordered list → - prefixes
- *   links         → [label](url)
+ *   bold / strong     → **text** (format toolbar native)
+ *   italic / em       → *text*   (format toolbar native)
+ *   underline         → <u>text</u>   (format toolbar native)
+ *   ordered list      → 1. 2. 3. prefixes
+ *   unordered list    → - prefixes
+ *   links             → [label](url)
  *   paragraphs / divs / headings → separated by \n
  *
- * Stripped (become plain text — no visible markers):
- *   bold / strong, italic / em, strikethrough — markers are dropped so
- *   pasted content never shows `*` or `**` in the textarea. Users can
- *   apply formatting via the toolbar after pasting.
+ * Stripped:
  *   All inline styles, font-family, font-size, color, background-color,
  *   class attributes, Word/Google Docs markup, nested spans, tables (text only).
+ *   Strikethrough markers are dropped (edge case, toolbar-applied only).
  */
 export function htmlToEditorText(html: string): string {
   const parser = new DOMParser();
@@ -87,7 +85,7 @@ function inlineMarkdown(escaped: string): string {
   //    *'s inside link labels don't confuse the bold/italic regex.
   out = out.replace(
     /\[([^\]]*)\]\((https?:\/\/[^)]*)\)/g,
-    (_, label, url) => `<a href="${url}" style="color:#00C1DE;">${label}</a>`,
+    (_, label, url) => `<a href="${url}" style="color:${VOLTSAFE_LINK_COLOR};">${label}</a>`,
   );
 
   // 2. Restore <u>…</u> that the format toolbar inserted as literal text.
@@ -227,15 +225,22 @@ function nodeToText(node: Node): string {
     case "h6":
       return childText().trim() + "\n";
 
-    // Inline formatting tags — strip markers entirely so pasted content lands
-    // as clean plain text in the textarea. Mixing bold/italic markers from
-    // Word/Docs with the user's typed text produces visible `*` and `**`
-    // artifacts that are confusing and hard to correct. The user can apply
-    // formatting via the toolbar after pasting.
+    // Bold — preserve as ** markers so buildEmailHtml renders them properly.
+    // This matches the format toolbar convention (**text**).
     case "b":
-    case "strong":
+    case "strong": {
+      const inner = childText().trim();
+      return inner ? `**${inner}**` : "";
+    }
+
+    // Italic — preserve as * markers so buildEmailHtml renders them properly.
     case "i":
-    case "em":
+    case "em": {
+      const inner = childText().trim();
+      return inner ? `*${inner}*` : "";
+    }
+
+    // Strikethrough — strip markers; very rarely intentional in pasted content.
     case "s":
     case "del":
     case "strike": {
@@ -301,7 +306,7 @@ function nodeToText(node: Node): string {
     case "hr":
       return "\n---\n";
 
-    // Spans and other inline wrappers: just return children (strip all styling)
+    // Spans, fonts, and other inline wrappers: just return children (strip all styling)
     default:
       return childText();
   }

@@ -26,6 +26,7 @@ import {
   type DraftOutput,
 } from "./booking-draft-assistant";
 import { CommandActionError, type ActionKind } from "./booking-command-actions";
+import { normalizeOutboundHtml } from "./email-html-normalizer";
 
 /**
  * Phase K — Draft Approval Queue source identifier.
@@ -199,13 +200,18 @@ export async function createGmailDraftFromBooking(
   // saveDraft → gmail.users.drafts.create — explicitly NOT a send.
   // We always send as the mailbox OWNER so OAuth tokens resolve correctly even
   // when an admin or grantee is acting on a shared mailbox they don't own.
+  // Normalize the body before saving to Gmail so external fonts, colors, and
+  // spacing from AI-generated templates or user-edited pastes are stripped and
+  // the VoltSafe body style is consistently applied.
+  const normalizedBody = normalizeOutboundHtml(body);
+
   let draftRes: any;
   try {
     draftRes = await saveDraft(
       mailbox.acctOwnerUserId,
       generated.context.recipientEmail,
       subject,
-      body,
+      normalizedBody,
       undefined,                          // threadId — none, this is a fresh draft
       undefined,                          // draftId — create new (not update)
       mailbox.accountId,

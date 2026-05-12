@@ -1,0 +1,94 @@
+Fix VoltSafe Mail reply/forward inbox behavior.
+
+Current bug:
+When a user replies to or forwards an email from VoltSafe Mail, the original received email disappears from the user’s Inbox / All Inbox. This is incorrect and dangerous because users lose visibility of inbound mail after taking action on it.
+
+Required behavior:
+VoltSafe Mail must behave like premium mail clients such as Gmail, Apple Mail, and Spark-style clients:
+
+1. Original inbound emails must NEVER be removed from Inbox just because the user replied or forwarded.
+2. Replying or forwarding should create a sent email in Sent Mail, linked/threaded to the original message.
+3. The original inbox email must remain visible in Inbox / All Inbox unless the user explicitly archives, deletes, moves, or labels it out of Inbox.
+4. The original email row/card should show a clear status indicator:
+   - REPLIED when the user has replied
+   - FORWARDED when the user has forwarded
+   - REPLIED + FORWARDED if both happened
+5. This status must persist forever on the original received message.
+6. Clicking/opening the original message should make it obvious that a reply or forward was already sent, and the sent message should still be findable in Sent Mail.
+7. Do not “link” the original email to the sent email in a way that changes the mailbox/label ownership of the original received message.
+8. Threading/linking is good. Disappearing inbox messages is bad.
+
+Implementation requirements:
+Audit the reply and forward send flows end-to-end:
+- frontend reply action
+- frontend forward action
+- API routes for send/reply/forward
+- local mailbox/message persistence
+- Gmail sync/update logic
+- thread/linking logic
+- inbox query/list filtering logic
+- sent mail query/list filtering logic
+
+Find where the original inbound message is being removed from the Inbox list, having its INBOX label removed, being reclassified as Sent, being merged into the sent message, or being filtered out after a reply/forward.
+
+Expected data model behavior:
+- Original inbound message keeps:
+  - original message id
+  - original Gmail labels / local labels including INBOX where applicable
+  - original mailbox/account ownership
+  - original received timestamp
+  - original from/to metadata
+- Sent reply/forward gets:
+  - its own message id
+  - Sent label/folder
+  - link/thread reference back to the original message/thread
+- Original inbound message gets metadata flags, for example:
+  - has_replied = true
+  - replied_at = timestamp
+  - replied_message_id = sent reply message id
+  - has_forwarded = true
+  - forwarded_at = timestamp
+  - forwarded_message_id = sent forward message id
+
+If existing schema already has equivalent fields, use them. If not, propose the smallest additive migration only. Do not destructively change existing mail tables.
+
+UI requirements:
+- Inbox / All Inbox message rows must continue showing original inbound messages after reply/forward.
+- Add visible chips/icons/text:
+  - “Replied”
+  - “Forwarded”
+- The indicator should appear in the message list and preferably in the opened message header.
+- Do not confuse this with read/unread, CRM linking, starring, labels, archive, or sent status.
+
+Important guardrails:
+- Do NOT remove the INBOX label when replying.
+- Do NOT archive automatically after reply.
+- Do NOT hide inbound messages just because the thread contains a sent message.
+- Do NOT make the Sent message replace the original Inbox message.
+- Do NOT filter original inbound messages out of All Inbox because they now have a linked sent reply.
+- Linking/threading must be additive metadata only.
+
+Acceptance tests:
+1. Receive/open an inbound email in Inbox.
+2. Reply from VoltSafe Mail.
+3. Confirm the original inbound email still appears in Inbox / All Inbox.
+4. Confirm the original inbound email shows “Replied”.
+5. Confirm the sent reply appears in Sent Mail.
+6. Confirm opening the original email still shows the original inbound content.
+7. Confirm opening Sent Mail shows the sent reply.
+8. Repeat with Forward.
+9. Confirm original inbound email still appears in Inbox / All Inbox.
+10. Confirm original inbound email shows “Forwarded”.
+11. Confirm sent forward appears in Sent Mail.
+12. Confirm search by sender still finds the original inbound email after reply/forward.
+13. Confirm Gmail sync/webhook/incremental sync does not later remove or relabel the original inbound email incorrectly.
+14. Confirm multi-mailbox/team inbox behavior works the same way.
+15. Confirm CRM linking still works but does not affect Inbox visibility.
+
+Final report required:
+- Identify exact root cause.
+- List files changed.
+- Explain how Inbox visibility is now preserved.
+- Explain how Replied/Forwarded indicators are stored and displayed.
+- Show before/after behavior.
+- Confirm all acceptance tests passed.
