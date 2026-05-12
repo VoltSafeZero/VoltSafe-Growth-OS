@@ -47,16 +47,17 @@ export function buildEmailHtml(text: string, appendHtml = ""): string {
  * Runs in the browser — uses DOMParser.
  *
  * Preserved structure:
- *   bold / strong → **text**
- *   italic / em   → *text*
  *   underline     → <u>text</u>   (format toolbar native)
  *   ordered list  → 1. 2. 3. prefixes
  *   unordered list → - prefixes
  *   links         → [label](url)
  *   paragraphs / divs / headings → separated by \n
  *
- * Stripped:
- *   all inline styles, font-family, font-size, color, background-color,
+ * Stripped (become plain text — no visible markers):
+ *   bold / strong, italic / em, strikethrough — markers are dropped so
+ *   pasted content never shows `*` or `**` in the textarea. Users can
+ *   apply formatting via the toolbar after pasting.
+ *   All inline styles, font-family, font-size, color, background-color,
  *   class attributes, Word/Google Docs markup, nested spans, tables (text only).
  */
 export function htmlToEditorText(html: string): string {
@@ -218,28 +219,24 @@ function nodeToText(node: Node): string {
     case "h6":
       return childText().trim() + "\n";
 
+    // Inline formatting tags — strip markers entirely so pasted content lands
+    // as clean plain text in the textarea. Mixing bold/italic markers from
+    // Word/Docs with the user's typed text produces visible `*` and `**`
+    // artifacts that are confusing and hard to correct. The user can apply
+    // formatting via the toolbar after pasting.
     case "b":
-    case "strong": {
-      const inner = childText().trim();
-      return inner ? `**${inner}**` : "";
-    }
-
+    case "strong":
     case "i":
-    case "em": {
-      const inner = childText().trim();
-      return inner ? `*${inner}*` : "";
+    case "em":
+    case "s":
+    case "del":
+    case "strike": {
+      return childText();
     }
 
     case "u": {
       const inner = childText().trim();
       return inner ? `<u>${inner}</u>` : "";
-    }
-
-    case "s":
-    case "del":
-    case "strike": {
-      const inner = childText().trim();
-      return inner ? `~~${inner}~~` : "";
     }
 
     case "a": {
