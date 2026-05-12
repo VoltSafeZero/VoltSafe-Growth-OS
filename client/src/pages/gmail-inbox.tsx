@@ -702,12 +702,27 @@ function ComposeDialog({
   const minDatetime = new Date(Date.now() + 60000).toISOString().slice(0, 16);
 
   // Auto-grow textarea to fit content
-  useEffect(() => {
+  const growTextarea = useCallback(() => {
     const ta = bodyRef.current;
     if (!ta) return;
     ta.style.height = "auto";
     ta.style.height = Math.max(160, ta.scrollHeight) + "px";
-  }, [body]);
+  }, []);
+
+  useEffect(() => { growTextarea(); }, [body, growTextarea]);
+
+  // Re-grow textarea whenever the compose dialog is resized horizontally
+  // (CSS resize:both updates the element's inline style — React doesn't
+  // re-render, so we need a ResizeObserver to pick up the change and
+  // ensure the textarea reflowsto the correct height at the new width).
+  const composeOuterRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const outer = composeOuterRef.current;
+    if (!outer || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => { growTextarea(); });
+    ro.observe(outer);
+    return () => ro.disconnect();
+  }, [growTextarea]);
 
   return (
     <>
@@ -718,6 +733,7 @@ function ComposeDialog({
 
         {/* Compose window — anchored top-center, resizes downward & rightward from bottom-right corner */}
         <div
+          ref={composeOuterRef}
           className="relative z-10 bg-card border border-border/40 rounded-xl shadow-2xl flex flex-col"
           style={{
             width: "min(82vw, 960px)",
@@ -1387,6 +1403,9 @@ function MessageBody({
     body.style.transform = "";
     body.style.transformOrigin = "0 0";
     body.style.width = "";
+    // Force a synchronous reflow so the browser discards cached layout
+    // values from before the reset — critical when the pane was just resized.
+    void body.offsetWidth;
     const containerWidth = iframe.clientWidth || iframe.getBoundingClientRect().width || 0;
     if (!containerWidth) return;
     const contentWidth = Math.max(
@@ -1400,6 +1419,10 @@ function MessageBody({
       body.style.width = `${contentWidth}px`;
       body.style.transform = `scale(${scale})`;
       body.style.transformOrigin = "0 0";
+    } else {
+      // No scale needed — pin the body width to the container so plain-text
+      // and simple HTML emails reflow to fill the full available pane width.
+      body.style.width = `${containerWidth}px`;
     }
     setScaleApplied(scale);
     // After scale, the visual height is scrollHeight * scale.
@@ -1431,12 +1454,19 @@ function MessageBody({
   };
 
   // Re-fit when the surrounding pane is resized (split-pane drag, etc).
+  // A follow-up RAF call ensures the measurement is taken after the browser
+  // has fully settled the new flex layout (avoids stale clientWidth reads
+  // on the first tick after a panel resize).
   useEffect(() => {
     const wrap = wrapperRef.current;
     if (!wrap || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => fitContent());
+    let rafId: number;
+    const ro = new ResizeObserver(() => {
+      fitContent();
+      rafId = requestAnimationFrame(fitContent);
+    });
     ro.observe(wrap);
-    return () => ro.disconnect();
+    return () => { ro.disconnect(); cancelAnimationFrame(rafId); };
   }, [fitContent]);
 
   // When zoom mode flips, recompute.
