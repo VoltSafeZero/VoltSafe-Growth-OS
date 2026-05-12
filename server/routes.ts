@@ -12181,7 +12181,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           gmail_thread_id,
           awaiting_reply_since,
           workflow_state,
-          reply_status
+          reply_status,
+          is_replied_by_user,
+          is_forwarded_by_user
         FROM email_threads
         WHERE gmail_thread_id IN (${escaped})
       `))).rows as any[];
@@ -12189,13 +12191,15 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const result: Record<string, any> = {};
       for (const t of threadRows) {
         result[t.gmail_thread_id] = {
-          awaitingReplySince: t.awaiting_reply_since ?? null,
-          workflowState:      t.workflow_state ?? null,
-          replyStatus:        t.reply_status ?? null,
-          signalLevel:        null,
-          isHot:              false,
-          isReplied:          false,
-          engScore:           0,
+          awaitingReplySince:  t.awaiting_reply_since ?? null,
+          workflowState:       t.workflow_state ?? null,
+          replyStatus:         t.reply_status ?? null,
+          signalLevel:         null,
+          isHot:               false,
+          isReplied:           false,
+          isRepliedByUser:     t.is_replied_by_user === true || t.is_replied_by_user === "true",
+          isForwardedByUser:   t.is_forwarded_by_user === true || t.is_forwarded_by_user === "true",
+          engScore:            0,
         };
       }
       for (const p of pixelRows) {
@@ -12278,7 +12282,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     // View-only shared-mailbox grants cannot send under any circumstance.
     if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
     try {
-      const { to, subject, body, threadId, attachmentIds, cc, bcc, enableTracking, icalContent } = req.body;
+      const { to, subject, body, threadId, attachmentIds, cc, bcc, enableTracking, icalContent, isForward } = req.body;
       if (!to || !body) {
         return res.status(400).json({ message: "to and body are required" });
       }
@@ -12371,6 +12375,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           clearAwaitingReply(String(threadId)).catch(e =>
             console.warn("[awaiting-reply] clearAwaitingReply non-fatal:", e)
           );
+          // Stamp the thread so the inbox can show REPLIED / FORWARDED badge
+          const safeThread = String(threadId).replace(/'/g, "''");
+          const col = isForward ? "is_forwarded_by_user" : "is_replied_by_user";
+          db.execute(sql.raw(`
+            INSERT INTO email_threads (gmail_thread_id, ${col}, updated_at)
+            VALUES ('${safeThread}', true, NOW())
+            ON CONFLICT (gmail_thread_id) DO UPDATE SET ${col} = true, updated_at = NOW()
+          `)).catch(e => console.warn("[reply-tag] non-fatal:", e));
         }
 
         return res.json({

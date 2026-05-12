@@ -192,15 +192,19 @@ type ThreadSignal = {
   signalLevel: string | null;
   isHot: boolean;
   isReplied: boolean;
+  isRepliedByUser: boolean;
+  isForwardedByUser: boolean;
   engScore: number;
 };
 
 const INBOX_SIGNAL_CONFIG: Record<string, { label: string; color: string }> = {
-  replied: { label: "Replied",           color: "text-violet-400 bg-violet-500/10 border-violet-500/25" },
-  hot:     { label: "Hot",               color: "text-orange-400 bg-orange-500/10 border-orange-500/25" },
-  high:    { label: "Clicked",           color: "text-blue-400 bg-blue-500/8 border-blue-500/20" },
-  medium:  { label: "Opened ×2+",        color: "text-emerald-400 bg-emerald-500/8 border-emerald-500/20" },
-  low:     { label: "Opened",            color: "text-emerald-400/70 bg-emerald-500/5 border-emerald-500/15" },
+  replied:           { label: "Replied",    color: "text-violet-400 bg-violet-500/10 border-violet-500/25" },
+  forwarded_by_user: { label: "Forwarded",  color: "text-sky-400 bg-sky-500/10 border-sky-500/25" },
+  replied_by_user:   { label: "Replied",    color: "text-violet-400 bg-violet-500/10 border-violet-500/25" },
+  hot:               { label: "Hot",        color: "text-orange-400 bg-orange-500/10 border-orange-500/25" },
+  high:              { label: "Clicked",    color: "text-blue-400 bg-blue-500/8 border-blue-500/20" },
+  medium:            { label: "Opened ×2+", color: "text-emerald-400 bg-emerald-500/8 border-emerald-500/20" },
+  low:               { label: "Opened",     color: "text-emerald-400/70 bg-emerald-500/5 border-emerald-500/15" },
 };
 
 const WORKFLOW_ROW_CONFIG: Record<string, { label: string; color: string }> = {
@@ -221,14 +225,32 @@ function formatWaitTime(since: string | null): string {
 }
 
 function InboxSignalBadge({ sig }: { sig: ThreadSignal }) {
-  const effectiveKey = sig.isReplied ? "replied" : sig.isHot ? "hot" : (sig.signalLevel ?? "none");
-  const cfg = INBOX_SIGNAL_CONFIG[effectiveKey];
-  if (!cfg) return null;
+  const badges: { key: string; cfg: { label: string; color: string } }[] = [];
+
+  if (sig.isForwardedByUser) {
+    badges.push({ key: "forwarded_by_user", cfg: INBOX_SIGNAL_CONFIG["forwarded_by_user"] });
+  } else if (sig.isRepliedByUser) {
+    badges.push({ key: "replied_by_user", cfg: INBOX_SIGNAL_CONFIG["replied_by_user"] });
+  }
+
+  const engKey = sig.isReplied ? "replied" : sig.isHot ? "hot" : (sig.signalLevel ?? "none");
+  const engCfg = INBOX_SIGNAL_CONFIG[engKey];
+  if (engCfg && !sig.isRepliedByUser && !sig.isForwardedByUser) {
+    badges.push({ key: engKey, cfg: engCfg });
+  } else if (engCfg && (engKey === "hot" || engKey === "high" || engKey === "medium" || engKey === "low")) {
+    badges.push({ key: engKey, cfg: engCfg });
+  }
+
+  if (badges.length === 0) return null;
   return (
-    <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0 rounded border font-medium ${cfg.color}`}
-      data-testid={`signal-badge-${effectiveKey}`}>
-      {cfg.label}
-    </span>
+    <>
+      {badges.map(({ key, cfg }) => (
+        <span key={key} className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0 rounded border font-medium ${cfg.color}`}
+          data-testid={`signal-badge-${key}`}>
+          {cfg.label}
+        </span>
+      ))}
+    </>
   );
 }
 
@@ -562,6 +584,7 @@ function ComposeDialog({
         attachmentIds: attachedAssets.map((a) => a.id),
         ...(asAccountId ? { asAccountId } : {}),
         ...(pendingIcal ? { icalContent: pendingIcal } : {}),
+        ...(isForward ? { isForward: true } : {}),
       });
       return res.json();
     },
@@ -572,6 +595,7 @@ function ComposeDialog({
         queryClient.invalidateQueries({ queryKey: ["/api/gmail/drafts"] });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/thread-signals"] });
       onClose();
     },
     onError: (err: any) => toast({ title: "Failed to send", description: err.message, variant: "destructive" }),
@@ -7165,6 +7189,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               const threadSig = threadSignals[msg.threadId] ?? null;
               const hasSignalRow = threadSig && (
                 threadSig.isReplied || threadSig.isHot ||
+                threadSig.isRepliedByUser || threadSig.isForwardedByUser ||
                 (threadSig.signalLevel && threadSig.signalLevel !== "none") ||
                 threadSig.awaitingReplySince ||
                 (threadSig.workflowState && threadSig.workflowState !== "none")

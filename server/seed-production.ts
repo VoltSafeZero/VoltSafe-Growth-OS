@@ -49,6 +49,10 @@ export async function migrateEmailSchema(): Promise<void> {
     await db.execute(sql`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS follow_up_at timestamp`);
     await db.execute(sql`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS assigned_user_id integer`);
 
+    // Reply/forward tracking — did the user reply to or forward this inbound thread?
+    await db.execute(sql`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS is_replied_by_user boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS is_forwarded_by_user boolean DEFAULT false`);
+
     // email_accounts table — one row per connected Gmail account per user
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS email_accounts (
