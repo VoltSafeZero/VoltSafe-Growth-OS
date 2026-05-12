@@ -58,6 +58,7 @@ import { registerAudioRoutes } from "./replit_integrations/audio";
 import { registerImageRoutes } from "./replit_integrations/image";
 import { generateInvoiceHtml, generateQuoteXlsx, type QuoteData } from "./quote-generator";
 import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead, saveDraft, listDraftSummaries, getDraftContent, deleteDraft } from "./gmail";
+import { normalizeOutboundHtml } from "./services/email-html-normalizer";
 import { getAuthUrl, exchangeCodeForTokens, isGmailConnected, getGmailClient } from "./gmail-oauth";
 import { parseGmailMessage } from "./services/email-parser";
 import { runAssociationEngine } from "./services/association-engine";
@@ -11409,7 +11410,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     try {
       const { to, subject, body, threadId, draftId } = req.body;
       if (!body) return res.status(400).json({ message: "body is required" });
-      const draft = await saveDraft(resolved.userId, to || "", subject || "", body, threadId, draftId, resolved.accountId);
+      const cleanDraftBody = normalizeOutboundHtml(body);
+      const draft = await saveDraft(resolved.userId, to || "", subject || "", cleanDraftBody, threadId, draftId, resolved.accountId);
       res.json(draft);
     } catch (err: any) {
       res.status(503).json({ message: "Failed to save draft", error: err.message });
@@ -12295,6 +12297,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         }
       }
 
+      const cleanBody = normalizeOutboundHtml(body);
       const trackingEnabled = enableTracking !== false; // default: true
       const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
       const host     = req.headers["x-forwarded-host"]  || req.headers.host  || "localhost:5000";
@@ -12326,15 +12329,15 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       // saw their own address in To instead of seeing the full To/Cc distribution.
       if (true) {
         const trackingId = generateTrackingId();
-        let trackedBody = body;
+        let trackedBody = cleanBody;
         let trackingFailed = false;
         if (trackingEnabled) {
           try {
-            trackedBody = injectTracking(body, trackingId, baseUrl);
+            trackedBody = injectTracking(cleanBody, trackingId, baseUrl);
           } catch (trackErr) {
             console.error("[tracking] injection failed (non-fatal, sending untracked):", trackErr);
             trackingFailed = true;
-            trackedBody = body;
+            trackedBody = cleanBody;
           }
         }
 

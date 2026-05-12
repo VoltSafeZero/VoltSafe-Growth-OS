@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { buildEmailHtml, htmlToEditorText } from "@/lib/email-format";
 import { createPortal } from "react-dom";
 import { EmailTokenInput } from "@/components/email/email-autocomplete";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -293,16 +294,6 @@ const EMAIL_SIGNATURE_HTML = `<div style="font-family: OpenSans, Arial, sans-ser
 </table>
 </div>`;
 
-function buildEmailHtml(messageText: string): string {
-  const escaped = messageText
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .split("\n")
-    .map((line) => line || "&nbsp;")
-    .join("<br/>");
-  return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111;line-height:1.6;margin-bottom:24px;">${escaped}</div>\n${EMAIL_SIGNATURE_HTML}`;
-}
 
 function buildForwardedBlockHtml(from: string, date: string, subject: string, to: string, bodyHtml: string): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -482,6 +473,36 @@ function ComposeDialog({
   );
   useFormatBus(onFormatEvent);
 
+  // ── Paste handler ────────────────────────────────────────────────────────
+  // Intercept rich-text paste events inside the body textarea. When the
+  // clipboard contains HTML (e.g. from Word, Google Docs, Gmail, ChatGPT),
+  // strip all external fonts/colors/spacing and convert the semantic
+  // structure to editor-native text (markdown markers). This ensures pasted
+  // content instantly matches surrounding typed text and never leaks mixed
+  // fonts into outbound emails.
+  const handleBodyPaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const html = e.clipboardData.getData("text/html");
+      if (!html.trim()) return; // No HTML — let browser paste plain text normally
+      e.preventDefault();
+      const clean = htmlToEditorText(html);
+      if (!clean) return;
+      const ta = e.currentTarget;
+      const start = ta.selectionStart ?? body.length;
+      const end = ta.selectionEnd ?? body.length;
+      const newValue = body.slice(0, start) + clean + body.slice(end);
+      setBody(newValue);
+      // Restore cursor after React re-renders the controlled textarea
+      requestAnimationFrame(() => {
+        if (bodyRef.current) {
+          const pos = start + clean.length;
+          bodyRef.current.setSelectionRange(pos, pos);
+        }
+      });
+    },
+    [body],
+  );
+
   // Drain any pending format event once the composer is open AND the
   // textarea has mounted. We tick a small timeout to give Radix's
   // dialog mount + animation a frame to finish before we touch the
@@ -529,10 +550,11 @@ function ComposeDialog({
 
   const sendMutation = useMutation({
     mutationFn: async () => {
-      const htmlBody = buildEmailHtml(body)
+      const appendHtml = EMAIL_SIGNATURE_HTML
         + (isForward && defaultQuotedHtml
           ? buildForwardedBlockHtml(defaultQuotedFrom, defaultQuotedDate, forwardSubject, forwardTo, defaultQuotedHtml)
           : "");
+      const htmlBody = buildEmailHtml(body, appendHtml);
       const res = await apiRequest("POST", "/api/gmail/send", {
         to, subject, body: htmlBody, threadId,
         ...(cc ? { cc } : {}),
@@ -557,7 +579,7 @@ function ComposeDialog({
 
   const draftMutation = useMutation({
     mutationFn: async () => {
-      const htmlBody = buildEmailHtml(body);
+      const htmlBody = buildEmailHtml(body, EMAIL_SIGNATURE_HTML);
       const res = await apiRequest("POST", "/api/gmail/drafts", { to, subject, body: htmlBody, threadId, draftId: activeDraftId });
       return res.json();
     },
@@ -599,7 +621,7 @@ function ComposeDialog({
 
   const scheduleMutation = useMutation({
     mutationFn: async () => {
-      const htmlBody = buildEmailHtml(body);
+      const htmlBody = buildEmailHtml(body, EMAIL_SIGNATURE_HTML);
       const res = await apiRequest("POST", "/api/gmail/schedule", {
         to, subject, body: htmlBody, threadId, scheduledAt,
         ...(cc ? { cc } : {}),
@@ -749,6 +771,7 @@ function ComposeDialog({
                 ref={bodyRef}
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
+                onPaste={handleBodyPaste}
                 placeholder="Write your message..."
                 disabled={!canSend}
                 data-testid="input-email-body"

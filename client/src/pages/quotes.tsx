@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { buildEmailHtml, htmlToEditorText } from "@/lib/email-format";
 import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -627,7 +628,7 @@ function QuoteEmailCompose({ defaults, onClose }: { defaults: { to?: string; sub
       if (quoteData && attachXlsx && quoteData.xlsxAssetId) attachmentIds.push(quoteData.xlsxAssetId);
       if (quoteData && quoteData.htmlAssetId) attachmentIds.push(quoteData.htmlAssetId);
       const res = await apiRequest("POST", "/api/gmail/send", {
-        to, subject, body: `<pre style="font-family:sans-serif;white-space:pre-wrap">${body}</pre>`, attachmentIds,
+        to, subject, body: buildEmailHtml(body), attachmentIds,
       });
       return res.json();
     },

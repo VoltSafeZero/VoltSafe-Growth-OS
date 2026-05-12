@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { buildEmailHtml, htmlToEditorText } from "@/lib/email-format";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -231,12 +232,27 @@ function FollowUpComposeDialog({
     if (open) { setTo(defaultTo); setSubject(defaultSubject); setBody(defaultBody); }
   }, [open, defaultTo, defaultSubject, defaultBody]);
 
+  const handleBodyPaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const html = e.clipboardData.getData("text/html");
+      if (!html.trim()) return;
+      e.preventDefault();
+      const clean = htmlToEditorText(html);
+      if (!clean) return;
+      const ta = e.currentTarget;
+      const start = ta.selectionStart ?? body.length;
+      const end = ta.selectionEnd ?? body.length;
+      setBody(body.slice(0, start) + clean + body.slice(end));
+    },
+    [body],
+  );
+
   const sendMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/gmail/send", {
         to,
         subject,
-        body: body.replace(/\n/g, "<br>"),
+        body: buildEmailHtml(body),
         attachmentIds: [],
       });
       if (!res.ok) {
@@ -287,6 +303,7 @@ function FollowUpComposeDialog({
             <Textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
+              onPaste={handleBodyPaste}
               className="min-h-[180px] text-sm resize-none"
               data-testid="textarea-followup-body"
             />
