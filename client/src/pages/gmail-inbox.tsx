@@ -6264,7 +6264,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               <div className="overflow-x-auto -mx-3 px-3">
                 <div className="flex gap-1 min-w-max">
                 {([
-                  { key: "all",         label: "All",          icon: <Inbox className="h-3 w-3" />,     count: inboxMain.length },
+                  { key: "all",         label: "Inbox",        icon: <Inbox className="h-3 w-3" />,     count: inboxMain.length },
                   { key: "priority",    label: "Priority",     icon: <Star className="h-3 w-3" />,      count: priorityCount },
                   { key: "people",      label: "People",       icon: <Users className="h-3 w-3" />,     count: peopleCount },
                   { key: "newsletters", label: "Newsletters",  icon: <Newspaper className="h-3 w-3" />, count: newslettersCount },
@@ -6417,7 +6417,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search emails..."
+                  placeholder="Search all mail history (name, subject, keyword…)"
                   className={`pl-7 ${densityClasses.searchH} text-sm`}
                   data-testid="input-email-search"
                 />
@@ -7426,7 +7426,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   <div className="flex flex-col items-center gap-1.5" data-testid="status-all-caught-up">
                     <span className="inline-flex items-center gap-1.5 text-muted-foreground/45 tabular-nums text-[11px]">
                       <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
-                      You're all caught up · {crmFilteredMessages.length.toLocaleString()} message{crmFilteredMessages.length !== 1 ? "s" : ""}
+                      You're all caught up · {crmFilteredMessages.length.toLocaleString()} message{crmFilteredMessages.length !== 1 ? "s" : ""} loaded
+                    </span>
+                    <span className="text-[10.5px] text-muted-foreground/40 text-center">
+                      Looking for an older email? Use the search bar above — it searches your full mail history.
                     </span>
                     {(tab === "inbox" || tab === "other") && (
                       <button
