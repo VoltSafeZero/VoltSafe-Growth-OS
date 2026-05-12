@@ -41,6 +41,26 @@ const INDEX_DDL: { name: string; sql: string }[] = [
       )
     )`,
   },
+  // v2 FTS index that adds all_participants — this makes the GIN index usable for
+  // searches that match cc/bcc recipients or thread participants by name or email.
+  // The legacy idx_email_fts index omits all_participants; local-mailbox queries
+  // already include it in the tsvector expression, so this new index unlocks the
+  // index scan path instead of falling back to a seq scan every time.
+  // Named _v2 so it can coexist with the old index (CREATE IF NOT EXISTS is
+  // idempotent; the old index is harmless and will eventually be dropped manually).
+  {
+    name: "idx_email_fts_v2",
+    sql: `CREATE INDEX IF NOT EXISTS idx_email_fts_v2 ON email_messages USING gin (
+      to_tsvector('english',
+        coalesce(subject, '') || ' ' ||
+        coalesce(from_name, '') || ' ' ||
+        coalesce(from_email, '') || ' ' ||
+        coalesce(snippet, '') || ' ' ||
+        coalesce(body_text, '') || ' ' ||
+        coalesce(all_participants, '')
+      )
+    )`,
+  },
 ];
 
 let ensured = false;

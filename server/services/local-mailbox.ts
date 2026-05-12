@@ -215,12 +215,18 @@ function fmtFrom(name: string | null, email: string | null): string {
 // Translate the Gmail-style q filter into local DB clauses.
 // Supports the small subset the inbox UI emits: "in:inbox", "in:sent", and free text.
 // Phase 2E adds attachment filters: has:attachment, filename:foo, mime:application/pdf
-function buildQClauses(q: string): { where: string[]; freeText: string } {
+//
+// Returns hasLabelFilter=true when the query contains an explicit "in:" clause.
+// Callers use this to decide whether to add implicit TRASH/SPAM exclusions — we
+// only exclude junk when the user hasn't explicitly asked for it (e.g. in:trash).
+function buildQClauses(q: string): { where: string[]; freeText: string; hasLabelFilter: boolean } {
   const where: string[] = [];
   let rest = q || "";
+  let hasLabelFilter = false;
 
   const inMatch = rest.match(/\bin:(\w+)/i);
   if (inMatch) {
+    hasLabelFilter = true;
     const label = inMatch[1].toUpperCase();
     rest = rest.replace(inMatch[0], "").trim();
     where.push(`(label_ids ILIKE '%"${safe(label)}"%' OR label_ids ILIKE '%${safe(label)}%')`);
@@ -276,7 +282,7 @@ function buildQClauses(q: string): { where: string[]; freeText: string } {
     where.push(`sent_at < '${beforeMatch[1]}'::date`);
   }
 
-  return { where, freeText: rest.trim() };
+  return { where, freeText: rest.trim(), hasLabelFilter };
 }
 
 // Multi-mailbox Phase 1: `accountIds` (plural) is the unified-inbox path used when the user
@@ -350,12 +356,14 @@ export async function listLocalMessages(p: {
     where.push(`owner_user_id = ${Number(p.resolved.userId)}`);
   }
 
-  const { where: qWhere, freeText } = buildQClauses(p.q || "");
+  const { where: qWhere, freeText, hasLabelFilter } = buildQClauses(p.q || "");
   where.push(...qWhere);
   if (freeText) {
     const lit = `'${safe(freeText)}'`;
     // all_participants covers from + to + cc, so recipient searches work even
     // when to_emails is not in the pre-built FTS GIN index.
+    // idx_email_fts_v2 covers this exact tsvector expression — Postgres will use
+    // the GIN index instead of a seq scan once that index is built.
     const tsv = `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(from_name,'') || ' ' || coalesce(from_email,'') || ' ' || coalesce(snippet,'') || ' ' || coalesce(body_text,'') || ' ' || coalesce(all_participants,''))`;
     const ftsCond = `${tsv} @@ plainto_tsquery('english', ${lit})`;
     // For email-address queries, also do a direct trigram ILIKE on all_participants
@@ -367,6 +375,17 @@ export async function listLocalMessages(p: {
     } else {
       where.push(ftsCond);
     }
+  }
+  // When the user searches with free text but without an explicit "in:" label
+  // filter, exclude TRASH and SPAM messages from results. Without this exclusion,
+  // a thread whose most-recent message was moved to TRASH (e.g. someone clicked
+  // Delete on the latest reply) would appear at the TOP of search results as a
+  // TRASH item, masking the older INBOX messages in the same thread and making
+  // the thread appear "missing" to the searcher.
+  // Exception: if the user explicitly typed "in:trash" or "in:spam" we honour it.
+  if (freeText && !hasLabelFilter) {
+    where.push(`NOT (label_ids ILIKE '%"TRASH"%')`);
+    where.push(`NOT (label_ids ILIKE '%"SPAM"%')`);
   }
 
   const cursorClause = buildMsgCursorClause(cursor); // "" if no cursor
@@ -477,7 +496,7 @@ export async function listLocalThreads(p: {
   } else {
     where.push(`owner_user_id = ${Number(p.resolved.userId)}`);
   }
-  const { where: qWhere, freeText } = buildQClauses(p.q || "");
+  const { where: qWhere, freeText, hasLabelFilter } = buildQClauses(p.q || "");
   where.push(...qWhere);
   if (freeText) {
     const lit = `'${safe(freeText)}'`;
@@ -489,6 +508,11 @@ export async function listLocalThreads(p: {
     } else {
       where.push(ftsCond);
     }
+  }
+  // Same TRASH/SPAM exclusion as listLocalMessages — see comment there for full rationale.
+  if (freeText && !hasLabelFilter) {
+    where.push(`NOT (label_ids ILIKE '%"TRASH"%')`);
+    where.push(`NOT (label_ids ILIKE '%"SPAM"%')`);
   }
   const whereSql = `WHERE ${where.join(" AND ")}`;
   // The cursor on threads operates on the OUTER one-row-per-thread projection,

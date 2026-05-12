@@ -1,0 +1,67 @@
+Audit + fix only the VoltSafe Mail search/indexing problem shown in screenshots.
+
+Problem:
+When searching trevor@voltsafe.com inbox for "scott@voltsafe.com" in VoltSafe Mail, many matching emails are missing. Spark Mail shows 337 results for the same mailbox/search and includes multiple emails that VoltSafe Mail does not show. Specific example: Scott Carlson sent an email on May 7, 2026 titled/related to “Voltsafe update” to Bob Sorenson with Trevor cc’d, and Spark shows it in the thread, but VoltSafe Mail search does not surface it.
+
+Goal:
+VoltSafe Mail search must return the same Gmail message universe as Gmail/Spark for the selected mailbox, including:
+- emails where scott@voltsafe.com is sender
+- emails where scott@voltsafe.com is recipient
+- emails where Scott is in cc/bcc/reply-to
+- emails where Scott appears inside thread participants
+- forwarded/replied thread messages
+- messages where Trevor is cc’d, not only direct recipient
+- messages in inbox/shared mailbox scope, not accidentally filtered out by owner/account mismatch
+
+Investigate:
+1. Compare VoltSafe local DB results vs Gmail API results for:
+   - account: trevor@voltsafe.com
+   - search: scott@voltsafe.com
+   - date window: May 1–May 12, 2026
+2. Find whether the missing May 7 Scott/Bob/Trevor email exists in the local DB.
+3. If it exists, determine why search UI/API excludes it.
+4. If it does not exist, determine why Gmail sync/backfill skipped it.
+5. Check all search filters:
+   - account_id / mailbox account resolution
+   - INBOX label filtering
+   - thread vs message level matching
+   - from/to/cc/bcc/reply_to fields
+   - participant extraction
+   - body/snippet indexing
+   - local pagination / infinite scroll limits
+   - unread/priority/people/newsletter filters accidentally staying active
+6. Check whether VoltSafe search searches only message sender/subject/snippet and misses recipients/cc/thread participants.
+7. Check whether replies inside an existing thread are indexed individually or only the newest/oldest message is searched.
+8. Check whether Gmail thread sync stores all messages in the thread or only the visible top message.
+9. Check if messages from shared/team-visible conversations are hidden because of `owner_user_id`, `account_id`, or permission logic.
+
+Required fix:
+- Make search message-based, not just thread-header-based.
+- Search across normalized from/to/cc/bcc/reply_to + subject + snippet/body + participants.
+- If a message in a thread matches, show the thread and open/highlight the matching message.
+- Ensure cc’d messages are included.
+- Ensure all Gmail messages in a thread are synced and searchable.
+- Ensure selected mailbox search for trevor@voltsafe.com queries only that mailbox but does not exclude valid messages because Trevor was cc’d.
+- Ensure pagination returns all matching results, not just the first local batch.
+
+Add verification:
+Create a read-only debug endpoint or script that prints:
+- Gmail API count for `scott@voltsafe.com` in trevor@voltsafe.com from May 1–May 12
+- local DB count for same query
+- missing Gmail message IDs not in local DB
+- local DB messages excluded by search API and the exact exclusion reason
+- whether the May 7 “Voltsafe update” Scott/Bob/Trevor message is present and searchable
+
+Acceptance tests:
+1. Searching trevor@voltsafe.com for `scott@voltsafe.com` returns the May 7 “Voltsafe update” email/thread shown in Spark.
+2. Results include messages where Trevor is cc’d.
+3. Results include threads where Scott is any participant, not only sender.
+4. Result count is materially consistent with Gmail/Spark for the same query, accounting only for intentional exclusions like Trash/Spam if explicitly filtered.
+5. No regression to normal inbox loading, mailbox switching, shared inbox permissions, or thread opening.
+6. Add logs that make future search misses diagnosable without guessing.
+
+Important:
+Do not make schema-destructive changes.
+Do not wipe or resync all mail unless absolutely required.
+Prefer additive indexes/backfill repair scripts.
+Show before/after counts and the exact root cause in the final report.
