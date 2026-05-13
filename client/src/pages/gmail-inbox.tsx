@@ -270,6 +270,59 @@ function WorkflowStateBadge({ state }: { state: string | null }) {
   );
 }
 
+function SentTrackingRow({ sig, threadId, signalsMt }: {
+  sig: ThreadSignal | undefined;
+  threadId: string;
+  signalsMt: string;
+}) {
+  if (!sig) return null;
+  const opens = sig.openCount ?? 0;
+  const clicks = sig.clickCount ?? 0;
+  const replied = sig.isReplied ?? false;
+  const firstOpen = sig.firstOpenAt ?? null;
+  const lastOpen = sig.lastOpenAt ?? null;
+  return (
+    <div className={`flex items-center gap-1 ${signalsMt} flex-wrap`} data-testid={`sent-tracking-${threadId}`}>
+      {replied ? (
+        <span className="inline-flex items-center gap-0.5 text-[10px] text-violet-400 bg-violet-500/10 border border-violet-500/25 px-1.5 py-0 rounded font-medium"
+          data-testid={`sent-badge-replied-${threadId}`}>
+          Replied
+        </span>
+      ) : opens === 0 ? (
+        <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground/45 bg-muted/20 border border-border/30 px-1.5 py-0 rounded font-medium"
+          data-testid={`sent-badge-not-opened-${threadId}`}>
+          Not opened
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-400 bg-emerald-500/8 border border-emerald-500/20 px-1.5 py-0 rounded font-medium"
+          data-testid={`sent-badge-opened-${threadId}`}>
+          {opens === 1 ? "Opened" : `Opened ${opens}×`}
+        </span>
+      )}
+      {clicks > 0 && (
+        <span className="inline-flex items-center gap-0.5 text-[10px] text-blue-400 bg-blue-500/8 border border-blue-500/20 px-1.5 py-0 rounded font-medium"
+          data-testid={`sent-badge-clicked-${threadId}`}>
+          {clicks === 1 ? "Link clicked" : `${clicks} clicks`}
+        </span>
+      )}
+      {firstOpen && (
+        <span className="text-[10px] text-muted-foreground/40 tabular-nums"
+          title={`First opened: ${new Date(firstOpen).toLocaleString()}`}
+          data-testid={`sent-first-open-${threadId}`}>
+          · first {formatWaitTime(firstOpen)} ago
+        </span>
+      )}
+      {lastOpen && lastOpen !== firstOpen && (
+        <span className="text-[10px] text-muted-foreground/40 tabular-nums"
+          title={`Last opened: ${new Date(lastOpen).toLocaleString()}`}
+          data-testid={`sent-last-open-${threadId}`}>
+          · last {formatWaitTime(lastOpen)} ago
+        </span>
+      )}
+    </div>
+  );
+}
+
 function isUnread(labelIds: string[]) {
   return labelIds.includes("UNREAD");
 }
@@ -7488,57 +7541,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       </div>
                     )}
                     {/* Row 3 (Sent view): tracking pixel engagement indicators */}
-                    {tab === "sent" && density !== "ultra" && (() => {
-                      const sig = threadSig;
-                      const opens = sig?.openCount ?? 0;
-                      const clicks = sig?.clickCount ?? 0;
-                      const replied = sig?.isReplied ?? false;
-                      const firstOpen = sig?.firstOpenAt ?? null;
-                      const lastOpen = sig?.lastOpenAt ?? null;
-                      // Only render this row when we have a tracking pixel attached (sig exists)
-                      // OR when there's definitively no pixel (no sig at all = no tracking, show nothing).
-                      if (!sig) return null;
-                      return (
-                        <div className={`flex items-center gap-1 ${densityClasses.signalsMt} flex-wrap`} data-testid={`sent-tracking-${msg.threadId}`}>
-                          {replied ? (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] text-violet-400 bg-violet-500/10 border border-violet-500/25 px-1.5 py-0 rounded font-medium"
-                              data-testid={`sent-badge-replied-${msg.threadId}`}>
-                              Replied
-                            </span>
-                          ) : opens === 0 ? (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground/45 bg-muted/20 border border-border/30 px-1.5 py-0 rounded font-medium"
-                              data-testid={`sent-badge-not-opened-${msg.threadId}`}>
-                              Not opened
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-400 bg-emerald-500/8 border border-emerald-500/20 px-1.5 py-0 rounded font-medium"
-                              data-testid={`sent-badge-opened-${msg.threadId}`}>
-                              {opens === 1 ? "Opened" : `Opened ${opens}×`}
-                            </span>
-                          )}
-                          {clicks > 0 && (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] text-blue-400 bg-blue-500/8 border border-blue-500/20 px-1.5 py-0 rounded font-medium"
-                              data-testid={`sent-badge-clicked-${msg.threadId}`}>
-                              {clicks === 1 ? "Link clicked" : `${clicks} clicks`}
-                            </span>
-                          )}
-                          {firstOpen && (
-                            <span className="text-[10px] text-muted-foreground/40 tabular-nums"
-                              title={`First opened: ${new Date(firstOpen).toLocaleString()}`}
-                              data-testid={`sent-first-open-${msg.threadId}`}>
-                              · first {formatWaitTime(firstOpen)} ago
-                            </span>
-                          )}
-                          {lastOpen && lastOpen !== firstOpen && (
-                            <span className="text-[10px] text-muted-foreground/40 tabular-nums"
-                              title={`Last opened: ${new Date(lastOpen).toLocaleString()}`}
-                              data-testid={`sent-last-open-${msg.threadId}`}>
-                              · last {formatWaitTime(lastOpen)} ago
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })()}
+                    {tab === "sent" && density !== "ultra" && (
+                      <SentTrackingRow sig={threadSig} threadId={msg.threadId} signalsMt={densityClasses.signalsMt} />
+                    )}
                   </button>
 
                   {/* Hover quick actions — slide+fade in on hover, backdrop-blur for legibility over dense rows */}
