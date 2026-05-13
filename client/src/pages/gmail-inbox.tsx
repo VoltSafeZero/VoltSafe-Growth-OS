@@ -5475,9 +5475,30 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const allInboxMessages = dedupById([...(inboxQuery.data?.messages || []), ...inboxExtra]);
   const allSentMessages = dedupById([...(sentQuery.data?.messages || []), ...sentExtra]);
 
-  const inboxMain = canSend
+  // Thread deduplication helper — messages are already sorted newest-first by the
+  // API (ORDER BY sent_at DESC), so the first occurrence of each threadId is the
+  // newest (most-recent-reply) representative for that thread. This keeps only one
+  // row per thread in the list, matching Spark/Gmail's threaded inbox behaviour and
+  // ensuring new replies bubble threads to the top rather than appearing as stale
+  // duplicates lower in the list.
+  const dedupByThread = (msgs: MessageSummary[]): MessageSummary[] => {
+    const seenThreads = new Set<string>();
+    const out: MessageSummary[] = [];
+    for (const m of msgs) {
+      if (seenThreads.has(m.threadId)) continue;
+      seenThreads.add(m.threadId);
+      out.push(m);
+    }
+    return out;
+  };
+
+  const inboxMainRaw = canSend
     ? allInboxMessages.filter((m) => !blockedDomains.has(parseSenderDomain(m.from)))
     : allInboxMessages;
+  // Apply thread dedup AFTER the blocked-domain filter so a blocked reply can't
+  // "shadow" a valid earlier message in the same thread.
+  const inboxMain = dedupByThread(inboxMainRaw);
+
   const inboxOther = canSend
     ? allInboxMessages.filter((m) => blockedDomains.has(parseSenderDomain(m.from)))
     : [];

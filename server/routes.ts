@@ -9300,6 +9300,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
     if (!resolved) return res.json({ messages: [], nextPageToken: null });
+    // Prevent HTTP 304 / ETag caching: the message list changes every time
+    // a Gmail sync adds new rows. A stale 304 would silently hide newly arrived
+    // emails until the browser's ETag expires or the user hard-reloads. Setting
+    // no-store means the browser always gets a fresh body on every 15-second poll.
+    res.setHeader("Cache-Control", "no-store");
     // Commit 4.1: default to "local" so the inbox reads from the local mirror.
     // Pre-Commit-4 the frontend explicitly sent ?source=local; Commit 4 removed
     // that param (correct intent — kill the toggle) but the server default was
