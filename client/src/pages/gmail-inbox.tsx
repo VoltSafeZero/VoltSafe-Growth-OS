@@ -3636,7 +3636,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string; fromName?: string; quotedHtml?: string; quotedFrom?: string; quotedDate?: string } | null>(null);
   const [shownSenderEmailIds, setShownSenderEmailIds] = useState<Set<string>>(new Set());
   const toggleSenderEmail = (msgId: string) => setShownSenderEmailIds(prev => { const n = new Set(prev); n.has(msgId) ? n.delete(msgId) : n.add(msgId); return n; });
-  const [tab, setTab] = useState<"inbox" | "sent" | "other" | "drafts" | "scheduled" | "folder" | "review">("inbox");
+  const [tab, setTab] = useState<"inbox" | "sent" | "spam" | "other" | "drafts" | "scheduled" | "folder" | "review">("inbox");
   const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set());
   const [inboxCategory, setInboxCategory] = useState<InboxCategory>("all");
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
@@ -4616,8 +4616,23 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       return res.json();
     },
     enabled: tab === "sent",
-    // Sent doesn't change as fast — 30s is plenty.
     refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+  });
+
+  const spamQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
+    queryKey: ["/api/gmail/messages", "spam", searchQuery, activeAccountId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("limit", "50");
+      params.set("q", searchQuery ? `in:spam ${searchQuery}` : "in:spam");
+      appendAccountId(params);
+      const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    enabled: tab === "spam",
+    refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   });
 
@@ -5348,6 +5363,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   };
   const allInboxMessages = dedupById([...(inboxQuery.data?.messages || []), ...inboxExtra]);
   const allSentMessages = dedupById([...(sentQuery.data?.messages || []), ...sentExtra]);
+  const allSpamMessages = spamQuery.data?.messages || [];
 
   const inboxMain = canSend
     ? allInboxMessages.filter((m) => !blockedDomains.has(parseSenderDomain(m.from)))
@@ -5379,6 +5395,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const activeMessages =
     tab === "inbox" ? categorizedInbox :
     tab === "sent"  ? allSentMessages :
+    tab === "spam"  ? allSpamMessages :
     inboxOther;
 
   const crmFilteredMessages = tab !== "inbox" ? activeMessages :
@@ -5400,7 +5417,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // re-bucket on every render.
   const isSmartView =
     viewMode === "smart" &&
-    tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review";
+    tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && tab !== "spam";
   const viewItems = useMemo<SmartItem<typeof activeMessages[number]>[] | null>(() => {
     if (!isSmartView) return null;
     if (!crmFilteredMessages || crmFilteredMessages.length === 0) return [];
@@ -5432,8 +5449,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     return crmFilteredMessages ?? [];
   }, [tab, isUnreadCardsView, unreadCardsMessages, viewItems, crmFilteredMessages]);
 
-  const isLoading = tab === "other" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : sentQuery.isLoading;
-  const error = tab === "other" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : sentQuery.error;
+  const isLoading = tab === "other" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : tab === "spam" ? spamQuery.isLoading : sentQuery.isLoading;
+  const error = tab === "other" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : tab === "spam" ? spamQuery.error : sentQuery.error;
   // "Other" tab is a derived slice of the same inboxQuery — it must paginate too,
   // otherwise users land on Other and see only blocked-domain rows from the first 50.
   const hasMore =
@@ -6203,6 +6220,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     <button onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-sent"
                       className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                       <Send className="h-3.5 w-3.5" /><span className="flex-1 text-left">Sent</span>
+                    </button>
+                    <button onClick={() => { setTab("spam"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-spam"
+                      className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "spam" ? "bg-red-500/15 text-red-400" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                      <Ban className="h-3.5 w-3.5" /><span className="flex-1 text-left">Spam</span>
+                      {tab === "spam" && (spamQuery.data?.messages?.length ?? 0) > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-red-500/30 text-red-300">{spamQuery.data!.messages.length}{(spamQuery.data?.messages?.length ?? 0) >= 50 ? "+" : ""}</span>
+                      )}
                     </button>
                     {canSend && <>
                       <button onClick={() => { setTab("drafts"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-drafts"

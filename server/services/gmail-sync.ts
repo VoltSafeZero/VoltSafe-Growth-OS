@@ -87,7 +87,7 @@ export async function syncEmailAccount(
     return empty;
   }
 
-  const myDomain = account.emailAddress.split("@")[1] || "voltsafe.com";
+  const myEmail = account.emailAddress;
 
   let q = o.q ?? "in:inbox OR in:sent";
   if (o.since) q = `${q} after:${o.since.replace(/-/g, "/")}`;
@@ -121,7 +121,7 @@ export async function syncEmailAccount(
 
       try {
         const msgRes = await gmailClient.users.messages.get({ userId: "me", id, format: "full" });
-        const parsed = parseGmailMessage(msgRes.data as any, myDomain);
+        const parsed = parseGmailMessage(msgRes.data as any, myEmail);
         const { attachments, ...emailData } = parsed;
         const [inserted] = await db
           .insert(emailMessages)

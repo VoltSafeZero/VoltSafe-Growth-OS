@@ -70,7 +70,7 @@ export async function runBackfillJob(opts: BackfillOptions): Promise<void> {
       return;
     }
 
-    const myDomain = account.emailAddress.split("@")[1] || "voltsafe.com";
+    const myEmail = account.emailAddress;
 
     const { getGmailClient } = await import("../gmail-oauth");
     const gmailClient = await getGmailClient(userId, accountId);
@@ -173,7 +173,7 @@ export async function runBackfillJob(opts: BackfillOptions): Promise<void> {
           const msgRes = await gmailClient.users.messages.get({
             userId: "me", id, format: "full",
           });
-          const parsed = parseGmailMessage(msgRes.data as any, myDomain);
+          const parsed = parseGmailMessage(msgRes.data as any, myEmail);
           const { attachments, ...emailData } = parsed;
           const [inserted] = await db
             .insert(emailMessages)

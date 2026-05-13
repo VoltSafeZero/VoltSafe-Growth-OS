@@ -154,7 +154,7 @@ function extractHtmlBody(payload: any): string {
   return "";
 }
 
-export function parseGmailMessage(msg: any, myDomain: string): ParsedEmail {
+export function parseGmailMessage(msg: any, myEmail: string): ParsedEmail {
   const headers: { name: string; value: string }[] = msg.payload?.headers || [];
   const fromRaw = getHeader(headers, "From");
   const toRaw = getHeader(headers, "To");
@@ -171,10 +171,13 @@ export function parseGmailMessage(msg: any, myDomain: string): ParsedEmail {
   const toList = parseEmailList(toRaw);
   const ccList = parseEmailList(ccRaw);
   const allParticipants = Array.from(new Set([fromEmail, ...toList, ...ccList].filter(Boolean)));
-  const fromDomain = extractDomain(fromEmail);
-  const internalDomain = myDomain.toLowerCase();
+  const internalDomain = (myEmail.split("@")[1] || "voltsafe.com").toLowerCase();
 
-  const direction = fromDomain === internalDomain ? "outbound" : "inbound";
+  // Direction is determined by whether THIS specific account's address is the sender.
+  // Using domain alone was wrong — a @voltsafe.com colleague sending to Trevor
+  // would be misclassified as outbound. Only messages sent FROM this account's
+  // exact address count as outbound.
+  const direction = fromEmail.toLowerCase() === myEmail.toLowerCase() ? "outbound" : "inbound";
   const isReply = !!inReplyTo || /^re:/i.test(subject || "");
   const unsubscribeDetected = !!listUnsubscribe;
 

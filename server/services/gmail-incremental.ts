@@ -77,7 +77,7 @@ export async function upsertMessageById(
       id: gmailMessageId,
       format: "full",
     });
-    const parsed = parseGmailMessage(msgRes.data as any, myDomain);
+    const parsed = parseGmailMessage(msgRes.data as any, myEmail);
     const { attachments, ...emailData } = parsed;
 
     if (!existing) {
@@ -141,7 +141,7 @@ export async function syncIncremental(accountId: number): Promise<IncrementalRes
     return { ...EMPTY, ok: true, startHistoryId: null, endHistoryId: hid, reason: "seeded historyId" };
   }
 
-  const myDomain = account.emailAddress.split("@")[1] || "voltsafe.com";
+  const myEmail = account.emailAddress;
   let gmailClient: any;
   try {
     const { getGmailClient } = await import("../gmail-oauth");
