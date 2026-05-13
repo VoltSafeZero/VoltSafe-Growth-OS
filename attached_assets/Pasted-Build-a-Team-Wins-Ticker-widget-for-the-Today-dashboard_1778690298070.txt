@@ -1,0 +1,194 @@
+Build a “Team Wins Ticker” widget for the Today dashboard.
+
+Goal:
+Create a slim, premium-looking, auto-rotating ticker/carousel at the top of the Today page that shows recent completed work and wins from across the company, so every user sees momentum from other departments.
+
+The purpose is:
+- Increase company-wide visibility
+- Reduce departmental silos
+- Reinforce momentum and accountability
+- Quietly encourage productivity and follow-through
+- Make employees feel connected to company progress in real time
+
+Requirements:
+
+1. Placement
+- Add the widget near the top of the Today dashboard, above the user’s personal task/calendar sections.
+- It should be visible immediately after login but not take over the page.
+- The widget should feel elegant, modern, lightweight, and motivating.
+
+2. Data Source
+Create or reuse an API endpoint that returns recent “wins” from the last 48 hours, prioritizing:
+- Tasks marked completed
+- CRM deals moved forward or closed
+- Follow-ups completed
+- Projects/milestones completed
+- Support tickets resolved
+- Important notes/actions logged
+- Key inbox/workflow completions
+- Operational milestones
+
+Only include meaningful completed items.
+Do not show stale items older than 48 hours unless there are no newer wins available.
+
+3. Data Shape
+Each win should include:
+- userName
+- userAvatar or initials
+- department/team if available
+- winType
+- shortDescription
+- completedAt
+- sourceModule
+
+Example:
+{
+  "userName": "Emily",
+  "department": "Sales",
+  "winType": "Closed Deal",
+  "shortDescription": "Moved Big Sound Marina to signed agreement",
+  "completedAt": "2026-05-12T18:30:00Z",
+  "sourceModule": "CRM"
+}
+
+4. UI Behavior
+- Display wins as a horizontal ticker/carousel.
+- Auto-scroll smoothly from right to left OR rotate one win at a time every 4–6 seconds.
+- Include pause-on-hover.
+- Make it responsive for desktop and mobile.
+- Use clean cards/chips with:
+  - user name
+  - action
+  - source module
+  - relative timestamp
+- Add a heading such as:
+  - “Team Wins”
+  - “Recent Momentum”
+  - “Today Across VoltSafe”
+- Add subtle supporting text:
+  “What the team has knocked out recently.”
+
+5. Visual Design
+- Premium modern SaaS feel.
+- Smooth animations.
+- Subtle gradients/glow are acceptable.
+- Avoid visual clutter.
+- Make it feel alive without becoming distracting.
+- Should resemble a live operational scoreboard for company momentum.
+
+6. Rotation Logic
+- Continuously rotate through wins.
+- New wins should naturally enter the rotation automatically.
+- Prevent duplicate consecutive entries.
+- Prioritize:
+  - newest wins
+  - larger operational wins
+  - underrepresented departments/users
+- Add slight randomness so the widget feels dynamic.
+
+7. Empty State
+If no wins are found:
+- Show a tasteful empty state, not an error.
+- Example:
+  “No team wins logged yet today — time to put points on the board.”
+
+8. Permissions / Privacy
+- Only show wins from modules/items the current user is allowed to view.
+- Do not expose:
+  - private emails
+  - confidential notes
+  - sensitive customer details
+  - restricted records
+- For restricted/private items:
+  - omit them
+  - OR show a generalized summary such as:
+    “Completed a customer follow-up.”
+
+9. Backend
+- Add a safe read-only authenticated API route:
+  GET /api/today/team-wins
+- Require authentication.
+- Respect all existing permission/role checks.
+- Query recent completed records across relevant tables/modules.
+- Sort by completedAt descending.
+- Limit results to approximately 25–50 wins.
+- No destructive DB changes.
+- If schema changes are needed:
+  - propose them first
+  - do not auto-apply dangerous migrations
+
+10. Refresh Schedule
+The Team Wins Ticker must run continuously 24/7.
+
+Refresh cadence:
+- From 8:00 AM to 8:00 PM local company timezone:
+  - refresh/check for new wins every 30 minutes
+- From 8:00 PM to 8:00 AM:
+  - refresh/check for new wins every 60 minutes
+
+Additional behavior:
+- Frontend refreshes automatically when:
+  - user opens Today page
+  - user returns to tab/window
+  - dashboard regains focus
+- Do not rely only on frontend polling.
+- Add backend-safe caching so the endpoint remains fast and efficient.
+
+11. Cache Strategy
+Implement lightweight cache logic:
+- 30-minute TTL during daytime refresh window
+- 60-minute TTL during overnight window
+- API should serve cached results unless cache expired.
+- Include:
+  - lastUpdatedAt
+  - nextRefreshAt
+in the API response.
+
+Timezone:
+- Configurable timezone support
+- Default:
+  America/Vancouver
+
+12. Frontend Component
+Create reusable component:
+- TeamWinsTicker.tsx
+
+Requirements:
+- Use existing design system/components where possible.
+- Include:
+  - loading state
+  - error state
+  - empty state
+  - success state
+- Avoid layout shift.
+- Avoid dashboard slowdown.
+- Keep animation GPU-friendly and performant.
+
+13. Intelligence / Quality Layer
+The widget should feel motivating and intelligent:
+- Keep descriptions concise.
+- Avoid spammy activity.
+- Avoid meaningless micro-actions.
+- Highlight genuinely useful completed work.
+- Make users feel:
+  - momentum
+  - accountability
+  - company progress
+  - operational energy
+
+14. Final Verification
+After implementation:
+- Confirm TypeScript passes.
+- Confirm Today page loads successfully.
+- Confirm empty state works.
+- Confirm mock/sample wins render correctly if no live data exists.
+- Confirm permissions are respected.
+- Confirm cache behavior works correctly.
+- Confirm refresh schedule works correctly.
+- Provide a final implementation report including:
+  - files changed
+  - endpoint added
+  - cache strategy
+  - refresh logic
+  - data sources used
+  - performance considerations

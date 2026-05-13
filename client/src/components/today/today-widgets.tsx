@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ActionWidgetShell } from "@/components/command-centers/action-widgets";
+import { TeamWinsTickerWidget } from "@/components/today/TeamWinsTicker";
 import {
   CalendarDays, Clock, CheckSquare, AlertTriangle, TrendingUp,
   UserPlus, Zap, Video, MapPin, ArrowRight, Building2,
@@ -568,6 +569,12 @@ export function TodayActiveProjectsWidget() {
 
 export const TODAY_WIDGET_DEFS: WidgetDef[] = [
   {
+    id: "today_team_wins",
+    label: "Team Wins Ticker",
+    description: "Live-rotating feed of recently completed tasks, closed deals, and milestones from across the company.",
+    defaultVisible: true, category: "team", isNew: true,
+  },
+  {
     id: "today_overview",
     label: "Greeting & Day Stats",
     description: "Time-of-day greeting plus a quick KPI strip (meetings, due, overdue, new leads).",
@@ -645,6 +652,7 @@ export const TODAY_WIDGET_DEFS: WidgetDef[] = [
 // Map of today widget id → component, merged into ACTION_WIDGET_MAP at the
 // dashboard-grid layer (avoids a circular import with action-widgets.tsx).
 export const TODAY_ACTION_WIDGET_MAP: Record<string, React.ComponentType<any>> = {
+  today_team_wins:          TeamWinsTickerWidget,
   today_overview:           TodayOverviewWidget,
   today_suggested_actions:  TodaySuggestedActionsWidget,
   today_meetings:           TodayMeetingsWidget,
@@ -661,6 +669,7 @@ export const TODAY_ACTION_WIDGET_MAP: Record<string, React.ComponentType<any>> =
 
 // Default size hints for today widgets in the 12-col responsive grid.
 export const TODAY_WIDGET_SIZE_HINTS: Record<string, { w: number; h: number; minW?: number; minH?: number }> = {
+  today_team_wins:          { w: 12, h: 3,  minW: 8,  minH: 3 },
   today_overview:           { w: 12, h: 4,  minW: 6,  minH: 3 },
   today_suggested_actions:  { w: 12, h: 6,  minW: 6,  minH: 4 },
   today_meetings:           { w: 8,  h: 11, minW: 4,  minH: 6 },

@@ -7426,6 +7426,205 @@ export async function registerRoutes(
     }
   });
 
+  // ── Team Wins Ticker ─────────────────────────────────────────────────────
+
+  // In-memory cache: 30-min TTL 8am–8pm Pacific, 60-min overnight.
+  const _twCache: { data: any[] | null; at: number } = { data: null, at: 0 };
+
+  function _twTTL(): number {
+    const h = parseInt(
+      new Date().toLocaleString("en-US", {
+        timeZone: "America/Vancouver", hour: "numeric", hour12: false,
+      }),
+      10,
+    );
+    return (h >= 8 && h < 20 ? 30 : 60) * 60 * 1000;
+  }
+
+  function _twInitials(name: string | null | undefined): string {
+    if (!name) return "?";
+    return name.split(/\s+/).map((w: string) => w[0]).filter(Boolean).join("").toUpperCase().slice(0, 2);
+  }
+
+  function _twDept(role: string | null | undefined): string | null {
+    if (!role) return null;
+    const m: Record<string, string> = {
+      sales: "Sales", support: "Support", manager: "Management",
+      admin: "Ops", master_admin: "Ops", executive: "Executive",
+      field: "Field", ops: "Ops",
+    };
+    return m[role.toLowerCase()] ?? null;
+  }
+
+  app.get("/api/today/team-wins", requireAuth, async (req: any, res) => {
+    try {
+      const now = Date.now();
+      const ttl = _twTTL();
+      if (_twCache.data && now - _twCache.at < ttl) {
+        return res.json({
+          wins: _twCache.data,
+          totalCount: _twCache.data.length,
+          lastUpdatedAt: new Date(_twCache.at).toISOString(),
+          nextRefreshAt: new Date(_twCache.at + ttl).toISOString(),
+          cached: true,
+        });
+      }
+
+      const u = req.user;
+      const isCrmVisible =
+        u.role === "admin" || u.role === "master_admin" ||
+        (u.permissions?.crm && u.permissions.crm !== "none");
+      const isOpsVisible =
+        u.role === "admin" || u.role === "master_admin" ||
+        (u.permissions?.operations && u.permissions.operations !== "none");
+
+      const wins: any[] = [];
+
+      // ── 1. Completed tasks ──────────────────────────────────────────────
+      try {
+        const rows = (await db.execute(sql.raw(`
+          SELECT t.id, t.title, t.completed_at,
+                 u.name  AS user_name,  u.role  AS user_role,
+                 a.name  AS account_name
+          FROM tasks t
+          LEFT JOIN users    u  ON u.id = t.completed_by_user_id
+          LEFT JOIN accounts a  ON a.id = t.account_id
+          WHERE t.completed_at > NOW() - INTERVAL '48 hours'
+            AND t.status IN ('completed','done')
+            AND t.archived = false
+            AND t.ai_suggested = false
+          ORDER BY t.completed_at DESC
+          LIMIT 25
+        `))).rows as any[];
+        for (const r of rows) {
+          wins.push({
+            id: `task-${r.id}`,
+            userName:         r.user_name    || "Team",
+            userInitials:     _twInitials(r.user_name),
+            department:       _twDept(r.user_role),
+            winType:          "Task Completed",
+            shortDescription: r.account_name
+              ? `Completed "${r.title}" for ${r.account_name}`
+              : `Completed "${r.title}"`,
+            completedAt:  r.completed_at,
+            sourceModule: "Tasks",
+          });
+        }
+      } catch (_e) { /* table/perms issue — skip */ }
+
+      // ── 2. Won / verbal-commit opportunities ───────────────────────────
+      if (isCrmVisible) {
+        try {
+          const rows = (await db.execute(sql.raw(`
+            SELECT o.id, o.title, o.stage, o.amount, o.updated_at,
+                   u.name  AS user_name,  u.role  AS user_role,
+                   ac.name AS account_name
+            FROM opportunities o
+            LEFT JOIN users    u  ON u.id = o.owner_user_id
+            LEFT JOIN accounts ac ON ac.id = o.account_id
+            WHERE o.updated_at > NOW() - INTERVAL '48 hours'
+              AND o.stage IN ('closed_won','verbal_commit')
+            ORDER BY o.updated_at DESC
+            LIMIT 15
+          `))).rows as any[];
+          for (const r of rows) {
+            const isWon = r.stage === "closed_won";
+            wins.push({
+              id: `opp-${r.id}`,
+              userName:         r.user_name || "Team",
+              userInitials:     _twInitials(r.user_name),
+              department:       _twDept(r.user_role) ?? "Sales",
+              winType:          isWon ? "Closed Deal" : "Verbal Commit",
+              shortDescription: r.account_name
+                ? `${isWon ? "Closed" : "Verbal commit on"} "${r.title}" with ${r.account_name}`
+                : `${isWon ? "Closed" : "Verbal commit on"} "${r.title}"`,
+              completedAt:  r.updated_at,
+              sourceModule: "CRM",
+            });
+          }
+        } catch (_e) { /* skip */ }
+
+        // ── 3. Qualified / converted leads ─────────────────────────────
+        try {
+          const rows = (await db.execute(sql.raw(`
+            SELECT l.id, l.company, l.contact_name, l.status, l.updated_at,
+                   u.name AS user_name, u.role AS user_role
+            FROM leads l
+            LEFT JOIN users u ON u.id = l.owner_user_id
+            WHERE l.updated_at > NOW() - INTERVAL '48 hours'
+              AND l.status IN ('won','closed_won','converted','qualified')
+            ORDER BY l.updated_at DESC
+            LIMIT 10
+          `))).rows as any[];
+          for (const r of rows) {
+            const verb = ["won","closed_won","converted"].includes(r.status) ? "converted" : "qualified";
+            wins.push({
+              id: `lead-${r.id}`,
+              userName:         r.user_name || "Team",
+              userInitials:     _twInitials(r.user_name),
+              department:       _twDept(r.user_role) ?? "Sales",
+              winType:          verb === "converted" ? "Lead Converted" : "Lead Qualified",
+              shortDescription: r.contact_name
+                ? `${r.contact_name} at ${r.company} ${verb}`
+                : `${r.company} ${verb}`,
+              completedAt:  r.updated_at,
+              sourceModule: "CRM",
+            });
+          }
+        } catch (_e) { /* skip */ }
+      }
+
+      // ── 4. Completed project milestones ────────────────────────────────
+      if (isOpsVisible) {
+        try {
+          const rows = (await db.execute(sql.raw(`
+            SELECT pm.id, pm.name, pm.completed_at,
+                   p.name AS project_name,
+                   u.name AS user_name, u.role AS user_role
+            FROM project_milestones pm
+            JOIN  projects p ON p.id = pm.project_id
+            LEFT JOIN users u ON u.id = p.owner_user_id
+            WHERE pm.completed_at > NOW() - INTERVAL '48 hours'
+              AND pm.status = 'completed'
+            ORDER BY pm.completed_at DESC
+            LIMIT 10
+          `))).rows as any[];
+          for (const r of rows) {
+            wins.push({
+              id: `ms-${r.id}`,
+              userName:         r.user_name || "Team",
+              userInitials:     _twInitials(r.user_name),
+              department:       "Operations",
+              winType:          "Milestone Hit",
+              shortDescription: `Milestone "${r.name}" hit on ${r.project_name}`,
+              completedAt:  r.completed_at,
+              sourceModule: "Projects",
+            });
+          }
+        } catch (_e) { /* skip */ }
+      }
+
+      wins.sort((a, b) =>
+        new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
+      );
+      const top = wins.slice(0, 50);
+
+      _twCache.data = top;
+      _twCache.at   = now;
+
+      res.json({
+        wins: top,
+        totalCount:    top.length,
+        lastUpdatedAt: new Date(now).toISOString(),
+        nextRefreshAt: new Date(now + ttl).toISOString(),
+        cached: false,
+      });
+    } catch (err: any) {
+      console.error("[team-wins] unhandled error:", err);
+      res.status(500).json({ message: "Failed to load team wins", wins: [] });
+    }
+  });
+
   // ── Growth OS Command Center ───────────────────────────────────────────
   app.get("/api/command-center", requireAuth, async (req, res) => {
     try {
