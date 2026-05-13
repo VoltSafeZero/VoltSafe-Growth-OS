@@ -10063,6 +10063,52 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // POST /api/inbox/threads/:threadId/not-spam — remove SPAM label, add INBOX
+  // Mirrors the label change locally so the thread immediately moves to Inbox.
+  app.post("/api/inbox/threads/:threadId/not-spam", requireAuth, async (req, res) => {
+    const userId = (req.session as any).userId;
+    const threadId = String(req.params.threadId);
+    try {
+      const [anchor] = await db
+        .select({ accId: emailMessages.sourceAccountId })
+        .from(emailMessages)
+        .where(eq(emailMessages.gmailThreadId, threadId))
+        .limit(1);
+      if (!anchor || !anchor.accId) {
+        return res.status(404).json({ message: "Thread not found in any synced mailbox" });
+      }
+      if (!(await requireAccountEditAccess(req, res, anchor.accId))) return;
+
+      const gmail = await getGmailClient(userId, anchor.accId);
+      try {
+        await gmail.users.threads.modify({
+          userId: "me",
+          id: threadId,
+          requestBody: { removeLabelIds: ["SPAM"], addLabelIds: ["INBOX"] },
+        });
+      } catch (e: any) {
+        return res.status(502).json({ message: `Gmail not-spam failed: ${e?.message || e}` });
+      }
+
+      try {
+        const { mirrorLabelChangeForThreads } = await import("./services/local-label-mirror");
+        await mirrorLabelChangeForThreads([threadId], anchor.accId, {
+          remove: ["SPAM"],
+          add: ["INBOX"],
+        });
+      } catch (mirrorErr: any) {
+        console.error(
+          `[inbox-not-spam] local mirror failed (non-fatal) account=${anchor.accId} thread=${threadId}:`,
+          mirrorErr.message,
+        );
+      }
+
+      res.json({ ok: true, threadId });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "not-spam failed" });
+    }
+  });
+
   // POST /api/inbox/threads/:threadId/ai-summary
   // Body: { mode?: "summary" | "translate", language?: string }
   //   - "summary" (default): returns a short executive brief of the whole

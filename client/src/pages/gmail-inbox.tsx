@@ -5243,6 +5243,28 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onError: (err: any) => toast({ title: "Trash failed", description: err.message, variant: "destructive" }),
   });
 
+  // Remove SPAM label + add INBOX label — calls the not-spam API route and
+  // removes the thread from the spam query cache so it disappears immediately.
+  const notSpamMutation = useMutation({
+    mutationFn: async (threadId: string) => {
+      const res = await apiRequest(
+        "POST",
+        `/api/inbox/threads/${encodeURIComponent(threadId)}/not-spam`,
+        {},
+      );
+      if (!res.ok) throw new Error((await res.json()).message);
+      return { threadId };
+    },
+    onSuccess: ({ threadId }) => {
+      const removeThread = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
+        old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old;
+      queryClient.setQueryData(["/api/gmail/messages", "spam", searchQuery, activeAccountId], removeThread);
+      if (selectedThreadId === threadId) { setSelectedThreadId(null); setSelectedMessageId(null); }
+      toast({ title: "Moved to Inbox", description: "This thread has been marked as not spam." });
+    },
+    onError: (err: any) => toast({ title: "Couldn't move to inbox", description: err.message, variant: "destructive" }),
+  });
+
   // ── Single-thread / single-message variants used by the new Spark-style
   // actions toolbar at the top of the reader pane. They reuse the existing
   // bulk endpoints (no new backend routes) so cache-update semantics stay
@@ -7709,6 +7731,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   isSetAside={setAsideAPI.isSetAside(selectedThreadId)}
                   assignedUserId={readerAssignedUserId}
                   canReply={canSend}
+                  isSpamView={tab === "spam"}
                   handlers={{
                     onClose: handleBack,
                     onMarkDone: () => markDoneSingleMutation.mutate(selectedThreadId),
@@ -7727,6 +7750,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     onMove: () => archiveThreadMutation.mutate(selectedThreadId),
                     onMarkSpam: () => archiveThreadMutation.mutate(selectedThreadId),
                     onBlock: () => archiveThreadMutation.mutate(selectedThreadId),
+                    onNotSpam: () => notSpamMutation.mutate(selectedThreadId),
                   }}
                   onAssignChanged={() => {
                     queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", selectedThreadId] });
@@ -7752,6 +7776,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     isSetAside={setAsideAPI.isSetAside(selectedThreadId)}
                     assignedUserId={readerAssignedUserId}
                     canReply={canSend}
+                    isSpamView={tab === "spam"}
                     handlers={{
                       onClose: handleBack,
                       onMarkDone: () => markDoneSingleMutation.mutate(selectedThreadId),
@@ -7770,6 +7795,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       onMove: () => archiveThreadMutation.mutate(selectedThreadId),
                       onMarkSpam: () => archiveThreadMutation.mutate(selectedThreadId),
                       onBlock: () => archiveThreadMutation.mutate(selectedThreadId),
+                      onNotSpam: () => notSpamMutation.mutate(selectedThreadId),
                     }}
                     onAssignChanged={() => {
                       queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", selectedThreadId] });

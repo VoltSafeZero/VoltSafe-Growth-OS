@@ -48,6 +48,7 @@ import {
   Pin,
   PinOff,
   CheckCircle2,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Tooltip,
@@ -103,6 +104,8 @@ export interface ActionsToolbarHandlers {
   onMove: () => void;
   onMarkSpam: () => void;
   onBlock: () => void;
+  /** Remove SPAM label and move to Inbox. Only called when isSpamView=true. */
+  onNotSpam?: () => void;
 }
 
 export interface EmailActionsToolbarProps {
@@ -126,6 +129,8 @@ export interface EmailActionsToolbarProps {
   readOnly?: boolean;
   /** Whether the inline reply button should be visible (canSend gate from parent). */
   canReply: boolean;
+  /** When true, shows "Not Spam" as a prominent action and hides irrelevant Inbox actions. */
+  isSpamView?: boolean;
   handlers: ActionsToolbarHandlers;
   /** Optional callback fired AFTER assignedUserId is mutated successfully so the parent can refresh queries. */
   onAssignChanged?: (userId: number | null) => void;
@@ -227,6 +232,7 @@ function EmailActionsToolbarImpl({
   assignedUserId,
   readOnly = false,
   canReply,
+  isSpamView = false,
   handlers,
   onAssignChanged,
 }: EmailActionsToolbarProps) {
@@ -473,6 +479,27 @@ function EmailActionsToolbarImpl({
             </TooltipContent>
           </Tooltip>
         </div>
+
+        {/* ── Not Spam button — only shown in Spam view ──────────── */}
+        {!readOnly && isSpamView && handlers.onNotSpam && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={handlers.onNotSpam}
+                data-testid="action-not-spam"
+                aria-label="Not spam — move to inbox"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40"
+              >
+                <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                Not Spam
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-[11px]">
+              Remove spam label and move to Inbox
+            </TooltipContent>
+          </Tooltip>
+        )}
 
         {/* ── Main action cluster ────────────────────────────────── */}
         {!readOnly && (
