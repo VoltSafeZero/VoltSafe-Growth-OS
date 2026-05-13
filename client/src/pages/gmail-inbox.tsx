@@ -323,6 +323,28 @@ function SentTrackingRow({ sig, threadId, signalsMt }: {
   );
 }
 
+function AccountSourceBadge({ accounts, sourceAccountId, messageId }: {
+  accounts: { id: number; displayName: string | null; emailAddress: string; isShared: boolean }[] | undefined;
+  sourceAccountId: number;
+  messageId: number;
+}) {
+  const acct = accounts?.find((a) => a.id === sourceAccountId);
+  if (!acct) return null;
+  const letter = (acct.displayName || acct.emailAddress)[0].toUpperCase();
+  const colour = acct.isShared
+    ? "bg-teal-500/20 text-teal-300 border-teal-500/30"
+    : "bg-primary/20 text-primary border-primary/30";
+  return (
+    <span
+      title={acct.emailAddress}
+      data-testid={`badge-account-${sourceAccountId}-${messageId}`}
+      className={`flex-shrink-0 h-4 px-1.5 rounded border text-[9px] font-bold leading-4 tabular-nums ${colour}`}
+    >
+      {letter}
+    </span>
+  );
+}
+
 function isUnread(labelIds: string[]) {
   return labelIds.includes("UNREAD");
 }
@@ -3978,6 +4000,19 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     enabled: tab === "folder" && !!selectedFolderId,
   });
 
+  // null = user's personal account (default); number = shared/specific account id; "all" = unified inbox.
+  // Multi-mailbox Phase 1: "all" sentinel triggers the unified view that pulls from every
+  // account the user can access (their own personal accounts + shared inboxes they have view perms on).
+  const [activeAccountId, setActiveAccountId] = useState<number | "all" | null>(null);
+  const [inboxViewPickerOpen, setInboxViewPickerOpen] = useState(false);
+  const inboxViewPickerRef = useRef<HTMLDivElement>(null);
+  const inboxViewPickerBtnRef = useRef<HTMLButtonElement>(null);
+  const [inboxViewPickerAnchor, setInboxViewPickerAnchor] = useState<{ top: number; left: number } | null>(null);
+  // Multi-mailbox Phase 1: when a message is opened from "All Inboxes", remember its source
+  // account id so per-thread reads/mutations target the right mailbox (instead of sending the
+  // literal "all" sentinel, which numeric-only routes coerce to NaN).
+  const [currentThreadAccountId, setCurrentThreadAccountId] = useState<number | null>(null);
+
   // When the user is viewing a specific mailbox (not null/"all"), scope the
   // triage counts/IDs to that account so the badges match what they actually see.
   const triageAccountParam = typeof activeAccountId === "number"
@@ -4160,19 +4195,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     lastSyncAt: string | null; syncErrorMessage: string | null; disconnectedAt: string | null;
     isShared: boolean; isOwner: boolean;
   };
-
-  // null = user's personal account (default); number = shared/specific account id; "all" = unified inbox.
-  // Multi-mailbox Phase 1: "all" sentinel triggers the unified view that pulls from every
-  // account the user can access (their own personal accounts + shared inboxes they have view perms on).
-  const [activeAccountId, setActiveAccountId] = useState<number | "all" | null>(null);
-  const [inboxViewPickerOpen, setInboxViewPickerOpen] = useState(false);
-  const inboxViewPickerRef = useRef<HTMLDivElement>(null);
-  const inboxViewPickerBtnRef = useRef<HTMLButtonElement>(null);
-  const [inboxViewPickerAnchor, setInboxViewPickerAnchor] = useState<{ top: number; left: number } | null>(null);
-  // Multi-mailbox Phase 1: when a message is opened from "All Inboxes", remember its source
-  // account id so per-thread reads/mutations target the right mailbox (instead of sending the
-  // literal "all" sentinel, which numeric-only routes coerce to NaN).
-  const [currentThreadAccountId, setCurrentThreadAccountId] = useState<number | null>(null);
 
   const statusQuery = useQuery<{ connected: boolean; tokenValid: boolean; apiEnabled: boolean; hasCredentials: boolean }>({
     queryKey: ["/api/gmail/status"],
@@ -7486,21 +7508,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         )}
                         {/* Multi-mailbox Phase 1: account badge — only shown in unified ("All Inboxes") mode
                             so users can tell which mailbox each row came from at a glance. */}
-                        {activeAccountId === "all" && msg.sourceAccountId != null && (() => {
-                          const acct = accountsQuery.data?.find((a) => a.id === msg.sourceAccountId);
-                          if (!acct) return null;
-                          const letter = (acct.displayName || acct.emailAddress)[0].toUpperCase();
-                          const colour = acct.isShared ? "bg-teal-500/20 text-teal-300 border-teal-500/30" : "bg-primary/20 text-primary border-primary/30";
-                          return (
-                            <span
-                              title={acct.emailAddress}
-                              data-testid={`badge-account-${msg.sourceAccountId}-${msg.id}`}
-                              className={`flex-shrink-0 h-4 px-1.5 rounded border text-[9px] font-bold leading-4 tabular-nums ${colour}`}
-                            >
-                              {letter}
-                            </span>
-                          );
-                        })()}
+                        {activeAccountId === "all" && msg.sourceAccountId != null && (
+                          <AccountSourceBadge
+                            accounts={accountsQuery.data}
+                            sourceAccountId={msg.sourceAccountId}
+                            messageId={msg.id}
+                          />
+                        )}
                         <span className={`${densityClasses.senderText} leading-none truncate ${
                           unread
                             ? "font-semibold text-foreground tracking-[-0.01em]"
