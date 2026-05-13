@@ -12015,9 +12015,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   // ── Inbox Triage API ──────────────────────────────────────────────────────
 
   // GET /api/inbox/triage-summary — badge counts for triage tabs
-  app.get("/api/inbox/triage-summary", requireAuth, async (_req, res) => {
+  // Optional ?accountId=N scopes all three counts to threads that have at least
+  // one message from that specific source account, so the badge matches what the
+  // user actually sees when they are viewing a specific mailbox.
+  app.get("/api/inbox/triage-summary", requireAuth, async (req, res) => {
     try {
-      const summary = await getTriageSummary();
+      const accountId = req.query.accountId ? Number(req.query.accountId) : null;
+      const summary = await getTriageSummary(accountId ?? undefined);
       res.json(summary);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -12035,21 +12039,40 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   // GET /api/inbox/triage-thread-ids — all thread IDs bucketed by triage category
-  // Used by the frontend to filter Gmail API results locally
-  app.get("/api/inbox/triage-thread-ids", requireAuth, async (_req, res) => {
+  // Used by the frontend to filter Gmail API results locally.
+  // Optional ?accountId=N restricts each bucket to threads that have at least one
+  // message from that source account (so "Awaiting Reply" only shows threads the
+  // user can actually see in that mailbox).
+  app.get("/api/inbox/triage-thread-ids", requireAuth, async (req, res) => {
     try {
+      const accountId = req.query.accountId ? Number(req.query.accountId) : null;
+      const acctJoin  = accountId
+        ? `JOIN email_messages _em ON _em.gmail_thread_id = et.gmail_thread_id AND _em.source_account_id = ${accountId}`
+        : "";
+      const acctMsgFilter = accountId
+        ? `AND em.source_account_id = ${accountId}`
+        : "";
+
       const [awaitingRows, hotRows, unlinkedRows] = await Promise.all([
-        db.execute(sql`SELECT gmail_thread_id FROM email_threads WHERE awaiting_reply_since IS NOT NULL`),
-        db.execute(sql`
+        db.execute(sql.raw(`
+          SELECT DISTINCT et.gmail_thread_id
+          FROM email_threads et
+          ${acctJoin}
+          WHERE et.awaiting_reply_since IS NOT NULL
+        `)),
+        db.execute(sql.raw(`
           SELECT DISTINCT em.gmail_thread_id
           FROM email_tracking_pixels p
           JOIN email_messages em ON em.gmail_message_id = p.gmail_message_id
           WHERE p.is_hot = true
-        `),
-        db.execute(sql`
-          SELECT gmail_thread_id FROM email_threads
-          WHERE association_status = 'unassociated'
-        `),
+          ${acctMsgFilter}
+        `)),
+        db.execute(sql.raw(`
+          SELECT DISTINCT et.gmail_thread_id
+          FROM email_threads et
+          ${acctJoin}
+          WHERE et.association_status = 'unassociated'
+        `)),
       ]);
       res.json({
         awaitingReply: (awaitingRows.rows as any[]).map(r => r.gmail_thread_id),

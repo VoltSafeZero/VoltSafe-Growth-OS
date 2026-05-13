@@ -150,16 +150,28 @@ export async function clearAwaitingReply(threadId: string): Promise<void> {
 /**
  * Triage summary counts: awaitingReply, hot, unlinked
  */
-export async function getTriageSummary(): Promise<{
+export async function getTriageSummary(accountId?: number): Promise<{
   awaitingReply: number;
   hot: number;
   unlinked: number;
 }> {
   try {
+    // When scoped to a specific mailbox, restrict each count to threads that
+    // have at least one message from that source account so badges match what
+    // the user can actually see in the current inbox view.
+    const acctJoin = accountId
+      ? `JOIN email_messages _em ON _em.gmail_thread_id = et.gmail_thread_id AND _em.source_account_id = ${accountId}`
+      : "";
+    const acctMsgFilter = accountId
+      ? `AND em.source_account_id = ${accountId}`
+      : "";
+
     const [[awaitingRow], [hotRow], [unlinkedRow]] = await Promise.all([
       db.execute(sql.raw(`
-        SELECT COUNT(*)::int AS n FROM email_threads
-        WHERE awaiting_reply_since IS NOT NULL
+        SELECT COUNT(DISTINCT et.gmail_thread_id)::int AS n
+        FROM email_threads et
+        ${acctJoin}
+        WHERE et.awaiting_reply_since IS NOT NULL
       `)).then(r => r.rows as any[]),
 
       db.execute(sql.raw(`
@@ -167,12 +179,15 @@ export async function getTriageSummary(): Promise<{
         FROM email_tracking_pixels p
         JOIN email_messages em ON em.gmail_message_id = p.gmail_message_id
         WHERE p.is_hot = true
+        ${acctMsgFilter}
       `)).then(r => r.rows as any[]),
 
       db.execute(sql.raw(`
-        SELECT COUNT(*)::int AS n FROM email_threads
-        WHERE association_status = 'unassociated'
-          OR id NOT IN (
+        SELECT COUNT(DISTINCT et.gmail_thread_id)::int AS n
+        FROM email_threads et
+        ${acctJoin}
+        WHERE et.association_status = 'unassociated'
+          OR et.id NOT IN (
             SELECT DISTINCT et2.id FROM email_threads et2
             JOIN email_messages em ON em.gmail_thread_id = et2.gmail_thread_id
             JOIN email_associations ea ON ea.email_message_id = em.id

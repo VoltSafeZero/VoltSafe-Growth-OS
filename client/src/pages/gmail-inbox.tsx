@@ -3921,10 +3921,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     enabled: tab === "folder" && !!selectedFolderId,
   });
 
+  // When the user is viewing a specific mailbox (not null/"all"), scope the
+  // triage counts/IDs to that account so the badges match what they actually see.
+  const triageAccountParam = typeof activeAccountId === "number"
+    ? `?accountId=${activeAccountId}`
+    : "";
+
   const triageSummaryQuery = useQuery<{ awaitingReply: number; hot: number; unlinked: number }>({
-    queryKey: ["/api/inbox/triage-summary"],
+    queryKey: ["/api/inbox/triage-summary", activeAccountId],
     queryFn: async () => {
-      const res = await fetch("/api/inbox/triage-summary", { credentials: "include" });
+      const res = await fetch(`/api/inbox/triage-summary${triageAccountParam}`, { credentials: "include" });
       if (!res.ok) return { awaitingReply: 0, hot: 0, unlinked: 0 };
       return res.json();
     },
@@ -3932,9 +3938,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   });
 
   const triageThreadIdsQuery = useQuery<{ awaitingReply: string[]; hot: string[]; unlinked: string[] }>({
-    queryKey: ["/api/inbox/triage-thread-ids"],
+    queryKey: ["/api/inbox/triage-thread-ids", activeAccountId],
     queryFn: async () => {
-      const res = await fetch("/api/inbox/triage-thread-ids", { credentials: "include" });
+      const res = await fetch(`/api/inbox/triage-thread-ids${triageAccountParam}`, { credentials: "include" });
       if (!res.ok) return { awaitingReply: [], hot: [], unlinked: [] };
       return res.json();
     },
