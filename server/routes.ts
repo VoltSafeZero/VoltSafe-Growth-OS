@@ -3331,7 +3331,10 @@ export async function registerRoutes(
     requirePermission("crm", "edit"),
     async (req, res) => {
       try {
-        const { subject, fromName, fromEmail, body } = req.body;
+        // selectionMode=true means the caller only passed a highlighted snippet,
+        // not the full email body. Use a tighter prompt that treats the text as
+        // self-contained contact data rather than hunting for the sender signature.
+        const { subject, fromName, fromEmail, body, selectionMode } = req.body;
         if (!body && !fromEmail) return res.status(400).json({ message: "Email content required" });
 
         const plainText = (body as string || "")
@@ -3346,25 +3349,34 @@ export async function registerRoutes(
           .trim()
           .slice(0, 5000);
 
+        const systemPrompt = selectionMode
+          ? "You extract contact information from a highlighted text snippet copied from an email. " +
+            "The text is exactly what the user selected — treat it as the sole source of truth. Do NOT infer or guess anything not present in the text. " +
+            "The snippet often contains a signature block with: full name, job title, company/organization, phone, address, email, website, and social media links. " +
+            "For marina contacts: 'company' is the marina name, 'address' may be the marina location. " +
+            "Return ONLY a JSON object with these fields (use null when not present in the snippet): " +
+            "firstName, lastName, name (full name), title, email, phone, linkedinUrl, company, website, address, notes. " +
+            "Normalize phone numbers to international format when possible."
+          : "You extract contact information from an email message, focusing on the SENDER's details. " +
+            "Pay special attention to the email signature at the bottom which typically contains: full name, job title, company/organization name, phone number, address, website, and social media links. " +
+            "For marina contacts: 'company' should be the marina name, 'address' may include the marina location. " +
+            "Return ONLY a JSON object with these fields (use null when unknown): " +
+            "firstName, lastName, name (full name), title, email, phone, linkedinUrl, company, website, address, notes. " +
+            "Normalize phone numbers to international format when possible.";
+
+        const userContent = selectionMode
+          ? `Extract all contact information from this selected text snippet:\n\n${plainText}`
+          : `Extract the sender's contact details from this email.\n\nFrom: ${fromName || ""} <${fromEmail || ""}>\nSubject: ${subject || ""}\n\nBody:\n${plainText}`;
+
         const extracted = await callContactExtractor([
-          {
-            role: "system",
-            content:
-              "You extract contact information from an email message, focusing on the SENDER's details. " +
-              "Pay special attention to the email signature at the bottom which typically contains: full name, job title, company/organization name, phone number, address, website, and social media links. " +
-              "For marina contacts: 'company' should be the marina name, 'address' may include the marina location. " +
-              "Return ONLY a JSON object with these fields (use null when unknown): " +
-              "firstName, lastName, name (full name), title, email, phone, linkedinUrl, company, website, address, notes. " +
-              "Normalize phone numbers to international format when possible.",
-          },
-          {
-            role: "user",
-            content: `Extract the sender's contact details from this email.\n\nFrom: ${fromName || ""} <${fromEmail || ""}>\nSubject: ${subject || ""}\n\nBody:\n${plainText}`,
-          },
+          { role: "system", content: systemPrompt },
+          { role: "user",   content: userContent },
         ]);
 
-        if (!extracted.email && fromEmail) extracted.email = fromEmail;
-        if (!extracted.name && fromName) extracted.name = fromName;
+        if (!selectionMode) {
+          if (!extracted.email && fromEmail) extracted.email = fromEmail;
+          if (!extracted.name && fromName)   extracted.name  = fromName;
+        }
 
         res.json({ extracted });
       } catch (e: any) {

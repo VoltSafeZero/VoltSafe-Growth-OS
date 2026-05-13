@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import {
   Loader2, Sparkles, UserPlus, Building2, X, CheckCircle2,
-  UserCheck, AlertTriangle, ArrowRight, Check, RotateCcw,
+  UserCheck, AlertTriangle, ArrowRight, Check, RotateCcw, TextSelect,
 } from "lucide-react";
 
 interface ExtractedContact {
@@ -86,6 +86,8 @@ interface SmartAddContactDialogProps {
   fromEmail: string;
   subject: string;
   body: string;
+  /** When non-empty, only this highlighted snippet is sent to the extractor. */
+  selectedText?: string;
   onSaved?: () => void;
 }
 
@@ -96,6 +98,7 @@ export function SmartAddContactDialog({
   fromEmail,
   subject,
   body,
+  selectedText = "",
   onSaved,
 }: SmartAddContactDialogProps) {
   const { toast } = useToast();
@@ -105,6 +108,7 @@ export function SmartAddContactDialog({
   const [existingContact, setExistingContact] = useState<ExistingContact | null>(null);
   const [extracted, setExtracted] = useState<ExtractedContact | null>(null);
   const [fieldComps, setFieldComps] = useState<FieldCompare[]>([]);
+  const [activeSelectionMode, setActiveSelectionMode] = useState(false);
 
   // ── Create-mode state ────────────────────────────────────────────────────
   const [name, setName] = useState("");
@@ -143,10 +147,19 @@ export function SmartAddContactDialog({
     setTitle(""); setPhone(""); setLinkedinUrl(""); setNotes("");
     setOrgSearch(""); setSelectedOrg(null); setNewOrgName(""); setOrgMode("pick");
 
+    // Snapshot whether we're in selection mode for this open cycle so the
+    // render section can read it even after the async block finishes.
+    const isSelectionMode = selectedText.length > 0;
+    setActiveSelectionMode(isSelectionMode);
+
     (async () => {
       try {
+        const extractPayload = isSelectionMode
+          ? { body: selectedText, selectionMode: true }
+          : { subject, fromName, fromEmail, body };
+
         const [extractRes, searchRes] = await Promise.all([
-          apiRequest("POST", "/api/contacts/extract-from-email", { subject, fromName, fromEmail, body }),
+          apiRequest("POST", "/api/contacts/extract-from-email", extractPayload),
           fetch(`/api/contacts?search=${encodeURIComponent(fromEmail)}`, { credentials: "include" }),
         ]);
 
@@ -269,11 +282,22 @@ export function SmartAddContactDialog({
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-md z-[300]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" />
-            {phase === "exists"         ? "Contact Already Exists"   :
-             phase === "update-preview" ? `Update ${existingContact?.name?.split(" ")[0]}'s Info` :
-                                          "Smart Add Contact"}
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
+            <Sparkles className="h-4 w-4 text-primary flex-shrink-0" />
+            <span>
+              {phase === "exists"         ? "Contact Already Exists"   :
+               phase === "update-preview" ? `Update ${existingContact?.name?.split(" ")[0]}'s Info` :
+                                            "Smart Add Contact"}
+            </span>
+            {activeSelectionMode && (
+              <span
+                data-testid="badge-selection-mode"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/15 border border-primary/30 text-primary"
+              >
+                <TextSelect className="h-2.5 w-2.5" />
+                From selection
+              </span>
+            )}
           </DialogTitle>
         </DialogHeader>
 
@@ -281,8 +305,17 @@ export function SmartAddContactDialog({
         {phase === "loading" && (
           <div className="flex flex-col items-center justify-center py-10 gap-3 text-muted-foreground">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
-            <p className="text-sm">Scanning email and checking contact database…</p>
-            <p className="text-xs text-muted-foreground/50">This usually takes a few seconds.</p>
+            {activeSelectionMode ? (
+              <>
+                <p className="text-sm">Analyzing highlighted text…</p>
+                <p className="text-xs text-muted-foreground/50">Extracting contact info from your selection.</p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm">Scanning email and checking contact database…</p>
+                <p className="text-xs text-muted-foreground/50">This usually takes a few seconds.</p>
+              </>
+            )}
           </div>
         )}
 

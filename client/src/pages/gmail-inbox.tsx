@@ -3632,6 +3632,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   });
   const [composeOpen, setComposeOpen] = useState(false);
   const [smartContactOpen, setSmartContactOpen] = useState(false);
+  const [smartContactSelectedText, setSmartContactSelectedText] = useState("");
   const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string; fromName?: string; quotedHtml?: string; quotedFrom?: string; quotedDate?: string } | null>(null);
   const [shownSenderEmailIds, setShownSenderEmailIds] = useState<Set<string>>(new Set());
   const toggleSenderEmail = (msgId: string) => setShownSenderEmailIds(prev => { const n = new Set(prev); n.has(msgId) ? n.delete(msgId) : n.add(msgId); return n; });
@@ -8177,9 +8178,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     <span className="hidden sm:inline">Forward</span>
                   </button>
                   <button
+                    onMouseDown={() => {
+                      // Capture any text the user has highlighted inside the email
+                      // iframe BEFORE mousedown shifts focus away and clears it.
+                      const iframeDoc = iframeRef.current?.contentDocument;
+                      const sel = iframeDoc?.getSelection?.();
+                      setSmartContactSelectedText(sel?.toString().trim() ?? "");
+                    }}
                     onClick={() => setSmartContactOpen(true)}
                     data-testid="button-smart-add-contact"
-                    title="Smart Add Contact — AI extracts contact info from this email"
+                    title="Smart Add Contact — AI extracts contact info from this email (highlight text first to scan only that selection)"
                     className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-border/40 bg-background/60 text-[12px] text-muted-foreground hover:border-primary/40 hover:text-foreground hover:bg-background transition-all group flex-shrink-0"
                   >
                     <UserPlus className="h-3.5 w-3.5 group-hover:text-primary transition-colors" />
@@ -8244,11 +8252,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       {focusedMsg && (
         <SmartAddContactDialog
           open={smartContactOpen}
-          onClose={() => setSmartContactOpen(false)}
+          onClose={() => { setSmartContactOpen(false); setSmartContactSelectedText(""); }}
           fromName={parseSenderName(focusedMsg.from)}
           fromEmail={parseSenderEmail(focusedMsg.from)}
           subject={focusedMsg.subject || ""}
           body={focusedMsg.body || ""}
+          selectedText={smartContactSelectedText}
         />
       )}
 
