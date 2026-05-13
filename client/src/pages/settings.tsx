@@ -22,11 +22,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Fingerprint, Trash2, Shield, Smartphone, Loader2,
   CalendarDays, RefreshCw, Link2, Link2Off, CheckCircle2,
   AlertCircle, Clock, Settings2, Apple, ChevronLeft, FlaskConical,
   CalendarCheck, ShieldAlert, Users, WifiOff, Wifi,
+  Mail, Eye, MousePointerClick, BellRing, ListTodo, Zap,
 } from "lucide-react";
 import { SiGooglecalendar, SiZoom } from "react-icons/si";
 import { useLocation } from "wouter";
@@ -1227,6 +1229,9 @@ export default function SettingsPage() {
       {/* Team Calendar Health — admin only */}
       <TeamCalendarHealthSection />
 
+      {/* Mail Tracking & Automation — admin only */}
+      <MailTrackingAutomationSection />
+
       {/* CalDAV connect dialogs */}
       {caldavDialog && (
         <CalDavConnectDialog
@@ -1236,5 +1241,267 @@ export default function SettingsPage() {
         />
       )}
     </div>
+  );
+}
+
+// ─── Mail Tracking & Follow-Up Automation ─────────────────────────────────────
+
+type EngagementRule = {
+  id: number;
+  name: string;
+  trigger_type: string;
+  min_events: number;
+  action_type: string;
+  action_config: Record<string, unknown>;
+  cooldown_hours: number;
+  trigger_config: Record<string, unknown>;
+  is_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+const TRIGGER_LABELS: Record<string, string> = {
+  first_open:                "On first open",
+  repeated_open:             "On repeated opens",
+  first_click:               "On first link click",
+  pricing_link_clicked:      "On pricing/spec link click",
+  no_open_after_days:        "No open after N days",
+  opened_no_reply_after_days:"Opened but no reply after N days",
+  replied:                   "On reply received",
+};
+
+const ACTION_LABELS: Record<string, { label: string; color: string; Icon: React.ElementType }> = {
+  create_task:         { label: "Creates task",        color: "text-amber-400 border-amber-500/30 bg-amber-500/8",   Icon: ListTodo },
+  create_notification: { label: "Sends notification",  color: "text-blue-400 border-blue-500/30 bg-blue-500/8",     Icon: BellRing },
+  create_suggestion:   { label: "Creates suggestion",  color: "text-violet-400 border-violet-500/30 bg-violet-500/8", Icon: Zap },
+  mark_hot:            { label: "Marks as hot",        color: "text-orange-400 border-orange-500/30 bg-orange-500/8", Icon: Eye },
+  add_timeline:        { label: "Adds to timeline",    color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/8", Icon: MousePointerClick },
+};
+
+function MailTrackingAutomationSection() {
+  const { toast } = useToast();
+
+  const rulesQuery = useQuery<EngagementRule[]>({
+    queryKey: ["/api/email-engagement-rules"],
+    queryFn: async () => {
+      const res = await fetch("/api/email-engagement-rules", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load rules");
+      return res.json();
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async ({ id, enabled }: { id: number; enabled: boolean }) => {
+      const res = await fetch(`/api/email-engagement-rules/${id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_enabled: enabled }),
+      });
+      if (!res.ok) throw new Error("Failed to update rule");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/email-engagement-rules"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const rules = rulesQuery.data ?? [];
+  const taskRules = rules.filter(r => r.action_type === "create_task");
+  const notifRules = rules.filter(r => r.action_type === "create_notification");
+  const otherRules = rules.filter(r => !["create_task", "create_notification"].includes(r.action_type));
+
+  const anyTaskEnabled = taskRules.some(r => r.is_enabled);
+  const anyNotifEnabled = notifRules.some(r => r.is_enabled);
+
+  // Derive the current policy level from active rules
+  const policyLevel: string = anyTaskEnabled
+    ? "create_task"
+    : anyNotifEnabled
+    ? "create_notification"
+    : "tracking_only";
+
+  const POLICY_OPTIONS = [
+    {
+      value: "tracking_only",
+      label: "Tracking only",
+      description: "Record opens, clicks, and replied status. No tasks, no notifications.",
+      Icon: Eye,
+      color: "text-emerald-400",
+    },
+    {
+      value: "create_notification",
+      label: "Notify me on engagement",
+      description: "Send an in-app notification when the recipient opens or clicks.",
+      Icon: BellRing,
+      color: "text-blue-400",
+    },
+    {
+      value: "create_task",
+      label: "Create tasks automatically",
+      description: "Automatically add follow-up tasks to your Backlog based on engagement signals.",
+      Icon: ListTodo,
+      color: "text-amber-400",
+    },
+  ];
+
+  async function applyPolicy(policy: string) {
+    for (const rule of rules) {
+      const shouldEnable =
+        policy === "create_task"
+          ? ["create_task", "create_notification"].includes(rule.action_type)
+          : policy === "create_notification"
+          ? rule.action_type === "create_notification"
+          : false;
+      if (rule.is_enabled !== shouldEnable) {
+        await toggleMutation.mutateAsync({ id: rule.id, enabled: shouldEnable });
+      }
+    }
+    toast({
+      title: "Policy updated",
+      description: policy === "tracking_only"
+        ? "Tracking only — no tasks or notifications will be created automatically."
+        : policy === "create_notification"
+        ? "Notifications enabled — you'll be alerted on engagement."
+        : "Task automation enabled — follow-up tasks will be created automatically.",
+    });
+  }
+
+  return (
+    <Card data-testid="card-mail-tracking-automation">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <Mail className="h-4 w-4 text-primary" />
+          <CardTitle className="text-base">Mail — Tracking & Follow-Up Automation</CardTitle>
+        </div>
+        <CardDescription>
+          Control what happens when recipients open, click, or reply to your tracked emails.
+          The default is <strong>tracking only</strong> — no tasks or notifications are created unless you opt in.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+
+        {/* Policy quick-select */}
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide text-[11px]">Automation Policy</p>
+          <div className="space-y-2">
+            {POLICY_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                data-testid={`policy-option-${opt.value}`}
+                onClick={() => applyPolicy(opt.value)}
+                disabled={toggleMutation.isPending}
+                className={`w-full flex items-start gap-3 p-3 rounded-lg border text-left transition-colors ${
+                  policyLevel === opt.value
+                    ? "border-primary/50 bg-primary/8"
+                    : "border-border/40 bg-card hover:border-border hover:bg-muted/30"
+                }`}
+              >
+                <div className={`mt-0.5 shrink-0 ${policyLevel === opt.value ? opt.color : "text-muted-foreground"}`}>
+                  <opt.Icon className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm font-medium ${policyLevel === opt.value ? "text-foreground" : "text-muted-foreground"}`}>
+                      {opt.label}
+                    </span>
+                    {policyLevel === opt.value && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-primary border-primary/40 bg-primary/8">
+                        Active
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground/70 mt-0.5">{opt.description}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground/50 pt-1">
+            Selecting a policy updates all relevant rules below. You can also toggle individual rules for fine-grained control.
+          </p>
+        </div>
+
+        {/* Individual rule toggles */}
+        {rulesQuery.isLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="h-14 rounded-lg bg-muted/20 animate-pulse" />
+            ))}
+          </div>
+        ) : rules.length === 0 ? (
+          <p className="text-sm text-muted-foreground/60 text-center py-4">No engagement rules configured.</p>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide text-[11px]">Individual Rules</p>
+
+            {[
+              { label: "Task rules", items: taskRules },
+              { label: "Notification rules", items: notifRules },
+              { label: "Other", items: otherRules },
+            ].map(group => group.items.length === 0 ? null : (
+              <div key={group.label} className="space-y-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/50 pl-1 pt-1">{group.label}</p>
+                {group.items.map(rule => {
+                  const actionCfg = ACTION_LABELS[rule.action_type];
+                  const ActionIcon = actionCfg?.Icon ?? Zap;
+                  return (
+                    <div
+                      key={rule.id}
+                      data-testid={`rule-row-${rule.id}`}
+                      className={`flex items-center justify-between gap-3 p-3 rounded-lg border transition-colors ${
+                        rule.is_enabled
+                          ? "border-border/60 bg-card"
+                          : "border-border/30 bg-muted/10 opacity-70"
+                      }`}
+                    >
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        <ActionIcon className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${actionCfg?.color?.split(" ")[0] ?? "text-muted-foreground"}`} />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium leading-snug truncate">{rule.name}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            <span className="text-[10px] text-muted-foreground/60">
+                              {TRIGGER_LABELS[rule.trigger_type] ?? rule.trigger_type}
+                            </span>
+                            {actionCfg && (
+                              <span className={`text-[10px] px-1 py-0 rounded border font-medium ${actionCfg.color}`}>
+                                {actionCfg.label}
+                              </span>
+                            )}
+                            {rule.cooldown_hours > 0 && (
+                              <span className="text-[10px] text-muted-foreground/40">
+                                · {rule.cooldown_hours}h cooldown
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <Switch
+                        checked={rule.is_enabled}
+                        onCheckedChange={(v) => toggleMutation.mutate({ id: rule.id, enabled: v })}
+                        disabled={toggleMutation.isPending}
+                        data-testid={`toggle-rule-${rule.id}`}
+                        aria-label={`${rule.is_enabled ? "Disable" : "Enable"} rule: ${rule.name}`}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Guardrail notice */}
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/20 border border-border/30 text-xs text-muted-foreground/70">
+          <Shield className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground/50" />
+          <p>
+            Tracking pixels continue recording opens, clicks, and reply status regardless of this setting.
+            Sent Mail always shows engagement indicators. Disabling automation only stops automatic task and notification creation.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

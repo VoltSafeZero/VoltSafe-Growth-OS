@@ -9,6 +9,13 @@ import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { esc } from "../tracking";
 
+/**
+ * DEFAULT POLICY: Tracking only — no tasks, no notifications.
+ * All rules are seeded as DISABLED (is_enabled: false).
+ * Users must explicitly enable rules via Settings → Mail → Tracking & Automation.
+ * Do NOT change is_enabled to true here — that would re-enable tasks on every
+ * fresh deploy / database reset, violating the opt-in policy.
+ */
 const DEFAULTS = [
   {
     name: "Email opened — first time",
@@ -19,9 +26,9 @@ const DEFAULTS = [
       title: "Email opened: {subject}",
       body: "{recipient} opened your email for the first time (soft signal — image load)",
     },
-    cooldown_hours: 72,   // Don't fire again for 3 days on same thread
+    cooldown_hours: 72,
     trigger_config: {},
-    is_enabled: true,
+    is_enabled: false,  // opt-in only
   },
   {
     name: "Email opened 3+ times — follow up",
@@ -35,7 +42,7 @@ const DEFAULTS = [
     },
     cooldown_hours: 48,
     trigger_config: {},
-    is_enabled: true,
+    is_enabled: false,  // opt-in only
   },
   {
     name: "Link clicked — create follow-up task",
@@ -49,7 +56,7 @@ const DEFAULTS = [
     },
     cooldown_hours: 24,
     trigger_config: {},
-    is_enabled: true,
+    is_enabled: false,  // opt-in only
   },
   {
     name: "Pricing / quote / spec link clicked — high priority task",
@@ -58,12 +65,12 @@ const DEFAULTS = [
     action_type: "create_task",
     action_config: {
       taskTitle: "High priority: pricing/spec link clicked — {subject}",
-      dueDays: 0,   // Due today
+      dueDays: 0,
       priority: "high",
     },
     cooldown_hours: 24,
     trigger_config: { urlPattern: "pric|spec|quot|proposa|order|buy|shop" },
-    is_enabled: true,
+    is_enabled: false,  // opt-in only
   },
   {
     name: "No open after 5 days — suggest re-engagement",
@@ -74,9 +81,9 @@ const DEFAULTS = [
       title: "No engagement after 5 days: {subject}",
       body: "{recipient} hasn't opened your email in 5 days — consider a follow-up or alternate approach",
     },
-    cooldown_hours: 120,   // 5 days
+    cooldown_hours: 120,
     trigger_config: { days: 5 },
-    is_enabled: true,
+    is_enabled: false,  // opt-in only
   },
   {
     name: "Opened but no reply after 3 days — reminder",
@@ -90,7 +97,7 @@ const DEFAULTS = [
     },
     cooldown_hours: 72,
     trigger_config: { days: 3 },
-    is_enabled: true,
+    is_enabled: false,  // opt-in only
   },
 ] as const;
 

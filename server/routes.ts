@@ -12231,11 +12231,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const escaped = threadIds.map(id => `'${id.replace(/'/g, "''")}'`).join(",");
 
       // Signal data from tracking pixels (outbound messages in each thread)
+      // Also aggregates open/click counts and first/last open timestamps for
+      // the Sent Mail tracking indicators.
       const pixelRows = (await db.execute(sql.raw(`
         SELECT
           em.gmail_thread_id,
-          BOOL_OR(p.is_replied)  AS is_replied,
-          BOOL_OR(p.is_hot)      AS is_hot,
+          BOOL_OR(p.is_replied)   AS is_replied,
+          BOOL_OR(p.is_hot)       AS is_hot,
           MAX(p.engagement_score) AS max_score,
           (ARRAY_AGG(
             COALESCE(p.signal_level, 'none')
@@ -12248,9 +12250,22 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
                 WHEN 'low'     THEN 2
                 ELSE 1
               END DESC
-          ))[1] AS signal_level
+          ))[1] AS signal_level,
+          COALESCE(SUM(ev.unique_opens), 0)::int  AS open_count,
+          COALESCE(SUM(ev.unique_clicks), 0)::int AS click_count,
+          MIN(ev.first_open_at)  AS first_open_at,
+          MAX(ev.last_open_at)   AS last_open_at
         FROM email_tracking_pixels p
         JOIN email_messages em ON em.gmail_message_id = p.gmail_message_id
+        LEFT JOIN LATERAL (
+          SELECT
+            COUNT(*) FILTER (WHERE event_type='open'  AND is_bot=false AND is_duplicate=false) AS unique_opens,
+            COUNT(*) FILTER (WHERE event_type='click' AND is_bot=false AND is_duplicate=false) AS unique_clicks,
+            MIN(occurred_at) FILTER (WHERE event_type='open' AND is_bot=false AND is_duplicate=false) AS first_open_at,
+            MAX(occurred_at) FILTER (WHERE event_type='open' AND is_bot=false AND is_duplicate=false) AS last_open_at
+          FROM email_engagement_events
+          WHERE tracking_id = p.tracking_id
+        ) ev ON true
         WHERE em.gmail_thread_id IN (${escaped})
           AND em.direction = 'outbound'
         GROUP BY em.gmail_thread_id
@@ -12285,10 +12300,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       }
       for (const p of pixelRows) {
         if (!result[p.gmail_thread_id]) result[p.gmail_thread_id] = {};
-        result[p.gmail_thread_id].signalLevel = p.signal_level ?? null;
-        result[p.gmail_thread_id].isHot       = p.is_hot   === true || p.is_hot === "true";
-        result[p.gmail_thread_id].isReplied   = p.is_replied === true || p.is_replied === "true";
-        result[p.gmail_thread_id].engScore    = Number(p.max_score || 0);
+        result[p.gmail_thread_id].signalLevel  = p.signal_level ?? null;
+        result[p.gmail_thread_id].isHot        = p.is_hot    === true || p.is_hot    === "true";
+        result[p.gmail_thread_id].isReplied    = p.is_replied === true || p.is_replied === "true";
+        result[p.gmail_thread_id].engScore     = Number(p.max_score || 0);
+        result[p.gmail_thread_id].openCount    = Number(p.open_count  || 0);
+        result[p.gmail_thread_id].clickCount   = Number(p.click_count || 0);
+        result[p.gmail_thread_id].firstOpenAt  = p.first_open_at ?? null;
+        result[p.gmail_thread_id].lastOpenAt   = p.last_open_at  ?? null;
       }
       res.json(result);
     } catch (err: any) {

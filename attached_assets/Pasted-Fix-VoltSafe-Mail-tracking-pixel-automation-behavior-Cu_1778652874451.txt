@@ -1,0 +1,98 @@
+Fix VoltSafe Mail tracking-pixel automation behavior.
+
+Current problem:
+VoltSafe Mail is automatically creating Tasks from email tracking activity. This is wrong. I do not want every opened email, frequently opened email, clicked email, or “opened but no reply” email to automatically become a task.
+
+Purpose of tracking pixels:
+Tracking pixels exist so the sender can open Sent Mail and see:
+- whether the recipient opened the email
+- first opened time
+- last opened time
+- total open count
+- optionally location/device/user-agent if already captured
+- clicked links if click tracking exists
+
+Tracking pixels should NOT assume follow-up intent.
+
+Required change:
+Disable all automatic task creation from email engagement tracking by default.
+
+Specifically:
+1. Stop the Email Engagement Rules Engine from automatically creating tasks in Backlog.
+2. Disable or remove default task-generating rules:
+   - opened 3+ times → create task
+   - link clicked → create task
+   - pricing/spec/quote link clicked → create task
+   - opened but no reply after 3 days → create task
+3. Tracking events should remain recorded.
+4. Sent Mail should show tracking status clearly.
+5. No task should be created unless a user explicitly asks for one or explicitly enables an automation rule.
+
+New desired behavior:
+In Sent Mail, each sent email should show engagement indicators:
+- Not opened
+- Opened
+- Opened X times
+- First opened timestamp
+- Last opened timestamp
+- Link clicked, if applicable
+- Replied, if applicable
+
+Add this to the sent email row/card and opened sent-email detail view.
+
+Automation policy:
+All email engagement automations must be opt-in only.
+
+Add a settings/control area such as:
+Settings → Mail → Tracking & Follow-Up Automation
+
+There, allow admins/users to choose:
+- Tracking only — default
+- Notify me on first open
+- Notify me on link click
+- Suggest follow-up, but do not create task
+- Create task automatically
+
+Default must be:
+Tracking only. No notifications. No tasks.
+
+Important guardrails:
+- Do not delete tracking pixel functionality.
+- Do not stop recording opens.
+- Do not stop Sent Mail tracking visibility.
+- Do not create Tasks from tracking events unless explicitly enabled.
+- Do not silently seed task-generating default rules on startup.
+- Do not re-enable old default rules during deploy, restart, migration, or seed.
+- Existing unwanted auto-created tasks should not be recreated after deletion.
+
+Database/rules cleanup:
+Audit the current email engagement rules table/seed logic.
+If there are existing enabled default task-generation rules, disable them.
+If seed logic recreates them as enabled, change the seed so they are disabled by default or not created at all.
+Preserve historical tracking event data.
+
+Acceptance tests:
+1. Send an email with tracking pixel.
+2. Recipient opens it.
+3. Confirm open event is recorded.
+4. Confirm Sent Mail shows opened status and open count.
+5. Confirm no task is created in Backlog.
+6. Recipient opens it 3+ times.
+7. Confirm open count updates.
+8. Confirm no task is created.
+9. Recipient clicks a tracked link.
+10. Confirm click is recorded and visible in Sent Mail.
+11. Confirm no task is created.
+12. Wait/run the 6-hour engagement engine manually.
+13. Confirm no task is created.
+14. Restart app.
+15. Confirm task-generating rules are not re-seeded as enabled.
+16. If user/admin explicitly enables “create task automatically,” only then should task creation resume.
+
+Final report required:
+- Identify every file that currently creates tasks from email tracking.
+- Identify current seeded default rules.
+- Explain which rules were disabled or changed.
+- Confirm tracking pixels still work.
+- Confirm Sent Mail tracking visibility works.
+- Confirm no automatic Backlog tasks are created by default.
