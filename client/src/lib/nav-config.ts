@@ -96,9 +96,9 @@ export const NAV_CONFIG: NavSection[] = [
     items: [
       { id: "mission-control", label: "Mission Control", route: "/",                    icon: LayoutDashboard, exactMatch: true },
       { id: "inbox",           label: "Inbox",           route: "/gmail",               icon: Mail },
+      { id: "tasks",           label: "Tasks",           route: "/execution/tasks",     icon: CheckSquare },
       { id: "calendar",        label: "Calendar",        route: "/execution/calendar",  icon: CalendarClock, permKey: "calendar" },
       { id: "meeting-notes",   label: "Meeting Notes",   route: "/meeting-notes",       icon: Mic },
-      { id: "tasks",           label: "Tasks",           route: "/execution/tasks",     icon: CheckSquare },
       { id: "activity",        label: { desktop: "Activity Feed", mobile: "Activity" }, route: "/activity", icon: BarChart3 },
     ],
   },
