@@ -230,6 +230,13 @@ function buildQClauses(q: string): { where: string[]; freeText: string; hasLabel
     const label = inMatch[1].toUpperCase();
     rest = rest.replace(inMatch[0], "").trim();
     where.push(`(label_ids ILIKE '%"${safe(label)}"%' OR label_ids ILIKE '%${safe(label)}%')`);
+    // Inbox view should never show outbound sent emails (Gmail behaviour).
+    // Emails with ["SENT","INBOX"] labels are the user's own outgoing replies
+    // that Gmail happens to also tag with INBOX.  Exclude them so only truly
+    // received messages appear in the inbox query.
+    if (label === "INBOX") {
+      where.push(`label_ids NOT ILIKE '%"SENT"%'`);
+    }
   }
 
   // has:attachment / has:attachments
