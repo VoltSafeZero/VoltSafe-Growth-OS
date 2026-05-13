@@ -62,7 +62,7 @@ export async function upsertMessageById(
   gmailMessageId: string,
   ownerUserId: number,
   accountId: number,
-  myDomain: string,
+  myEmail: string,
 ): Promise<{ inserted: boolean; updatedLabels: boolean }> {
   // Check existing
   const [existing] = await db
@@ -176,7 +176,7 @@ export async function syncIncremental(accountId: number): Promise<IncrementalRes
           if (!id) continue;
           events++;
           try {
-            const r = await upsertMessageById(gmailClient, id, account.userId, accountId, myDomain);
+            const r = await upsertMessageById(gmailClient, id, account.userId, accountId, myEmail);
             if (r.inserted) added++;
             else if (r.updatedLabels) labelsChanged++;
           } catch (e: any) {

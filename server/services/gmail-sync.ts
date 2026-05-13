@@ -268,12 +268,26 @@ export function startHourlySyncScheduler() {
   log("[gmail-sync] Sync scheduler started — incremental=5min, label-refresh=60min");
   log(`[auto-confirm] Sweep registered — dry-run=${AUTO_CONFIRM_DRY_RUN}, scope=contact, threshold=90`);
 
-  // Run one pass 30s after boot so emails don't wait up to 5 min after a restart
+  // Run one incremental pass 30s after boot so emails don't wait up to 5 min after a restart
   setTimeout(async () => {
     try { await runIncremental(); } catch (err: any) {
       log(`[gmail-sync] Startup sync error: ${err.message}`);
     }
   }, 30_000);
+
+  // Catch-up paginated sync 90s after boot: fetches the last 3 days via the
+  // Gmail messages.list API (idempotent — onConflictDoNothing). Recovers any
+  // messages that the incremental historyId path skipped during an outage.
+  setTimeout(async () => {
+    try {
+      const since = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      log(`[gmail-sync] Startup catch-up paginated sync since=${since}…`);
+      const r = await runGmailSync({ maxPages: 10, pageSize: 100, since, refreshLabels: false });
+      log(`[gmail-sync] Catch-up done — pages=${r.pages} processed=${r.processed} new=${r.newMessages}${r.hitPageLimit ? " (hit cap)" : ""}`);
+    } catch (err: any) {
+      log(`[gmail-sync] Catch-up sync error: ${err.message}`);
+    }
+  }, 90_000);
 
   // Incremental sync every 5 minutes (historyId-based, very lightweight Gmail API calls)
   setInterval(async () => {

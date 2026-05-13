@@ -130,7 +130,11 @@ function formatDate(dateStr: string, internalDate?: string) {
   const d = dateStr ? new Date(dateStr) : internalDate ? new Date(Number(internalDate)) : null;
   if (!d || isNaN(d.getTime())) return "";
   const now = new Date();
-  const diffDays = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+  // Compare calendar days (midnight-to-midnight) so yesterday's emails are never
+  // shown as a bare time even if they arrived less than 24 hours ago.
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const msgMidnight = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((todayMidnight.getTime() - msgMidnight.getTime()) / (1000 * 60 * 60 * 24));
   if (diffDays === 0) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   if (diffDays < 7) return d.toLocaleDateString([], { weekday: "short" });
   return d.toLocaleDateString([], { month: "short", day: "numeric" });

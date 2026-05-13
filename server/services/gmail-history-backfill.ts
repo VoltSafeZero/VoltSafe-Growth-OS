@@ -159,7 +159,7 @@ async function doFetch(
     return result;
   }
 
-  const myDomain = account.emailAddress.split("@")[1] || "voltsafe.com";
+  const myEmail = account.emailAddress;
 
   // Bounded-concurrency fan-out. Each worker pulls IDs off the shared queue
   // until it's empty; keeps exactly CONCURRENCY workers in flight at all times
@@ -176,7 +176,7 @@ async function doFetch(
         if (!id) return;
         try {
           const r = await callWithRetry(() =>
-            upsertMessageById(gmailClient, id, account.userId, account.id, myDomain)
+            upsertMessageById(gmailClient, id, account.userId, account.id, myEmail)
           );
           if (r.inserted) result.inserted++;
           else result.skipped++;

@@ -172,6 +172,7 @@ export function parseGmailMessage(msg: any, myEmail: string): ParsedEmail {
   const ccList = parseEmailList(ccRaw);
   const allParticipants = Array.from(new Set([fromEmail, ...toList, ...ccList].filter(Boolean)));
   const internalDomain = (myEmail.split("@")[1] || "voltsafe.com").toLowerCase();
+  const fromDomain = fromEmail ? (fromEmail.split("@")[1] || null) : null;
 
   // Direction is determined by whether THIS specific account's address is the sender.
   // Using domain alone was wrong — a @voltsafe.com colleague sending to Trevor
