@@ -19,12 +19,25 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   CalendarDays, ListChecks, MessageSquare, Lock, User as UserIcon, Check,
-  Search, Filter, Bookmark, BookmarkPlus, Save, Trash2, X, ChevronDown, Settings, GripVertical, Users, Eye,
+  Search, Filter, Bookmark, BookmarkPlus, Save, Trash2, X, ChevronDown, Settings, GripVertical, Users, Eye, MousePointerClick,
 } from "lucide-react";
 import { format, isToday, isPast } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useTaskColumns, columnBorderClass } from "@/hooks/use-task-columns";
 import { ManageColumnsDialog, ColumnShareDialog } from "@/components/tasks/manage-columns-dialog";
+
+type TrackingSignal = { icon: "eye" | "click"; label: string } | null;
+function parseTrackingSignal(title: string): { cleanTitle: string; signal: TrackingSignal } {
+  const noReply = title.match(/^(.*?)\s*—\s*opened but no reply for (\d+) days?:\s*(.*)$/i);
+  if (noReply) return { cleanTitle: `${noReply[1].trim()}: ${noReply[3].trim()}`, signal: { icon: "eye", label: `${noReply[2]}d` } };
+  const multi = title.match(/^(.*?)\s*—\s*opened multiple times:\s*(.*)$/i);
+  if (multi) return { cleanTitle: `${multi[1].trim()}: ${multi[2].trim()}`, signal: { icon: "eye", label: "×" } };
+  const linkClick = title.match(/^(.*?)\s*—\s*link clicked in:\s*(.*)$/i);
+  if (linkClick) return { cleanTitle: `${linkClick[1].trim()}: ${linkClick[2].trim()}`, signal: { icon: "click", label: "" } };
+  const pricingClick = title.match(/^(High priority:.*?link clicked)\s*—\s*(.*)$/i);
+  if (pricingClick) return { cleanTitle: `${pricingClick[1].trim()}: ${pricingClick[2].trim()}`, signal: { icon: "click", label: "" } };
+  return { cleanTitle: title, signal: null };
+}
 
 const PRIORITY_DOT: Record<string, string> = {
   urgent: "bg-red-500",
@@ -628,6 +641,7 @@ function BoardCard({ task, onOpen, onDragStart, onDragEnd }: any) {
   const due = task.dueDate ? new Date(task.dueDate) : null;
   const isOverdue = due && !isDone && isPast(due) && !isToday(due);
   const isDueToday = due && !isDone && isToday(due);
+  const { cleanTitle, signal } = parseTrackingSignal(task.title);
 
   return (
     <div
@@ -653,7 +667,7 @@ function BoardCard({ task, onOpen, onDragStart, onDragEnd }: any) {
       <div className="flex items-start gap-1.5">
         <span className={`mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0 ${PRIORITY_DOT[task.priority] || PRIORITY_DOT.medium}`} />
         <h4 className={`text-sm font-medium leading-snug flex-1 ${isDone ? "line-through" : ""}`} data-testid={`text-title-${task.id}`}>
-          {task.title}
+          {cleanTitle}
         </h4>
       </div>
 
@@ -695,6 +709,17 @@ function BoardCard({ task, onOpen, onDragStart, onDragEnd }: any) {
           <span className="truncate" title={`Assigned to ${task.ownerName || "—"}`}>
             {task.ownerName || <span className="italic">Unassigned</span>}
           </span>
+          {signal && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1 py-0 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 ml-0.5"
+              title={signal.icon === "eye" ? "Email opened" : "Link clicked"}
+            >
+              {signal.icon === "eye"
+                ? <Eye className="h-2.5 w-2.5" />
+                : <MousePointerClick className="h-2.5 w-2.5" />}
+              {signal.label && <span className="text-[10px] font-medium">{signal.label}</span>}
+            </span>
+          )}
         </div>
         {isDone && task.completedByName ? (
           <span className="inline-flex items-center gap-0.5 text-emerald-600" title={`Completed by ${task.completedByName}`}>

@@ -19,6 +19,7 @@ import {
   CalendarDays, Flag, User2, Link2, MoreHorizontal, Plus, Search,
   SlidersHorizontal, ListTodo, CheckSquare, Users, RefreshCcw, Bell, LayoutGrid,
   Building2, ArrowRight, Zap, Sparkles, ThumbsDown, Settings2, Trash2, RotateCcw,
+  Eye, MousePointerClick,
 } from "lucide-react";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 import { TaskBoard } from "@/components/tasks/task-board";
@@ -114,6 +115,19 @@ const GROUP_ORDER: Record<string, number> = {
   Overdue: 0, Today: 1, Tomorrow: 2, "This week": 3, Later: 4, "No due date": 5,
   high: 0, medium: 1, low: 2,
 };
+
+type TrackingSignal = { icon: "eye" | "click"; label: string } | null;
+function parseTrackingSignal(title: string): { cleanTitle: string; signal: TrackingSignal } {
+  const noReply = title.match(/^(.*?)\s*—\s*opened but no reply for (\d+) days?:\s*(.*)$/i);
+  if (noReply) return { cleanTitle: `${noReply[1].trim()}: ${noReply[3].trim()}`, signal: { icon: "eye", label: `${noReply[2]}d` } };
+  const multi = title.match(/^(.*?)\s*—\s*opened multiple times:\s*(.*)$/i);
+  if (multi) return { cleanTitle: `${multi[1].trim()}: ${multi[2].trim()}`, signal: { icon: "eye", label: "×" } };
+  const linkClick = title.match(/^(.*?)\s*—\s*link clicked in:\s*(.*)$/i);
+  if (linkClick) return { cleanTitle: `${linkClick[1].trim()}: ${linkClick[2].trim()}`, signal: { icon: "click", label: "" } };
+  const pricingClick = title.match(/^(High priority:.*?link clicked)\s*—\s*(.*)$/i);
+  if (pricingClick) return { cleanTitle: `${pricingClick[1].trim()}: ${pricingClick[2].trim()}`, signal: { icon: "click", label: "" } };
+  return { cleanTitle: title, signal: null };
+}
 
 function formatDate(d: string | null, compact = false): string {
   if (!d) return "—";
@@ -246,6 +260,7 @@ function TaskRow({
   const overdue = isOverdue(task.dueDate) && task.status !== "done";
   const days = daysUntil(task.dueDate);
   const isDone = task.status === "done" || task.status === "completed";
+  const { cleanTitle, signal } = parseTrackingSignal(task.title);
 
   const linkedHref = task.linkedObjectType === "account" && task.linkedObjectId
     ? `/accounts/${task.linkedObjectId}`
@@ -282,7 +297,7 @@ function TaskRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-start gap-2 flex-wrap">
           <span className={`text-sm font-medium leading-tight ${isDone ? "line-through text-muted-foreground" : ""}`}>
-            {task.title}
+            {cleanTitle}
           </span>
           {task.aiSuggested && (
             <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 shrink-0 border-primary/30 text-primary/70">
@@ -317,11 +332,22 @@ function TaskRow({
             </button>
           )}
 
-          {/* Owner (team view) */}
+          {/* Owner + tracking signal badge */}
           {task.ownerName && (
-            <span className="text-[11px] text-muted-foreground/60">
-              <User2 className="inline h-2.5 w-2.5 mr-0.5" />
+            <span className="flex items-center gap-1 text-[11px] text-muted-foreground/60">
+              <User2 className="h-2.5 w-2.5" />
               {task.ownerName}
+              {signal && (
+                <span
+                  className="inline-flex items-center gap-0.5 px-1 py-0 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20"
+                  title={signal.icon === "eye" ? "Email opened" : "Link clicked"}
+                >
+                  {signal.icon === "eye"
+                    ? <Eye className="h-2.5 w-2.5" />
+                    : <MousePointerClick className="h-2.5 w-2.5" />}
+                  {signal.label && <span className="text-[10px] font-medium">{signal.label}</span>}
+                </span>
+              )}
             </span>
           )}
         </div>
