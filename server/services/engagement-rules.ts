@@ -127,10 +127,12 @@ export async function checkTimeBasedRules(): Promise<void> {
         }
 
         if (rule.trigger_type === "opened_no_reply_after_days" && firstOpenAt) {
-          // Has been N days since first open and no reply logged
+          // Has been N days since first open AND we haven't sent a reply on this thread
           const msElapsed = nowMs - firstOpenAt.getTime();
-          triggered = msElapsed >= days * 86400000;
-          // Could check for replies — simplified: just check days since open
+          if (msElapsed >= days * 86400000) {
+            const alreadyReplied = await hasOutboundReplyOnThread(pixel.gmail_message_id);
+            triggered = !alreadyReplied;
+          }
         }
 
         if (!triggered) continue;
@@ -318,12 +320,13 @@ async function actionCreateTask(
     url: url || null,
   });
 
-  // Check for identical auto-task in last 24h (in addition to cooldown)
+  // Dedup: don't create another auto-task for the exact same rule+trackingId combo
   const [existing] = (await db.execute(sql.raw(`
     SELECT id FROM tasks
-    WHERE title='${esc(taskTitle)}' AND owner_user_id=${pixel.sent_by_user_id}
-      AND source='automation'
-      AND created_at > NOW() - INTERVAL '24 hours'
+    WHERE source='automation'
+      AND owner_user_id=${pixel.sent_by_user_id}
+      AND source_meta->>'trackingId' = '${esc(pixel.tracking_id)}'
+      AND source_meta->>'ruleId'     = '${esc(String(rule.id))}'
     LIMIT 1
   `))).rows as any[];
   if (existing) return;
