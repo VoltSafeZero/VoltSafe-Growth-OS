@@ -628,6 +628,13 @@ export default function TasksHubPage() {
     window.addEventListener("open-task-drawer", handler as EventListener);
     return () => window.removeEventListener("open-task-drawer", handler as EventListener);
   }, []);
+
+  // Header quick-create "New Task" fires this event after navigating here
+  useEffect(() => {
+    const handler = () => setCreatingNew(true);
+    window.addEventListener("open-create-task", handler);
+    return () => window.removeEventListener("open-create-task", handler);
+  }, []);
   const [groupBy, setGroupBy] = useState<GroupBy>("due_date");
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
