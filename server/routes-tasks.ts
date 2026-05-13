@@ -284,6 +284,51 @@ async function loadTaskFull(taskId: number) {
   };
 }
 
+// ── Recurring: calculate next due date and spawn a new task instance ─────────
+async function spawnNextOccurrence(taskId: number, actorId: number) {
+  const r: any = await db.execute(sql`SELECT * FROM tasks WHERE id = ${taskId} LIMIT 1`);
+  const t = r.rows?.[0];
+  if (!t || !t.recurrence_rule || t.recurrence_rule === "none") return;
+
+  const base = t.due_date ? new Date(t.due_date) : new Date();
+  const next = new Date(base);
+  switch (t.recurrence_rule) {
+    case "daily":     next.setDate(next.getDate() + 1); break;
+    case "weekly":    next.setDate(next.getDate() + 7); break;
+    case "biweekly":  next.setDate(next.getDate() + 14); break;
+    case "monthly":   next.setMonth(next.getMonth() + 1); break;
+    case "quarterly": next.setMonth(next.getMonth() + 3); break;
+    case "yearly":    next.setFullYear(next.getFullYear() + 1); break;
+    default: return;
+  }
+  if (t.recurrence_end_date && next > new Date(t.recurrence_end_date)) return;
+
+  const prevCol = t.board_column === "done" ? "todo" : (t.board_column || "todo");
+  const newTask: any = await db.execute(sql`
+    INSERT INTO tasks (
+      title, description, priority, owner_user_id, created_by_user_id,
+      linked_object_type, linked_object_id, account_id,
+      board_column, status, due_date, source,
+      recurrence_rule, recurrence_end_date,
+      created_at, updated_at
+    ) VALUES (
+      ${t.title}, ${t.description}, ${t.priority}, ${t.owner_user_id}, ${actorId},
+      ${t.linked_object_type}, ${t.linked_object_id}, ${t.account_id},
+      ${prevCol}, 'pending', ${next}, 'recurring',
+      ${t.recurrence_rule}, ${t.recurrence_end_date},
+      NOW(), NOW()
+    ) RETURNING id
+  `);
+  const newId = newTask.rows?.[0]?.id;
+  if (!newId) return;
+  await db.execute(sql`
+    INSERT INTO task_label_assignments (task_id, label_id, created_at)
+    SELECT ${newId}, label_id, NOW() FROM task_label_assignments WHERE task_id = ${taskId}
+    ON CONFLICT DO NOTHING
+  `);
+  console.log(`[recurrence] spawned next occurrence task ${newId} from task ${taskId} (rule=${t.recurrence_rule} next=${next.toISOString().slice(0,10)})`);
+}
+
 export function registerTaskRoutes(app: Express, requireAuth: any) {
   const canView = requirePermission("crm", "view");
   const canEdit = requirePermission("crm", "edit");
@@ -316,6 +361,12 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     )
   `).then(() => console.log("[migration] Column shares schema migration complete."))
     .catch(e => console.error("[task-column-shares] migration error:", e.message));
+
+  // ── Recurrence columns: bootstrap (idempotent) ───────────────────────────
+  db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recurrence_rule TEXT NOT NULL DEFAULT 'none'`)
+    .then(() => db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recurrence_end_date TIMESTAMPTZ`))
+    .then(() => console.log("[migration] Task recurrence columns ready."))
+    .catch(e => console.error("[task-recurrence] migration error:", e.message));
 
   // ── Per-user personal columns: bootstrap ─────────────────────────────────
   db.execute(sql`
@@ -405,6 +456,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
           ou.name AS "ownerName", cu.name AS "creatorName",
           cb.name AS "completedByName", a.name AS "accountName",
           l.company AS "leadName",
+          t.recurrence_rule AS "recurrenceRule",
           (SELECT COUNT(*) FROM task_checklist_items i JOIN task_checklists c ON c.id = i.checklist_id WHERE c.task_id = t.id)::int AS "checklistTotal",
           (SELECT COUNT(*) FROM task_checklist_items i JOIN task_checklists c ON c.id = i.checklist_id WHERE c.task_id = t.id AND i.completed = true)::int AS "checklistDone",
           (SELECT COUNT(*) FROM comments WHERE object_type='task' AND object_id=t.id)::int AS "commentsCount",
@@ -513,6 +565,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       if (boardColumn === "done" && prev.status !== "completed" && prev.status !== "done") {
         await notifyCompletion(id, userId);
         await notifyDependencyUnblock(id, userId);
+        await spawnNextOccurrence(id, userId);
       }
       res.json({ success: true });
     } catch (err: any) {
@@ -559,6 +612,8 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       setIf("linked_object_type", "linkedObjectType", (v) => (v == null ? null : String(v)), "linked contact type");
       setIf("linked_object_id", "linkedObjectId", (v) => (v == null ? null : Number(v)), "linked contact");
       setIf("account_id", "accountId", (v) => (v == null ? null : Number(v)), "organization");
+      setIf("recurrence_rule", "recurrenceRule", (v) => (v == null ? "none" : String(v)), "recurrence");
+      setIf("recurrence_end_date", "recurrenceEndDate", (v) => (v ? new Date(v) : null), "recurrence end date");
 
       if (!fragments.length) return res.json({ success: true, noop: true });
 
@@ -599,6 +654,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       await logActivity(id, userId, "completed", null, null, notes ? { notes } : undefined);
       await notifyCompletion(id, userId);
       await notifyDependencyUnblock(id, userId);
+      await spawnNextOccurrence(id, userId);
       res.json({ success: true });
     } catch (err: any) {
       console.error("[tasks/:id/complete]", err.message);

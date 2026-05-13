@@ -46,6 +46,7 @@ type HubTask = {
   ownerName: string | null;
   accountName: string | null;
   leadName?: string | null;
+  recurrenceRule?: string | null;
 };
 
 type HubResponse = {
@@ -331,6 +332,13 @@ function TaskRow({
               {task.accountName ?? task.leadName ?? `${task.linkedObjectType} #${task.linkedObjectId}`}
               <ArrowRight className="h-2.5 w-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
             </button>
+          )}
+
+          {/* Recurring indicator */}
+          {task.recurrenceRule && task.recurrenceRule !== "none" && (
+            <span className="flex items-center gap-0.5 text-[11px] text-primary/70" title={`Repeats ${task.recurrenceRule}`}>
+              <RotateCcw className="h-3 w-3" />
+            </span>
           )}
 
           {/* Owner + tracking signal badge */}

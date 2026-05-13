@@ -17,10 +17,29 @@ import {
   Tag, Calendar as CalendarIcon, ListChecks, User, Link2, MoveRight, AlertTriangle,
   Trash2, Plus, X, Check, MessageSquare, Activity, Lock, RotateCcw, ChevronDown, Flag,
   Paperclip, UploadCloud, Download, FileText, FileImage, FileVideo, File as FileIcon, Loader2,
-  Users, Building2, UserCircle, ExternalLink,
+  Users, Building2, UserCircle, ExternalLink, Repeat,
 } from "lucide-react";
 import { format } from "date-fns";
 import { DatePicker } from "@/components/ui/date-picker";
+
+const RECURRENCE_LABELS: Record<string, string> = {
+  daily: "Daily",
+  weekly: "Weekly",
+  biweekly: "Bi-weekly",
+  monthly: "Monthly",
+  quarterly: "Quarterly",
+  yearly: "Yearly",
+};
+
+const RECURRENCE_OPTIONS = [
+  { value: "none",      label: "None" },
+  { value: "daily",     label: "Daily" },
+  { value: "weekly",    label: "Weekly" },
+  { value: "biweekly",  label: "Bi-weekly" },
+  { value: "monthly",   label: "Monthly" },
+  { value: "quarterly", label: "Quarterly" },
+  { value: "yearly",    label: "Yearly" },
+];
 
 const PRIORITY_META: Record<string, { label: string; dot: string }> = {
   low:    { label: "Low",    dot: "bg-slate-400" },
@@ -283,6 +302,7 @@ export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, 
             <div className="px-6 py-3 border-b flex flex-wrap gap-2">
               <LabelsButton task={t} taskLabels={data.labels} allLabels={allLabels} onChanged={invalidate} />
               <DueDateButton task={t} onChanged={invalidate} />
+              <RecurringButton task={t} onChanged={invalidate} />
               <ChecklistAddButton taskId={t.id} onChanged={invalidate} />
               <AssigneeButton task={t} users={users} onChanged={invalidate} />
               <ParticipantsButton task={t} watchers={data.watchers} users={users} onChanged={invalidate} />
@@ -337,6 +357,14 @@ export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, 
                   value={t.priority || "medium"}
                   testId="chip-priority"
                 />
+                {t.recurrence_rule && t.recurrence_rule !== "none" && (
+                  <Chip
+                    icon={<Repeat className="h-3.5 w-3.5" />}
+                    label="Repeats"
+                    value={RECURRENCE_LABELS[t.recurrence_rule] || t.recurrence_rule}
+                    testId="chip-recurrence"
+                  />
+                )}
               </div>
 
               {/* Labels strip */}
@@ -624,12 +652,17 @@ function CompletionNotes({ taskId, initial, onSaved }: { taskId: number; initial
   );
 }
 
-function ActionPopover({ icon, label, children, testId }: { icon: React.ReactNode; label: string; children: (close: () => void) => React.ReactNode; testId?: string }) {
+function ActionPopover({ icon, label, children, testId, active }: { icon: React.ReactNode; label: string; children: (close: () => void) => React.ReactNode; testId?: string; active?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="h-8 gap-1.5" data-testid={testId}>
+        <Button
+          variant="outline"
+          size="sm"
+          className={`h-8 gap-1.5 ${active ? "border-primary/60 text-primary bg-primary/5" : ""}`}
+          data-testid={testId}
+        >
           {icon} {label}
         </Button>
       </PopoverTrigger>
@@ -741,6 +774,73 @@ function DueDateButton({ task, onChanged }: any) {
               await apiRequest("PATCH", `/api/tasks/${task.id}`, { startDate: null, dueDate: null });
               setStartVal(""); setDueVal(""); onChanged(); close();
             }}>Clear</Button>
+          </div>
+        </div>
+      )}
+    </ActionPopover>
+  );
+}
+
+function RecurringButton({ task, onChanged }: any) {
+  const [rule, setRule] = useState(task.recurrence_rule || "none");
+  const [endDate, setEndDate] = useState(
+    task.recurrence_end_date ? String(task.recurrence_end_date).slice(0, 10) : ""
+  );
+  const hasRule = task.recurrence_rule && task.recurrence_rule !== "none";
+  return (
+    <ActionPopover
+      icon={<Repeat className="h-3.5 w-3.5" />}
+      label="Repeat"
+      testId="button-action-recurring"
+      active={!!hasRule}
+    >
+      {(close) => (
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">Repeat</label>
+            <Select value={rule} onValueChange={setRule}>
+              <SelectTrigger className="h-8 text-xs" data-testid="select-recurrence-rule">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RECURRENCE_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {rule !== "none" && (
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-muted-foreground">End date (optional)</label>
+              <DatePicker value={endDate} onChange={setEndDate} placeholder="No end date" data-testid="input-recurrence-end" />
+            </div>
+          )}
+          <div className="flex gap-1">
+            <Button
+              size="sm"
+              className="flex-1"
+              onClick={async () => {
+                await apiRequest("PATCH", `/api/tasks/${task.id}`, {
+                  recurrenceRule: rule,
+                  recurrenceEndDate: endDate || null,
+                });
+                onChanged(); close();
+              }}
+              data-testid="button-save-recurrence"
+            >Save</Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={async () => {
+                setRule("none"); setEndDate("");
+                await apiRequest("PATCH", `/api/tasks/${task.id}`, {
+                  recurrenceRule: "none",
+                  recurrenceEndDate: null,
+                });
+                onChanged(); close();
+              }}
+              data-testid="button-clear-recurrence"
+            >Clear</Button>
           </div>
         </div>
       )}
@@ -1619,6 +1719,8 @@ function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: number) => void;
   const [ownerUserId, setOwnerUserId] = useState<string>("me");
   const [linkedContact, setLinkedContact] = useState<{ id: number; label: string } | null>(null);
   const [linkedAccount, setLinkedAccount] = useState<{ id: number; label: string } | null>(null);
+  const [recurrenceRule, setRecurrenceRule] = useState("none");
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
 
   const { data: me } = useQuery<{ id: number; name: string }>({ queryKey: ["/api/auth/me"] });
   const { data: users = [] } = useQuery<{ id: number; name: string }[]>({ queryKey: ["/api/users"] });
@@ -1641,6 +1743,8 @@ function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: number) => void;
           : linkedAccount
             ? { accountId: linkedAccount.id }
             : {}),
+        recurrenceRule,
+        ...(recurrenceRule !== "none" && recurrenceEndDate ? { recurrenceEndDate } : {}),
       });
       if (!res.ok) {
         const msg = await res.text().catch(() => "");
@@ -1796,6 +1900,34 @@ function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: number) => void;
                 />
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Recurrence */}
+        <div className="space-y-2 pt-1">
+          <label className="text-sm font-medium flex items-center gap-1.5">
+            <Repeat className="h-3.5 w-3.5 text-muted-foreground" /> Repeat
+            <span className="text-muted-foreground font-normal text-xs">(optional)</span>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <Select value={recurrenceRule} onValueChange={setRecurrenceRule}>
+              <SelectTrigger className="h-9" data-testid="select-new-task-recurrence">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RECURRENCE_OPTIONS.map(o => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {recurrenceRule !== "none" && (
+              <DatePicker
+                value={recurrenceEndDate}
+                onChange={setRecurrenceEndDate}
+                placeholder="End date (optional)"
+                data-testid="input-new-task-recurrence-end"
+              />
+            )}
           </div>
         </div>
       </div>
