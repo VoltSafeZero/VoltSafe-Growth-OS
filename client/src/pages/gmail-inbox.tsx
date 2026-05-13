@@ -5474,7 +5474,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   };
   const allInboxMessages = dedupById([...(inboxQuery.data?.messages || []), ...inboxExtra]);
   const allSentMessages = dedupById([...(sentQuery.data?.messages || []), ...sentExtra]);
-  const allSpamMessages = [...(spamQuery.data?.messages || []), ...inboxOther];
 
   const inboxMain = canSend
     ? allInboxMessages.filter((m) => !blockedDomains.has(parseSenderDomain(m.from)))
@@ -5482,6 +5481,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const inboxOther = canSend
     ? allInboxMessages.filter((m) => blockedDomains.has(parseSenderDomain(m.from)))
     : [];
+  const allSpamMessages = [...(spamQuery.data?.messages || []), ...inboxOther];
 
   const categorizedInbox =
     inboxCategory === "priority"    ? inboxMain.filter((m) => isStarred(m.labelIds)) :
