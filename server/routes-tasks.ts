@@ -219,7 +219,8 @@ async function loadTaskFull(taskId: number) {
       cb.name AS completed_by_name,
       lu.name AS last_updated_by_name,
       a.name AS account_name,
-      co.name AS contact_name
+      co.name AS contact_name,
+      l.company AS lead_name
     FROM tasks t
     LEFT JOIN users cu ON cu.id = t.created_by_user_id
     LEFT JOIN users ou ON ou.id = t.owner_user_id
@@ -227,6 +228,7 @@ async function loadTaskFull(taskId: number) {
     LEFT JOIN users lu ON lu.id = t.last_updated_by_user_id
     LEFT JOIN accounts a ON a.id = t.account_id
     LEFT JOIN contacts co ON co.id = t.linked_object_id AND t.linked_object_type = 'contact'
+    LEFT JOIN leads l ON l.id = t.linked_object_id AND t.linked_object_type = 'lead'
     WHERE t.id = ${taskId}
     LIMIT 1
   `);
@@ -402,6 +404,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
           t.created_by_user_id AS "createdByUserId",
           ou.name AS "ownerName", cu.name AS "creatorName",
           cb.name AS "completedByName", a.name AS "accountName",
+          l.company AS "leadName",
           (SELECT COUNT(*) FROM task_checklist_items i JOIN task_checklists c ON c.id = i.checklist_id WHERE c.task_id = t.id)::int AS "checklistTotal",
           (SELECT COUNT(*) FROM task_checklist_items i JOIN task_checklists c ON c.id = i.checklist_id WHERE c.task_id = t.id AND i.completed = true)::int AS "checklistDone",
           (SELECT COUNT(*) FROM comments WHERE object_type='task' AND object_id=t.id)::int AS "commentsCount",
@@ -417,6 +420,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
         LEFT JOIN users cu ON cu.id = t.created_by_user_id
         LEFT JOIN users cb ON cb.id = t.completed_by_user_id
         LEFT JOIN accounts a ON a.id = t.account_id
+        LEFT JOIN leads l ON l.id = t.linked_object_id AND t.linked_object_type = 'lead'
         WHERE t.archived = false ${whereFilter}
         ORDER BY t.sort_order ASC, t.due_date ASC NULLS LAST, t.id DESC
         LIMIT 1000

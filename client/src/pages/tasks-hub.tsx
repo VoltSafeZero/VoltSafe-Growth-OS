@@ -45,6 +45,7 @@ type HubTask = {
   ownerUserId: number | null;
   ownerName: string | null;
   accountName: string | null;
+  leadName?: string | null;
 };
 
 type HubResponse = {
@@ -319,15 +320,15 @@ function TaskRow({
             </span>
           )}
 
-          {/* Account link */}
-          {(task.accountName || linkedHref) && (
+          {/* Account / Lead link */}
+          {(task.accountName || task.leadName || linkedHref) && (
             <button
               onClick={() => linkedHref && onNavigate(linkedHref)}
               className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors"
               data-testid={`link-record-${task.id}`}
             >
               <Building2 className="h-3 w-3" />
-              {task.accountName ?? `${task.linkedObjectType} #${task.linkedObjectId}`}
+              {task.accountName ?? task.leadName ?? `${task.linkedObjectType} #${task.linkedObjectId}`}
               <ArrowRight className="h-2.5 w-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
             </button>
           )}

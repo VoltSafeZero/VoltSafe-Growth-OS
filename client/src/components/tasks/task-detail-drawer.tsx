@@ -392,17 +392,24 @@ export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, 
                 </div>
                 <div className="flex items-center gap-2 min-w-0">
                   <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <span className="text-muted-foreground shrink-0 w-[4.5rem]">Org / Marina</span>
+                  <span className="text-muted-foreground shrink-0 w-[4.5rem]">Lead / Account</span>
                   <CrmLinkCombobox
                     type="account"
                     value={
                       t.account_id
-                        ? { id: Number(t.account_id), label: t.account_name || `Account #${t.account_id}` }
-                        : null
+                        ? { id: Number(t.account_id), label: t.account_name || `Account #${t.account_id}`, kind: "account" as const }
+                        : t.linked_object_type === "lead" && t.linked_object_id
+                          ? { id: Number(t.linked_object_id), label: t.lead_name || `Lead #${t.linked_object_id}`, kind: "lead" as const }
+                          : null
                     }
                     onChange={async (v) => {
-                      if (v) await patchTask.mutateAsync({ accountId: v.id });
-                      else await patchTask.mutateAsync({ accountId: null });
+                      if (v?.kind === "lead") {
+                        await patchTask.mutateAsync({ linkedObjectType: "lead", linkedObjectId: v.id, accountId: null });
+                      } else if (v) {
+                        await patchTask.mutateAsync({ accountId: v.id });
+                      } else {
+                        await patchTask.mutateAsync({ accountId: null, linkedObjectType: null, linkedObjectId: null });
+                      }
                     }}
                   />
                   {t.account_id && (
@@ -415,8 +422,18 @@ export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, 
                       <ExternalLink className="h-3.5 w-3.5" />
                     </a>
                   )}
+                  {t.linked_object_type === "lead" && t.linked_object_id && (
+                    <a
+                      href={`/leads/${t.linked_object_id}`}
+                      className="shrink-0 text-primary/60 hover:text-primary transition-colors"
+                      title={`Open ${t.lead_name || "lead"} detail page`}
+                      data-testid="link-lead-detail"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  )}
                 </div>
-                {t.linked_object_type && t.linked_object_type !== "contact" && t.linked_object_id && (
+                {t.linked_object_type && t.linked_object_type !== "contact" && t.linked_object_type !== "lead" && t.linked_object_id && (
                   <div className="flex items-center gap-1.5 text-muted-foreground">
                     <Link2 className="h-3 w-3" />
                     <span>Also linked to: <span className="font-medium text-foreground capitalize">{t.linked_object_type} #{t.linked_object_id}</span></span>
@@ -1441,8 +1458,8 @@ function AttachmentsBlock({
 }
 
 // ─── CrmLinkCombobox ─────────────────────────────────────────────────────────
-// Searchable dropdown for linking a task to a Contact or Account/Marina.
-// Calls onChange(null) to clear, or onChange({ id, label }) to set.
+// Searchable dropdown for linking a task to a Contact or Lead / Account.
+// Calls onChange(null) to clear, or onChange({ id, label, kind }) to set.
 
 function CrmLinkCombobox({
   type,
@@ -1451,8 +1468,8 @@ function CrmLinkCombobox({
   disabled,
 }: {
   type: "contact" | "account";
-  value: { id: number; label: string } | null;
-  onChange: (v: { id: number; label: string } | null) => void;
+  value: { id: number; label: string; kind?: "account" | "lead" } | null;
+  onChange: (v: { id: number; label: string; kind?: "account" | "lead" } | null) => void;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -1480,18 +1497,36 @@ function CrmLinkCombobox({
     enabled: open && type === "account",
     staleTime: 15000,
   });
+  const leadsQ = useQuery<any>({
+    queryKey: ["/api/leads", "task-link", debounced],
+    queryFn: () =>
+      fetch(`/api/leads?search=${encodeURIComponent(debounced)}&limit=20`, { credentials: "include" })
+        .then((r) => r.json()),
+    enabled: open && type === "account",
+    staleTime: 15000,
+  });
 
-  const isFetching = type === "contact" ? contactQ.isFetching : accountQ.isFetching;
-  const items: { id: number; label: string; sub?: string }[] =
+  const isFetching = type === "contact" ? contactQ.isFetching : (accountQ.isFetching || leadsQ.isFetching);
+
+  const items: { id: number; label: string; sub?: string; kind?: "account" | "lead" }[] =
     type === "contact"
       ? (contactQ.data ?? []).map((c: any) => ({ id: c.id, label: c.name, sub: c.email }))
-      : (accountQ.data?.data ?? []).map((a: any) => ({
-          id: a.id,
-          label: a.name,
-          sub: a.orgType ? a.orgType.replace(/_/g, " ") : undefined,
-        }));
+      : [
+          ...(leadsQ.data?.data ?? []).map((l: any) => ({
+            id: l.id,
+            label: l.company || `Lead #${l.id}`,
+            sub: "Lead" + (l.contact_name ? ` · ${l.contact_name}` : ""),
+            kind: "lead" as const,
+          })),
+          ...(accountQ.data?.data ?? []).map((a: any) => ({
+            id: a.id,
+            label: a.name,
+            sub: "Account" + (a.orgType ? ` · ${a.orgType.replace(/_/g, " ")}` : ""),
+            kind: "account" as const,
+          })),
+        ];
 
-  const placeholder = type === "contact" ? "Search contacts…" : "Search organizations & marinas…";
+  const placeholder = type === "contact" ? "Search contacts…" : "Search leads & accounts…";
 
   return (
     <Popover
@@ -1522,7 +1557,7 @@ function CrmLinkCombobox({
           ) : (
             <span className="flex items-center gap-1 text-xs text-primary hover:underline px-1 py-0.5 rounded">
               <Plus className="h-3 w-3" />
-              {type === "contact" ? "Link contact" : "Link organization"}
+              {type === "contact" ? "Link contact" : "Link lead / account"}
             </span>
           )}
         </button>
@@ -1601,7 +1636,11 @@ function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: number) => void;
         boardColumn: column,
         ownerUserId: resolvedOwner,
         ...(linkedContact ? { linkedObjectType: "contact", linkedObjectId: linkedContact.id } : {}),
-        ...(linkedAccount ? { accountId: linkedAccount.id } : {}),
+        ...(linkedAccount?.kind === "lead"
+          ? { linkedObjectType: "lead", linkedObjectId: linkedAccount.id, accountId: null }
+          : linkedAccount
+            ? { accountId: linkedAccount.id }
+            : {}),
       });
       if (!res.ok) {
         const msg = await res.text().catch(() => "");
@@ -1747,7 +1786,7 @@ function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: number) => void;
             </div>
             <div className="space-y-1.5">
               <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Building2 className="h-3 w-3" /> Account / Marina
+                <Building2 className="h-3 w-3" /> Lead / Account
               </p>
               <div className="border rounded-md px-2 py-1.5 bg-background min-h-[34px] flex items-center">
                 <CrmLinkCombobox
