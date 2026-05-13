@@ -7573,7 +7573,21 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         <Reply className="h-3.5 w-3.5" aria-hidden="true" />
                       </motion.button>
                     )}
-                    {canSend && tab !== "sent" && (
+                    {canSend && tab === "spam" && (
+                      <motion.button
+                        whileTap={{ scale: 0.82 }}
+                        whileHover={{ scale: 1.1 }}
+                        title="Not spam — move to inbox"
+                        aria-label="Not spam — move to inbox"
+                        tabIndex={-1}
+                        data-testid={`button-not-spam-row-${msg.id}`}
+                        onClick={(e) => { e.stopPropagation(); notSpamMutation.mutate(msg.threadId); }}
+                        className="p-1.5 rounded-md transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-muted-foreground/40 hover:text-emerald-400 hover:bg-emerald-500/10"
+                      >
+                        <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                      </motion.button>
+                    )}
+                    {canSend && tab !== "sent" && tab !== "spam" && (
                       <motion.button
                         whileTap={{ scale: 0.82 }}
                         whileHover={{ scale: 1.1 }}
