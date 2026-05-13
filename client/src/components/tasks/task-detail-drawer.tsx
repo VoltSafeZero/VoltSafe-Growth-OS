@@ -938,6 +938,125 @@ function DependenciesButton({ task, deps, onChanged }: any) {
   );
 }
 
+function ChecklistItemRow({ item: i, onChanged, toast }: { item: any; onChanged: () => void; toast: any }) {
+  const [dateOpen, setDateOpen] = useState(false);
+  const [startVal, setStartVal] = useState<Date | undefined>(i.start_date ? new Date(i.start_date) : undefined);
+  const [dueVal, setDueVal] = useState<Date | undefined>(i.due_date ? new Date(i.due_date) : undefined);
+  const [savingDates, setSavingDates] = useState(false);
+
+  const saveDates = async () => {
+    setSavingDates(true);
+    try {
+      await apiRequest("PATCH", `/api/task-checklist-items/${i.id}`, {
+        start_date: startVal ? format(startVal, "yyyy-MM-dd") : null,
+        due_date: dueVal ? format(dueVal, "yyyy-MM-dd") : null,
+      });
+      onChanged();
+      setDateOpen(false);
+    } catch (e: any) {
+      toast({ title: "Couldn't save dates", description: e.message, variant: "destructive" });
+    } finally {
+      setSavingDates(false);
+    }
+  };
+
+  const hasStartDate = !!i.start_date;
+  const hasDueDate = !!i.due_date;
+  const isOverdue = hasDueDate && !i.completed && new Date(i.due_date) < new Date();
+
+  return (
+    <li className="group py-0.5" data-testid={`checklist-item-${i.id}`}>
+      <div className="flex items-start gap-2">
+        <Checkbox
+          checked={!!i.completed}
+          data-testid={`checkbox-item-${i.id}`}
+          className="mt-0.5 h-4 w-4 shrink-0"
+          onCheckedChange={async (c) => {
+            try {
+              await apiRequest("PATCH", `/api/task-checklist-items/${i.id}`, { completed: !!c });
+              onChanged();
+            } catch (e: any) {
+              toast({ title: "Couldn't update item", description: e.message, variant: "destructive" });
+            }
+          }}
+        />
+        <div className="flex-1 min-w-0">
+          <span className={`text-sm leading-snug ${i.completed ? "line-through text-muted-foreground" : ""}`}>{i.content}</span>
+          {(hasStartDate || hasDueDate) && (
+            <div className="flex items-center gap-3 mt-0.5">
+              {hasStartDate && (
+                <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <CalendarIcon className="h-2.5 w-2.5" />
+                  Start: {format(new Date(i.start_date), "MMM d")}
+                </span>
+              )}
+              {hasDueDate && (
+                <span className={`text-[10px] flex items-center gap-1 ${isOverdue ? "text-red-400 font-medium" : "text-muted-foreground"}`}>
+                  <CalendarIcon className="h-2.5 w-2.5" />
+                  Due: {format(new Date(i.due_date), "MMM d")}
+                  {isOverdue && " · overdue"}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          <Popover open={dateOpen} onOpenChange={(open) => {
+            setDateOpen(open);
+            if (open) {
+              setStartVal(i.start_date ? new Date(i.start_date) : undefined);
+              setDueVal(i.due_date ? new Date(i.due_date) : undefined);
+            }
+          }}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={`text-muted-foreground hover:text-foreground transition-colors ${hasStartDate || hasDueDate ? "text-primary" : ""}`}
+                data-testid={`button-dates-item-${i.id}`}
+                title="Set dates"
+              >
+                <CalendarIcon className="h-3.5 w-3.5" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-72 p-4 space-y-3">
+              <p className="text-xs font-semibold text-foreground">Item dates</p>
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">Start date <span className="opacity-60">(optional)</span></label>
+                <DatePicker value={startVal} onChange={setStartVal} placeholder="Pick a start date" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">Due date <span className="opacity-60">(optional)</span></label>
+                <DatePicker value={dueVal} onChange={setDueVal} placeholder="Pick a due date" />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <Button size="sm" className="flex-1" onClick={saveDates} disabled={savingDates} data-testid={`button-save-dates-item-${i.id}`}>
+                  {savingDates ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setDateOpen(false)}>Cancel</Button>
+              </div>
+            </PopoverContent>
+          </Popover>
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-destructive transition-colors"
+            onClick={async () => {
+              try {
+                await apiRequest("DELETE", `/api/task-checklist-items/${i.id}`);
+                onChanged();
+              } catch (e: any) {
+                toast({ title: "Couldn't remove item", description: e.message, variant: "destructive" });
+              }
+            }}
+            data-testid={`button-delete-item-${i.id}`}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </li>
+  );
+}
+
 function ChecklistBlock({ checklist, onChanged }: any) {
   const [newItem, setNewItem] = useState("");
   const [saving, setSaving] = useState(false);
@@ -993,38 +1112,9 @@ function ChecklistBlock({ checklist, onChanged }: any) {
             No items yet — type below and press Enter or click + to add one.
           </p>
         ) : (
-          <ul className="space-y-1">
+          <ul className="space-y-0.5">
             {checklist.items.map((i: any) => (
-              <li key={i.id} className="flex items-center gap-2 group" data-testid={`checklist-item-${i.id}`}>
-                <Checkbox
-                  checked={!!i.completed}
-                  data-testid={`checkbox-item-${i.id}`}
-                  onCheckedChange={async (c) => {
-                    try {
-                      await apiRequest("PATCH", `/api/task-checklist-items/${i.id}`, { completed: !!c });
-                      onChanged();
-                    } catch (e: any) {
-                      toast({ title: "Couldn't update item", description: e.message, variant: "destructive" });
-                    }
-                  }}
-                />
-                <span className={`text-sm flex-1 ${i.completed ? "line-through text-muted-foreground" : ""}`}>{i.content}</span>
-                <button
-                  type="button"
-                  className="opacity-0 group-hover:opacity-100 text-xs text-muted-foreground hover:text-destructive"
-                  onClick={async () => {
-                    try {
-                      await apiRequest("DELETE", `/api/task-checklist-items/${i.id}`);
-                      onChanged();
-                    } catch (e: any) {
-                      toast({ title: "Couldn't remove item", description: e.message, variant: "destructive" });
-                    }
-                  }}
-                  data-testid={`button-delete-item-${i.id}`}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </li>
+              <ChecklistItemRow key={i.id} item={i} onChanged={onChanged} toast={toast} />
             ))}
           </ul>
         )}

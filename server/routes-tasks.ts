@@ -793,7 +793,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
-      const { completed, content } = req.body || {};
+      const { completed, content, start_date, due_date } = req.body || {};
       const cur: any = await db.execute(sql`
         SELECT i.*, c.task_id FROM task_checklist_items i
         JOIN task_checklists c ON c.id = i.checklist_id WHERE i.id = ${id}`);
@@ -810,6 +810,14 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       }
       if (typeof content === "string") {
         await db.execute(sql`UPDATE task_checklist_items SET content = ${content.slice(0, 500)} WHERE id = ${id}`);
+      }
+      if (start_date !== undefined) {
+        const sd = start_date ? String(start_date) : null;
+        await db.execute(sql`UPDATE task_checklist_items SET start_date = ${sd}::date WHERE id = ${id}`);
+      }
+      if (due_date !== undefined) {
+        const dd = due_date ? String(due_date) : null;
+        await db.execute(sql`UPDATE task_checklist_items SET due_date = ${dd}::date WHERE id = ${id}`);
       }
       res.json({ success: true });
     } catch (err: any) {
