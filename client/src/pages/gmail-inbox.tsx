@@ -5416,6 +5416,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Unread-cards mode: filter inbox to only unread messages (keep open thread visible).
   const isUnreadCardsView =
     viewMode === "unread-cards" &&
+    !searchQuery &&
     tab === "inbox" && tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review";
   const unreadCardsMessages = useMemo<MessageSummary[]>(() => {
     if (!isUnreadCardsView || !crmFilteredMessages) return [];
