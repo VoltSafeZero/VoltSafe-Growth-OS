@@ -4141,7 +4141,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/email-filters"] });
-      toast({ title: "Domain blocked", description: "Future emails from this sender will appear in Other." });
+      toast({ title: "Domain blocked", description: "Future emails from this sender will go to Spam." });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -5474,7 +5474,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   };
   const allInboxMessages = dedupById([...(inboxQuery.data?.messages || []), ...inboxExtra]);
   const allSentMessages = dedupById([...(sentQuery.data?.messages || []), ...sentExtra]);
-  const allSpamMessages = spamQuery.data?.messages || [];
+  const allSpamMessages = [...(spamQuery.data?.messages || []), ...inboxOther];
 
   const inboxMain = canSend
     ? allInboxMessages.filter((m) => !blockedDomains.has(parseSenderDomain(m.from)))
@@ -6114,53 +6114,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           {!canSend && (
             <Badge variant="outline" className="text-xs text-amber-400 border-amber-500/30">View Only</Badge>
           )}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending}
-            data-testid="button-sync-crm"
-            className="gap-1.5 text-xs"
-          >
-            {syncMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
-            {syncMutation.isPending ? "Syncing..." : "Sync to CRM"}
-          </Button>
-          {/* Commit 4: the inbox is always sourced from the local mirror —
-              the Source selector and ?mailSource= URL param were removed. */}
           <LocalSearchButton />
-          {/* Density toggle — Comfortable / Compact / Ultra */}
-          <div
-            className="hidden md:inline-flex items-center gap-0.5 p-0.5 rounded-md border border-border/50 bg-background/60"
-            role="radiogroup"
-            aria-label="List density"
-            data-testid="density-toggle"
-          >
-            {([
-              { key: "comfortable", icon: Rows3, label: "Comfortable" },
-              { key: "compact",     icon: Rows2, label: "Compact" },
-              { key: "ultra",       icon: AlignJustify, label: "Ultra compact" },
-            ] as const).map(({ key, icon: Icon, label }) => {
-              const active = density === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  title={label}
-                  data-testid={`button-density-${key}`}
-                  onClick={() => setDensity(key)}
-                  className={`h-6 w-7 inline-flex items-center justify-center rounded-[4px] transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none ${
-                    active
-                      ? "bg-primary/15 text-primary"
-                      : "text-muted-foreground/55 hover:text-foreground hover:bg-muted/50"
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-                </button>
-              );
-            })}
-          </div>
           {/* Snippets manager */}
           <Button
             size="icon"
@@ -6451,11 +6405,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                               {(scheduledQuery.data?.length ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "scheduled" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{scheduledQuery.data?.length}</span>}
                             </button>
                           </>}
-                          <button onClick={() => { setTab("other"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-other-${acct.id}`}
-                            className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "other" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
-                            <FolderX className="h-3.5 w-3.5" /><span className="flex-1 text-left">Other</span>
-                            {inboxOther.length > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-muted text-muted-foreground">{inboxOther.length}</span>}
-                          </button>
                           {/* Folders under each team inbox */}
                           <div className={`${densityClasses.sidebarSectionPt} pb-0.5 flex items-center justify-between pr-1`}>
                             <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Folders</span>
@@ -6552,7 +6501,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 { key: "sent",     label: "Sent",    badge: null },
                 ...(canSend ? [{ key: "drafts", label: "Drafts", badge: (draftsQuery.data?.length ?? 0) > 0 ? draftsQuery.data?.length : null }] : []),
                 { key: "review",   label: "Review",  badge: (reviewStatsQuery.data?.needsReview ?? 0) > 0 ? reviewStatsQuery.data?.needsReview : null },
-                { key: "other",    label: "Other",   badge: inboxOther.length > 0 ? inboxOther.length : null },
               ].map((t) => (
                 <button
                   key={t.key}
@@ -6569,55 +6517,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             </div>
           </div>
 
-          {/* Category pills + Search */}
+          {/* Filter pills + Search */}
           <div className={`flex-shrink-0 ${densityClasses.chipsRootPad} ${densityClasses.chipsRootGap} border-b border-border/50`}>
-            {(tab === "inbox" || tab === "other") && (
-              <div className="overflow-x-auto -mx-3 px-3">
-                <div className="flex gap-1 min-w-max">
-                {([
-                  { key: "all",         label: "Inbox",        icon: <Inbox className="h-3 w-3" />,     count: inboxMain.length },
-                  { key: "priority",    label: "Priority",     icon: <Star className="h-3 w-3" />,      count: priorityCount },
-                  { key: "people",      label: "People",       icon: <Users className="h-3 w-3" />,     count: peopleCount },
-                  { key: "newsletters", label: "Newsletters",  icon: <Newspaper className="h-3 w-3" />, count: newslettersCount },
-                ] as { key: InboxCategory; label: string; icon: React.ReactNode; count: number }[]).map(({ key, label, icon, count }) => {
-                  const active = tab === "inbox" && inboxCategory === key;
-                  return (
-                  <motion.button
-                    key={key}
-                    whileTap={{ scale: 0.95 }}
-                    whileHover={{ scale: 1.04 }}
-                    transition={{ type: "spring", stiffness: 500, damping: 22 }}
-                    onClick={() => {
-                      setTab("inbox");
-                      setInboxCategory(key);
-                    }}
-                    data-testid={`inbox-category-${key}`}
-                    className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-colors whitespace-nowrap ${
-                      active
-                        ? key === "priority"
-                          ? "bg-amber-500/15 text-amber-300 ring-1 ring-inset ring-amber-400/40 shadow-[0_0_12px_-2px_rgba(251,191,36,0.35)]"
-                          : "bg-primary/12 text-primary ring-1 ring-inset ring-primary/40 shadow-[0_0_12px_-2px_rgba(20,184,166,0.35)]"
-                        : "bg-muted/40 text-muted-foreground/85 hover:bg-muted/70 hover:text-foreground ring-1 ring-inset ring-transparent"
-                    }`}
-                  >
-                    {icon}
-                    {label}
-                    {count > 0 && <span className={`ml-0.5 tabular-nums ${active ? "opacity-90" : "opacity-60"}`}>{count}</span>}
-                  </motion.button>
-                );})}
-                </div>
-              </div>
-            )}
             {tab === "inbox" && (
               <>
-                {/* CRM filter bar — flex-wrap so items flow to next line at narrow widths instead of clipping */}
+                {/* Simple filter bar — All, Unread, Starred */}
                 <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                  {/* Core pills: All, Unread, Starred, Hot */}
                   {([
                     { key: "all",     label: "All",     icon: <Filter className="h-3 w-3" />,   activeColor: "bg-violet-500/15 text-violet-300 ring-violet-400/40 shadow-[0_0_10px_-2px_rgba(167,139,250,0.3)]", count: null },
                     { key: "unread",  label: "Unread",  icon: <MailOpen className="h-3 w-3" />, activeColor: "bg-blue-500/15 text-blue-300 ring-blue-400/40 shadow-[0_0_10px_-2px_rgba(96,165,250,0.3)]",    count: inboxUnreadCount || null },
                     { key: "starred", label: "Starred", icon: <Star className="h-3 w-3" />,     activeColor: "bg-amber-500/15 text-amber-300 ring-amber-400/40 shadow-[0_0_10px_-2px_rgba(251,191,36,0.3)]",  count: null },
-                    { key: "hot",     label: "Hot",     icon: <Flame className="h-3 w-3" />,    activeColor: "bg-rose-500/15 text-rose-400 ring-rose-400/40 shadow-[0_0_10px_-2px_rgba(251,113,133,0.3)]",   count: triageSummary.hot || null },
                   ] as { key: CrmInboxFilter; label: string; icon: React.ReactNode; activeColor: string; count: number | null }[]).map(({ key, label, icon, activeColor, count }) => {
                     const active = crmFilter === key;
                     return (
@@ -6640,68 +6549,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       </motion.button>
                     );
                   })}
-
-                  {/* TO DOs dropdown — consolidates Needs Reply, Follow Up, Awaiting Reply, Unlinked */}
-                  {(() => {
-                    const todoKeys: CrmInboxFilter[] = ["needs-reply", "follow-up", "awaiting-reply", "unlinked"];
-                    const isTodoActive = todoKeys.includes(crmFilter);
-                    const todoItems = [
-                      { key: "needs-reply"    as CrmInboxFilter, label: "Needs Reply",    icon: <Reply className="h-3 w-3" />,        count: null,                         colorCls: "text-blue-400"   },
-                      { key: "follow-up"      as CrmInboxFilter, label: "Follow Up",      icon: <ClipboardList className="h-3 w-3" />, count: null,                         colorCls: "text-amber-400"  },
-                      { key: "awaiting-reply" as CrmInboxFilter, label: "Awaiting Reply", icon: <Clock className="h-3 w-3" />,         count: triageSummary.awaitingReply,  colorCls: "text-orange-400" },
-                      { key: "unlinked"       as CrmInboxFilter, label: "Unlinked",       icon: <Link2 className="h-3 w-3" />,         count: triageSummary.unlinked,       colorCls: "text-slate-400"  },
-                    ];
-                    const totalCount = triageSummary.awaitingReply + triageSummary.unlinked;
-                    const activeTodo = todoItems.find(i => i.key === crmFilter);
-                    return (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <motion.button
-                            whileTap={{ scale: 0.95 }}
-                            whileHover={{ scale: 1.04 }}
-                            transition={{ type: "spring", stiffness: 500, damping: 22 }}
-                            data-testid="crm-filter-todos"
-                            className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-all whitespace-nowrap ring-1 ring-inset ${
-                              isTodoActive
-                                ? "bg-orange-500/15 text-orange-300 ring-orange-400/40 shadow-[0_0_10px_-2px_rgba(251,146,60,0.3)]"
-                                : "bg-muted/30 text-muted-foreground/65 hover:bg-muted/55 hover:text-foreground/85 ring-transparent"
-                            }`}
-                          >
-                            <ClipboardList className="h-3 w-3" />
-                            {isTodoActive && activeTodo ? activeTodo.label : "To Dos"}
-                            {isTodoActive && activeTodo?.count ? (
-                              <span className="ml-0.5 text-[10px] tabular-nums opacity-90">{activeTodo.count}</span>
-                            ) : !isTodoActive && totalCount > 0 ? (
-                              <span className="ml-0.5 text-[10px] tabular-nums opacity-60">{totalCount}</span>
-                            ) : null}
-                            <ChevronDown className="h-2.5 w-2.5 ml-0.5 opacity-50" />
-                          </motion.button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="w-48 p-1">
-                          <DropdownMenuLabel className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wide px-2 py-1">Action Required</DropdownMenuLabel>
-                          <DropdownMenuSeparator className="my-1" />
-                          {todoItems.map(({ key, label, icon, count, colorCls }) => {
-                            const active = crmFilter === key;
-                            return (
-                              <DropdownMenuItem
-                                key={key}
-                                onClick={() => setCrmFilter(active ? "all" : key)}
-                                data-testid={`todo-filter-${key}`}
-                                className={`flex items-center gap-2 text-xs px-2 py-1.5 rounded cursor-pointer ${active ? "bg-muted/60 font-semibold " + colorCls : ""}`}
-                              >
-                                <span className={active ? colorCls : "text-muted-foreground"}>{icon}</span>
-                                <span className="flex-1">{label}</span>
-                                {count !== null && count > 0 && (
-                                  <span className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-full font-semibold ${active ? "bg-muted/80 opacity-90" : "bg-muted/50 text-muted-foreground opacity-70"}`}>{count}</span>
-                                )}
-                                {active && <Check className="h-3 w-3 opacity-70 flex-shrink-0" />}
-                              </DropdownMenuItem>
-                            );
-                          })}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    );
-                  })()}
 
                   {/* Mark all read */}
                   {inboxUnreadCount > 0 && (
