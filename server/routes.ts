@@ -7428,17 +7428,11 @@ export async function registerRoutes(
 
   // ── Team Wins Ticker ─────────────────────────────────────────────────────
 
-  // In-memory cache: 30-min TTL 8am–8pm Pacific, 60-min overnight.
+  // In-memory cache: 60-min TTL always.
   const _twCache: { data: any[] | null; at: number } = { data: null, at: 0 };
 
   function _twTTL(): number {
-    const h = parseInt(
-      new Date().toLocaleString("en-US", {
-        timeZone: "America/Vancouver", hour: "numeric", hour12: false,
-      }),
-      10,
-    );
-    return (h >= 8 && h < 20 ? 30 : 60) * 60 * 1000;
+    return 60 * 60 * 1000; // 1 hour
   }
 
   function _twInitials(name: string | null | undefined): string {
@@ -7480,20 +7474,21 @@ export async function registerRoutes(
 
       const wins: any[] = [];
 
-      // ── 1. Completed tasks ──────────────────────────────────────────────
+      // ── 1. Completed tasks (7-day window) ──────────────────────────────
       try {
         const rows = (await db.execute(sql.raw(`
-          SELECT t.id, t.title, t.completed_at,
+          SELECT t.id, t.title,
+                 COALESCE(t.completed_at, t.updated_at) AS completed_at,
                  u.name  AS user_name,  u.role  AS user_role,
                  a.name  AS account_name
           FROM tasks t
-          LEFT JOIN users    u  ON u.id = t.completed_by_user_id
+          LEFT JOIN users    u  ON u.id = COALESCE(t.completed_by_user_id, t.owner_user_id)
           LEFT JOIN accounts a  ON a.id = t.account_id
-          WHERE t.completed_at > NOW() - INTERVAL '48 hours'
+          WHERE COALESCE(t.completed_at, t.updated_at) > NOW() - INTERVAL '7 days'
             AND t.status IN ('completed','done')
             AND t.archived = false
             AND t.ai_suggested = false
-          ORDER BY t.completed_at DESC
+          ORDER BY COALESCE(t.completed_at, t.updated_at) DESC
           LIMIT 25
         `))).rows as any[];
         for (const r of rows) {
@@ -7512,7 +7507,7 @@ export async function registerRoutes(
         }
       } catch (_e) { /* table/perms issue — skip */ }
 
-      // ── 2. Won / verbal-commit opportunities ───────────────────────────
+      // ── 2. Won / verbal-commit opportunities (7-day window) ─────────────
       if (isCrmVisible) {
         try {
           const rows = (await db.execute(sql.raw(`
@@ -7522,7 +7517,7 @@ export async function registerRoutes(
             FROM opportunities o
             LEFT JOIN users    u  ON u.id = o.owner_user_id
             LEFT JOIN accounts ac ON ac.id = o.account_id
-            WHERE o.updated_at > NOW() - INTERVAL '48 hours'
+            WHERE o.updated_at > NOW() - INTERVAL '7 days'
               AND o.stage IN ('closed_won','verbal_commit')
             ORDER BY o.updated_at DESC
             LIMIT 15
@@ -7544,29 +7539,41 @@ export async function registerRoutes(
           }
         } catch (_e) { /* skip */ }
 
-        // ── 3. Qualified / converted leads ─────────────────────────────
+        // ── 3. Lead status progressions (7-day window) ─────────────────
         try {
           const rows = (await db.execute(sql.raw(`
             SELECT l.id, l.company, l.contact_name, l.status, l.updated_at,
                    u.name AS user_name, u.role AS user_role
             FROM leads l
             LEFT JOIN users u ON u.id = l.owner_user_id
-            WHERE l.updated_at > NOW() - INTERVAL '48 hours'
-              AND l.status IN ('won','closed_won','converted','qualified')
+            WHERE l.updated_at > NOW() - INTERVAL '7 days'
+              AND l.status IN ('won','closed_won','converted','qualified','negotiation','proposal_sent','demo_scheduled','contacted','prospect')
             ORDER BY l.updated_at DESC
-            LIMIT 10
+            LIMIT 20
           `))).rows as any[];
+          const leadWinTypeMap: Record<string, string> = {
+            won: "Lead Converted", closed_won: "Lead Converted", converted: "Lead Converted",
+            qualified: "Lead Qualified", negotiation: "Lead Qualified",
+            proposal_sent: "Lead Qualified", demo_scheduled: "Lead Qualified",
+            contacted: "Lead Qualified", prospect: "Lead Qualified",
+          };
+          const leadVerbMap: Record<string, string> = {
+            won: "converted", closed_won: "converted", converted: "converted",
+            qualified: "qualified", negotiation: "moved to negotiation",
+            proposal_sent: "sent proposal", demo_scheduled: "demo scheduled",
+            contacted: "contacted", prospect: "added as prospect",
+          };
           for (const r of rows) {
-            const verb = ["won","closed_won","converted"].includes(r.status) ? "converted" : "qualified";
+            const verb = leadVerbMap[r.status] ?? "progressed";
             wins.push({
               id: `lead-${r.id}`,
               userName:         r.user_name || "Team",
               userInitials:     _twInitials(r.user_name),
               department:       _twDept(r.user_role) ?? "Sales",
-              winType:          verb === "converted" ? "Lead Converted" : "Lead Qualified",
+              winType:          leadWinTypeMap[r.status] ?? "Lead Qualified",
               shortDescription: r.contact_name
-                ? `${r.contact_name} at ${r.company} ${verb}`
-                : `${r.company} ${verb}`,
+                ? `${r.contact_name} at ${r.company} — ${verb}`
+                : `${r.company} — ${verb}`,
               completedAt:  r.updated_at,
               sourceModule: "CRM",
             });
@@ -7574,19 +7581,46 @@ export async function registerRoutes(
         } catch (_e) { /* skip */ }
       }
 
-      // ── 4. Completed project milestones ────────────────────────────────
+      // ── 4. Completed projects (7-day window) ───────────────────────────
       if (isOpsVisible) {
         try {
           const rows = (await db.execute(sql.raw(`
-            SELECT pm.id, pm.name, pm.completed_at,
+            SELECT p.id, p.name, p.type, p.updated_at,
+                   u.name AS user_name, u.role AS user_role
+            FROM projects p
+            LEFT JOIN users u ON u.id = p.owner_user_id
+            WHERE p.updated_at > NOW() - INTERVAL '7 days'
+              AND p.status = 'completed'
+            ORDER BY p.updated_at DESC
+            LIMIT 10
+          `))).rows as any[];
+          for (const r of rows) {
+            wins.push({
+              id: `proj-${r.id}`,
+              userName:         r.user_name || "Team",
+              userInitials:     _twInitials(r.user_name),
+              department:       "Operations",
+              winType:          "Project Completed",
+              shortDescription: `"${r.name}"${r.type ? ` (${r.type})` : ""} marked complete`,
+              completedAt:      r.updated_at,
+              sourceModule:     "Projects",
+            });
+          }
+        } catch (_e) { /* skip */ }
+
+        // ── 5. Completed project milestones (7-day window) ──────────────
+        try {
+          const rows = (await db.execute(sql.raw(`
+            SELECT pm.id, pm.title,
+                   COALESCE(pm.completed_at, pm.updated_at) AS completed_at,
                    p.name AS project_name,
                    u.name AS user_name, u.role AS user_role
             FROM project_milestones pm
             JOIN  projects p ON p.id = pm.project_id
             LEFT JOIN users u ON u.id = p.owner_user_id
-            WHERE pm.completed_at > NOW() - INTERVAL '48 hours'
+            WHERE COALESCE(pm.completed_at, pm.updated_at) > NOW() - INTERVAL '7 days'
               AND pm.status = 'completed'
-            ORDER BY pm.completed_at DESC
+            ORDER BY COALESCE(pm.completed_at, pm.updated_at) DESC
             LIMIT 10
           `))).rows as any[];
           for (const r of rows) {
@@ -7596,7 +7630,7 @@ export async function registerRoutes(
               userInitials:     _twInitials(r.user_name),
               department:       "Operations",
               winType:          "Milestone Hit",
-              shortDescription: `Milestone "${r.name}" hit on ${r.project_name}`,
+              shortDescription: `Milestone "${r.title}" hit on ${r.project_name}`,
               completedAt:  r.completed_at,
               sourceModule: "Projects",
             });
@@ -7623,6 +7657,13 @@ export async function registerRoutes(
       console.error("[team-wins] unhandled error:", err);
       res.status(500).json({ message: "Failed to load team wins", wins: [] });
     }
+  });
+
+  // ── Team Wins cache flush (manual refresh) ────────────────────────────
+  app.post("/api/today/team-wins/refresh", requireAuth, (req: any, res) => {
+    _twCache.data = null;
+    _twCache.at   = 0;
+    res.json({ ok: true, message: "Cache cleared — next GET will re-fetch live data." });
   });
 
   // ── Growth OS Command Center ───────────────────────────────────────────

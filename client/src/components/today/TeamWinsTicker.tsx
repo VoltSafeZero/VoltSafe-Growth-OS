@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { formatDistanceToNow } from "date-fns";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { format, formatDistanceToNow } from "date-fns";
 import { Zap, ChevronLeft, ChevronRight, Trophy, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { apiRequest } from "@/lib/queryClient";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -37,16 +38,30 @@ const MODULE_COLORS: Record<string, string> = {
 };
 
 const WIN_TYPE_ICON: Record<string, string> = {
-  "Closed Deal":      "🏆",
-  "Verbal Commit":    "🤝",
-  "Lead Converted":   "⚡",
-  "Lead Qualified":   "✅",
-  "Task Completed":   "✓",
-  "Milestone Hit":    "🎯",
+  "Closed Deal":         "🏆",
+  "Verbal Commit":       "🤝",
+  "Lead Converted":      "⚡",
+  "Lead Qualified":      "✅",
+  "Task Completed":      "✓",
+  "Milestone Hit":       "🎯",
+  "Project Completed":   "🚀",
 };
 
 function moduleBadgeClass(mod: string): string {
   return MODULE_COLORS[mod] ?? "text-muted-foreground border-border/40 bg-muted/20";
+}
+
+// ── Format a win timestamp as "May 13 · 2:45 PM" ─────────────────────────────
+
+function formatWinTime(iso: string): { display: string; relative: string } {
+  try {
+    const d = new Date(iso);
+    const display = format(d, "MMM d · h:mm a");
+    const relative = formatDistanceToNow(d, { addSuffix: true });
+    return { display, relative };
+  } catch {
+    return { display: "recently", relative: "recently" };
+  }
 }
 
 // ── Avatar chip ───────────────────────────────────────────────────────────────
@@ -64,13 +79,10 @@ function Avatar({ initials, name }: { initials: string; name: string }) {
   );
 }
 
-// ── Animated win card (cross-fade + slide) ────────────────────────────────────
+// ── Animated win card ─────────────────────────────────────────────────────────
 
 function WinCard({ win, visible }: { win: TeamWin; visible: boolean }) {
-  const relTime = (() => {
-    try { return formatDistanceToNow(new Date(win.completedAt), { addSuffix: true }); }
-    catch { return "recently"; }
-  })();
+  const { display, relative } = formatWinTime(win.completedAt);
 
   return (
     <div
@@ -81,10 +93,8 @@ function WinCard({ win, visible }: { win: TeamWin; visible: boolean }) {
         pointerEvents: visible ? "auto" : "none",
       }}
     >
-      {/* Avatar */}
       <Avatar initials={win.userInitials} name={win.userName} />
 
-      {/* Content */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-semibold text-foreground leading-tight truncate">
@@ -99,21 +109,20 @@ function WinCard({ win, visible }: { win: TeamWin; visible: boolean }) {
             {WIN_TYPE_ICON[win.winType] ?? "✓"} {win.winType}
           </span>
         </div>
-        <p className="text-[13px] text-muted-foreground leading-snug mt-0.5 truncate" title={win.shortDescription}>
+        <p className="text-[13px] text-foreground/75 leading-snug mt-0.5 truncate" title={win.shortDescription}>
           {win.shortDescription}
         </p>
       </div>
 
-      {/* Right meta */}
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex flex-col items-end gap-1 shrink-0">
         <Badge
           variant="outline"
           className={`text-[10px] px-1.5 py-0 font-medium ${moduleBadgeClass(win.sourceModule)}`}
         >
           {win.sourceModule}
         </Badge>
-        <span className="text-[11px] text-muted-foreground/50 whitespace-nowrap hidden sm:block">
-          {relTime}
+        <span className="text-[10px] text-muted-foreground/60 whitespace-nowrap hidden sm:block" title={relative}>
+          {display}
         </span>
       </div>
     </div>
@@ -126,8 +135,8 @@ export function TeamWinsTicker() {
   const [idx, setIdx] = useState(0);
   const [paused, setPaused] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const queryClient = useQueryClient();
 
-  // Compute TTL-aware stale time: respect the cache schedule from the server
   const { data, isLoading, isError, refetch, isFetching } = useQuery<TeamWinsResponse>({
     queryKey: ["/api/today/team-wins"],
     queryFn: async () => {
@@ -135,14 +144,21 @@ export function TeamWinsTicker() {
       if (!res.ok) throw new Error("Failed to load team wins");
       return res.json();
     },
-    staleTime: 25 * 60 * 1000,   // 25-min client stale (server cache is 30/60-min)
-    refetchInterval: 30 * 60 * 1000,
-    refetchOnWindowFocus: true,
+    staleTime: 55 * 60 * 1000,
+    refetchInterval: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  const flushMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/today/team-wins/refresh"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/today/team-wins"] });
+      refetch();
+    },
   });
 
   const wins = data?.wins ?? [];
 
-  // ── Advance ticker ────────────────────────────────────────────────────────
   const advance = useCallback((dir: 1 | -1 = 1) => {
     setIdx(i => {
       if (wins.length === 0) return 0;
@@ -150,19 +166,19 @@ export function TeamWinsTicker() {
     });
   }, [wins.length]);
 
-  // Auto-rotation
   useEffect(() => {
     if (paused || wins.length <= 1) return;
     timerRef.current = setInterval(() => advance(1), 5000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [paused, wins.length, advance]);
 
-  // Clamp idx if wins array shrinks
   useEffect(() => {
     if (wins.length > 0 && idx >= wins.length) setIdx(0);
   }, [wins.length, idx]);
 
-  // ── Loading state ─────────────────────────────────────────────────────────
+  const isRefreshing = isFetching || flushMutation.isPending;
+
+  // ── Loading state ───────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div className="flex flex-col h-full justify-center gap-2 p-4" data-testid="team-wins-loading">
@@ -178,10 +194,10 @@ export function TeamWinsTicker() {
     );
   }
 
-  // ── Error state ───────────────────────────────────────────────────────────
+  // ── Error state ─────────────────────────────────────────────────────────────
   if (isError) {
     return (
-      <div className="flex items-center justify-center gap-3 h-full p-4 text-muted-foreground/60" data-testid="team-wins-error">
+      <div className="flex items-center justify-center gap-3 h-full p-4 text-muted-foreground/70" data-testid="team-wins-error">
         <Trophy className="h-4 w-4 shrink-0" />
         <span className="text-xs">Couldn't load team wins.</span>
         <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px] gap-1" onClick={() => refetch()}>
@@ -191,21 +207,33 @@ export function TeamWinsTicker() {
     );
   }
 
-  // ── Empty state ───────────────────────────────────────────────────────────
+  // ── Empty state ─────────────────────────────────────────────────────────────
   if (wins.length === 0) {
     return (
-      <div className="flex items-center gap-3 h-full px-4 py-3" data-testid="team-wins-empty">
-        <div className="h-8 w-8 rounded-full bg-primary/8 border border-primary/20 flex items-center justify-center shrink-0">
-          <Zap className="h-4 w-4 text-primary/60" />
+      <div className="flex items-center gap-4 h-full px-4 py-3" data-testid="team-wins-empty">
+        <div className="h-9 w-9 rounded-full bg-primary/15 border border-primary/35 flex items-center justify-center shrink-0">
+          <Zap className="h-4.5 w-4.5 text-primary/80" />
         </div>
-        <div>
-          <p className="text-sm font-medium text-muted-foreground/70">
-            No team wins logged yet today
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-foreground/80">
+            No team wins logged in the past 7 days
           </p>
-          <p className="text-[11px] text-muted-foreground/40 mt-0.5">
-            Time to put points on the board.
+          <p className="text-[12px] text-muted-foreground/65 mt-0.5">
+            Complete tasks, close deals, or hit milestones — they'll show up here.
           </p>
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-[11px] gap-1.5 text-muted-foreground/60 hover:text-foreground shrink-0"
+          onClick={() => flushMutation.mutate()}
+          disabled={isRefreshing}
+          data-testid="team-wins-refresh"
+          title="Force a live refresh"
+        >
+          <RefreshCw className={`h-3 w-3 ${isRefreshing ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
       </div>
     );
   }
@@ -220,9 +248,9 @@ export function TeamWinsTicker() {
       data-testid="team-wins-ticker"
     >
       {/* Label */}
-      <div className="shrink-0 flex flex-col items-center justify-center gap-0.5 pl-3 pr-2 border-r border-border/40 h-full">
+      <div className="shrink-0 flex flex-col items-center justify-center gap-0.5 pl-3 pr-2 border-r border-primary/20 h-full">
         <Zap className="h-3.5 w-3.5 text-primary" />
-        <span className="text-[9px] font-semibold uppercase tracking-widest text-primary/70 whitespace-nowrap leading-none">
+        <span className="text-[9px] font-semibold uppercase tracking-widest text-primary/80 whitespace-nowrap leading-none">
           Team<br />Wins
         </span>
       </div>
@@ -236,7 +264,6 @@ export function TeamWinsTicker() {
 
       {/* Navigation */}
       <div className="shrink-0 flex flex-col items-center gap-1 pr-2">
-        {/* Dots (max 8 shown) */}
         {wins.length > 1 && (
           <div className="flex items-center gap-[3px] mb-1">
             {wins.slice(0, Math.min(wins.length, 8)).map((_, i) => (
@@ -246,22 +273,21 @@ export function TeamWinsTicker() {
                 className={`rounded-full transition-all duration-200 ${
                   i === (idx % Math.min(wins.length, 8))
                     ? "w-2.5 h-1.5 bg-primary"
-                    : "w-1.5 h-1.5 bg-muted-foreground/25 hover:bg-muted-foreground/50"
+                    : "w-1.5 h-1.5 bg-muted-foreground/30 hover:bg-muted-foreground/60"
                 }`}
                 aria-label={`Go to win ${i + 1}`}
                 data-testid={`team-wins-dot-${i}`}
               />
             ))}
             {wins.length > 8 && (
-              <span className="text-[9px] text-muted-foreground/40 ml-0.5">+{wins.length - 8}</span>
+              <span className="text-[9px] text-muted-foreground/50 ml-0.5">+{wins.length - 8}</span>
             )}
           </div>
         )}
-        {/* Prev/Next */}
         <div className="flex items-center gap-0.5">
           <button
             onClick={() => { advance(-1); }}
-            className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground/50 hover:text-foreground hover:bg-muted/40 transition-colors"
+            className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 transition-colors"
             aria-label="Previous win"
             data-testid="team-wins-prev"
           >
@@ -269,41 +295,52 @@ export function TeamWinsTicker() {
           </button>
           <button
             onClick={() => { advance(1); }}
-            className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground/50 hover:text-foreground hover:bg-muted/40 transition-colors"
+            className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 transition-colors"
             aria-label="Next win"
             data-testid="team-wins-next"
           >
             <ChevronRight className="h-3.5 w-3.5" />
           </button>
         </div>
-        {/* Count + refresh */}
         <div className="flex items-center gap-1">
-          <span className="text-[9px] text-muted-foreground/35 tabular-nums">
+          <span className="text-[9px] text-muted-foreground/50 tabular-nums">
             {idx + 1}/{wins.length}
           </span>
-          {isFetching && <RefreshCw className="h-2.5 w-2.5 text-muted-foreground/30 animate-spin" />}
+          <button
+            onClick={() => flushMutation.mutate()}
+            disabled={isRefreshing}
+            title="Force refresh"
+            className="text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors disabled:opacity-30"
+            data-testid="team-wins-refresh-icon"
+          >
+            <RefreshCw className={`h-2.5 w-2.5 ${isRefreshing ? "animate-spin" : ""}`} />
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-// ── Widget wrapper (matches ActionWidgetShell pattern for the grid) ────────────
+// ── Widget wrapper ────────────────────────────────────────────────────────────
 
 export function TeamWinsTickerWidget() {
   return (
     <div
-      className="h-full w-full rounded-xl border bg-card overflow-hidden flex flex-col"
+      className="h-full w-full rounded-xl border border-primary/25 bg-card overflow-hidden flex flex-col"
+      style={{ boxShadow: "0 0 0 1px hsl(var(--primary) / 0.08) inset" }}
       data-testid="widget-team-wins"
     >
-      {/* Header bar with accent gradient */}
-      <div className="flex items-center gap-2 px-4 pt-3 pb-1.5 border-b border-border/50 shrink-0">
+      {/* Header bar */}
+      <div
+        className="flex items-center gap-2 px-4 pt-2.5 pb-1.5 border-b border-primary/15 shrink-0"
+        style={{ background: "linear-gradient(90deg, hsl(var(--primary) / 0.07) 0%, transparent 60%)" }}
+      >
         <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
-        <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-          Recent Momentum
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-primary/80">
+          Team Wins
         </span>
-        <span className="text-[10px] text-muted-foreground/35 ml-auto hidden sm:block">
-          What the team has knocked out recently
+        <span className="text-[10px] text-muted-foreground/50 ml-auto hidden sm:block">
+          Last 7 days · updates hourly
         </span>
       </div>
       {/* Ticker area */}
