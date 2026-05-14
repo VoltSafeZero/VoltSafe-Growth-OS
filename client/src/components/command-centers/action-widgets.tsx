@@ -164,6 +164,14 @@ export function TodayCriticalActionsWidget({ compact, isDragging, dragProps }: W
 
 // ── 2. Inbox Priority Radar ───────────────────────────────────────────────────
 
+function fmtWaitAge(since: string | null | undefined): string {
+  if (!since) return "Today";
+  const age = Math.floor((Date.now() - new Date(since).getTime()) / 86400000);
+  if (age <= 0) return "Today";
+  if (age < 90) return `${age}d waiting`;
+  try { return format(new Date(since), "MMM yyyy") + " · waiting"; } catch { return `${age}d waiting`; }
+}
+
 export function InboxPriorityRadarWidget({ compact, isDragging, dragProps }: WidgetProps) {
   const { data: threads, isLoading } = useQuery<any[]>({
     queryKey: ["/api/inbox/awaiting-reply"],
@@ -173,19 +181,22 @@ export function InboxPriorityRadarWidget({ compact, isDragging, dragProps }: Wid
 
   return (
     <ActionWidgetShell id="inbox_priority_radar" icon={Mail} title="Inbox Priority Radar"
-      count={items.length} link="/communications" compact={compact} isDragging={isDragging} dragProps={dragProps}>
+      count={items.length} link="/gmail" compact={compact} isDragging={isDragging} dragProps={dragProps}>
       {isLoading && <Skeleton className="h-20" />}
       {!isLoading && items.length === 0 && <EmptyState message="Inbox clear — no threads awaiting reply." />}
       {!isLoading && items.slice(0, 5).map((t: any, i: number) => {
         const since = t.awaiting_reply_since ?? t.awaitingReplySince;
         const age = since ? Math.floor((Date.now() - new Date(since).getTime()) / 86400000) : 0;
+        const threadLink = t.gmail_thread_id
+          ? `/gmail?thread=${encodeURIComponent(t.gmail_thread_id)}`
+          : "/gmail";
         return (
           <ItemRow key={t.gmail_thread_id ?? i}
             title={t.subject ?? t.preview ?? "(No subject)"}
             subtitle={t.account_name ?? t.from_name ?? undefined}
-            right={age > 0 ? `${age}d waiting` : "Today"}
-            severity={age >= 3 ? "high" : age >= 1 ? "medium" : "low"}
-            link="/communications"
+            right={fmtWaitAge(since)}
+            severity={age >= 7 ? "high" : age >= 2 ? "medium" : "low"}
+            link={threadLink}
             testId={`inbox-radar-${i}`}
           />
         );
