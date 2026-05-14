@@ -1593,9 +1593,9 @@ function MessageBody({
     font-size: 14.5px; line-height: 1.6;
     word-wrap: break-word; overflow-wrap: anywhere;
     -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
-    overflow-x: hidden;
+    box-sizing: border-box;
   }
-  body { padding: 12px 16px; }
+  body { padding: 12px 16px; box-sizing: border-box; }
 
   /*
    * RENDERING PHILOSOPHY: let the email's own HTML define layout — tables,
