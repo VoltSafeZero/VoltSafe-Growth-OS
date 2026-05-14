@@ -1235,6 +1235,9 @@ export async function registerRoutes(
       { key: "estimatedPedestalCount", header: "Est. Pedestals" }, { key: "estimatedSlipsImpacted", header: "Est. Slips Impacted" },
       { key: "estCloseDate", header: "Est. Close Date" }, { key: "competitors", header: "Competitors" },
       { key: "createdAt", header: "Created At" },
+      { key: "primaryIndustry", header: "Industry" },
+      { key: "relationshipType", header: "Relationship Type" },
+      { key: "conversionTarget", header: "Conversion Target" },
     ];
     setCsvHeaders(res, "leads_export.csv");
     res.send(toCsv(result.data as any, cols));
@@ -1568,12 +1571,13 @@ export async function registerRoutes(
   });
 
   app.get("/api/leads", requirePermission("crm", "view"), async (req, res) => {
-    const { search, status, state, country, page, limit, sortBy, sortOrder } = req.query;
+    const { search, status, state, country, primaryIndustry, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getLeads({
       search: search as string | undefined,
       status: status as string | undefined,
       state: state as string | undefined,
       country: country as string | undefined,
+      primaryIndustry: primaryIndustry as string | undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
       sortBy: sortBy as string | undefined,
@@ -1868,13 +1872,37 @@ export async function registerRoutes(
         existingAccountId,
         existingContactId,
         skipContact = false,
-        createOpportunity = false,
         opportunityTitle,
         opportunityAmount,
         opportunityStage = "inbound_new",
-        orgType = "marina_prospect",
+        orgType: reqOrgType = "marina_prospect",
         fieldOverrides = {},
+        conversionTarget: reqConversionTarget,
       } = req.body ?? {};
+
+      // ── Determine conversion type (partner vs account) ───────────────────────
+      const isPartnerConversion =
+        (reqConversionTarget === "partner") ||
+        (lead as any).conversionTarget === "partner";
+
+      // Partner orgType mapping
+      const PARTNER_ORG_TYPE_MAP: Record<string, string> = {
+        strategic_partner: "integration_partner",
+        channel_partner: "distributor",
+        oem_manufacturer: "oem_partner",
+        government_regulatory: "government_port",
+        investor: "investor",
+        utility_infrastructure: "integration_partner",
+        research_standards: "industry_association",
+      };
+      const leadRelType = (lead as any).relationshipType as string | null | undefined;
+      const partnerOrgType = isPartnerConversion
+        ? (PARTNER_ORG_TYPE_MAP[leadRelType ?? ""] ?? "integration_partner")
+        : null;
+
+      const orgType = isPartnerConversion ? partnerOrgType! : reqOrgType;
+      let createOpportunity = req.body?.createOpportunity ?? false;
+      if (isPartnerConversion) createOpportunity = false;
 
       const userId = getSessionUserId(req) ?? null;
       const priorStatus = lead.status;
@@ -1895,7 +1923,7 @@ export async function registerRoutes(
         const accountName = (fieldOverrides.name as string)?.trim() || lead.company;
         const accountPayload: any = {
           name: accountName,
-          segment: (fieldOverrides.segment ?? lead.segment) as any || "marina",
+          segment: isPartnerConversion ? "Partner" : ((fieldOverrides.segment ?? lead.segment) as any || "marina"),
           notes: (fieldOverrides.notes ?? lead.notes) as any,
           tags: lead.tags as any,
           city: (fieldOverrides.city ?? lead.city) as any,
@@ -1911,6 +1939,8 @@ export async function registerRoutes(
           originalSource: (lead as any).original_source ?? (lead as any).originalSource ?? (lead as any).source ?? null,
           acquisitionChannel: (lead as any).acquisition_channel ?? (lead as any).acquisitionChannel ?? null,
           sourceCapturedAt: (lead as any).source_captured_at ?? (lead as any).sourceCapturedAt ?? (lead as any).created_at ?? null,
+          // ── Partner-specific fields ──────────────────────────────────────────
+          ...(isPartnerConversion && leadRelType ? { partnerClass: leadRelType } : {}),
         };
         // Reuse the auto-shadow Organization (created when this lead was made) to avoid duplicates
         const [shadow] = await db.select().from(accounts).where(eq(accounts.convertedFromLeadId, lead.id)).limit(1);

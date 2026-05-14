@@ -120,6 +120,10 @@ export const leads = pgTable("leads", {
   territoryId: integer("territory_id"),
   isPilot: boolean("is_pilot").notNull().default(false),
   pilotProjectId: integer("pilot_project_id"),
+  // ── Industry Expansion (universal lead intake) ───────────────────────────
+  primaryIndustry: text("primary_industry"),
+  relationshipType: text("relationship_type"),
+  conversionTarget: text("conversion_target"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

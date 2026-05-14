@@ -1234,3 +1234,14 @@ export async function migratePilotLeadSchema(): Promise<void> {
     console.error("[migration] Pilot lead schema migration error (non-fatal):", err);
   }
 }
+
+export async function migrateCrmExpansionSchema(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS primary_industry text`);
+    await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS relationship_type text`);
+    await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS conversion_target text`);
+    console.log("[migration] CRM expansion schema migration complete.");
+  } catch (err) {
+    console.error("[migration] CRM expansion schema migration error (non-fatal):", err);
+  }
+}

@@ -1,0 +1,176 @@
+IMPLEMENT NOW — ADDITIVE ONLY — NO DESTRUCTIVE CHANGES.
+
+Use the completed audit and implementation plan to expand VoltSafe CRM Leads into a universal intake layer.
+
+Goal:
+A Lead can represent any future VoltSafe opportunity or strategic relationship, not only a marina.
+
+A Lead can later convert into either:
+1. Account = organization VoltSafe sells products/services to
+2. Partner = strategic relationship important to VoltSafe but not necessarily a customer
+
+Hard rules:
+- Additive only.
+- Do not delete, rename, or restructure existing fields.
+- Do not create a new partners table.
+- Use the existing accounts table for both Accounts and Partners.
+- Do not change existing lead stage values.
+- Do not change existing orgType values.
+- Do not break current marina workflows.
+- Do not break lead import, export, saved views, bulk actions, map view, pilot toggle, permissions, or Lead → Account conversion.
+- Prefer the existing PUT /api/leads/:id route for updating new fields. Do not add a new PATCH route unless strictly necessary.
+
+Implement in this exact order:
+
+PHASE 1 — DATABASE
+1. Add an idempotent migration function in server/seed-production.ts:
+
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS primary_industry text;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS relationship_type text;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS conversion_target text;
+
+2. Register and run this migration in server/index.ts using the same startup migration pattern already used by this codebase.
+
+3. Confirm in logs that the migration completed successfully.
+
+PHASE 2 — SHARED SCHEMA / TYPES
+4. Add these nullable fields to the leads table in shared/schema.ts:
+- primaryIndustry: text("primary_industry")
+- relationshipType: text("relationship_type")
+- conversionTarget: text("conversion_target")
+
+5. Run TypeScript check and fix any type errors caused by the new fields.
+
+PHASE 3 — BACKEND
+6. Update GET /api/leads so it supports an optional primaryIndustry query parameter.
+
+Rules:
+- If primaryIndustry is missing or "all", return all leads.
+- If primaryIndustry is "marine", return leads where primary_industry = "marine" OR primary_industry IS NULL.
+- Otherwise return exact matches for that industry.
+
+7. Update POST /api/leads/import-marinas so imported marina leads are explicitly saved with:
+primaryIndustry = "marine"
+
+8. Update GET /api/leads/export:
+- Preserve every existing CSV column and order.
+- Append primary_industry, relationship_type, conversion_target to the right side only.
+
+9. Update POST /api/leads/:id/convert:
+- Existing behavior must remain unchanged when conversionTarget is null, missing, empty, or "account".
+- Add a partner conversion branch only when conversionTarget === "partner".
+
+Partner conversion behavior:
+- Create an account using the existing accounts table.
+- Do not create an opportunity for partner conversions.
+- Still create the contact as the current flow does.
+- Still set convertedAccountId, convertedContactId, convertedAt, and status = "converted".
+- Still allow unconvert to work the same way it currently does.
+
+Partner orgType mapping:
+relationshipType = strategic_partner        → integration_partner
+relationshipType = channel_partner          → distributor
+relationshipType = oem_manufacturer         → oem_partner
+relationshipType = government_regulatory    → government_port
+relationshipType = investor                 → investor
+relationshipType = utility_infrastructure   → integration_partner
+relationshipType = research_standards       → industry_association
+fallback                                     → integration_partner
+
+Also set:
+- segment = "Partner"
+- partnerClass = relationshipType when available
+- convertedFromLeadId = lead.id
+
+PHASE 4 — FRONTEND LEADS PAGE
+10. In client/src/pages/leads.tsx, add constants:
+
+PRIMARY_INDUSTRY_OPTIONS:
+- marine / Marine
+- agnostic / Agnostic / Cross-Industry
+- utilities_grid / Utilities / Grid
+- industrial / Industrial
+- commercial_real_estate / Commercial Real Estate
+- transportation / Transportation
+- government / Government
+- energy_infrastructure / Energy Infrastructure
+- manufacturing / Manufacturing
+- other / Other
+
+RELATIONSHIP_TYPE_OPTIONS:
+- customer_prospect / Customer Prospect
+- strategic_partner / Strategic Partner
+- channel_partner / Channel Partner
+- government_regulatory / Government / Regulatory
+- oem_manufacturer / OEM / Manufacturer
+- utility_infrastructure / Utility / Infrastructure
+- investor / Investor
+- vendor_supplier / Vendor / Supplier
+- research_standards / Research / Standards
+- other / Other
+
+CONVERSION_TARGET_OPTIONS:
+- account / Account
+- partner / Partner
+
+11. Add an Industry filter to the Leads filter bar.
+- Default must be "marine".
+- Include an "All Industries" option.
+- Send primaryIndustry to GET /api/leads.
+- Existing null industry leads must still show in the default Marine view.
+
+12. Add Industry and Relationship Type dropdowns to CreateLeadForm.
+- Industry defaults to "marine".
+- Relationship Type defaults to "customer_prospect".
+- Do not force users to fill these if existing validation expects older behavior.
+
+13. Add Industry, Relationship Type, and Conversion Target dropdowns to EditLeadForm.
+- Conversion Target defaults to "account" unless existing lead value is "partner".
+- Null/empty industry should behave as Marine for display purposes.
+
+14. In LeadDetailView, show small badges for:
+- Industry, especially when non-marine
+- Relationship Type, when present
+- Conversion Target, when partner
+
+15. Update the conversion dialog:
+- Add a choice between:
+  a) Customer Account — sells VoltSafe products/services
+  b) Strategic Partner — strategic relationship, no direct sale required
+- Default to Account unless lead.conversionTarget === "partner".
+- Make sure the selected conversion target is saved before conversion or passed safely into the conversion route.
+
+16. Make marina-specific UI conditional:
+- Slips column should remain visible for Marine/default view.
+- Slips/marina details should hide when primaryIndustry is explicitly non-marine.
+- Do not delete any slips/marina fields.
+- Do not break sorting where slips already exists.
+
+PHASE 5 — VERIFICATION
+Run the following checks:
+
+1. npx tsc --noEmit
+2. Existing lead conversion tests
+3. Bulk action tests
+4. Permission tests
+5. Manual create lead:
+   - Marine + Customer Prospect → converts to normal Account + Contact + Opportunity if current flow creates opportunity
+6. Manual create lead:
+   - Agnostic + Strategic Partner + conversionTarget Partner → converts to Account with segment Partner and partner orgType, creates Contact, creates NO Opportunity
+7. Default Leads page opens filtered to Marine and includes old null primary_industry leads
+8. All Industries shows all leads
+9. import-marinas still works and imported leads show in Marine
+10. CSV export keeps existing columns and appends the new fields at the end
+11. Saved views still load
+12. Pilot toggle still works
+13. Map view still works for Marine
+
+Final output:
+Provide a full implementation report with:
+- Files changed
+- Exact database additions
+- Backend changes
+- Frontend changes
+- Tests run and results
+- Any issues found
+- Any recommended follow-up polish

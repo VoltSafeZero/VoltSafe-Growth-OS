@@ -106,6 +106,37 @@ const ORG_TYPE_OPTIONS = [
   { value: "other", label: "Other" },
 ];
 
+const PRIMARY_INDUSTRY_OPTIONS = [
+  { value: "marine", label: "Marine" },
+  { value: "agnostic", label: "Agnostic / Cross-Industry" },
+  { value: "utilities_grid", label: "Utilities / Grid" },
+  { value: "industrial", label: "Industrial" },
+  { value: "commercial_real_estate", label: "Commercial Real Estate" },
+  { value: "transportation", label: "Transportation" },
+  { value: "government", label: "Government" },
+  { value: "energy_infrastructure", label: "Energy Infrastructure" },
+  { value: "manufacturing", label: "Manufacturing" },
+  { value: "other", label: "Other" },
+];
+
+const RELATIONSHIP_TYPE_OPTIONS = [
+  { value: "customer_prospect", label: "Customer Prospect" },
+  { value: "strategic_partner", label: "Strategic Partner" },
+  { value: "channel_partner", label: "Channel Partner" },
+  { value: "government_regulatory", label: "Government / Regulatory" },
+  { value: "oem_manufacturer", label: "OEM / Manufacturer" },
+  { value: "utility_infrastructure", label: "Utility / Infrastructure" },
+  { value: "investor", label: "Investor" },
+  { value: "vendor_supplier", label: "Vendor / Supplier" },
+  { value: "research_standards", label: "Research / Standards" },
+  { value: "other", label: "Other" },
+];
+
+const CONVERSION_TARGET_OPTIONS = [
+  { value: "account", label: "Account" },
+  { value: "partner", label: "Partner" },
+];
+
 function getStageLabel(value: string) {
   return PIPELINE_STAGES.find(s => s.value === value)?.label || value;
 }
@@ -115,6 +146,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
   const [statusFilter, setStatusFilter] = useState(lockedStatus ?? "all");
   const [countryFilter, setCountryFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
+  const [industryFilter, setIndustryFilter] = useState("marine");
   const [view, setView] = useState<"list" | "pipeline" | "map">(() => {
     if (typeof window === "undefined") return "list";
     const v = new URLSearchParams(window.location.search).get("view");
@@ -179,13 +211,14 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery<{ data: Lead[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],
+    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, primaryIndustry: industryFilter, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (countryFilter !== "all") params.set("country", countryFilter);
       if (stateFilter !== "all") params.set("state", stateFilter);
+      if (industryFilter) params.set("primaryIndustry", industryFilter);
       if (sort.sortBy) { params.set("sortBy", sort.sortBy); params.set("sortOrder", sort.sortOrder); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
@@ -342,7 +375,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
   });
 
-  const currentFiltersJson = useMemo(() => JSON.stringify({ status: statusFilter, country: countryFilter, state: stateFilter }), [statusFilter, countryFilter, stateFilter]);
+  const currentFiltersJson = useMemo(() => JSON.stringify({ status: statusFilter, country: countryFilter, state: stateFilter, primaryIndustry: industryFilter }), [statusFilter, countryFilter, stateFilter, industryFilter]);
 
   const applyView = (sv: SavedView) => {
     setActiveViewId(sv.id);
@@ -352,11 +385,12 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
         if (f.status !== undefined) setStatusFilter(f.status);
         if (f.country !== undefined) setCountryFilter(f.country);
         if (f.state !== undefined) setStateFilter(f.state);
+        if (f.primaryIndustry !== undefined) setIndustryFilter(f.primaryIndustry);
       } catch {}
     }
   };
 
-  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); };
+  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); setIndustryFilter("marine"); };
 
   const isAllSelected = allLeads.length > 0 && allLeads.every(l => selectedIds.has(l.id));
 
@@ -410,6 +444,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
               ...(statusFilter !== "all" ? { status: statusFilter } : {}),
               ...(countryFilter !== "all" ? { country: countryFilter } : {}),
               ...(stateFilter !== "all" ? { state: stateFilter } : {}),
+              ...(industryFilter ? { primaryIndustry: industryFilter } : {}),
             }).toString()}`}
             filename="leads_export.csv"
           />
@@ -486,6 +521,17 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
             <SelectItem value="all">{countryFilter === "CA" ? "All Provinces" : countryFilter === "US" ? "All States" : "All Regions"}</SelectItem>
             {regionOptions.map(s => (
               <SelectItem key={s} value={s}>{s}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={industryFilter} onValueChange={(v) => { setIndustryFilter(v); }}>
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-industry-filter">
+            <SelectValue placeholder="Industry" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">All Industries</SelectItem>
+            {PRIMARY_INDUSTRY_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -589,7 +635,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                     <SortableHeader label="Marina / Company" sortKey="company" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Location" sortKey="state" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Contact" sortKey="contactName" sort={sort} onSort={handleSort} className="hidden md:table-cell" />
-                    <SortableHeader label="Slips" sortKey="slips" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />
+                    {(!industryFilter || industryFilter === "marine") && <SortableHeader label="Slips" sortKey="slips" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />}
                     <SortableHeader label="Deal $" sortKey="dealAmount" sort={sort} onSort={handleSort} className="hidden xl:table-cell" />
                     <SortableHeader label="Stage" sortKey="status" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Source" sortKey="source" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />
@@ -621,7 +667,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                         <div>{lead.contactName}</div>
                         {lead.contactPhone && <div className="text-muted-foreground text-xs">{lead.contactPhone}</div>}
                       </td>
-                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell" onClick={() => setSelectedLead(lead)}>{!lead.slips || lead.slips === "-" ? "Unknown" : lead.slips}</td>
+                      {(!industryFilter || industryFilter === "marine") && <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell" onClick={() => setSelectedLead(lead)}>{!lead.slips || lead.slips === "-" ? "Unknown" : lead.slips}</td>}
                       <td className="p-3 sm:p-4 text-sm hidden xl:table-cell" onClick={() => setSelectedLead(lead)}>
                         {lead.dealAmount ? (
                           <span className="text-emerald-400 font-medium">${Number(lead.dealAmount).toLocaleString()}</span>
@@ -895,6 +941,7 @@ function ConvertToOrgDialog({
   const [accountMode, setAccountMode] = useState<AccountMode>("new");
   const [contactMode, setContactMode] = useState<ContactMode>("new");
   const [createOpp, setCreateOpp] = useState(false);
+  const [conversionType, setConversionType] = useState<"account" | "partner">("account");
   // Field overrides
   const [orgName, setOrgName] = useState("");
   const [orgType, setOrgType] = useState("marina_prospect");
@@ -914,6 +961,7 @@ function ConvertToOrgDialog({
       setAccountMode("new");
       setContactMode(lead.contactName ? "new" : "skip");
       setCreateOpp(false);
+      setConversionType((lead as any).conversionTarget === "partner" ? "partner" : "account");
       setOrgName(lead.company || "");
       setOrgType("marina_prospect");
       setContactName(lead.contactName || "");
@@ -982,12 +1030,14 @@ function ConvertToOrgDialog({
       };
     }
 
-    if (createOpp) {
+    if (createOpp && conversionType !== "partner") {
       payload.createOpportunity = true;
       payload.opportunityTitle = oppTitle || `${(payload.fieldOverrides as any)?.name || lead.company}`;
       if (oppAmount) payload.opportunityAmount = Number(oppAmount);
       payload.opportunityStage = oppStage;
     }
+
+    if (conversionType === "partner") payload.conversionTarget = "partner";
 
     onConvert(payload);
   }
@@ -1122,6 +1172,32 @@ function ConvertToOrgDialog({
         {/* ── Step 2: Configure modes ─────────────────────────────────────── */}
         {step === 2 && (
           <div className="space-y-4" data-testid="convert-step-configure">
+            {/* Conversion Type */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Conversion Type</p>
+              <div className="space-y-1.5">
+                <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${conversionType === "account" ? "border-primary/50 bg-primary/5" : "border-border/40 hover:bg-secondary/30"}`}
+                  onClick={() => setConversionType("account")} data-testid="radio-conversion-account">
+                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${conversionType === "account" ? "border-primary" : "border-muted-foreground/40"}`}>
+                    {conversionType === "account" && <div className="w-2 h-2 rounded-full bg-primary" />}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Customer Account</p>
+                    <p className="text-[11px] text-muted-foreground">VoltSafe sells products/services to this organization</p>
+                  </div>
+                </label>
+                <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${conversionType === "partner" ? "border-primary/50 bg-primary/5" : "border-border/40 hover:bg-secondary/30"}`}
+                  onClick={() => setConversionType("partner")} data-testid="radio-conversion-partner">
+                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${conversionType === "partner" ? "border-primary" : "border-muted-foreground/40"}`}>
+                    {conversionType === "partner" && <div className="w-2 h-2 rounded-full bg-primary" />}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Strategic Partner</p>
+                    <p className="text-[11px] text-muted-foreground">Strategic relationship — no direct sale required</p>
+                  </div>
+                </label>
+              </div>
+            </div>
             {/* Account */}
             <div className="space-y-2">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Account</p>
@@ -1192,7 +1268,8 @@ function ConvertToOrgDialog({
               </div>
             </div>
 
-            {/* Opportunity */}
+            {/* Opportunity — hidden for partner conversions */}
+            {conversionType !== "partner" && (
             <div className="space-y-2">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Opportunity</p>
               <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${createOpp ? "border-primary/50 bg-primary/5" : "border-border/40 hover:bg-secondary/30"}`}
@@ -1206,6 +1283,7 @@ function ConvertToOrgDialog({
                 </div>
               </label>
             </div>
+            )}
 
             <div className="flex justify-between pt-2 border-t border-border/40">
               <Button variant="ghost" size="sm" onClick={() => setStep(1)}>← Back</Button>
@@ -1451,6 +1529,19 @@ function LeadDetailDialog({
               <DialogTitle className="text-xl leading-tight break-words">{lead.company}</DialogTitle>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <Badge variant="outline" className={stageInfo?.color || ""}>{stageInfo?.label || lead.status}</Badge>
+                {(lead as any).primaryIndustry && (lead as any).primaryIndustry !== "marine" && (
+                  <Badge variant="outline" className="text-cyan-400 border-cyan-500/30 bg-cyan-500/10 text-[10px]">
+                    {PRIMARY_INDUSTRY_OPTIONS.find(o => o.value === (lead as any).primaryIndustry)?.label || (lead as any).primaryIndustry}
+                  </Badge>
+                )}
+                {(lead as any).relationshipType && (
+                  <Badge variant="outline" className="text-indigo-400 border-indigo-500/30 bg-indigo-500/10 text-[10px]">
+                    {RELATIONSHIP_TYPE_OPTIONS.find(o => o.value === (lead as any).relationshipType)?.label || (lead as any).relationshipType}
+                  </Badge>
+                )}
+                {(lead as any).conversionTarget === "partner" && (
+                  <Badge variant="outline" className="text-amber-400 border-amber-500/30 bg-amber-500/10 text-[10px]">Partner</Badge>
+                )}
                 {lead.source && <span className="text-xs text-muted-foreground">via {lead.source}</span>}
                 <span className="text-xs text-muted-foreground">· Created {new Date(lead.createdAt).toLocaleDateString()}</span>
                 <BookingLinkStatusInline objectType="lead" objectId={lead.id} />
@@ -1831,6 +1922,9 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
     roiStory: lead.roiStory || "",
     closedLostReason: lead.closedLostReason || "",
     closedWonNotes: lead.closedWonNotes || "",
+    primaryIndustry: (lead as any).primaryIndustry || "",
+    relationshipType: (lead as any).relationshipType || "",
+    conversionTarget: (lead as any).conversionTarget || "",
   });
 
   const formRegions = form.country ? getRegionsForCountry(form.country) : [];
@@ -1855,6 +1949,41 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
       <div>
         <Label className="text-xs">Company / Marina Name *</Label>
         <Input value={form.company} onChange={(e) => setForm(f => ({ ...f, company: e.target.value }))} required data-testid="input-edit-company" />
+      </div>
+
+      <div className="border-t border-border/50 pt-3">
+        <Label className="text-xs text-muted-foreground mb-2 block">Classification</Label>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <Label className="text-xs">Industry</Label>
+            <Select value={form.primaryIndustry || "none"} onValueChange={(v) => setForm(f => ({ ...f, primaryIndustry: v === "none" ? "" : v }))}>
+              <SelectTrigger data-testid="select-edit-industry"><SelectValue placeholder="Select industry" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Select industry</SelectItem>
+                {PRIMARY_INDUSTRY_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Relationship Type</Label>
+            <Select value={form.relationshipType || "none"} onValueChange={(v) => setForm(f => ({ ...f, relationshipType: v === "none" ? "" : v }))}>
+              <SelectTrigger data-testid="select-edit-relationship-type"><SelectValue placeholder="Select type" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Select type</SelectItem>
+                {RELATIONSHIP_TYPE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Conversion Target</Label>
+            <Select value={form.conversionTarget || "account"} onValueChange={(v) => setForm(f => ({ ...f, conversionTarget: v }))}>
+              <SelectTrigger data-testid="select-edit-conversion-target"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {CONVERSION_TARGET_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center gap-3 pb-1">
@@ -1929,6 +2058,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
         </div>
       </div>
 
+      {(!form.primaryIndustry || form.primaryIndustry === "marine") && (
       <div className="border-t border-border/50 pt-3">
         <Label className="text-xs text-muted-foreground mb-2 block">Marina Details</Label>
         <div className="grid grid-cols-2 gap-3">
@@ -1937,6 +2067,15 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
           <div><Label className="text-xs">Source</Label><Input value={form.source} onChange={(e) => setForm(f => ({ ...f, source: e.target.value }))} data-testid="input-edit-source" /></div>
         </div>
       </div>
+      )}
+      {form.primaryIndustry && form.primaryIndustry !== "marine" && (
+      <div className="border-t border-border/50 pt-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div><Label className="text-xs">Segment</Label><Input value={form.segment} onChange={(e) => setForm(f => ({ ...f, segment: e.target.value }))} data-testid="input-edit-segment" /></div>
+          <div><Label className="text-xs">Source</Label><Input value={form.source} onChange={(e) => setForm(f => ({ ...f, source: e.target.value }))} data-testid="input-edit-source" /></div>
+        </div>
+      </div>
+      )}
 
       <div className="border-t border-border/50 pt-3">
         <Label className="text-xs text-muted-foreground mb-2 block">Sales Tracking</Label>
@@ -2002,7 +2141,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
 }
 
 function CreateLeadForm({ onSubmit, isPending }: { onSubmit: (data: Record<string, string>) => void; isPending: boolean }) {
-  const [form, setForm] = useState({ company: "", contactName: "", contactEmail: "", contactPhone: "", source: "", notes: "", country: "", state: "", city: "" });
+  const [form, setForm] = useState({ company: "", contactName: "", contactEmail: "", contactPhone: "", source: "", notes: "", country: "", state: "", city: "", primaryIndustry: "marine", relationshipType: "customer_prospect" });
 
   const formRegions = form.country ? getRegionsForCountry(form.country) : [];
 
@@ -2067,6 +2206,34 @@ function CreateLeadForm({ onSubmit, isPending }: { onSubmit: (data: Record<strin
       <div>
         <Label>Source</Label>
         <Input value={form.source} onChange={(e) => setForm(f => ({ ...f, source: e.target.value }))} placeholder="e.g. Website, Referral, Trade Show" data-testid="input-source" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Industry</Label>
+          <Select value={form.primaryIndustry || "marine"} onValueChange={(v) => setForm(f => ({ ...f, primaryIndustry: v }))}>
+            <SelectTrigger data-testid="select-industry">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PRIMARY_INDUSTRY_OPTIONS.map(o => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label>Relationship Type</Label>
+          <Select value={form.relationshipType || "customer_prospect"} onValueChange={(v) => setForm(f => ({ ...f, relationshipType: v }))}>
+            <SelectTrigger data-testid="select-relationship-type">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {RELATIONSHIP_TYPE_OPTIONS.map(o => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
       <div>
         <Label>Notes</Label>

@@ -79,7 +79,7 @@ export interface IStorage {
   getMarinas(options: { search?: string; state?: string; page?: number; limit?: number }): Promise<{ data: Marina[]; total: number; page: number; totalPages: number }>;
   getMarinaStates(): Promise<string[]>;
 
-  getLeads(options?: { search?: string; status?: string; state?: string; country?: string; page?: number; limit?: number }): Promise<{ data: Lead[]; total: number; page: number; totalPages: number }>;
+  getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }): Promise<{ data: Lead[]; total: number; page: number; totalPages: number }>;
   getLead(id: number): Promise<Lead | undefined>;
   createLead(data: InsertLead): Promise<Lead>;
   updateLead(id: number, data: Partial<InsertLead>): Promise<Lead | undefined>;
@@ -363,7 +363,7 @@ export class DatabaseStorage implements IStorage {
     return result.map((r) => r.state);
   }
 
-  async getLeads(options?: { search?: string; status?: string; state?: string; country?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
+  async getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -386,6 +386,16 @@ export class DatabaseStorage implements IStorage {
     }
     if (options?.country) {
       conditions.push(eq(leads.country, options.country));
+    }
+    if (options?.primaryIndustry) {
+      if (options.primaryIndustry === "marine") {
+        conditions.push(or(
+          eq(leads.primaryIndustry, "marine"),
+          sql`${leads.primaryIndustry} IS NULL`
+        ));
+      } else {
+        conditions.push(eq(leads.primaryIndustry, options.primaryIndustry));
+      }
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -437,6 +447,7 @@ export class DatabaseStorage implements IStorage {
           segment: m.segment || undefined,
           streetAddress: m.streetAddress || undefined,
           zipCode: m.zipCode || undefined,
+          primaryIndustry: "marine",
         })));
         imported += batch.length;
       }
