@@ -2640,3 +2640,35 @@ export const insertMeetingNoteLinkSchema = createInsertSchema(meetingNoteLinks).
 });
 export type InsertMeetingNoteLink = z.infer<typeof insertMeetingNoteLinkSchema>;
 export type MeetingNoteLink = typeof meetingNoteLinks.$inferSelect;
+
+// ── Tradeshow Events ──────────────────────────────────────────────────────────
+export const tradeshowEvents = pgTable("tradeshow_events", {
+  id: serial("id").primaryKey(),
+  showName: text("show_name").notNull(),
+  vsLeadName: text("vs_lead_name"),
+  vsAttendees: text("vs_attendees"),
+  showDates: text("show_dates"),
+  startDate: timestamp("start_date", { withTimezone: true }),
+  endDate: timestamp("end_date", { withTimezone: true }),
+  year: integer("year").default(2026),
+  venue: text("venue"),
+  city: text("city"),
+  address: text("address"),
+  bookedStatus: text("booked_status").default("pending"),
+  website: text("website"),
+  audience: text("audience"),
+  boothNumber: text("booth_number"),
+  boothSize: text("booth_size"),
+  eventContact: text("event_contact"),
+  eventEmail: text("event_email"),
+  eventFee: text("event_fee"),
+  showSupplier: text("show_supplier"),
+  speakingEngagement: text("speaking_engagement"),
+  awardsSubmission: text("awards_submission"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+export const insertTradeshowEventSchema = createInsertSchema(tradeshowEvents).omit({ id: true, createdAt: true, updatedAt: true });
+export type TradeshowEvent = typeof tradeshowEvents.$inferSelect;
+export type InsertTradeshowEvent = z.infer<typeof insertTradeshowEventSchema>;

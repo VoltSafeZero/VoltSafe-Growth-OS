@@ -1245,3 +1245,84 @@ export async function migrateCrmExpansionSchema(): Promise<void> {
     console.error("[migration] CRM expansion schema migration error (non-fatal):", err);
   }
 }
+
+export async function migrateTradeshowEventsSchema(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS tradeshow_events (
+        id SERIAL PRIMARY KEY,
+        show_name TEXT NOT NULL,
+        vs_lead_name TEXT,
+        vs_attendees TEXT,
+        show_dates TEXT,
+        start_date TIMESTAMPTZ,
+        end_date TIMESTAMPTZ,
+        year INTEGER DEFAULT 2026,
+        venue TEXT,
+        city TEXT,
+        address TEXT,
+        booked_status TEXT DEFAULT 'pending',
+        website TEXT,
+        audience TEXT,
+        booth_number TEXT,
+        booth_size TEXT,
+        event_contact TEXT,
+        event_email TEXT,
+        event_fee TEXT,
+        show_supplier TEXT,
+        speaking_engagement TEXT,
+        awards_submission TEXT,
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    const { rows } = await db.execute(sql`SELECT COUNT(*)::int AS cnt FROM tradeshow_events`);
+    const cnt = Number((rows as any[])[0]?.cnt ?? 0);
+    if (cnt === 0) {
+      type EvRow = { n: string; lead: string|null; att: string|null; dates: string|null; sd: string|null; ed: string|null; yr: number; venue: string|null; city: string|null; addr: string|null; status: string; web: string|null; booth: string|null; bsize: string|null; contact: string|null; email: string|null; fee: string|null; supplier: string|null; speaking: string|null; awards: string|null; notes: string|null };
+      const rows2: EvRow[] = [
+        { n:"ABYC Standards Week", lead:"Sanad", att:"Sanad", dates:"Jan 11 - 15", sd:"2026-01-11", ed:"2026-01-15", yr:2026, venue:"Francis Marion Hotel", city:"Charleston, SC", addr:null, status:"pending", web:null, booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:null },
+        { n:"AMI Conference & Expo 2026", lead:"Trevor", att:"Trevor", dates:"Feb 2 - 4", sd:"2026-02-02", ed:"2026-02-04", yr:2026, venue:"Ocean Center", city:"Daytona Beach, FL", addr:"101 North Atlantic Ave, Daytona Beach FL 32118", status:"booked", web:"https://marinaassociation.org/conferenceandexpo", booth:"222", bsize:"10 x 10", contact:"Ray Clark", email:"rgclark68@gmail.com", fee:null, supplier:"Freeman", speaking:"Panelist", awards:null, notes:"Booth 222 next to Suntech marina (218/220). Free 1/4 page ad in Resource Guide." },
+        { n:"PCC Spring Conference", lead:null, att:null, dates:"April 20 - 22", sd:"2026-04-20", ed:"2026-04-22", yr:2026, venue:"Hilton Garden Inn SF/Oakland Bay Bridge", city:"Emeryville, CA", addr:"1800 Powell Street, Emeryville, CA 94608", status:"booked", web:null, booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:null },
+        { n:"California Boating Congress", lead:null, att:null, dates:"April 28 - 29", sd:"2026-04-28", ed:"2026-04-29", yr:2026, venue:"The Exchange Hotel by Hilton", city:"Sacramento, CA", addr:"1006 4th St, Sacramento CA 95814", status:"pending", web:"https://marina.swoogo.com/cbc2026", booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:null },
+        { n:"Washington Public Ports Association Spring Meeting", lead:null, att:null, dates:"May 19 - 21", sd:"2026-05-19", ed:"2026-05-21", yr:2026, venue:"Skamania Lodge", city:"Stevenson, WA", addr:"1131 SW Skamania Lodge Way", status:"pending", web:"https://www.washingtonports.org/2026-spring-meeting-agenda/", booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:null },
+        { n:"NMMA Canada 'Day on the Hill'", lead:null, att:"Trevor", dates:"June 9 - 10", sd:"2026-06-09", ed:"2026-06-10", yr:2026, venue:"Parliament Buildings Ottawa", city:"Ottawa, ON", addr:null, status:"booked", web:null, booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:"NMMA Board attends — Trev attends" },
+        { n:"Alaska Association of Harbormasters Annual Conference", lead:null, att:null, dates:"Oct 19 - 23", sd:"2026-10-19", ed:"2026-10-23", yr:2026, venue:"TBD", city:"Valdez, AK", addr:null, status:"pending", web:"https://aahpa.wildapricot.org/", booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:"Referred by Kimmy Kruger of Mantle Industries" },
+        { n:"ABCMI Business Opportunities Conference & Trade Show", lead:null, att:null, dates:"Oct 20 - 21", sd:"2026-10-20", ed:"2026-10-21", yr:2026, venue:"Vancouver Convention Centre", city:"Vancouver, BC", addr:"1055 Canada Place, Vancouver BC V6C 0C3", status:"pending", web:"https://www.abcmi.ca/cpages/home", booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:null },
+        { n:"Best Defence Conference", lead:null, att:null, dates:"Oct 20 - 21", sd:"2026-10-20", ed:"2026-10-21", yr:2026, venue:"RBC Place London", city:"London, ON", addr:null, status:"tbd", web:"https://bestdefenceconference.com/", booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:"Defence, Aerospace & Advanced Manufacturing audience" },
+        { n:"IBEX 2026", lead:null, att:null, dates:"Oct 6 - 8", sd:"2026-10-06", ed:"2026-10-08", yr:2026, venue:"Tampa Convention Center", city:"Tampa, FL", addr:"333 Franklin St, Tampa FL 33602", status:"not_attending", web:"https://www.ibexshow.com", booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:"Did not renew for 2026. Booth released Nov 25/25 by Tina Sanderson. Aim to return 2027 with new product launch." },
+        { n:"PCC Fall Conference", lead:null, att:null, dates:"TBD", sd:null, ed:null, yr:2026, venue:"TBD", city:"TBD", addr:null, status:"pending", web:null, booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:"Need to book/pay once announced" },
+        { n:"Fort Lauderdale International Boat Show (FLIBS)", lead:null, att:null, dates:"Oct 28 - Nov 1", sd:"2026-10-28", ed:"2026-11-01", yr:2026, venue:"Bahia Mar Yachting Center / Broward County Convention Center", city:"Fort Lauderdale, FL", addr:null, status:"not_attending", web:"https://www.flibs.com/en/home.html", booth:null, bsize:null, contact:"Santiago", email:null, fee:"$4800 USD (48/sq ft)", supplier:null, speaking:null, awards:null, notes:"Consumer focused. Consider attending floor (not exhibiting). Ask Jeffrey Poole." },
+        { n:"Foresight 50 Celebration", lead:null, att:null, dates:"TBD", sd:null, ed:null, yr:2026, venue:"TBD", city:"TBD", addr:null, status:"pending", web:null, booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:null },
+        { n:"VMCC Greenship 2026", lead:null, att:null, dates:"TBD", sd:null, ed:null, yr:2026, venue:"TBD", city:"TBD", addr:null, status:"pending", web:null, booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:null },
+        { n:"Boating BC Annual Conference", lead:null, att:null, dates:"TBD", sd:null, ed:null, yr:2026, venue:"TBD", city:"TBD", addr:null, status:"tbd", web:"https://www.boatingbc.ca/events/2025-boating-bc-conference", booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:"Walk through only" },
+        { n:"METSTRADE 2026", lead:null, att:null, dates:"Nov 17 - 19", sd:"2026-11-17", ed:"2026-11-19", yr:2026, venue:"RAI Amsterdam Convention Centre", city:"Amsterdam, NL", addr:"Europaplein 1078 GZ Amsterdam", status:"booked", web:"https://www.metstrade.com/", booth:"01.717", bsize:"9m sq", contact:"Jim Wielgosz", email:"jwielgosz@nmma.org", fee:"4300 Euros", supplier:"RAI", speaking:"Need to find speaking engagement — contact Frederike Volmer / Patty Lawrence", awards:"Find out awards submission info", notes:"Booked by Scott. 9m sq confirmed." },
+        { n:"Pacific Marine Expo Seattle 2026", lead:null, att:null, dates:"Nov 19 - 21", sd:"2026-11-19", ed:"2026-11-21", yr:2026, venue:"Lumen Field", city:"Seattle, WA", addr:"800 Occidental Ave S, Seattle WA 98134", status:"not_attending", web:"https://www.pacificmarineexpo.com/", booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:null },
+        { n:"TMA BlueTech Innovation Day", lead:null, att:null, dates:"TBD", sd:null, ed:null, yr:2026, venue:"Maritime Museum of San Diego", city:"San Diego, CA", addr:"1492 North Harbor Drive, San Diego CA 92101", status:"tbd", web:"https://www.tmabluetech.org/", booth:null, bsize:null, contact:"Sergey Chekov — TMA BlueTech Deputy Director", email:null, fee:"No cost for participating", supplier:null, speaking:null, awards:null, notes:"Email sent to Zach Birmingham (Port of San Diego). Public Innovation Day — tabletop or on-water demo." },
+        { n:"Washington Public Ports Association Winter Meeting", lead:null, att:null, dates:"Dec 9 - 11", sd:"2026-12-09", ed:"2026-12-11", yr:2026, venue:"Hilton Vancouver (WA)", city:"Vancouver, WA", addr:"301 W 6th St, Vancouver WA 98660", status:"tbd", web:"https://www.washingtonports.org/event/2026-annual-meeting/", booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:null },
+        { n:"BlueTech Week: Ocean Enterprise Reimagined", lead:null, att:null, dates:"TBD", sd:null, ed:null, yr:2026, venue:"TBD", city:"TBD", addr:null, status:"pending", web:null, booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:"As part of Port of San Diego booth — see SD tab" },
+        { n:"BOATS — Boating Ontario Annual Trade Show", lead:null, att:null, dates:"Early Dec", sd:"2026-12-01", ed:"2026-12-04", yr:2026, venue:"Sheraton Fallsview Hotel", city:"Niagara Falls, ON", addr:"5875 Falls Ave, Niagara Falls ON L2G 3K7", status:"pending", web:"https://www.boatingontario.ca/events/boating-ontario-conference-2024", booth:null, bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:"Need to book/pay fee" },
+        { n:"Abu Dhabi International Boat Show", lead:null, att:null, dates:"TBD", sd:null, ed:null, yr:2026, venue:"Marina Hall, ADNEC Centre Abu Dhabi", city:"Abu Dhabi, UAE", addr:null, status:"not_attending", web:"https://www.adibs.ae/", booth:"I-C90", bsize:null, contact:null, email:null, fee:null, supplier:null, speaking:null, awards:null, notes:"Yachting Ventures running Innovation Zone at the show." },
+        { n:"The DOCKS Expo", lead:null, att:null, dates:"Dec 1 - 3", sd:"2026-12-01", ed:"2026-12-03", yr:2026, venue:"Music City Center", city:"Nashville, TN", addr:"201 Rep. John Lewis Way South, Nashville TN", status:"booked", web:"https://docksexpo.com/", booth:"333", bsize:"10 x 10", contact:"Susie Jensen", email:"susie@wjinc.net", fee:"$2,500 USD (incl table, chairs)", supplier:"Heritage", speaking:"Trevor is a panelist — electric propulsion and marina operations panel", awards:"Young Leader Awards — https://docksexpo.com/young-leader-award/", notes:"Booth #338 (exhibit) and #223 (listed). Similar to AMICE but smaller." },
+        { n:"AMI Conference & Expo 2027", lead:"Trevor", att:"Trevor", dates:"Feb 1 - 3", sd:"2027-02-01", ed:"2027-02-03", yr:2027, venue:"Ocean Center", city:"Daytona Beach, FL", addr:"101 North Atlantic Ave, Daytona Beach FL 32118", status:"pending", web:"https://marinaassociation.org/conferenceandexpo", booth:null, bsize:null, contact:"Ray Clark", email:"rgclark68@gmail.com", fee:"2700 USD (member price)", supplier:"Freeman", speaking:"NA", awards:null, notes:"Early bird renew Feb 15/26 with full payment due June 30 2026." },
+      ];
+      for (const ev of rows2) {
+        await db.execute(sql`
+          INSERT INTO tradeshow_events (show_name, vs_lead_name, vs_attendees, show_dates, start_date, end_date, year, venue, city, address, booked_status, website, booth_number, booth_size, event_contact, event_email, event_fee, show_supplier, speaking_engagement, awards_submission, notes)
+          VALUES (
+            ${ev.n}, ${ev.lead}, ${ev.att}, ${ev.dates},
+            ${ev.sd ? new Date(ev.sd) : null},
+            ${ev.ed ? new Date(ev.ed) : null},
+            ${ev.yr}, ${ev.venue}, ${ev.city}, ${ev.addr}, ${ev.status},
+            ${ev.web}, ${ev.booth}, ${ev.bsize}, ${ev.contact}, ${ev.email},
+            ${ev.fee}, ${ev.supplier}, ${ev.speaking}, ${ev.awards}, ${ev.notes}
+          )
+        `);
+      }
+    }
+    console.log("[migration] Tradeshow events schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Tradeshow events schema migration error (non-fatal):", err);
+  }
+}

@@ -193,7 +193,7 @@ app.use((req, res, next) => {
 (async () => {
   // Run schema migrations FIRST before any route setup queries the DB
   try {
-    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, migrateDocumentSchema, migrateChangelogSchema, migrateProductEngineSchema, migratePilotLeadSchema, migrateCrmExpansionSchema } = await import("./seed-production");
+    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, migrateDocumentSchema, migrateChangelogSchema, migrateProductEngineSchema, migratePilotLeadSchema, migrateCrmExpansionSchema, migrateTradeshowEventsSchema } = await import("./seed-production");
     await migrateUserSchema();
     await migrateEmailSchema();
     await migrateCalendarSchema();
@@ -212,6 +212,7 @@ app.use((req, res, next) => {
     await migrateProductEngineSchema();
     await migratePilotLeadSchema();
     await migrateCrmExpansionSchema();
+    await migrateTradeshowEventsSchema();
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }
@@ -251,7 +252,7 @@ app.use((req, res, next) => {
       log(`Listening on 0.0.0.0:${port}`);
 
       try {
-        const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, migrateDocumentSchema, migrateChangelogSchema, migrateProductEngineSchema, migratePilotLeadSchema, migrateCrmExpansionSchema, seedProductionData, seedSampleProjects } = await import("./seed-production");
+        const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, migrateDocumentSchema, migrateChangelogSchema, migrateProductEngineSchema, migratePilotLeadSchema, migrateCrmExpansionSchema, migrateTradeshowEventsSchema, seedProductionData, seedSampleProjects } = await import("./seed-production");
         await migrateUserSchema();
         await migrateEmailSchema();
         await migrateCalendarSchema();
@@ -270,6 +271,7 @@ app.use((req, res, next) => {
         await migrateProductEngineSchema();
         await migratePilotLeadSchema();
         await migrateCrmExpansionSchema();
+        await migrateTradeshowEventsSchema();
         await seedProductionData();
         await seedSampleProjects();
       } catch (err) {

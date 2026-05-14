@@ -36,6 +36,7 @@ import {
   insertCalendarEventSchema,
   insertSaasBillingLineSchema,
   insertRolloutPhaseSchema,
+  insertTradeshowEventSchema,
 } from "@shared/schema";
 import multer from "multer";
 import { z } from "zod";
@@ -5449,7 +5450,7 @@ export async function registerRoutes(
   }, async (req, res) => {
     if (!req.file) return res.status(400).json({ message: "No file uploaded" });
     const { objectType, objectId, category, title, notes, tags } = req.body;
-    const allowedTypes = ["lead", "account", "partnership", "contact", "opportunity", "quote", "install_workflow", "deployment", "purchase_order", "project", "customer_success", "general", "task"];
+    const allowedTypes = ["lead", "account", "partnership", "contact", "opportunity", "quote", "install_workflow", "deployment", "purchase_order", "project", "customer_success", "general", "task", "tradeshow_event"];
     if (!objectType || !objectId || !allowedTypes.includes(objectType)) {
       try { fs.unlinkSync(req.file.path); } catch {}
       return res.status(400).json({ message: "Valid objectType and objectId required" });
@@ -5580,7 +5581,7 @@ export async function registerRoutes(
     if (!url || !objectType || !objectId) {
       return res.status(400).json({ message: "url, objectType, and objectId are required" });
     }
-    const allowedTypes = ["lead", "account", "partnership", "contact", "opportunity", "quote", "install_workflow", "deployment", "purchase_order", "project", "customer_success", "general", "task"];
+    const allowedTypes = ["lead", "account", "partnership", "contact", "opportunity", "quote", "install_workflow", "deployment", "purchase_order", "project", "customer_success", "general", "task", "tradeshow_event"];
     if (!allowedTypes.includes(objectType)) {
       return res.status(400).json({ message: "Invalid objectType" });
     }
@@ -6676,6 +6677,42 @@ export async function registerRoutes(
   });
   app.delete("/api/ecosystem/events/:id", requirePermission("partnerships", "edit"), async (req, res) => {
     const ok = await storage.deleteEcosystemEvent(Number(req.params.id));
+    if (!ok) return res.status(404).json({ message: "Event not found" });
+    res.json({ message: "Deleted" });
+  });
+
+  // ── Tradeshow Events ───────────────────────────────────────────
+  app.get("/api/tradeshow-events", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+    const { search, status, year } = req.query;
+    res.json(await storage.getTradeshowEvents({
+      search: search as string | undefined,
+      status: status as string | undefined,
+      year: year ? Number(year) : undefined,
+    }));
+  });
+  app.get("/api/tradeshow-events/:id", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+    const e = await storage.getTradeshowEvent(Number(req.params.id));
+    if (!e) return res.status(404).json({ message: "Event not found" });
+    res.json(e);
+  });
+  app.post("/api/tradeshow-events", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    const body = { ...req.body };
+    if (body.startDate && typeof body.startDate === "string") body.startDate = new Date(body.startDate);
+    if (body.endDate && typeof body.endDate === "string") body.endDate = new Date(body.endDate);
+    const parsed = insertTradeshowEventSchema.safeParse(body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
+    res.status(201).json(await storage.createTradeshowEvent(parsed.data));
+  });
+  app.put("/api/tradeshow-events/:id", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    const body = { ...req.body };
+    if (body.startDate && typeof body.startDate === "string") body.startDate = new Date(body.startDate);
+    if (body.endDate && typeof body.endDate === "string") body.endDate = new Date(body.endDate);
+    const result = await storage.updateTradeshowEvent(Number(req.params.id), body);
+    if (!result) return res.status(404).json({ message: "Event not found" });
+    res.json(result);
+  });
+  app.delete("/api/tradeshow-events/:id", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    const ok = await storage.deleteTradeshowEvent(Number(req.params.id));
     if (!ok) return res.status(404).json({ message: "Event not found" });
     res.json({ message: "Deleted" });
   });

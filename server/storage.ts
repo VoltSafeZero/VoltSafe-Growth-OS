@@ -53,6 +53,8 @@ import {
   type SaasBillingLine, type InsertSaasBillingLine,
   rolloutPhases,
   type RolloutPhase, type InsertRolloutPhase,
+  tradeshowEvents,
+  type TradeshowEvent, type InsertTradeshowEvent,
 } from "@shared/schema";
 import { ilike, eq, or, sql, asc, desc, and, type AnyColumn, type SQL } from "drizzle-orm";
 
@@ -300,6 +302,13 @@ export interface IStorage {
   createRolloutPhase(data: InsertRolloutPhase): Promise<RolloutPhase>;
   updateRolloutPhase(id: number, data: Partial<InsertRolloutPhase>): Promise<RolloutPhase | undefined>;
   deleteRolloutPhase(id: number): Promise<boolean>;
+
+  // Tradeshow Events
+  getTradeshowEvents(options?: { search?: string; status?: string; year?: number }): Promise<TradeshowEvent[]>;
+  getTradeshowEvent(id: number): Promise<TradeshowEvent | undefined>;
+  createTradeshowEvent(data: InsertTradeshowEvent): Promise<TradeshowEvent>;
+  updateTradeshowEvent(id: number, data: Partial<InsertTradeshowEvent>): Promise<TradeshowEvent | undefined>;
+  deleteTradeshowEvent(id: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1686,6 +1695,40 @@ export class DatabaseStorage implements IStorage {
 
   async deleteRolloutPhase(id: number): Promise<boolean> {
     const [r] = await db.delete(rolloutPhases).where(eq(rolloutPhases.id, id)).returning();
+    return !!r;
+  }
+
+  async getTradeshowEvents(options?: { search?: string; status?: string; year?: number }): Promise<TradeshowEvent[]> {
+    const conditions = [];
+    if (options?.search) conditions.push(ilike(tradeshowEvents.showName, `%${options.search}%`));
+    if (options?.status) conditions.push(eq(tradeshowEvents.bookedStatus, options.status));
+    if (options?.year) conditions.push(eq(tradeshowEvents.year, options.year));
+    if (conditions.length > 0) {
+      return await db.select().from(tradeshowEvents)
+        .where(and(...conditions))
+        .orderBy(asc(tradeshowEvents.startDate), asc(tradeshowEvents.showName));
+    }
+    return await db.select().from(tradeshowEvents)
+      .orderBy(asc(tradeshowEvents.startDate), asc(tradeshowEvents.showName));
+  }
+
+  async getTradeshowEvent(id: number): Promise<TradeshowEvent | undefined> {
+    const [r] = await db.select().from(tradeshowEvents).where(eq(tradeshowEvents.id, id)).limit(1);
+    return r;
+  }
+
+  async createTradeshowEvent(data: InsertTradeshowEvent): Promise<TradeshowEvent> {
+    const [r] = await db.insert(tradeshowEvents).values(data).returning();
+    return r;
+  }
+
+  async updateTradeshowEvent(id: number, data: Partial<InsertTradeshowEvent>): Promise<TradeshowEvent | undefined> {
+    const [r] = await db.update(tradeshowEvents).set({ ...data, updatedAt: new Date() }).where(eq(tradeshowEvents.id, id)).returning();
+    return r;
+  }
+
+  async deleteTradeshowEvent(id: number): Promise<boolean> {
+    const [r] = await db.delete(tradeshowEvents).where(eq(tradeshowEvents.id, id)).returning();
     return !!r;
   }
 }

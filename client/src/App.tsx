@@ -35,6 +35,7 @@ import EcosystemOrganizationsPage from "@/pages/ecosystem-organizations";
 import EcosystemPeoplePage from "@/pages/ecosystem-people";
 import EcosystemRelationshipsPage from "@/pages/ecosystem-relationships";
 import EcosystemEventsPage from "@/pages/ecosystem-events";
+import TradeshowEventsPage from "@/pages/tradeshow-events";
 import EcosystemRegionsPage from "@/pages/ecosystem-regions";
 import CalendarPage from "@/pages/calendar";
 import LoginPage from "@/pages/login";
@@ -316,6 +317,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/relationships">{() => wrap(<RelationshipIntelligencePage />)}</Route>
       <Route path="/execution/calendar">{() => guard("calendar", <CalendarPage permissions={perms} currentUserId={user.id} isAdmin={isAdmin(role)} />)}</Route>
       <Route path="/execution/projects">{() => guard("projects", <ProjectsPage />)}</Route>
+      <Route path="/operations/events">{() => wrap(<TradeshowEventsPage />)}</Route>
       <Route path="/execution/communications">{() => guard("communications", isAdvisor ? <AccessDenied /> : <CommunicationsPage />)}</Route>
       <Route path="/execution/team-workload">{() => guard("team_workload", <TeamWorkloadPage />)}</Route>
       <Route path="/execution/tasks">{() => wrap(<TasksHubPage />)}</Route>
