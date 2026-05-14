@@ -7464,12 +7464,12 @@ export async function registerRoutes(
         });
       }
 
-      const u = req.user;
+      const u = await storage.getUser((req.session as any).userId);
       const isCrmVisible =
-        u.role === "admin" || u.role === "master_admin" ||
+        !u || u.role === "admin" || u.role === "master_admin" ||
         (u.permissions?.crm && u.permissions.crm !== "none");
       const isOpsVisible =
-        u.role === "admin" || u.role === "master_admin" ||
+        !u || u.role === "admin" || u.role === "master_admin" ||
         (u.permissions?.operations && u.permissions.operations !== "none");
 
       const wins: any[] = [];
