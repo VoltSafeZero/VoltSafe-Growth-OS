@@ -1,0 +1,82 @@
+IMPLEMENTATION PLAN ONLY — DO NOT CHANGE CODE OR DATABASE YET.
+
+Using the CRM/Pipeline audit we just completed, create the safest implementation plan to expand Leads beyond marina-only use.
+
+Goal:
+Leads should become a universal intake layer. A Lead can later convert into either:
+1. Account = organization VoltSafe actively sells products/services to
+2. Partner = strategic relationship important to VoltSafe but not necessarily a customer
+
+Important:
+- Do not create a new partners table unless absolutely necessary.
+- Prefer using the existing accounts table for both Accounts and Partners, differentiated by orgType, segment, and partner-specific fields.
+- Marine must remain the default view because it is VoltSafe’s current 12-month focus.
+- Existing marina lead workflows must not break.
+- All changes must be additive-only.
+
+Proposed new Lead fields:
+- primary_industry text nullable
+- relationship_type text nullable
+- conversion_target text nullable
+
+Recommended primary_industry options:
+- marine
+- agnostic
+- utilities_grid
+- industrial
+- commercial_real_estate
+- transportation
+- government
+- energy_infrastructure
+- manufacturing
+- other
+
+Recommended relationship_type options:
+- customer_prospect
+- strategic_partner
+- channel_partner
+- government_regulatory
+- oem_manufacturer
+- utility_infrastructure
+- investor
+- vendor_supplier
+- research_standards
+- other
+
+Recommended conversion_target values:
+- account
+- partner
+
+Tasks:
+1. Review the audit findings and propose the exact safest implementation sequence.
+2. Identify every file that would need to change.
+3. Identify exact schema additions needed.
+4. Explain how to keep existing Lead → Account conversion working.
+5. Explain how Partner conversion should work using the existing accounts table.
+6. Explain how to default the Leads page to Marine without hiding non-marine leads permanently.
+7. Explain how to make slips/marina-specific fields conditional without deleting them.
+8. Explain how to preserve existing import-marinas, CSV export, saved views, bulk actions, map view, and permissions.
+9. Identify any tests that must be updated or added.
+10. Give a final step-by-step implementation checklist.
+
+Do NOT:
+- modify files
+- run migrations
+- push schema
+- rename existing fields
+- delete existing fields
+- change current stage values
+- change existing orgType values
+- break saved views
+- break marina import
+
+Output format:
+1. Executive Summary
+2. Proposed Data Model
+3. File-by-File Implementation Plan
+4. Lead Conversion Logic Plan
+5. Frontend UX Plan
+6. Backward Compatibility Plan
+7. Test Plan
+8. Risk List
+9. Final Implementation Checklist
