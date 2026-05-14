@@ -7464,7 +7464,7 @@ export async function registerRoutes(
         });
       }
 
-      const u = await storage.getUser((req.session as any).userId);
+      const [u] = await db.select().from(users).where(eq(users.id, (req.session as any).userId));
       const isCrmVisible =
         !u || u.role === "admin" || u.role === "master_admin" ||
         (u.permissions?.crm && u.permissions.crm !== "none");
