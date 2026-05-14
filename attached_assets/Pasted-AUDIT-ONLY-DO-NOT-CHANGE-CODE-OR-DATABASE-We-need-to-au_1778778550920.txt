@@ -1,0 +1,112 @@
+AUDIT ONLY — DO NOT CHANGE CODE OR DATABASE.
+
+We need to audit the current VoltSafe CMS CRM/Pipeline structure before expanding Leads beyond marina-only use.
+
+Goal:
+Understand exactly how the current CRM models:
+1. Leads
+2. Accounts
+3. Contacts
+4. Partners, if any
+5. Lead → Account conversion logic
+6. Industry/type/stage dropdowns
+7. UI filters and saved views
+8. Database schema and API routes involved
+
+Context:
+VoltSafe’s current first market is Marine, but the technology is industry-agnostic. We want Leads to become a universal intake layer that can later convert either into:
+- Account = organization we actively sell products/services to
+- Partner = strategic relationship important to VoltSafe but not necessarily a customer
+
+Future likely fields:
+- primary_industry
+- relationship_type
+- conversion_target
+- partner support
+- default Leads view filtered to Marine
+
+Your task is to audit the current system only.
+
+Please inspect:
+- Database schema / Drizzle schema / migrations
+- CRM tables and relationships
+- Lead model fields
+- Account model fields
+- Contact model fields
+- Any existing partner/vendor/organization tables
+- Lead conversion routes/functions
+- API endpoints for leads/accounts/contacts
+- Frontend pages/components for Pipeline → Leads and Pipeline → Accounts
+- Dropdown/filter definitions
+- Stage definitions
+- Import/export logic
+- Seed/default values
+- Any tests related to CRM/Pipeline
+
+DO NOT:
+- modify files
+- run migrations
+- push schema changes
+- add fields
+- rename fields
+- delete anything
+- refactor anything
+
+Deliver a complete audit report with:
+
+1. Executive Summary
+   - Current structure in plain English
+   - Biggest constraints/risks
+
+2. Current CRM Data Model
+   - Tables involved
+   - Key fields
+   - Relationships
+   - Whether Leads and Accounts are separate entities or shared organization records
+
+3. Current Lead Flow
+   - How leads are created
+   - How stages work
+   - How filters work
+   - How imports work
+   - How lead conversion works, if it exists
+
+4. Current Account Flow
+   - How accounts are created
+   - How accounts differ from leads
+   - Whether accounts have segment/type/category fields
+
+5. Existing Partner Support
+   - Whether a Partner concept already exists
+   - If yes, where and how
+   - If no, safest way it could be added later
+
+6. Frontend Structure
+   - Exact files/components for Leads page
+   - Exact files/components for Accounts page
+   - Dropdown/filter components
+   - Shared CRM components
+
+7. Backend/API Structure
+   - Exact routes
+   - Exact services/functions
+   - Validation schemas
+   - Import/export handlers
+
+8. Database Risk Assessment
+   - What can be changed additively
+   - What must not be touched
+   - Any enum constraints or hardcoded marina assumptions
+   - Any migration/schema drift risks
+
+9. Recommended Implementation Strategy
+   - Safest step-by-step approach for later implementation
+   - Which changes should be database-first
+   - Which changes should be frontend-only
+   - Which changes should be feature-flagged
+   - Testing checklist
+
+10. Final “Do Not Break” List
+   - Existing behaviours that must continue working after changes
+
+Output should be detailed enough that another AI agent can implement the future expansion safely.
