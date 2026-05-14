@@ -1633,6 +1633,49 @@ export async function registerRoutes(
     res.json({ message: "Deleted" });
   });
 
+  // ── Pilot toggle ─────────────────────────────────────────────────────────
+  app.patch("/api/leads/:id/pilot", requirePermission("crm", "edit"), async (req: any, res) => {
+    try {
+      const lid = Number(req.params.id);
+      const { isPilot } = req.body;
+      const lead = await storage.getLead(lid);
+      if (!lead) return res.status(404).json({ message: "Lead not found" });
+      const userId = getSessionUserId(req) ?? null;
+      let project: any = null;
+      if (isPilot && !(lead as any).pilotProjectId) {
+        project = await storage.createProject({
+          name: `[PILOT] ${lead.company}`,
+          type: "pilot",
+          status: "planning",
+          description: `Pilot project for ${lead.company}. Created from Lead #${lid}.${lead.city ? ` Location: ${lead.city}${lead.state ? `, ${lead.state}` : ""}` : ""}`,
+          ownerUserId: userId ?? undefined,
+        } as any);
+        await storage.createActivity({
+          linkedObjectType: "lead",
+          linkedObjectId: lid,
+          type: "pilot_activated",
+          summary: `Pilot activated — project "${project.name}" created`,
+          createdBy: userId,
+        });
+      } else if (!isPilot && (lead as any).isPilot) {
+        await storage.createActivity({
+          linkedObjectType: "lead",
+          linkedObjectId: lid,
+          type: "pilot_deactivated",
+          summary: `Pilot status removed`,
+          createdBy: userId,
+        });
+      }
+      const updateData: any = { isPilot: !!isPilot };
+      if (project) updateData.pilotProjectId = project.id;
+      const updatedLead = await storage.updateLead(lid, updateData);
+      res.json({ lead: updatedLead, project });
+    } catch (err: any) {
+      console.error("[leads-pilot] error:", err);
+      res.status(500).json({ message: "Failed to update pilot status" });
+    }
+  });
+
   // ── Phase 2: Lead → Organization conversion helpers ─────────────────────
   const PERSONAL_EMAIL_DOMAINS = new Set([
     "gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com",

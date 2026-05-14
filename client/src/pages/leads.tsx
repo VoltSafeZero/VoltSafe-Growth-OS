@@ -1408,6 +1408,23 @@ function LeadDetailDialog({
     },
   });
 
+  const pilotMutation = useMutation({
+    mutationFn: async (isPilot: boolean) => {
+      const res = await apiRequest("PATCH", `/api/leads/${lead.id}/pilot`, { isPilot });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", lead.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      toast({
+        title: data.lead?.isPilot ? "Pilot activated" : "Pilot removed",
+        description: data.project ? `Pilot project "${data.project.name}" created in Projects.` : undefined,
+      });
+    },
+    onError: () => toast({ title: "Failed to update pilot status", variant: "destructive" }),
+  });
+
   const stageInfo = PIPELINE_STAGES.find(s => s.value === lead.status);
 
   const { data: linkedOrgData, isSuccess: linkedOrgResolved } = useQuery<{ account: { id: number; name: string; orgType: string | null } | null }>({
@@ -1449,12 +1466,18 @@ function LeadDetailDialog({
         </div>
 
         {editing ? (
-          <EditLeadForm lead={lead} onSubmit={(d) => updateMutation.mutate(d)} onCancel={() => setEditing(false)} isPending={updateMutation.isPending} />
+          <EditLeadForm lead={lead} onSubmit={(d) => updateMutation.mutate(d)} onCancel={() => setEditing(false)} isPending={updateMutation.isPending} onPilotToggle={() => pilotMutation.mutate(!(lead as any).isPilot)} isPilotPending={pilotMutation.isPending} />
         ) : (
           <div className="space-y-4 mt-2">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <Label className="text-xs text-muted-foreground">Pipeline Stage</Label>
+                {(lead as any).isPilot && (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium bg-violet-500/15 border-violet-500/40 text-violet-300" data-testid="badge-pilot">
+                    <CheckCircle2 className="h-2.5 w-2.5" />
+                    Pilot
+                  </span>
+                )}
               </div>
               {canEdit && (
                 <Button variant="outline" size="sm" onClick={() => setEditing(true)} data-testid="button-edit-lead">
@@ -1473,6 +1496,17 @@ function LeadDetailDialog({
                 ))}
               </SelectContent>
             </Select>
+
+            {(lead as any).isPilot && (lead as any).pilotProjectId && (
+              <a
+                href="/operations/projects"
+                className="flex items-center gap-1.5 text-[11px] text-violet-400/70 hover:text-violet-300 transition-colors w-fit"
+                data-testid="link-pilot-project"
+              >
+                <ExternalLink className="h-3 w-3" />
+                View Pilot Project
+              </a>
+            )}
 
             {lead.status === "converted" && (
               <>
@@ -1766,7 +1800,7 @@ function LeadDetailDialog({
   );
 }
 
-function EditLeadForm({ lead, onSubmit, onCancel, isPending }: { lead: Lead; onSubmit: (data: Record<string, unknown>) => void; onCancel: () => void; isPending: boolean }) {
+function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPilotPending }: { lead: Lead; onSubmit: (data: Record<string, unknown>) => void; onCancel: () => void; isPending: boolean; onPilotToggle: () => void; isPilotPending: boolean }) {
   const [form, setForm] = useState({
     company: lead.company || "",
     contactName: lead.contactName || "",
@@ -1821,6 +1855,36 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending }: { lead: Lead; onS
       <div>
         <Label className="text-xs">Company / Marina Name *</Label>
         <Input value={form.company} onChange={(e) => setForm(f => ({ ...f, company: e.target.value }))} required data-testid="input-edit-company" />
+      </div>
+
+      <div className="flex items-center gap-3 pb-1">
+        <Label className="text-xs text-muted-foreground">Pilot</Label>
+        <button
+          type="button"
+          onClick={onPilotToggle}
+          disabled={isPilotPending}
+          className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium transition-all select-none ${
+            (lead as any).isPilot
+              ? "bg-violet-500/15 border-violet-500/40 text-violet-300 cursor-pointer hover:border-violet-500/60"
+              : "border-border/50 text-muted-foreground/60 hover:border-violet-500/30 hover:text-violet-400/70 cursor-pointer"
+          }`}
+          data-testid="toggle-pilot"
+          title={(lead as any).isPilot ? "Remove pilot status" : "Mark as pilot & create pilot project"}
+        >
+          {isPilotPending ? (
+            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+          ) : (lead as any).isPilot ? (
+            <CheckCircle2 className="h-2.5 w-2.5" />
+          ) : (
+            <span className="h-2 w-2 rounded-full border border-current inline-block" />
+          )}
+          {(lead as any).isPilot ? "Pilot — active" : "Pilot"}
+        </button>
+        {(lead as any).isPilot && (lead as any).pilotProjectId && (
+          <a href="/operations/projects" className="text-[10px] text-violet-400/70 hover:text-violet-300 transition-colors">
+            View Project →
+          </a>
+        )}
       </div>
 
       <div className="border-t border-border/50 pt-3">

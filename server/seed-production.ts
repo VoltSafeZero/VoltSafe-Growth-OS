@@ -1224,3 +1224,13 @@ export async function migrateTerritorySchema(): Promise<void> {
     console.error("[migration] Territory schema migration error (non-fatal):", err);
   }
 }
+
+export async function migratePilotLeadSchema(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS is_pilot boolean NOT NULL DEFAULT false`);
+    await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS pilot_project_id integer`);
+    console.log("[migration] Pilot lead schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Pilot lead schema migration error (non-fatal):", err);
+  }
+}

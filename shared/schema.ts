@@ -118,6 +118,8 @@ export const leads = pgTable("leads", {
   // ── Territory + Geo Intelligence ────────────────────────────────────────────
   region: text("region"),
   territoryId: integer("territory_id"),
+  isPilot: boolean("is_pilot").notNull().default(false),
+  pilotProjectId: integer("pilot_project_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
