@@ -211,14 +211,14 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery<{ data: Lead[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, primaryIndustry: industryFilter, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],
+    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, primaryIndustry: industryFilter === "__all__" ? "" : industryFilter, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (countryFilter !== "all") params.set("country", countryFilter);
       if (stateFilter !== "all") params.set("state", stateFilter);
-      if (industryFilter) params.set("primaryIndustry", industryFilter);
+      if (industryFilter && industryFilter !== "__all__") params.set("primaryIndustry", industryFilter);
       if (sort.sortBy) { params.set("sortBy", sort.sortBy); params.set("sortOrder", sort.sortOrder); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
@@ -444,7 +444,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
               ...(statusFilter !== "all" ? { status: statusFilter } : {}),
               ...(countryFilter !== "all" ? { country: countryFilter } : {}),
               ...(stateFilter !== "all" ? { state: stateFilter } : {}),
-              ...(industryFilter ? { primaryIndustry: industryFilter } : {}),
+              ...(industryFilter && industryFilter !== "__all__" ? { primaryIndustry: industryFilter } : {}),
             }).toString()}`}
             filename="leads_export.csv"
           />
@@ -529,7 +529,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
             <SelectValue placeholder="Industry" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Industries</SelectItem>
+            <SelectItem value="__all__">All Industries</SelectItem>
             {PRIMARY_INDUSTRY_OPTIONS.map(o => (
               <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
             ))}
@@ -635,7 +635,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                     <SortableHeader label="Marina / Company" sortKey="company" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Location" sortKey="state" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Contact" sortKey="contactName" sort={sort} onSort={handleSort} className="hidden md:table-cell" />
-                    {(!industryFilter || industryFilter === "marine") && <SortableHeader label="Slips" sortKey="slips" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />}
+                    {(!industryFilter || industryFilter === "__all__" || industryFilter === "marine") && <SortableHeader label="Slips" sortKey="slips" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />}
                     <SortableHeader label="Deal $" sortKey="dealAmount" sort={sort} onSort={handleSort} className="hidden xl:table-cell" />
                     <SortableHeader label="Stage" sortKey="status" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Source" sortKey="source" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />
@@ -667,7 +667,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                         <div>{lead.contactName}</div>
                         {lead.contactPhone && <div className="text-muted-foreground text-xs">{lead.contactPhone}</div>}
                       </td>
-                      {(!industryFilter || industryFilter === "marine") && <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell" onClick={() => setSelectedLead(lead)}>{!lead.slips || lead.slips === "-" ? "Unknown" : lead.slips}</td>}
+                      {(!industryFilter || industryFilter === "__all__" || industryFilter === "marine") && <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell" onClick={() => setSelectedLead(lead)}>{!lead.slips || lead.slips === "-" ? "Unknown" : lead.slips}</td>}
                       <td className="p-3 sm:p-4 text-sm hidden xl:table-cell" onClick={() => setSelectedLead(lead)}>
                         {lead.dealAmount ? (
                           <span className="text-emerald-400 font-medium">${Number(lead.dealAmount).toLocaleString()}</span>
