@@ -5345,9 +5345,26 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       return { threadId };
     },
     onSuccess: ({ threadId }) => {
+      // 1. Optimistic update — remove the thread from the spam list immediately.
+      //    setQueryData targets the exact current key. This covers the common case
+      //    where the key is stable (same searchQuery + activeAccountId as when the
+      //    spam query was loaded).
       const removeThread = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
         old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old;
       queryClient.setQueryData(["/api/gmail/messages", "spam", searchQuery, activeAccountId], removeThread);
+
+      // 2. Invalidate ALL spam queries (partial key match) so every spam cache entry
+      //    — regardless of searchQuery or activeAccountId — is refetched and the
+      //    thread disappears from the spam view even when the key drifts (e.g. user
+      //    typed a search after the initial load, or switched accounts mid-session).
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages", "spam"] });
+
+      // 3. Invalidate the inbox query family so the thread appears in the inbox
+      //    after the server has applied the label change (remove SPAM, add INBOX).
+      //    Without this, the inbox never refetches and the "moved to inbox" message
+      //    is misleading — the thread wouldn't show up there until the next 30 s poll.
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages", "inbox"] });
+
       if (selectedThreadId === threadId) { setSelectedThreadId(null); setSelectedMessageId(null); }
       toast({ title: "Moved to Inbox", description: "This thread has been marked as not spam." });
     },
