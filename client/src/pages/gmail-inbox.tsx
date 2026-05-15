@@ -3709,6 +3709,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Used by the smart-inbox grouper to keep it in the unread bucket only when
   // it genuinely transitioned from unread→read (not when already read).
   const [openThreadWasUnread, setOpenThreadWasUnread] = useState(false);
+  // Tracks threads the user has explicitly rescued from the spam/blocked tab.
+  // inboxOther items (inbox messages from blocked domains shown in the spam tab)
+  // always survive an inbox refetch, so a cache eviction alone cannot keep them
+  // hidden. This set gives a permanent session-level exclusion that survives
+  // every subsequent inbox query invalidation.
+  const [rescuedFromSpam, setRescuedFromSpam] = useState<Set<string>>(new Set());
   const [returnPath] = useState<string | null>(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("return") ?? null;
@@ -5366,15 +5372,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old;
         // Remove from spam cache (catches real-spam rows served by spamQuery).
         queryClient.setQueryData(["/api/gmail/messages", "spam", searchQuery, activeAccountId], removeThread);
-        // Also remove from ALL inbox cache entries so that inboxOther (inbox messages
-        // from blocked domains that are surfaced in the spam tab) cannot immediately
-        // re-populate allSpamMessages after the inbox query refetches.
-        // Without this, threads that were in inbox-from-blocked-domain would reappear
-        // every time the mutation succeeded because inboxQuery refetch still included them.
-        queryClient.setQueriesData<{ messages: MessageSummary[]; nextPageToken: string | null }>(
-          { queryKey: ["/api/gmail/messages", "inbox"] },
-          (old) => old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old,
-        );
+        // Mark thread as rescued so inboxOther (inbox messages from blocked domains
+        // shown in the spam tab) never re-surfaces it — even after the inbox query
+        // refetches and returns the same messages from the server.
+        setRescuedFromSpam((prev) => new Set([...prev, threadId]));
       }
 
       // 2. Invalidate ALL spam queries (partial key match) so every spam cache entry
@@ -5558,7 +5559,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const inboxOther = canSend
     ? allInboxMessages.filter((m) => blockedDomains.has(parseSenderDomain(m.from)))
     : [];
-  const allSpamMessages = [...(spamQuery.data?.messages || []), ...inboxOther];
+  // Exclude threads the user has explicitly rescued via Not Spam from the
+  // blocked-domain overlay. inboxOther items always survive an inbox refetch
+  // (they're genuinely in the inbox), so cache invalidation alone cannot hide
+  // them. rescuedFromSpam provides a session-level exclusion that is unaffected
+  // by any subsequent query invalidation or refetch.
+  const inboxOtherVisible = inboxOther.filter((m) => !rescuedFromSpam.has(m.threadId));
+  const allSpamMessages = [...(spamQuery.data?.messages || []), ...inboxOtherVisible];
 
   const categorizedInbox =
     inboxCategory === "priority"    ? inboxMain.filter((m) => isStarred(m.labelIds)) :
