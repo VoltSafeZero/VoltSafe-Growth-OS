@@ -5364,7 +5364,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       if (remainingSpam === 0) {
         const removeThread = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
           old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old;
+        // Remove from spam cache (catches real-spam rows served by spamQuery).
         queryClient.setQueryData(["/api/gmail/messages", "spam", searchQuery, activeAccountId], removeThread);
+        // Also remove from ALL inbox cache entries so that inboxOther (inbox messages
+        // from blocked domains that are surfaced in the spam tab) cannot immediately
+        // re-populate allSpamMessages after the inbox query refetches.
+        // Without this, threads that were in inbox-from-blocked-domain would reappear
+        // every time the mutation succeeded because inboxQuery refetch still included them.
+        queryClient.setQueriesData<{ messages: MessageSummary[]; nextPageToken: string | null }>(
+          { queryKey: ["/api/gmail/messages", "inbox"] },
+          (old) => old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old,
+        );
       }
 
       // 2. Invalidate ALL spam queries (partial key match) so every spam cache entry
