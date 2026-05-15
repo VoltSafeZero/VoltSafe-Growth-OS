@@ -23,6 +23,11 @@ const INDEX_DDL: { name: string; sql: string }[] = [
   { name: "pg_trgm_extension", sql: `CREATE EXTENSION IF NOT EXISTS pg_trgm` },
   { name: "idx_email_participants_trgm", sql: `CREATE INDEX IF NOT EXISTS idx_email_participants_trgm ON email_messages USING gin (lower(coalesce(all_participants,'')) gin_trgm_ops)` },
   { name: "idx_email_subject_trgm", sql: `CREATE INDEX IF NOT EXISTS idx_email_subject_trgm ON email_messages USING gin (lower(coalesce(subject,'')) gin_trgm_ops)` },
+  // Fast ILIKE on from_email and to_emails — needed because the participant-field
+  // fallback in search now always checks these fields (not just @-queries), so
+  // without a GIN trgm index they would fall back to a seq scan on 87K+ rows.
+  { name: "idx_email_from_email_trgm", sql: `CREATE INDEX IF NOT EXISTS idx_email_from_email_trgm ON email_messages USING gin (lower(coalesce(from_email,'')) gin_trgm_ops)` },
+  { name: "idx_email_to_emails_trgm", sql: `CREATE INDEX IF NOT EXISTS idx_email_to_emails_trgm ON email_messages USING gin (lower(coalesce(to_emails,'')) gin_trgm_ops)` },
   // Phase 2E — attachment metadata indexes
   { name: "idx_email_attach_message", sql: `CREATE INDEX IF NOT EXISTS idx_email_attach_message ON email_attachments(message_id)` },
   { name: "idx_email_attach_mime", sql: `CREATE INDEX IF NOT EXISTS idx_email_attach_mime ON email_attachments(mime_type)` },
@@ -146,20 +151,26 @@ export async function searchEmails(p: SearchParams): Promise<SearchResult> {
   let orderBy = "sent_at DESC NULLS LAST, id DESC";
   if (q) {
     const qLit = `'${safe(q)}'`;
+    const lc = safe(q.toLowerCase());
     // all_participants covers from + to + cc so recipient searches ("I emailed zach@…")
     // work even though to_emails isn't in the pre-built GIN index.
     const tsv = `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(from_name,'') || ' ' || coalesce(from_email,'') || ' ' || coalesce(snippet,'') || ' ' || coalesce(body_text,'') || ' ' || coalesce(all_participants,''))`;
     const tsq = `plainto_tsquery('english', ${qLit})`;
     const ftsCond = `${tsv} @@ ${tsq}`;
-    // For email-address queries, the trigram index on all_participants gives a
-    // fast exact substring match that FTS tokenisation can miss (e.g. the @
-    // and domain suffix may not tokenise identically in tsvector vs tsquery).
-    if (q.includes('@')) {
-      const lc = safe(q.toLowerCase());
-      where.push(`(${ftsCond} OR lower(coalesce(all_participants,'')) LIKE '%${lc}%')`);
-    } else {
-      where.push(ftsCond);
-    }
+    // ALWAYS add trigram ILIKE fallback on participant and address fields alongside FTS.
+    //
+    // Root cause: all_participants stores email addresses as a JSON array string,
+    // e.g. '["bob@example.com","boatbnbsd@gmail.com"]'. PostgreSQL's FTS parser
+    // sees the surrounding double-quotes and does NOT recognise the value as an
+    // email token, so it misses the local-part ("boatbnbsd") even though a bare
+    // 'boatbnbsd@gmail.com' string would produce the correct lexeme. This affects
+    // any search for an email username, company name in an address, or any term
+    // that only appears inside an email address in the participant fields.
+    //
+    // GIN trigram indexes on all_participants, from_email, and to_emails make
+    // these ILIKE conditions fast (index scan rather than seq scan).
+    where.push(`(${ftsCond} OR lower(coalesce(all_participants,'')) LIKE '%${lc}%' OR lower(coalesce(from_email,'')) LIKE '%${lc}%' OR lower(coalesce(to_emails,'')) LIKE '%${lc}%')`);
+    
     rankExpr = `ts_rank(${tsv}, ${tsq}) AS rank`;
     snippetExpr = `ts_headline('english', coalesce(body_text, snippet, ''), ${tsq}, 'StartSel=<<,StopSel=>>,MaxFragments=1,MaxWords=18,MinWords=6') AS snippet`;
     orderBy = "rank DESC, sent_at DESC NULLS LAST";

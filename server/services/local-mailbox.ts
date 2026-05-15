@@ -367,21 +367,27 @@ export async function listLocalMessages(p: {
   where.push(...qWhere);
   if (freeText) {
     const lit = `'${safe(freeText)}'`;
+    const lc = safe(freeText.toLowerCase());
     // all_participants covers from + to + cc, so recipient searches work even
     // when to_emails is not in the pre-built FTS GIN index.
     // idx_email_fts_v2 covers this exact tsvector expression — Postgres will use
     // the GIN index instead of a seq scan once that index is built.
     const tsv = `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(from_name,'') || ' ' || coalesce(from_email,'') || ' ' || coalesce(snippet,'') || ' ' || coalesce(body_text,'') || ' ' || coalesce(all_participants,''))`;
     const ftsCond = `${tsv} @@ plainto_tsquery('english', ${lit})`;
-    // For email-address queries, also do a direct trigram ILIKE on all_participants
-    // as a fallback — FTS tokenisation of '@' and domain suffixes can miss exact
-    // email-address matches that the trigram index catches reliably.
-    if (freeText.includes('@')) {
-      const lc = safe(freeText.toLowerCase());
-      where.push(`(${ftsCond} OR lower(coalesce(all_participants,'')) LIKE '%${lc}%')`);
-    } else {
-      where.push(ftsCond);
-    }
+    // ALWAYS add trigram ILIKE fallback on participant and address fields alongside FTS.
+    //
+    // Root cause: all_participants stores email addresses as a JSON array string,
+    // e.g. '["bob@example.com","boatbnbsd@gmail.com"]'. PostgreSQL's FTS parser
+    // sees the surrounding double-quotes and does NOT recognise the value as an
+    // email token, so it may miss the local-part ("boatbnbsd") even though a bare
+    // 'boatbnbsd@gmail.com' string would produce the right lexeme. This affects
+    // searches for email usernames (e.g. "boatbnbsd"), company names embedded in
+    // addresses, and any term that is only present as part of an email address in
+    // the participant list.
+    //
+    // The GIN trigram indexes on all_participants, from_email, and to_emails make
+    // these ILIKE conditions fast (index scan, not seq scan).
+    where.push(`(${ftsCond} OR lower(coalesce(all_participants,'')) LIKE '%${lc}%' OR lower(coalesce(from_email,'')) LIKE '%${lc}%' OR lower(coalesce(to_emails,'')) LIKE '%${lc}%')`);
   }
   // When the user searches with free text but without an explicit "in:" label
   // filter, exclude TRASH and SPAM messages from results. Without this exclusion,

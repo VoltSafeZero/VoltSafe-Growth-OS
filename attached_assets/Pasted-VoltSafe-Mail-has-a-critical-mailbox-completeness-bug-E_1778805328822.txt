@@ -1,0 +1,78 @@
+VoltSafe Mail has a critical mailbox completeness bug.
+
+Evidence:
+- In Spark Mail, searching trevor@voltsafe.com for "boatbnbsd" finds 5 email chains.
+- In VoltSafe Mail, searching the same trevor@voltsafe.com inbox for "boatbnbsd" returns 0 results.
+- Therefore VoltSafe Mail is not showing/searching all real inbox messages.
+
+Goal:
+Fix VoltSafe Mail so ALL real inbox emails show up in the main All Inboxes / account Inbox views without fail.
+
+Do a full root-cause audit and fix. Do not only patch the frontend.
+
+Required investigation:
+1. Trace how emails are synced from Gmail/IMAP into the local database.
+2. Trace how labels/folders are stored: INBOX, SENT, DRAFT, SPAM, TRASH, ARCHIVE, custom folders, Gmail labels, thread labels.
+3. Trace how the frontend “All Inboxes” and individual account Inbox queries are built.
+4. Trace search behavior in VoltSafe Mail and compare it to normal mailbox clients like Spark/Gmail.
+5. Specifically investigate why messages containing/from/to "boatbnbsd" exist in Spark but not in VoltSafe Mail.
+6. Check whether messages are:
+   - synced but hidden by folder filters
+   - stored under another backend folder
+   - archived but still part of inbox thread
+   - missing because only latest thread message was synced
+   - missing because Gmail labels were not persisted correctly
+   - excluded because thread-level labels differ from message-level labels
+   - excluded because search only checks subject/body but not participants/recipients/snippets
+   - excluded because pagination/incremental sync stopped early
+   - excluded because account_id mapping is wrong
+   - excluded because local cache was not backfilled
+
+Required fix:
+1. “All Inboxes” must include every message/thread for every selected account where at least one message belongs to INBOX and is not TRASH or SPAM.
+2. Individual account Inbox must include every inbox thread/message for that account, not only locally categorized rows.
+3. Search must run across:
+   - sender
+   - recipients
+   - cc/bcc
+   - subject
+   - snippet
+   - body text
+   - normalized email addresses
+   - thread participants
+4. Search inside Inbox should search the full inbox universe, not only currently loaded UI rows.
+5. Thread-level display must not hide a thread just because the latest message is sent/archived if an earlier message in the thread is still in INBOX.
+6. Add a repair/backfill job that re-syncs and re-labels all existing emails for trevor@voltsafe.com and any connected account.
+7. Add a “mailbox integrity audit” endpoint or script that compares:
+   - remote Gmail/IMAP inbox message count
+   - local DB inbox message count
+   - local searchable message count
+   - missing remote message IDs
+   - messages with no folder/label mapping
+8. Add logging for sync batches, skipped messages, label mapping, folder assignment, and search result counts.
+9. Add regression tests using fixture data where:
+   - a thread has multiple messages
+   - only older messages are INBOX
+   - latest message is SENT
+   - email address appears only in recipient field
+   - email address appears only in body/snippet
+   - search term "boatbnbsd" must return all matching inbox threads
+
+Acceptance criteria:
+- Searching trevor@voltsafe.com Inbox for "boatbnbsd" returns the same 5 chains Spark shows, assuming those messages exist remotely.
+- All Inboxes shows every real inbox email from every connected mailbox.
+- No inbox email is hidden because it is stored under the wrong local folder.
+- Archived, sent, draft, spam, and trash behavior remains correct.
+- No destructive DB changes.
+- Additive-only schema changes if needed.
+- Preserve existing mail data.
+- Provide a final report showing:
+  - root cause
+  - files changed
+  - DB queries used
+  - before/after counts
+  - proof that "boatbnbsd" now returns results
+  - tests passed
+
+Important:
+Do not fake success by changing the UI empty state. Fix the sync/index/query model so VoltSafe Mail becomes mailbox-complete.
