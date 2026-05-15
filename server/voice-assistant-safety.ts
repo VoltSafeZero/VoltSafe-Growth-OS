@@ -867,6 +867,28 @@ async function logAssistantCreate(opts: {
   await safeAuditWrite({ ...opts, source: String(opts.source) });
 }
 
+// ──────────── Cortex private column helper ─────────────────────────────────
+// Auto-provisions a per-user private "Cortex Tasks" column the first time it is
+// needed. The column is stored in user_task_columns with a user-scoped slug so
+// it is never visible to other users unless they are explicitly granted access
+// via task_column_shares (which Cortex never does).
+async function ensureCortexPrivateColumn(userId: number): Promise<string> {
+  const slug = "cortex_tasks";
+  const fullSlug = `u${userId}_${slug}`;
+  await db.execute(sql`
+    INSERT INTO user_task_columns (user_id, slug, label, color, sort_order)
+    VALUES (${userId}, ${slug}, ${"Cortex Tasks"}, ${"violet"}, 999)
+    ON CONFLICT (user_id, slug) DO NOTHING
+  `);
+  return fullSlug;
+}
+
+/** Returns true when the first two words of the message are "create task" (case-insensitive). */
+function startsWithCreateTask(msg: string): boolean {
+  const words = msg.trim().toLowerCase().split(/\s+/);
+  return words[0] === "create" && words[1] === "task";
+}
+
 // ──────────── create_task ──────────────────────────────────────────────────
 async function executeCreateTask(args: any, ctx: SafeExecContext): Promise<string> {
   const title = String(args?.title || "").trim();
@@ -906,6 +928,14 @@ async function executeCreateTask(args: any, ctx: SafeExecContext): Promise<strin
 
   const description = args?.description ? String(args.description) : null;
 
+  // If the user opened with "create task …" (first two words), route the task
+  // into their private Cortex Tasks column, which is auto-provisioned on first
+  // use and never shared with other users.
+  let boardColumn: string | undefined;
+  if (startsWithCreateTask(ctx.userMessage)) {
+    boardColumn = await ensureCortexPrivateColumn(ctx.userId);
+  }
+
   let created: any;
   try {
     created = await storage.createTask({
@@ -922,6 +952,7 @@ async function executeCreateTask(args: any, ctx: SafeExecContext): Promise<strin
       linkedObjectType: linkedType as any,
       linkedObjectId: linkedId as any,
       source: args?.source ? String(args.source) : "voice-assistant",
+      boardColumn: boardColumn as any,
       sortOrder: 0,
     } as any);
   } catch (e: any) {
