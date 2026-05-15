@@ -9538,11 +9538,28 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         const backfilledSoFar: number = Number(sess.gmailBackfillCount || 0);
         const capReached = backfilledSoFar >= SOFT_CAP;
 
+        // Never overflow into Gmail for spam / trash / junk folder-scoped queries.
+        //
+        // Root cause of the "not spam" bug: after markNotSpam removes SPAM from
+        // local label_ids, the spam-folder query returns 0 local results.  That
+        // makes localExhausted=true AND messages.length < limit, which triggers
+        // the overflow path.  fetchOlderFromGmail then calls Gmail with the same
+        // "in:spam <term>" filter.  Gmail's label-propagation lag means those
+        // messages are still in the spam index for several seconds after the
+        // threads.modify call, so Gmail returns them again.  upsertMessageById
+        // sees parsed.labelIds !== existing.labelIds and overwrites local
+        // label_ids WITH the stale Gmail SPAM labels — silently undoing the fix.
+        //
+        // Spam/trash are fully mirrored locally via incremental sync, so
+        // overflow adds no value for these folders and is actively harmful.
+        const isSpamOrTrashQuery = /\bin:(spam|trash|junk)\b/i.test(q);
+
         const shouldOverflow =
           canOverflow &&
           local.localExhausted &&
           local.messages.length < maxResults &&
-          !capReached;
+          !capReached &&
+          !isSpamOrTrashQuery;
 
         if (!shouldOverflow) {
           res.setHeader("X-Mail-Source", "local");

@@ -1,0 +1,86 @@
+The Not Spam fix is still broken.
+
+Observed behavior:
+- I am in Spam search results for `boatbnb`.
+- I click the shield / Not Spam button.
+- The reader pane on the right disappears.
+- Toast says: “Moved to Inbox — 4 message(s) restored to inbox.”
+- But the same emails remain visible in Spam search/list.
+- Therefore the backend is reporting success, but the Spam query/list state is not actually cleared or is being rehydrated from stale/search/thread data.
+
+Do a full root-cause audit before coding.
+
+Required diagnosis:
+1. After clicking Not Spam, immediately query the DB for the exact message IDs shown in the Spam list.
+2. Confirm whether each row still has any spam indicators:
+   - label_ids contains SPAM/JUNK
+   - folder = spam/junk
+   - mailbox/category = spam
+   - is_spam = true
+   - system label table still has SPAM
+   - search/index table still marks spam
+   - cached thread/conversation summary still marks spam
+3. Confirm whether the Spam UI list is rendered from:
+   - live messages table
+   - thread summary table
+   - search index
+   - cached API response
+   - frontend React cache/query cache
+4. Find why toast says 4 updated while list still shows them.
+
+Likely failure:
+The service updates message rows, but the Spam view/search is driven by a different source: thread summary, labels join table, search index, or cached query results. The reader closes because frontend trusts the success response, but the list remains because the Spam source of truth was not updated/invalidated.
+
+Permanent fix:
+- Not Spam must clear spam state from EVERY source used by Spam/Search/All Inbox rendering.
+- Do not return success unless the same query that powers Spam view no longer returns those messages.
+- Add a post-write verification step:
+  - rerun the Spam-list query for the affected message/thread IDs
+  - if any still match Spam, return `remainingSpam > 0` and do NOT show success
+- Frontend must invalidate/refetch:
+  - Spam folder query
+  - current search results
+  - Inbox query
+  - All Inboxes query
+  - thread/conversation detail query
+  - unread/folder counts
+- If current search is active, refetch that search immediately after mutation.
+- Remove the thread from visible Spam list only after backend verification confirms it no longer matches Spam.
+
+Fix the backend source-of-truth:
+- If there is a message_labels join table, delete SPAM/JUNK label rows there too.
+- If there is a thread/conversation summary table, recompute its folder/label state after Not Spam.
+- If there is a search index table/vector/document table, update or rebuild affected message/thread index records.
+- If Gmail sync later re-adds SPAM, detect it and prefer local user action unless Gmail provider still marks it spam.
+
+Add debugging endpoint or temporary logs:
+For one clicked message/thread, log:
+- selected message id
+- resolved linked ids
+- before spam-state per row
+- after spam-state per row
+- exact Spam query result count after update
+- frontend query invalidations triggered
+
+Required tests:
+1. Not Spam on a 4-message thread removes all 4 from the exact Spam API response.
+2. Spam search for `boatbnb` no longer returns the restored thread after mutation.
+3. Reader pane closes only when backend post-verification says remainingSpam = 0.
+4. Toast success only appears when remainingSpam = 0.
+5. If any spam source remains, toast must warn and keep the message selected.
+6. Regression: no API may return “Moved to Inbox” while the affected thread still appears in Spam API/search results.
+
+Verification using current scenario:
+- Search Spam for `boatbnb`.
+- Click Not Spam on the Scott Carlson / Boat BNB thread.
+- Confirm the Spam list immediately removes all linked rows.
+- Refresh page.
+- Search Spam for `boatbnb` again.
+- Confirm zero results for that thread.
+- Search Inbox or All Inboxes for `boatbnb`.
+- Confirm the thread appears there.
+- Confirm DB post-check shows zero spam indicators across message rows, labels, thread summary, and search index.
+
+Do not just hide rows in frontend.
+Do not trust mutation success blindly.
+Fix the actual Spam source of truth.
