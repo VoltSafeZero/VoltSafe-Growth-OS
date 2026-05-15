@@ -4311,11 +4311,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   //   This effect lives inside gmail-inbox.tsx, so it only runs while the
   //   user is on the inbox page. Page-mount + visibilityState together
   //   give us "visible AND on inbox page" coverage.
-  const POLLING_TICK_MS = 15_000;
-  const STALENESS_THRESHOLD_MS = 60_000;
-  const PER_ACCOUNT_COOLDOWN_MS = 15_000;
+  const POLLING_TICK_MS = 60_000;
+  const STALENESS_THRESHOLD_MS = 50_000;
+  const PER_ACCOUNT_COOLDOWN_MS = 55_000;
   const lastPolledAtRef = useRef<Map<number, number>>(new Map());
   const inFlightPollRef = useRef<Set<number>>(new Set());
+  const [refreshingAccounts, setRefreshingAccounts] = useState<Set<number>>(new Set());
   const healthDataRef = useRef(accountsHealthQuery.data);
   useEffect(() => { healthDataRef.current = accountsHealthQuery.data; }, [accountsHealthQuery.data]);
   useEffect(() => {
@@ -4380,6 +4381,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       }
     };
   }, []); // empty deps — interval mounts once; healthDataRef tracks fresh data.
+
+  const handleRefreshAccount = async (accountId: number) => {
+    if (refreshingAccounts.has(accountId)) return;
+    setRefreshingAccounts((prev) => new Set(prev).add(accountId));
+    try {
+      const res = await fetch(`/api/gmail/sync-incremental?accountId=${accountId}`, { method: "POST", credentials: "include" });
+      if (res.ok) {
+        queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/gmail/threads"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/gmail/accounts", "health"] });
+      }
+    } catch { /* swallow */ }
+    finally {
+      setRefreshingAccounts((prev) => { const s = new Set(prev); s.delete(accountId); return s; });
+    }
+  };
 
   // Shared accounts visible to this user — filtered by mail_team permissions.
   // Non-admins require an explicit view grant; no grant = no access.
@@ -6335,29 +6352,39 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             {/* Personal account row + subtabs when active */}
             {personalAccount ? (
               <>
-                <button
-                  onClick={() => {
-                    setActiveAccountId(null); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); setCurrentThreadAccountId(null);
-                  }}
-                  data-testid="btn-account-personal"
-                  className={`w-full flex items-center gap-2.5 px-2 ${densityClasses.sidebarRowPy} rounded-md transition-colors ${activeAccountId === null ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
-                >
-                  <span className={`relative flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${activeAccountId === null ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
-                    {(personalAccount.displayName || personalAccount.emailAddress)[0].toUpperCase()}
-                    {/* Multi-mailbox Phase 1: sync-status dot */}
-                    {(() => {
-                      const h = healthById.get(personalAccount.id);
-                      if (!h) return null;
-                      const cls = h.status === "green" ? "bg-emerald-500" : h.status === "amber" ? "bg-amber-500" : "bg-red-500";
-                      const tip = h.status === "red" ? (h.syncErrorMessage || "Sync disabled") : h.status === "amber" ? `Watch expires in ${h.watchHoursRemaining ?? "?"}h` : "Healthy";
-                      return <span title={tip} data-testid={`status-dot-${personalAccount.id}`} className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-1 ring-background ${cls}`} />;
-                    })()}
-                  </span>
-                  <span className="flex-1 text-left text-[12px] font-medium truncate">{personalAccount.emailAddress}</span>
-                  {activeAccountId === null && inboxUnreadCount > 0 && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{inboxUnreadCount}</span>
-                  )}
-                </button>
+                <div className="group flex items-center gap-0.5">
+                  <button
+                    onClick={() => {
+                      setActiveAccountId(null); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); setCurrentThreadAccountId(null);
+                    }}
+                    data-testid="btn-account-personal"
+                    className={`flex-1 flex items-center gap-2.5 px-2 ${densityClasses.sidebarRowPy} rounded-md transition-colors ${activeAccountId === null ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+                  >
+                    <span className={`relative flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${activeAccountId === null ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                      {(personalAccount.displayName || personalAccount.emailAddress)[0].toUpperCase()}
+                      {/* Multi-mailbox Phase 1: sync-status dot */}
+                      {(() => {
+                        const h = healthById.get(personalAccount.id);
+                        if (!h) return null;
+                        const cls = h.status === "green" ? "bg-emerald-500" : h.status === "amber" ? "bg-amber-500" : "bg-red-500";
+                        const tip = h.status === "red" ? (h.syncErrorMessage || "Sync disabled") : h.status === "amber" ? `Watch expires in ${h.watchHoursRemaining ?? "?"}h` : "Healthy";
+                        return <span title={tip} data-testid={`status-dot-${personalAccount.id}`} className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-1 ring-background ${cls}`} />;
+                      })()}
+                    </span>
+                    <span className="flex-1 text-left text-[12px] font-medium truncate">{personalAccount.emailAddress}</span>
+                    {activeAccountId === null && inboxUnreadCount > 0 && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{inboxUnreadCount}</span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => handleRefreshAccount(personalAccount.id)}
+                    data-testid={`btn-refresh-account-${personalAccount.id}`}
+                    title="Check for new mail"
+                    className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${refreshingAccounts.has(personalAccount.id) ? "animate-spin" : ""}`} />
+                  </button>
+                </div>
                 {/* Personal account subtabs */}
                 {activeAccountId === null && (
                   <div className="ml-3 pl-2 border-l border-border/40 space-y-0.5 mt-0.5 mb-1">
@@ -6442,29 +6469,41 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   const letter = acct.emailAddress[0].toUpperCase();
                   return (
                     <div key={acct.id}>
-                      <button
-                        onClick={() => {
-                          setActiveAccountId(acct.id); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); setCurrentThreadAccountId(null);
-                        }}
-                        data-testid={`btn-account-shared-${acct.id}`}
-                        title={acct.emailAddress}
-                        className={`w-full flex items-center gap-2.5 px-2 ${densityClasses.sidebarRowPy} rounded-md transition-colors ${isThisActive ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
-                      >
-                        <span className={`relative flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${isThisActive ? "bg-teal-500 text-white" : "bg-teal-900/60 text-teal-300"}`}>
-                          {letter}
-                          {(() => {
-                            const h = healthById.get(acct.id);
-                            if (!h) return null;
-                            const cls = h.status === "green" ? "bg-emerald-500" : h.status === "amber" ? "bg-amber-500" : "bg-red-500";
-                            const tip = h.status === "red" ? (h.syncErrorMessage || "Sync disabled") : h.status === "amber" ? `Watch expires in ${h.watchHoursRemaining ?? "?"}h` : "Healthy";
-                            return <span title={tip} data-testid={`status-dot-${acct.id}`} className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-1 ring-background ${cls}`} />;
-                          })()}
-                        </span>
-                        <span className="flex-1 text-left text-[12px] font-medium truncate">{acct.emailAddress}</span>
-                        {isThisActive && inboxUnreadCount > 0 && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{inboxUnreadCount}</span>
+                      <div className="group flex items-center gap-0.5">
+                        <button
+                          onClick={() => {
+                            setActiveAccountId(acct.id); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); setCurrentThreadAccountId(null);
+                          }}
+                          data-testid={`btn-account-shared-${acct.id}`}
+                          title={acct.emailAddress}
+                          className={`flex-1 flex items-center gap-2.5 px-2 ${densityClasses.sidebarRowPy} rounded-md transition-colors ${isThisActive ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+                        >
+                          <span className={`relative flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${isThisActive ? "bg-teal-500 text-white" : "bg-teal-900/60 text-teal-300"}`}>
+                            {letter}
+                            {(() => {
+                              const h = healthById.get(acct.id);
+                              if (!h) return null;
+                              const cls = h.status === "green" ? "bg-emerald-500" : h.status === "amber" ? "bg-amber-500" : "bg-red-500";
+                              const tip = h.status === "red" ? (h.syncErrorMessage || "Sync disabled") : h.status === "amber" ? `Watch expires in ${h.watchHoursRemaining ?? "?"}h` : "Healthy";
+                              return <span title={tip} data-testid={`status-dot-${acct.id}`} className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-1 ring-background ${cls}`} />;
+                            })()}
+                          </span>
+                          <span className="flex-1 text-left text-[12px] font-medium truncate">{acct.emailAddress}</span>
+                          {isThisActive && inboxUnreadCount > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{inboxUnreadCount}</span>
+                          )}
+                        </button>
+                        {isAdmin && (
+                          <button
+                            onClick={() => handleRefreshAccount(acct.id)}
+                            data-testid={`btn-refresh-account-${acct.id}`}
+                            title="Check for new mail"
+                            className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all"
+                          >
+                            <RefreshCw className={`h-3 w-3 ${refreshingAccounts.has(acct.id) ? "animate-spin" : ""}`} />
+                          </button>
                         )}
-                      </button>
+                      </div>
                       {/* Subtabs for this team inbox when active */}
                       {isThisActive && (
                         <div className="ml-3 pl-2 border-l border-border/40 space-y-0.5 mt-0.5 mb-1">
