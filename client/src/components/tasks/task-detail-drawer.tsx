@@ -1592,7 +1592,7 @@ function CrmLinkCombobox({
   const accountQ = useQuery<any>({
     queryKey: ["/api/accounts", "task-link", debounced],
     queryFn: () =>
-      fetch(`/api/accounts?search=${encodeURIComponent(debounced)}&limit=20`, { credentials: "include" })
+      fetch(`/api/accounts?search=${encodeURIComponent(debounced)}&limit=20&onlyPromoted=false`, { credentials: "include" })
         .then((r) => r.json()),
     enabled: open && type === "account",
     staleTime: 15000,

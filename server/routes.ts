@@ -2194,7 +2194,7 @@ export async function registerRoutes(
   });
 
   app.get("/api/accounts", requirePermission("crm", "view"), async (req, res) => {
-    const { search, segment, leadStatus, priority, orgType, page, limit, sortBy, sortOrder } = req.query;
+    const { search, segment, leadStatus, priority, orgType, page, limit, sortBy, sortOrder, onlyPromoted } = req.query;
     res.json(await storage.getAccounts({
       search: search as string | undefined,
       segment: segment as string | undefined,
@@ -2205,7 +2205,7 @@ export async function registerRoutes(
       limit: limit ? Number(limit) : undefined,
       sortBy: sortBy as string | undefined,
       sortOrder: sortOrder as string | undefined,
-      onlyPromoted: true,
+      onlyPromoted: onlyPromoted === "false" ? false : true,
     }));
   });
 
