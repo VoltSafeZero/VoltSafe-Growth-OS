@@ -67,7 +67,7 @@ function SuggestionDropdown({ suggestions, activeIndex, onSelect, onHover, style
   return createPortal(
     <div
       ref={dropdownRef}
-      style={style}
+      style={{ ...style, pointerEvents: "auto" }}
       className="bg-popover border border-border/50 rounded-lg shadow-2xl overflow-hidden py-1"
       data-testid="email-autocomplete-dropdown"
     >
@@ -308,16 +308,20 @@ export function EmailAutocompleteInput({
 }: EmailAutocompleteInputProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  // query is the user's in-progress typed text — kept separate from the
+  // controlled `value` so selecting a suggestion clears the query (and
+  // closes the dropdown) without waiting for a new fetch cycle.
+  const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [dropStyle, setDropStyle] = useState<React.CSSProperties>({});
 
-  const suggestions = useEmailSuggestions(value);
+  const suggestions = useEmailSuggestions(query);
 
   useEffect(() => {
-    setOpen(suggestions.length > 0 && value.trim().length > 0);
+    setOpen(suggestions.length > 0 && query.trim().length > 0);
     setActiveIndex(-1);
-  }, [suggestions, value]);
+  }, [suggestions, query]);
 
   useEffect(() => {
     if (!open || !inputRef.current) return;
@@ -343,6 +347,7 @@ export function EmailAutocompleteInput({
 
   const selectSuggestion = (s: Suggestion) => {
     onChange(s.email);
+    setQuery("");   // clear query → suggestions clear → dropdown closes cleanly
     setOpen(false);
     setTimeout(() => inputRef.current?.focus(), 0);
   };
@@ -365,7 +370,7 @@ export function EmailAutocompleteInput({
         id={id}
         type="email"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => { onChange(e.target.value); setQuery(e.target.value); }}
         onKeyDown={handleKeyDown}
         onBlur={() => setTimeout(() => {
           if (!dropdownRef.current?.contains(document.activeElement)) setOpen(false);
