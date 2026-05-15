@@ -10419,47 +10419,55 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   // POST /api/inbox/threads/:threadId/not-spam — remove SPAM label, add INBOX
-  // Mirrors the label change locally so the thread immediately moves to Inbox.
+  // Uses the canonical not-spam service which:
+  //   • resolves ALL linked messages via gmail_thread_id (+ normalized_subject fallback)
+  //   • calls the Gmail API separately for every distinct account that holds messages
+  //   • updates local label_ids for every resolved row regardless of provider result
+  //   • returns structured counts so the frontend can surface partial-success warnings
   app.post("/api/inbox/threads/:threadId/not-spam", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const threadId = String(req.params.threadId);
     try {
-      const [anchor] = await db
-        .select({ accId: emailMessages.sourceAccountId })
+      const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+      const accessibleAccountIds = await getAccessibleAccountIds(userId, _ia, _mtp);
+
+      if (accessibleAccountIds.length === 0) {
+        return res.status(403).json({ message: "No accessible mailboxes" });
+      }
+
+      // Resolve the normalized_subject of the anchor message for fallback threading.
+      const [anchorMeta] = await db
+        .select({
+          accId: emailMessages.sourceAccountId,
+          normalizedSubject: emailMessages.normalizedSubject,
+        })
         .from(emailMessages)
         .where(eq(emailMessages.gmailThreadId, threadId))
         .limit(1);
-      if (!anchor || !anchor.accId) {
-        return res.status(404).json({ message: "Thread not found in any synced mailbox" });
-      }
-      if (!(await requireAccountEditAccess(req, res, anchor.accId))) return;
 
-      const gmail = await getGmailClient(userId, anchor.accId);
-      try {
-        await gmail.users.threads.modify({
-          userId: "me",
-          id: threadId,
-          requestBody: { removeLabelIds: ["SPAM"], addLabelIds: ["INBOX"] },
-        });
-      } catch (e: any) {
-        return res.status(502).json({ message: `Gmail not-spam failed: ${e?.message || e}` });
+      // If the thread isn't in any accessible account, reject early.
+      const threadInAccessible =
+        anchorMeta?.accId != null && accessibleAccountIds.includes(anchorMeta.accId);
+      if (!anchorMeta || !threadInAccessible) {
+        return res.status(404).json({ message: "Thread not found in any accessible mailbox" });
       }
 
-      try {
-        const { mirrorLabelChangeForThreads } = await import("./services/local-label-mirror");
-        await mirrorLabelChangeForThreads([threadId], anchor.accId, {
-          remove: ["SPAM"],
-          add: ["INBOX"],
-        });
-      } catch (mirrorErr: any) {
-        console.error(
-          `[inbox-not-spam] local mirror failed (non-fatal) account=${anchor.accId} thread=${threadId}:`,
-          mirrorErr.message,
-        );
+      const { markNotSpam } = await import("./services/not-spam-service");
+      const result = await markNotSpam(
+        threadId,
+        userId,
+        accessibleAccountIds,
+        getGmailClient,
+        anchorMeta.normalizedSubject,
+      );
+
+      if (result.linkedMessageCount === 0) {
+        return res.status(404).json({ message: "Thread not found in any accessible mailbox" });
       }
 
-      res.json({ ok: true, threadId });
+      res.json({ ok: result.ok, threadId, ...result });
     } catch (err: any) {
+      console.error("[inbox-not-spam] unexpected error:", err?.message);
       res.status(500).json({ message: err?.message || "not-spam failed" });
     }
   });

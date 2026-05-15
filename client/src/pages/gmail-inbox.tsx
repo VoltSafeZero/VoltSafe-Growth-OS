@@ -5341,32 +5341,61 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         `/api/inbox/threads/${encodeURIComponent(threadId)}/not-spam`,
         {},
       );
-      if (!res.ok) throw new Error((await res.json()).message);
-      return { threadId };
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message);
+      return { threadId, ...body } as {
+        threadId: string;
+        ok: boolean;
+        linkedMessageCount: number;
+        updatedLocal: number;
+        remainingSpam: number;
+        providerAttempted: number;
+        providerSucceeded: number;
+        providerFailed: number;
+        warnings: string[];
+      };
     },
-    onSuccess: ({ threadId }) => {
-      // 1. Optimistic update — remove the thread from the spam list immediately.
-      //    setQueryData targets the exact current key. This covers the common case
-      //    where the key is stable (same searchQuery + activeAccountId as when the
-      //    spam query was loaded).
-      const removeThread = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
-        old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "spam", searchQuery, activeAccountId], removeThread);
+    onSuccess: (result) => {
+      const { threadId, remainingSpam, linkedMessageCount, warnings } = result;
+
+      // 1. Optimistic update — remove the thread from the spam list immediately
+      //    when all spam is cleared. If some messages still remain spam we keep
+      //    it visible so the user sees the warning and can act again.
+      if (remainingSpam === 0) {
+        const removeThread = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
+          old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old;
+        queryClient.setQueryData(["/api/gmail/messages", "spam", searchQuery, activeAccountId], removeThread);
+      }
 
       // 2. Invalidate ALL spam queries (partial key match) so every spam cache entry
-      //    — regardless of searchQuery or activeAccountId — is refetched and the
-      //    thread disappears from the spam view even when the key drifts (e.g. user
-      //    typed a search after the initial load, or switched accounts mid-session).
+      //    — regardless of searchQuery or activeAccountId — is refetched.
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages", "spam"] });
 
       // 3. Invalidate the inbox query family so the thread appears in the inbox
       //    after the server has applied the label change (remove SPAM, add INBOX).
-      //    Without this, the inbox never refetches and the "moved to inbox" message
-      //    is misleading — the thread wouldn't show up there until the next 30 s poll.
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages", "inbox"] });
 
-      if (selectedThreadId === threadId) { setSelectedThreadId(null); setSelectedMessageId(null); }
-      toast({ title: "Moved to Inbox", description: "This thread has been marked as not spam." });
+      if (remainingSpam === 0 && selectedThreadId === threadId) {
+        setSelectedThreadId(null);
+        setSelectedMessageId(null);
+      }
+
+      if (remainingSpam > 0) {
+        // Partial success — some linked messages could not be moved out of spam.
+        toast({
+          title: "Partially moved to Inbox",
+          description: `${linkedMessageCount - remainingSpam} message(s) moved. ${remainingSpam} linked message(s) in this thread still remain in spam — try again or check your mailbox sync.`,
+          variant: "destructive",
+        });
+      } else if (warnings.some(w => w.startsWith("Provider update failed"))) {
+        // All local rows updated but Gmail API had a hiccup — will self-heal on next sync.
+        toast({
+          title: "Moved to Inbox",
+          description: "Thread marked as not spam. Gmail sync may take a moment to reflect this.",
+        });
+      } else {
+        toast({ title: "Moved to Inbox", description: `${linkedMessageCount} message(s) restored to inbox.` });
+      }
     },
     onError: (err: any) => toast({ title: "Couldn't move to inbox", description: err.message, variant: "destructive" }),
   });

@@ -1,0 +1,129 @@
+Audit and permanently fix VoltSafe Mail “Not Spam” for linked/threaded emails across all user and team mailboxes.
+
+Problem:
+The Not Spam shield works for standalone emails, but not for older emails that are linked/threaded with other past emails. The UI says the action succeeded, but the linked/threaded messages stay visible in Spam and do not move to Inbox.
+
+Goal:
+When any user clicks “Not Spam” on an email/thread/conversation:
+1. Every linked message in that thread/conversation must be removed from Spam.
+2. Every linked message must be restored to the correct Inbox/All Inbox view.
+3. This must work for:
+   - individual user mailboxes
+   - team inboxes
+   - shared/team emails
+   - historical imported emails
+   - future synced emails
+   - multi-message threads
+   - linked emails with same Gmail/IMAP thread id
+   - locally linked conversation ids
+   - messages grouped only by normalized subject + participants when no external thread id exists
+
+Required audit:
+Trace the current Not Spam flow end-to-end:
+- frontend shield click handler
+- API endpoint called
+- backend spam/unspam function
+- DB tables/columns for spam state, folder, labels, mailbox/account id, thread id, conversation id, provider message id, provider thread id
+- sync/indexing code that decides whether an email appears in Spam, Inbox, All Inboxes, and search
+
+Find why the API returns success while linked emails remain in Spam.
+
+Likely bug:
+The endpoint is only updating the selected message row, while the UI renders the full linked thread from other message rows that still have spam labels/folder state. Fix the whole thread, not just one row.
+
+Permanent fix requirements:
+1. Create a single canonical backend service function, for example:
+   `markThreadNotSpam(message_id, mailbox_scope)`
+   or equivalent.
+
+2. That function must resolve the complete linked message set using all available identifiers:
+   - provider_thread_id / gmail_thread_id / imap_thread_id
+   - local thread_id
+   - local conversation_id
+   - linked_message_id / parent_message_id / in_reply_to / references
+   - normalized subject + normalized participants fallback for historical imports
+
+3. For every message in the resolved set:
+   - remove Spam/Junk labels
+   - clear `is_spam`
+   - clear spam folder state
+   - set mailbox folder/location back to Inbox where appropriate
+   - ensure it appears in All Inboxes
+   - preserve Sent/Drafts/Archived semantics when appropriate, but inbound messages should no longer appear in Spam
+   - update search/index tables so Spam results and Inbox results immediately reflect the change
+
+4. Apply this to both:
+   - user-owned mailbox rows
+   - team/shared mailbox rows
+
+5. Provider sync:
+   If the mailbox is connected to Gmail/IMAP/Microsoft:
+   - also call the provider-side “not spam / move to inbox” operation for every provider message id in the linked set where possible
+   - do not fail the local fix if provider action partially fails
+   - log provider failures clearly for retry
+
+6. API behavior:
+   The Not Spam endpoint must return:
+   - selected_message_id
+   - resolved_thread/conversation id
+   - total linked messages found
+   - total messages updated locally
+   - total provider updates attempted
+   - total provider updates succeeded/failed
+   - remaining spam messages count for that thread
+   - warnings if any linked row could not be updated
+
+7. Frontend behavior:
+   After Not Spam succeeds:
+   - optimistically remove the whole thread/group from Spam view if remaining spam count is zero
+   - refresh Spam, Inbox, All Inboxes counts
+   - refresh the current message list
+   - do not show success unless the backend confirms at least one row changed or remaining spam count is zero
+   - if some linked messages remain spam, show a warning with count instead of silent success
+
+8. Backfill/migration for current existing data:
+   Add a safe admin/backfill script or endpoint that:
+   - scans all existing spam messages across user + team inboxes
+   - groups linked/threaded messages using the same canonical resolver
+   - detects inconsistent groups where some linked messages are spam and others are inbox/not spam
+   - fixes groups where a Not Spam action was previously applied to part of the thread
+   - produces a dry-run report first
+   - supports apply mode after dry-run
+   - is additive/safe: no destructive schema changes, no deletes
+
+9. Logging:
+   Add structured logs:
+   - `not_spam_requested`
+   - `not_spam_thread_resolved`
+   - `not_spam_local_update_complete`
+   - `not_spam_provider_update_complete`
+   - `not_spam_remaining_spam_detected`
+   Include mailbox id, mailbox type user/team, selected message id, thread ids, linked count, updated count.
+
+Tests required:
+1. Single message in Spam -> moves to Inbox.
+2. Thread with 4 linked inbound messages all in Spam -> one click moves all 4 to Inbox.
+3. Thread where only some messages are spam -> one click clears spam from all linked inbound messages.
+4. Team inbox thread -> works exactly the same.
+5. Historical imported thread with missing provider_thread_id but same normalized subject/participants -> grouped and fixed.
+6. Provider failure does not block local state correction.
+7. UI Spam list removes thread after successful Not Spam.
+8. Inbox/All Inbox/search include the restored messages immediately.
+9. Regression test: API must never return success while remaining_spam_count > 0 without a warning.
+
+Verification:
+Use the current screenshot scenario:
+Search Spam for `mcmahon`.
+Open the linked Scott Carlson / Boat BNB thread.
+Click Not Spam.
+Confirm:
+- all linked Scott Carlson / Boat BNB messages disappear from Spam
+- they appear in Inbox / All Inboxes
+- Spam count decreases correctly
+- Inbox count increases correctly
+- search no longer shows them under Spam
+- search does show them under Inbox/All Mail where appropriate
+
+Do not hide the rows only in the frontend. Fix the underlying message/thread state permanently.
+Do not make destructive DB schema changes.
+Do not delete emails.
