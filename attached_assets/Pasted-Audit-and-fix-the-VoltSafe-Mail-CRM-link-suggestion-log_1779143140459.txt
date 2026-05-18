@@ -1,0 +1,92 @@
+Audit and fix the VoltSafe Mail CRM link suggestion logic.
+
+Problem:
+In an open email, the CRM Links panel suggests linking “CRM Accounts and Leads.” However, the suggested “Accounts” do not exist in the actual Accounts database tab. Example: email from @columbia.edu suggests Columbia Yacht Club / Columbia Town Harbor / Columbia Sailing Club as linkable CRM Accounts, but these are not Accounts in the Accounts table. They may be Leads or fuzzy prospect matches.
+
+This is misleading and must be fixed.
+
+Requirements:
+
+1. Trace the full CRM link suggestion pipeline:
+- email sender/domain parsing
+- thread-associations endpoint
+- candidate suggestions endpoint
+- email_associations table
+- auto-link algorithm
+- UI label rendering
+
+2. Verify source of truth:
+- Real Accounts must come only from the Accounts table.
+- Real Leads must come only from the Leads table.
+- Do not label a Lead as an Account.
+- Do not label an imported prospect as an Account unless it has actually been converted/promoted into Accounts.
+
+3. Fix suggestion object typing:
+Every suggestion must include:
+- objectType: account | lead | contact | unknown
+- sourceTable: accounts | leads | contacts | email_associations
+- sourceRecordId
+- confidenceScore
+- matchReason
+- isVerifiedCrmRecord: true/false
+
+4. Fix UI labels:
+- If sourceTable = accounts, display “Account”
+- If sourceTable = leads, display “Lead”
+- If fuzzy-only and no verified CRM record exists, display “Possible Match”
+- Never display “Account” unless the record exists in Accounts.
+
+5. Fix stale email_associations records:
+email_associations may contain stale or incorrectly labelled objectName/objectType values.
+Create a safe migration/cleanup script that:
+- audits all email_associations
+- checks each linked object against actual source table
+- corrects objectType where possible
+- marks orphaned/stale links as invalid
+- does not delete data unless explicitly approved
+- logs before/after counts
+
+6. Confidence threshold:
+Low-confidence fuzzy matches like 18% should not be shown as primary CRM links.
+Rules:
+- ≥80%: suggested link
+- 50–79%: possible match
+- <50%: hide by default behind “Show low-confidence matches”
+- Never auto-link below 80%
+
+7. Domain-matching rules:
+Do not use generic domain token matching alone to suggest CRM records.
+Example:
+@columbia.edu should not broadly suggest every lead containing “Columbia.”
+Domain token matching should require additional supporting evidence:
+- matching email domain on CRM record
+- matching website domain
+- matching contact email
+- prior manually confirmed association
+- exact organization name match
+
+8. Add user-facing explanation:
+For each suggestion, show why it appeared:
+- “Matched sender domain to account website”
+- “Matched sender email to contact”
+- “Matched organization name”
+- “Low-confidence name similarity only”
+
+9. Add rejection memory:
+If user rejects a suggestion, store that rejection so the same bad suggestion does not keep reappearing for the same sender/thread/domain.
+
+10. Verification:
+Run tests proving:
+- Leads are labelled Leads, not Accounts
+- Accounts are only shown if they exist in Accounts table
+- @columbia.edu does not suggest unrelated “Columbia” marina leads as Accounts
+- low-confidence matches are hidden by default
+- rejected suggestions do not reappear
+- email_associations stale records are detected and flagged
+
+Return a clear report:
+- root cause
+- files changed
+- database tables involved
+- before/after examples
+- remaining edge cases

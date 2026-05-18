@@ -378,17 +378,20 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
     }
   }
 
-  // ── Signal 4b: Domain base → Account/Lead name fallback (+18/+18) ─────────
-  // Fires when Signal 2 (website match) and Signal 4 (contactEmail match) both
-  // miss — e.g. account has no website set, or lead has no contactEmail.
-  // Uses the bare hostname component ("leamington" from "leamington.ca") as a
-  // fuzzy name token. Score intentionally below auto-apply thresholds so matches
-  // appear as review candidates rather than being silently applied.
+  // ── Signal 4b: Domain base → Account/Lead name fallback (+18+15=33 max) ────
+  // Fires ONLY when the entity name ALSO appears in the email subject or body.
+  // This is a hard prerequisite — without content evidence a bare domain-token
+  // match is too weak to surface (e.g. @columbia.edu should NOT match every
+  // marina prospect named "Columbia X" in the leads database).
+  //
+  // Both 4b-i and 4b-ii skip the candidate entirely when nameInText() fails.
+  // Minimum stored score raised to 25 (18 base + 15 content bonus = 33,
+  // then applyPenalties may bring it below 25 for bulk/auto-generated mail).
   for (const domain of participantDomains) {
     const domainBase = domain.split(".")[0];
     if (domainBase.length < 4) continue;
 
-    // 4b-i: account name contains domain base
+    // 4b-i: account name contains domain base AND appears in email content
     const nameAccounts = await db
       .select({ id: accounts.id, name: accounts.name })
       .from(accounts)
@@ -396,16 +399,21 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
     for (const acct of nameAccounts) {
       if (isRejected("account", acct.id)) continue;
       if (candidates.some(c => c.objectType === "account" && c.objectId === acct.id)) continue;
-      const reasons: string[] = [`Account name "${acct.name}" contains domain token "${domainBase}" (@${domain})`];
-      let score = 18;
+      // Hard prerequisite: name must appear in subject or body snippet
+      if (!nameInText(acct.name, normalizedSubject) && !nameInText(acct.name, bodySnippet)) continue;
+      const reasons: string[] = [
+        `Account name "${acct.name}" contains domain token "${domainBase}" (@${domain})`,
+        "Account name confirmed in email subject/body",
+      ];
+      let score = 33; // 18 base + 15 content-evidence bonus (always granted here)
       score = applyThreadBonus(score, threadRecord, reasons);
       score = applyPenalties(score, msg, reasons);
-      if (score > 0) {
+      if (score >= 25) {
         candidates.push({ objectType: "account", objectId: acct.id, objectName: acct.name, score, reasons, isAmbiguous: false });
       }
     }
 
-    // 4b-ii: lead company name contains domain base
+    // 4b-ii: lead company name contains domain base AND appears in email content
     const nameLeads = await db
       .select({ id: leads.id, company: leads.company })
       .from(leads)
@@ -413,16 +421,17 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
     for (const lead of nameLeads) {
       if (linkedLeadIds.has(lead.id)) continue;
       if (isRejected("lead", lead.id)) continue;
+      // Hard prerequisite: company name must appear in subject or body snippet
+      if (!nameInText(lead.company, normalizedSubject) && !nameInText(lead.company, bodySnippet)) continue;
       linkedLeadIds.add(lead.id);
-      const reasons: string[] = [`Lead company "${lead.company}" contains domain token "${domainBase}" (@${domain})`];
-      let score = 18;
+      const reasons: string[] = [
+        `Lead company "${lead.company}" contains domain token "${domainBase}" (@${domain})`,
+        "Company name confirmed in email subject/body",
+      ];
+      let score = 33; // 18 base + 15 content-evidence bonus (always granted here)
       score = applyThreadBonus(score, threadRecord, reasons);
-      if (nameInText(lead.company, normalizedSubject) || nameInText(lead.company, bodySnippet)) {
-        score += 15;
-        reasons.push("Lead company name in subject/body");
-      }
       score = applyPenalties(score, msg, reasons);
-      if (score > 0) {
+      if (score >= 25) {
         candidates.push({ objectType: "lead", objectId: lead.id, objectName: lead.company, score, reasons, isAmbiguous: false });
       }
     }

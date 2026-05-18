@@ -1993,6 +1993,7 @@ function CrmContextPanel({
   const [manualSearch, setManualSearch] = useState("");
   const [manualLinkPending, setManualLinkPending] = useState(false);
   const [showCandidates, setShowCandidates] = useState(true);
+  const [showLowConf, setShowLowConf] = useState(false);
   const [replacingCandidateId, setReplacingCandidateId] = useState<number | null>(null);
   const [replaceSearch, setReplaceSearch] = useState("");
 
@@ -2401,6 +2402,9 @@ function CrmContextPanel({
   const candidates = assocQuery.data?.candidates ?? [];
   const confirmedCandidates = candidates.filter(c => c.isUserConfirmed);
   const unconfirmedCandidates = candidates.filter(c => !c.isUserConfirmed);
+  const CONF_THRESHOLD = 50;
+  const highConfCandidates = unconfirmedCandidates.filter(c => (c.confidenceScore ?? 0) >= CONF_THRESHOLD);
+  const lowConfCandidates = unconfirmedCandidates.filter(c => (c.confidenceScore ?? 0) < CONF_THRESHOLD);
   const hasAnyCandidates = candidates.length > 0;
 
   // Sender eligibility for the "Create Contact" CTA
@@ -3373,8 +3377,8 @@ function CrmContextPanel({
               );
             })}
 
-            {/* Unconfirmed / suggested associations */}
-            {unconfirmedCandidates.map(cand => {
+            {/* Unconfirmed / suggested associations — high-confidence (≥50%) */}
+            {highConfCandidates.map(cand => {
               const cfg = TYPE_CFG[cand.objectType as keyof typeof TYPE_CFG];
               if (!cfg) return null;
               const { Icon } = cfg;
@@ -3383,6 +3387,8 @@ function CrmContextPanel({
               const deepUrl = getDeepLinkUrl(cand.objectType, cand.objectId);
               const firstReason = cand.reasons?.[0];
               const allReasons = cand.reasons?.join(" · ");
+              const score = cand.confidenceScore ?? 0;
+              const isPossible = score >= 50 && score < 80;
               return (
                 <div
                   key={cand.id}
@@ -3390,9 +3396,9 @@ function CrmContextPanel({
                   className="group"
                 >
                   <div className="flex items-center gap-1.5">
-                    <span className={`flex items-center gap-0.5 text-[10px] px-1.5 py-[2px] rounded border flex-shrink-0 opacity-60 ${cfg.bg} ${cfg.text} ${cfg.border}`}>
+                    <span className={`flex items-center gap-0.5 text-[10px] px-1.5 py-[2px] rounded border flex-shrink-0 ${isPossible ? "opacity-50" : "opacity-60"} ${cfg.bg} ${cfg.text} ${cfg.border}`}>
                       <Icon className="h-2.5 w-2.5" />
-                      {cfg.label}
+                      {isPossible ? `~${cfg.label}` : cfg.label}
                     </span>
                     {canAccess ? (
                       <button
@@ -3438,6 +3444,69 @@ function CrmContextPanel({
                 </div>
               );
             })}
+
+            {/* Low-confidence suggestions (<50%) — hidden by default */}
+            {lowConfCandidates.length > 0 && (
+              <div className="mt-1">
+                <button
+                  onClick={() => setShowLowConf(v => !v)}
+                  data-testid="toggle-low-conf-candidates"
+                  className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground/70 flex items-center gap-1 transition-colors"
+                >
+                  {showLowConf ? <ChevronDown className="h-2.5 w-2.5" /> : <ChevronRight className="h-2.5 w-2.5" />}
+                  {showLowConf ? "Hide" : `Show ${lowConfCandidates.length} low-confidence match${lowConfCandidates.length !== 1 ? "es" : ""}`}
+                </button>
+                {showLowConf && lowConfCandidates.map(cand => {
+                  const cfg = TYPE_CFG[cand.objectType as keyof typeof TYPE_CFG];
+                  if (!cfg) return null;
+                  const { Icon } = cfg;
+                  const canAccess = hasAccessForType(cand.objectType);
+                  const displayName = cand.objectName ?? cand.entityDetail?.name ?? "Unknown";
+                  const deepUrl = getDeepLinkUrl(cand.objectType, cand.objectId);
+                  const allReasons = cand.reasons?.join(" · ");
+                  const firstReason = cand.reasons?.[0];
+                  return (
+                    <div key={cand.id} data-testid={`crm-assoc-low-${cand.id}`} className="group mt-0.5 opacity-60">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`flex items-center gap-0.5 text-[10px] px-1.5 py-[2px] rounded border flex-shrink-0 opacity-50 ${cfg.bg} ${cfg.text} ${cfg.border}`}>
+                          <Icon className="h-2.5 w-2.5" />
+                          ~{cfg.label}
+                        </span>
+                        {canAccess ? (
+                          <button
+                            onClick={() => setLocation(deepUrl)}
+                            data-testid={`crm-cand-link-low-${cand.id}`}
+                            className="text-[11px] text-muted-foreground/60 flex-1 truncate text-left hover:underline flex items-center gap-1"
+                            title={allReasons}
+                          >
+                            <span className="truncate">{displayName}</span>
+                          </button>
+                        ) : (
+                          <span className="text-[11px] flex-1 truncate text-muted-foreground/30 italic">
+                            {RESTRICTED_LABELS[cand.objectType] ?? "Linked Record"}
+                          </span>
+                        )}
+                        <ScoreBadge score={cand.confidenceScore} />
+                        <button
+                          onClick={() => rejectMutation.mutate(cand.id)}
+                          disabled={rejectMutation.isPending}
+                          data-testid={`crm-reject-low-${cand.id}`}
+                          className="text-muted-foreground/20 hover:text-red-400 transition-colors"
+                          title="Dismiss"
+                        >
+                          <XCircle className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      {firstReason && (
+                        <p className="text-[10px] text-muted-foreground/25 italic pl-[calc(0.375rem+1.25rem+0.375rem)] mt-0.5 truncate" title={allReasons}>
+                          {firstReason}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
