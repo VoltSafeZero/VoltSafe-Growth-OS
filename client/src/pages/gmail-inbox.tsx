@@ -6670,6 +6670,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                             <Send className="h-3.5 w-3.5" /><span className="flex-1 text-left">Sent</span>
                           </button>
+                          <button onClick={() => { setTab("spam"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-spam-${acct.id}`}
+                            className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "spam" ? "bg-red-500/15 text-red-400" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                            <Ban className="h-3.5 w-3.5" /><span className="flex-1 text-left">Spam</span>
+                            {tab === "spam" && (spamQuery.data?.messages?.length ?? 0) > 0 && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-red-500/30 text-red-300">{spamQuery.data!.messages.length}{(spamQuery.data?.messages?.length ?? 0) >= 50 ? "+" : ""}</span>
+                            )}
+                          </button>
                           {canSend && <>
                             <button onClick={() => { setTab("drafts"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-drafts-${acct.id}`}
                               className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "drafts" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
