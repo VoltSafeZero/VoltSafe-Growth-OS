@@ -10735,6 +10735,32 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         } else {
           await db.insert(emailThreads).values({ gmailThreadId: String(threadId), ...updates });
         }
+
+        // Move thread to INBOX so it's always visible after review (best-effort).
+        const userId = (req.session as any).userId;
+        const threadMsgs = await db
+          .select({ id: emailMessages.id, sourceAccountId: emailMessages.sourceAccountId })
+          .from(emailMessages)
+          .where(eq(emailMessages.gmailThreadId, String(threadId)));
+        const srcAccountId = threadMsgs.find(m => m.sourceAccountId)?.sourceAccountId;
+        if (srcAccountId && userId) {
+          try {
+            const gmail = await getGmailClient(userId, srcAccountId);
+            await gmail.users.threads.modify({
+              userId: "me",
+              id: String(threadId),
+              requestBody: { addLabelIds: ["INBOX"] },
+            });
+          } catch (gmailErr: any) {
+            console.warn(`[confirm] move-to-inbox gmail failed thread=${threadId}:`, gmailErr?.message ?? gmailErr);
+          }
+          try {
+            const { mirrorLabelChangeForThreads } = await import("./services/local-label-mirror");
+            await mirrorLabelChangeForThreads([String(threadId)], srcAccountId, { add: ["INBOX"] });
+          } catch (mirrorErr: any) {
+            console.warn(`[confirm] move-to-inbox mirror failed thread=${threadId}:`, mirrorErr?.message ?? mirrorErr);
+          }
+        }
       }
 
       res.json({ ok: true });
@@ -10912,11 +10938,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
           // Sweep: delete all OTHER unconfirmed auto-associations for this thread
           // so the thread fully exits the review queue (not just the one we confirmed).
-          const threadMsgIds = (await db
-            .select({ id: emailMessages.id })
+          const threadMsgs = await db
+            .select({ id: emailMessages.id, sourceAccountId: emailMessages.sourceAccountId })
             .from(emailMessages)
-            .where(eq(emailMessages.gmailThreadId, threadId))
-          ).map(m => m.id);
+            .where(eq(emailMessages.gmailThreadId, threadId));
+          const threadMsgIds = threadMsgs.map(m => m.id);
 
           if (threadMsgIds.length > 0) {
             await db.delete(emailAssociations).where(
@@ -10927,6 +10953,30 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
                 sql`${emailAssociations.id} != ${assocId}`
               )
             );
+          }
+
+          // Move thread to INBOX so it's always visible after review.
+          // Emails in the review queue may not have the INBOX label (e.g. they
+          // arrived via a Gmail filter that skips inbox). After confirming, the
+          // thread must appear in the inbox — best-effort, never blocks confirm.
+          const srcAccountId = threadMsgs.find(m => m.sourceAccountId)?.sourceAccountId;
+          if (srcAccountId) {
+            try {
+              const gmail = await getGmailClient(userId, srcAccountId);
+              await gmail.users.threads.modify({
+                userId: "me",
+                id: threadId,
+                requestBody: { addLabelIds: ["INBOX"] },
+              });
+            } catch (gmailErr: any) {
+              console.warn(`[bulk-confirm] move-to-inbox gmail failed thread=${threadId}:`, gmailErr?.message ?? gmailErr);
+            }
+            try {
+              const { mirrorLabelChangeForThreads } = await import("./services/local-label-mirror");
+              await mirrorLabelChangeForThreads([threadId], srcAccountId, { add: ["INBOX"] });
+            } catch (mirrorErr: any) {
+              console.warn(`[bulk-confirm] move-to-inbox mirror failed thread=${threadId}:`, mirrorErr?.message ?? mirrorErr);
+            }
           }
         }
 

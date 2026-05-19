@@ -2179,6 +2179,7 @@ function CrmContextPanel({
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/thread-record", threadId] });
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
       toast({ title: "Association confirmed" });
     },
     onError: (err: any) => toast({ title: "Failed to confirm", description: err.message, variant: "destructive" }),
@@ -5183,6 +5184,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/crm/auto-link-rules"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
       setSelectedReviewIds(new Set());
       toast({
         title: `Confirmed + auto-link rule set for @${vars.domain}`,
@@ -5247,6 +5249,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       advanceReviewSelection(new Set(items.map(i => i.threadId)));
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/review-queue/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
       setSelectedReviewIds(new Set());
       const { title, description, variant } = buildBulkResultToast(result, "confirm");
       toast({ title, description, variant });
