@@ -32,7 +32,7 @@ export type ActiveContact = {
 
 const STORAGE_KEY = "voltsafe_mail_snippets_v1";
 
-export const SNIPPET_CATEGORIES = [
+const SNIPPET_CATEGORIES = [
   "Quick Replies",
   "Cold Outreach",
   "Follow Ups",
