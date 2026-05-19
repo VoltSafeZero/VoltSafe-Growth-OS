@@ -1210,6 +1210,22 @@ function ComposeDialog({
                       return prev + sep + snippetBody;
                     });
                   }}
+                  onInsertFull={(snippetBody, snippetSubject) => {
+                    setBody((prev) => {
+                      const sep = prev && !prev.endsWith("\n") ? "\n\n" : "";
+                      return prev + sep + snippetBody;
+                    });
+                    if (!threadId && snippetSubject) setSubject(snippetSubject);
+                  }}
+                  isNewEmail={!threadId}
+                  activeContact={
+                    replyToSender
+                      ? {
+                          firstName: replyToSender.split(" ")[0],
+                          lastName: replyToSender.split(" ").slice(1).join(" "),
+                        }
+                      : undefined
+                  }
                 />
               )}
             </div>
@@ -8451,7 +8467,25 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       )}
 
       {/* Snippets Manager dialog */}
-      <SnippetsManagerDialog open={snippetsManagerOpen} onClose={() => setSnippetsManagerOpen(false)} />
+      <SnippetsManagerDialog
+        open={snippetsManagerOpen}
+        onClose={() => setSnippetsManagerOpen(false)}
+        activeContact={
+          readerThreadRecordQuery.data?.contact
+            ? {
+                firstName:   readerThreadRecordQuery.data.contact.firstName,
+                lastName:    readerThreadRecordQuery.data.contact.lastName,
+                companyName: readerThreadRecordQuery.data.account?.name,
+              }
+            : readerThreadRecordQuery.data?.lead
+            ? {
+                firstName:   readerThreadRecordQuery.data.lead.firstName,
+                lastName:    readerThreadRecordQuery.data.lead.lastName,
+                companyName: readerThreadRecordQuery.data.lead.company,
+              }
+            : null
+        }
+      />
 
       {/* Command Bar (⌘K) — search & commands */}
       <CommandDialog open={cmdkOpen} onOpenChange={setCmdkOpen}>
