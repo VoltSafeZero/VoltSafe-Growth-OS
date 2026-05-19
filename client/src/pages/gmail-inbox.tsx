@@ -8496,6 +8496,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           fromName={parseSenderName(focusedMsg.from)}
           fromEmail={parseSenderEmail(focusedMsg.from)}
           subject={focusedMsg.subject || ""}
+          existingCrm={{
+            lead:    readerThreadRecordQuery.data?.lead,
+            contact: readerThreadRecordQuery.data?.contact,
+            account: readerThreadRecordQuery.data?.account,
+          }}
         />
       )}
 

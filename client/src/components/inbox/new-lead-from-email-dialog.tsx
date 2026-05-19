@@ -9,26 +9,31 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Building2, Mail, Phone, User, ExternalLink, CheckCircle2, Sparkles } from "lucide-react";
+import {
+  Building2, Mail, Phone, User, ExternalLink,
+  CheckCircle2, Sparkles, AlertTriangle, Link2,
+} from "lucide-react";
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
 
-function orgNameFromDomain(domain: string): string {
+export function orgNameFromDomain(domain: string): string {
   const parts = domain.replace(/^www\./, "").split(".");
   const main = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
   return main.charAt(0).toUpperCase() + main.slice(1);
 }
 
-const KNOWN_PERSONAL_DOMAINS = new Set([
+export const KNOWN_PERSONAL_DOMAINS = new Set([
   "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com",
   "me.com", "live.com", "msn.com", "aol.com", "protonmail.com",
+  "yahoo.co.uk", "yahoo.ca", "yahoo.com.au", "hotmail.co.uk",
+  "googlemail.com", "outlook.co.uk", "live.co.uk",
 ]);
 
-function isPersonalDomain(domain: string) {
+export function isPersonalDomain(domain: string): boolean {
   return KNOWN_PERSONAL_DOMAINS.has(domain.toLowerCase());
 }
 
-const RELATIONSHIP_TYPES = [
+export const RELATIONSHIP_TYPES = [
   { value: "Marina",           label: "Marina" },
   { value: "Partner",          label: "Partner" },
   { value: "Dealer",           label: "Dealer / Distributor" },
@@ -39,7 +44,13 @@ const RELATIONSHIP_TYPES = [
   { value: "Other",            label: "Other" },
 ];
 
-/* ── component ───────────────────────────────────────────────────────────── */
+/* ── types ───────────────────────────────────────────────────────────────── */
+
+export interface ExistingCrm {
+  lead?:    { id: number; company: string; status?: string } | null;
+  contact?: { id: number; name: string }  | null;
+  account?: { id: number; name: string }  | null;
+}
 
 interface Props {
   open: boolean;
@@ -47,36 +58,46 @@ interface Props {
   fromName: string;
   fromEmail: string;
   subject?: string;
+  /** Pass thread's existing CRM associations so the dialog can warn before creating a duplicate. */
+  existingCrm?: ExistingCrm;
 }
 
-export function NewLeadFromEmailDialog({ open, onClose, fromName, fromEmail, subject }: Props) {
+/* ── component ───────────────────────────────────────────────────────────── */
+
+export function NewLeadFromEmailDialog({
+  open, onClose, fromName, fromEmail, subject, existingCrm,
+}: Props) {
   const { toast } = useToast();
 
-  /* Pre-fill state */
   const domain = fromEmail.split("@")[1]?.toLowerCase() ?? "";
   const suggestedCompany = domain && !isPersonalDomain(domain) ? orgNameFromDomain(domain) : "";
 
-  const [contactName,     setContactName]     = useState(fromName);
-  const [contactEmail,    setContactEmail]     = useState(fromEmail);
-  const [company,         setCompany]         = useState(suggestedCompany);
-  const [contactPhone,    setContactPhone]     = useState("");
+  const [contactName,      setContactName]      = useState(fromName);
+  const [contactEmail,     setContactEmail]      = useState(fromEmail);
+  const [company,          setCompany]          = useState(suggestedCompany);
+  const [contactPhone,     setContactPhone]      = useState("");
   const [relationshipType, setRelationshipType] = useState("Marina");
-  const [notes,           setNotes]           = useState(subject ? `Initial email subject: "${subject}"` : "");
+  const [notes,            setNotes]            = useState(subject ? `Initial email subject: "${subject}"` : "");
+  const [confirmed,        setConfirmed]        = useState(false);
 
   const [createdLead, setCreatedLead] = useState<{ id: number; company: string } | null>(null);
+
+  /* Derived: does this thread already have CRM links? */
+  const hasCrmLinks = !!(existingCrm?.lead || existingCrm?.contact || existingCrm?.account);
 
   /* Reset whenever the dialog opens for a new email */
   useEffect(() => {
     if (open) {
       const d = fromEmail.split("@")[1]?.toLowerCase() ?? "";
-      const company = d && !isPersonalDomain(d) ? orgNameFromDomain(d) : "";
+      const co = d && !isPersonalDomain(d) ? orgNameFromDomain(d) : "";
       setContactName(fromName);
       setContactEmail(fromEmail);
-      setCompany(company);
+      setCompany(co);
       setContactPhone("");
       setRelationshipType("Marina");
       setNotes(subject ? `Initial email subject: "${subject}"` : "");
       setCreatedLead(null);
+      setConfirmed(false);
     }
   }, [open, fromName, fromEmail, subject]);
 
@@ -87,7 +108,7 @@ export function NewLeadFromEmailDialog({ open, onClose, fromName, fromEmail, sub
         contactName:      contactName.trim(),
         contactEmail:     contactEmail.trim(),
         contactPhone:     contactPhone.trim() || undefined,
-        relationshipType: relationshipType,
+        relationshipType,
         notes:            notes.trim() || undefined,
         source:           "inbound_email",
         status:           "new",
@@ -104,16 +125,26 @@ export function NewLeadFromEmailDialog({ open, onClose, fromName, fromEmail, sub
     },
   });
 
-  const canSubmit = company.trim().length > 0 && contactName.trim().length > 0;
+  /* Button is unlocked when:
+     - required fields filled AND
+     - either no existing CRM links, OR user explicitly confirmed they want a duplicate */
+  const canSubmit =
+    company.trim().length > 0 &&
+    contactName.trim().length > 0 &&
+    (!hasCrmLinks || confirmed);
 
   function handleClose() {
     setCreatedLead(null);
     onClose();
   }
 
+  /* ── render ── */
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
-      <DialogContent className="max-w-lg w-[96vw] p-0 overflow-hidden" data-testid="new-lead-from-email-dialog">
+      <DialogContent
+        className="max-w-lg w-[96vw] p-0 overflow-hidden"
+        data-testid="new-lead-from-email-dialog"
+      >
         <DialogHeader className="px-5 pt-5 pb-4 border-b border-border/40">
           <div className="flex items-center gap-2.5">
             <div className="h-8 w-8 rounded-full bg-amber-500/15 border border-amber-500/25 flex items-center justify-center flex-shrink-0">
@@ -140,12 +171,12 @@ export function NewLeadFromEmailDialog({ open, onClose, fromName, fromEmail, sub
             </div>
             <div className="flex gap-2 mt-2">
               <Button asChild size="sm" variant="outline" className="gap-1.5">
-                <a href={`/leads/${createdLead.id}`} target="_blank" rel="noreferrer">
+                <a href={`/leads/${createdLead.id}`} target="_blank" rel="noreferrer" data-testid="link-open-created-lead">
                   <ExternalLink className="h-3.5 w-3.5" />
                   Open Lead
                 </a>
               </Button>
-              <Button size="sm" variant="ghost" onClick={handleClose}>
+              <Button size="sm" variant="ghost" onClick={handleClose} data-testid="button-new-lead-close-success">
                 Close
               </Button>
             </div>
@@ -153,15 +184,66 @@ export function NewLeadFromEmailDialog({ open, onClose, fromName, fromEmail, sub
         ) : (
           /* ── Form ── */
           <div className="px-5 py-4 space-y-4">
-            {/* Smart prefill notice */}
-            <div className="flex items-start gap-2 rounded-md bg-amber-500/8 border border-amber-500/20 px-3 py-2">
-              <Sparkles className="h-3.5 w-3.5 text-amber-400/80 flex-shrink-0 mt-0.5" />
-              <p className="text-[11px] text-amber-400/80 leading-relaxed">
-                Fields pre-filled from <span className="font-medium">{fromEmail}</span>.
-                {suggestedCompany && <> Company guessed from <span className="font-mono">{domain}</span>.</>}
-                {" "}Edit before saving.
-              </p>
-            </div>
+
+            {/* ── Existing CRM warning (check 7 & 8) ── */}
+            {hasCrmLinks && (
+              <div
+                className="rounded-md bg-yellow-500/8 border border-yellow-500/30 px-3 py-2.5 space-y-2"
+                data-testid="existing-crm-warning"
+              >
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 text-yellow-400/80 flex-shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-yellow-400/90 leading-relaxed font-medium">
+                    This email thread is already linked to CRM records:
+                  </p>
+                </div>
+                <ul className="ml-5 space-y-0.5">
+                  {existingCrm?.lead && (
+                    <li className="flex items-center gap-1.5 text-[10.5px] text-yellow-400/70">
+                      <Link2 className="h-2.5 w-2.5 flex-shrink-0" />
+                      Lead: <a href={`/leads/${existingCrm.lead.id}`} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-yellow-300 transition-colors" data-testid="link-existing-lead">{existingCrm.lead.company}</a>
+                      {existingCrm.lead.status && <span className="text-yellow-400/40">({existingCrm.lead.status})</span>}
+                    </li>
+                  )}
+                  {existingCrm?.contact && (
+                    <li className="flex items-center gap-1.5 text-[10.5px] text-yellow-400/70">
+                      <Link2 className="h-2.5 w-2.5 flex-shrink-0" />
+                      Contact: <a href={`/contacts/${existingCrm.contact.id}`} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-yellow-300 transition-colors" data-testid="link-existing-contact">{existingCrm.contact.name}</a>
+                    </li>
+                  )}
+                  {existingCrm?.account && (
+                    <li className="flex items-center gap-1.5 text-[10.5px] text-yellow-400/70">
+                      <Link2 className="h-2.5 w-2.5 flex-shrink-0" />
+                      Account: <a href={`/accounts/${existingCrm.account.id}`} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-yellow-300 transition-colors" data-testid="link-existing-account">{existingCrm.account.name}</a>
+                    </li>
+                  )}
+                </ul>
+                <label className="flex items-center gap-2 cursor-pointer select-none pt-0.5" data-testid="label-confirm-duplicate">
+                  <input
+                    type="checkbox"
+                    checked={confirmed}
+                    onChange={(e) => setConfirmed(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded accent-amber-500"
+                    data-testid="checkbox-confirm-duplicate"
+                  />
+                  <span className="text-[10.5px] text-yellow-400/80">
+                    I understand — create a new lead anyway
+                  </span>
+                </label>
+              </div>
+            )}
+
+            {/* ── Smart prefill notice ── */}
+            {!hasCrmLinks && (
+              <div className="flex items-start gap-2 rounded-md bg-amber-500/8 border border-amber-500/20 px-3 py-2" data-testid="prefill-notice">
+                <Sparkles className="h-3.5 w-3.5 text-amber-400/80 flex-shrink-0 mt-0.5" />
+                <p className="text-[11px] text-amber-400/80 leading-relaxed">
+                  Pre-filled from <span className="font-medium">{fromEmail}</span>.
+                  {suggestedCompany && <> Company guessed from <span className="font-mono">{domain}</span>.</>}
+                  {" "}Edit before saving.
+                </p>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Contact Name */}
@@ -258,7 +340,7 @@ export function NewLeadFromEmailDialog({ open, onClose, fromName, fromEmail, sub
 
             {/* Footer */}
             <div className="flex items-center justify-between pt-1">
-              <div className="text-[10px] text-muted-foreground/40">
+              <div className="text-[10px] text-muted-foreground/40" data-testid="new-lead-source-status-label">
                 Source: <span className="font-mono">inbound_email</span> · Status: <span className="font-mono">new</span>
               </div>
               <div className="flex gap-2">
@@ -269,6 +351,7 @@ export function NewLeadFromEmailDialog({ open, onClose, fromName, fromEmail, sub
                   onClick={handleClose}
                   disabled={mutation.isPending}
                   className="h-8"
+                  data-testid="button-new-lead-cancel"
                 >
                   Cancel
                 </Button>
@@ -277,7 +360,7 @@ export function NewLeadFromEmailDialog({ open, onClose, fromName, fromEmail, sub
                   size="sm"
                   onClick={() => mutation.mutate()}
                   disabled={!canSubmit || mutation.isPending}
-                  className="h-8 gap-1.5 bg-amber-500 hover:bg-amber-600 text-black font-medium"
+                  className="h-8 gap-1.5 bg-amber-500 hover:bg-amber-600 text-black font-medium disabled:opacity-50"
                   data-testid="button-new-lead-create"
                 >
                   {mutation.isPending ? (
@@ -288,7 +371,7 @@ export function NewLeadFromEmailDialog({ open, onClose, fromName, fromEmail, sub
                   ) : (
                     <>
                       <Building2 className="h-3.5 w-3.5" />
-                      Create Lead
+                      {hasCrmLinks && !confirmed ? "Confirm above to continue" : "Create Lead"}
                     </>
                   )}
                 </Button>
