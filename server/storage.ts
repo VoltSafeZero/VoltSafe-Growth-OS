@@ -1517,6 +1517,11 @@ export class DatabaseStorage implements IStorage {
 
   async addAccountContact(data: InsertAccountContact): Promise<AccountContact> {
     const [r] = await db.insert(accountContacts).values(data).onConflictDoNothing().returning();
+    // If the contact has no home account, promote this account to be their primary.
+    const [contact] = await db.select({ accountId: contacts.accountId }).from(contacts).where(eq(contacts.id, data.contactId)).limit(1);
+    if (contact && !contact.accountId) {
+      await db.update(contacts).set({ accountId: data.accountId }).where(eq(contacts.id, data.contactId));
+    }
     if (r) return r;
     // already exists — return the existing row
     const [existing] = await db.select().from(accountContacts)
