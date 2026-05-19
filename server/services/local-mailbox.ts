@@ -586,6 +586,12 @@ export async function getLocalThread(p: { resolved: Resolved; threadId: string }
     // Legacy fallback only when no accountId scope was resolved.
     where.push(`owner_user_id = ${Number(p.resolved.userId)}`);
   }
+  // Exclude DRAFT and TRASH messages from thread view. Draft messages belong
+  // only in the Drafts folder; trashed messages (including discarded drafts)
+  // should never surface inside an inbox thread. Mirrors the same exclusions
+  // applied by listLocalMessages / listLocalThreads.
+  where.push(`NOT (label_ids ILIKE '%"DRAFT"%')`);
+  where.push(`NOT (label_ids ILIKE '%"TRASH"%')`);
   const rowsRes = await db.execute(sql.raw(`
     SELECT
       id, gmail_message_id, gmail_thread_id, snippet, sent_at,
