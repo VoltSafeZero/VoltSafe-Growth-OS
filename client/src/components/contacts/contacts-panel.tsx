@@ -233,7 +233,7 @@ function AddContactPopover({
   const [resolvedAccountId, setResolvedAccountId] = useState<number | null>(null);
   const { toast } = useToast();
 
-  const { data: contacts = [] } = useQuery<any[]>({
+  const { data: contacts = [], isLoading: contactsLoading } = useQuery<any[]>({
     queryKey: ["/api/contacts", { search }],
     queryFn: async () => {
       const r = await fetch(`/api/contacts?search=${encodeURIComponent(search)}`, { credentials: "include" });
@@ -241,10 +241,11 @@ function AddContactPopover({
       return r.json();
     },
     enabled: open,
+    staleTime: 10_000,
   });
 
   const linkedSet = useMemo(() => new Set(alreadyLinked), [alreadyLinked]);
-  const filtered = contacts.filter((c: any) => !linkedSet.has(c.id));
+  const filtered = Array.isArray(contacts) ? contacts.filter((c: any) => !linkedSet.has(c.id)) : [];
   const base = `/api/${PATH[entityType]}/${entityId}/contacts`;
 
   const link = useMutation({
@@ -314,9 +315,14 @@ function AddContactPopover({
           </button>
 
           {/* Existing contacts list */}
-          {filtered.length > 0 && (
-            <div className="border-t border-border/40 pt-1 mt-1">
-              <p className="px-2 pb-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Existing</p>
+          <div className="border-t border-border/40 pt-1 mt-1">
+            <p className="px-2 pb-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Link existing</p>
+            {contactsLoading ? (
+              <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Searching…
+              </div>
+            ) : filtered.length > 0 ? (
               <div className="max-h-[220px] overflow-y-auto space-y-0.5">
                 {filtered.slice(0, 15).map((c: any) => (
                   <button
@@ -338,15 +344,14 @@ function AddContactPopover({
                   </button>
                 ))}
               </div>
-            </div>
-          )}
-
-          {filtered.length === 0 && search.length > 0 && (
-            <p className="py-3 text-xs text-center text-muted-foreground">No contacts found for "{search}"</p>
-          )}
-          {filtered.length === 0 && search.length === 0 && contacts.length > 0 && (
-            <p className="py-3 text-xs text-center text-muted-foreground">All contacts already linked.</p>
-          )}
+            ) : search.length > 0 ? (
+              <p className="py-3 text-xs text-center text-muted-foreground">No contacts found for "{search}"</p>
+            ) : (
+              <p className="py-3 text-xs text-center text-muted-foreground">
+                {Array.isArray(contacts) && contacts.length > 0 ? "All contacts already linked." : "No other contacts yet."}
+              </p>
+            )}
+          </div>
         </PopoverContent>
       </Popover>
 
