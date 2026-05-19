@@ -4124,7 +4124,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       if (!res.ok) return { awaitingReply: 0, hot: 0, unlinked: 0 };
       return res.json();
     },
-    refetchInterval: 60_000,
+    refetchInterval: 15_000,
   });
 
   const triageThreadIdsQuery = useQuery<{ awaitingReply: string[]; hot: string[]; unlinked: string[] }>({
@@ -4135,7 +4135,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       return res.json();
     },
     enabled: ["needs-reply", "awaiting-reply", "hot", "unlinked"].includes(crmFilter),
-    refetchInterval: 60_000,
+    refetchInterval: 15_000,
   });
 
   const triageSummary = triageSummaryQuery.data ?? { awaitingReply: 0, hot: 0, unlinked: 0 };
@@ -4399,12 +4399,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   //   This effect lives inside gmail-inbox.tsx, so it only runs while the
   //   user is on the inbox page. Page-mount + visibilityState together
   //   give us "visible AND on inbox page" coverage.
-  const POLLING_TICK_MS = 60_000;
-  const STALENESS_THRESHOLD_MS = 50_000;
-  const PER_ACCOUNT_COOLDOWN_MS = 55_000;
+  const POLLING_TICK_MS = 15_000;
+  const STALENESS_THRESHOLD_MS = 12_000;
+  const PER_ACCOUNT_COOLDOWN_MS = 14_000;
   const lastPolledAtRef = useRef<Map<number, number>>(new Map());
   const inFlightPollRef = useRef<Set<number>>(new Set());
   const [refreshingAccounts, setRefreshingAccounts] = useState<Set<number>>(new Set());
+  const [refreshingInbox, setRefreshingInbox] = useState(false);
   const healthDataRef = useRef(accountsHealthQuery.data);
   useEffect(() => { healthDataRef.current = accountsHealthQuery.data; }, [accountsHealthQuery.data]);
   useEffect(() => {
@@ -4483,6 +4484,27 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     } catch { /* swallow */ }
     finally {
       setRefreshingAccounts((prev) => { const s = new Set(prev); s.delete(accountId); return s; });
+    }
+  };
+
+  /** Triggered by the top-right refresh button.
+   *  Calls sync-incremental for ALL connected accounts (no accountId param),
+   *  then re-queries the message/thread lists from the freshly-updated DB.
+   *  Without this, the button only re-reads the local DB cache and cannot
+   *  surface emails that arrived since the last polling tick. */
+  const handleRefreshInbox = async () => {
+    if (refreshingInbox) return;
+    setRefreshingInbox(true);
+    try {
+      // No accountId → server runs runIncrementalForAll() across every active account
+      await fetch("/api/gmail/sync-incremental", { method: "POST", credentials: "include" });
+    } catch { /* swallow — still invalidate so the UI at least refreshes from DB */ }
+    finally {
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/threads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/accounts", "health"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/triage-summary"] });
+      setRefreshingInbox(false);
     }
   };
 
@@ -6334,13 +6356,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           <Button
             size="icon"
             variant="ghost"
-            onClick={() => {
-              queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/gmail/threads"] });
-            }}
+            onClick={handleRefreshInbox}
+            disabled={refreshingInbox}
+            title="Check for new emails"
             data-testid="button-refresh-inbox"
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className={`h-4 w-4 ${refreshingInbox ? "animate-spin" : ""}`} />
           </Button>
         </div>
       </div>
