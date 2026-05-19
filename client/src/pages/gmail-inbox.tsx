@@ -1215,7 +1215,7 @@ function ComposeDialog({
                       const sep = prev && !prev.endsWith("\n") ? "\n\n" : "";
                       return prev + sep + snippetBody;
                     });
-                    if (!threadId && snippetSubject) setSubject(snippetSubject);
+                    if (!threadId && snippetSubject && !subject.trim()) setSubject(snippetSubject);
                   }}
                   isNewEmail={!threadId}
                   activeContact={

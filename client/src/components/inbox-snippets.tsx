@@ -207,7 +207,7 @@ function loadSnippets(): Snippet[] {
       (s) =>
         s &&
         typeof s.id === "string" &&
-        typeof s.title === "string" &&
+        typeof (s.title ?? s.name) === "string" &&
         typeof s.body === "string",
     ).map((s) => ({
       id: s.id,
