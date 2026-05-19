@@ -37,6 +37,7 @@ import {
 } from "@/components/inbox/smart-inbox-grouper";
 import { EmailActionsToolbar } from "@/components/inbox/email-actions-toolbar";
 import { SmartAddContactDialog } from "@/components/contacts/smart-add-contact-dialog";
+import { NewLeadFromEmailDialog } from "@/components/inbox/new-lead-from-email-dialog";
 import { EmailFormatToolbar } from "@/components/inbox/email-format-toolbar";
 import { RecipientList } from "@/components/inbox/recipient-list";
 import { CalendarInviteCard } from "@/components/inbox/calendar-invite-card";
@@ -3808,6 +3809,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [composeOpen, setComposeOpen] = useState(false);
   const [smartContactOpen, setSmartContactOpen] = useState(false);
   const [smartContactSelectedText, setSmartContactSelectedText] = useState("");
+  const [newLeadDialogOpen, setNewLeadDialogOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string; fromName?: string; quotedHtml?: string; quotedFrom?: string; quotedDate?: string } | null>(null);
   const [shownSenderEmailIds, setShownSenderEmailIds] = useState<Set<string>>(new Set());
   const toggleSenderEmail = (msgId: string) => setShownSenderEmailIds(prev => { const n = new Set(prev); n.has(msgId) ? n.delete(msgId) : n.add(msgId); return n; });
@@ -8340,6 +8342,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       <Forward className="h-3.5 w-3.5 flex-shrink-0" />
                       <span className="hidden sm:inline">Forward</span>
                     </button>
+                    <span className="text-muted-foreground/20 text-xs select-none">·</span>
+                    <button
+                      onClick={() => setNewLeadDialogOpen(true)}
+                      data-testid="button-new-lead-mini"
+                      title="Create a new CRM lead from this email sender"
+                      className="flex items-center gap-1.5 text-[11.5px] text-amber-400/70 hover:text-amber-300 transition-colors rounded-full px-2 py-1 hover:bg-amber-500/10 flex-shrink-0"
+                    >
+                      <Building2 className="h-3.5 w-3.5 flex-shrink-0" />
+                      <span className="hidden sm:inline">New Lead</span>
+                    </button>
                   </>
                 )}
                 <button
@@ -8398,6 +8410,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   >
                     <UserPlus className="h-3.5 w-3.5 group-hover:text-primary transition-colors" />
                     <span className="hidden sm:inline">Add Contact</span>
+                  </button>
+                  <button
+                    onClick={() => setNewLeadDialogOpen(true)}
+                    data-testid="button-new-lead-from-email"
+                    title="Create a new CRM lead from this email sender"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-amber-500/30 bg-amber-500/8 text-[12px] text-amber-400/80 hover:border-amber-500/60 hover:text-amber-300 hover:bg-amber-500/15 transition-all group flex-shrink-0"
+                  >
+                    <Building2 className="h-3.5 w-3.5 transition-colors" />
+                    <span className="hidden sm:inline">New Lead</span>
                   </button>
                   <span className="text-[10px] text-muted-foreground/35 font-mono hidden lg:block">r</span>
                 </div>
@@ -8464,6 +8485,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           subject={focusedMsg.subject || ""}
           body={focusedMsg.body || ""}
           selectedText={smartContactSelectedText}
+        />
+      )}
+
+      {/* New Lead from Email dialog */}
+      {focusedMsg && (
+        <NewLeadFromEmailDialog
+          open={newLeadDialogOpen}
+          onClose={() => setNewLeadDialogOpen(false)}
+          fromName={parseSenderName(focusedMsg.from)}
+          fromEmail={parseSenderEmail(focusedMsg.from)}
+          subject={focusedMsg.subject || ""}
         />
       )}
 
