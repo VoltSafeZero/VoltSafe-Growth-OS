@@ -273,6 +273,7 @@ export interface IStorage {
   addLeadContact(data: InsertLeadContact): Promise<LeadContact>;
   updateLeadContactRole(leadId: number, contactId: number, role: string | null): Promise<boolean>;
   removeLeadContact(leadId: number, contactId: number): Promise<boolean>;
+  getLeadsForContact(contactId: number): Promise<{ leadId: number; role: string | null; leadName: string; company: string }[]>;
 
   // Automation Rules
   getAutomationRules(opts?: { enabled?: boolean; scope?: string; limit?: number; offset?: number }): Promise<AutomationRule[]>;
@@ -1551,6 +1552,17 @@ export class DatabaseStorage implements IStorage {
       JOIN accounts a ON a.id = ac.account_id
       WHERE ac.contact_id = ${contactId}
       ORDER BY a.name ASC
+    `);
+    return rows.rows ?? rows;
+  }
+
+  async getLeadsForContact(contactId: number): Promise<{ leadId: number; role: string | null; leadName: string; company: string }[]> {
+    const rows: any = await db.execute(sql`
+      SELECT lc.lead_id AS "leadId", lc.role, l.contact_name AS "leadName", l.company
+      FROM lead_contacts lc
+      JOIN leads l ON l.id = lc.lead_id
+      WHERE lc.contact_id = ${contactId}
+      ORDER BY l.company ASC
     `);
     return rows.rows ?? rows;
   }

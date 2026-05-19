@@ -16713,6 +16713,16 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
+  // ─── Contact reverse-lookups (which accounts/leads is this contact linked to) ──
+  app.get("/api/contacts/:id/accounts", requirePermission("crm", "view"), async (req, res) => {
+    try { res.json(await storage.getAccountsForContact(Number(req.params.id))); }
+    catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+  app.get("/api/contacts/:id/leads", requirePermission("crm", "view"), async (req, res) => {
+    try { res.json(await storage.getLeadsForContact(Number(req.params.id))); }
+    catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
   // ─── Lead ↔ Contact links (many-to-many) ────────────────────────────────
   app.get("/api/leads/:id/contacts", requirePermission("crm", "view"), async (req, res) => {
     try { res.json(await storage.getLeadContacts(Number(req.params.id))); }

@@ -11,8 +11,10 @@ import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft, Mail, Phone, Building2, User, Zap, CheckSquare,
   CalendarDays, TrendingUp, MessageSquare, AlertTriangle, RefreshCw,
-  Star, Clock, ExternalLink, Send, Plus, Pencil,
+  Star, Clock, ExternalLink, Send, Plus, Pencil, Search, Link2, X, Loader2,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { EditContactDialog } from "@/components/contacts/edit-contact-dialog";
 import { formatDistanceToNow, format, isPast } from "date-fns";
 import { Link } from "wouter";
@@ -115,6 +117,80 @@ function NoteComposer({ contactId, onAdded }: { contactId: number; onAdded: () =
   );
 }
 
+function LinkEntityPopover({
+  label,
+  searchPlaceholder,
+  searchUrl,
+  alreadyLinked,
+  onLink,
+}: {
+  label: string;
+  searchPlaceholder: string;
+  searchUrl: (q: string) => string;
+  alreadyLinked: Set<number>;
+  onLink: (id: number, name: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [pending, setPending] = useState(false);
+  const { toast } = useToast();
+
+  const { data: results = [] } = useQuery<any[]>({
+    queryKey: ["link-entity-search", searchUrl(""), search],
+    queryFn: () => fetch(searchUrl(search), { credentials: "include" })
+      .then(r => r.json())
+      .then(d => Array.isArray(d) ? d : (d.data ?? [])),
+    enabled: open,
+  });
+
+  const filtered = results.filter((r: any) => !alreadyLinked.has(r.id));
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 text-muted-foreground" data-testid={`button-link-entity-${label}`}>
+          <Plus className="h-3 w-3" /> {label}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-2" align="end">
+        <div className="relative mb-2">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <Input autoFocus placeholder={searchPlaceholder} value={search} onChange={e => setSearch(e.target.value)}
+            className="h-8 pl-8 text-sm" />
+        </div>
+        <div className="max-h-[200px] overflow-y-auto space-y-0.5">
+          {filtered.slice(0, 12).map((r: any) => (
+            <button key={r.id}
+              onMouseDown={async (e) => {
+                e.preventDefault();
+                setPending(true);
+                try {
+                  await onLink(r.id, r.name || r.company || String(r.id));
+                  setOpen(false);
+                  setSearch("");
+                } catch (err: any) {
+                  toast({ title: "Could not link", description: err.message, variant: "destructive" });
+                } finally { setPending(false); }
+              }}
+              disabled={pending}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent text-left text-sm disabled:opacity-50 transition-colors"
+              data-testid={`option-link-${r.id}`}
+            >
+              <span className="flex-1 truncate">{r.company || r.name}</span>
+              {pending && <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />}
+            </button>
+          ))}
+          {filtered.length === 0 && (
+            <p className="text-xs text-center text-muted-foreground py-3">
+              {search ? `No results for "${search}"` : "Nothing to link."}
+            </p>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export default function ContactProfilePage() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
@@ -185,6 +261,29 @@ export default function ContactProfilePage() {
       </div>
     </div>
   );
+
+  const { data: linkedAccounts = [], refetch: refetchAccounts } = useQuery<any[]>({
+    queryKey: ["/api/contacts", id, "accounts"],
+    queryFn: () => fetch(`/api/contacts/${id}/accounts`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!id,
+  });
+
+  const { data: linkedLeads = [], refetch: refetchLeads } = useQuery<any[]>({
+    queryKey: ["/api/contacts", id, "leads"],
+    queryFn: () => fetch(`/api/contacts/${id}/leads`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!id,
+  });
+
+  const unlinkFromAccount = async (accountId: number) => {
+    await apiRequest("DELETE", `/api/accounts/${accountId}/contacts/${id}`);
+    refetchAccounts();
+    queryClient.invalidateQueries({ queryKey: ["/api/contacts", id, "profile"] });
+  };
+
+  const unlinkFromLead = async (leadId: number) => {
+    await apiRequest("DELETE", `/api/leads/${leadId}/contacts/${id}`);
+    refetchLeads();
+  };
 
   const contact = data.contact;
   const opportunities = data.opportunities ?? [];
@@ -473,6 +572,85 @@ export default function ContactProfilePage() {
 
         {/* Right column */}
         <div className="space-y-4">
+          {/* Organizations */}
+          <SectionCard title="Organizations" icon={Building2} count={linkedAccounts.length}
+            action={
+              <LinkEntityPopover
+                label="Link account"
+                searchPlaceholder="Search accounts…"
+                searchUrl={(q) => `/api/accounts?search=${encodeURIComponent(q)}&limit=20`}
+                alreadyLinked={new Set(linkedAccounts.map((a: any) => a.accountId))}
+                onLink={async (accountId) => {
+                  await apiRequest("POST", `/api/accounts/${accountId}/contacts`, { contactId: id });
+                  refetchAccounts();
+                  queryClient.invalidateQueries({ queryKey: ["/api/contacts", id, "profile"] });
+                }}
+              />
+            }
+          >
+            {linkedAccounts.length === 0 ? <EmptyRow text="Not linked to any organization yet." /> : (
+              <div className="space-y-1">
+                {linkedAccounts.map((a: any) => (
+                  <div key={a.accountId} className="flex items-center gap-2 py-1.5 group">
+                    <Link2 className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                    <Link href={`/accounts/${a.accountId}`} className="flex-1 min-w-0">
+                      <span className="text-sm hover:underline cursor-pointer truncate">{a.accountName}</span>
+                    </Link>
+                    {a.role && <span className="text-xs text-muted-foreground truncate">· {a.role}</span>}
+                    <button
+                      onClick={() => unlinkFromAccount(a.accountId)}
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                      title="Remove link"
+                      data-testid={`button-unlink-account-${a.accountId}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SectionCard>
+
+          {/* Linked Leads */}
+          <SectionCard title="Linked Leads" icon={User} count={linkedLeads.length}
+            action={
+              <LinkEntityPopover
+                label="Link lead"
+                searchPlaceholder="Search leads…"
+                searchUrl={(q) => `/api/leads?search=${encodeURIComponent(q)}&limit=20`}
+                alreadyLinked={new Set(linkedLeads.map((l: any) => l.leadId))}
+                onLink={async (leadId) => {
+                  await apiRequest("POST", `/api/leads/${leadId}/contacts`, { contactId: id });
+                  refetchLeads();
+                }}
+              />
+            }
+          >
+            {linkedLeads.length === 0 ? <EmptyRow text="No leads linked." /> : (
+              <div className="space-y-1">
+                {linkedLeads.map((l: any) => (
+                  <div key={l.leadId} className="flex items-center gap-2 py-1.5 group">
+                    <Link2 className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm truncate">{l.company || l.leadName}</p>
+                      {l.leadName && l.company && (
+                        <p className="text-xs text-muted-foreground truncate">{l.leadName}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => unlinkFromLead(l.leadId)}
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                      title="Remove link"
+                      data-testid={`button-unlink-lead-${l.leadId}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SectionCard>
+
           {/* Opportunities */}
           <SectionCard title="Opportunities" icon={TrendingUp} count={opportunities.length}>
             {opportunities.length === 0 ? <EmptyRow text="No deals linked" /> : (

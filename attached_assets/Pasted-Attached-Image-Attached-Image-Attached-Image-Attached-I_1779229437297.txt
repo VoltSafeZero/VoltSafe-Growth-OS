@@ -1,0 +1,58 @@
+Attached Image
+
+Attached Image
+
+Attached Image
+
+Attached Image
+The lead was already previously converted to an Account - but i am unable to add additional contacts to the account.
+
+3 hours ago
+
+Show less
+
+Planning contact assignment strategy (5 seconds)
+I can see the "+ Add Contact" button is there on the account. Let me check what it actually does when clicked to understand where it's failing:
+
+
+2 actions
+The AddContactPopover code looks correct — but I need to check if the backend route for linking contacts to accounts is actually wired up, since that's the most likely gap:
+
+
+3 actions
+Good — the routes exist. Let me read them and the contacts search route in parallel:
+
+
+5 actions
+Let me check the storage implementation to find where the issue actually is:
+
+
+5 actions
+Now I have the full picture. The wiring is correct — the bug is that clicking + Add Contact adds the contact to the account's panel via the junction table, but doesn't update the contact's own account_id, so Josh Hester's profile still shows "Unassigned Contacts" after the link, making it look like nothing happened. Let me fix that and also confirm the flow works end-to-end.
+
+
+3 actions
+The root cause is clear: addAccountContact creates the junction table link but never updates contacts.account_id, so the contact's own profile still says "Unassigned" after being linked. The fix is in storage — when a contact with no home account is linked to an account, set that as their home account:
+
+
+2 actions
+Now restart the server (backend change) and verify no errors:
+
+
+4 actions
+Server is back up cleanly. The other test failures are just timing — they tried to connect during the restart window before the server was ready, not actual failures.
+
+Here's what was happening and what's fixed:
+
+The bug: When you clicked "+ Add Contact" on the account's People & Pipeline tab and selected a contact (like Josh Hester), it was correctly adding them to the account's contact panel. But because the link went through the junction table only, Josh's own profile page still showed "Unassigned Contacts" — making it look like nothing happened.
+
+The fix: Now when you link an unassigned contact to an account, the system also sets that account as their home account. So after you add Josh Hester to Safe Harbor Group, his profile will correctly show Safe Harbor Group as his organization.
+
+How to use it:
+
+Open the Safe Harbor Group account → go to the People & Pipeline tab
+Click + Add Contact (top right of the Contacts section)
+A search popover appears — type Josh's name or leave it blank to browse
+Click his name in the list — he's immediately linked
+He now appears in the account's contacts panel, and his own contact profile will update to show Safe Harbor Group as his organization
+If a contact already belongs to another account, they'll still be linked to Safe Harbor Group in the panel, but their home account won't be changed (only unassigned contacts get promoted).

@@ -36,6 +36,7 @@ import type { Account, Contact, Opportunity, Ticket, InfrastructureProfile, Lead
 import { EmailsTab } from "@/components/emails-tab";
 import { TimelineTab } from "@/components/timeline-tab";
 import StateProvinceSelect from "@/components/state-province-select";
+import { ContactsPanel } from "@/components/contacts/contacts-panel";
 
 const segmentColors: Record<string, string> = {
   marina: "bg-blue-500/10 text-blue-500 border-blue-500/20",
@@ -983,7 +984,6 @@ function SectionHeader({ icon: Icon, title, count }: {
 
 export function AccountDetailDialog({ account: initialAccount, onClose, canEdit = true, onOpenLead }: { account: Account; onClose: () => void; canEdit?: boolean; onOpenLead?: (leadId: number) => void }) {
   const { toast } = useToast();
-  const [addContactOpen, setAddContactOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [showFolderDialog, setShowFolderDialog] = useState(false);
   const [folderName, setFolderName] = useState("");
@@ -1000,14 +1000,6 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
     },
   });
   const account = freshAccount || initialAccount;
-
-  const { data: contactsData } = useQuery<Contact[]>({
-    queryKey: ["/api/contacts", { accountId: account.id }],
-    queryFn: async () => {
-      const res = await fetch(`/api/contacts?accountId=${account.id}`);
-      return res.json();
-    },
-  });
 
   const { data: oppsData } = useQuery<{ data: Opportunity[] }>({
     queryKey: ["/api/opportunities", { accountId: account.id }],
@@ -1030,18 +1022,6 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
     queryFn: async () => {
       const res = await fetch(`/api/accounts/${account.id}/infrastructure`, { credentials: "include" });
       return res.json();
-    },
-  });
-
-  const createContactMutation = useMutation({
-    mutationFn: async (data: Record<string, unknown>) => {
-      const res = await apiRequest("POST", "/api/contacts", { ...data, accountId: account.id });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
-      setAddContactOpen(false);
-      toast({ title: "Contact added" });
     },
   });
 
@@ -1182,18 +1162,6 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
     finally { setRelinkSearching(false); }
   }
 
-  const setPrimaryContactMutation = useMutation({
-    mutationFn: async (contactId: number) => {
-      const res = await apiRequest("PUT", `/api/contacts/${contactId}`, { isPrimary: true });
-      if (!res.ok) throw new Error("Failed to set primary");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts", { accountId: account.id }] });
-      toast({ title: "Primary contact updated" });
-    },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
-  });
 
   const createFolderFromAccountMutation = useMutation({
     mutationFn: async ({ name, domains }: { name: string; domains: string[] }) => {
@@ -1706,74 +1674,8 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
 
           <TabsContent value="people" className="space-y-6 mt-4">
             <section>
-              <SectionHeader icon={Users} title="Contacts" count={contactsData?.length || 0} />
-              <div className="flex justify-end mb-3 -mt-1">
-                <Dialog open={addContactOpen} onOpenChange={setAddContactOpen}>
-                  {canEdit && (
-                    <DialogTrigger asChild>
-                      <Button size="sm" variant="outline" data-testid="button-add-contact"><Plus className="mr-1 h-3 w-3" /> Add Contact</Button>
-                    </DialogTrigger>
-                  )}
-                  <DialogContent className="max-w-md">
-                    <DialogHeader><DialogTitle>Add Contact</DialogTitle></DialogHeader>
-                    <CreateContactForm onSubmit={(d) => createContactMutation.mutate(d)} isPending={createContactMutation.isPending} />
-                  </DialogContent>
-                </Dialog>
-              </div>
-              <div className="space-y-2">
-                {contactsData?.map((contact) => (
-                  <div key={contact.id} className="flex items-center justify-between p-3 rounded-lg border border-border/50" data-testid={`row-contact-${contact.id}`}>
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0">
-                        {contact.name.charAt(0)}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-medium truncate">{contact.name}</p>
-                          {contact.isPrimary
-                            ? <Badge variant="outline" className="text-[10px] px-1 py-0 bg-primary/10 text-primary border-primary/20 shrink-0 flex items-center gap-0.5"><Star className="h-2.5 w-2.5" /> Primary</Badge>
-                            : canEdit && (
-                              <button
-                                onClick={() => setPrimaryContactMutation.mutate(contact.id)}
-                                disabled={setPrimaryContactMutation.isPending}
-                                className="text-[10px] px-1.5 py-0.5 rounded border border-border/40 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors shrink-0"
-                                data-testid={`button-set-primary-${contact.id}`}
-                                title="Set as primary contact"
-                              >
-                                Set primary
-                              </button>
-                            )
-                          }
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {contact.title || contact.persona || contact.roleType || "—"}
-                          {contact.phone && <span className="ml-2">· {contact.phone}</span>}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {contact.email && (
-                        <a
-                          href={`mailto:${contact.email}`}
-                          className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border border-primary/20 bg-primary/5 text-primary hover:bg-primary/15 hover:border-primary/40 transition-colors"
-                          data-testid={`button-email-contact-${contact.id}`}
-                          title={contact.email}
-                        >
-                          <Mail className="h-3 w-3" /> Email
-                        </a>
-                      )}
-                      {contact.linkedinUrl && (
-                        <a href={contact.linkedinUrl} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-primary" title="LinkedIn">
-                          <LinkIcon className="h-3.5 w-3.5" />
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {(!contactsData || contactsData.length === 0) && (
-                  <p className="text-center text-sm text-muted-foreground py-4">No contacts yet</p>
-                )}
-              </div>
+              <SectionHeader icon={Users} title="Contacts" />
+              <ContactsPanel entityType="account" entityId={account.id} canEdit={canEdit} emptyText="No contacts yet." />
             </section>
 
             <section>
