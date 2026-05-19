@@ -305,9 +305,9 @@ function AddContactPopover({
             />
           </div>
 
-          {/* New Contact — use onMouseDown so it fires before Radix closes the popover */}
+          {/* New Contact */}
           <button
-            onMouseDown={(e) => { e.preventDefault(); openCreateDialog(); }}
+            onClick={() => openCreateDialog()}
             className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-primary font-medium hover:bg-accent transition-colors mb-1"
             data-testid="option-create-new-contact"
           >
@@ -327,10 +327,7 @@ function AddContactPopover({
                 {filtered.slice(0, 15).map((c: any) => (
                   <button
                     key={c.id}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      link.mutate(c.id);
-                    }}
+                    onClick={() => link.mutate(c.id)}
                     disabled={link.isPending}
                     className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent transition-colors text-left disabled:opacity-50"
                     data-testid={`option-contact-${c.id}`}
