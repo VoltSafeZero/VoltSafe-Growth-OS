@@ -49,7 +49,8 @@ import {
 import {
   CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandSeparator,
 } from "@/components/ui/command";
-import { useSnippets, SnippetInsertButton, SnippetsManagerDialog } from "@/components/inbox-snippets";
+import { SnippetInsertButton, SnippetsManagerDialog } from "@/components/inbox-snippets";
+import { useSnippets } from "@/hooks/use-snippets";
 import { useLocation } from "wouter";
 import { sanitizeEmailHtml, plainTextToEmailHtml, htmlToPlainText } from "@/lib/sanitize-html";
 import { motion, AnimatePresence } from "framer-motion";

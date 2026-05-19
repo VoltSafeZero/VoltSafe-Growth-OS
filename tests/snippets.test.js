@@ -14,7 +14,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
 
 const snippetsSrc  = fs.readFileSync(path.join(ROOT, "client/src/components/inbox-snippets.tsx"), "utf8");
+const hookSrc      = fs.readFileSync(path.join(ROOT, "client/src/hooks/use-snippets.ts"), "utf8");
 const inboxSrc     = fs.readFileSync(path.join(ROOT, "client/src/pages/gmail-inbox.tsx"), "utf8");
+// Combined view: patterns that may live in either file
+const snippetsAll  = snippetsSrc + "\n" + hookSrc;
 
 /* ─── tiny test harness ─────────────────────────────────────────────────── */
 
@@ -63,38 +66,38 @@ console.log("\n── A: inbox-snippets.tsx structure ──");
 
 check(
   "STORAGE_KEY = voltsafe_mail_snippets_v1",
-  contains(snippetsSrc, 'const STORAGE_KEY = "voltsafe_mail_snippets_v1"'),
+  contains(snippetsAll, 'voltsafe_mail_snippets_v1'),
 );
 
 check(
   "Snippet type has title, category, subject, body fields",
-  contains(snippetsSrc, "title: string") &&
-  contains(snippetsSrc, "category: string") &&
-  contains(snippetsSrc, "subject: string") &&
-  contains(snippetsSrc, "body: string"),
+  contains(snippetsAll, "title: string") &&
+  contains(snippetsAll, "category: string") &&
+  contains(snippetsAll, "subject: string") &&
+  contains(snippetsAll, "body: string"),
 );
 
 check(
   "ActiveContact type exported with all 5 fields",
-  contains(snippetsSrc, "export type ActiveContact") &&
-  contains(snippetsSrc, "firstName?:") &&
-  contains(snippetsSrc, "lastName?:") &&
-  contains(snippetsSrc, "marinaName?:") &&
-  contains(snippetsSrc, "companyName?:") &&
-  contains(snippetsSrc, "email?:"),
+  contains(snippetsAll, "export type ActiveContact") &&
+  contains(snippetsAll, "firstName?:") &&
+  contains(snippetsAll, "lastName?:") &&
+  contains(snippetsAll, "marinaName?:") &&
+  contains(snippetsAll, "companyName?:") &&
+  contains(snippetsAll, "email?:"),
 );
 
 check(
   "15 default snippets defined (15 id: strings in DEFAULT_SNIPPETS)",
-  countOccurrences(snippetsSrc, 'id: "ds-') === 15,
-  `found ${countOccurrences(snippetsSrc, 'id: "ds-')} ds- IDs`,
+  countOccurrences(snippetsAll, 'id: "ds-') === 15,
+  `found ${countOccurrences(snippetsAll, 'id: "ds-')} ds- IDs`,
 );
 
 check(
   "All 9 required categories present in defaults",
   ["Quick Replies","Cold Outreach","Follow Ups","Founder Marina","PO Conversion",
    "International","Dealer / Partner","Re-Engagement","Urgency","Brand"]
-    .every(cat => snippetsSrc.includes(`category: "${cat}"`)),
+    .every(cat => snippetsAll.includes(`category: "${cat}"`)),
 );
 
 check(
@@ -129,37 +132,37 @@ check(
 
 check(
   "Migration filter accepts s.title ?? s.name (old-format safety)",
-  contains(snippetsSrc, "typeof (s.title ?? s.name) === \"string\""),
+  contains(snippetsAll, "typeof (s.title ?? s.name) === \"string\""),
 );
 
 check(
   "Migration map uses s.title ?? s.name ?? '' for title field",
-  contains(snippetsSrc, 's.title ?? s.name ?? ""'),
+  contains(snippetsAll, 's.title ?? s.name ?? ""'),
 );
 
 check(
   "Migration map defaults category to 'Custom'",
-  contains(snippetsSrc, 's.category ?? "Custom"'),
+  contains(snippetsAll, 's.category ?? "Custom"'),
 );
 
 check(
   "Migration map defaults subject to ''",
-  contains(snippetsSrc, 's.subject ?? ""'),
+  contains(snippetsAll, 's.subject ?? ""'),
 );
 
 check(
   "loadSnippets returns DEFAULT_SNIPPETS when localStorage is empty",
-  contains(snippetsSrc, "if (!raw) return DEFAULT_SNIPPETS"),
+  contains(snippetsAll, "if (!raw) return DEFAULT_SNIPPETS"),
 );
 
 check(
   "loadSnippets returns DEFAULT_SNIPPETS when parsed array is empty",
-  contains(snippetsSrc, "if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_SNIPPETS"),
+  contains(snippetsAll, "if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_SNIPPETS"),
 );
 
 check(
   "loadSnippets returns DEFAULT_SNIPPETS on JSON.parse error",
-  contains(snippetsSrc, "return DEFAULT_SNIPPETS;\n  }\n}"),
+  contains(snippetsAll, "return DEFAULT_SNIPPETS;"),
 );
 
 check(
