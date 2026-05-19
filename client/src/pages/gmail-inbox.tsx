@@ -4106,6 +4106,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const inboxViewPickerRef = useRef<HTMLDivElement>(null);
   const inboxViewPickerBtnRef = useRef<HTMLButtonElement>(null);
   const [inboxViewPickerAnchor, setInboxViewPickerAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [expandedSections, setExpandedSections] = useState<Set<SmartSectionId>>(new Set());
   // Multi-mailbox Phase 1: when a message is opened from "All Inboxes", remember its source
   // account id so per-thread reads/mutations target the right mailbox (instead of sending the
   // literal "all" sentinel, which numeric-only routes coerce to NaN).
@@ -5752,24 +5753,68 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     });
   }, [isSmartView, crmFilteredMessages, pinnedAPI.pinned, selectedThreadId, openThreadWasUnread]);
 
-  // Unread-cards mode: filter inbox to only unread messages (keep open thread visible).
+  // Pre-process viewItems to collapse sections to SMART_COLLAPSE_LIMIT rows, injecting
+  // "show-all" and "show-less" sentinel rows so the render loop can handle them uniformly.
+  const SMART_COLLAPSE_LIMIT = 5;
+  const collapsedViewItems = useMemo(() => {
+    if (!viewItems) return null;
+    if (viewItems.length === 0) return [] as Array<SmartItem<MessageSummary> | { kind: "show-all"; sectionId: SmartSectionId; total: number } | { kind: "show-less"; sectionId: SmartSectionId }>;
+    const sectionTotals = new Map<SmartSectionId, number>();
+    for (const item of viewItems) {
+      if (item.kind === "msg") sectionTotals.set(item.section, (sectionTotals.get(item.section) ?? 0) + 1);
+    }
+    const isCollapsible = (sec: SmartSectionId) =>
+      sec === "priority" || sec === "unread-people" || sec === "unread-notifications" || sec === "unread-newsletters";
+    const result: Array<SmartItem<MessageSummary> | { kind: "show-all"; sectionId: SmartSectionId; total: number } | { kind: "show-less"; sectionId: SmartSectionId }> = [];
+    const sectionRendered = new Map<SmartSectionId, number>();
+    for (let i = 0; i < viewItems.length; i++) {
+      const item = viewItems[i] as SmartItem<MessageSummary>;
+      if (item.kind === "header") {
+        result.push(item);
+      } else {
+        const sec = item.section;
+        const rendered = sectionRendered.get(sec) ?? 0;
+        const expanded = expandedSections.has(sec);
+        const collapsible = isCollapsible(sec);
+        const total = sectionTotals.get(sec) ?? 0;
+        if (!collapsible || expanded || rendered < SMART_COLLAPSE_LIMIT) {
+          result.push(item);
+          sectionRendered.set(sec, rendered + 1);
+          const nextItem = viewItems[i + 1];
+          const isLastInSection = !nextItem || nextItem.kind === "header";
+          if (isLastInSection && expanded && collapsible) {
+            result.push({ kind: "show-less", sectionId: sec });
+          }
+        } else if (rendered === SMART_COLLAPSE_LIMIT) {
+          result.push({ kind: "show-all", sectionId: sec, total });
+          sectionRendered.set(sec, rendered + 1);
+        } else {
+          sectionRendered.set(sec, rendered + 1);
+        }
+      }
+    }
+    return result;
+  }, [viewItems, expandedSections]);
+
+  // Unread View mode: sort unread messages first, then read — flat list (no card styling).
   const isUnreadCardsView =
     viewMode === "unread-cards" &&
-    !searchQuery &&
-    tab === "inbox" && tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review";
+    tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review";
   const unreadCardsMessages = useMemo<MessageSummary[]>(() => {
     if (!isUnreadCardsView || !crmFilteredMessages) return [];
-    return crmFilteredMessages.filter(m => isUnread(m.labelIds) || m.threadId === selectedThreadId);
-  }, [isUnreadCardsView, crmFilteredMessages, selectedThreadId]);
+    const unread = crmFilteredMessages.filter(m => isUnread(m.labelIds));
+    const read = crmFilteredMessages.filter(m => !isUnread(m.labelIds));
+    return [...unread, ...read];
+  }, [isUnreadCardsView, crmFilteredMessages]);
 
   // Ordered message list that matches what's actually displayed on screen.
   // Keyboard nav + shift/cmd-click use this so arrow-key order matches visual order.
   const navList = useMemo<MessageSummary[]>(() => {
     if (tab === "drafts" || tab === "scheduled" || tab === "folder" || tab === "review") return [];
     if (isUnreadCardsView) return unreadCardsMessages;
-    if (viewItems) return viewItems.filter((i): i is { kind: "msg"; section: any; msg: MessageSummary } => i.kind === "msg").map(i => i.msg);
+    if (collapsedViewItems) return collapsedViewItems.filter((i): i is { kind: "msg"; section: SmartSectionId; msg: MessageSummary } => i.kind === "msg").map(i => i.msg);
     return crmFilteredMessages ?? [];
-  }, [tab, isUnreadCardsView, unreadCardsMessages, viewItems, crmFilteredMessages]);
+  }, [tab, isUnreadCardsView, unreadCardsMessages, collapsedViewItems, crmFilteredMessages]);
 
   const isLoading = tab === "other" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : tab === "spam" ? spamQuery.isLoading : sentQuery.isLoading;
   const error = tab === "other" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : tab === "spam" ? spamQuery.error : sentQuery.error;
@@ -6211,7 +6256,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             <div className="min-w-0 text-left">
               <div className="text-[12px] font-semibold leading-tight text-foreground/80" data-testid="text-page-title">Mail</div>
               <div className="text-[10px] text-muted-foreground/65 truncate hidden sm:block leading-tight">
-                {viewMode === "smart" ? "Focused List" : viewMode === "unread-cards" ? "Unread Cards" : "Simple List"}
+                {viewMode === "smart" ? "Smart Inbox" : viewMode === "unread-cards" ? "Unread View" : "Simple List"}
               </div>
             </div>
             <ChevronDown className={`h-3 w-3 text-muted-foreground/55 flex-shrink-0 transition-transform duration-150 ${inboxViewPickerOpen ? "rotate-180" : ""}`} />
@@ -6228,8 +6273,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 {([
                   {
                     key: "smart" as const,
-                    name: "Focused List",
-                    sub: "Smart Inbox",
+                    name: "Smart Inbox View",
+                    sub: "Grouped by category",
                     illustration: (
                       <svg viewBox="0 0 72 52" fill="none" className="w-full h-full">
                         <rect width="72" height="52" rx="4" fill="currentColor" className="text-muted/40" />
@@ -6252,8 +6297,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   },
                   {
                     key: "unread-cards" as const,
-                    name: "Unread Cards",
-                    sub: "Smart Inbox",
+                    name: "Unread View",
+                    sub: "Unread first",
                     illustration: (
                       <svg viewBox="0 0 72 52" fill="none" className="w-full h-full">
                         <rect width="72" height="52" rx="4" fill="currentColor" className="text-muted/40" />
@@ -7482,8 +7527,38 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && (
               isUnreadCardsView
                 ? unreadCardsMessages.map((m) => ({ kind: "msg" as const, section: "flat" as SmartSectionId, msg: m }))
-                : viewItems ?? (crmFilteredMessages ?? []).map((m) => ({ kind: "msg" as const, section: "flat" as SmartSectionId, msg: m }))
+                : (collapsedViewItems ?? (crmFilteredMessages ?? []).map((m) => ({ kind: "msg" as const, section: "flat" as SmartSectionId, msg: m })))
             )?.map((item) => {
+              // "Show All" sentinel — expand a collapsed section.
+              if (item.kind === "show-all") {
+                const { sectionId, total } = item as { kind: "show-all"; sectionId: SmartSectionId; total: number };
+                return (
+                  <button
+                    key={`show-all-${sectionId}`}
+                    data-testid={`show-all-${sectionId}`}
+                    onClick={() => setExpandedSections(prev => { const s = new Set(prev); s.add(sectionId); return s; })}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 text-[11px] text-primary/70 hover:text-primary font-medium transition-colors border-b border-border/20 hover:bg-primary/5"
+                  >
+                    <ChevronDown className="h-3 w-3" aria-hidden="true" />
+                    Show all {total}
+                  </button>
+                );
+              }
+              // "Show Less" sentinel — collapse an expanded section.
+              if (item.kind === "show-less") {
+                const { sectionId } = item as { kind: "show-less"; sectionId: SmartSectionId };
+                return (
+                  <button
+                    key={`show-less-${sectionId}`}
+                    data-testid={`show-less-${sectionId}`}
+                    onClick={() => setExpandedSections(prev => { const s = new Set(prev); s.delete(sectionId); return s; })}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 text-[11px] text-muted-foreground/55 hover:text-foreground/70 font-medium transition-colors border-b border-border/20 hover:bg-muted/20"
+                  >
+                    <ChevronUp className="h-3 w-3" aria-hidden="true" />
+                    Show less
+                  </button>
+                );
+              }
               // Smart-Inbox section header — purely visual, not a clickable
               // mail row. Rendered inline so we don't break the surrounding
               // <div> flow (the parent is a flex column that expects flat
@@ -7510,7 +7585,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     className={`flex items-center gap-2 ${item.isSubsection ? "pl-7" : "pl-3"} pr-3 py-1.5 bg-muted/15 border-b border-border/20 sticky top-0 z-[1] backdrop-blur-sm`}
                   >
                     <HeaderIcon className={`h-3.5 w-3.5 ${tone}`} aria-hidden="true" />
-                    <span className={`text-[11px] font-semibold uppercase tracking-[0.06em] ${tone}`}>
+                    <span className={`text-[11px] font-bold uppercase tracking-[0.06em] ${tone}`}>
                       {item.title}
                     </span>
                     <span className="text-[10px] tabular-nums text-muted-foreground/45">
@@ -7540,22 +7615,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               return (
                 <div
                   key={msg.id}
-                  className={isUnreadCardsView
-                    ? `relative group flex items-stretch transition-all duration-150 mx-2 my-1.5 rounded-xl border shadow-sm ${
-                        isSelected
-                          ? "bg-primary/[0.13] border-primary/50 shadow-primary/10"
-                          : isBulkChecked
-                            ? "bg-primary/10 border-primary/40"
-                            : "border-border/50 bg-card hover:bg-muted/40 hover:border-border hover:shadow-md"
-                      }`
-                    : `relative group flex items-stretch transition-all duration-150 border-b border-border/20 ${
-                        isSelected
-                          ? "bg-primary/[0.13] hover:bg-primary/[0.21] border-l-[3px] border-l-primary shadow-[inset_0_0_0_1px_rgba(20,184,166,0.14),inset_4px_0_12px_-4px_rgba(20,184,166,0.08)]"
-                          : isBulkChecked
-                            ? "bg-primary/10 border-l-[3px] border-l-primary/60"
-                            : "border-l-[3px] border-l-transparent hover:bg-primary/[0.07] hover:border-l-primary/25"
-                      }`
-                  }
+                  className={`relative group flex items-stretch transition-all duration-150 border-b border-border/20 ${
+                    isSelected
+                      ? "bg-primary/[0.13] hover:bg-primary/[0.21] border-l-[3px] border-l-primary shadow-[inset_0_0_0_1px_rgba(20,184,166,0.14),inset_4px_0_12px_-4px_rgba(20,184,166,0.08)]"
+                      : isBulkChecked
+                        ? "bg-primary/10 border-l-[3px] border-l-primary/60"
+                        : "border-l-[3px] border-l-transparent hover:bg-primary/[0.07] hover:border-l-primary/25"
+                  }`}
                 >
                   {/* Checkbox — visible on hover or when any selection active */}
                   <div
