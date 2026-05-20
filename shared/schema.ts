@@ -138,6 +138,7 @@ export const accounts = pgTable("accounts", {
   marinaType: text("marina_type"),
   ownershipType: text("ownership_type"),
   parentCompany: text("parent_company"),
+  parentAccountId: integer("parent_account_id"),
 
   streetAddress: text("street_address"),
   city: text("city"),
