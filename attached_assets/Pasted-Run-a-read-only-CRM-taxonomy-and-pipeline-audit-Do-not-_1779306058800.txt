@@ -1,0 +1,152 @@
+Run a read-only CRM taxonomy and pipeline audit. Do not change code yet.
+
+Goal:
+I need a complete audit of how Leads, Accounts, and Contacts are currently structured so we can design one aligned CRM model before implementation.
+
+Audit the current codebase, database schema, UI filters, create/edit forms, API routes, seed/default values, and conversion flows.
+
+Focus areas:
+
+1. Current Lead structure
+Report:
+- database fields
+- schema/types/interfaces
+- create modal fields
+- edit/detail fields
+- list/table columns
+- filters/dropdowns
+- allowed dropdown values
+- API create/update payloads
+- validation rules
+- default values
+- sorting options
+- stage values
+- industry values
+- segment/type/relationship fields if any
+
+2. Current Account structure
+Report:
+- database fields
+- schema/types/interfaces
+- create modal fields
+- edit/detail fields
+- list/card fields
+- filters/dropdowns
+- allowed dropdown values
+- API create/update payloads
+- validation rules
+- default values
+- sorting options
+- stage values
+- account type values
+- segment values
+- relationship fields if any
+
+3. Current Contact structure
+Report:
+- database fields
+- schema/types/interfaces
+- create/edit fields
+- linked Lead/Account fields
+- filters/dropdowns
+- allowed dropdown values
+- API create/update payloads
+- validation rules
+- default values
+
+4. Lead → Account conversion flow
+Find and report:
+- exact files/functions involved
+- fields copied
+- fields not copied
+- fields renamed/mapped
+- contacts copied/linked
+- emails copied/linked
+- notes copied/linked
+- documents copied/linked
+- AI summaries copied/linked/staled
+- timeline/activity copied/linked
+- stage/status mapping
+- any data loss risks
+
+5. Dropdown/value taxonomy audit
+Create a table of every current classification-like field across Leads, Accounts, and Contacts, including:
+- field name
+- entity
+- UI label
+- source file
+- values
+- default value
+- where used
+- whether user-editable
+- whether filterable
+- whether sortable
+
+Include fields such as:
+- industry
+- segment
+- accountType
+- relationshipType
+- stage
+- status
+- source
+- priority
+- quality
+- tags
+- category/type fields
+
+6. UI alignment audit
+Compare Leads vs Accounts vs Contacts and report:
+- which fields exist in Leads but not Accounts
+- which fields exist in Accounts but not Leads
+- which fields use different names for the same concept
+- which filters exist in one area but not another
+- which create/edit forms are inconsistent
+- which dropdown values conflict or overlap
+
+7. Data migration risk audit
+Report:
+- existing columns that should be preserved
+- fields with overlapping meanings
+- fields that may need aliasing instead of deletion
+- any records with null/missing values
+- counts by current industry/segment/accountType/stage/status
+- safest additive-only migration path
+- fields that should NOT be dropped
+
+8. Search/reporting impact
+Find where these fields are used in:
+- search
+- saved views
+- filters
+- exports
+- dashboards
+- AI summaries
+- Suggested Next Email
+- lead scoring
+- analytics
+- pipeline totals
+
+9. Deliverable format
+Return a clear audit report with:
+
+A) Executive summary
+B) Current Lead model
+C) Current Account model
+D) Current Contact model
+E) Lead-to-Account conversion mapping
+F) Taxonomy/dropdown inventory table
+G) Inconsistency matrix
+H) Data counts by current classification fields
+I) Risk areas
+J) Recommended implementation constraints
+
+Hard rules:
+- Read-only audit only.
+- Do not change code.
+- Do not run migrations.
+- Do not rename/delete fields.
+- Do not “fix” anything yet.
+- Be exhaustive and specific.
+- Include exact file paths and function/component names.
+- Include relevant line numbers where possible.
