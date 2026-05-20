@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Save } from "lucide-react";
+import { Loader2, Save, Building2, Target, X, Search, Plus } from "lucide-react";
 import { EmailAutocompleteInput } from "@/components/email/email-autocomplete";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -111,11 +111,88 @@ export function EditContactDialog({
 }) {
   const { toast } = useToast();
   const [form, setForm] = useState<FormState>(() => buildInitial(contact));
+  const [acctSearch, setAcctSearch] = useState("");
+  const [leadSearch, setLeadSearch] = useState("");
 
   // Keep form in sync if a different contact gets passed in or the dialog re-opens.
   useEffect(() => {
-    if (open) setForm(buildInitial(contact));
+    if (open) {
+      setForm(buildInitial(contact));
+      setAcctSearch("");
+      setLeadSearch("");
+    }
   }, [open, contact?.id]);
+
+  const cid = contact?.id;
+
+  // ── Linked accounts & leads ────────────────────────────────────────────
+  const { data: linkedAccounts = [], refetch: refetchLinkedAccounts } = useQuery<any[]>({
+    queryKey: ["/api/contacts", cid, "accounts"],
+    queryFn: () => fetch(`/api/contacts/${cid}/accounts`, { credentials: "include" }).then(r => r.json()),
+    enabled: open && !!cid,
+  });
+  const { data: linkedLeads = [], refetch: refetchLinkedLeads } = useQuery<any[]>({
+    queryKey: ["/api/contacts", cid, "leads"],
+    queryFn: () => fetch(`/api/contacts/${cid}/leads`, { credentials: "include" }).then(r => r.json()),
+    enabled: open && !!cid,
+  });
+
+  // ── Account search results ─────────────────────────────────────────────
+  const { data: acctResultsRaw } = useQuery<any>({
+    queryKey: ["/api/accounts", { search: acctSearch }],
+    queryFn: () => fetch(`/api/accounts?search=${encodeURIComponent(acctSearch)}&limit=8`, { credentials: "include" }).then(r => r.json()),
+    enabled: open && acctSearch.trim().length > 0,
+    staleTime: 10_000,
+  });
+  const acctResults: any[] = acctResultsRaw?.data ?? [];
+
+  // ── Lead search results ────────────────────────────────────────────────
+  const { data: leadResultsRaw } = useQuery<any>({
+    queryKey: ["/api/leads", { search: leadSearch }],
+    queryFn: () => fetch(`/api/leads?search=${encodeURIComponent(leadSearch)}&limit=8`, { credentials: "include" }).then(r => r.json()),
+    enabled: open && leadSearch.trim().length > 0,
+    staleTime: 10_000,
+  });
+  const leadResults: any[] = leadResultsRaw?.data ?? [];
+
+  const linkedAccountIds = new Set((linkedAccounts as any[]).map((a: any) => a.accountId));
+  const linkedLeadIds = new Set((linkedLeads as any[]).map((l: any) => l.leadId));
+
+  // ── Link / unlink mutations ────────────────────────────────────────────
+  const linkAcct = useMutation({
+    mutationFn: (accountId: number) => apiRequest("POST", `/api/accounts/${accountId}/contacts`, { contactId: cid }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", cid, "accounts"] });
+      setAcctSearch("");
+      toast({ title: "Organization linked" });
+    },
+    onError: (e: any) => toast({ title: "Could not link organization", description: e?.message, variant: "destructive" }),
+  });
+  const unlinkAcct = useMutation({
+    mutationFn: (accountId: number) => apiRequest("DELETE", `/api/accounts/${accountId}/contacts/${cid}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", cid, "accounts"] });
+      toast({ title: "Organization unlinked" });
+    },
+    onError: (e: any) => toast({ title: "Could not unlink", description: e?.message, variant: "destructive" }),
+  });
+  const linkLead = useMutation({
+    mutationFn: (leadId: number) => apiRequest("POST", `/api/leads/${leadId}/contacts`, { contactId: cid }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", cid, "leads"] });
+      setLeadSearch("");
+      toast({ title: "Lead linked" });
+    },
+    onError: (e: any) => toast({ title: "Could not link lead", description: e?.message, variant: "destructive" }),
+  });
+  const unlinkLead = useMutation({
+    mutationFn: (leadId: number) => apiRequest("DELETE", `/api/leads/${leadId}/contacts/${cid}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", cid, "leads"] });
+      toast({ title: "Lead unlinked" });
+    },
+    onError: (e: any) => toast({ title: "Could not unlink", description: e?.message, variant: "destructive" }),
+  });
 
   const setField = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((prev) => ({ ...prev, [k]: v }));
@@ -353,6 +430,135 @@ export function EditContactDialog({
               data-testid="textarea-edit-contact-notes"
             />
           </div>
+
+          {/* ── Relationships ───────────────────────────────────────────── */}
+          {cid && (
+            <div className="space-y-4 pt-3 border-t border-border/50" data-testid="section-contact-relationships">
+              <p className="text-sm font-medium text-foreground">Relationships</p>
+
+              {/* Organizations */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Organizations</span>
+                </div>
+                {/* Linked accounts list */}
+                <div className="space-y-1">
+                  {(linkedAccounts as any[]).map((a: any) => (
+                    <div key={a.accountId} className="flex items-center justify-between py-1 px-2 rounded bg-muted/40 text-xs" data-testid={`linked-account-${a.accountId}`}>
+                      <span className="font-medium truncate">{a.accountName}</span>
+                      <button
+                        type="button"
+                        onClick={() => unlinkAcct.mutate(a.accountId)}
+                        disabled={unlinkAcct.isPending}
+                        className="ml-2 text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                        data-testid={`button-unlink-account-${a.accountId}`}
+                        title="Remove link"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {(linkedAccounts as any[]).length === 0 && (
+                    <p className="text-xs text-muted-foreground pl-1">No organizations linked yet.</p>
+                  )}
+                </div>
+                {/* Account search */}
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                  <Input
+                    value={acctSearch}
+                    onChange={e => setAcctSearch(e.target.value)}
+                    placeholder="Search to link an organization…"
+                    className="h-7 text-xs pl-7"
+                    data-testid="input-link-account-search"
+                  />
+                </div>
+                {acctSearch.trim().length > 0 && acctResults.length > 0 && (
+                  <div className="border border-border rounded-md max-h-36 overflow-y-auto divide-y divide-border/50">
+                    {acctResults
+                      .filter((a: any) => !linkedAccountIds.has(a.id))
+                      .slice(0, 6)
+                      .map((a: any) => (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={() => linkAcct.mutate(a.id)}
+                          disabled={linkAcct.isPending}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-accent transition-colors text-left disabled:opacity-50"
+                          data-testid={`option-link-account-${a.id}`}
+                        >
+                          <Plus className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <span className="truncate">{a.name}</span>
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Leads */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <Target className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Leads</span>
+                </div>
+                {/* Linked leads list */}
+                <div className="space-y-1">
+                  {(linkedLeads as any[]).map((l: any) => (
+                    <div key={l.leadId} className="flex items-center justify-between py-1 px-2 rounded bg-muted/40 text-xs" data-testid={`linked-lead-${l.leadId}`}>
+                      <span className="font-medium truncate">{l.leadName || l.company || `Lead #${l.leadId}`}</span>
+                      {l.company && l.leadName && <span className="text-muted-foreground ml-1 shrink-0">{l.company}</span>}
+                      <button
+                        type="button"
+                        onClick={() => unlinkLead.mutate(l.leadId)}
+                        disabled={unlinkLead.isPending}
+                        className="ml-2 text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                        data-testid={`button-unlink-lead-${l.leadId}`}
+                        title="Remove link"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {(linkedLeads as any[]).length === 0 && (
+                    <p className="text-xs text-muted-foreground pl-1">No leads linked yet.</p>
+                  )}
+                </div>
+                {/* Lead search */}
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                  <Input
+                    value={leadSearch}
+                    onChange={e => setLeadSearch(e.target.value)}
+                    placeholder="Search to link a lead…"
+                    className="h-7 text-xs pl-7"
+                    data-testid="input-link-lead-search"
+                  />
+                </div>
+                {leadSearch.trim().length > 0 && leadResults.length > 0 && (
+                  <div className="border border-border rounded-md max-h-36 overflow-y-auto divide-y divide-border/50">
+                    {leadResults
+                      .filter((l: any) => !linkedLeadIds.has(l.id))
+                      .slice(0, 6)
+                      .map((l: any) => (
+                        <button
+                          key={l.id}
+                          type="button"
+                          onClick={() => linkLead.mutate(l.id)}
+                          disabled={linkLead.isPending}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-accent transition-colors text-left disabled:opacity-50"
+                          data-testid={`option-link-lead-${l.id}`}
+                        >
+                          <Plus className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <span className="truncate">{l.contactName || l.company || `Lead #${l.id}`}</span>
+                          {l.company && l.contactName && <span className="text-muted-foreground ml-1 shrink-0 text-[10px]">{l.company}</span>}
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           <DialogFooter className="gap-2 pt-2">
             <Button

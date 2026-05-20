@@ -10753,14 +10753,22 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             await gmail.users.threads.modify({
               userId: "me",
               id: String(threadId),
-              requestBody: { addLabelIds: ["INBOX"], removeLabelIds: ["SENT"] },
+              // Remove SPAM in addition to SENT: if this thread was in the spam
+              // folder, confirming the CRM association must permanently rescue it
+              // into INBOX.  Also remove SENT so emails stored from a sender's
+              // account (label_ids=["SENT"]) appear in INBOX, not Sent.
+              requestBody: { addLabelIds: ["INBOX"], removeLabelIds: ["SENT", "SPAM"] },
             });
           } catch (gmailErr: any) {
             console.warn(`[confirm] move-to-inbox gmail failed thread=${threadId}:`, gmailErr?.message ?? gmailErr);
           }
           try {
             const { mirrorLabelChangeForThreads } = await import("./services/local-label-mirror");
-            await mirrorLabelChangeForThreads([String(threadId)], srcAccountId, { add: ["INBOX"], remove: ["SENT"] });
+            // Use accountId=null so ALL local copies of this thread (across every
+            // synced mailbox) get the INBOX label, not just the first account's copy.
+            // Without this, a CC'd recipient's copy (source_account_id≠srcAccountId)
+            // keeps its old labels and the email stays invisible in their inbox.
+            await mirrorLabelChangeForThreads([String(threadId)], null, { add: ["INBOX"], remove: ["SENT", "SPAM"] });
           } catch (mirrorErr: any) {
             console.warn(`[confirm] move-to-inbox mirror failed thread=${threadId}:`, mirrorErr?.message ?? mirrorErr);
           }
@@ -10970,14 +10978,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
               await gmail.users.threads.modify({
                 userId: "me",
                 id: threadId,
-                requestBody: { addLabelIds: ["INBOX"], removeLabelIds: ["SENT"] },
+                // Remove SPAM in addition to SENT — same as single-confirm fix.
+                requestBody: { addLabelIds: ["INBOX"], removeLabelIds: ["SENT", "SPAM"] },
               });
             } catch (gmailErr: any) {
               console.warn(`[bulk-confirm] move-to-inbox gmail failed thread=${threadId}:`, gmailErr?.message ?? gmailErr);
             }
             try {
               const { mirrorLabelChangeForThreads } = await import("./services/local-label-mirror");
-              await mirrorLabelChangeForThreads([threadId], srcAccountId, { add: ["INBOX"], remove: ["SENT"] });
+              // Use null accountId so ALL local copies of this thread get updated,
+              // not just the one belonging to srcAccountId.
+              await mirrorLabelChangeForThreads([threadId], null, { add: ["INBOX"], remove: ["SENT", "SPAM"] });
             } catch (mirrorErr: any) {
               console.warn(`[bulk-confirm] move-to-inbox mirror failed thread=${threadId}:`, mirrorErr?.message ?? mirrorErr);
             }

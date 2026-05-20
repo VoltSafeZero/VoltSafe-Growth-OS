@@ -1,0 +1,263 @@
+You are not fixing isolated UI bugs. You are fixing two broken SYSTEM MODELS in VoltSafe CMS:
+
+1. CRM relationship ownership/linking
+2. Email direction + folder classification
+
+Both currently violate user expectations and corrupt trust in the system.
+
+========================
+PART 1 — CRM CONTACT LINKING IS FUNDAMENTALLY BROKEN
+========================
+
+CURRENT BROKEN BEHAVIOR
+
+A) Existing contact selection silently fails
+- In Leads/Accounts, user clicks “Add Contact”
+- Existing contact dropdown appears
+- User clicks an existing contact
+- Nothing happens
+- No link created
+- No toast
+- No refresh
+- No visible failure
+
+B) Contacts cannot be linked from the contact itself
+- Contact edit modal has no way to:
+  - link to Account
+  - link to Lead
+  - unlink
+  - move relationship ownership
+
+C) Contact detail pages lack relationship management
+- No “Linked Account”
+- No “Linked Lead”
+- No relationship controls
+
+D) Contacts page is conceptually broken
+- Global contacts page / Unassigned Contacts page shows ALL contacts again in relationship panels
+- This is nonsense UX
+- A relationship panel should ONLY show contacts related to the current entity
+
+REAL SYSTEM MODEL
+
+Contacts = PEOPLE
+Accounts = ORGANIZATIONS/CUSTOMERS
+Leads = PROSPECT ORGANIZATIONS / OPPORTUNITIES
+
+A person MUST be attachable to:
+- one or more accounts
+- one or more leads
+
+The relationship layer must work from:
+- account page
+- lead page
+- contact page
+- contact edit modal
+
+ROOT CAUSE TO FIND
+
+Audit ALL of:
+- contacts schema
+- accounts schema
+- leads schema
+- any junction/link tables
+- API mutations
+- query invalidation
+- dropdown click handlers
+- optimistic updates
+- stale query cache behavior
+
+Do NOT assume the problem is frontend-only.
+
+REQUIRED FIXES
+
+1. Existing contact selection MUST create a relationship immediately
+- Clicking a dropdown result must:
+  - call mutation/API
+  - create relationship
+  - invalidate/refetch queries
+  - update UI instantly
+  - show success/failure toast
+
+2. Prevent duplicate links
+- Duplicate relationship attempts should:
+  - no-op safely OR
+  - show “Already linked”
+
+3. Contact edit modal MUST support:
+- Linked Account selector
+- Linked Lead selector
+- unlink controls
+- searchable dropdowns
+
+4. Contact detail page MUST display:
+- linked accounts
+- linked leads
+- edit relationship actions
+
+5. Relationship panels MUST stop showing the global contact database
+- On entity pages:
+  - only show related contacts
+- On unassigned/global pages:
+  - show meaningful filtered content only
+
+6. Accounts and Leads MUST behave identically
+- same Add Contact UX
+- same dropdown/search UX
+- same relationship creation behavior
+
+7. Add hard regression tests
+Tests MUST prove:
+- existing contact click triggers mutation
+- account linking works
+- lead linking works
+- duplicate links blocked
+- contact edit contains relationship controls
+- global contacts page does not render all contacts as related
+
+========================
+PART 2 — EMAIL DIRECTION / FOLDER MODEL IS BROKEN
+========================
+
+CURRENT BROKEN BEHAVIOR
+
+Emails received by Trevor are:
+- disappearing
+- showing up in Sent
+- bouncing between Spam/Inbox
+- disappearing after CRM Review confirmation
+
+This is NOT a cosmetic bug.
+
+This means the platform does not correctly understand:
+- who owns a mailbox copy
+- inbound vs outbound direction
+- Gmail labels
+- per-account message copies
+
+REAL EMAIL MODEL
+
+A Gmail thread/message may exist in MULTIPLE ACCOUNTS simultaneously.
+
+Example:
+Scott sends email
+Trevor is CC’d
+
+System may ingest:
+- Scott’s SENT copy
+- Trevor’s INBOX copy
+
+These are NOT the same mailbox state.
+
+CRITICAL RULE
+
+FOLDER/DIRECTION MUST ALWAYS BE CALCULATED FROM THE PERSPECTIVE OF THE CURRENT MAIL ACCOUNT.
+
+NOT:
+- global sender
+- company domain
+- sender email alone
+- raw thread
+- first synced copy
+
+This is the root conceptual bug.
+
+CURRENT FAILURE MODE
+
+System is:
+- mixing mailbox perspectives
+- leaking SENT labels across accounts
+- treating cross-account internal mail as outbound
+- overwriting label state during sync
+- losing messages during CRM Review transitions
+
+NON-NEGOTIABLE EMAIL RULES
+
+1. If Trevor RECEIVED an email:
+- it MUST appear in Trevor inbox
+- regardless of who originally sent it
+- regardless of internal company domains
+- regardless of another account having a SENT copy
+
+2. CRM Review “Yes”
+- MUST move email into Inbox
+- MUST NEVER move to Sent
+- MUST NEVER disappear
+
+3. Not Spam
+- MUST permanently remove spam state
+- MUST persist across sync refreshes
+- MUST move visibly into Inbox
+
+4. Sent folder
+- MUST ONLY show mail actually sent FROM that mailbox perspective
+
+5. Search
+- MUST preserve mailbox context
+- Sent search must NEVER leak inbox mail
+- Inbox search must NEVER hide mail in “seen” buckets
+
+AUDIT REQUIRED
+
+Audit ALL:
+- Gmail sync ingestion
+- message ownership model
+- source_account_id usage
+- direction calculation
+- label mirroring
+- Gmail history sync
+- thread merge logic
+- CRM Review confirm handlers
+- spam/not-spam handlers
+- inbox/sent query builders
+- local DB label overwrites
+- optimistic UI behavior
+
+DO NOT PATCH SYMPTOMS.
+
+FIX THE MODEL.
+
+SPECIFIC REQUIRED FIXES
+
+1. Direction must be mailbox-perspective aware
+- per account
+- per mailbox copy
+
+2. SENT label contamination must stop
+- SENT labels from one account must NEVER affect another account’s inbox rendering
+
+3. CRM Review confirmation
+- MUST:
+  - add INBOX
+  - remove SPAM if present
+  - remove SENT if inappropriate
+  - refresh queries
+  - persist after sync
+
+4. Gmail history sync
+- MUST NOT overwrite newer local label state with stale Gmail reads
+
+5. Add regression tests for:
+- CC’d internal emails
+- cross-account SENT copies
+- CRM Review → Inbox
+- Not Spam persistence
+- inbox/sent separation
+- search correctness
+- label propagation races
+
+FINAL REQUIREMENTS
+
+Do NOT give superficial “fixed loading state” responses.
+
+Deliver:
+1. Root cause analysis
+2. Actual data-flow explanation
+3. Files changed
+4. APIs used/created
+5. Before/after system behavior
+6. Regression tests added
+7. TypeScript/build results
+8. Full regression results
+
+This must be solved permanently for ALL users, not patched for one screenshot.

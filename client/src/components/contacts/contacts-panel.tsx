@@ -250,8 +250,17 @@ function AddContactPopover({
 
   const link = useMutation({
     mutationFn: (contactId: number) => apiRequest("POST", base, { contactId }),
-    onSuccess: () => { onAdded(); setOpen(false); setSearch(""); },
-    onError: () => toast({ title: "Could not link contact", variant: "destructive" }),
+    onSuccess: () => {
+      toast({ title: "Contact linked", description: "Contact added to this record." });
+      onAdded();
+      setOpen(false);
+      setSearch("");
+    },
+    onError: (err: any) => toast({
+      title: "Could not link contact",
+      description: err?.message ?? "Please try again.",
+      variant: "destructive",
+    }),
   });
 
   const openCreateDialog = async () => {
