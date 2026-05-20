@@ -264,22 +264,33 @@ function AddContactPopover({
     }),
   });
 
-  const openCreateDialog = async () => {
-    let primaryAccountId = entityType === "account" ? entityId : null;
-    if (!primaryAccountId) {
+  const openCreateDialog = () => {
+    // Close the popover synchronously first — this stops any concurrent
+    // TanStack Query fetches from running alongside the async account lookup,
+    // preventing setState collisions that cause React error #310.
+    setOpen(false);
+
+    if (entityType === "account") {
+      setResolvedAccountId(entityId);
+      setCreateOpen(true);
+      return;
+    }
+
+    // For leads / opportunities: try to resolve the linked account id in the
+    // background and pass it to the dialog.  If the record has no account yet
+    // (or the fetch fails) we still open the dialog — CreateContactDialog
+    // has its own org picker so the user can choose or create one inline.
+    setResolvedAccountId(null);
+    setCreateOpen(true);
+
+    (async () => {
       try {
         const parentPath = entityType === "opportunity" ? "opportunities" : "leads";
         const r = await fetch(`/api/${parentPath}/${entityId}`, { credentials: "include" }).then(x => x.json());
-        primaryAccountId = r?.accountId ?? r?.account_id ?? null;
+        const found = r?.accountId ?? r?.account_id ?? null;
+        if (found) setResolvedAccountId(found);
       } catch {}
-    }
-    if (!primaryAccountId) {
-      toast({ title: "Can't create contact here", description: "Open the related organization first.", variant: "destructive" });
-      return;
-    }
-    setResolvedAccountId(primaryAccountId);
-    setOpen(false);
-    setCreateOpen(true);
+    })();
   };
 
   const onContactCreated = async (created: any) => {
