@@ -76,7 +76,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
       },
     }));
     onClose();
-    setLocation("/inbox");
+    setLocation("/gmail");
   }
 
   return (
