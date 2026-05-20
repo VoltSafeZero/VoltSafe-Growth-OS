@@ -4833,7 +4833,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", "50");
-      params.set("q", searchQuery ? searchQuery : "in:sent");
+      params.set("q", searchQuery ? `in:sent ${searchQuery}` : "in:sent");
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
@@ -4974,7 +4974,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     try {
       const params = new URLSearchParams();
       params.set("limit", "50");
-      params.set("q", searchQuery ? searchQuery : "in:sent");
+      params.set("q", searchQuery ? `in:sent ${searchQuery}` : "in:sent");
       params.set("pageToken", sentNextToken);
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
@@ -5743,6 +5743,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // re-bucket on every render.
   const isSmartView =
     viewMode === "smart" &&
+    !searchQuery &&
     tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && tab !== "spam";
   const viewItems = useMemo<SmartItem<typeof activeMessages[number]>[] | null>(() => {
     if (!isSmartView) return null;
