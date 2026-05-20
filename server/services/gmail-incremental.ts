@@ -193,17 +193,45 @@ export async function syncIncremental(accountId: number): Promise<IncrementalRes
             .where(eq(emailMessages.gmailMessageId, id));
           deleted++;
         }
-        // labelsAdded / labelsRemoved → re-fetch metadata for that message and overwrite label_ids
+        // labelsAdded / labelsRemoved → update local label_ids.
+        //
+        // Race-condition fix (May 2026): the original code re-fetched every
+        // affected message via messages.get(format=metadata) and blindly
+        // overwrote local label_ids with whatever Gmail returned.  This is
+        // susceptible to Gmail's label-propagation lag: when the user clicks
+        // "Not Spam", we call threads.modify (SPAM→INBOX), which immediately
+        // triggers a Pub/Sub push, but Gmail's index can still return the
+        // OLD SPAM label for a few seconds.  Result: the incremental sync
+        // fires, gets SPAM back from Gmail, and silently undoes the "not spam"
+        // local fix — the email reappears in spam on the next page load.
+        //
+        // Fix: prefer lm.message.labelIds from the history event itself
+        // (the canonical post-modification state that triggered the event)
+        // and only fall back to messages.get when the event doesn't carry it.
+        // The history event is written atomically with the label change, so
+        // it will never carry a stale pre-modification label list.
         const labelMutated = [...(h.labelsAdded || []), ...(h.labelsRemoved || [])];
         for (const lm of labelMutated) {
           const id = lm?.message?.id;
           if (!id) continue;
           events++;
+          // Prefer the label list embedded in the history event (always
+          // reflects the post-modification state).  Fall back to a
+          // messages.get round-trip only when the event omits labelIds.
+          const eventLabels: string[] | undefined =
+            Array.isArray(lm?.message?.labelIds) && lm.message.labelIds.length > 0
+              ? lm.message.labelIds
+              : undefined;
           try {
-            const meta: any = await gmailClient.users.messages.get({
-              userId: "me", id, format: "metadata", metadataHeaders: [],
-            });
-            const newLabels: string[] = meta.data.labelIds || [];
+            let newLabels: string[];
+            if (eventLabels) {
+              newLabels = eventLabels;
+            } else {
+              const meta: any = await gmailClient.users.messages.get({
+                userId: "me", id, format: "metadata", metadataHeaders: [],
+              });
+              newLabels = meta.data.labelIds || [];
+            }
             const newLabelsJson = JSON.stringify(newLabels);
             const upd = await db.update(emailMessages)
               .set({ labelIds: newLabelsJson, updatedAt: new Date() })
