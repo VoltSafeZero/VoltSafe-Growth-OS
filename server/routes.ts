@@ -10737,6 +10737,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         }
 
         // Move thread to INBOX so it's always visible after review (best-effort).
+        // Also remove SENT label: emails confirmed from the review queue may have
+        // been stored from the sender's Gmail account (where label_ids = ["SENT"]).
+        // After the user confirms, the email must appear in INBOX, not Sent — so
+        // we explicitly strip SENT and add INBOX in both Gmail and the local mirror.
         const userId = (req.session as any).userId;
         const threadMsgs = await db
           .select({ id: emailMessages.id, sourceAccountId: emailMessages.sourceAccountId })
@@ -10749,14 +10753,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             await gmail.users.threads.modify({
               userId: "me",
               id: String(threadId),
-              requestBody: { addLabelIds: ["INBOX"] },
+              requestBody: { addLabelIds: ["INBOX"], removeLabelIds: ["SENT"] },
             });
           } catch (gmailErr: any) {
             console.warn(`[confirm] move-to-inbox gmail failed thread=${threadId}:`, gmailErr?.message ?? gmailErr);
           }
           try {
             const { mirrorLabelChangeForThreads } = await import("./services/local-label-mirror");
-            await mirrorLabelChangeForThreads([String(threadId)], srcAccountId, { add: ["INBOX"] });
+            await mirrorLabelChangeForThreads([String(threadId)], srcAccountId, { add: ["INBOX"], remove: ["SENT"] });
           } catch (mirrorErr: any) {
             console.warn(`[confirm] move-to-inbox mirror failed thread=${threadId}:`, mirrorErr?.message ?? mirrorErr);
           }
@@ -10956,9 +10960,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           }
 
           // Move thread to INBOX so it's always visible after review.
-          // Emails in the review queue may not have the INBOX label (e.g. they
-          // arrived via a Gmail filter that skips inbox). After confirming, the
-          // thread must appear in the inbox — best-effort, never blocks confirm.
+          // Also remove SENT: emails stored from the sender's account carry the
+          // SENT label. After the user confirms, the email must appear in INBOX,
+          // not Sent — strip SENT and add INBOX in both Gmail and the local mirror.
           const srcAccountId = threadMsgs.find(m => m.sourceAccountId)?.sourceAccountId;
           if (srcAccountId) {
             try {
@@ -10966,14 +10970,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
               await gmail.users.threads.modify({
                 userId: "me",
                 id: threadId,
-                requestBody: { addLabelIds: ["INBOX"] },
+                requestBody: { addLabelIds: ["INBOX"], removeLabelIds: ["SENT"] },
               });
             } catch (gmailErr: any) {
               console.warn(`[bulk-confirm] move-to-inbox gmail failed thread=${threadId}:`, gmailErr?.message ?? gmailErr);
             }
             try {
               const { mirrorLabelChangeForThreads } = await import("./services/local-label-mirror");
-              await mirrorLabelChangeForThreads([threadId], srcAccountId, { add: ["INBOX"] });
+              await mirrorLabelChangeForThreads([threadId], srcAccountId, { add: ["INBOX"], remove: ["SENT"] });
             } catch (mirrorErr: any) {
               console.warn(`[bulk-confirm] move-to-inbox mirror failed thread=${threadId}:`, mirrorErr?.message ?? mirrorErr);
             }
