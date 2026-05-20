@@ -60,6 +60,7 @@ export function ContactsPanel({
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey });
+    queryClient.refetchQueries({ queryKey, type: "active" });
     queryClient.invalidateQueries({ queryKey: [`/api/${PATH[entityType]}`, entityId, "profile"] });
   };
 

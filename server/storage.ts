@@ -56,7 +56,7 @@ import {
   tradeshowEvents,
   type TradeshowEvent, type InsertTradeshowEvent,
 } from "@shared/schema";
-import { ilike, eq, or, sql, asc, desc, and, type AnyColumn, type SQL } from "drizzle-orm";
+import { ilike, eq, or, sql, asc, desc, and, inArray, type AnyColumn, type SQL } from "drizzle-orm";
 
 function getSortOrder(column: AnyColumn, order: string) {
   return order === "asc" ? asc(column) : desc(column);
@@ -1491,7 +1491,7 @@ export class DatabaseStorage implements IStorage {
     const extraIds = joinRows.map(r => r.contactId).filter(id => !primaryRows.some(p => p.id === id));
     let extras: any[] = [];
     if (extraIds.length > 0) {
-      extras = await db.select().from(contacts).where(sql`${contacts.id} = ANY(${extraIds})`);
+      extras = await db.select().from(contacts).where(inArray(contacts.id, extraIds));
     }
     const allContacts = [...primaryRows, ...extras];
     const contactMap = new Map(allContacts.map(c => [c.id, c]));
@@ -1572,7 +1572,7 @@ export class DatabaseStorage implements IStorage {
     const rows = await db.select().from(leadContacts).where(eq(leadContacts.leadId, leadId));
     if (rows.length === 0) return [];
     const ids = rows.map(r => r.contactId);
-    const contactRows = await db.select().from(contacts).where(sql`${contacts.id} = ANY(${ids})`);
+    const contactRows = await db.select().from(contacts).where(inArray(contacts.id, ids));
     const map = new Map(contactRows.map(c => [c.id, c]));
     return rows.map(r => ({ ...r, contact: map.get(r.contactId) }));
   }

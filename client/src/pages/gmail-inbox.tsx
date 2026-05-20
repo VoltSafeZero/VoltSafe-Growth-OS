@@ -5507,6 +5507,26 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         // shown in the spam tab) never re-surfaces it — even after the inbox query
         // refetches and returns the same messages from the server.
         setRescuedFromSpam((prev) => new Set([...prev, threadId]));
+
+        // Persist the rescue for inboxOther messages across page refreshes.
+        // rescuedFromSpam is in-memory React state — it resets on every page load,
+        // which causes blocked-domain messages to reappear in the spam tab after
+        // refresh even though the user explicitly clicked "Not Spam".
+        //
+        // Fix: if the rescued thread was being shown because its sender domain is
+        // in the email_filters block-list (inboxOther path), permanently delete
+        // that filter so the domain is no longer blocked.  The message will then
+        // appear normally in the Inbox on any future load.
+        const inboxOtherMsg = inboxOtherVisible.find((m) => m.threadId === threadId);
+        if (inboxOtherMsg) {
+          const domain = parseSenderDomain(inboxOtherMsg.from);
+          const matchingFilter = (filtersQuery.data || []).find((f) => f.domain === domain);
+          if (matchingFilter) {
+            apiRequest("DELETE", `/api/email-filters/${matchingFilter.id}`)
+              .then(() => queryClient.invalidateQueries({ queryKey: ["/api/email-filters"] }))
+              .catch(() => {/* best-effort; rescuedFromSpam still guards this session */});
+          }
+        }
       }
 
       // 2. Invalidate ALL spam queries (partial key match) so every spam cache entry

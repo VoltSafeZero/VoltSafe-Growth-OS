@@ -1,0 +1,102 @@
+The previous fix failed. Both original production bugs still exist.
+
+DO NOT rely on the prior summary or prior tests. They passed while the actual user flows still fail. Start from the symptoms below and prove the real flows work in-browser.
+
+BUG 1 — SPAM “NOT SPAM” STILL BROKEN
+
+Current real behavior:
+- I open Spam.
+- I click the shield / “Not spam” button.
+- The email disappears from Spam temporarily.
+- It does NOT appear in Inbox.
+- After refreshing the page, the same email reappears in Spam.
+
+This means the UI is probably only doing an optimistic local removal or partial DB update, but the canonical Gmail/local mirror state is not being fixed.
+
+Required behavior:
+- Clicking “Not spam” must remove SPAM.
+- It must add INBOX.
+- It must persist after refresh.
+- It must work for the Gmail remote state AND the local DB mirror.
+- It must update all synchronized mailbox copies of the same thread/message, not only one projection.
+- It must invalidate/refetch Spam, Inbox, All Mail, unified inbox, and search queries.
+
+Audit and fix:
+1. Find the exact shield / Not Spam click handler in the frontend.
+2. Find the exact backend route it calls.
+3. Confirm whether the route actually calls Gmail to remove SPAM and add INBOX.
+4. Confirm whether the local DB mirror also removes SPAM and adds INBOX.
+5. Confirm whether refresh reloads the bad state from Gmail, DB, or cache.
+6. Fix the true canonical source of the reappearing spam state.
+7. Add a regression test that starts with a SPAM-labelled message/thread, calls the exact Not Spam route, reloads from storage, and proves:
+   - SPAM is gone
+   - INBOX is present
+   - message/thread appears in Inbox query
+   - message/thread no longer appears in Spam query
+8. Add a frontend/source test proving the shield button calls the correct mutation and invalidates the correct queries.
+
+BUG 2 — ADD EXISTING CONTACT TO LEAD/ACCOUNT STILL BROKEN
+
+Current real behavior:
+- I open a Lead or Account.
+- I click Add Existing Contact.
+- I search and select an existing contact.
+- Nothing is added.
+- The contact does not appear linked to the Lead/Account.
+
+Required behavior:
+- Selecting an existing contact from the dropdown must immediately link that contact to the current Lead or Account.
+- The contact must appear in the Lead/Account contacts panel immediately.
+- After page refresh, the linked contact must still appear.
+- The Contacts page / Edit Contact dialog must also show that relationship.
+- Duplicate links should be safely ignored or blocked with a clear message.
+
+Audit and fix:
+1. Find the exact Add Existing Contact UI used inside the Lead detail page.
+2. Find the exact Add Existing Contact UI used inside the Account detail page.
+3. Do not assume ContactsPanel is used unless you verify it in the actual rendered route.
+4. Trace the click/select event from dropdown selection all the way to the backend mutation.
+5. Confirm whether the selected contact ID is actually passed.
+6. Confirm whether the current leadId/accountId is actually passed.
+7. Confirm whether the mutation is firing at all.
+8. Confirm whether the backend route expects different parameter names than the frontend sends.
+9. Confirm whether the relationship is being written to the correct association table.
+10. Confirm whether the Lead/Account detail query is invalidated/refetched after mutation.
+11. Fix the actual broken link in the chain.
+12. Add a live API regression test:
+   - create or locate a test account
+   - create or locate a test lead
+   - create or locate a test contact
+   - call the same backend route used by the UI to link contact → account
+   - prove the account detail API returns the contact
+   - call the same backend route used by the UI to link contact → lead
+   - prove the lead detail API returns the contact
+13. Add a frontend/source regression test proving the actual Lead/Account Add Existing Contact dropdown calls the correct mutation with the correct IDs.
+
+IMPORTANT TESTING REQUIREMENTS
+
+The previous tests were useless because they checked code shape, not real behavior.
+
+This time:
+- Do not stop at source-grep tests.
+- Do not claim success unless the real API behavior passes.
+- Do not claim success unless refresh persistence is proven.
+- Do not claim success unless the exact UI route/component used in production is tested or manually verified.
+- Use browser console/network inspection if needed.
+- Take screenshots or provide exact logs showing the mutation fired and returned success.
+
+DELIVERABLES
+
+Return:
+1. Root cause for Spam Not Spam failure.
+2. Root cause for Add Existing Contact failure.
+3. Exact files changed.
+4. Exact backend routes involved.
+5. Exact frontend components involved.
+6. Regression tests added.
+7. Test results.
+8. Manual verification steps proving both bugs are fixed after refresh.
+
+Do not add new unrelated UI.
+Do not refactor broadly.
+Do not declare this fixed until both original user flows work exactly as described.
