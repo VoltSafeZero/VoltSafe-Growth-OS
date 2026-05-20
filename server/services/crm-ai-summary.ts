@@ -340,14 +340,28 @@ async function computeSourceHash(
     const noteRows = await safeRows(`SELECT COUNT(*) as cnt, MAX(created_at) as mx FROM notes WHERE linked_object_type = '${entityType}' AND linked_object_id = ${id}`);
     parts.push(`notes:${noteRows[0]?.cnt}:${noteRows[0]?.mx}`);
 
-    const emailRows = await safeRows(`SELECT COUNT(*) as cnt FROM email_associations WHERE object_type = '${entityType}' AND object_id = ${id}`);
-    parts.push(`emails:${emailRows[0]?.cnt}`);
+    const emailRows = await safeRows(`
+      SELECT COUNT(*) as cnt, MAX(em.sent_at) as mx
+      FROM email_associations ea
+      JOIN email_messages em ON ea.email_message_id = em.id
+      WHERE ea.object_type = '${entityType}' AND ea.object_id = ${id}
+    `);
+    parts.push(`emails:${emailRows[0]?.cnt}:${emailRows[0]?.mx}`);
 
     const attRows = await safeRows(`SELECT COUNT(*) as cnt FROM attachments WHERE object_type = '${entityType}' AND object_id = ${id}`);
     parts.push(`attachments:${attRows[0]?.cnt}`);
 
     const actRows = await safeRows(`SELECT COUNT(*) as cnt, MAX(created_at) as mx FROM activities WHERE linked_object_type = '${entityType}' AND linked_object_id = ${id}`);
     parts.push(`activities:${actRows[0]?.cnt}:${actRows[0]?.mx}`);
+
+    // Contact count (tracks link/unlink operations on lead/account)
+    if (entityType === "lead") {
+      const lcRows = await safeRows(`SELECT COUNT(*) as cnt FROM lead_contacts WHERE lead_id = ${id}`);
+      parts.push(`linked_contacts:${lcRows[0]?.cnt}`);
+    } else if (entityType === "account") {
+      const acRows = await safeRows(`SELECT COUNT(*) as cnt FROM contacts WHERE account_id = ${id}`);
+      parts.push(`linked_contacts:${acRows[0]?.cnt}`);
+    }
 
     return createHash("sha256").update(parts.join("|")).digest("hex").substring(0, 16);
   } catch (_err) {

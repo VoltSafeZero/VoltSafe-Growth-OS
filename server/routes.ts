@@ -5513,6 +5513,8 @@ export async function registerRoutes(
         `).catch(() => {});
       }
       res.status(201).json(attachment);
+      if (["lead","account","contact"].includes(objectType))
+        import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale(objectType as any, Number(objectId), "attachment_uploaded")).catch(() => {});
     } catch (e) {
       try { fs.unlinkSync(req.file.path); } catch {}
       res.status(500).json({ message: "Failed to save attachment" });
@@ -14431,6 +14433,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       }).returning();
 
       res.status(201).json(created);
+      if (["lead","account","contact"].includes(objectType))
+        import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale(objectType as any, oid, "email_linked")).catch(() => {});
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -14445,6 +14449,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         .returning();
       if (!deleted) return res.status(404).json({ message: "Association not found" });
       res.json({ ok: true });
+      if (deleted && ["lead","account","contact"].includes(deleted.objectType ?? ""))
+        import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale(deleted.objectType as any, deleted.objectId, "email_unlinked")).catch(() => {});
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -16770,22 +16776,28 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const { contactId, role } = req.body || {};
       if (!contactId || isNaN(Number(contactId))) return res.status(400).json({ message: "contactId required" });
-      const ac = await storage.addAccountContact({ accountId: Number(req.params.id), contactId: Number(contactId), role: role ?? null });
+      const _acid = Number(req.params.id);
+      const ac = await storage.addAccountContact({ accountId: _acid, contactId: Number(contactId), role: role ?? null });
       res.status(201).json(ac);
+      import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("account", _acid, "contact_linked")).catch(() => {});
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
   app.patch("/api/accounts/:id/contacts/:contactId", requirePermission("crm", "edit"), async (req, res) => {
     try {
-      const ok = await storage.updateAccountContactRole(Number(req.params.id), Number(req.params.contactId), req.body?.role ?? null);
+      const _acid = Number(req.params.id);
+      const ok = await storage.updateAccountContactRole(_acid, Number(req.params.contactId), req.body?.role ?? null);
       if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ ok: true });
+      import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("account", _acid, "contact_role_updated")).catch(() => {});
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
   app.delete("/api/accounts/:id/contacts/:contactId", requirePermission("crm", "edit"), async (req, res) => {
     try {
-      const ok = await storage.removeAccountContact(Number(req.params.id), Number(req.params.contactId));
+      const _acid = Number(req.params.id);
+      const ok = await storage.removeAccountContact(_acid, Number(req.params.contactId));
       if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ ok: true });
+      import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("account", _acid, "contact_unlinked")).catch(() => {});
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
@@ -16808,22 +16820,28 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const { contactId, role } = req.body || {};
       if (!contactId || isNaN(Number(contactId))) return res.status(400).json({ message: "contactId required" });
-      const lc = await storage.addLeadContact({ leadId: Number(req.params.id), contactId: Number(contactId), role: role ?? null });
+      const _lcid = Number(req.params.id);
+      const lc = await storage.addLeadContact({ leadId: _lcid, contactId: Number(contactId), role: role ?? null });
       res.status(201).json(lc);
+      import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("lead", _lcid, "contact_linked")).catch(() => {});
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
   app.patch("/api/leads/:id/contacts/:contactId", requirePermission("crm", "edit"), async (req, res) => {
     try {
-      const ok = await storage.updateLeadContactRole(Number(req.params.id), Number(req.params.contactId), req.body?.role ?? null);
+      const _lcid = Number(req.params.id);
+      const ok = await storage.updateLeadContactRole(_lcid, Number(req.params.contactId), req.body?.role ?? null);
       if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ ok: true });
+      import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("lead", _lcid, "contact_role_updated")).catch(() => {});
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
   app.delete("/api/leads/:id/contacts/:contactId", requirePermission("crm", "edit"), async (req, res) => {
     try {
-      const ok = await storage.removeLeadContact(Number(req.params.id), Number(req.params.contactId));
+      const _lcid = Number(req.params.id);
+      const ok = await storage.removeLeadContact(_lcid, Number(req.params.contactId));
       if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ ok: true });
+      import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("lead", _lcid, "contact_unlinked")).catch(() => {});
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
