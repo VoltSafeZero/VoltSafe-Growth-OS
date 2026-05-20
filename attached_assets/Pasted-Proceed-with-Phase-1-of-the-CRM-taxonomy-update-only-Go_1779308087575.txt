@@ -1,0 +1,158 @@
+Proceed with Phase 1 of the CRM taxonomy update only.
+
+Goal:
+Create the shared taxonomy foundation safely, without changing data yet and without adding conditional field groups yet.
+
+Hard rules:
+- No destructive schema changes.
+- Do not backfill primaryIndustry yet.
+- Do not backfill orgType yet.
+- Do not modify conversion logic yet.
+- Do not add conditional UI field groups yet.
+- Do not remove legacy fields.
+- Existing Leads, Accounts, Contacts, emails, saved views, and lifecycle transitions must continue working.
+
+Phase 1 tasks:
+
+1. Fix Leads default industry filter safety issue.
+Currently leads.tsx defaults industryFilter to "marine", while all existing leads have null primary_industry.
+Change the default to "__all__" or equivalent so legacy null-industry leads remain visible.
+Confirm API query behavior does not filter by primaryIndustry when "__all__" is selected.
+
+2. Create one shared CRM taxonomy config file.
+Example:
+client/src/lib/crm-taxonomy.ts
+or shared/crm-taxonomy.ts if usable by both client/server.
+
+It must define canonical options for:
+- PRIMARY_INDUSTRY_OPTIONS
+- RELATIONSHIP_TYPE_OPTIONS
+- MARKET_SEGMENT_OPTIONS
+- PIPELINE_STAGE_OPTIONS
+- PRIORITY_OPTIONS
+- SLIP_RANGE_OPTIONS
+
+Definitions:
+
+PRIMARY_INDUSTRY_OPTIONS:
+- marine
+- utilities_grid
+- industrial
+- commercial_real_estate
+- transportation
+- government
+- energy_infrastructure
+- manufacturing
+- agnostic
+- other
+
+RELATIONSHIP_TYPE_OPTIONS:
+- customer_prospect
+- customer
+- strategic_partner
+- channel_partner
+- oem_manufacturer
+- installer
+- distributor
+- government_regulatory
+- association
+- investor
+- vendor_supplier
+- research_standards
+- media
+- other
+
+MARKET_SEGMENT_OPTIONS:
+- marina
+- marina_parent_group
+- yacht_club
+- dry_stack
+- port_harbor
+- municipality
+- utility
+- oem
+- distributor
+- installer
+- manufacturer
+- association
+- research
+- investor
+- media
+- other
+
+Important label:
+marketSegment = marina_parent_group should display as "Marina Parent Group"
+Definition: a parent corporation or operating group that owns and/or operates multiple marinas, e.g. Safe Harbor Marinas, Suntex, MarineMax Marinas.
+Do not label this as an association.
+
+PIPELINE_STAGE_OPTIONS:
+- new
+- contacted
+- meeting_scheduled
+- qualified
+- proposal_sent
+- negotiation
+- converted
+- lost
+
+Legacy mappings:
+- closed_lost -> lost
+- prospect -> new
+- archived -> archived legacy/display-only
+
+SLIP_RANGE_OPTIONS:
+- less_than_100
+- 100_to_300
+- 300_to_500
+- 500_to_700
+- 700_to_900
+- more_than_900
+
+3. Replace duplicated frontend dropdown constants.
+Update Leads and Accounts UI to import from the shared taxonomy config instead of maintaining separate local lists.
+
+Specifically:
+- Leads primary industry dropdown must use shared PRIMARY_INDUSTRY_OPTIONS.
+- Leads relationship type dropdown must use shared RELATIONSHIP_TYPE_OPTIONS.
+- Leads pipeline stage dropdown must use shared PIPELINE_STAGE_OPTIONS.
+- Accounts stage/status dropdown must use shared PIPELINE_STAGE_OPTIONS.
+- Accounts orgType/segment-related dropdowns must not use conflicting local ORG_TYPE_OPTIONS anymore where a shared taxonomy option applies.
+- If old orgType must remain for legacy account records, display it as legacyOrgType but do not expand or write the old conflicting options.
+
+4. Add helper functions.
+Create reusable helpers:
+- getTaxonomyLabel(type, value)
+- normalizeLifecycleStage(value)
+- isLegacyLifecycleStage(value)
+- isMarinaOperatingSegment(value)
+- isMarinaParentGroup(value)
+- isPartnerSegment(value)
+- isAssociationSegment(value)
+- getLegacyStageDisplay(value)
+
+5. Do not write any new taxonomy values to the DB yet.
+This phase is config + UI dropdown alignment + filter safety only.
+
+6. Tests required:
+- Leads default industry filter shows legacy null-industry leads.
+- Leads and Accounts import the same PIPELINE_STAGE_OPTIONS.
+- converted has the same label in Leads and Accounts.
+- closed_lost normalizes to lost.
+- prospect normalizes to new.
+- marina_parent_group label is "Marina Parent Group".
+- marina_parent_group is not treated as association.
+- Safe Harbor style account would classify as marina_parent_group, not association.
+- Existing saved views still load.
+- Existing lead/account/contact detail routes still load.
+- Existing lifecycle-reversibility tests still pass: 40/40.
+
+7. Final report:
+Include:
+- files changed
+- dropdown constants removed/replaced
+- test results
+- confirmation no data was backfilled
+- confirmation existing links were not touched
+- recommendation for Phase 2
+
+Do not proceed to Phase 2 until this passes.

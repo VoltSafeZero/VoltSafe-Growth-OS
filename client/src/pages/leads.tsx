@@ -39,6 +39,7 @@ import { EmailsTab } from "@/components/emails-tab";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 import { AiSummaryCard } from "@/components/crm/ai-summary-card";
+import { PIPELINE_STAGE_OPTIONS, PRIMARY_INDUSTRY_OPTIONS, RELATIONSHIP_TYPE_OPTIONS } from "@/lib/crm-taxonomy";
 
 const US_STATES = [
   "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware",
@@ -75,22 +76,13 @@ function getRegionsForCountry(country: string): string[] {
   return [];
 }
 
-const PIPELINE_STAGES = [
-  { value: "new", label: "New", color: "bg-slate-500/10 text-slate-400 border-slate-500/20", columnColor: "border-t-slate-500" },
-  { value: "contacted", label: "Contacted", color: "bg-blue-500/10 text-blue-400 border-blue-500/20", columnColor: "border-t-blue-500" },
-  { value: "meeting_scheduled", label: "Meeting Scheduled", color: "bg-purple-500/10 text-purple-400 border-purple-500/20", columnColor: "border-t-purple-500" },
-  { value: "qualified", label: "Qualified", color: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20", columnColor: "border-t-cyan-500" },
-  { value: "proposal_sent", label: "Proposal Sent", color: "bg-amber-500/10 text-amber-400 border-amber-500/20", columnColor: "border-t-amber-500" },
-  { value: "negotiation", label: "Negotiation", color: "bg-orange-500/10 text-orange-400 border-orange-500/20", columnColor: "border-t-orange-500" },
-  { value: "converted", label: "Promoted", color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", columnColor: "border-t-emerald-500" },
-  { value: "lost", label: "Closed Lost", color: "bg-red-500/10 text-red-400 border-red-500/20", columnColor: "border-t-red-500" },
-];
+const PIPELINE_STAGES = PIPELINE_STAGE_OPTIONS;
 
 const statusColors: Record<string, string> = Object.fromEntries(
   PIPELINE_STAGES.map(s => [s.value, s.color])
 );
 
-const ORG_TYPE_OPTIONS = [
+const LEGACY_ORG_TYPE_OPTIONS = [
   { value: "marina_prospect", label: "Marina Prospect" },
   { value: "marina_customer", label: "Marina Customer" },
   { value: "pilot_customer", label: "Pilot Customer" },
@@ -108,31 +100,6 @@ const ORG_TYPE_OPTIONS = [
   { value: "other", label: "Other" },
 ];
 
-const PRIMARY_INDUSTRY_OPTIONS = [
-  { value: "marine", label: "Marine" },
-  { value: "agnostic", label: "Agnostic / Cross-Industry" },
-  { value: "utilities_grid", label: "Utilities / Grid" },
-  { value: "industrial", label: "Industrial" },
-  { value: "commercial_real_estate", label: "Commercial Real Estate" },
-  { value: "transportation", label: "Transportation" },
-  { value: "government", label: "Government" },
-  { value: "energy_infrastructure", label: "Energy Infrastructure" },
-  { value: "manufacturing", label: "Manufacturing" },
-  { value: "other", label: "Other" },
-];
-
-const RELATIONSHIP_TYPE_OPTIONS = [
-  { value: "customer_prospect", label: "Customer Prospect" },
-  { value: "strategic_partner", label: "Strategic Partner" },
-  { value: "channel_partner", label: "Channel Partner" },
-  { value: "government_regulatory", label: "Government / Regulatory" },
-  { value: "oem_manufacturer", label: "OEM / Manufacturer" },
-  { value: "utility_infrastructure", label: "Utility / Infrastructure" },
-  { value: "investor", label: "Investor" },
-  { value: "vendor_supplier", label: "Vendor / Supplier" },
-  { value: "research_standards", label: "Research / Standards" },
-  { value: "other", label: "Other" },
-];
 
 const CONVERSION_TARGET_OPTIONS = [
   { value: "account", label: "Account" },
@@ -148,7 +115,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
   const [statusFilter, setStatusFilter] = useState(lockedStatus ?? "all");
   const [countryFilter, setCountryFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
-  const [industryFilter, setIndustryFilter] = useState("marine");
+  const [industryFilter, setIndustryFilter] = useState("__all__");
   const [view, setView] = useState<"list" | "pipeline" | "map">(() => {
     if (typeof window === "undefined") return "list";
     const v = new URLSearchParams(window.location.search).get("view");
@@ -1314,7 +1281,7 @@ function ConvertToOrgDialog({
                     <Select value={orgType} onValueChange={setOrgType}>
                       <SelectTrigger data-testid="select-convert-org-type"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {ORG_TYPE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                        {LEGACY_ORG_TYPE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1389,7 +1356,7 @@ function ConvertToOrgDialog({
                   {accountMode === "link" && selectedAccountMatch ? (
                     <p className="text-sm font-medium">Link to <span className="text-primary">{selectedAccountMatch.name}</span></p>
                   ) : (
-                    <p className="text-sm font-medium">Create <span className="text-primary">{orgName || lead.company}</span> <span className="text-xs text-muted-foreground">({ORG_TYPE_OPTIONS.find(o => o.value === orgType)?.label})</span></p>
+                    <p className="text-sm font-medium">Create <span className="text-primary">{orgName || lead.company}</span> <span className="text-xs text-muted-foreground">({LEGACY_ORG_TYPE_OPTIONS.find(o => o.value === orgType)?.label})</span></p>
                   )}
                 </div>
               </div>

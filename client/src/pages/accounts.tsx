@@ -38,6 +38,7 @@ import { EmailsTab } from "@/components/emails-tab";
 import { TimelineTab } from "@/components/timeline-tab";
 import StateProvinceSelect from "@/components/state-province-select";
 import { ContactsPanel } from "@/components/contacts/contacts-panel";
+import { PIPELINE_STAGE_OPTIONS } from "@/lib/crm-taxonomy";
 
 const segmentColors: Record<string, string> = {
   marina: "bg-blue-500/10 text-blue-500 border-blue-500/20",
@@ -46,16 +47,7 @@ const segmentColors: Record<string, string> = {
   other: "bg-gray-500/10 text-gray-500 border-gray-500/20",
 };
 
-const PIPELINE_STAGES = [
-  { value: "new", label: "New", color: "bg-slate-500/10 text-slate-400 border-slate-500/20" },
-  { value: "contacted", label: "Contacted", color: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
-  { value: "meeting_scheduled", label: "Meeting Scheduled", color: "bg-purple-500/10 text-purple-400 border-purple-500/20" },
-  { value: "qualified", label: "Qualified", color: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" },
-  { value: "proposal_sent", label: "Proposal Sent", color: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
-  { value: "negotiation", label: "Negotiation", color: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
-  { value: "converted", label: "Closed Won", color: "bg-green-500/10 text-green-400 border-green-500/20" },
-  { value: "lost", label: "Closed Lost", color: "bg-red-500/10 text-red-400 border-red-500/20" },
-];
+const PIPELINE_STAGES = PIPELINE_STAGE_OPTIONS;
 
 const statusColors: Record<string, string> = Object.fromEntries(
   PIPELINE_STAGES.map(s => [s.value, s.color])
@@ -71,7 +63,7 @@ const priorityColors: Record<string, string> = {
   high: "bg-red-500/10 text-red-500 border-red-500/20",
 };
 
-const ORG_TYPE_OPTIONS = [
+const LEGACY_ORG_TYPE_OPTIONS = [
   { value: "marina_prospect", label: "Marina Prospect" },
   { value: "marina_customer", label: "Marina Customer" },
   { value: "pilot_site", label: "Pilot Site" },
@@ -110,7 +102,7 @@ const orgTypeColors: Record<string, string> = {
 };
 
 function getOrgTypeLabel(value: string | null | undefined) {
-  return ORG_TYPE_OPTIONS.find(o => o.value === value)?.label || value || "—";
+  return LEGACY_ORG_TYPE_OPTIONS.find(o => o.value === value)?.label || value || "—";
 }
 
 export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) {
@@ -413,7 +405,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Types</SelectItem>
-            {ORG_TYPE_OPTIONS.map(o => (
+            {LEGACY_ORG_TYPE_OPTIONS.map(o => (
               <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
             ))}
           </SelectContent>
@@ -721,16 +713,21 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
   );
 }
 
-const ACCOUNTS_PIPELINE_STAGES = [
-  { value: "new", label: "New", columnColor: "border-t-slate-500", hoverColor: "bg-slate-500/5 border-slate-500/30" },
-  { value: "contacted", label: "Contacted", columnColor: "border-t-blue-500", hoverColor: "bg-blue-500/5 border-blue-500/30" },
-  { value: "meeting_scheduled", label: "Meeting Scheduled", columnColor: "border-t-purple-500", hoverColor: "bg-purple-500/5 border-purple-500/30" },
-  { value: "qualified", label: "Qualified", columnColor: "border-t-cyan-500", hoverColor: "bg-cyan-500/5 border-cyan-500/30" },
-  { value: "proposal_sent", label: "Proposal Sent", columnColor: "border-t-amber-500", hoverColor: "bg-amber-500/5 border-amber-500/30" },
-  { value: "negotiation", label: "Negotiation", columnColor: "border-t-orange-500", hoverColor: "bg-orange-500/5 border-orange-500/30" },
-  { value: "converted", label: "Closed Won", columnColor: "border-t-green-500", hoverColor: "bg-green-500/5 border-green-500/30" },
-  { value: "lost", label: "Closed Lost", columnColor: "border-t-red-500", hoverColor: "bg-red-500/5 border-red-500/30" },
-];
+const ACCOUNTS_KANBAN_COLORS: Record<string, { columnColor: string; hoverColor: string }> = {
+  new:               { columnColor: "border-t-slate-500",   hoverColor: "bg-slate-500/5 border-slate-500/30" },
+  contacted:         { columnColor: "border-t-blue-500",    hoverColor: "bg-blue-500/5 border-blue-500/30" },
+  meeting_scheduled: { columnColor: "border-t-purple-500",  hoverColor: "bg-purple-500/5 border-purple-500/30" },
+  qualified:         { columnColor: "border-t-cyan-500",    hoverColor: "bg-cyan-500/5 border-cyan-500/30" },
+  proposal_sent:     { columnColor: "border-t-amber-500",   hoverColor: "bg-amber-500/5 border-amber-500/30" },
+  negotiation:       { columnColor: "border-t-orange-500",  hoverColor: "bg-orange-500/5 border-orange-500/30" },
+  converted:         { columnColor: "border-t-emerald-500", hoverColor: "bg-emerald-500/5 border-emerald-500/30" },
+  lost:              { columnColor: "border-t-red-500",     hoverColor: "bg-red-500/5 border-red-500/30" },
+};
+
+const ACCOUNTS_PIPELINE_STAGES = PIPELINE_STAGE_OPTIONS.map(s => ({
+  ...s,
+  ...(ACCOUNTS_KANBAN_COLORS[s.value] ?? { columnColor: "border-t-gray-500", hoverColor: "bg-gray-500/5 border-gray-500/30" }),
+}));
 
 function AccountsPipelineView({
   accounts,
@@ -2086,7 +2083,7 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
           <Select value={form.orgType} onValueChange={(v) => setForm(f => ({ ...f, orgType: v }))}>
             <SelectTrigger data-testid="select-edit-org-type"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {ORG_TYPE_OPTIONS.map(o => (
+              {LEGACY_ORG_TYPE_OPTIONS.map(o => (
                 <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
               ))}
             </SelectContent>
@@ -2229,7 +2226,7 @@ function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
         <Select value={form.orgType} onValueChange={(v) => setForm(f => ({ ...f, orgType: v }))}>
           <SelectTrigger data-testid="select-account-org-type"><SelectValue /></SelectTrigger>
           <SelectContent>
-            {ORG_TYPE_OPTIONS.map(o => (
+            {LEGACY_ORG_TYPE_OPTIONS.map(o => (
               <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
             ))}
           </SelectContent>
