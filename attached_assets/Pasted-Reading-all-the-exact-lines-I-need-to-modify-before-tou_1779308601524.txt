@@ -1,0 +1,127 @@
+Reading all the exact lines I need to modify before touching anything:
+
+
+6 actions
+I have the critical piece I need from storage.ts: primaryIndustry === "marine" already includes IS NULL as a special case — that's why leads show with the "marine" default. But it's semantically wrong (shows unclassified leads as "marine"). Need a few more targeted reads before writing:
+
+
+6 actions
+I have everything I need. Now implementing all Phase 1 changes in one pass — taxonomy file, both page edits, and the test file — then running tests:
+
+
+3 actions
+Now updating both page files. First checking the import sections to place the new import correctly:
+
+
+3 actions
+Now making all the edits in parallel — both page files simultaneously:
+
+
+3 actions
+Now replacing the local constant definitions in both files simultaneously:
+
+
+3 actions
+App crashed — likely from the mid-edit state. Continuing all remaining edits and checking logs simultaneously:
+
+
+2 actions
+Duplicate declaration error — the local constants still exist. Removing all three local definitions from leads.tsx now:
+
+
+5 actions
+Good — duplicate is gone. Now fixing accounts.tsx ACCOUNTS_PIPELINE_STAGES (it still has "Closed Won") and renaming ORG_TYPE_OPTIONS → LEGACY_ORG_TYPE_OPTIONS, while restarting the app:
+
+
+3 actions
+Now updating all remaining ORG_TYPE_OPTIONS references in accounts.tsx and restarting:
+
+
+2 actions
+Updating the remaining ORG_TYPE_OPTIONS references in JSX and restarting in parallel:
+
+
+3 actions
+Fixing all remaining ORG_TYPE_OPTIONS references in both files in parallel, then restarting:
+
+
+3 actions
+Fixing remaining ORG_TYPE_OPTIONS JSX references in leads.tsx and restarting simultaneously:
+
+
+3 actions
+Verifying all references are clean before restarting:
+
+
+3 actions
+All references are clean. Restarting the app and writing the test file simultaneously:
+
+
+2 actions
+App is back up. Writing the test file now:
+
+
+4 actions
+One failure: the test's inline normalizeLifecycleStage(null) helper is missing the !v → "new" guard that the actual TypeScript implementation has. Fixing the test helper to match:
+
+
+4 actions
+32/32. Here's the Phase 1 final report.
+
+Phase 1 — CRM Taxonomy Foundation: Final Report
+Files changed
+File	What changed
+client/src/lib/crm-taxonomy.ts	New file. Single source of truth for all CRM dropdown constants and helper functions.
+client/src/pages/leads.tsx	Import from taxonomy; removed local PIPELINE_STAGES, PRIMARY_INDUSTRY_OPTIONS, RELATIONSHIP_TYPE_OPTIONS; renamed local ORG_TYPE_OPTIONS → LEGACY_ORG_TYPE_OPTIONS; changed industryFilter default "marine" → "__all__".
+client/src/pages/accounts.tsx	Import from taxonomy; removed local PIPELINE_STAGES; rebuilt ACCOUNTS_PIPELINE_STAGES by deriving from the shared options + kanban-only color map; renamed ORG_TYPE_OPTIONS → LEGACY_ORG_TYPE_OPTIONS (all 4 references updated).
+tests/crm-taxonomy.test.cjs	New test file. 32 assertions covering all spec requirements.
+Dropdown constants removed / replaced
+Constant	Page	Action
+PIPELINE_STAGES (9-line local array)	leads.tsx	Replaced with const PIPELINE_STAGES = PIPELINE_STAGE_OPTIONS alias
+PIPELINE_STAGES (9-line local array, "Closed Won" label)	accounts.tsx	Replaced with const PIPELINE_STAGES = PIPELINE_STAGE_OPTIONS alias
+ACCOUNTS_PIPELINE_STAGES (hardcoded 9-line array)	accounts.tsx	Replaced with derived PIPELINE_STAGE_OPTIONS.map(s => ({ ...s, ...ACCOUNTS_KANBAN_COLORS[s.value] }))
+PRIMARY_INDUSTRY_OPTIONS (10-value local array)	leads.tsx	Removed — now imported from taxonomy
+RELATIONSHIP_TYPE_OPTIONS (10-value local array)	leads.tsx	Removed — now imported from taxonomy (expanded to 14 canonical values)
+ORG_TYPE_OPTIONS	leads.tsx, accounts.tsx	Renamed to LEGACY_ORG_TYPE_OPTIONS, values unchanged, no new values written
+Taxonomy file contents
+client/src/lib/crm-taxonomy.ts exports:
+
+PIPELINE_STAGE_OPTIONS — 8 canonical stages, converted = "Promoted" in both contexts
+PRIMARY_INDUSTRY_OPTIONS — 10 values
+RELATIONSHIP_TYPE_OPTIONS — 14 values (expanded from legacy 10; adds customer, installer, distributor, association, media; removes utility_infrastructure)
+MARKET_SEGMENT_OPTIONS — 16 values including marina_parent_group = "Marina Parent Group" (Phase 2 ready, no DB writes yet)
+PRIORITY_OPTIONS — 3 values
+SLIP_RANGE_OPTIONS — 6 normalised keys (Phase 2 ready, no DB writes yet)
+Helpers: getTaxonomyLabel, normalizeLifecycleStage, isLegacyLifecycleStage, getLegacyStageDisplay, isMarinaOperatingSegment, isMarinaParentGroup, isPartnerSegment, isAssociationSegment
+Test results
+32 passed, 0 failed
+
+#	Test	Result
+1	Default industry filter shows null-industry leads	✅
+2	Leads and Accounts import the same PIPELINE_STAGE_OPTIONS	✅
+3	"converted" has the same label in Leads and Accounts ("Promoted")	✅
+4	closed_lost normalises to lost	✅
+5	prospect normalises to new	✅
+6	marina_parent_group label is "Marina Parent Group"	✅
+7	marina_parent_group is not treated as association	✅
+8	Safe Harbor-style account classifies as marina_parent_group, not association	✅
+9	Saved views still load	✅
+10	Lead / Account / Contact detail routes still resolve	✅
+11	lifecycle-reversibility.test.cjs — 40/40	✅
+Confirmation: what was NOT done
+No data backfilled (primaryIndustry, orgType, marketSegment, slipRange columns untouched)
+No schema changes
+No conversion logic changed
+No conditional field groups added
+No legacy fields removed (LEGACY_ORG_TYPE_OPTIONS values preserved verbatim)
+No existing lead, account, contact, email, saved view, or lifecycle transition affected
+Recommendation for Phase 2
+Phase 2 is safe to proceed. Suggested sequence:
+
+primaryIndustry backfill — all marina-directory-imported leads already have primary_industry = "marine" written by the seed script. The remaining ~62 non-marina leads can be classified and written. Filter is now safe ("__all__" default).
+
+orgType reconciliation — produce a migration that maps existing LEGACY_ORG_TYPE_OPTIONS values to MARKET_SEGMENT_OPTIONS equivalents (e.g. marina_group → marina_parent_group), then switch the accounts form to write from MARKET_SEGMENT_OPTIONS going forward.
+
+segment / slipRange separation — add a dedicated slip_range column (or rename the overloaded segment column) so market segment and slip count are no longer mixed.
+
+closed_lost data fix — migrate the 5 leads with status = "closed_lost" to "lost" using normalizeLifecycleStage.
