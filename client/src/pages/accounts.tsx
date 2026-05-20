@@ -38,7 +38,7 @@ import { EmailsTab } from "@/components/emails-tab";
 import { TimelineTab } from "@/components/timeline-tab";
 import StateProvinceSelect from "@/components/state-province-select";
 import { ContactsPanel } from "@/components/contacts/contacts-panel";
-import { PIPELINE_STAGE_OPTIONS } from "@/lib/crm-taxonomy";
+import { PIPELINE_STAGE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS } from "@/lib/crm-taxonomy";
 
 const segmentColors: Record<string, string> = {
   marina: "bg-blue-500/10 text-blue-500 border-blue-500/20",
@@ -112,6 +112,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [orgTypeFilter, setOrgTypeFilter] = useState("all");
+  const [marketSegmentFilter, setMarketSegmentFilter] = useState("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [view, setView] = useState<"list" | "pipeline" | "map">("list");
@@ -139,7 +140,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
 
   const PAGE_SIZE = 100;
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<{ data: Account[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/accounts", { search, segment: segmentFilter === "all" ? "" : segmentFilter, status: statusFilter === "all" ? "" : statusFilter, priority: priorityFilter === "all" ? "" : priorityFilter, orgType: orgTypeFilter === "all" ? "" : orgTypeFilter, sort: sortOption }],
+    queryKey: ["/api/accounts", { search, segment: segmentFilter === "all" ? "" : segmentFilter, status: statusFilter === "all" ? "" : statusFilter, priority: priorityFilter === "all" ? "" : priorityFilter, orgType: orgTypeFilter === "all" ? "" : orgTypeFilter, marketSegment: marketSegmentFilter === "all" ? "" : marketSegmentFilter, sort: sortOption }],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
@@ -147,6 +148,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
       if (statusFilter !== "all") params.set("leadStatus", statusFilter);
       if (priorityFilter !== "all") params.set("priority", priorityFilter);
       if (orgTypeFilter !== "all") params.set("orgType", orgTypeFilter);
+      if (marketSegmentFilter !== "all") params.set("marketSegment", marketSegmentFilter);
       if (sortOption !== "default") { const [key, order] = sortOption.split(":"); params.set("sortBy", key); params.set("sortOrder", order); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
@@ -170,11 +172,11 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
 
   const currentFiltersJson = JSON.stringify({
     segment: segmentFilter, status: statusFilter, priority: priorityFilter,
-    orgType: orgTypeFilter, sort: sortOption,
+    orgType: orgTypeFilter, marketSegment: marketSegmentFilter, sort: sortOption,
   });
 
   const isFiltered = segmentFilter !== "all" || statusFilter !== "all" || priorityFilter !== "all"
-    || orgTypeFilter !== "all" || sortOption !== "default" || search !== "";
+    || orgTypeFilter !== "all" || marketSegmentFilter !== "all" || sortOption !== "default" || search !== "";
 
   const resetFilters = () => {
     setSearch("");
@@ -182,6 +184,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     setStatusFilter("all");
     setPriorityFilter("all");
     setOrgTypeFilter("all");
+    setMarketSegmentFilter("all");
     setSortOption("default");
     setActiveViewId(null);
   };
@@ -233,6 +236,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     setStatusFilter(f.status ?? "all");
     setPriorityFilter(f.priority ?? "all");
     setOrgTypeFilter(f.orgType ?? "all");
+    setMarketSegmentFilter(f.marketSegment ?? "all");
     setSortOption(f.sort ?? "default");
     setActiveViewId(sv.id);
   };
@@ -358,7 +362,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
           >
             <Settings2 className="h-4 w-4" />
             {isFiltered ? (
-              <span className="text-xs font-bold text-primary">{[segmentFilter, statusFilter, priorityFilter, orgTypeFilter].filter(v => v !== "all").length + (sortOption !== "default" ? 1 : 0)}</span>
+              <span className="text-xs font-bold text-primary">{[segmentFilter, statusFilter, priorityFilter, orgTypeFilter, marketSegmentFilter].filter(v => v !== "all").length + (sortOption !== "default" ? 1 : 0)}</span>
             ) : null}
           </button>
         </div>
@@ -406,6 +410,17 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
           <SelectContent>
             <SelectItem value="all">All Types</SelectItem>
             {LEGACY_ORG_TYPE_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={marketSegmentFilter} onValueChange={(v) => { setMarketSegmentFilter(v); }}>
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-market-segment-filter">
+            <SelectValue placeholder="Segment" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Segments</SelectItem>
+            {MARKET_SEGMENT_OPTIONS.map(o => (
               <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
             ))}
           </SelectContent>
@@ -2061,6 +2076,8 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
     notes: account.notes || "",
     notesSummary: account.notesSummary || "",
     tags: account.tags || "",
+    marketSegment: (account as any).marketSegment || "",
+    slipRange: (account as any).slipRange || "",
   });
 
   const isMarinaType = MARINA_ORG_TYPES.has(form.orgType);
@@ -2141,6 +2158,26 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
           <Label className="text-xs text-muted-foreground mb-2 block">Marina Details</Label>
           <div className="grid grid-cols-2 gap-3">
             <div><Label className="text-xs">Slip Count</Label><Input type="number" value={form.slipCount} onChange={(e) => setForm(f => ({ ...f, slipCount: e.target.value }))} data-testid="input-edit-slips" /></div>
+            <div>
+              <Label className="text-xs">Market Segment</Label>
+              <Select value={form.marketSegment || "__none__"} onValueChange={(v) => setForm(f => ({ ...f, marketSegment: v === "__none__" ? "" : v }))}>
+                <SelectTrigger data-testid="select-edit-market-segment"><SelectValue placeholder="Select segment" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">None</SelectItem>
+                  {MARKET_SEGMENT_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Slip Range</Label>
+              <Select value={form.slipRange || "__none__"} onValueChange={(v) => setForm(f => ({ ...f, slipRange: v === "__none__" ? "" : v }))}>
+                <SelectTrigger data-testid="select-edit-slip-range"><SelectValue placeholder="Select range" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">None</SelectItem>
+                  {SLIP_RANGE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
             <div><Label className="text-xs">Slip Mix</Label><Input value={form.slipMix} onChange={(e) => setForm(f => ({ ...f, slipMix: e.target.value }))} placeholder="e.g. 60% wet, 40% dry" data-testid="input-edit-slip-mix" /></div>
             <div><Label className="text-xs">Avg Boat Size Range</Label><Input value={form.avgBoatSizeRange} onChange={(e) => setForm(f => ({ ...f, avgBoatSizeRange: e.target.value }))} placeholder="e.g. 25-45 ft" data-testid="input-edit-boat-size" /></div>
             <div><Label className="text-xs">Power Demand</Label><Input value={form.powerDemandIntensity} onChange={(e) => setForm(f => ({ ...f, powerDemandIntensity: e.target.value }))} placeholder="e.g. High, Medium, Low" data-testid="input-edit-power-demand" /></div>
@@ -2216,6 +2253,7 @@ function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
     name: "", orgType: "marina_prospect", segment: "marina",
     streetAddress: "", city: "", stateProvince: "", postalZip: "", country: "US",
     region: "", slipCount: "", notes: "", leadStatus: "new", priority: "medium",
+    marketSegment: "", slipRange: "",
   });
   const isMarinaType = MARINA_ORG_TYPES.has(form.orgType);
   return (
@@ -2273,6 +2311,30 @@ function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
         {isMarinaType && (
           <div><Label>Slip Count</Label><Input type="number" value={form.slipCount} onChange={(e) => setForm(f => ({ ...f, slipCount: e.target.value }))} data-testid="input-slip-count" /></div>
         )}
+      {isMarinaType && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Market Segment</Label>
+            <Select value={form.marketSegment || "__none__"} onValueChange={(v) => setForm(f => ({ ...f, marketSegment: v === "__none__" ? "" : v }))}>
+              <SelectTrigger data-testid="select-account-market-segment"><SelectValue placeholder="Select segment" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">None</SelectItem>
+                {MARKET_SEGMENT_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Slip Range</Label>
+            <Select value={form.slipRange || "__none__"} onValueChange={(v) => setForm(f => ({ ...f, slipRange: v === "__none__" ? "" : v }))}>
+              <SelectTrigger data-testid="select-account-slip-range"><SelectValue placeholder="Select range" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">None</SelectItem>
+                {SLIP_RANGE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
       </div>
       <div className="grid grid-cols-2 gap-3">
         {isMarinaType && (

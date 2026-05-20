@@ -39,7 +39,7 @@ import { EmailsTab } from "@/components/emails-tab";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 import { AiSummaryCard } from "@/components/crm/ai-summary-card";
-import { PIPELINE_STAGE_OPTIONS, PRIMARY_INDUSTRY_OPTIONS, RELATIONSHIP_TYPE_OPTIONS } from "@/lib/crm-taxonomy";
+import { PIPELINE_STAGE_OPTIONS, PRIMARY_INDUSTRY_OPTIONS, RELATIONSHIP_TYPE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS } from "@/lib/crm-taxonomy";
 
 const US_STATES = [
   "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware",
@@ -116,6 +116,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
   const [countryFilter, setCountryFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
   const [industryFilter, setIndustryFilter] = useState("__all__");
+  const [marketSegmentFilter, setMarketSegmentFilter] = useState("__all__");
   const [view, setView] = useState<"list" | "pipeline" | "map">(() => {
     if (typeof window === "undefined") return "list";
     const v = new URLSearchParams(window.location.search).get("view");
@@ -180,7 +181,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery<{ data: Lead[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, primaryIndustry: industryFilter === "__all__" ? "" : industryFilter, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],
+    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, primaryIndustry: industryFilter === "__all__" ? "" : industryFilter, marketSegment: marketSegmentFilter === "__all__" ? "" : marketSegmentFilter, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
@@ -188,6 +189,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
       if (countryFilter !== "all") params.set("country", countryFilter);
       if (stateFilter !== "all") params.set("state", stateFilter);
       if (industryFilter && industryFilter !== "__all__") params.set("primaryIndustry", industryFilter);
+      if (marketSegmentFilter && marketSegmentFilter !== "__all__") params.set("marketSegment", marketSegmentFilter);
       if (sort.sortBy) { params.set("sortBy", sort.sortBy); params.set("sortOrder", sort.sortOrder); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
@@ -344,7 +346,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
   });
 
-  const currentFiltersJson = useMemo(() => JSON.stringify({ status: statusFilter, country: countryFilter, state: stateFilter, primaryIndustry: industryFilter }), [statusFilter, countryFilter, stateFilter, industryFilter]);
+  const currentFiltersJson = useMemo(() => JSON.stringify({ status: statusFilter, country: countryFilter, state: stateFilter, primaryIndustry: industryFilter, marketSegment: marketSegmentFilter }), [statusFilter, countryFilter, stateFilter, industryFilter, marketSegmentFilter]);
 
   const applyView = (sv: SavedView) => {
     setActiveViewId(sv.id);
@@ -355,11 +357,12 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
         if (f.country !== undefined) setCountryFilter(f.country);
         if (f.state !== undefined) setStateFilter(f.state);
         if (f.primaryIndustry !== undefined) setIndustryFilter(f.primaryIndustry);
+        if (f.marketSegment !== undefined) setMarketSegmentFilter(f.marketSegment);
       } catch {}
     }
   };
 
-  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); setIndustryFilter("marine"); };
+  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); setIndustryFilter("marine"); setMarketSegmentFilter("__all__"); };
 
   const isAllSelected = allLeads.length > 0 && allLeads.every(l => selectedIds.has(l.id));
 
@@ -500,6 +503,17 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
           <SelectContent>
             <SelectItem value="__all__">All Industries</SelectItem>
             {PRIMARY_INDUSTRY_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={marketSegmentFilter} onValueChange={(v) => { setMarketSegmentFilter(v); }}>
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-market-segment-filter">
+            <SelectValue placeholder="Segment" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All Segments</SelectItem>
+            {MARKET_SEGMENT_OPTIONS.map(o => (
               <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
             ))}
           </SelectContent>
@@ -1896,6 +1910,9 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
     primaryIndustry: (lead as any).primaryIndustry || "",
     relationshipType: (lead as any).relationshipType || "",
     conversionTarget: (lead as any).conversionTarget || "",
+    marketSegment: (lead as any).marketSegment || "",
+    slipRange: (lead as any).slipRange || "",
+    slipCountInt: (lead as any).slipCountInt != null ? String((lead as any).slipCountInt) : "",
   });
 
   const formRegions = form.country ? getRegionsForCountry(form.country) : [];
@@ -1915,6 +1932,9 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
         dealValueServices: form.dealValueServices ? Number(form.dealValueServices) : null,
         estimatedPedestalCount: form.estimatedPedestalCount ? Number(form.estimatedPedestalCount) : null,
         estimatedSlipsImpacted: form.estimatedSlipsImpacted ? Number(form.estimatedSlipsImpacted) : null,
+        marketSegment: form.marketSegment || null,
+        slipRange: form.slipRange || null,
+        slipCountInt: form.slipCountInt ? Number(form.slipCountInt) : null,
       });
     }} className="space-y-4 mt-2">
       <div>
@@ -2035,6 +2055,27 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
         <div className="grid grid-cols-2 gap-3">
           <div><Label className="text-xs">Slips</Label><Input value={form.slips} onChange={(e) => setForm(f => ({ ...f, slips: e.target.value }))} data-testid="input-edit-slips" /></div>
           <div><Label className="text-xs">Segment</Label><Input value={form.segment} onChange={(e) => setForm(f => ({ ...f, segment: e.target.value }))} data-testid="input-edit-segment" /></div>
+          <div>
+            <Label className="text-xs">Market Segment</Label>
+            <Select value={form.marketSegment || "__none__"} onValueChange={(v) => setForm(f => ({ ...f, marketSegment: v === "__none__" ? "" : v }))}>
+              <SelectTrigger data-testid="select-edit-market-segment"><SelectValue placeholder="Select segment" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">None</SelectItem>
+                {MARKET_SEGMENT_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Slip Range</Label>
+            <Select value={form.slipRange || "__none__"} onValueChange={(v) => setForm(f => ({ ...f, slipRange: v === "__none__" ? "" : v }))}>
+              <SelectTrigger data-testid="select-edit-slip-range"><SelectValue placeholder="Select range" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">None</SelectItem>
+                {SLIP_RANGE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div><Label className="text-xs">Slip Count (exact)</Label><Input type="number" value={form.slipCountInt} onChange={(e) => setForm(f => ({ ...f, slipCountInt: e.target.value }))} placeholder="e.g. 250" data-testid="input-edit-slip-count-int" /></div>
           <div><Label className="text-xs">Source</Label><Input value={form.source} onChange={(e) => setForm(f => ({ ...f, source: e.target.value }))} data-testid="input-edit-source" /></div>
         </div>
       </div>
@@ -2112,7 +2153,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
 }
 
 function CreateLeadForm({ onSubmit, isPending }: { onSubmit: (data: Record<string, string>) => void; isPending: boolean }) {
-  const [form, setForm] = useState({ company: "", contactName: "", contactEmail: "", contactPhone: "", source: "", notes: "", country: "", state: "", city: "", primaryIndustry: "marine", relationshipType: "customer_prospect" });
+  const [form, setForm] = useState({ company: "", contactName: "", contactEmail: "", contactPhone: "", source: "", notes: "", country: "", state: "", city: "", primaryIndustry: "marine", relationshipType: "customer_prospect", marketSegment: "", slipRange: "" });
 
   const formRegions = form.country ? getRegionsForCountry(form.country) : [];
 
@@ -2205,6 +2246,30 @@ function CreateLeadForm({ onSubmit, isPending }: { onSubmit: (data: Record<strin
             </SelectContent>
           </Select>
         </div>
+        {(!form.primaryIndustry || form.primaryIndustry === "marine") && (
+          <div>
+            <Label>Market Segment</Label>
+            <Select value={form.marketSegment || "__none__"} onValueChange={(v) => setForm(f => ({ ...f, marketSegment: v === "__none__" ? "" : v }))}>
+              <SelectTrigger data-testid="select-market-segment"><SelectValue placeholder="Select segment" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">None</SelectItem>
+                {MARKET_SEGMENT_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {(!form.primaryIndustry || form.primaryIndustry === "marine") && (
+          <div>
+            <Label>Slip Range</Label>
+            <Select value={form.slipRange || "__none__"} onValueChange={(v) => setForm(f => ({ ...f, slipRange: v === "__none__" ? "" : v }))}>
+              <SelectTrigger data-testid="select-slip-range"><SelectValue placeholder="Select range" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">None</SelectItem>
+                {SLIP_RANGE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
       <div>
         <Label>Notes</Label>

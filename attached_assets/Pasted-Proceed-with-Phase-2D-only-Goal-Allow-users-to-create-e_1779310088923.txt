@@ -1,0 +1,108 @@
+Proceed with Phase 2D only.
+
+Goal:
+Allow users to create/edit Leads and Accounts using the new canonical fields:
+- marketSegment
+- slipRange
+- slipCountInt for leads
+
+Hard rules:
+- No schema changes.
+- No destructive changes.
+- Do not touch legacy segment/org_type values.
+- Do not backfill anything.
+- Do not add conditional field groups yet.
+- Do not change lifecycle logic except preserving new fields on conversion.
+- Existing links/associations must remain untouched.
+
+Tasks:
+
+1. Lead create/edit forms
+Add fields:
+- marketSegment using MARKET_SEGMENT_OPTIONS
+- slipRange using SLIP_RANGE_OPTIONS
+- slipCountInt as optional number input
+
+Rules:
+- New records should write marketSegment/slipRange/slipCountInt.
+- Legacy segment should not be used for new taxonomy writes.
+- If legacy segment exists on an old record, display it as “Legacy Segment” read-only or low-priority.
+- Do not remove old segment from the data model.
+
+2. Account create/edit forms
+Add fields:
+- marketSegment using MARKET_SEGMENT_OPTIONS
+- slipRange using SLIP_RANGE_OPTIONS
+- parentAccountId optional, only if available and simple
+
+Rules:
+- New records should write marketSegment/slipRange.
+- Legacy segment and orgType remain intact but should not be preferred.
+- Show legacy segment/orgType only as legacy metadata if populated.
+
+3. API validation
+Update create/update validation so Leads and Accounts accept:
+- marketSegment
+- slipRange
+- slipCountInt
+- parentAccountId if already present
+
+Validate values against shared taxonomy options where practical.
+Do not reject legacy records with null values.
+
+4. Lead -> Account conversion
+Preserve:
+- marketSegment
+- slipRange
+- slipCountInt/slipCount where applicable
+- existing legacy segment
+- parentAccountId only if intentionally supplied/overridden
+
+Do not break:
+- emails
+- contacts
+- notes
+- activities
+- tasks
+- lifecycle lineage
+
+5. Filters
+Add marketSegment filter to Leads and Accounts.
+Add slipRange filter to Leads and Accounts if simple.
+
+Rules:
+- Default filters must be "__all__".
+- Null legacy records must remain visible by default.
+- Existing saved views must not crash if they do not include these filters.
+
+6. Tests required
+- Lead create writes marketSegment.
+- Lead create writes slipRange.
+- Lead create writes slipCountInt.
+- Lead edit updates marketSegment.
+- Lead edit updates slipRange.
+- Account create writes marketSegment.
+- Account create writes slipRange.
+- Account edit updates marketSegment.
+- Account edit updates slipRange.
+- Lead -> Account conversion preserves marketSegment.
+- Lead -> Account conversion preserves slipRange.
+- Legacy segment remains unchanged.
+- Legacy orgType remains unchanged.
+- Market segment filters default to all.
+- Slip range filters default to all.
+- Saved views still load.
+- Existing detail routes still load.
+- CRM taxonomy tests remain 32/32.
+- lifecycle reversibility tests remain 40/40.
+- backfill preview tests remain 46/46.
+- safe backfill tests remain 48/48.
+
+Final report:
+- files changed
+- fields added to forms
+- API behavior
+- conversion preservation results
+- tests passed
+- confirmation no links/legacy data touched
+- recommendation for Phase 3 conditional field groups

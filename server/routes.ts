@@ -1572,13 +1572,14 @@ export async function registerRoutes(
   });
 
   app.get("/api/leads", requirePermission("crm", "view"), async (req, res) => {
-    const { search, status, state, country, primaryIndustry, page, limit, sortBy, sortOrder } = req.query;
+    const { search, status, state, country, primaryIndustry, marketSegment, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getLeads({
       search: search as string | undefined,
       status: status as string | undefined,
       state: state as string | undefined,
       country: country as string | undefined,
       primaryIndustry: primaryIndustry as string | undefined,
+      marketSegment: marketSegment as string | undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
       sortBy: sortBy as string | undefined,
@@ -1943,6 +1944,9 @@ export async function registerRoutes(
           sourceCapturedAt: (lead as any).source_captured_at ?? (lead as any).sourceCapturedAt ?? (lead as any).created_at ?? null,
           // ── Partner-specific fields ──────────────────────────────────────────
           ...(isPartnerConversion && leadRelType ? { partnerClass: leadRelType } : {}),
+          // ── Phase 2D: preserve taxonomy fields from lead ─────────────────────
+          ...((lead as any).marketSegment ? { marketSegment: (lead as any).marketSegment } : {}),
+          ...((lead as any).slipRange     ? { slipRange:     (lead as any).slipRange }     : {}),
         };
         // Reuse the auto-shadow Organization (created when this lead was made) to avoid duplicates
         const [shadow] = await db.select().from(accounts).where(eq(accounts.convertedFromLeadId, lead.id)).limit(1);
@@ -2315,13 +2319,14 @@ export async function registerRoutes(
   });
 
   app.get("/api/accounts", requirePermission("crm", "view"), async (req, res) => {
-    const { search, segment, leadStatus, priority, orgType, page, limit, sortBy, sortOrder, onlyPromoted } = req.query;
+    const { search, segment, leadStatus, priority, orgType, marketSegment, page, limit, sortBy, sortOrder, onlyPromoted } = req.query;
     res.json(await storage.getAccounts({
       search: search as string | undefined,
       segment: segment as string | undefined,
       leadStatus: leadStatus as string | undefined,
       priority: priority as string | undefined,
       orgType: orgType as string | undefined,
+      marketSegment: marketSegment as string | undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
       sortBy: sortBy as string | undefined,
