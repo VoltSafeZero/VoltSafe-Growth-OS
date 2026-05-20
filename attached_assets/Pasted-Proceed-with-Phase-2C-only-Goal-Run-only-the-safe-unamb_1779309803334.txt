@@ -1,0 +1,90 @@
+Proceed with Phase 2C only.
+
+Goal:
+Run only the safe, unambiguous taxonomy backfills proven by Phase 2B.
+
+Hard rules:
+- No destructive changes.
+- No deletes.
+- No record recreation.
+- Do not touch links/associations.
+- Do not overwrite non-null new taxonomy fields.
+- Do not backfill ambiguous values.
+- Do not change UI.
+- Do not change conversion logic.
+
+Safe writes allowed:
+
+1. leads.slip_range
+From leads.segment:
+- "Less than 100" -> less_than_100
+- "100 to 300" -> 100_to_300
+- "300 to 500" -> 300_to_500
+- "500 to 700" -> 500_to_700
+- "700 to 900" -> 700_to_900
+- "More than 900" -> more_than_900
+
+2. accounts.slip_range
+Same mappings from accounts.segment.
+
+3. leads.market_segment
+Only:
+- leads.segment = "marina" -> marina
+
+4. accounts.market_segment
+Only:
+- accounts.segment = "marina" -> marina
+- accounts.segment = "marina_group" -> marina_parent_group
+- accounts.segment = "association" -> association
+- accounts.segment = "yacht_club" -> yacht_club
+- accounts.org_type = "marina" -> marina
+- accounts.org_type = "association" -> association
+
+Do NOT map:
+- government_dock
+- partner
+- industry_association
+- marina_prospect
+- null
+- empty string
+- All 30Amps
+- All 30A slips
+
+Implementation:
+- Add a write mode to scripts/taxonomy-backfill-preview.ts or create a new script scripts/taxonomy-safe-backfill.ts.
+- Default must remain read-only unless explicitly passed --write.
+- Use WHERE target_column IS NULL so existing new values are never overwritten.
+- Log row counts per update.
+- After writing, re-run preview and show reduced remaining safe mappings.
+- Include before/after row counts.
+
+Verification:
+- leads row count unchanged.
+- accounts row count unchanged.
+- contacts row count unchanged.
+- email_associations row count unchanged.
+- notes row count unchanged.
+- activities row count unchanged.
+- tasks row count unchanged.
+- no orphaned CRM links created.
+- legacy segment/org_type fields unchanged.
+- new taxonomy columns populated only with allowed values.
+- ambiguous values remain null.
+
+Tests:
+- dry-run mode performs zero writes.
+- --write mode only writes allowed mappings.
+- non-null market_segment/slip_range are not overwritten.
+- ambiguous values remain null.
+- row counts unchanged.
+- CRM taxonomy tests remain 32/32.
+- lifecycle reversibility tests remain 40/40.
+- taxonomy preview tests remain 46/46.
+
+Final report:
+- exact rows written by field
+- before/after counts
+- ambiguous values still untouched
+- tests passed
+- confirmation links unchanged
+- recommendation for Phase 2D API/create/edit support
