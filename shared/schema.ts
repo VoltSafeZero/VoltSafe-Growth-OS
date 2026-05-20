@@ -1515,6 +1515,10 @@ export const migrationMap = pgTable("migration_map", {
   newRecordId: integer("new_record_id").notNull(),
   migratedAt: timestamp("migrated_at").defaultNow().notNull(),
   notes: text("notes"),
+  transitionType: text("transition_type"),
+  performedByUserId: integer("performed_by_user_id"),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status"),
 });
 
 export const insertMigrationMapSchema = createInsertSchema(migrationMap).omit({ id: true, migratedAt: true });

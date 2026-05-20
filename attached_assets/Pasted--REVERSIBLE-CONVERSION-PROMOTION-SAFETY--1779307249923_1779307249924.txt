@@ -1,0 +1,132 @@
+====================================================
+REVERSIBLE CONVERSION / PROMOTION SAFETY
+====================================================
+
+Lead <-> Account transitions must be reversible without data loss.
+
+Important:
+A Lead becoming an Account is NOT a destructive replacement.
+An Account reverting back into a Lead is NOT a destructive replacement.
+
+These are lifecycle/state transitions, not entity deletion/recreation events.
+
+Critical rules:
+1. Never delete the original Lead when converting to Account.
+2. Never delete the original Account when reverting to Lead.
+3. Never recreate Contacts during transitions if they already exist.
+4. Never duplicate email associations unnecessarily.
+5. Never orphan activities, notes, tasks, or email threads.
+6. Preserve all historical relationships and audit history.
+7. Preserve all IDs whenever possible.
+8. Preserve all timestamps/history.
+9. Preserve all linked CRM entity references.
+10. Preserve all AI summaries, notes, activity logs, and thread associations.
+
+Required architecture:
+Use a durable relationship/mapping model instead of destructive conversion logic.
+
+Examples:
+- Lead promoted to Account
+- Account demoted/reverted to Lead
+- Lead promoted to Partner
+- Partner converted to Customer
+- Parent Group converted into active Customer account
+- Marina Prospect converted into Marina Customer
+
+These should all preserve:
+- emails
+- contacts
+- activities
+- tasks
+- notes
+- AI summaries
+- linked opportunities
+- linked organizations
+- thread associations
+- source attribution
+- historical audit trail
+
+Implementation guidance:
+Treat lifecycle transitions as:
+- status/state evolution
+NOT:
+- delete/recreate operations
+
+Recommended approach:
+- Preserve source entity IDs
+- Maintain conversion mapping tables
+- Maintain bidirectional references
+- Maintain historical entity lineage
+
+Example lineage:
+Lead #381
+ -> promoted to Account #92
+ -> reverted to Lead #381 state
+ -> promoted again to Account #92
+
+This should NOT:
+- duplicate contacts
+- lose emails
+- break URLs
+- lose notes
+- lose activity history
+- create orphaned associations
+
+====================================================
+REQUIRED REVERSIBILITY TESTS
+====================================================
+
+1. Lead -> Account preserves emails
+2. Lead -> Account preserves contacts
+3. Lead -> Account preserves notes
+4. Lead -> Account preserves activities
+5. Lead -> Account preserves tasks
+6. Account -> Lead preserves emails
+7. Account -> Lead preserves contacts
+8. Account -> Lead preserves notes
+9. Account -> Lead preserves activities
+10. Account -> Lead preserves tasks
+11. Lead -> Account -> Lead roundtrip causes zero data loss
+12. Account -> Lead -> Account roundtrip causes zero data loss
+13. No duplicate contacts created during roundtrip
+14. No duplicate email associations created during roundtrip
+15. No orphaned records created during roundtrip
+16. Existing URLs/deep links continue working after transitions
+17. Existing thread associations remain intact
+18. Existing AI summaries remain linked correctly
+19. Historical audit trail remains readable
+20. Conversion lineage/history is preserved and queryable
+
+====================================================
+ENTITY LINEAGE / HISTORY REQUIREMENTS
+====================================================
+
+Add a durable lineage/history system if needed:
+
+Examples:
+- sourceLeadId
+- sourceAccountId
+- previousLifecycleState
+- promotedAt
+- revertedAt
+- lifecycleTransitionHistory
+- entityLineageId
+
+Goal:
+Users should be able to see:
+- what this entity used to be
+- when it transitioned
+- who performed the transition
+- what links/data were preserved
+
+====================================================
+IMPORTANT UX RULE
+====================================================
+
+Users should experience transitions as:
+"this record evolved"
+
+NOT:
+"this record disappeared and a new one appeared"
+
+The CRM should feel continuous and relational, not destructive.

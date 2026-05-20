@@ -2007,6 +2007,10 @@ export async function registerRoutes(
         legacyRecordId: lead.id,
         newTable: "accounts",
         newRecordId: account.id,
+        transitionType: "promote",
+        performedByUserId: userId,
+        fromStatus: priorStatus,
+        toStatus: "converted",
         notes: JSON.stringify({
           action: isLinkingAccount ? "linked" : "created",
           priorStatus,
@@ -2015,7 +2019,7 @@ export async function registerRoutes(
           contactId: finalContact?.id ?? null,
           opportunityId: newOpportunity?.id ?? null,
         }),
-      });
+      } as any);
 
       // ── Update lead — mark converted + store result IDs ──────────────────────
       await db.execute(sql.raw(`
@@ -2117,7 +2121,9 @@ export async function registerRoutes(
       if (!lead) return res.status(404).json({ message: "Lead not found" });
       if (lead.status !== "converted") return res.status(400).json({ message: "Lead is not in converted status" });
 
-      // Recover prior status from migrationMap notes (written at convert time)
+      const userId = getSessionUserId(req) ?? null;
+
+      // Recover prior status — prefer structured from_status column, fall back to notes JSON
       const RESTORABLE = new Set(["new", "contacted", "meeting_scheduled", "qualified", "proposal_sent", "negotiation", "lost"]);
       const [mapRow] = await db.select().from(migrationMap)
         .where(and(eq(migrationMap.legacyTable, "leads"), eq(migrationMap.legacyRecordId, lead.id)))
@@ -2126,7 +2132,13 @@ export async function registerRoutes(
 
       let restoreStatus = "contacted"; // safe fallback if prior status unavailable
       let priorStatusLabel: string | null = null;
-      if (mapRow?.notes) {
+
+      // Prefer structured column (new), fall back to notes JSON (legacy rows)
+      const fromStatusCol = (mapRow as any)?.fromStatus as string | null | undefined;
+      if (fromStatusCol && RESTORABLE.has(fromStatusCol)) {
+        restoreStatus = fromStatusCol;
+        priorStatusLabel = fromStatusCol;
+      } else if (mapRow?.notes) {
         try {
           const parsed = JSON.parse(mapRow.notes);
           if (parsed.priorStatus && RESTORABLE.has(parsed.priorStatus)) {
@@ -2137,6 +2149,27 @@ export async function registerRoutes(
       }
 
       await storage.updateLead(lead.id, { status: restoreStatus });
+
+      // Write revert row to migration_map for durable lineage audit trail
+      const linkedAccountId = (lead as any).convertedAccountId as number | null | undefined;
+      if (linkedAccountId) {
+        await db.insert(migrationMap).values({
+          legacyTable: "accounts",
+          legacyRecordId: linkedAccountId,
+          newTable: "leads",
+          newRecordId: lead.id,
+          transitionType: "revert",
+          performedByUserId: userId,
+          fromStatus: "converted",
+          toStatus: restoreStatus,
+          notes: JSON.stringify({
+            action: "revert",
+            leadId: lead.id,
+            accountId: linkedAccountId,
+            leadCompany: lead.company,
+          }),
+        } as any);
+      }
 
       const auditNote = priorStatusLabel
         ? `Lead unconverted — status restored to "${restoreStatus}" (was "${priorStatusLabel}" before promotion). Organization is preserved and unchanged.`
@@ -2149,20 +2182,63 @@ export async function registerRoutes(
         summary: auditNote,
       });
 
-      res.json({ leadId: lead.id, status: restoreStatus, description: auditNote });
+      res.json({ leadId: lead.id, status: restoreStatus, accountId: linkedAccountId ?? null, description: auditNote });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
-  // POST /api/accounts/:id/to-lead — convert a manually-created org into a new Lead
-  // Creates a fresh lead from the account's data, then sets convertedFromLeadId on the
-  // account so the onlyPromoted filter hides it from the Organizations list.
+  // GET /api/leads/:id/lifecycle-history — durable lineage/transition history for a lead
+  // Returns all promote/revert/to_lead transitions in chronological order, both directions.
+  app.get("/api/leads/:id/lifecycle-history", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const leadId = Number(req.params.id);
+      const lead = await storage.getLead(leadId);
+      if (!lead) return res.status(404).json({ message: "Lead not found" });
+
+      // Collect rows where lead is the source (promote) OR the destination (revert/to_lead)
+      const [asSource, asDest] = await Promise.all([
+        db.select().from(migrationMap)
+          .where(and(eq(migrationMap.legacyTable, "leads"), eq(migrationMap.legacyRecordId, leadId)))
+          .orderBy(sql`migrated_at asc`),
+        db.select().from(migrationMap)
+          .where(and(eq(migrationMap.newTable, "leads"), eq(migrationMap.newRecordId, leadId)))
+          .orderBy(sql`migrated_at asc`),
+      ]);
+
+      const allRows = [...asSource, ...asDest].sort(
+        (a, b) => new Date(a.migratedAt).getTime() - new Date(b.migratedAt).getTime()
+      );
+
+      const history = allRows.map(r => ({
+        id: r.id,
+        transitionType: (r as any).transitionType ?? (r.legacyTable === "leads" ? "promote" : "revert"),
+        fromStatus: (r as any).fromStatus ?? null,
+        toStatus: (r as any).toStatus ?? null,
+        linkedEntityType: r.legacyTable === "leads" ? r.newTable : r.legacyTable,
+        linkedEntityId: r.legacyTable === "leads" ? r.newRecordId : r.legacyRecordId,
+        performedByUserId: (r as any).performedByUserId ?? null,
+        performedAt: r.migratedAt,
+        notes: r.notes ? (() => { try { return JSON.parse(r.notes!); } catch { return r.notes; } })() : null,
+      }));
+
+      res.json({ leadId, currentStatus: lead.status, history });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/accounts/:id/to-lead — convert a manually-created org into a new Lead.
+  // Creates a fresh lead from the account's data, migrates email associations to the
+  // new lead, and writes a migration_map lineage row. The account is preserved.
+  // Only valid for accounts that do NOT already have a source lead.
   app.post("/api/accounts/:id/to-lead", requirePermission("crm", "edit"), async (req, res) => {
     try {
       const account = await storage.getAccount(Number(req.params.id));
       if (!account) return res.status(404).json({ message: "Organization not found" });
-      if (account.convertedFromLeadId) return res.status(400).json({ message: "Organization is already linked to a source lead — use Demote to Lead instead" });
+      if (account.convertedFromLeadId) return res.status(400).json({ message: "Organization is already linked to a source lead — use the lead's Demote action instead" });
+
+      const userId = getSessionUserId(req) ?? null;
 
       const newLead = await storage.createLead({
         company: account.name,
@@ -2181,11 +2257,55 @@ export async function registerRoutes(
 
       await storage.updateAccount(account.id, { convertedFromLeadId: newLead.id });
 
+      // ── Migrate email associations from account → new lead (non-duplicating) ─
+      try {
+        const acctAssocs = await db.select().from(emailAssociations)
+          .where(and(eq(emailAssociations.objectType, "account"), eq(emailAssociations.objectId, account.id)));
+        for (const assoc of acctAssocs) {
+          const [dup] = await db.select({ id: emailAssociations.id }).from(emailAssociations)
+            .where(and(
+              eq(emailAssociations.emailMessageId, assoc.emailMessageId),
+              eq(emailAssociations.objectType, "lead"),
+              eq(emailAssociations.objectId, newLead.id),
+            )).limit(1);
+          if (!dup) {
+            await db.insert(emailAssociations).values({
+              emailMessageId: assoc.emailMessageId,
+              objectType: "lead",
+              objectId: newLead.id,
+              objectName: newLead.company,
+              confidenceScore: 100,
+              associationReasonJson: JSON.stringify([`Auto-migrated from account-to-lead transition (account #${account.id})`]),
+              isAuto: false,
+              isUserConfirmed: true,
+            });
+          }
+        }
+      } catch { /* non-fatal — email migration failure must not block the transition */ }
+
+      // ── Write lineage row ───────────────────────────────────────────────────
+      await db.insert(migrationMap).values({
+        legacyTable: "accounts",
+        legacyRecordId: account.id,
+        newTable: "leads",
+        newRecordId: newLead.id,
+        transitionType: "to_lead",
+        performedByUserId: userId,
+        fromStatus: (account as any).leadStatus ?? "new",
+        toStatus: "new",
+        notes: JSON.stringify({
+          action: "to_lead",
+          accountId: account.id,
+          leadId: newLead.id,
+          accountName: account.name,
+        }),
+      } as any);
+
       await storage.createActivity({
         linkedObjectType: "lead",
         linkedObjectId: newLead.id,
         type: "status_change",
-        summary: `Lead created from Account "${account.name}" (account #${account.id}). Account hidden from Accounts list pending re-promotion.`,
+        summary: `Lead created from Account "${account.name}" (account #${account.id}). Account preserved and hidden from Organizations list pending re-promotion.`,
       });
 
       res.json({ leadId: newLead.id, accountId: account.id });
