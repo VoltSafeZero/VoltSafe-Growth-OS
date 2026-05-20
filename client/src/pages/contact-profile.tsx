@@ -238,6 +238,19 @@ export default function ContactProfilePage() {
     onError: (e: any) => toast({ title: "Remove failed", description: e.message, variant: "destructive" }),
   });
 
+  // Hoisted above early returns — calling hooks conditionally causes React error #310.
+  const { data: linkedAccounts = [], refetch: refetchAccounts } = useQuery<any[]>({
+    queryKey: ["/api/contacts", id, "accounts"],
+    queryFn: () => fetch(`/api/contacts/${id}/accounts`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!id,
+  });
+
+  const { data: linkedLeads = [], refetch: refetchLeads } = useQuery<any[]>({
+    queryKey: ["/api/contacts", id, "leads"],
+    queryFn: () => fetch(`/api/contacts/${id}/leads`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!id,
+  });
+
   if (isLoading) return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-4">
       <Skeleton className="h-8 w-40" />
@@ -262,18 +275,6 @@ export default function ContactProfilePage() {
       </div>
     </div>
   );
-
-  const { data: linkedAccounts = [], refetch: refetchAccounts } = useQuery<any[]>({
-    queryKey: ["/api/contacts", id, "accounts"],
-    queryFn: () => fetch(`/api/contacts/${id}/accounts`, { credentials: "include" }).then(r => r.json()),
-    enabled: !!id,
-  });
-
-  const { data: linkedLeads = [], refetch: refetchLeads } = useQuery<any[]>({
-    queryKey: ["/api/contacts", id, "leads"],
-    queryFn: () => fetch(`/api/contacts/${id}/leads`, { credentials: "include" }).then(r => r.json()),
-    enabled: !!id,
-  });
 
   const unlinkFromAccount = async (accountId: number) => {
     await apiRequest("DELETE", `/api/accounts/${accountId}/contacts/${id}`);
