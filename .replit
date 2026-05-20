@@ -66,6 +66,14 @@ args = "tracking-proof"
 task = "workflow.run"
 args = "tracking-multi-proof"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "not-spam-blocked-domain"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "contact-link-panel"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -142,6 +150,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "node tests/tracking-multi-proof.test.js"
+
+[[workflows.workflow]]
+name = "not-spam-blocked-domain"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node tests/not-spam-blocked-domain.test.js"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "contact-link-panel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node tests/contact-link-panel.test.js"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [agent]
 integrations = ["javascript_openai_ai_integrations:2.0.0", "google-mail:1.0.0", "jira:1.0.0", "confluence:1.0.0"]

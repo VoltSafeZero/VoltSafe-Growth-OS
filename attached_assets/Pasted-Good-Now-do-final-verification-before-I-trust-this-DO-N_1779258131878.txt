@@ -1,0 +1,75 @@
+Good. Now do final verification before I trust this.
+
+DO NOT add features. DO NOT refactor. Verify both original user flows end-to-end and add regression tests that would have failed before these fixes.
+
+VERIFY BUG 1 — NOT SPAM / BLOCKED DOMAIN
+
+Test the exact rmdgroup.com-style case:
+
+1. Find or create a message/thread that appears in Spam because of inboxOther / blocked-domain filtering, NOT because it has the Gmail SPAM label.
+2. Confirm before clicking:
+   - local message has spamCount=0 or no SPAM label
+   - sender domain exists in email_filters
+   - message appears in Spam UI
+3. Click the real shield / Not Spam button in the UI.
+4. Confirm after clicking:
+   - matching sender-domain filter is deleted from email_filters
+   - message disappears from Spam
+   - message appears in Inbox / All Mail as expected
+5. Hard refresh the page.
+6. Confirm:
+   - message does NOT reappear in Spam
+   - message still appears in Inbox / All Mail
+   - deleted domain filter did not come back
+
+Add regression coverage proving:
+- Not Spam on a true Gmail-SPAM message removes SPAM and adds INBOX.
+- Not Spam on a blocked-domain inboxOther message deletes the matching domain filter.
+- The blocked-domain case survives a fresh reload from backend state.
+
+VERIFY BUG 2 — ADD EXISTING CONTACT TO LEAD / ACCOUNT
+
+Use the exact production UI, not only API tests:
+
+1. Open a real Lead detail page.
+2. Click Add Existing Contact.
+3. Search for an existing contact.
+4. Select it.
+5. Confirm:
+   - POST /api/leads/:leadId/contacts returns 201 or 200
+   - GET /api/leads/:leadId/contacts refetches immediately afterward
+   - contact appears in the panel without manual refresh
+6. Hard refresh.
+7. Confirm contact still appears.
+
+Repeat the same flow for Account detail:
+
+1. Open a real Account detail page.
+2. Add Existing Contact.
+3. Confirm POST /api/accounts/:accountId/contacts succeeds.
+4. Confirm GET /api/accounts/:accountId/contacts refetches.
+5. Confirm contact appears immediately.
+6. Hard refresh.
+7. Confirm contact still appears.
+
+Add regression coverage proving:
+- getLeadContacts() returns linked contacts using inArray().
+- getAccountContacts() returns linked contacts using inArray().
+- Lead contact link mutation triggers active refetch.
+- Account contact link mutation triggers active refetch.
+- Duplicate contact links do not break the panel.
+
+Run:
+- targeted tests for these two flows
+- TypeScript check if available
+- full regression suite if practical
+
+Return:
+1. exact test data used
+2. before/after evidence
+3. screenshots or console/network proof
+4. test results
+5. final files changed
+6. any remaining risk
+
+Do not say “fixed” unless both hard-refresh tests pass.
