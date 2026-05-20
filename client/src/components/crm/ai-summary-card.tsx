@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,6 +56,8 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
   const [expanded, setExpanded] = useState(true);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
 
+  // Read-only fetch — never auto-triggers generation on page open.
+  // refetchInterval only activates when a real background job is running (status === 'generating').
   const { data: summary, isLoading } = useQuery<AiSummaryRow | null>({
     queryKey: ["/api/crm/ai-summary", entityType, entityId],
     queryFn: async () => {
@@ -64,11 +66,13 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
       if (!res.ok) return null;
       return res.json();
     },
-    refetchInterval: (data) =>
-      data?.status === "generating" ? 3000 : false,
+    // Only poll when DB says a background job is actively running
+    refetchInterval: (query) =>
+      query.state.data?.status === "generating" ? 3000 : false,
     staleTime: 60_000,
   });
 
+  // Manual regenerate only — never called automatically
   const generateMutation = useMutation({
     mutationFn: async (force = false) => {
       const res = await apiRequest("POST", `/api/crm/ai-summary/${entityType}/${entityId}/regenerate`, { force });
@@ -80,19 +84,13 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
     },
   });
 
-  // Auto-trigger generation when no summary exists
-  useEffect(() => {
-    if (!isLoading && (summary === null || summary?.status === "pending")) {
-      const timer = setTimeout(() => {
-        generateMutation.mutate(false);
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [isLoading, summary?.status, summary]);
-
   const s = summary;
-  const hasContent = s?.status === "success" || s?.status === "stale";
+  // Content is shown whenever we have a real summary — even while a manual regenerate is queued
+  const hasContent = !!(s?.summaryJson && (s.status === "success" || s.status === "stale" || s.status === "generating" || s.status === "failed"));
   const json: AiSummaryJson = s?.summaryJson || {};
+
+  // Active generation means the DB itself says 'generating' (a real background job)
+  const isActivelyGenerating = s?.status === "generating";
 
   return (
     <div className="border-t border-border/50 pt-4" data-testid="ai-summary-section">
@@ -102,7 +100,8 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
             <div className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary shrink-0" />
               <CardTitle className="text-sm font-semibold text-foreground">AI Summary</CardTitle>
-              {s?.status === "generating" || generateMutation.isPending ? (
+              {/* Status badges — only based on real DB state, not local mutation state */}
+              {isActivelyGenerating ? (
                 <Badge variant="outline" className="text-[10px] border-primary/30 text-primary animate-pulse">
                   <Loader2 className="h-2.5 w-2.5 mr-1 animate-spin" />Generating…
                 </Badge>
@@ -117,13 +116,14 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
               ) : null}
             </div>
             <div className="flex items-center gap-1.5">
-              {(hasContent || s?.status === "failed") && (
+              {/* Regenerate button — always shown once a row exists (any status) */}
+              {s !== null && s !== undefined && (
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-6 text-[11px] text-muted-foreground hover:text-foreground px-2"
                   onClick={() => generateMutation.mutate(true)}
-                  disabled={generateMutation.isPending || s?.status === "generating"}
+                  disabled={generateMutation.isPending || isActivelyGenerating}
                   data-testid="button-regenerate-summary"
                 >
                   <RefreshCw className={cn("h-3 w-3 mr-1", generateMutation.isPending && "animate-spin")} />
@@ -154,7 +154,7 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
 
         {expanded && (
           <CardContent className="px-4 pb-4 pt-1 space-y-3">
-            {/* Loading skeleton */}
+            {/* Loading skeleton while fetching saved summary */}
             {isLoading && (
               <div className="space-y-2">
                 <Skeleton className="h-3 w-full" />
@@ -163,35 +163,41 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
               </div>
             )}
 
-            {/* Pending / auto-generating */}
-            {!isLoading && (s === null || s?.status === "pending") && !generateMutation.isPending && (
+            {/* No summary exists yet — show static placeholder, no auto-generation */}
+            {!isLoading && (s === null || s?.status === "pending") && (
               <div className="flex flex-col items-center gap-3 py-4 text-center">
                 <Sparkles className="h-8 w-8 text-primary/40" />
                 <div>
                   <p className="text-sm text-muted-foreground">No AI summary yet</p>
-                  <p className="text-xs text-muted-foreground/70 mt-0.5">Initialising…</p>
+                  <p className="text-xs text-muted-foreground/70 mt-0.5">
+                    Summaries are generated overnight or when CRM data changes.
+                  </p>
                 </div>
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => generateMutation.mutate(true)}
+                  disabled={generateMutation.isPending}
                   data-testid="button-generate-summary"
                 >
-                  <Sparkles className="h-3.5 w-3.5 mr-1.5" />Generate Summary
+                  {generateMutation.isPending
+                    ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Queued…</>
+                    : <><Sparkles className="h-3.5 w-3.5 mr-1.5" />Generate Now</>
+                  }
                 </Button>
               </div>
             )}
 
-            {/* Generating spinner */}
-            {!isLoading && (generateMutation.isPending || s?.status === "generating") && (
+            {/* Real background job running (DB status = generating) — no content yet */}
+            {!isLoading && isActivelyGenerating && !hasContent && (
               <div className="flex items-center gap-3 py-3 text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
                 <div className="text-sm">Generating AI summary — this takes a few seconds…</div>
               </div>
             )}
 
-            {/* Failed state */}
-            {!isLoading && s?.status === "failed" && !generateMutation.isPending && (
+            {/* Failed state — no previous content */}
+            {!isLoading && s?.status === "failed" && !hasContent && (
               <div className="flex items-start gap-2 rounded-md bg-red-500/8 border border-red-500/20 p-3">
                 <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
                 <div>
@@ -203,9 +209,17 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
               </div>
             )}
 
-            {/* Summary content */}
-            {!isLoading && hasContent && !generateMutation.isPending && json && (
+            {/* Summary content — shown whenever we have saved JSON, regardless of current status */}
+            {!isLoading && hasContent && json && (
               <div className="space-y-3 text-sm">
+                {/* Subtle banner when failed but old content exists */}
+                {s?.status === "failed" && s.errorMessage && (
+                  <div className="flex items-center gap-2 rounded-md bg-red-500/8 border border-red-500/20 px-3 py-2">
+                    <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0" />
+                    <p className="text-[11px] text-red-400">Last update failed — showing previous summary</p>
+                  </div>
+                )}
+
                 {/* Executive Summary */}
                 {json.executiveSummary && (
                   <div>
@@ -285,7 +299,7 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
                   </div>
                 )}
 
-                {/* Relevant History (collapsed by default — show top 2) */}
+                {/* Relevant History */}
                 {json.relevantHistory && json.relevantHistory.length > 0 && (
                   <div>
                     <div className="flex items-center gap-1.5 mb-1.5">

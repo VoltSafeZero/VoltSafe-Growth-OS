@@ -1,0 +1,116 @@
+Fix the AI Summary generation behavior.
+
+Current problem:
+AI Summary appears to generate when opening a Lead/Account record. That is wrong.
+
+Desired behavior:
+AI Summary should NOT generate every time a user opens a Lead, Account, or Contact.
+
+Correct model:
+1. AI summaries are stored data.
+2. Users view existing summaries instantly.
+3. Generator is normally idle.
+4. Regeneration only happens when underlying CRM data changes.
+
+Scope:
+Apply this to:
+- Leads
+- Accounts
+- Contacts
+
+Required behavior:
+
+A) One-time full backfill
+Run a safe background backfill that generates and stores AI summaries for every existing:
+- Lead
+- Account
+- Contact
+
+After this first run, each record should already have a saved summary.
+
+B) Page open must be read-only
+When a user opens a Lead/Account/Contact:
+- Fetch the saved AI summary
+- Display it
+- Do NOT auto-generate just because the page opened
+- Do NOT call AI on page load
+- Do NOT show “Generating…” unless there is already an active background job for that entity
+
+C) Regenerate only on meaningful data changes
+Mark summary stale and queue regeneration only when CRM data changes, such as:
+- new linked email
+- email unlinked
+- new user comment/note
+- note edited/deleted
+- contact linked/unlinked/edited
+- document linked/uploaded/deleted
+- Lead/Account/Contact field updated
+- stage/status changed
+- action item created/edited/completed/deleted
+- lead converted to account
+- manual merge/linking operation
+- Gmail sync attaches new emails to the entity
+
+D) Use source_hash / fingerprint
+Before generating:
+- collect the entity context
+- calculate source_hash
+- compare to last stored source_hash
+- if unchanged, skip generation
+- if changed, generate and update the saved summary
+
+E) Background queue only
+All generation must happen through a controlled background queue/job system.
+Never block:
+- page load
+- modal open
+- record view
+- normal CRM operations
+
+F) UI states
+On Lead/Account/Contact detail pages:
+- Fresh summary: show saved summary immediately
+- Stale summary: show saved old summary with “Updating…” or “Stale” pill
+- Generating: only show if a real queued/running job exists
+- Failed: show previous summary if available plus failure status
+- Empty: show “No AI summary yet” only if no saved summary exists and no backfill has generated one yet
+
+G) Manual regenerate
+Keep a “Regenerate Summary” button.
+Manual regenerate should:
+- force queue regeneration
+- not block the page
+- update UI when complete
+
+H) Backfill admin/status
+Add or verify endpoints:
+- POST /api/crm/ai-summary/backfill/start
+- GET /api/crm/ai-summary/backfill/status
+
+Status should show:
+- total leads/accounts/contacts
+- queued
+- generating
+- completed
+- failed
+- skipped unchanged
+- last run timestamp
+
+I) Tests
+Add/verify tests proving:
+1. Opening a Lead does NOT call AI generation.
+2. Opening an Account does NOT call AI generation.
+3. Opening a Contact does NOT call AI generation.
+4. Saved summary displays immediately.
+5. Backfill creates summaries for all existing Leads.
+6. Backfill creates summaries for all existing Accounts.
+7. Backfill creates summaries for all existing Contacts.
+8. New linked email marks stale and queues regeneration.
+9. New note/comment marks stale and queues regeneration.
+10. Unchanged source_hash skips regeneration.
+11. Failed generation preserves previous summary.
+12. Manual regenerate queues generation without blocking page load.
+13. “Generating…” only appears when a real job is queued/running.
+
+Deliverable:
+Implement this as production-safe behavior. The AI Summary generator should be normally idle after the initial full backfill and should only wake up when a Lead, Account, or Contact actually changes.

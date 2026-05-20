@@ -1,12 +1,13 @@
 /**
  * CRM AI Summary Service
  *
- * Generates and maintains always-current AI summaries for Leads, Accounts,
- * and Contacts. Summaries are stored in `crm_ai_summaries` and kept fresh
- * via:
- *   • stale-marking hooks called from mutating routes
- *   • a lightweight in-memory background queue
- *   • a backfill processor for all existing entities
+ * Generates and maintains stored AI summaries for Leads, Accounts, and Contacts.
+ *
+ * Lifecycle:
+ *   1. Page open          → read-only GET, never triggers generation
+ *   2. Data mutation      → markCrmAiSummaryStale() → queues background regen
+ *   3. Manual regen       → queueCrmAiSummaryGeneration() → background queue
+ *   4. Backfill           → admin-only, runs once to seed all entities
  *
  * NEVER throws — all errors are caught and stored on the row.
  */
@@ -96,6 +97,10 @@ export function queueCrmAiSummaryGeneration(
   scheduleQueueProcess();
 }
 
+export function getQueueSize(): number {
+  return queue.length + (queueProcessing ? 1 : 0);
+}
+
 function scheduleQueueProcess(): void {
   if (queueProcessing) return;
   setTimeout(processNextInQueue, 200);
@@ -122,12 +127,26 @@ async function processNextInQueue(): Promise<void> {
 
 // ── Backfill state ────────────────────────────────────────────────────────────
 
-export interface BackfillState {
-  running: boolean;
+interface EntityTypeStats {
   total: number;
   processed: number;
   skipped: number;
   failed: number;
+}
+
+export interface BackfillState {
+  running: boolean;
+  total: number;
+  queued: number;
+  generating: number;
+  completed: number;
+  skipped: number;
+  failed: number;
+  byType: {
+    leads: EntityTypeStats;
+    accounts: EntityTypeStats;
+    contacts: EntityTypeStats;
+  };
   startedAt: string | null;
   finishedAt: string | null;
   lastError: string | null;
@@ -136,16 +155,27 @@ export interface BackfillState {
 const backfillState: BackfillState = {
   running: false,
   total: 0,
-  processed: 0,
+  queued: 0,
+  generating: 0,
+  completed: 0,
   skipped: 0,
   failed: 0,
+  byType: {
+    leads: { total: 0, processed: 0, skipped: 0, failed: 0 },
+    accounts: { total: 0, processed: 0, skipped: 0, failed: 0 },
+    contacts: { total: 0, processed: 0, skipped: 0, failed: 0 },
+  },
   startedAt: null,
   finishedAt: null,
   lastError: null,
 };
 
-export function getBackfillStatus(): BackfillState {
-  return { ...backfillState };
+export function getBackfillStatus(): BackfillState & { queueSize: number } {
+  return {
+    ...backfillState,
+    byType: { ...backfillState.byType },
+    queueSize: getQueueSize(),
+  };
 }
 
 // ── Context collection ────────────────────────────────────────────────────────
@@ -284,7 +314,6 @@ async function collectCrmEntityContext(
       role: null,
     }));
   } else {
-    // For a contact, include linked accounts/leads context
     const acctRows = await safeRows(`SELECT name FROM accounts WHERE id = (SELECT account_id FROM contacts WHERE id = ${id})`);
     if (acctRows[0]) {
       contacts = [{ name: acctRows[0].name, title: "Primary Account", email: null, phone: null, role: null }];
@@ -304,22 +333,21 @@ async function computeSourceHash(
   try {
     const parts: string[] = [];
 
-    // Entity updated_at
-    let tableName = entityType === "lead" ? "leads" : entityType === "account" ? "accounts" : "contacts";
+    const tableName = entityType === "lead" ? "leads" : entityType === "account" ? "accounts" : "contacts";
     const entityRows = await safeRows(`SELECT updated_at FROM ${tableName} WHERE id = ${id}`);
     parts.push(entityRows[0]?.updated_at || "");
 
-    // Note count + max created_at
     const noteRows = await safeRows(`SELECT COUNT(*) as cnt, MAX(created_at) as mx FROM notes WHERE linked_object_type = '${entityType}' AND linked_object_id = ${id}`);
     parts.push(`notes:${noteRows[0]?.cnt}:${noteRows[0]?.mx}`);
 
-    // Email count
     const emailRows = await safeRows(`SELECT COUNT(*) as cnt FROM email_associations WHERE object_type = '${entityType}' AND object_id = ${id}`);
     parts.push(`emails:${emailRows[0]?.cnt}`);
 
-    // Attachment count
     const attRows = await safeRows(`SELECT COUNT(*) as cnt FROM attachments WHERE object_type = '${entityType}' AND object_id = ${id}`);
     parts.push(`attachments:${attRows[0]?.cnt}`);
+
+    const actRows = await safeRows(`SELECT COUNT(*) as cnt, MAX(created_at) as mx FROM activities WHERE linked_object_type = '${entityType}' AND linked_object_id = ${id}`);
+    parts.push(`activities:${actRows[0]?.cnt}:${actRows[0]?.mx}`);
 
     return createHash("sha256").update(parts.join("|")).digest("hex").substring(0, 16);
   } catch (_err) {
@@ -398,7 +426,7 @@ export async function generateCrmAiSummary(
   try {
     // Check if already generating
     const existing = await safeRows(`
-      SELECT status, source_hash, retry_count FROM crm_ai_summaries
+      SELECT status, source_hash, retry_count, summary_json FROM crm_ai_summaries
       WHERE entity_type = '${entityType}' AND entity_id = ${id}
     `);
 
@@ -409,12 +437,12 @@ export async function generateCrmAiSummary(
     // Compute source hash and check if anything changed
     const newHash = await computeSourceHash(entityType, id);
     if (!force && existing[0]?.status === "success" && existing[0]?.source_hash === newHash) {
-      return; // nothing changed
+      return; // nothing changed — skip generation
     }
 
     const retryCount = Number(existing[0]?.retry_count || 0);
 
-    // Mark as generating
+    // Mark as generating (preserves existing summary_json for display during regen)
     await db.execute(sql.raw(`
       INSERT INTO crm_ai_summaries (entity_type, entity_id, status, retry_count, last_attempted_at, created_at, updated_at)
       VALUES ('${entityType}', ${id}, 'generating', ${retryCount}, NOW(), NOW(), NOW())
@@ -438,11 +466,10 @@ export async function generateCrmAiSummary(
       return;
     }
 
-    // Collect context
+    // Collect context and generate
     const ctx = await collectCrmEntityContext(entityType, id);
     const prompt = buildCrmAiSummaryPrompt(ctx);
 
-    // Call OpenAI
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -465,13 +492,11 @@ export async function generateCrmAiSummary(
       throw new Error(`Invalid JSON from OpenAI: ${raw.substring(0, 200)}`);
     }
 
-    // Build fallback text
     const summaryText = [
       parsed.executiveSummary || "",
       ...(parsed.suggestedNextSteps || []).map((s: string) => `• ${s}`),
     ].join("\n").substring(0, 2000);
 
-    // Store result
     const safeJson = (JSON.stringify(parsed) || "{}").replace(/'/g, "''");
     const safeText = summaryText.replace(/'/g, "''");
     await db.execute(sql.raw(`
@@ -490,6 +515,7 @@ export async function generateCrmAiSummary(
 
     console.log(`[crm-ai-summary] Generated ${entityType}:${id}`);
   } catch (err: any) {
+    // On failure: preserve existing summary_json; just update status fields
     const msg = String(err?.message || err || "Unknown error").substring(0, 500).replace(/'/g, "''");
     try {
       await db.execute(sql.raw(`
@@ -509,6 +535,11 @@ export async function generateCrmAiSummary(
 
 // ── Stale marking ─────────────────────────────────────────────────────────────
 
+/**
+ * Called from mutation routes (note create/edit/delete, field updates, etc.)
+ * Marks the summary stale and queues background regeneration.
+ * Fire-and-forget — never blocks the calling route.
+ */
 export async function markCrmAiSummaryStale(
   entityType: CrmEntityType,
   entityId: number,
@@ -601,14 +632,8 @@ export async function generateSuggestedNextEmail(
     };
   }
 
-  // Get or generate summary
-  let summary = await getCrmAiSummary(entityType, id);
-  if (!summary || !summary.summaryJson) {
-    await generateCrmAiSummary(entityType, id, true);
-    summary = await getCrmAiSummary(entityType, id);
-  }
-
-  // Collect context for email generation
+  // Use saved summary if available — do not auto-generate if missing
+  const summary = await getCrmAiSummary(entityType, id);
   const ctx = await collectCrmEntityContext(entityType, id);
 
   const systemPrompt = `You are an expert sales and relationship manager at VoltSafe, a marina electrification company. Generate a professional, warm, and concise email suggestion. Return only valid JSON.`;
@@ -673,70 +698,99 @@ export async function generateSuggestedNextEmail(
 
 // ── Backfill ──────────────────────────────────────────────────────────────────
 
+/**
+ * One-time (or periodic) backfill that generates summaries for all entities
+ * that don't have a fresh one yet. Safe to re-run — skips unchanged records.
+ */
 export async function runCrmAiSummaryBackfill(): Promise<void> {
   if (backfillState.running) return;
 
   backfillState.running = true;
-  backfillState.processed = 0;
+  backfillState.completed = 0;
   backfillState.skipped = 0;
   backfillState.failed = 0;
   backfillState.lastError = null;
   backfillState.startedAt = new Date().toISOString();
   backfillState.finishedAt = null;
+  backfillState.byType = {
+    leads:    { total: 0, processed: 0, skipped: 0, failed: 0 },
+    accounts: { total: 0, processed: 0, skipped: 0, failed: 0 },
+    contacts: { total: 0, processed: 0, skipped: 0, failed: 0 },
+  };
 
   console.log("[crm-ai-summary] Backfill started");
 
   try {
-    // Collect all entity IDs
-    const leadIds = (await safeRows("SELECT id FROM leads WHERE deleted_at IS NULL OR deleted_at IS NOT NULL ORDER BY id LIMIT 5000")).map((r: any) => r.id);
+    const leadIds    = (await safeRows("SELECT id FROM leads ORDER BY id LIMIT 5000")).map((r: any) => r.id);
     const accountIds = (await safeRows("SELECT id FROM accounts ORDER BY id LIMIT 2000")).map((r: any) => r.id);
     const contactIds = (await safeRows("SELECT id FROM contacts ORDER BY id LIMIT 5000")).map((r: any) => r.id);
 
-    const all: Array<{ entityType: CrmEntityType; entityId: number }> = [
-      ...leadIds.map((id: number) => ({ entityType: "lead" as const, entityId: id })),
-      ...accountIds.map((id: number) => ({ entityType: "account" as const, entityId: id })),
-      ...contactIds.map((id: number) => ({ entityType: "contact" as const, entityId: id })),
+    backfillState.byType.leads.total    = leadIds.length;
+    backfillState.byType.accounts.total = accountIds.length;
+    backfillState.byType.contacts.total = contactIds.length;
+
+    const all: Array<{ entityType: CrmEntityType; entityId: number; group: keyof BackfillState["byType"] }> = [
+      ...leadIds.map((id: number)    => ({ entityType: "lead"    as const, entityId: id, group: "leads"    as const })),
+      ...accountIds.map((id: number) => ({ entityType: "account" as const, entityId: id, group: "accounts" as const })),
+      ...contactIds.map((id: number) => ({ entityType: "contact" as const, entityId: id, group: "contacts" as const })),
     ];
 
     backfillState.total = all.length;
+    backfillState.queued = all.length;
     console.log(`[crm-ai-summary] Backfill: ${all.length} entities total`);
 
     const BATCH_SIZE = 5;
     const DELAY_MS = 1500;
 
     for (let i = 0; i < all.length; i += BATCH_SIZE) {
-      if (!backfillState.running) break; // allow external stop
+      if (!backfillState.running) break;
 
       const batch = all.slice(i, i + BATCH_SIZE);
       for (const item of batch) {
+        if (!backfillState.running) break;
+        backfillState.queued = Math.max(0, backfillState.queued - 1);
+        backfillState.generating = 1;
+
         try {
-          // Check if already has a fresh summary
+          // Skip if fresh summary exists with matching source hash
           const existing = await safeRows(`
-            SELECT status, generated_at FROM crm_ai_summaries
+            SELECT status, source_hash, generated_at FROM crm_ai_summaries
             WHERE entity_type = '${item.entityType}' AND entity_id = ${item.entityId}
           `);
           const row = existing[0];
+
           if (row?.status === "success" && row?.generated_at) {
             const ageMs = Date.now() - new Date(row.generated_at).getTime();
             if (ageMs < 7 * 24 * 60 * 60 * 1000) {
-              backfillState.skipped++;
-              continue;
+              // Also check source hash — if nothing changed, skip even if older
+              const currentHash = await computeSourceHash(item.entityType, item.entityId);
+              if (row.source_hash === currentHash) {
+                backfillState.skipped++;
+                backfillState.byType[item.group].skipped++;
+                backfillState.generating = 0;
+                continue;
+              }
             }
           }
 
           await generateCrmAiSummary(item.entityType, item.entityId, false);
-          backfillState.processed++;
+          backfillState.completed++;
+          backfillState.byType[item.group].processed++;
         } catch (err: any) {
           backfillState.failed++;
+          backfillState.byType[item.group].failed++;
           backfillState.lastError = err?.message || String(err);
           console.error(`[crm-ai-summary] Backfill error for ${item.entityType}:${item.entityId}:`, err?.message);
         }
+
+        backfillState.generating = 0;
         await new Promise(resolve => setTimeout(resolve, 300));
       }
 
-      const pct = Math.round(((i + BATCH_SIZE) / all.length) * 100);
+      const processed = backfillState.completed + backfillState.skipped + backfillState.failed;
+      const pct = Math.round((processed / all.length) * 100);
       if (pct % 10 === 0 || i + BATCH_SIZE >= all.length) {
-        console.log(`[crm-ai-summary] Backfill progress: ${i + batch.length}/${all.length} (${pct}%) | ok=${backfillState.processed} skip=${backfillState.skipped} fail=${backfillState.failed}`);
+        console.log(`[crm-ai-summary] Backfill: ${processed}/${all.length} (${pct}%) | ok=${backfillState.completed} skip=${backfillState.skipped} fail=${backfillState.failed}`);
       }
 
       await new Promise(resolve => setTimeout(resolve, DELAY_MS));
@@ -746,7 +800,9 @@ export async function runCrmAiSummaryBackfill(): Promise<void> {
     console.error("[crm-ai-summary] Backfill fatal error:", err?.message);
   } finally {
     backfillState.running = false;
+    backfillState.queued = 0;
+    backfillState.generating = 0;
     backfillState.finishedAt = new Date().toISOString();
-    console.log(`[crm-ai-summary] Backfill complete: processed=${backfillState.processed} skipped=${backfillState.skipped} failed=${backfillState.failed}`);
+    console.log(`[crm-ai-summary] Backfill complete: completed=${backfillState.completed} skipped=${backfillState.skipped} failed=${backfillState.failed}`);
   }
 }
