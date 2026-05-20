@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
+import { ExpandableDialogContent } from "@/components/ui/expandable-dialog-content";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -1518,7 +1519,7 @@ function LeadDetailDialog({
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] sm:max-h-[85vh] overflow-y-auto overflow-x-hidden p-0">
+      <ExpandableDialogContent popupClassName="max-w-[95vw] sm:max-w-2xl max-h-[90vh] sm:max-h-[85vh]" contentClassName="overflow-y-auto overflow-x-hidden p-0">
         <div className="w-full min-w-0 overflow-hidden p-6 pb-4">
         <DialogHeader>
           <div className="flex items-start gap-3">
@@ -1886,7 +1887,7 @@ function LeadDetailDialog({
           </div>
         )}
         </div>
-      </DialogContent>
+      </ExpandableDialogContent>
     </Dialog>
   );
 }

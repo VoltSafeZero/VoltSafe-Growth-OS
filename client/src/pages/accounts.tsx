@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ExpandableDialogContent } from "@/components/ui/expandable-dialog-content";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -1191,7 +1192,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
   return (
     <>
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[90vh] sm:max-h-[85vh] overflow-y-auto overflow-x-hidden w-full">
+      <ExpandableDialogContent popupClassName="max-w-[95vw] sm:max-w-3xl max-h-[90vh] sm:max-h-[85vh] w-full" contentClassName="overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -1726,7 +1727,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
             </section>
           </TabsContent>
         </Tabs>
-      </DialogContent>
+      </ExpandableDialogContent>
     </Dialog>
 
     {/* Create Inbox Folder from Account dialog */}

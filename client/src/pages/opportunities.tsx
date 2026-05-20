@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ExpandableDialogContent } from "@/components/ui/expandable-dialog-content";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -524,7 +525,7 @@ function DealDetailDialog({ deal, accountName, onUpdate, onClose }: {
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <ExpandableDialogContent popupClassName="max-w-[95vw] sm:max-w-2xl max-h-[90vh]" contentClassName="overflow-y-auto">
         <DialogHeader>
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -795,7 +796,7 @@ function DealDetailDialog({ deal, accountName, onUpdate, onClose }: {
             <TimelineTab objectType="opportunity" objectId={deal.id} />
           </TabsContent>
         </Tabs>
-      </DialogContent>
+      </ExpandableDialogContent>
     </Dialog>
   );
 }
