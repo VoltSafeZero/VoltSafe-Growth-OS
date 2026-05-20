@@ -38,7 +38,7 @@ import { EmailsTab } from "@/components/emails-tab";
 import { TimelineTab } from "@/components/timeline-tab";
 import StateProvinceSelect from "@/components/state-province-select";
 import { ContactsPanel } from "@/components/contacts/contacts-panel";
-import { PIPELINE_STAGE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS } from "@/lib/crm-taxonomy";
+import { PIPELINE_STAGE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS, NON_OPERATING_SEGMENTS } from "@/lib/crm-taxonomy";
 
 const segmentColors: Record<string, string> = {
   marina: "bg-blue-500/10 text-blue-500 border-blue-500/20",
@@ -2081,6 +2081,7 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
   });
 
   const isMarinaType = MARINA_ORG_TYPES.has(form.orgType);
+  const isMarinaOperating = isMarinaType && !NON_OPERATING_SEGMENTS.has(form.marketSegment);
 
   return (
     <form onSubmit={(e) => {
@@ -2157,8 +2158,8 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
         <div className="border-t border-border/50 pt-3">
           <Label className="text-xs text-muted-foreground mb-2 block">Marina Details</Label>
           <div className="grid grid-cols-2 gap-3">
-            <div><Label className="text-xs">Slip Count</Label><Input type="number" value={form.slipCount} onChange={(e) => setForm(f => ({ ...f, slipCount: e.target.value }))} data-testid="input-edit-slips" /></div>
-            <div>
+            {isMarinaOperating && <div><Label className="text-xs">Slip Count</Label><Input type="number" value={form.slipCount} onChange={(e) => setForm(f => ({ ...f, slipCount: e.target.value }))} data-testid="input-edit-slips" /></div>}
+            <div className={!isMarinaOperating ? "col-span-2" : ""}>
               <Label className="text-xs">Market Segment</Label>
               <Select value={form.marketSegment || "__none__"} onValueChange={(v) => setForm(f => ({ ...f, marketSegment: v === "__none__" ? "" : v }))}>
                 <SelectTrigger data-testid="select-edit-market-segment"><SelectValue placeholder="Select segment" /></SelectTrigger>
@@ -2168,7 +2169,7 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
                 </SelectContent>
               </Select>
             </div>
-            <div>
+            {isMarinaOperating && <div>
               <Label className="text-xs">Slip Range</Label>
               <Select value={form.slipRange || "__none__"} onValueChange={(v) => setForm(f => ({ ...f, slipRange: v === "__none__" ? "" : v }))}>
                 <SelectTrigger data-testid="select-edit-slip-range"><SelectValue placeholder="Select range" /></SelectTrigger>
@@ -2177,23 +2178,25 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
                   {SLIP_RANGE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>}
+            {isMarinaOperating && <div><Label className="text-xs">Slip Mix</Label><Input value={form.slipMix} onChange={(e) => setForm(f => ({ ...f, slipMix: e.target.value }))} placeholder="e.g. 60% wet, 40% dry" data-testid="input-edit-slip-mix" /></div>}
+            {isMarinaOperating && <div><Label className="text-xs">Avg Boat Size Range</Label><Input value={form.avgBoatSizeRange} onChange={(e) => setForm(f => ({ ...f, avgBoatSizeRange: e.target.value }))} placeholder="e.g. 25-45 ft" data-testid="input-edit-boat-size" /></div>}
+            {isMarinaOperating && <div><Label className="text-xs">Power Demand</Label><Input value={form.powerDemandIntensity} onChange={(e) => setForm(f => ({ ...f, powerDemandIntensity: e.target.value }))} placeholder="e.g. High, Medium, Low" data-testid="input-edit-power-demand" /></div>}
+            {isMarinaOperating && <div><Label className="text-xs">Seasonality</Label><Input value={form.seasonality} onChange={(e) => setForm(f => ({ ...f, seasonality: e.target.value }))} placeholder="e.g. Year-round, Apr-Oct" data-testid="input-edit-seasonality" /></div>}
+          </div>
+          {isMarinaOperating && (
+            <div className="flex items-center gap-4 mt-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={form.expansionPlans} onChange={(e) => setForm(f => ({ ...f, expansionPlans: e.target.checked }))} className="rounded" data-testid="input-edit-expansion" />
+                Expansion Plans
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={form.betaTester} onChange={(e) => setForm(f => ({ ...f, betaTester: e.target.checked }))} className="rounded" data-testid="input-edit-beta" />
+                Beta Tester
+              </label>
             </div>
-            <div><Label className="text-xs">Slip Mix</Label><Input value={form.slipMix} onChange={(e) => setForm(f => ({ ...f, slipMix: e.target.value }))} placeholder="e.g. 60% wet, 40% dry" data-testid="input-edit-slip-mix" /></div>
-            <div><Label className="text-xs">Avg Boat Size Range</Label><Input value={form.avgBoatSizeRange} onChange={(e) => setForm(f => ({ ...f, avgBoatSizeRange: e.target.value }))} placeholder="e.g. 25-45 ft" data-testid="input-edit-boat-size" /></div>
-            <div><Label className="text-xs">Power Demand</Label><Input value={form.powerDemandIntensity} onChange={(e) => setForm(f => ({ ...f, powerDemandIntensity: e.target.value }))} placeholder="e.g. High, Medium, Low" data-testid="input-edit-power-demand" /></div>
-            <div><Label className="text-xs">Seasonality</Label><Input value={form.seasonality} onChange={(e) => setForm(f => ({ ...f, seasonality: e.target.value }))} placeholder="e.g. Year-round, Apr-Oct" data-testid="input-edit-seasonality" /></div>
-          </div>
-          <div className="flex items-center gap-4 mt-3">
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.expansionPlans} onChange={(e) => setForm(f => ({ ...f, expansionPlans: e.target.checked }))} className="rounded" data-testid="input-edit-expansion" />
-              Expansion Plans
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.betaTester} onChange={(e) => setForm(f => ({ ...f, betaTester: e.target.checked }))} className="rounded" data-testid="input-edit-beta" />
-              Beta Tester
-            </label>
-          </div>
-          {form.expansionPlans && (
+          )}
+          {isMarinaOperating && form.expansionPlans && (
             <div className="mt-2"><Label className="text-xs">Expansion Notes</Label><Textarea value={form.expansionNotes} onChange={(e) => setForm(f => ({ ...f, expansionNotes: e.target.value }))} rows={2} data-testid="input-edit-expansion-notes" /></div>
           )}
         </div>
@@ -2256,6 +2259,7 @@ function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
     marketSegment: "", slipRange: "",
   });
   const isMarinaType = MARINA_ORG_TYPES.has(form.orgType);
+  const isMarinaOperating = isMarinaType && !NON_OPERATING_SEGMENTS.has(form.marketSegment);
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit({ ...form, slipCount: form.slipCount ? Number(form.slipCount) : undefined }); }} className="space-y-4">
       <div><Label>Name *</Label><Input value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} required data-testid="input-account-name" /></div>
@@ -2308,12 +2312,12 @@ function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div><Label>Region</Label><Input value={form.region} onChange={(e) => setForm(f => ({ ...f, region: e.target.value }))} data-testid="input-account-region" /></div>
-        {isMarinaType && (
+        {isMarinaOperating && (
           <div><Label>Slip Count</Label><Input type="number" value={form.slipCount} onChange={(e) => setForm(f => ({ ...f, slipCount: e.target.value }))} data-testid="input-slip-count" /></div>
         )}
       {isMarinaType && (
         <div className="grid grid-cols-2 gap-3">
-          <div>
+          <div className={!isMarinaOperating ? "col-span-2" : ""}>
             <Label>Market Segment</Label>
             <Select value={form.marketSegment || "__none__"} onValueChange={(v) => setForm(f => ({ ...f, marketSegment: v === "__none__" ? "" : v }))}>
               <SelectTrigger data-testid="select-account-market-segment"><SelectValue placeholder="Select segment" /></SelectTrigger>
@@ -2323,7 +2327,7 @@ function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
               </SelectContent>
             </Select>
           </div>
-          <div>
+          {isMarinaOperating && <div>
             <Label>Slip Range</Label>
             <Select value={form.slipRange || "__none__"} onValueChange={(v) => setForm(f => ({ ...f, slipRange: v === "__none__" ? "" : v }))}>
               <SelectTrigger data-testid="select-account-slip-range"><SelectValue placeholder="Select range" /></SelectTrigger>
@@ -2332,7 +2336,7 @@ function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
                 {SLIP_RANGE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
               </SelectContent>
             </Select>
-          </div>
+          </div>}
         </div>
       )}
       </div>

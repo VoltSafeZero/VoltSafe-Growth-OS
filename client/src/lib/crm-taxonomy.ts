@@ -203,3 +203,44 @@ export function isPartnerSegment(value: string | null | undefined): boolean {
 export function isAssociationSegment(value: string | null | undefined): boolean {
   return value === "association";
 }
+
+// ─── Form field visibility helpers ───────────────────────────────────────────
+
+/**
+ * Relationship types that represent channel/supply-chain partners.
+ * When set, individual marina operating detail fields are hidden in create/edit forms.
+ */
+export const PARTNER_RELATIONSHIP_TYPES = new Set<string>([
+  "strategic_partner",
+  "channel_partner",
+  "oem_manufacturer",
+  "installer",
+  "distributor",
+]);
+
+/**
+ * Market segments where individual marina operating detail fields
+ * (slips, power demand, seasonality, etc.) are not applicable.
+ */
+export const NON_OPERATING_SEGMENTS = new Set<string>([
+  "marina_parent_group",
+  "association",
+]);
+
+/**
+ * Returns true when marina operating detail fields should be shown in
+ * create/edit forms (slip range, slip count, power demand, seasonality,
+ * estimated pedestals, estimated slips impacted).
+ *
+ * Defaults to true for legacy/null records so existing data is always visible.
+ */
+export function shouldShowMarinaOps(
+  primaryIndustry: string | null | undefined,
+  relationshipType: string | null | undefined,
+  marketSegment: string | null | undefined,
+): boolean {
+  if (primaryIndustry && primaryIndustry !== "marine") return false;
+  if (relationshipType && PARTNER_RELATIONSHIP_TYPES.has(relationshipType)) return false;
+  if (marketSegment && NON_OPERATING_SEGMENTS.has(marketSegment)) return false;
+  return true;
+}

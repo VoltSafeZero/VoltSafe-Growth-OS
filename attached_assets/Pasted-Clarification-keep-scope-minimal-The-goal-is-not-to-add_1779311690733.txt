@@ -1,0 +1,100 @@
+Clarification: keep scope minimal.
+
+The goal is not to add more fields everywhere.
+
+The goal is:
+1. Leads and Accounts use the same shared dropdowns.
+2. The UI only shows fields relevant to the selected Industry + Relationship Type + Segment.
+3. Existing fields/links/data must remain untouched.
+
+Do not build a large architecture project.
+Do not add parent/child hierarchy UI.
+Do not add workflow automation.
+Do not add reporting.
+Do not add AI.
+Do not add new schema unless already added and required.
+
+Implement only lightweight conditional visibility in Create/Edit Lead and Create/Edit Account forms.
+
+Rules:
+
+For Industry = marine and Segment = marina:
+Show marina-relevant fields:
+- marketSegment
+- slipRange
+- slipCountInt / slipCount
+- estimatedPedestalCount where already available
+- estimatedSlipsImpacted where already available
+- powerDemandIntensity where already available
+- seasonality where already available
+- isPilot / pilotCandidateScore where already available
+
+Hide partner-only fields.
+
+For Industry = marine and Relationship Type or Segment indicates partner:
+Examples:
+- strategic_partner
+- channel_partner
+- oem_manufacturer
+- installer
+- distributor
+- oem
+- manufacturer
+
+Show partner-relevant fields where already available:
+- partnerClass
+- influenceScore
+- strategicImportance
+- priorityLevel
+- territoryId
+- partnerMetadata / partner notes if already available
+
+Hide marina-only fields:
+- slipRange
+- slipCount
+- estimatedPedestalCount
+- estimatedSlipsImpacted
+- seasonality
+- marina operating details
+
+For Segment = marina_parent_group:
+Show only existing high-level account/group fields where available:
+- marketSegment
+- strategicImportance
+- influenceScore
+- priorityLevel
+- notes
+- parentCompany if already available
+
+Do not add new parent/child hierarchy behavior.
+
+For Segment = association:
+Show association/relationship fields where already available:
+- membershipStatus
+- marinasRepresented
+- influenceScore
+- strategicImportance
+- notes
+
+Hide marina operating fields unless explicitly relevant.
+
+Important:
+- Hide irrelevant fields in the UI.
+- Do not delete fields from the database.
+- Do not remove existing legacy fields.
+- Do not break saved views.
+- Do not break Leads/Accounts/Contacts/email links.
+- Do not perform new backfills.
+- Do not add new migrations.
+
+Acceptance criteria:
+- Create Lead shows only relevant fields based on selected dropdowns.
+- Edit Lead shows only relevant fields based on selected dropdowns.
+- Create Account shows only relevant fields based on selected dropdowns.
+- Edit Account shows only relevant fields based on selected dropdowns.
+- Marine Marina records show marina fields.
+- Marine Partner records hide marina fields.
+- Marina Parent Group records do not show individual marina operating fields.
+- Association records do not show individual marina operating fields.
+- Legacy/null records still load.
+- Existing tests still pass.

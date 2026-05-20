@@ -39,7 +39,7 @@ import { EmailsTab } from "@/components/emails-tab";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 import { AiSummaryCard } from "@/components/crm/ai-summary-card";
-import { PIPELINE_STAGE_OPTIONS, PRIMARY_INDUSTRY_OPTIONS, RELATIONSHIP_TYPE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS } from "@/lib/crm-taxonomy";
+import { PIPELINE_STAGE_OPTIONS, PRIMARY_INDUSTRY_OPTIONS, RELATIONSHIP_TYPE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS, shouldShowMarinaOps } from "@/lib/crm-taxonomy";
 
 const US_STATES = [
   "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware",
@@ -1916,6 +1916,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
   });
 
   const formRegions = form.country ? getRegionsForCountry(form.country) : [];
+  const showMarinaOps = shouldShowMarinaOps(form.primaryIndustry, form.relationshipType, form.marketSegment);
 
   return (
     <form onSubmit={(e) => {
@@ -2053,7 +2054,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
       <div className="border-t border-border/50 pt-3">
         <Label className="text-xs text-muted-foreground mb-2 block">Marina Details</Label>
         <div className="grid grid-cols-2 gap-3">
-          <div><Label className="text-xs">Slips</Label><Input value={form.slips} onChange={(e) => setForm(f => ({ ...f, slips: e.target.value }))} data-testid="input-edit-slips" /></div>
+          {showMarinaOps && <div><Label className="text-xs">Slips</Label><Input value={form.slips} onChange={(e) => setForm(f => ({ ...f, slips: e.target.value }))} data-testid="input-edit-slips" /></div>}
           <div><Label className="text-xs">Segment</Label><Input value={form.segment} onChange={(e) => setForm(f => ({ ...f, segment: e.target.value }))} data-testid="input-edit-segment" /></div>
           <div>
             <Label className="text-xs">Market Segment</Label>
@@ -2065,7 +2066,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
               </SelectContent>
             </Select>
           </div>
-          <div>
+          {showMarinaOps && <div>
             <Label className="text-xs">Slip Range</Label>
             <Select value={form.slipRange || "__none__"} onValueChange={(v) => setForm(f => ({ ...f, slipRange: v === "__none__" ? "" : v }))}>
               <SelectTrigger data-testid="select-edit-slip-range"><SelectValue placeholder="Select range" /></SelectTrigger>
@@ -2074,8 +2075,8 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
                 {SLIP_RANGE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
               </SelectContent>
             </Select>
-          </div>
-          <div><Label className="text-xs">Slip Count (exact)</Label><Input type="number" value={form.slipCountInt} onChange={(e) => setForm(f => ({ ...f, slipCountInt: e.target.value }))} placeholder="e.g. 250" data-testid="input-edit-slip-count-int" /></div>
+          </div>}
+          {showMarinaOps && <div><Label className="text-xs">Slip Count (exact)</Label><Input type="number" value={form.slipCountInt} onChange={(e) => setForm(f => ({ ...f, slipCountInt: e.target.value }))} placeholder="e.g. 250" data-testid="input-edit-slip-count-int" /></div>}
           <div><Label className="text-xs">Source</Label><Input value={form.source} onChange={(e) => setForm(f => ({ ...f, source: e.target.value }))} data-testid="input-edit-source" /></div>
         </div>
       </div>
@@ -2127,10 +2128,10 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
               </SelectContent>
             </Select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          {showMarinaOps && <div className="grid grid-cols-2 gap-3">
             <div><Label className="text-xs">Est. Pedestals</Label><Input type="number" value={form.estimatedPedestalCount} onChange={(e) => setForm(f => ({ ...f, estimatedPedestalCount: e.target.value }))} data-testid="input-edit-pedestal-count" /></div>
             <div><Label className="text-xs">Est. Slips</Label><Input type="number" value={form.estimatedSlipsImpacted} onChange={(e) => setForm(f => ({ ...f, estimatedSlipsImpacted: e.target.value }))} data-testid="input-edit-slips-impacted" /></div>
-          </div>
+          </div>}
         </div>
         <div className="mt-3"><Label className="text-xs">Competitors</Label><Input value={form.competitors} onChange={(e) => setForm(f => ({ ...f, competitors: e.target.value }))} placeholder="Competing vendors or solutions" data-testid="input-edit-competitors" /></div>
         <div className="mt-3"><Label className="text-xs">ROI Story</Label><Textarea value={form.roiStory} onChange={(e) => setForm(f => ({ ...f, roiStory: e.target.value }))} rows={2} placeholder="How does VoltSafe create value for this marina?" data-testid="input-edit-roi-story" /></div>
@@ -2156,6 +2157,7 @@ function CreateLeadForm({ onSubmit, isPending }: { onSubmit: (data: Record<strin
   const [form, setForm] = useState({ company: "", contactName: "", contactEmail: "", contactPhone: "", source: "", notes: "", country: "", state: "", city: "", primaryIndustry: "marine", relationshipType: "customer_prospect", marketSegment: "", slipRange: "" });
 
   const formRegions = form.country ? getRegionsForCountry(form.country) : [];
+  const showMarinaOps = shouldShowMarinaOps(form.primaryIndustry, form.relationshipType, form.marketSegment);
 
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit(form); }} className="space-y-4">
@@ -2258,7 +2260,7 @@ function CreateLeadForm({ onSubmit, isPending }: { onSubmit: (data: Record<strin
             </Select>
           </div>
         )}
-        {(!form.primaryIndustry || form.primaryIndustry === "marine") && (
+        {showMarinaOps && (
           <div>
             <Label>Slip Range</Label>
             <Select value={form.slipRange || "__none__"} onValueChange={(v) => setForm(f => ({ ...f, slipRange: v === "__none__" ? "" : v }))}>
