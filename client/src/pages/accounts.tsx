@@ -33,6 +33,7 @@ import { AttachmentsSection } from "@/components/attachments-section";
 import { AssignUserSelect } from "@/components/assign-user-select";
 import { CreateActionItem } from "@/components/create-action-item";
 import type { Account, Contact, Opportunity, Ticket, InfrastructureProfile, Lead } from "@shared/schema";
+import { AiSummaryCard } from "@/components/crm/ai-summary-card";
 import { EmailsTab } from "@/components/emails-tab";
 import { TimelineTab } from "@/components/timeline-tab";
 import StateProvinceSelect from "@/components/state-province-select";
@@ -1664,6 +1665,8 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
                 <div className="border-t border-border/50 pt-4">
                   <AttachmentsSection objectType="account" objectId={account.id} />
                 </div>
+
+                <AiSummaryCard entityType="account" entityId={account.id} entityName={account.name} />
 
                 <div className="border-t border-border/50 pt-4">
                   <CommentsFeed objectType="account" objectId={account.id} />

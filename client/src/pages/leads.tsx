@@ -38,6 +38,7 @@ import { AccountDetailDialog } from "./accounts";
 import { EmailsTab } from "@/components/emails-tab";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
+import { AiSummaryCard } from "@/components/crm/ai-summary-card";
 
 const US_STATES = [
   "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware",
@@ -1852,6 +1853,8 @@ function LeadDetailDialog({
             <div className="border-t border-border/50 pt-4">
               <AttachmentsSection objectType="lead" objectId={lead.id} />
             </div>
+
+            <AiSummaryCard entityType="lead" entityId={lead.id} entityName={lead.company} />
 
             <div className="border-t border-border/50 pt-4">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Emails</p>

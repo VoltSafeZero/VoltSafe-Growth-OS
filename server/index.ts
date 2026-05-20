@@ -193,7 +193,7 @@ app.use((req, res, next) => {
 (async () => {
   // Run schema migrations FIRST before any route setup queries the DB
   try {
-    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, migrateDocumentSchema, migrateChangelogSchema, migrateProductEngineSchema, migratePilotLeadSchema, migrateCrmExpansionSchema, migrateTradeshowEventsSchema } = await import("./seed-production");
+    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, migrateDocumentSchema, migrateChangelogSchema, migrateProductEngineSchema, migratePilotLeadSchema, migrateCrmExpansionSchema, migrateTradeshowEventsSchema, migrateCrmAiSummarySchema } = await import("./seed-production");
     await migrateUserSchema();
     await migrateEmailSchema();
     await migrateCalendarSchema();
@@ -213,6 +213,7 @@ app.use((req, res, next) => {
     await migratePilotLeadSchema();
     await migrateCrmExpansionSchema();
     await migrateTradeshowEventsSchema();
+    await migrateCrmAiSummarySchema();
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }

@@ -1630,6 +1630,7 @@ export async function registerRoutes(
       });
     }
     res.json(result);
+    import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("lead", lid, "fields")).catch(() => {});
   });
 
   app.delete("/api/leads/:id", requirePermission("crm", "edit"), async (req, res) => {
@@ -2843,9 +2844,11 @@ export async function registerRoutes(
   });
 
   app.put("/api/accounts/:id", requirePermission("crm", "edit"), async (req, res) => {
-    const result = await storage.updateAccount(Number(req.params.id), req.body);
+    const _aid = Number(req.params.id);
+    const result = await storage.updateAccount(_aid, req.body);
     if (!result) return res.status(404).json({ message: "Account not found" });
     res.json(result);
+    import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("account", _aid, "fields")).catch(() => {});
   });
 
   app.delete("/api/accounts/:id", requirePermission("crm", "edit"), async (req, res) => {
@@ -3163,9 +3166,11 @@ export async function registerRoutes(
   });
 
   app.put("/api/contacts/:id", requirePermission("crm", "edit"), async (req, res) => {
-    const result = await storage.updateContact(Number(req.params.id), req.body);
+    const _cid = Number(req.params.id);
+    const result = await storage.updateContact(_cid, req.body);
     if (!result) return res.status(404).json({ message: "Contact not found" });
     res.json(result);
+    import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("contact", _cid, "fields")).catch(() => {});
   });
 
   app.delete("/api/contacts/:id", requirePermission("crm", "edit"), async (req, res) => {
@@ -16173,6 +16178,8 @@ export function registerConfluenceRoutes(app: Express) {
         authorName: dbUser?.name ?? "System",
       });
       res.status(201).json(note);
+      const _nt = req.body?.linkedObjectType; const _ni = Number(req.body?.linkedObjectId);
+      if (["lead","account","contact"].includes(_nt) && _ni > 0) import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale(_nt, _ni, "note")).catch(() => {});
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -16205,6 +16212,8 @@ export function registerConfluenceRoutes(app: Express) {
       const note = await storage.updateNote(existing.id, safe as any);
       if (!note) return res.status(404).json({ message: "Note not found" });
       res.json(note);
+      const _ut = (existing as any).linkedObjectType; const _ui = Number((existing as any).linkedObjectId);
+      if (["lead","account","contact"].includes(_ut) && _ui > 0) import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale(_ut, _ui, "note")).catch(() => {});
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -16221,6 +16230,8 @@ export function registerConfluenceRoutes(app: Express) {
 
       await storage.deleteNote(existing.id);
       res.json({ ok: true });
+      const _dt = (existing as any).linkedObjectType; const _di = Number((existing as any).linkedObjectId);
+      if (["lead","account","contact"].includes(_dt) && _di > 0) import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale(_dt, _di, "note")).catch(() => {});
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -26633,6 +26644,65 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
+  });
+
+  // ── CRM AI Summary ────────────────────────────────────────────────────────
+  const _VALID_AI_ENTITY_TYPES = ["lead", "account", "contact"];
+
+  app.get("/api/crm/ai-summary/backfill/status", requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const { getBackfillStatus } = await import("./services/crm-ai-summary");
+      res.json(getBackfillStatus());
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/crm/ai-summary/backfill/start", requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const { runCrmAiSummaryBackfill } = await import("./services/crm-ai-summary");
+      runCrmAiSummaryBackfill().catch(() => {});
+      res.json({ ok: true, message: "Backfill started" });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.get("/api/crm/ai-summary/:entityType/:entityId", requireAuth, async (req, res) => {
+    const entityType = req.params.entityType;
+    const entityId = parseInt(req.params.entityId);
+    if (!_VALID_AI_ENTITY_TYPES.includes(entityType) || isNaN(entityId) || entityId <= 0) {
+      return res.status(400).json({ message: "Invalid entity type or ID" });
+    }
+    try {
+      const { getCrmAiSummary } = await import("./services/crm-ai-summary");
+      const summary = await getCrmAiSummary(entityType as any, entityId);
+      if (!summary) return res.status(404).json({ message: "No summary yet" });
+      res.json(summary);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/crm/ai-summary/:entityType/:entityId/regenerate", requireAuth, async (req, res) => {
+    const entityType = req.params.entityType;
+    const entityId = parseInt(req.params.entityId);
+    if (!_VALID_AI_ENTITY_TYPES.includes(entityType) || isNaN(entityId) || entityId <= 0) {
+      return res.status(400).json({ message: "Invalid entity type or ID" });
+    }
+    const force = req.body?.force !== false;
+    try {
+      const { generateCrmAiSummary } = await import("./services/crm-ai-summary");
+      generateCrmAiSummary(entityType as any, entityId, force).catch(() => {});
+      res.json({ ok: true, message: "Generation started" });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/crm/ai-summary/:entityType/:entityId/suggest-next-email", requireAuth, async (req, res) => {
+    const entityType = req.params.entityType;
+    const entityId = parseInt(req.params.entityId);
+    if (!_VALID_AI_ENTITY_TYPES.includes(entityType) || isNaN(entityId) || entityId <= 0) {
+      return res.status(400).json({ message: "Invalid entity type or ID" });
+    }
+    try {
+      const { generateSuggestedNextEmail } = await import("./services/crm-ai-summary");
+      const suggestion = await generateSuggestedNextEmail(entityType as any, entityId);
+      res.json(suggestion);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
   // ── Engagement scheduler + default rules ────────────────────────────────────

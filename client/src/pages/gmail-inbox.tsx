@@ -3938,7 +3938,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [snippetsManagerOpen, setSnippetsManagerOpen] = useState(false);
   const { snippets } = useSnippets();
   // ── Compose seed (cmdk → contact / snippet → fresh compose) ────────────
-  const [composeInitial, setComposeInitial] = useState<{ to?: string; subject?: string; body?: string; isForward?: boolean; quotedHtml?: string; quotedFrom?: string; quotedDate?: string; forwardSubject?: string; forwardTo?: string } | null>(null);
+  const [composeInitial, setComposeInitial] = useState<{ to?: string; cc?: string; subject?: string; body?: string; isForward?: boolean; quotedHtml?: string; quotedFrom?: string; quotedDate?: string; forwardSubject?: string; forwardTo?: string } | null>(null);
   // ── Cmd+K / Ctrl+K listener ────────────────────────────────────────────
   // Registered in CAPTURE phase + stopImmediatePropagation so the inbox
   // palette is the *only* ⌘K target while this page is mounted (preempts
@@ -3957,6 +3957,21 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       window.removeEventListener("keydown", onKey, true);
       document.removeEventListener("keydown", onKey, true);
     };
+  }, []);
+  // ── External compose trigger (from AI Summary "Suggested Email") ───────────
+  useEffect(() => {
+    const onOpenCompose = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      setComposeInitial({
+        to: detail.to || "",
+        cc: detail.cc || "",
+        subject: detail.subject || "",
+        body: detail.body || "",
+      });
+      setComposeOpen(true);
+    };
+    window.addEventListener("voltsafe:openCompose", onOpenCompose);
+    return () => window.removeEventListener("voltsafe:openCompose", onOpenCompose);
   }, []);
   const [editingDomainFolderId, setEditingDomainFolderId] = useState<number | null>(null);
   const [addDomainInput, setAddDomainInput] = useState("");
@@ -8925,7 +8940,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         onClose={() => { setComposeOpen(false); setReplyTo(null); setEditingDraft(null); setComposeInitial(null); }}
         canSend={canSend}
         defaultTo={editingDraft?.to || replyTo?.to || composeInitial?.to || ""}
-        defaultCc={replyTo?.cc || ""}
+        defaultCc={replyTo?.cc || composeInitial?.cc || ""}
         defaultSubject={editingDraft?.subject || replyTo?.subject || composeInitial?.subject || ""}
         defaultBody={editingDraft?.body || composeInitial?.body || ""}
         draftId={editingDraft?.draftId}

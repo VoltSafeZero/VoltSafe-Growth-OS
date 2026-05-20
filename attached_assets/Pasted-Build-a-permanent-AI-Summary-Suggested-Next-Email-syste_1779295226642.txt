@@ -1,0 +1,567 @@
+Build a permanent AI Summary + Suggested Next Email system for VoltSafe CMS.
+
+PRIMARY OBJECTIVE
+VoltSafe CMS already centralizes historical and current communication, notes, contacts, documents, CRM activity, and linked emails into Leads, Accounts, and Contacts.
+
+The missing layer is an AI operational intelligence system that continuously understands and summarizes everything into a simple, always-current briefing.
+
+Users should NOT need to read months or years of historical emails and notes to understand:
+- relationship history
+- current status
+- key people
+- next steps
+- blockers
+- opportunities
+- context
+
+Instead, every LEAD, ACCOUNT, and CONTACT should automatically contain:
+1. An always-current AI Summary (“Coles Notes” operational briefing)
+2. AI-generated Suggested Next Email functionality
+
+This should become a foundational productivity layer across VoltSafe CMS.
+
+==================================================
+GLOBAL REQUIREMENT — AUTO-GENERATE FOR ALL EXISTING RECORDS
+==================================================
+
+CRITICAL REQUIREMENT:
+
+This system must automatically generate AI Summaries for:
+- ALL existing Leads
+- ALL existing Accounts
+- ALL existing Contacts
+
+NOT just newly created records.
+
+On deployment:
+1. Backfill summaries for every existing CRM entity.
+2. Run safely in batches/background jobs.
+3. Never lock or freeze the app.
+4. Never block user requests.
+5. Track progress/status.
+6. Skip unchanged entities intelligently using hashing/fingerprinting.
+
+After deployment:
+- All newly created Leads/Accounts/Contacts should automatically get summaries.
+- All existing summaries should stay continuously updated.
+
+==================================================
+SUPPORTED ENTITY TYPES
+==================================================
+
+The AI Summary + Suggested Next Email system must work for:
+- Leads
+- Accounts
+- Contacts
+
+NOT just Leads and Accounts.
+
+Contacts are extremely important because many relationship details live at the contact/person level.
+
+==================================================
+SECTION 1 — AI SUMMARY FEATURE
+==================================================
+
+Placement:
+
+LEADS:
+- Place AI Summary BELOW Documents
+- Place AI Summary ABOVE Emails
+
+ACCOUNTS:
+- Place AI Summary BELOW Documents
+- Place AI Summary ABOVE Emails
+
+CONTACTS:
+- Add AI Summary prominently within Contact detail view
+- Position above linked communication history
+
+Section title:
+AI Summary
+
+==================================================
+WHAT THE AI SUMMARY MUST INCLUDE
+==================================================
+
+1. Executive Summary
+- Plain-English snapshot
+- Relationship overview
+- Current context
+- What this company/person represents
+
+2. Key People
+- Names
+- Roles
+- Titles
+- Decision-maker status
+- Relationship importance
+- Contact details if available
+
+3. Relevant History
+- Important calls
+- Site visits
+- Meetings
+- Notes
+- Historical email context
+- Introductions
+- Objections
+- Commitments
+- Relationship events
+
+4. Current Status
+- Current pipeline/commercial status
+- Relationship momentum
+- Current state of engagement
+
+5. Opportunities / Risks
+- Buying signals
+- Delays
+- Blockers
+- Concerns
+- Unknowns
+- Internal dependencies
+
+6. Suggested Next Steps
+- Actionable recommendations
+- Outreach suggestions
+- Internal follow-up recommendations
+- Scheduling recommendations
+
+7. Last Updated Timestamp
+
+8. Freshness Note
+Example:
+“Generated from notes, linked emails, documents, contacts, and CRM activity.”
+
+==================================================
+AI SUMMARY UX REQUIREMENTS
+==================================================
+
+The AI Summary card should:
+- Match VoltSafe CMS styling
+- Feel premium and operationally useful
+- Be concise
+- Avoid giant AI essay walls
+- Optimize for fast human comprehension
+
+Required states:
+- Loading
+- Empty
+- Fresh
+- Updating
+- Stale
+- Failed
+
+Buttons:
+- Regenerate Summary
+- Suggested Next Email
+
+If summary does not exist:
+Show:
+“No AI summary yet”
+with Generate button.
+
+==================================================
+DATA SOURCES
+==================================================
+
+LEADS:
+- Lead fields
+- Notes
+- Linked contacts
+- Linked documents
+- Linked emails
+- Action items/tasks
+- Stage
+- Source
+- Quality
+- Deal value
+- Slips
+- Location
+- Industry
+- CRM activity
+
+ACCOUNTS:
+- Account fields
+- Notes
+- Linked contacts
+- Linked documents
+- Linked emails
+- Action items/tasks
+- Customer status
+- Renewal information
+- CRM activity
+
+CONTACTS:
+- Contact fields
+- Linked accounts
+- Linked leads
+- Linked emails
+- Notes
+- Documents
+- CRM activity
+- Communication history
+- Associated meetings/tasks
+
+IMPORTANT:
+Only summarize information linked to the specific entity.
+
+==================================================
+AUTO-REFRESH / STALE HANDLING
+==================================================
+
+The AI Summary must continuously stay current.
+
+Any meaningful CRM update should:
+1. Mark summary stale
+2. Trigger safe background regeneration
+
+Events that MUST mark stale:
+- New linked email
+- Email unlinked
+- New note
+- Note edited
+- Note deleted
+- Contact linked/unlinked/edited
+- Document linked/uploaded/deleted
+- Lead/Account/Contact field updated
+- Stage/status changed
+- Action item created/edited/completed/deleted
+- Lead converted to Account
+- Manual merge/link operations
+- Email sync/import
+- Gmail sync updates
+
+Requirements:
+- Background-safe
+- Non-blocking
+- Never slow page loads
+- Never freeze UI
+- Never create regeneration loops
+
+Use:
+- source_hash or equivalent fingerprinting
+to prevent unnecessary regeneration.
+
+==================================================
+BACKFILL ENGINE REQUIREMENTS
+==================================================
+
+Create a safe backfill processor that:
+- Iterates all existing Leads
+- Iterates all existing Accounts
+- Iterates all existing Contacts
+- Generates summaries in batches
+- Can resume safely
+- Can retry failures
+- Never overload the AI provider
+- Never overload database connections
+- Supports rate limiting/concurrency control
+
+Track:
+- queued
+- generating
+- success
+- failed
+- stale
+
+Add logs:
+- batch start
+- batch completion
+- failures
+- retry attempts
+- skipped unchanged entities
+
+==================================================
+DATABASE REQUIREMENTS
+==================================================
+
+Additive-only schema changes.
+
+DO NOT:
+- Drop tables
+- Rename columns
+- Destructively alter schema
+
+Suggested table:
+crm_ai_summaries
+
+Fields:
+- id
+- entity_type (“lead” | “account” | “contact”)
+- entity_id
+- summary_json
+- summary_text
+- status
+- source_hash
+- generated_at
+- stale_at
+- last_attempted_at
+- retry_count
+- error_message
+- created_at
+- updated_at
+
+Optional:
+crm_ai_summary_jobs
+for queued/background processing.
+
+==================================================
+BACKEND SERVICES
+==================================================
+
+Create services/functions:
+
+- collectCrmEntityContext(entityType, entityId)
+- buildCrmAiSummaryPrompt(context)
+- generateCrmAiSummary(entityType, entityId, force=false)
+- markCrmAiSummaryStale(entityType, entityId, reason)
+- queueCrmAiSummaryGeneration(entityType, entityId)
+- runCrmAiSummaryBackfill()
+
+Requirements:
+- Safe background processing
+- Non-blocking
+- Preserve previous summary on failure
+- Trim/token-limit huge email chains intelligently
+- Avoid duplicate thread context
+- Detailed logging
+
+==================================================
+API ENDPOINTS
+==================================================
+
+GET:
+- /api/crm/ai-summary/:entityType/:entityId
+
+POST:
+- /api/crm/ai-summary/:entityType/:entityId/regenerate
+
+POST:
+- /api/crm/ai-summary/backfill/start
+
+GET:
+- /api/crm/ai-summary/backfill/status
+
+==================================================
+FRONTEND REQUIREMENTS
+==================================================
+
+Create:
+- AiSummaryCard component
+
+Render:
+- structured summary_json sections
+- fallback to summary_text if needed
+
+Display:
+- status pill
+- generated timestamp
+- freshness state
+
+Buttons:
+- Regenerate Summary
+- Suggested Next Email
+
+==================================================
+SECTION 2 — AI SUGGESTED NEXT EMAIL
+==================================================
+
+Goal:
+Beside the AI Summary, add AI-driven Suggested Next Email functionality.
+
+Placement:
+Add button beside AI Summary actions:
+“Suggested Next Email”
+
+==================================================
+SUGGESTED EMAIL GENERATION
+==================================================
+
+When clicked:
+Use:
+- latest AI Summary
+- suggested next steps
+- linked contacts
+- recent emails
+- notes
+- CRM activity
+- stage/status
+- relationship context
+
+Generate:
+- Suggested To recipient(s)
+- Suggested CC recipient(s)
+- Subject line
+- Email body
+- Short explanation for why this email is recommended
+
+==================================================
+MODAL REQUIREMENTS
+==================================================
+
+Create:
+SuggestedNextEmailModal
+
+Include:
+- To
+- CC
+- Subject
+- Email body
+- Recommendation reason
+
+Buttons:
+- Cancel
+- Regenerate
+- Continue
+
+==================================================
+CONTINUE BUTTON BEHAVIOR
+==================================================
+
+When Continue is clicked:
+- Automatically open VoltSafe Mail compose
+- Pre-fill:
+  - To
+  - CC
+  - Subject
+  - Body
+
+User must still be able to:
+- Edit
+- Send
+- Save draft
+- Delete
+
+IMPORTANT:
+NEVER auto-send emails.
+Ever.
+
+==================================================
+SUGGESTED EMAIL BACKEND
+==================================================
+
+Create:
+- generateSuggestedNextEmail(entityType, entityId)
+
+Suggested API:
+POST:
+- /api/crm/ai-summary/:entityType/:entityId/suggest-next-email
+
+Rules:
+- Prefer best human contact
+- Avoid generic inboxes
+- If decision-maker unknown:
+  explain incomplete mapping
+- If no confident recipient:
+  still generate draft
+  show warning:
+  “No confident recipient found.”
+
+Use latest AI Summary as primary context.
+
+If summary is stale:
+- regenerate first
+OR
+- clearly indicate stale-context generation
+
+Tone:
+- Professional
+- Concise
+- Warm
+- Operational
+- VoltSafe-specific
+
+Never hallucinate:
+- pricing
+- commitments
+- delivery dates
+- specs
+- promises
+- agreements
+
+==================================================
+MAIL CLIENT INTEGRATION
+==================================================
+
+Integrate directly with VoltSafe Mail compose flow.
+
+Reuse compose-open helper if it exists.
+
+Otherwise create:
+openComposeDraft({
+  to,
+  cc,
+  subject,
+  body,
+  linkedEntity
+})
+
+Requirements:
+- Open compose automatically
+- Preserve existing draft/edit/send/delete workflow
+
+==================================================
+FRONTEND COMPONENTS
+==================================================
+
+Create:
+- SuggestedNextEmailButton
+- SuggestedNextEmailModal
+
+Wire:
+- Continue → VoltSafe Mail compose
+
+==================================================
+TEST REQUIREMENTS
+==================================================
+
+AI SUMMARY:
+1. Lead page renders AI Summary correctly
+2. Account page renders AI Summary correctly
+3. Contact page renders AI Summary correctly
+4. Empty state works
+5. Loading state works
+6. Failed state works
+7. Manual regenerate works
+8. New linked email marks stale
+9. New note marks stale
+10. Contact/document changes mark stale
+11. source_hash prevents unnecessary regeneration
+12. Existing pages still load if AI fails
+13. No destructive migrations
+14. Backfill processes all existing entities safely
+15. Backfill resume/retry works
+16. Background queue works safely
+
+SUGGESTED NEXT EMAIL:
+17. Button appears beside AI Summary
+18. Clicking button calls API
+19. Modal renders correctly
+20. Continue opens VoltSafe Mail compose pre-filled
+21. Cancel closes modal
+22. Regenerate refreshes proposal
+23. No-recipient case handled safely
+24. No email auto-send possible
+25. Stale summary handling works safely
+
+==================================================
+DELIVERABLE
+==================================================
+
+Implement the feature end-to-end with:
+- clean architecture
+- production-safe code
+- non-blocking behavior
+- resilient failure handling
+- premium UX
+- scalable background processing
+
+Then:
+1. Run relevant tests
+2. Run regression suite if reasonable
+3. Provide concise implementation summary:
+   - files changed
+   - tests passed
+   - assumptions
+   - architectural notes

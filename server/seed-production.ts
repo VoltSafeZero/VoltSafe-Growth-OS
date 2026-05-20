@@ -1326,3 +1326,33 @@ export async function migrateTradeshowEventsSchema(): Promise<void> {
     console.error("[migration] Tradeshow events schema migration error (non-fatal):", err);
   }
 }
+
+export async function migrateCrmAiSummarySchema(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS crm_ai_summaries (
+        id SERIAL PRIMARY KEY,
+        entity_type TEXT NOT NULL CHECK (entity_type IN ('lead','account','contact')),
+        entity_id INTEGER NOT NULL,
+        summary_json JSONB,
+        summary_text TEXT,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','generating','success','failed','stale')),
+        source_hash TEXT,
+        generated_at TIMESTAMPTZ,
+        stale_at TIMESTAMPTZ,
+        last_attempted_at TIMESTAMPTZ,
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        error_message TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS crm_ai_summaries_entity_idx
+      ON crm_ai_summaries (entity_type, entity_id)
+    `);
+    console.log("[migration] CRM AI Summary schema migration complete.");
+  } catch (err) {
+    console.error("[migration] CRM AI Summary schema migration error (non-fatal):", err);
+  }
+}

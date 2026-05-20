@@ -25,6 +25,7 @@ import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { useRef } from "react";
 import { Camera, Trash2 } from "lucide-react";
 import { SendBookingLinkButton, BookingLinkStatusInline } from "@/components/SendBookingLinkButton";
+import { AiSummaryCard } from "@/components/crm/ai-summary-card";
 
 const STAGE_LABEL: Record<string, string> = {
   inbound_new: "New", qualified: "Qualified", discovery: "Discovery",
@@ -484,6 +485,8 @@ export default function ContactProfilePage() {
           document.getElementById(`contact-${section}-section`)?.scrollIntoView({ behavior: "smooth" });
         }}
       />
+
+      <AiSummaryCard entityType="contact" entityId={id} entityName={contact?.name} />
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
