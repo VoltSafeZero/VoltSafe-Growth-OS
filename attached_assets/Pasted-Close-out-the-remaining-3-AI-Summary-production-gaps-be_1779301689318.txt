@@ -1,0 +1,160 @@
+Close out the remaining 3 AI Summary production gaps before final sign-off.
+
+These are surgical fixes, not architecture changes.
+
+==================================================
+1. REMOVE BACKFILL HARD CAPS (HIGHEST PRIORITY)
+==================================================
+
+Current issue:
+Backfill currently caps:
+- 5,000 leads
+- 2,000 accounts
+- 5,000 contacts
+
+Current DB already exceeds the lead cap (~10,962 leads), which means:
+“all existing CRM entities summarized”
+is not actually true.
+
+Required fix:
+Replace hard caps with proper batching/pagination.
+
+Implement one of:
+A) cursor pagination
+   WHERE id > lastSeenId
+   ORDER BY id
+   LIMIT batchSize
+
+B) LIMIT/OFFSET loop until zero rows remain
+
+C) queue seeded with all entity IDs
+
+Requirements:
+- Process ALL existing Leads
+- Process ALL existing Accounts
+- Process ALL existing Contacts
+- No silent skipping
+- Safe for 10k+ records
+- Resumable
+- Rate-limited
+- Non-blocking
+- Does not overload DB or AI provider
+
+Status endpoint must report:
+- total discovered
+- queued
+- generating
+- completed/processed
+- skipped unchanged
+- failed
+- per-entity breakdown
+
+Add tests proving:
+- backfill processes >5,000 leads
+- backfill continues until all records processed
+- no silent skipping occurs
+
+==================================================
+2. GMAIL AUTO-SYNC MUST MARK SUMMARIES STALE
+==================================================
+
+Current issue:
+Manual email linking marks summaries stale.
+Background Gmail auto-sync associations do NOT.
+
+This breaks the core promise that summaries stay automatically current.
+
+Required fix:
+Whenever Gmail sync/import auto-associates an email to:
+- lead
+- account
+- contact
+
+call:
+markCrmAiSummaryStale(
+  entityType,
+  entityId,
+  "gmail_auto_sync_email_association"
+)
+
+Requirements:
+- Hook into the REAL sync worker association-write path
+- Do not rely on backfill eventually catching it
+- Do not block Gmail sync
+- Log failures without breaking sync
+- Prevent duplicate stale queue spam for same email/entity pair
+
+Add tests proving:
+- Gmail auto-sync marks stale correctly
+- duplicate associations do not spam queue
+- sync still succeeds if stale marking fails
+
+==================================================
+3. ATTACHMENT DELETE MUST MARK STALE
+==================================================
+
+Current issue:
+Attachment upload marks stale.
+DELETE /api/attachments/:id does not.
+
+Required fix:
+Before deleting attachment:
+1. Look up attachment row
+2. Determine linked CRM entity
+3. Call:
+
+markCrmAiSummaryStale(
+  entityType,
+  entityId,
+  "attachment_deleted"
+)
+
+Apply to:
+- lead
+- account
+- contact
+
+If attachment has no CRM entity:
+- delete normally
+- do not crash
+
+Add tests proving:
+- deleting lead attachment marks stale
+- deleting account attachment marks stale
+- deleting contact attachment marks stale
+- deleting non-CRM attachment does not crash
+
+==================================================
+4. FINAL VERIFICATION
+==================================================
+
+After fixes:
+
+Run:
+- ai-summary-behavior.test.cjs
+- affected Gmail sync tests
+- affected attachment tests
+- relevant CRM regression suites
+
+Re-run source audit confirming:
+- page open NEVER triggers AI generation
+- AI Summary system remains normally idle
+- saved summaries display instantly
+- only real CRM mutations trigger regeneration
+
+Acceptance criteria:
+- Every existing Lead/Account/Contact can be summarized
+- No silent backfill caps
+- Gmail auto-sync updates summaries automatically
+- Attachment deletion updates summaries automatically
+- No page-load AI generation
+- Failed generation preserves prior summary
+- Suggested Next Email still does NOT auto-generate summaries
+- No destructive schema changes
+
+Deliver:
+- files changed
+- tests passed
+- exact hook locations added
+- proof backfill now processes all records
+- remaining limitations (if any)

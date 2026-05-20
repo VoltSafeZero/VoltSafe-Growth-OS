@@ -5717,6 +5717,11 @@ export async function registerRoutes(
     try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch {}
     await storage.deleteAttachment(attachment.id);
     res.json({ message: "Deleted" });
+    if (["lead","account","contact"].includes(attachment.objectType ?? "")) {
+      import("./services/crm-ai-summary").then(m =>
+        m.markCrmAiSummaryStale(attachment.objectType as any, attachment.objectId, "attachment_deleted")
+      ).catch(() => {});
+    }
   });
 
   // ── Users List (simple, for dropdowns) ─────────────────────────

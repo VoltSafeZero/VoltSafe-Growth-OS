@@ -192,6 +192,11 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
               isAuto: false,
               isUserConfirmed: true,
             });
+            if (["lead","account","contact"].includes(rule.object_type)) {
+              import("./crm-ai-summary").then(m =>
+                m.markCrmAiSummaryStale(rule.object_type as any, rule.object_id, "gmail_auto_sync_email_association")
+              ).catch(() => {});
+            }
           }
           const threadUpdates: Record<string, any> = { associationStatus: "associated", updatedAt: new Date() };
           if (rule.object_type === "contact") threadUpdates.primaryContactId = rule.object_id;
@@ -514,6 +519,11 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
       isAuto,
       isUserConfirmed: false,
     });
+    if (["lead","account","contact"].includes(cand.objectType)) {
+      import("./crm-ai-summary").then(m =>
+        m.markCrmAiSummaryStale(cand.objectType as any, cand.objectId, "gmail_auto_sync_email_association")
+      ).catch(() => {});
+    }
   }
 
   // ── Update email_threads primary pointers ─────────────────────────────────

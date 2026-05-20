@@ -713,8 +713,29 @@ export async function generateSuggestedNextEmail(
 // ── Backfill ──────────────────────────────────────────────────────────────────
 
 /**
+ * Cursor-paginated ID loader — fetches ALL rows from `table` with no cap.
+ * Uses `WHERE id > lastSeenId ORDER BY id LIMIT PAGE` to avoid skipping
+ * records when the table grows during the backfill.
+ */
+async function loadAllIds(table: string, pageSize = 500): Promise<number[]> {
+  const ids: number[] = [];
+  let lastId = 0;
+  while (true) {
+    const rows = await safeRows(
+      `SELECT id FROM ${table} WHERE id > ${lastId} ORDER BY id LIMIT ${pageSize}`
+    );
+    if (!rows || rows.length === 0) break;
+    for (const r of rows) ids.push(r.id);
+    lastId = rows[rows.length - 1].id;
+    if (rows.length < pageSize) break; // last page
+  }
+  return ids;
+}
+
+/**
  * One-time (or periodic) backfill that generates summaries for all entities
  * that don't have a fresh one yet. Safe to re-run — skips unchanged records.
+ * Processes ALL leads/accounts/contacts via cursor pagination — no hard caps.
  */
 export async function runCrmAiSummaryBackfill(): Promise<void> {
   if (backfillState.running) return;
@@ -735,9 +756,9 @@ export async function runCrmAiSummaryBackfill(): Promise<void> {
   console.log("[crm-ai-summary] Backfill started");
 
   try {
-    const leadIds    = (await safeRows("SELECT id FROM leads ORDER BY id LIMIT 5000")).map((r: any) => r.id);
-    const accountIds = (await safeRows("SELECT id FROM accounts ORDER BY id LIMIT 2000")).map((r: any) => r.id);
-    const contactIds = (await safeRows("SELECT id FROM contacts ORDER BY id LIMIT 5000")).map((r: any) => r.id);
+    const leadIds    = await loadAllIds("leads");
+    const accountIds = await loadAllIds("accounts");
+    const contactIds = await loadAllIds("contacts");
 
     backfillState.byType.leads.total    = leadIds.length;
     backfillState.byType.accounts.total = accountIds.length;

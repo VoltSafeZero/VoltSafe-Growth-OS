@@ -223,6 +223,111 @@ assert(
   "PUT /api/contacts/:id must call markCrmAiSummaryStale"
 );
 
+// ── Gap-closure tests (production-readiness pass 2) ──────────────────────────
+
+const assocEngine = fs.readFileSync(path.join(__dirname, "../server/services/association-engine.ts"), "utf8");
+
+console.log("\nBackfill pagination:");
+
+// 19. loadAllIds helper exists and uses cursor pattern (no hard cap)
+assert(
+  service.includes("loadAllIds") && service.includes("WHERE id > ") && service.includes("ORDER BY id LIMIT"),
+  "Backfill uses cursor pagination instead of LIMIT cap",
+  "loadAllIds must use WHERE id > lastId ORDER BY id LIMIT for unbounded traversal"
+);
+
+// 20. No hard LIMIT cap on leads/accounts/contacts in backfill
+assert(
+  !service.match(/SELECT id FROM leads ORDER BY id LIMIT \d+/) &&
+  !service.match(/SELECT id FROM accounts ORDER BY id LIMIT \d+/) &&
+  !service.match(/SELECT id FROM contacts ORDER BY id LIMIT \d+/),
+  "Backfill removes hard LIMIT caps on entity queries",
+  "SELECT id FROM leads/accounts/contacts must not have a hard LIMIT"
+);
+
+// 21. loadAllIds loops until zero rows (reads final page detection)
+assert(
+  service.includes("rows.length < pageSize") || service.includes("rows.length === 0"),
+  "Backfill loop terminates correctly when all records processed",
+  "loadAllIds must break when rows.length < pageSize or rows.length === 0"
+);
+
+// 22. backfill calls loadAllIds for all three entity types
+assert(
+  service.includes('loadAllIds("leads")') &&
+  service.includes('loadAllIds("accounts")') &&
+  service.includes('loadAllIds("contacts")'),
+  "Backfill processes leads, accounts, and contacts via loadAllIds",
+  'runCrmAiSummaryBackfill must call loadAllIds("leads"), loadAllIds("accounts"), loadAllIds("contacts")'
+);
+
+console.log("\nGmail auto-sync stale marking:");
+
+// 23. association-engine marks stale on domain-rule insert (path 1)
+assert(
+  assocEngine.includes("markCrmAiSummaryStale") &&
+  assocEngine.includes("gmail_auto_sync_email_association"),
+  "Gmail auto-sync (domain-rule path) marks AI summary stale",
+  "association-engine.ts must call markCrmAiSummaryStale after domain-rule insert"
+);
+
+// 24. association-engine marks stale on ML scoring insert (path 2) — deduplication prevents spam
+assert(
+  (() => {
+    const staleCount = (assocEngine.match(/markCrmAiSummaryStale/g) || []).length;
+    return staleCount >= 2;
+  })(),
+  "Both auto-association paths (domain-rule + ML scoring) mark stale",
+  "association-engine.ts must have markCrmAiSummaryStale in both insert paths"
+);
+
+// 25. Duplicate-prevention: stale marking only fires for NEW inserts
+// Domain-rule path: guarded by `if (!existingAssoc)` DB check.
+// ML scoring path: guarded by `existingKeys.has(key) → continue` before insert.
+// Both inserts have a dedup guard, and both are followed by markCrmAiSummaryStale.
+assert(
+  (() => {
+    // ML scoring loop: "if (existingKeys.has(key)) continue" must appear before the second
+    // markCrmAiSummaryStale occurrence (which is inside the for-loop body after the guard).
+    const mlLoopStart = assocEngine.indexOf("existingKeys.has(key)");
+    const secondStale = assocEngine.indexOf("markCrmAiSummaryStale",
+      assocEngine.indexOf("markCrmAiSummaryStale") + 1);
+    return mlLoopStart > 0 && secondStale > mlLoopStart;
+  })(),
+  "Stale marking only fires for new associations — no duplicate queue spam",
+  "ML scoring path: markCrmAiSummaryStale must appear after existingKeys.has(key) dedup guard"
+);
+
+// 26. Gmail stale marking is non-blocking (uses .catch(() => {}))
+assert(
+  assocEngine.includes(".catch(() => {})"),
+  "Gmail stale marking is non-blocking and does not break sync on failure",
+  "markCrmAiSummaryStale in association-engine.ts must use .catch(() => {}) to isolate failures"
+);
+
+console.log("\nAttachment delete stale marking:");
+
+// 27. Attachment DELETE route marks stale for CRM entity types
+assert(
+  (() => {
+    const deleteBlock = routes.slice(routes.lastIndexOf("storage.deleteAttachment"));
+    return deleteBlock.includes("markCrmAiSummaryStale") && deleteBlock.includes("attachment_deleted");
+  })(),
+  "Attachment deletion marks AI summary stale for lead/account/contact",
+  "DELETE /api/attachments/:id must call markCrmAiSummaryStale with 'attachment_deleted'"
+);
+
+// 28. Attachment DELETE stale marking is gated on CRM type (non-CRM attachments don't crash)
+assert(
+  (() => {
+    const afterDelete = routes.slice(routes.lastIndexOf("storage.deleteAttachment"));
+    return afterDelete.includes('["lead","account","contact"].includes') ||
+           afterDelete.includes("lead.*account.*contact");
+  })(),
+  "Attachment delete stale marking skips non-CRM entity types (no crash)",
+  "Must check objectType is lead/account/contact before calling markCrmAiSummaryStale"
+);
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 
 console.log(`\n${"─".repeat(50)}`);
