@@ -158,6 +158,9 @@ export const accounts = pgTable("accounts", {
   longitude: doublePrecision("longitude"),
 
   slipCount: integer("slip_count"),
+  // Phase 2D taxonomy fields — columns exist in DB via migration 0005
+  marketSegment: text("market_segment"),
+  slipRange: text("slip_range"),
   segment: text("segment").notNull().default("marina"),
   slipMix: text("slip_mix"),
   avgBoatSizeRange: text("avg_boat_size_range"),
