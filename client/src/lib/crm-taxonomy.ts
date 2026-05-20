@@ -174,6 +174,108 @@ export function getLegacyStageDisplay(value: string | null | undefined): string 
   return legacyLabels[value] ?? getTaxonomyLabel("pipeline_stage", normalizeLifecycleStage(value));
 }
 
+// ─── Shared geo data (moved here from leads.tsx so Accounts can reuse) ───────
+
+export const US_STATES = [
+  "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware",
+  "Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa","Kansas","Kentucky",
+  "Louisiana","Maine","Maryland","Massachusetts","Michigan","Minnesota","Mississippi",
+  "Missouri","Montana","Nebraska","Nevada","New Hampshire","New Jersey","New Mexico",
+  "New York","North Carolina","North Dakota","Ohio","Oklahoma","Oregon","Pennsylvania",
+  "Rhode Island","South Carolina","South Dakota","Tennessee","Texas","Utah","Vermont",
+  "Virginia","Washington","West Virginia","Wisconsin","Wyoming",
+];
+
+export const CA_PROVINCES = [
+  "Alberta","British Columbia","Manitoba","New Brunswick","Newfoundland and Labrador",
+  "Northwest Territories","Nova Scotia","Nunavut","Ontario","Prince Edward Island",
+  "Quebec","Saskatchewan","Yukon",
+];
+
+export function getRegionsForCountry(country: string): string[] {
+  if (country === "US") return US_STATES;
+  if (country === "CA") return CA_PROVINCES;
+  return [];
+}
+
+// ─── Filter bar shared option sets ───────────────────────────────────────────
+// Used by BOTH Leads and Accounts. Single source of truth — no local copies.
+
+/**
+ * Industry options for the filter bar (same values as PRIMARY_INDUSTRY_OPTIONS
+ * but in spec-required order: Marine first, Agnostic/Cross-Industry second).
+ */
+export const FILTER_INDUSTRY_OPTIONS = [
+  { value: "marine",                 label: "Marine" },
+  { value: "agnostic",               label: "Agnostic / Cross-Industry" },
+  { value: "utilities_grid",         label: "Utilities / Grid" },
+  { value: "industrial",             label: "Industrial" },
+  { value: "commercial_real_estate", label: "Commercial Real Estate" },
+  { value: "transportation",         label: "Transportation" },
+  { value: "government",             label: "Government" },
+  { value: "energy_infrastructure",  label: "Energy Infrastructure" },
+  { value: "manufacturing",          label: "Manufacturing" },
+  { value: "other",                  label: "Other" },
+] as const;
+
+/**
+ * Simplified 9-option segment list for the filter bar.
+ * Values map to existing marketSegment DB entries from MARKET_SEGMENT_OPTIONS.
+ * (Forms still use the full MARKET_SEGMENT_OPTIONS list.)
+ */
+export const FILTER_SEGMENT_OPTIONS = [
+  { value: "marina",              label: "Marina" },
+  { value: "marina_parent_group", label: "Corporation" },
+  { value: "oem",                 label: "OEM" },
+  { value: "distributor",         label: "Distributor" },
+  { value: "installer",           label: "Partner" },
+  { value: "utility",             label: "Utility" },
+  { value: "municipality",        label: "Government" },
+  { value: "port_harbor",         label: "Commercial Operator" },
+  { value: "other",               label: "Other" },
+] as const;
+
+/**
+ * Simplified relationship/org-type options for the filter bar.
+ * Leads backend maps these to `relationshipType` values.
+ * Accounts backend maps these to `orgType` value groups.
+ */
+export const FILTER_TYPE_OPTIONS = [
+  { value: "prospect",  label: "Prospect" },
+  { value: "customer",  label: "Customer" },
+  { value: "partner",   label: "Partner" },
+  { value: "vendor",    label: "Vendor" },
+  { value: "investor",  label: "Investor" },
+  { value: "strategic", label: "Strategic" },
+  { value: "other",     label: "Other" },
+] as const;
+
+/** Country options for the filter bar. "OTHER" matches any non-CA/US country. */
+export const FILTER_COUNTRY_OPTIONS = [
+  { value: "CA",    label: "Canada" },
+  { value: "US",    label: "United States" },
+  { value: "OTHER", label: "Other / International" },
+] as const;
+
+/** Priority options for the filter bar (includes Unassigned for null/missing priority). */
+export const FILTER_PRIORITY_OPTIONS = [
+  { value: "high",       label: "High" },
+  { value: "medium",     label: "Medium" },
+  { value: "low",        label: "Low" },
+  { value: "unassigned", label: "Unassigned" },
+] as const;
+
+/** Sort options shared between Leads and Accounts filter bars. */
+export const FILTER_SORT_OPTIONS = [
+  { value: "default",         label: "Default" },
+  { value: "name:asc",        label: "A→Z" },
+  { value: "name:desc",       label: "Z→A" },
+  { value: "dealAmount:desc", label: "Deal $ High→Low" },
+  { value: "dealAmount:asc",  label: "Deal $ Low→High" },
+  { value: "createdAt:desc",  label: "Recently Added" },
+  { value: "updatedAt:desc",  label: "Recently Updated" },
+] as const;
+
 // ─── Segment classification helpers ──────────────────────────────────────────
 
 /** Marina types that represent an operating marina property (single location). */

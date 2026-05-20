@@ -16,7 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Plus, Search, ArrowRightLeft, Trash2, Loader2, Undo2,
+  Plus, Search, ArrowRightLeft, Trash2, Loader2, Undo2, ArrowUpDown,
   LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar, DollarSign, Map, ExternalLink,
   CheckCircle2, AlertCircle, Link2, UserCheck, Shuffle, ClipboardList, Archive,
 } from "lucide-react";
@@ -39,42 +39,8 @@ import { EmailsTab } from "@/components/emails-tab";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 import { AiSummaryCard } from "@/components/crm/ai-summary-card";
-import { PIPELINE_STAGE_OPTIONS, PRIMARY_INDUSTRY_OPTIONS, RELATIONSHIP_TYPE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS, shouldShowMarinaOps } from "@/lib/crm-taxonomy";
+import { PIPELINE_STAGE_OPTIONS, PRIMARY_INDUSTRY_OPTIONS, RELATIONSHIP_TYPE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS, shouldShowMarinaOps, FILTER_INDUSTRY_OPTIONS, FILTER_SEGMENT_OPTIONS, FILTER_TYPE_OPTIONS, FILTER_COUNTRY_OPTIONS, FILTER_PRIORITY_OPTIONS, FILTER_SORT_OPTIONS, getRegionsForCountry } from "@/lib/crm-taxonomy";
 
-const US_STATES = [
-  "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware",
-  "Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa","Kansas","Kentucky",
-  "Louisiana","Maine","Maryland","Massachusetts","Michigan","Minnesota","Mississippi",
-  "Missouri","Montana","Nebraska","Nevada","New Hampshire","New Jersey","New Mexico",
-  "New York","North Carolina","North Dakota","Ohio","Oklahoma","Oregon","Pennsylvania",
-  "Rhode Island","South Carolina","South Dakota","Tennessee","Texas","Utah","Vermont",
-  "Virginia","Washington","West Virginia","Wisconsin","Wyoming",
-];
-
-const CA_PROVINCES = [
-  "Alberta","British Columbia","Manitoba","New Brunswick","Newfoundland and Labrador",
-  "Northwest Territories","Nova Scotia","Nunavut","Ontario","Prince Edward Island",
-  "Quebec","Saskatchewan","Yukon",
-];
-
-const MX_STATES = [
-  "Baja California","Baja California Sur","Campeche","Chiapas","Colima",
-  "Guerrero","Jalisco","Nayarit","Oaxaca","Quintana Roo","Sinaloa","Sonora",
-  "Tabasco","Tamaulipas","Veracruz","Yucatan",
-];
-
-const COUNTRIES = [
-  { value: "CA", label: "Canada" },
-  { value: "MX", label: "Mexico" },
-  { value: "US", label: "United States" },
-];
-
-function getRegionsForCountry(country: string): string[] {
-  if (country === "US") return US_STATES;
-  if (country === "CA") return CA_PROVINCES;
-  if (country === "MX") return MX_STATES;
-  return [];
-}
 
 const PIPELINE_STAGES = PIPELINE_STAGE_OPTIONS;
 
@@ -117,6 +83,9 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
   const [stateFilter, setStateFilter] = useState("all");
   const [industryFilter, setIndustryFilter] = useState("__all__");
   const [marketSegmentFilter, setMarketSegmentFilter] = useState("__all__");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [sortOption, setSortOption] = useState("default");
   const [view, setView] = useState<"list" | "pipeline" | "map">(() => {
     if (typeof window === "undefined") return "list";
     const v = new URLSearchParams(window.location.search).get("view");
@@ -181,7 +150,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery<{ data: Lead[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, primaryIndustry: industryFilter === "__all__" ? "" : industryFilter, marketSegment: marketSegmentFilter === "__all__" ? "" : marketSegmentFilter, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],
+    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, primaryIndustry: industryFilter === "__all__" ? "" : industryFilter, marketSegment: marketSegmentFilter === "__all__" ? "" : marketSegmentFilter, type: typeFilter === "all" ? "" : typeFilter, priority: priorityFilter === "all" ? "" : priorityFilter, sort: sortOption, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
@@ -190,7 +159,9 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
       if (stateFilter !== "all") params.set("state", stateFilter);
       if (industryFilter && industryFilter !== "__all__") params.set("primaryIndustry", industryFilter);
       if (marketSegmentFilter && marketSegmentFilter !== "__all__") params.set("marketSegment", marketSegmentFilter);
-      if (sort.sortBy) { params.set("sortBy", sort.sortBy); params.set("sortOrder", sort.sortOrder); }
+      if (typeFilter !== "all") params.set("type", typeFilter);
+      if (priorityFilter !== "all") params.set("priority", priorityFilter);
+      if (sortOption !== "default") { const [sk, so] = sortOption.split(":"); params.set("sortBy", sk); params.set("sortOrder", so); } else if (sort.sortBy) { params.set("sortBy", sort.sortBy); params.set("sortOrder", sort.sortOrder); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
       const res = await fetch(`/api/leads?${params}`, { credentials: "include" });
@@ -346,7 +317,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
   });
 
-  const currentFiltersJson = useMemo(() => JSON.stringify({ status: statusFilter, country: countryFilter, state: stateFilter, primaryIndustry: industryFilter, marketSegment: marketSegmentFilter }), [statusFilter, countryFilter, stateFilter, industryFilter, marketSegmentFilter]);
+  const currentFiltersJson = useMemo(() => JSON.stringify({ status: statusFilter, country: countryFilter, state: stateFilter, primaryIndustry: industryFilter, marketSegment: marketSegmentFilter, type: typeFilter, priority: priorityFilter, sort: sortOption }), [statusFilter, countryFilter, stateFilter, industryFilter, marketSegmentFilter, typeFilter, priorityFilter, sortOption]);
 
   const applyView = (sv: SavedView) => {
     setActiveViewId(sv.id);
@@ -358,11 +329,14 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
         if (f.state !== undefined) setStateFilter(f.state);
         if (f.primaryIndustry !== undefined) setIndustryFilter(f.primaryIndustry);
         if (f.marketSegment !== undefined) setMarketSegmentFilter(f.marketSegment);
+        if (f.type !== undefined) setTypeFilter(f.type);
+        if (f.priority !== undefined) setPriorityFilter(f.priority);
+        if (f.sort !== undefined) setSortOption(f.sort);
       } catch {}
     }
   };
 
-  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); setIndustryFilter("marine"); setMarketSegmentFilter("__all__"); };
+  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); setIndustryFilter("__all__"); setMarketSegmentFilter("__all__"); setTypeFilter("all"); setPriorityFilter("all"); setSortOption("default"); };
 
   const isAllSelected = allLeads.length > 0 && allLeads.every(l => selectedIds.has(l.id));
 
@@ -417,6 +391,9 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
               ...(countryFilter !== "all" ? { country: countryFilter } : {}),
               ...(stateFilter !== "all" ? { state: stateFilter } : {}),
               ...(industryFilter && industryFilter !== "__all__" ? { primaryIndustry: industryFilter } : {}),
+              ...(marketSegmentFilter && marketSegmentFilter !== "__all__" ? { marketSegment: marketSegmentFilter } : {}),
+              ...(typeFilter !== "all" ? { type: typeFilter } : {}),
+              ...(priorityFilter !== "all" ? { priority: priorityFilter } : {}),
             }).toString()}`}
             filename="leads_export.csv"
           />
@@ -461,33 +438,58 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
             data-testid="input-search-leads"
           />
         </div>
-        {!lockedStatus && (
-          <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); }}>
-            <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-status-filter">
-              <SelectValue placeholder="Stage" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Stages</SelectItem>
-              {PIPELINE_STAGES.map(s => (
-                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        {/* 1 — Industry */}
+        <Select value={industryFilter} onValueChange={(v) => { setIndustryFilter(v); }}>
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-industry-filter">
+            <SelectValue placeholder="Industry" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All Industries</SelectItem>
+            {FILTER_INDUSTRY_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {/* 2 — Segment */}
+        <Select value={marketSegmentFilter} onValueChange={(v) => { setMarketSegmentFilter(v); }}>
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-market-segment-filter">
+            <SelectValue placeholder="Segment" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All Segments</SelectItem>
+            {FILTER_SEGMENT_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {/* 3 — Type */}
+        <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); }}>
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-40" data-testid="select-type-filter">
+            <SelectValue placeholder="Type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            {FILTER_TYPE_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {/* 4 — Country */}
         <Select value={countryFilter} onValueChange={(v) => { setCountryFilter(v); setStateFilter("all"); }}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-40" data-testid="select-country-filter">
             <SelectValue placeholder="Country" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Countries</SelectItem>
-            {COUNTRIES.map(c => (
+            {FILTER_COUNTRY_OPTIONS.map(c => (
               <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
+        {/* 5 — Region */}
         <Select value={stateFilter} onValueChange={(v) => { setStateFilter(v); }}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-48" data-testid="select-state-filter">
-            <SelectValue placeholder={countryFilter === "CA" ? "Province" : "State"} />
+            <SelectValue placeholder={countryFilter === "CA" ? "Province" : "State / Region"} />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{countryFilter === "CA" ? "All Provinces" : countryFilter === "US" ? "All States" : "All Regions"}</SelectItem>
@@ -496,24 +498,26 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
             ))}
           </SelectContent>
         </Select>
-        <Select value={industryFilter} onValueChange={(v) => { setIndustryFilter(v); }}>
-          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-industry-filter">
-            <SelectValue placeholder="Industry" />
+        {/* 6 — Priority */}
+        <Select value={priorityFilter} onValueChange={(v) => { setPriorityFilter(v); }}>
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-36" data-testid="select-priority-filter">
+            <SelectValue placeholder="Priority" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__all__">All Industries</SelectItem>
-            {PRIMARY_INDUSTRY_OPTIONS.map(o => (
+            <SelectItem value="all">All Priority</SelectItem>
+            {FILTER_PRIORITY_OPTIONS.map(o => (
               <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <Select value={marketSegmentFilter} onValueChange={(v) => { setMarketSegmentFilter(v); }}>
-          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-market-segment-filter">
-            <SelectValue placeholder="Segment" />
+        {/* 7 — Sort */}
+        <Select value={sortOption} onValueChange={setSortOption}>
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-sort">
+            <ArrowUpDown className="mr-2 h-4 w-4" />
+            <SelectValue placeholder="Sort by..." />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__all__">All Segments</SelectItem>
-            {MARKET_SEGMENT_OPTIONS.map(o => (
+            {FILTER_SORT_OPTIONS.map(o => (
               <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
             ))}
           </SelectContent>
@@ -2043,7 +2047,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
               <SelectTrigger data-testid="select-edit-country"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Select...</SelectItem>
-                {COUNTRIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                {FILTER_COUNTRY_OPTIONS.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -2187,7 +2191,7 @@ function CreateLeadForm({ onSubmit, isPending }: { onSubmit: (data: Record<strin
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="none">Select country</SelectItem>
-            {COUNTRIES.map(c => (
+            {FILTER_COUNTRY_OPTIONS.map(c => (
               <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
             ))}
           </SelectContent>

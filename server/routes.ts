@@ -1572,7 +1572,7 @@ export async function registerRoutes(
   });
 
   app.get("/api/leads", requirePermission("crm", "view"), async (req, res) => {
-    const { search, status, state, country, primaryIndustry, marketSegment, page, limit, sortBy, sortOrder } = req.query;
+    const { search, status, state, country, primaryIndustry, marketSegment, type, priority, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getLeads({
       search: search as string | undefined,
       status: status as string | undefined,
@@ -1580,6 +1580,8 @@ export async function registerRoutes(
       country: country as string | undefined,
       primaryIndustry: primaryIndustry as string | undefined,
       marketSegment: marketSegment as string | undefined,
+      type: type as string | undefined,
+      priority: priority as string | undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
       sortBy: sortBy as string | undefined,
@@ -2319,7 +2321,7 @@ export async function registerRoutes(
   });
 
   app.get("/api/accounts", requirePermission("crm", "view"), async (req, res) => {
-    const { search, segment, leadStatus, priority, orgType, marketSegment, page, limit, sortBy, sortOrder, onlyPromoted } = req.query;
+    const { search, segment, leadStatus, priority, orgType, marketSegment, type, country, state, page, limit, sortBy, sortOrder, onlyPromoted } = req.query;
     res.json(await storage.getAccounts({
       search: search as string | undefined,
       segment: segment as string | undefined,
@@ -2327,6 +2329,9 @@ export async function registerRoutes(
       priority: priority as string | undefined,
       orgType: orgType as string | undefined,
       marketSegment: marketSegment as string | undefined,
+      type: type as string | undefined,
+      country: country as string | undefined,
+      stateProvince: state as string | undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
       sortBy: sortBy as string | undefined,

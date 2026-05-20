@@ -38,7 +38,7 @@ import { EmailsTab } from "@/components/emails-tab";
 import { TimelineTab } from "@/components/timeline-tab";
 import StateProvinceSelect from "@/components/state-province-select";
 import { ContactsPanel } from "@/components/contacts/contacts-panel";
-import { PIPELINE_STAGE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS, NON_OPERATING_SEGMENTS } from "@/lib/crm-taxonomy";
+import { PIPELINE_STAGE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS, NON_OPERATING_SEGMENTS, FILTER_INDUSTRY_OPTIONS, FILTER_SEGMENT_OPTIONS, FILTER_TYPE_OPTIONS, FILTER_COUNTRY_OPTIONS, FILTER_PRIORITY_OPTIONS, FILTER_SORT_OPTIONS, getRegionsForCountry } from "@/lib/crm-taxonomy";
 
 const segmentColors: Record<string, string> = {
   marina: "bg-blue-500/10 text-blue-500 border-blue-500/20",
@@ -108,11 +108,13 @@ function getOrgTypeLabel(value: string | null | undefined) {
 export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
-  const [segmentFilter, setSegmentFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [priorityFilter, setPriorityFilter] = useState("all");
-  const [orgTypeFilter, setOrgTypeFilter] = useState("all");
+  const [industryFilter, setIndustryFilter] = useState("__all__");
   const [marketSegmentFilter, setMarketSegmentFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [countryFilter, setCountryFilter] = useState("all");
+  const [regionFilter, setRegionFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const regionOptions = countryFilter !== "all" ? getRegionsForCountry(countryFilter) : [];
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [view, setView] = useState<"list" | "pipeline" | "map">("list");
@@ -140,15 +142,15 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
 
   const PAGE_SIZE = 100;
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<{ data: Account[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/accounts", { search, segment: segmentFilter === "all" ? "" : segmentFilter, status: statusFilter === "all" ? "" : statusFilter, priority: priorityFilter === "all" ? "" : priorityFilter, orgType: orgTypeFilter === "all" ? "" : orgTypeFilter, marketSegment: marketSegmentFilter === "all" ? "" : marketSegmentFilter, sort: sortOption }],
+    queryKey: ["/api/accounts", { search, industry: industryFilter === "__all__" ? "" : industryFilter, marketSegment: marketSegmentFilter === "all" ? "" : marketSegmentFilter, type: typeFilter === "all" ? "" : typeFilter, country: countryFilter === "all" ? "" : countryFilter, state: regionFilter === "all" ? "" : regionFilter, priority: priorityFilter === "all" ? "" : priorityFilter, sort: sortOption }],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
-      if (segmentFilter !== "all") params.set("segment", segmentFilter);
-      if (statusFilter !== "all") params.set("leadStatus", statusFilter);
-      if (priorityFilter !== "all") params.set("priority", priorityFilter);
-      if (orgTypeFilter !== "all") params.set("orgType", orgTypeFilter);
       if (marketSegmentFilter !== "all") params.set("marketSegment", marketSegmentFilter);
+      if (typeFilter !== "all") params.set("type", typeFilter);
+      if (countryFilter !== "all") params.set("country", countryFilter);
+      if (regionFilter !== "all") params.set("state", regionFilter);
+      if (priorityFilter !== "all") params.set("priority", priorityFilter);
       if (sortOption !== "default") { const [key, order] = sortOption.split(":"); params.set("sortBy", key); params.set("sortOrder", order); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
@@ -171,20 +173,21 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
   });
 
   const currentFiltersJson = JSON.stringify({
-    segment: segmentFilter, status: statusFilter, priority: priorityFilter,
-    orgType: orgTypeFilter, marketSegment: marketSegmentFilter, sort: sortOption,
+    industry: industryFilter, marketSegment: marketSegmentFilter, type: typeFilter,
+    country: countryFilter, state: regionFilter, priority: priorityFilter, sort: sortOption,
   });
 
-  const isFiltered = segmentFilter !== "all" || statusFilter !== "all" || priorityFilter !== "all"
-    || orgTypeFilter !== "all" || marketSegmentFilter !== "all" || sortOption !== "default" || search !== "";
+  const isFiltered = industryFilter !== "__all__" || marketSegmentFilter !== "all" || typeFilter !== "all"
+    || countryFilter !== "all" || regionFilter !== "all" || priorityFilter !== "all" || sortOption !== "default" || search !== "";
 
   const resetFilters = () => {
     setSearch("");
-    setSegmentFilter("all");
-    setStatusFilter("all");
-    setPriorityFilter("all");
-    setOrgTypeFilter("all");
+    setIndustryFilter("__all__");
     setMarketSegmentFilter("all");
+    setTypeFilter("all");
+    setCountryFilter("all");
+    setRegionFilter("all");
+    setPriorityFilter("all");
     setSortOption("default");
     setActiveViewId(null);
   };
@@ -232,11 +235,12 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
 
   const loadSavedView = (sv: SavedView) => {
     const f = sv.filtersJson ? JSON.parse(sv.filtersJson) : {};
-    setSegmentFilter(f.segment ?? "all");
-    setStatusFilter(f.status ?? "all");
-    setPriorityFilter(f.priority ?? "all");
-    setOrgTypeFilter(f.orgType ?? "all");
+    setIndustryFilter(f.industry ?? "__all__");
     setMarketSegmentFilter(f.marketSegment ?? "all");
+    setTypeFilter(f.type ?? "all");
+    setCountryFilter(f.country ?? "all");
+    setRegionFilter(f.state ?? "all");
+    setPriorityFilter(f.priority ?? "all");
     setSortOption(f.sort ?? "default");
     setActiveViewId(sv.id);
   };
@@ -327,7 +331,11 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
           <ExportButton
             endpoint={`/api/accounts/export?${new URLSearchParams({
               ...(search ? { search } : {}),
-              ...(segmentFilter !== "all" ? { segment: segmentFilter } : {}),
+              ...(marketSegmentFilter !== "all" ? { marketSegment: marketSegmentFilter } : {}),
+              ...(typeFilter !== "all" ? { type: typeFilter } : {}),
+              ...(countryFilter !== "all" ? { country: countryFilter } : {}),
+              ...(regionFilter !== "all" ? { state: regionFilter } : {}),
+              ...(priorityFilter !== "all" ? { priority: priorityFilter } : {}),
             }).toString()}`}
             filename="accounts_export.csv"
           />
@@ -362,82 +370,95 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
           >
             <Settings2 className="h-4 w-4" />
             {isFiltered ? (
-              <span className="text-xs font-bold text-primary">{[segmentFilter, statusFilter, priorityFilter, orgTypeFilter, marketSegmentFilter].filter(v => v !== "all").length + (sortOption !== "default" ? 1 : 0)}</span>
+              <span className="text-xs font-bold text-primary">{[industryFilter !== "__all__" ? 1 : 0, marketSegmentFilter !== "all" ? 1 : 0, typeFilter !== "all" ? 1 : 0, countryFilter !== "all" ? 1 : 0, regionFilter !== "all" ? 1 : 0, priorityFilter !== "all" ? 1 : 0].reduce((a, b) => a + b, 0) + (sortOption !== "default" ? 1 : 0)}</span>
             ) : null}
           </button>
         </div>
 
         {/* Filter selects — always visible on sm+, toggled on mobile */}
         <div className={`${showMobileFilters ? "flex" : "hidden"} sm:flex gap-2 sm:gap-3 flex-wrap`}>
-        <Select value={segmentFilter} onValueChange={(v) => { setSegmentFilter(v); }}>
-          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-36" data-testid="select-segment-filter">
-            <SelectValue placeholder="Segment" />
+        {/* 1 — Industry */}
+        <Select value={industryFilter} onValueChange={setIndustryFilter}>
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-industry-filter">
+            <SelectValue placeholder="Industry" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Segments</SelectItem>
-            <SelectItem value="marina">Marina</SelectItem>
-            <SelectItem value="corp">Corporation</SelectItem>
-            <SelectItem value="partner">Partner</SelectItem>
-            <SelectItem value="other">Other</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-36" data-testid="select-status-filter">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Stages</SelectItem>
-            {PIPELINE_STAGES.map(s => (
-              <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-32" data-testid="select-priority-filter">
-            <SelectValue placeholder="Priority" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Priority</SelectItem>
-            <SelectItem value="high">High</SelectItem>
-            <SelectItem value="medium">Medium</SelectItem>
-            <SelectItem value="low">Low</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={orgTypeFilter} onValueChange={(v) => { setOrgTypeFilter(v); }}>
-          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-org-type-filter">
-            <SelectValue placeholder="Org Type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Types</SelectItem>
-            {LEGACY_ORG_TYPE_OPTIONS.map(o => (
+            <SelectItem value="__all__">All Industries</SelectItem>
+            {FILTER_INDUSTRY_OPTIONS.map(o => (
               <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
+        {/* 2 — Segment */}
         <Select value={marketSegmentFilter} onValueChange={(v) => { setMarketSegmentFilter(v); }}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-market-segment-filter">
             <SelectValue placeholder="Segment" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Segments</SelectItem>
-            {MARKET_SEGMENT_OPTIONS.map(o => (
+            {FILTER_SEGMENT_OPTIONS.map(o => (
               <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
+        {/* 3 — Type */}
+        <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); }}>
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-40" data-testid="select-type-filter">
+            <SelectValue placeholder="Type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            {FILTER_TYPE_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {/* 4 — Country */}
+        <Select value={countryFilter} onValueChange={(v) => { setCountryFilter(v); setRegionFilter("all"); }}>
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-40" data-testid="select-country-filter">
+            <SelectValue placeholder="Country" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Countries</SelectItem>
+            {FILTER_COUNTRY_OPTIONS.map(c => (
+              <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {/* 5 — Region */}
+        <Select value={regionFilter} onValueChange={setRegionFilter}>
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-48" data-testid="select-state-filter">
+            <SelectValue placeholder={countryFilter === "CA" ? "Province" : "State / Region"} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{countryFilter === "CA" ? "All Provinces" : countryFilter === "US" ? "All States" : "All Regions"}</SelectItem>
+            {regionOptions.map(s => (
+              <SelectItem key={s} value={s}>{s}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {/* 6 — Priority */}
+        <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-32" data-testid="select-priority-filter">
+            <SelectValue placeholder="Priority" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Priority</SelectItem>
+            {FILTER_PRIORITY_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {/* 7 — Sort */}
         <Select value={sortOption} onValueChange={setSortOption}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-sort">
             <ArrowUpDown className="mr-2 h-4 w-4" />
             <SelectValue placeholder="Sort by..." />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="default">Default</SelectItem>
-            <SelectItem value="name:asc">Name A–Z</SelectItem>
-            <SelectItem value="name:desc">Name Z–A</SelectItem>
-            <SelectItem value="createdAt:desc">Newest First</SelectItem>
-            <SelectItem value="createdAt:asc">Oldest First</SelectItem>
-            <SelectItem value="slipCount:desc">Most Slips</SelectItem>
-            <SelectItem value="slipCount:asc">Fewest Slips</SelectItem>
+            {FILTER_SORT_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
         </div>

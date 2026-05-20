@@ -373,7 +373,7 @@ export class DatabaseStorage implements IStorage {
     return result.map((r) => r.state);
   }
 
-  async getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; marketSegment?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
+  async getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; marketSegment?: string; type?: string; priority?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -395,7 +395,14 @@ export class DatabaseStorage implements IStorage {
       conditions.push(eq(leads.state, options.state));
     }
     if (options?.country) {
-      conditions.push(eq(leads.country, options.country));
+      if (options.country === "OTHER") {
+        conditions.push(or(
+          sql`${leads.country} IS NULL`,
+          sql`${leads.country} NOT IN ('CA', 'US')`
+        ));
+      } else {
+        conditions.push(eq(leads.country, options.country));
+      }
     }
     if (options?.primaryIndustry) {
       if (options.primaryIndustry === "marine") {
@@ -410,9 +417,25 @@ export class DatabaseStorage implements IStorage {
     if (options?.marketSegment) {
       conditions.push(eq(leads.marketSegment, options.marketSegment));
     }
+    if (options?.type) {
+      const relTypeMap: Record<string, string[]> = {
+        prospect:  ["customer_prospect"],
+        customer:  ["customer"],
+        partner:   ["strategic_partner", "channel_partner"],
+        vendor:    ["vendor_supplier"],
+        investor:  ["investor"],
+        strategic: ["strategic_partner"],
+        other:     ["other"],
+      };
+      const vals = relTypeMap[options.type];
+      if (vals?.length) conditions.push(inArray(leads.relationshipType, vals));
+    }
+    // Note: leads table has no `priority` column yet — this param is accepted
+    // for UI parity with Accounts but currently has no filtering effect.
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
-    const leadSortColumns: Record<string, AnyColumn> = { company: leads.company, city: leads.city, state: leads.state, status: leads.status, source: leads.source, contactName: leads.contactName, createdAt: leads.createdAt };
+    // "name" is an alias for company so the shared FILTER_SORT_OPTIONS key works.
+    const leadSortColumns: Record<string, AnyColumn> = { company: leads.company, name: leads.company, city: leads.city, state: leads.state, status: leads.status, source: leads.source, contactName: leads.contactName, createdAt: leads.createdAt, updatedAt: leads.updatedAt, dealAmount: leads.dealAmount };
     const sortCol = options?.sortBy && leadSortColumns[options.sortBy];
     const isSlipsSort = options?.sortBy === "slips";
     const orderClause = isSlipsSort
@@ -641,7 +664,7 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; marketSegment?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string; onlyPromoted?: boolean }) {
+  async getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; marketSegment?: string; type?: string; country?: string; stateProvince?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string; onlyPromoted?: boolean }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -662,7 +685,11 @@ export class DatabaseStorage implements IStorage {
       conditions.push(eq(accounts.leadStatus, options.leadStatus));
     }
     if (options?.priority) {
-      conditions.push(eq(accounts.priority, options.priority));
+      if (options.priority === "unassigned") {
+        conditions.push(or(sql`${accounts.priority} IS NULL`, eq(accounts.priority, "medium")));
+      } else {
+        conditions.push(eq(accounts.priority, options.priority));
+      }
     }
     if (options?.orgType) {
       conditions.push(eq(accounts.orgType, options.orgType));
@@ -670,12 +697,40 @@ export class DatabaseStorage implements IStorage {
     if (options?.marketSegment) {
       conditions.push(eq(accounts.marketSegment, options.marketSegment));
     }
+    if (options?.type) {
+      const orgTypeMap: Record<string, string[]> = {
+        prospect:  ["marina_prospect"],
+        customer:  ["marina_customer", "pilot_site", "pilot_customer", "enterprise_customer"],
+        partner:   ["oem_partner", "integration_partner", "distributor", "installer"],
+        vendor:    ["manufacturer", "media", "research"],
+        investor:  ["investor"],
+        strategic: ["industry_association", "government", "government_port", "regulatory"],
+        other:     ["other"],
+      };
+      const vals = orgTypeMap[options.type];
+      if (vals?.length) conditions.push(inArray(accounts.orgType, vals));
+    }
+    if (options?.country) {
+      if (options.country === "OTHER") {
+        conditions.push(or(
+          sql`${accounts.country} IS NULL`,
+          sql`${accounts.country} NOT IN ('CA', 'US')`
+        ));
+      } else {
+        conditions.push(eq(accounts.country, options.country));
+      }
+    }
+    if (options?.stateProvince) {
+      conditions.push(eq(accounts.stateProvince, options.stateProvince));
+    }
+    // Note: accounts table has no `primaryIndustry` column — the filter param
+    // is accepted for UI parity with Leads but has no filtering effect yet.
     if (options?.onlyPromoted) {
       conditions.push(sql`(accounts.converted_from_lead_id IS NULL OR EXISTS (SELECT 1 FROM leads WHERE leads.id = accounts.converted_from_lead_id AND leads.status = 'converted'))`);
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
-    const accountSortColumns: Record<string, AnyColumn> = { name: accounts.name, segment: accounts.segment, region: accounts.region, slipCount: accounts.slipCount, createdAt: accounts.createdAt };
+    const accountSortColumns: Record<string, AnyColumn> = { name: accounts.name, segment: accounts.segment, region: accounts.region, slipCount: accounts.slipCount, createdAt: accounts.createdAt, updatedAt: accounts.updatedAt };
     const sortCol = options?.sortBy && accountSortColumns[options.sortBy];
     const orderClause = sortCol ? getSortOrder(sortCol, options?.sortOrder || "asc") : desc(accounts.createdAt);
 

@@ -1,0 +1,122 @@
+Fix the LEADS and ACCOUNTS filter/dropdown alignment.
+
+Current problem:
+The Leads page and Accounts page still have different filter dropdown structures. They need to match.
+
+Required shared filter order for BOTH Leads and Accounts:
+
+1. All Industries
+2. All Segments
+3. All Types
+4. All Countries
+5. All Regions
+6. All Priority
+7. Default A→Z / sort dropdown
+
+Do not keep Leads starting with “All Stages.”
+Do not keep Accounts starting with “All Segments.”
+Both pages must start with “All Industries.”
+
+Expected dropdown options:
+
+All Industries:
+- Marine
+- Agnostic / Cross-Industry
+- Utilities / Grid
+- Industrial
+- Commercial Real Estate
+- Transportation
+- Government
+- Energy Infrastructure
+- Manufacturing
+- Other
+
+All Segments:
+- Marina
+- Corporation
+- OEM
+- Distributor
+- Partner
+- Utility
+- Government
+- Commercial Operator
+- Other
+
+All Types:
+- Prospect
+- Customer
+- Partner
+- Vendor
+- Investor
+- Strategic
+- Other
+
+All Countries:
+- Canada
+- United States
+- Other / International
+
+All Regions:
+- Province/state/region values from existing data, but rendered consistently on both Leads and Accounts.
+
+All Priority:
+- High
+- Medium
+- Low
+- Unassigned
+
+Sort:
+- Default
+- A→Z
+- Z→A
+- Deal $ High→Low
+- Deal $ Low→High
+- Recently Added
+- Recently Updated
+
+Acceptance criteria:
+- Leads and Accounts have the exact same filter bar order.
+- Leads and Accounts use the same shared dropdown option source, not separate hard-coded lists.
+- Leads and Accounts both expose Industry, Segment, Type, Country, Region, Priority, and Sort.
+- “Marine” industry exists on both.
+- “Marina” segment exists on both.
+- The Segment dropdown is not hidden behind Industry or Stage logic.
+- Stage/status can still exist inside records, but it should not replace these shared top-level filters.
+- Existing filters must still work.
+- Existing table/card/map views must not break.
+- Mobile layout must remain usable and wrap cleanly.
+- Save View should include all shared filters.
+- Export CSV should respect the active shared filters.
+- No destructive schema changes.
+- No field removals.
+- No data deletion.
+
+Implementation guidance:
+1. Audit the current Leads filter bar component and Accounts filter bar component.
+2. Identify every separate dropdown option list.
+3. Move shared filter taxonomy into one shared file, for example:
+   client/src/lib/crmTaxonomy.ts
+   or the nearest existing shared constants file.
+4. Update both Leads and Accounts to import the same shared options.
+5. Normalize naming:
+   - industry
+   - segment or marketSegment, but map cleanly if backend uses different names
+   - type or relationshipType, but map cleanly if backend uses different names
+   - country
+   - region
+   - priority
+   - sort
+6. Preserve backend compatibility by mapping UI filter names to the existing API/query params.
+7. Add tests/source-grep checks proving both pages render the same filter order.
+8. Add tests proving a Lead can be filtered by Industry = Marine and Segment = Marina.
+9. Add tests proving an Account can be filtered by Industry = Marine and Segment = Marina.
+10. Add regression tests proving Save View and Export CSV include the active filters.
+
+Before coding, output the audit:
+- Which files render Leads filters.
+- Which files render Accounts filters.
+- Which dropdowns are duplicated.
+- Which backend/query params each filter currently uses.
+
+Do not claim fixed until DOM/test evidence proves both filter bars have this exact order:
+All Industries → All Segments → All Types → All Countries → All Regions → All Priority → Default A→Z.
