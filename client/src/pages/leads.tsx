@@ -428,7 +428,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
 
       <div className="flex gap-2 sm:gap-3 flex-wrap items-center">
         {view !== "map" && <>
-        <div className="relative w-full sm:flex-1 sm:max-w-sm">
+        <div className="relative w-full sm:flex-1 sm:min-w-72">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search leads by name, city, state..."
