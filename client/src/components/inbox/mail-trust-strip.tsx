@@ -20,6 +20,7 @@ type Props = {
   syncErrorMessage: string | null;
   trustEvent: TrustEvent | null;
   hasFailedScheduled?: boolean;
+  isLoading?: boolean;
 };
 
 export function MailTrustStrip({
@@ -29,6 +30,7 @@ export function MailTrustStrip({
   syncErrorMessage,
   trustEvent,
   hasFailedScheduled = false,
+  isLoading = false,
 }: Props) {
   let dotColor = "bg-emerald-400";
   let label = "Connected to Gmail";
@@ -36,7 +38,13 @@ export function MailTrustStrip({
   let showSpinner = false;
   let showReconnect = false;
 
-  if (trustEvent?.type === "sending") {
+  // Show a stable neutral state while accountsQuery is initially loading — prevents
+  // a brief "Gmail reconnect required" flash before account data arrives.
+  if (isLoading) {
+    dotColor = "bg-muted-foreground/30";
+    label = "Checking…";
+    labelColor = "text-muted-foreground/40";
+  } else if (trustEvent?.type === "sending") {
     dotColor = "bg-amber-400";
     label = "Sending…";
     labelColor = "text-amber-300/90";
@@ -73,7 +81,7 @@ export function MailTrustStrip({
     showReconnect = true;
   } else if (healthStatus === "red") {
     dotColor = "bg-red-400";
-    label = syncErrorMessage ? "Sync error" : "Sync error";
+    label = "Sync error";
     labelColor = "text-red-400/80";
   } else if (healthStatus === "amber") {
     dotColor = "bg-amber-400";

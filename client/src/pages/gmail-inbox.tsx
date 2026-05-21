@@ -6912,6 +6912,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           <div className="flex-shrink-0 border-t border-border/40 bg-card/30">
             {/* Mail Trust Strip — connection/sync/send state */}
             <MailTrustStrip
+              isLoading={accountsQuery.isLoading}
               authStatus={connectedAccount?.authStatus ?? null}
               lastSyncAt={connectedAccount?.lastSyncAt ?? null}
               healthStatus={healthById.get(connectedAccount?.id ?? 0)?.status ?? null}

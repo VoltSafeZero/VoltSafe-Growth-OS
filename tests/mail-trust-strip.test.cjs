@@ -196,6 +196,28 @@ function testInboxPageIntegration() {
   );
 }
 
+// ─── T9a: Loading state stability ────────────────────────────────────────────
+function testLoadingState() {
+  console.log("\n── T9a: Loading state stability ──");
+  const src = fs.readFileSync(
+    path.join(__dirname, "../client/src/components/inbox/mail-trust-strip.tsx"),
+    "utf8"
+  );
+  assert(src.includes("isLoading?: boolean"), "strip accepts optional isLoading prop");
+  assert(src.includes("if (isLoading)"), "isLoading is the highest-priority branch (no reconnect flash)");
+  assert(src.includes('"Checking\u2026"'), "shows 'Checking…' during load (not 'Gmail reconnect required')");
+  assert(src.includes("text-muted-foreground/40"), "uses faded label color during loading state");
+
+  const inboxSrc = fs.readFileSync(
+    path.join(__dirname, "../client/src/pages/gmail-inbox.tsx"),
+    "utf8"
+  );
+  assert(
+    inboxSrc.includes("isLoading={accountsQuery.isLoading}"),
+    "GmailInboxPage passes accountsQuery.isLoading to strip"
+  );
+}
+
 // ─── T9: Auto-clear timers for transient events ───────────────────────────────
 function testAutoClearTimers() {
   console.log("\n── T9: Transient event auto-clear timers ──");
@@ -266,6 +288,7 @@ function testUnrelatedBehaviourUnchanged() {
   testSendFailedDraftSavedState();
   testComposeDialogWiring();
   testInboxPageIntegration();
+  testLoadingState();
   testAutoClearTimers();
   testUnrelatedBehaviourUnchanged();
 
