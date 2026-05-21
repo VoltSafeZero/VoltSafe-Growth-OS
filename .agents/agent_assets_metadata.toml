@@ -60,3 +60,9 @@ id = "HiCdJnp--L3c4KzUwO1N_"
 uri = "file://exports/bc-shore-power-marinas-import-template.csv"
 type = "table"
 title = "BC Shore Power Marinas — Import Template"
+
+[[outputs]]
+id = "AcItY2T6iHJf-kEahiotT"
+uri = "file://exports/bc-enrichment-report-2026-05-21-1923.csv"
+type = "table"
+title = "BC Marina Enrichment — Dry-Run Report"

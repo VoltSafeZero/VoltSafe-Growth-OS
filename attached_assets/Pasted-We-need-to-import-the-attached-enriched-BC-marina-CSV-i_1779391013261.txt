@@ -1,0 +1,79 @@
+We need to import the attached enriched BC marina CSV into VoltSafe CMS safely.
+
+Goal:
+Most rows are NOT new records. They are existing Leads/Accounts with previously blank fields now populated, especially:
+- Street Address
+- Zip / Postal
+- City
+- State/Province
+- Country
+- marina details/enrichment fields where blank
+
+This must be NON-DESTRUCTIVE.
+
+Rules:
+1. Do NOT delete any Leads, Accounts, Contacts, or existing CRM data.
+2. Do NOT overwrite existing non-empty database fields with blank/null CSV values.
+3. Do NOT overwrite better existing values unless the CSV field is clearly populated and the current DB value is blank/null/placeholder.
+4. Treat these as update-first, create-second.
+5. Match existing records by normalized company/marina name + province/state + country first.
+6. Also support fuzzy matching for obvious duplicates:
+   - ignore case
+   - ignore punctuation
+   - ignore suffixes like “Marina”, “Harbour Authority”, “Yacht Club”, “RV Park & Marina” only when safe
+   - trim whitespace
+7. If a strong match exists in Leads or Accounts, update that record.
+8. If no strong match exists, create a NEW Lead only, not an Account.
+9. New records should default to:
+   - Industry = marine
+   - Segment = Marina
+   - Relationship Type = customer_prospect
+   - Stage = new
+   - Source = csv_enrichment_import
+   - Country = Canada/CA normalized to the CMS standard
+10. If a CSV row matches both a Lead and Account, prefer updating the Account and log the Lead conflict for review.
+11. Preserve all existing notes. If CSV has new research notes, append them with an import timestamp instead of replacing notes.
+12. Add an import/audit log showing:
+   - CSV row number
+   - company name
+   - matched record type: Lead / Account / New Lead / Skipped / Conflict
+   - matched record id
+   - fields updated
+   - fields skipped because DB already had data
+   - confidence score/reason
+
+Implementation request:
+- First build a DRY-RUN import script/endpoint only.
+- The dry run must produce a downloadable CSV or JSON report with all proposed changes.
+- Do not write to the database until the dry run is reviewed.
+- After dry run passes, add an APPLY mode behind an explicit flag like `--apply` or `apply=true`.
+- Wrap apply mode in a database transaction where possible.
+- Use batch-safe logic and handle duplicates carefully.
+
+Important field mapping from CSV:
+- Company → company/marina/account/lead name
+- Contact Name → primary contact name only if blank
+- Contact Email → email only if blank
+- Contact Phone → phone only if blank
+- Street Address → streetAddress
+- City → city
+- State → province/state
+- Zip / Postal → postalCode/zip
+- Country → country
+- Slips → slips if blank
+- Segment → segment
+- Industry → industry
+- Relationship Type → relationshipType
+- Conversion Target → conversionTarget
+- Primary Source URL → sourceUrl / websiteSource / enrichment source field if available
+- Address Source URL → addressSourceUrl if field exists
+- Address Confidence / Address Research Status → import notes or enrichment metadata fields if exact columns don’t exist
+
+Acceptance criteria:
+- Running dry run does not modify DB.
+- Existing BC marina Leads/Accounts get address/postal fields populated when blank.
+- Existing filled fields are not erased.
+- New unmatched marinas are created as Leads only.
+- Duplicate creation is prevented.
+- A clear import report is generated before apply.
+- Tests or source-grep checks verify no destructive delete/update behavior.
