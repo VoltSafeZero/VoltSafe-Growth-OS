@@ -1,0 +1,67 @@
+Critical bug: VoltSafe Mail scheduled email disappears after scheduled send time.
+
+Observed behavior:
+- I drafted/scheduled an email to trevor@voltsafe.com for 7:40pm today.
+- Before 7:40pm, Scheduled correctly showed 1 email.
+- At 7:48pm, Scheduled no longer shows the email — expected.
+- But the email does NOT appear in:
+  - recipient inbox: trevor@voltsafe.com
+  - Sent Mail
+  - any visible mail folder
+- It appears to have vanished.
+
+This must be audited as a full scheduled-send lifecycle bug.
+
+Please trace the real flow end-to-end:
+
+1. Scheduled email creation
+   - Where scheduled emails are stored
+   - Required fields: id, account/user, to, subject, body, scheduledAt, status, draft/message id
+   - Whether timezone is stored correctly
+   - Whether 7:40pm local time was converted correctly
+
+2. Scheduler/poller execution
+   - Find the job that processes due scheduled emails
+   - Confirm it actually ran after 7:40pm
+   - Confirm how it selects due emails
+   - Confirm whether it marks the row as sent/deleted before or after Gmail API success
+
+3. Send action
+   - Confirm it calls the same proven path as normal Send
+   - Confirm Gmail API response is checked
+   - Confirm returned sent message id is persisted
+   - Confirm failures are logged and surfaced
+
+4. Sent Mail persistence
+   - Confirm successful scheduled sends appear in Sent
+   - Confirm Sent folder sync/import includes the sent message
+   - Confirm local DB row is created/updated with SENT label/status
+
+5. Failure handling
+   - Scheduled email must NEVER disappear if send fails.
+   - If Gmail send fails, scheduled item should move to Failed Scheduled / Drafts / Outbox with error message.
+   - Do not delete or hide the scheduled row until Gmail confirms successful send.
+
+Likely root cause:
+The scheduled job is clearing/removing the scheduled email when it becomes due, before confirming the Gmail send succeeded and before creating/updating a Sent Mail record.
+
+Acceptance criteria:
+- Schedule test email to self 2 minutes in future.
+- Before send time: appears in Scheduled.
+- After send time:
+  - if Gmail send succeeds: removed from Scheduled, appears in Sent, appears in recipient inbox.
+  - if Gmail send fails: remains visible as Failed/Retryable with error, does NOT disappear.
+- Add regression tests covering:
+  - successful scheduled send
+  - failed scheduled send does not delete/hide record
+  - scheduled send writes/links sent message id
+  - timezone conversion for local scheduled time
+  - self-send appears in Sent and eventually Inbox after sync
+
+Run the scheduler manually in test/dev and report exact logs:
+- scheduled email id
+- selected as due yes/no
+- Gmail send attempted yes/no
+- Gmail response status/body/id
+- DB status before/after
+- Sent folder visibility check
