@@ -48,3 +48,9 @@ id = "DFFAJtt5TEAdO6Wwc38vx"
 uri = "file://PORTABILITY_FIX_PLAN.md"
 type = "text"
 title = "PORTABILITY_FIX_PLAN.md"
+
+[[outputs]]
+id = "XFFppeQ6VNX3tPpS05MSR"
+uri = "file://docs/phase1-mail-trust-hardening.md"
+type = "text"
+title = "Phase 1 Mail Trust Hardening — Final Summary"
