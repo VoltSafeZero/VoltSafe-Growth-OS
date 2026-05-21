@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertTriangle, Loader2, Mail, RefreshCw, Send, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { setPendingCompose } from "@/lib/compose-handoff";
 
 type EntityType = "lead" | "account" | "contact";
 
@@ -34,7 +35,7 @@ async function fetchSuggestedEmail(entityType: EntityType, entityId: number): Pr
   return res.json();
 }
 
-/** Shared sessionStorage key used as a fallback handoff when draft creation is unavailable. */
+/** Shared sessionStorage key — kept as a secondary fallback for hard page reloads. */
 export const PENDING_COMPOSE_KEY = "voltsafe:pendingCompose";
 
 export function SuggestedNextEmailModal({ entityType, entityId, entityName, onClose }: Props) {
@@ -44,14 +45,26 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
   const [suggestion, setSuggestion] = useState<SuggestedEmail | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Fetch on mount
-  useState(() => {
+  // ── Fetch suggestion on mount (useEffect, not useState) ──────────────────
+  useEffect(() => {
     let mounted = true;
+    console.log("[SuggestedNextEmailModal] fetching suggestion", { entityType, entityId });
     fetchSuggestedEmail(entityType, entityId)
-      .then(data => { if (mounted) { setSuggestion(data); setLoading(false); } })
-      .catch(err => { if (mounted) { setError(err.message || "Failed"); setLoading(false); } });
+      .then(data => {
+        if (!mounted) return;
+        console.log("[SuggestedNextEmailModal] suggestion loaded", { to: data.to, subject: data.subject, bodyLen: data.body?.length });
+        setSuggestion(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        if (!mounted) return;
+        console.error("[SuggestedNextEmailModal] suggestion fetch failed", err);
+        setError(err.message || "Failed");
+        setLoading(false);
+      });
     return () => { mounted = false; };
-  });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleRegenerate() {
     setLoading(true);
@@ -68,7 +81,11 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
   }
 
   async function handleContinue() {
-    if (!suggestion) return;
+    if (!suggestion) {
+      console.warn("[SuggestedNextEmailModal] handleContinue called with no suggestion — abort");
+      return;
+    }
+    console.log("[SuggestedNextEmailModal] handleContinue — start", { to: suggestion.to, subject: suggestion.subject, bodyLen: suggestion.body?.length });
     setIsSaving(true);
 
     const payload = {
@@ -78,38 +95,42 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
       body: suggestion.body,
     };
 
+    // ── Primary path: create a real Gmail draft ─────────────────────────────
     try {
-      // Create a real Gmail draft so the compose window is fully hydrated and
-      // the draft appears in the Drafts folder even if the user navigates away.
+      console.log("[SuggestedNextEmailModal] POST /api/gmail/drafts — start");
       const res = await fetch("/api/gmail/drafts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ to: payload.to, subject: payload.subject, body: payload.body }),
       });
+      console.log("[SuggestedNextEmailModal] POST /api/gmail/drafts — status", res.status);
 
       if (res.ok) {
         const draft = await res.json();
+        console.log("[SuggestedNextEmailModal] draft created, id=", draft.id, "— navigating to /gmail?draft=...&compose=1");
+        // Write module-level handoff AND sessionStorage so both inbox paths work.
+        setPendingCompose(payload);
+        try { sessionStorage.setItem(PENDING_COMPOSE_KEY, JSON.stringify(payload)); } catch { /* iframe may block storage */ }
         onClose();
-        // Navigate with draft ID — gmail-inbox detects these params on mount and
-        // opens the compose window using the same openDraft() path as clicking a
-        // draft row in the Drafts folder.
         setLocation(`/gmail?draft=${draft.id}&compose=1`);
         return;
       }
-    } catch {
-      // Fall through to sessionStorage fallback below.
+
+      const errBody = await res.json().catch(() => ({}));
+      console.warn("[SuggestedNextEmailModal] draft POST failed", res.status, errBody);
+    } catch (fetchErr) {
+      console.error("[SuggestedNextEmailModal] draft POST threw", fetchErr);
     }
 
-    // Fallback: persist compose payload to sessionStorage so gmail-inbox can
-    // pick it up on mount even without a real draft ID.  This works for the
-    // common case where Gmail is not yet connected or the API is temporarily
-    // unavailable.
-    try {
-      sessionStorage.setItem(PENDING_COMPOSE_KEY, JSON.stringify(payload));
-    } catch {
-      // sessionStorage blocked (private mode edge case) — ignore.
-    }
+    // ── Fallback: module-level handoff (works in all iframe/storage contexts) ─
+    console.log("[SuggestedNextEmailModal] using compose-handoff fallback");
+    setPendingCompose(payload);
+
+    // Also write sessionStorage as a secondary fallback for hard page reloads.
+    try { sessionStorage.setItem(PENDING_COMPOSE_KEY, JSON.stringify(payload)); } catch { /* iframe may block */ }
+
+    setIsSaving(false);
     onClose();
     setLocation("/gmail");
   }
@@ -188,6 +209,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
         {/* Actions */}
         <div className="flex items-center justify-between pt-3 border-t border-border/50 mt-2">
           <Button
+            type="button"
             variant="ghost"
             size="sm"
             onClick={onClose}
@@ -197,6 +219,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
           </Button>
           <div className="flex gap-2">
             <Button
+              type="button"
               variant="outline"
               size="sm"
               onClick={handleRegenerate}
@@ -207,6 +230,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
               Regenerate
             </Button>
             <Button
+              type="button"
               size="sm"
               onClick={handleContinue}
               disabled={loading || !suggestion || !suggestion.body || isSaving}

@@ -1,0 +1,61 @@
+Bug still exists in the real UI.
+
+Observed production/dev behavior:
+When I click "Continue to Mail" from AI Summary suggested email on Lead, Account, or Contact:
+- The suggested email modal closes / disappears
+- Gmail/Mail opens
+- No compose is hydrated
+- No draft appears in Gmail Drafts
+- The suggested email content is lost
+
+Do NOT rely only on source-grep tests. Do a real runtime trace.
+
+Please instrument and verify the actual click path:
+
+1. In suggested-next-email-modal.tsx, add temporary console logs around handleContinue:
+   - button clicked
+   - resolved to / subject / body values
+   - POST /api/gmail/drafts starting
+   - POST response status
+   - returned draft id
+   - fallback sessionStorage write
+   - navigation target
+
+2. In the browser Network tab / server logs, confirm whether clicking Continue to Mail actually sends:
+   POST /api/gmail/drafts
+
+3. If the POST is not firing:
+   - find why handleContinue is not wired to the real button
+   - check whether there are multiple SuggestedNextEmailModal components or duplicate Continue buttons
+   - check if the button is submitting/closing the modal before async handleContinue runs
+   - fix the real rendered component, not a dead code path
+
+4. If POST fires but fails:
+   - inspect the API response body
+   - verify the endpoint exists in the same environment
+   - verify auth/session is present
+   - verify expected payload shape matches backend route
+   - fix the route or frontend payload
+
+5. If POST succeeds but no draft appears:
+   - confirm returned id is a real Gmail draft id
+   - confirm the draft list endpoint can see it
+   - confirm openDraft can fetch /api/gmail/drafts/:id
+   - fix draft creation persistence
+
+6. If fallback is used:
+   - confirm sessionStorage['voltsafe:pendingCompose'] is written before navigation
+   - confirm gmail-inbox.tsx reads it on mount
+   - confirm composeInitial is set with to/subject/body
+   - confirm sessionStorage is cleared only after hydration succeeds
+
+Acceptance criteria:
+- Real manual click from Lead works
+- Real manual click from Account works
+- Real manual click from Contact works
+- Draft appears in Drafts
+- Mail compose opens with To, Subject, Body populated
+- No content is lost if draft API fails
+- Add regression test that proves the rendered Continue button awaits the draft handoff before closing/navigating
+
+This is not solved until the real UI click path is manually verified.

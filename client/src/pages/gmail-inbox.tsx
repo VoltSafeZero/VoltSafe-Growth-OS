@@ -53,6 +53,8 @@ import {
 import { SnippetInsertButton, SnippetsManagerDialog } from "@/components/inbox-snippets";
 import { useSnippets } from "@/hooks/use-snippets";
 import { useLocation } from "wouter";
+import { takePendingCompose } from "@/lib/compose-handoff";
+import { PENDING_COMPOSE_KEY } from "@/components/crm/suggested-next-email-modal";
 import { sanitizeEmailHtml, plainTextToEmailHtml, htmlToPlainText } from "@/lib/sanitize-html";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
@@ -3960,19 +3962,30 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   }, []);
   // ── External compose trigger (from AI Summary "Suggested Email") ───────────
   useEffect(() => {
-    // Fallback: pick up a compose payload that was written to sessionStorage
-    // before navigation (handles the case where the CustomEvent fired before
-    // this component mounted — the classic timing race).
-    const PENDING_KEY = "voltsafe:pendingCompose";
-    try {
-      const raw = sessionStorage.getItem(PENDING_KEY);
-      if (raw) {
-        sessionStorage.removeItem(PENDING_KEY);
-        const p = JSON.parse(raw);
-        setComposeInitial({ to: p.to || "", cc: p.cc || "", subject: p.subject || "", body: p.body || "" });
-        setComposeOpen(true);
-      }
-    } catch { /* ignore parse / storage errors */ }
+    // ── Primary fallback: module-level in-memory handoff ──────────────────
+    // This is immune to sessionStorage restrictions (Replit preview iframe,
+    // private-mode browsers) and has no async/timing requirements — the value
+    // is synchronously available the moment this effect runs.
+    const inMemory = takePendingCompose();
+    if (inMemory) {
+      console.log("[gmail-inbox] compose-handoff in-memory payload found", { to: inMemory.to, subject: inMemory.subject });
+      setComposeInitial({ to: inMemory.to || "", cc: inMemory.cc || "", subject: inMemory.subject || "", body: inMemory.body || "" });
+      setComposeOpen(true);
+    } else {
+      // ── Secondary fallback: sessionStorage (works for hard page reloads) ─
+      try {
+        const raw = sessionStorage.getItem(PENDING_COMPOSE_KEY);
+        if (raw) {
+          sessionStorage.removeItem(PENDING_COMPOSE_KEY);
+          const p = JSON.parse(raw);
+          console.log("[gmail-inbox] sessionStorage compose payload found", { to: p.to, subject: p.subject });
+          setComposeInitial({ to: p.to || "", cc: p.cc || "", subject: p.subject || "", body: p.body || "" });
+          setComposeOpen(true);
+        } else {
+          console.log("[gmail-inbox] no pending compose payload (in-memory or sessionStorage)");
+        }
+      } catch { /* sessionStorage blocked in iframe / private mode — ignore */ }
+    }
 
     // Keep the CustomEvent listener for any in-page callers where the inbox
     // is already mounted (e.g. future in-app triggers within the Gmail view).
