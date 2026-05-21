@@ -54,3 +54,9 @@ id = "XFFppeQ6VNX3tPpS05MSR"
 uri = "file://docs/phase1-mail-trust-hardening.md"
 type = "text"
 title = "Phase 1 Mail Trust Hardening — Final Summary"
+
+[[outputs]]
+id = "HiCdJnp--L3c4KzUwO1N_"
+uri = "file://exports/bc-shore-power-marinas-import-template.csv"
+type = "table"
+title = "BC Shore Power Marinas — VoltSafe CRM Import Template"
