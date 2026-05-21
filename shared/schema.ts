@@ -1139,6 +1139,7 @@ export const associationFeedback = pgTable("association_feedback", {
 
 export const scheduledEmails = pgTable("scheduled_emails", {
   id: serial("id").primaryKey(),
+  userId: integer("user_id"),
   to: text("to").notNull(),
   subject: text("subject"),
   body: text("body").notNull(),
@@ -1147,6 +1148,7 @@ export const scheduledEmails = pgTable("scheduled_emails", {
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   sentAt: timestamp("sent_at"),
+  sentMessageId: text("sent_message_id"),
   error: text("error"),
 });
 export type ScheduledEmail = typeof scheduledEmails.$inferSelect;

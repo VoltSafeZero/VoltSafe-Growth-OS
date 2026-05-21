@@ -12088,7 +12088,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     if (!user || user.globalRole !== "master_admin") return res.json([]);
     try {
       const emails = await db.select().from(scheduledEmails)
-        .where(eq(scheduledEmails.status, "pending"))
+        .where(inArray(scheduledEmails.status, ["pending", "failed"]))
         .orderBy(scheduledEmails.scheduledAt);
       res.json(emails);
     } catch (err: any) {
@@ -12106,7 +12106,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const { to, subject, body, threadId, scheduledAt } = req.body;
       if (!to || !body || !scheduledAt) return res.status(400).json({ message: "to, body, scheduledAt required" });
       const [email] = await db.insert(scheduledEmails)
-        .values({ to, subject, body, threadId, scheduledAt: new Date(scheduledAt) })
+        .values({ to, subject, body, threadId, scheduledAt: new Date(scheduledAt), userId: req.session.userId! })
         .returning();
       res.json(email);
     } catch (err: any) {

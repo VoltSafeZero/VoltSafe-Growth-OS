@@ -1327,6 +1327,16 @@ export async function migrateTradeshowEventsSchema(): Promise<void> {
   }
 }
 
+export async function migrateScheduledEmailColumns(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE scheduled_emails ADD COLUMN IF NOT EXISTS user_id integer`);
+    await db.execute(sql`ALTER TABLE scheduled_emails ADD COLUMN IF NOT EXISTS sent_message_id text`);
+    console.log("[migration] scheduled_emails user_id + sent_message_id columns ready.");
+  } catch (err) {
+    console.error("[migration] scheduled_emails column migration error (non-fatal):", err);
+  }
+}
+
 export async function migrateCrmAiSummarySchema(): Promise<void> {
   try {
     await db.execute(sql`

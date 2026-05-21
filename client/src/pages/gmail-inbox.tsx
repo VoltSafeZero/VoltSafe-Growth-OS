@@ -5085,7 +5085,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   });
 
   type DraftSummary = { id: string; to: string; subject: string; date: string; snippet: string; internalDate: string };
-  type ScheduledEmail = { id: number; to: string; subject: string | null; scheduledAt: string; createdAt: string };
+  type ScheduledEmail = { id: number; to: string; subject: string | null; scheduledAt: string; createdAt: string; status: string; error: string | null; sentAt: string | null; sentMessageId: string | null };
 
   const draftsQuery = useQuery<DraftSummary[]>({
     queryKey: ["/api/gmail/drafts", activeAccountId],
@@ -6662,7 +6662,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       <button onClick={() => { setTab("scheduled"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-scheduled"
                         className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "scheduled" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                         <CalendarClock className="h-3.5 w-3.5" /><span className="flex-1 text-left">Scheduled</span>
-                        {(scheduledQuery.data?.length ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "scheduled" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{scheduledQuery.data?.length}</span>}
+                        {(scheduledQuery.data?.filter(e => e.status === "pending").length ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "scheduled" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{scheduledQuery.data?.filter(e => e.status === "pending").length}</span>}
                       </button>
                     </>}
                     {((reviewStatsQuery.data?.needsReview ?? 0) > 0 || tab === "review") && (
@@ -6781,7 +6781,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             <button onClick={() => { setTab("scheduled"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-scheduled-${acct.id}`}
                               className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "scheduled" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                               <CalendarClock className="h-3.5 w-3.5" /><span className="flex-1 text-left">Scheduled</span>
-                              {(scheduledQuery.data?.length ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "scheduled" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{scheduledQuery.data?.length}</span>}
+                              {(scheduledQuery.data?.filter(e => e.status === "pending").length ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "scheduled" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{scheduledQuery.data?.filter(e => e.status === "pending").length}</span>}
                             </button>
                           </>}
                           {/* Folders under each team inbox */}
@@ -7149,27 +7149,40 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               ) : (scheduledQuery.data || []).length === 0 ? (
                 <div className="p-6 text-center text-sm text-muted-foreground"><CalendarClock className="h-8 w-8 mx-auto mb-2 opacity-30" /><p>No scheduled emails</p></div>
               ) : (
-                (scheduledQuery.data || []).map((email) => (
-                  <div key={email.id} className="group relative px-3 py-2.5 border-b border-border/30">
-                    <div className="flex items-center justify-between gap-2 mb-0.5">
-                      <span className="text-sm truncate text-muted-foreground">{email.to}</span>
-                      <button
-                        onClick={() => cancelScheduledMutation.mutate(email.id)}
-                        disabled={cancelScheduledMutation.isPending}
-                        title="Cancel scheduled send"
-                        data-testid={`button-cancel-scheduled-${email.id}`}
-                        className="text-muted-foreground/40 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                      >
-                        <CalendarX className="h-3.5 w-3.5" />
-                      </button>
+                (scheduledQuery.data || []).map((email) => {
+                  const isFailed = email.status === "failed";
+                  return (
+                    <div key={email.id} className={`group relative px-3 py-2.5 border-b border-border/30 ${isFailed ? "bg-destructive/5" : ""}`}>
+                      <div className="flex items-center justify-between gap-2 mb-0.5">
+                        <span className={`text-sm truncate ${isFailed ? "text-destructive/80" : "text-muted-foreground"}`}>{email.to}</span>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {isFailed ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-destructive/15 text-destructive font-medium">Failed</span>
+                          ) : (
+                            <button
+                              onClick={() => cancelScheduledMutation.mutate(email.id)}
+                              disabled={cancelScheduledMutation.isPending}
+                              title="Cancel scheduled send"
+                              data-testid={`button-cancel-scheduled-${email.id}`}
+                              className="text-muted-foreground/40 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <CalendarX className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-xs truncate text-foreground/70">{email.subject || "(no subject)"}</p>
+                      {isFailed ? (
+                        <p className="text-xs text-destructive/70 mt-0.5 truncate" title={email.error ?? undefined}>{email.error || "Send failed"}</p>
+                      ) : (
+                        <p className="text-xs text-primary/70 mt-0.5 flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {new Date(email.scheduledAt).toLocaleString()}
+                        </p>
+                      )}
                     </div>
-                    <p className="text-xs truncate text-foreground/70">{email.subject || "(no subject)"}</p>
-                    <p className="text-xs text-primary/70 mt-0.5 flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {new Date(email.scheduledAt).toLocaleString()}
-                    </p>
-                  </div>
-                ))
+                  );
+                })
               )
             )}
 

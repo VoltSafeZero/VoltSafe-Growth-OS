@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { emailMessages, emailAccounts, scheduledEmails } from "../../shared/schema";
+import { emailMessages, emailAccounts, scheduledEmails, users } from "../../shared/schema";
 import { eq, and, lte, desc, inArray } from "drizzle-orm";
 import { parseGmailMessage } from "./email-parser";
 import { insertAttachmentsForMessage } from "./email-attachments";
@@ -237,15 +237,61 @@ async function runScheduledEmailSender() {
     and(eq(scheduledEmails.status, "pending"), lte(scheduledEmails.scheduledAt, now))
   );
   if (!due.length) return;
+
   const { sendEmail } = await import("../gmail");
+
   for (const email of due) {
+    // Resolve which user account to send from.
+    // Prefer the stored userId; fall back to the first master_admin for legacy rows.
+    let sendUserId: number | null = email.userId ?? null;
+    if (!sendUserId) {
+      const [admin] = await db.select({ id: users.id })
+        .from(users)
+        .where(eq(users.globalRole, "master_admin"))
+        .limit(1);
+      sendUserId = admin?.id ?? null;
+    }
+
+    if (!sendUserId) {
+      const errMsg = "No userId on scheduled email and no master_admin found — cannot send";
+      await db.update(scheduledEmails)
+        .set({ status: "failed", error: errMsg })
+        .where(eq(scheduledEmails.id, email.id));
+      log(`[gmail-scheduled] #${email.id} FAILED: ${errMsg}`);
+      continue;
+    }
+
+    log(`[gmail-scheduled] #${email.id} attempting send → to="${email.to}" subject="${email.subject}" userId=${sendUserId}`);
+
     try {
-      await sendEmail(email.to, email.subject || "", email.body, email.threadId ?? undefined);
-      await db.update(scheduledEmails).set({ status: "sent", sentAt: new Date() }).where(eq(scheduledEmails.id, email.id));
-      log(`[gmail-scheduled] Sent scheduled email #${email.id} to ${email.to}`);
+      // IMPORTANT: sendEmail(userId, to, subject, body, threadId?, attachments?, accountId?)
+      const result = await sendEmail(
+        sendUserId,
+        email.to,
+        email.subject || "",
+        email.body,
+        email.threadId ?? undefined,
+      );
+      const sentMsgId = result?.id ?? null;
+      await db.update(scheduledEmails)
+        .set({ status: "sent", sentAt: new Date(), sentMessageId: sentMsgId })
+        .where(eq(scheduledEmails.id, email.id));
+      log(`[gmail-scheduled] #${email.id} SENT — gmailMsgId=${sentMsgId} to=${email.to}`);
+
+      // Proactively trigger an incremental sync so the sent message appears in
+      // Sent Mail within seconds rather than waiting up to 5 minutes.
+      try {
+        const { runIncrementalForAll } = await import("./gmail-incremental");
+        await runIncrementalForAll();
+        log(`[gmail-scheduled] #${email.id} post-send sync complete`);
+      } catch (syncErr: any) {
+        log(`[gmail-scheduled] #${email.id} post-send sync error (non-fatal): ${syncErr.message}`);
+      }
     } catch (err: any) {
-      await db.update(scheduledEmails).set({ status: "failed", error: err.message }).where(eq(scheduledEmails.id, email.id));
-      log(`[gmail-scheduled] Failed to send scheduled email #${email.id}: ${err.message}`);
+      await db.update(scheduledEmails)
+        .set({ status: "failed", error: err.message })
+        .where(eq(scheduledEmails.id, email.id));
+      log(`[gmail-scheduled] #${email.id} FAILED: ${err.message}`);
     }
   }
 }
