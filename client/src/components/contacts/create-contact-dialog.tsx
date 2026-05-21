@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Camera, Link2, Sparkles, Loader2, RotateCcw, ImagePlus, Building2, ChevronsUpDown, Plus, X } from "lucide-react";
+import { Camera, Link2, Sparkles, Loader2, RotateCcw, ImagePlus, Building2, ChevronsUpDown, Plus, X, Anchor } from "lucide-react";
 import { EmailAutocompleteInput } from "@/components/email/email-autocomplete";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -81,6 +81,7 @@ export function CreateContactDialog({
   // Organization picker (only shown when no accountId was injected by the caller)
   const [pickedAccountId, setPickedAccountId] = useState<number | null>(accountId);
   const [pickedAccountName, setPickedAccountName] = useState<string>("");
+  const [pickedLeadId, setPickedLeadId] = useState<number | null>(null);
   const [orgPickerOpen, setOrgPickerOpen] = useState(false);
   const [orgSearch, setOrgSearch] = useState("");
 
@@ -94,6 +95,17 @@ export function CreateContactDialog({
     enabled: open && !accountId && orgPickerOpen,
   });
   const orgList: any[] = useMemo(() => orgResults?.data || orgResults || [], [orgResults]);
+
+  const { data: leadResults } = useQuery<any>({
+    queryKey: ["/api/leads", { search: orgSearch }],
+    queryFn: async () => {
+      const r = await fetch(`/api/leads?search=${encodeURIComponent(orgSearch)}&limit=10`, { credentials: "include" });
+      if (!r.ok) return { data: [] };
+      return r.json();
+    },
+    enabled: open && !accountId && orgPickerOpen,
+  });
+  const leadList: any[] = useMemo(() => leadResults?.data || leadResults || [], [leadResults]);
 
   // Track the previous (open, initialMode) so we can detect a mode change
   // while the dialog is already open and treat it as a fresh "session".
@@ -286,7 +298,7 @@ export function CreateContactDialog({
     try {
       let finalAccountId = effectiveAccountId;
       // If user typed a brand new org name (didn't pick one), create it on the fly
-      if (!finalAccountId && needsOrgPicker && pickedAccountName.trim()) {
+      if (!finalAccountId && !pickedLeadId && needsOrgPicker && pickedAccountName.trim()) {
         const accRes = await apiRequest("POST", "/api/accounts", {
           name: pickedAccountName.trim(),
           segment: "marina",
@@ -308,6 +320,10 @@ export function CreateContactDialog({
         notes: notes.trim() || null,
       });
       const created = await res.json();
+      // If user linked to a lead, add the many-to-many lead_contacts row
+      if (pickedLeadId && created?.id) {
+        await apiRequest("POST", `/api/leads/${pickedLeadId}/contacts`, { contactId: created.id });
+      }
       onCreated(created);
       onOpenChange(false);
       toast({ title: "Contact created", description: name.trim() });
@@ -520,7 +536,7 @@ export function CreateContactDialog({
           {needsOrgPicker && (
             <div className="space-y-1">
               <div className="flex items-baseline justify-between gap-2">
-                <Label className="text-xs">Account</Label>
+                <Label className="text-xs">Account / Lead</Label>
                 <span className="text-[11px] text-muted-foreground">Optional — link later</span>
               </div>
               <Popover open={orgPickerOpen} onOpenChange={setOrgPickerOpen}>
@@ -533,7 +549,9 @@ export function CreateContactDialog({
                     data-testid="button-pick-org"
                   >
                     <span className="flex items-center gap-2 truncate">
-                      <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                      {pickedLeadId
+                        ? <Anchor className="h-3.5 w-3.5 text-muted-foreground" />
+                        : <Building2 className="h-3.5 w-3.5 text-muted-foreground" />}
                       {pickedAccountName || (effectiveAccountId ? "Selected" : "Choose, type new, or skip…")}
                     </span>
                     <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" />
@@ -542,7 +560,7 @@ export function CreateContactDialog({
                 <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
                   <Command shouldFilter={false}>
                     <CommandInput
-                      placeholder="Search or type a new organization name…"
+                      placeholder="Search accounts and leads…"
                       value={orgSearch}
                       onValueChange={setOrgSearch}
                       data-testid="input-org-search"
@@ -551,24 +569,42 @@ export function CreateContactDialog({
                       <CommandEmpty>
                         <div className="py-2 text-xs text-muted-foreground">Type a name and tap "Create new"</div>
                       </CommandEmpty>
-                      <CommandGroup heading="Existing">
-                        {orgList.slice(0, 12).map((o: any) => (
-                          <CommandItem
-                            key={o.id}
-                            value={String(o.id)}
-                            onSelect={() => { setPickedAccountId(o.id); setPickedAccountName(o.name); setOrgPickerOpen(false); }}
-                            data-testid={`option-org-${o.id}`}
-                          >
-                            <Building2 className="h-3 w-3 mr-2 text-muted-foreground" />
-                            <span className="truncate">{o.name}</span>
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
+                      {orgList.length > 0 && (
+                        <CommandGroup heading="Accounts">
+                          {orgList.slice(0, 10).map((o: any) => (
+                            <CommandItem
+                              key={`acct-${o.id}`}
+                              value={`acct-${o.id}`}
+                              onSelect={() => { setPickedAccountId(o.id); setPickedAccountName(o.name); setPickedLeadId(null); setOrgPickerOpen(false); }}
+                              data-testid={`option-org-${o.id}`}
+                            >
+                              <Building2 className="h-3 w-3 mr-2 text-muted-foreground" />
+                              <span className="truncate">{o.name}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )}
+                      {leadList.length > 0 && (
+                        <CommandGroup heading="Leads">
+                          {leadList.slice(0, 10).map((l: any) => (
+                            <CommandItem
+                              key={`lead-${l.id}`}
+                              value={`lead-${l.id}`}
+                              onSelect={() => { setPickedLeadId(l.id); setPickedAccountName(l.company); setPickedAccountId(null); setOrgPickerOpen(false); }}
+                              data-testid={`option-lead-${l.id}`}
+                            >
+                              <Anchor className="h-3 w-3 mr-2 text-muted-foreground" />
+                              <span className="truncate">{l.company}</span>
+                              {l.city && <span className="ml-auto text-[10px] text-muted-foreground truncate">{l.city}</span>}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )}
                       {orgSearch.trim() && (
                         <CommandGroup heading="Or">
                           <CommandItem
                             value={`__new__${orgSearch}`}
-                            onSelect={() => { setPickedAccountId(null); setPickedAccountName(orgSearch.trim()); setOrgPickerOpen(false); }}
+                            onSelect={() => { setPickedAccountId(null); setPickedLeadId(null); setPickedAccountName(orgSearch.trim()); setOrgPickerOpen(false); }}
                             data-testid="option-org-create-new"
                           >
                             <Plus className="h-3 w-3 mr-2" /> Create new "{orgSearch.trim()}"

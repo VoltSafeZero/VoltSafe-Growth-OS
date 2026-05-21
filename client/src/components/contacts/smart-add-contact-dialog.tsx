@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import {
   Loader2, Sparkles, UserPlus, Building2, X, CheckCircle2,
-  UserCheck, AlertTriangle, ArrowRight, Check, RotateCcw, TextSelect,
+  UserCheck, AlertTriangle, ArrowRight, Check, RotateCcw, TextSelect, Anchor,
 } from "lucide-react";
 
 interface ExtractedContact {
@@ -118,21 +118,38 @@ export function SmartAddContactDialog({
   const [linkedinUrl, setLinkedinUrl] = useState("");
   const [notes, setNotes] = useState("");
   const [orgSearch, setOrgSearch] = useState("");
-  const [selectedOrg, setSelectedOrg] = useState<{ id: number; name: string } | null>(null);
+  const [selectedOrg, setSelectedOrg] = useState<{ id: number; name: string; type: "account" | "lead" } | null>(null);
   const [newOrgName, setNewOrgName] = useState("");
   const [orgMode, setOrgMode] = useState<"pick" | "new" | "skip">("pick");
 
-  const { data: orgResults = [] } = useQuery<{ id: number; name: string }[]>({
+  const { data: accountResults = [] } = useQuery<{ id: number; name: string; type: "account" }[]>({
     queryKey: ["/api/accounts", "smart-contact-search", orgSearch],
     queryFn: async () => {
       if (orgSearch.length < 2) return [];
       const res = await fetch(`/api/accounts?search=${encodeURIComponent(orgSearch)}&limit=8`, { credentials: "include" });
       if (!res.ok) return [];
       const data = await res.json();
-      return (data.data || data.accounts || data || []).slice(0, 8).map((a: any) => ({ id: a.id, name: a.name }));
+      return (data.data || data.accounts || data || []).slice(0, 8).map((a: any) => ({ id: a.id, name: a.name, type: "account" as const }));
     },
     enabled: orgSearch.length >= 2 && orgMode === "pick" && !selectedOrg,
   });
+
+  const { data: leadSearchResults = [] } = useQuery<{ id: number; name: string; type: "lead"; city?: string }[]>({
+    queryKey: ["/api/leads", "smart-contact-search", orgSearch],
+    queryFn: async () => {
+      if (orgSearch.length < 2) return [];
+      const res = await fetch(`/api/leads?search=${encodeURIComponent(orgSearch)}&limit=8`, { credentials: "include" });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data.data || data || []).slice(0, 8).map((l: any) => ({ id: l.id, name: l.company, type: "lead" as const, city: l.city }));
+    },
+    enabled: orgSearch.length >= 2 && orgMode === "pick" && !selectedOrg,
+  });
+
+  const orgResults: { id: number; name: string; type: "account" | "lead"; city?: string }[] = [
+    ...accountResults,
+    ...leadSearchResults,
+  ];
 
   // ── Reset & load on open ──────────────────────────────────────────────────
   useEffect(() => {
@@ -222,7 +239,8 @@ export function SmartAddContactDialog({
   // ── Mutations ─────────────────────────────────────────────────────────────
   const saveMutation = useMutation({
     mutationFn: async () => {
-      let accountId: number | undefined = selectedOrg?.id;
+      const isLeadPick = selectedOrg?.type === "lead";
+      let accountId: number | undefined = isLeadPick ? undefined : selectedOrg?.id;
       if (!accountId && orgMode === "new" && newOrgName.trim()) {
         const orgRes = await apiRequest("POST", "/api/accounts", { name: newOrgName.trim(), type: "marina" });
         if (!orgRes.ok) throw new Error("Failed to create organization");
@@ -239,7 +257,12 @@ export function SmartAddContactDialog({
         accountId,
       });
       if (!res.ok) throw new Error((await res.json()).message || "Failed to save contact");
-      return res.json();
+      const created = await res.json();
+      // Link to lead via lead_contacts if user picked a lead
+      if (isLeadPick && selectedOrg && created?.id) {
+        await apiRequest("POST", `/api/leads/${selectedOrg.id}/contacts`, { contactId: created.id });
+      }
+      return created;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
@@ -512,12 +535,34 @@ export function SmartAddContactDialog({
                     </div>
                   )}
                   {!selectedOrg && orgResults.length > 0 && (
-                    <div className="mt-1 border border-border/40 rounded bg-popover shadow-md max-h-40 overflow-y-auto">
-                      {orgResults.map(a => (
-                        <button key={a.id} type="button" className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors" onClick={() => { setSelectedOrg(a); setOrgSearch(a.name); }} data-testid={`org-option-${a.id}`}>
-                          {a.name}
-                        </button>
-                      ))}
+                    <div className="mt-1 border border-border/40 rounded bg-popover shadow-md max-h-48 overflow-y-auto">
+                      {accountResults.length > 0 && (
+                        <>
+                          <div className="px-3 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide border-b border-border/30 flex items-center gap-1">
+                            <Building2 className="h-3 w-3" /> Accounts
+                          </div>
+                          {accountResults.map(a => (
+                            <button key={`acct-${a.id}`} type="button" className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors flex items-center gap-2" onClick={() => { setSelectedOrg(a); setOrgSearch(a.name); }} data-testid={`org-option-${a.id}`}>
+                              <Building2 className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                              <span className="truncate">{a.name}</span>
+                            </button>
+                          ))}
+                        </>
+                      )}
+                      {leadSearchResults.length > 0 && (
+                        <>
+                          <div className="px-3 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide border-b border-border/30 border-t flex items-center gap-1">
+                            <Anchor className="h-3 w-3" /> Leads
+                          </div>
+                          {leadSearchResults.map(l => (
+                            <button key={`lead-${l.id}`} type="button" className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors flex items-center gap-2" onClick={() => { setSelectedOrg(l); setOrgSearch(l.name); }} data-testid={`lead-option-${l.id}`}>
+                              <Anchor className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                              <span className="truncate">{l.name}</span>
+                              {l.city && <span className="ml-auto text-[10px] text-muted-foreground">{l.city}</span>}
+                            </button>
+                          ))}
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
