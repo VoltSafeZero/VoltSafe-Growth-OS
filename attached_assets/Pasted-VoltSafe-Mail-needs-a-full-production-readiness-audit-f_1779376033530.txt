@@ -1,0 +1,239 @@
+VoltSafe Mail needs a full production-readiness audit focused on trust, reliability, multi-user safety, and UX confidence before broader team rollout.
+
+This is NOT a feature audit.
+This is a mail integrity + operational reliability audit.
+
+Goal:
+Ensure VoltSafe Mail behaves as a trustworthy Gmail operational layer for ALL users — not just trevor@voltsafe.com.
+
+Please perform the following deep audit and produce a structured report with findings, risks, and recommended fixes prioritized by severity and engineering effort.
+
+==================================================
+PHASE 1 — MAIL LIFECYCLE & STATE INTEGRITY
+==================================================
+
+Audit the entire lifecycle of:
+- Drafts
+- Scheduled emails
+- Sends
+- Replies
+- Forwards
+- Sync/import
+- Failed sends
+- OAuth reconnect flows
+
+Verify every message always exists in ONE authoritative state:
+
+- Draft
+- Scheduled
+- Sending
+- Sent
+- Failed
+- Archived
+- Deleted
+
+A message must NEVER silently disappear.
+
+Specifically verify:
+
+1. Draft lifecycle
+- survives refresh
+- survives tab close/reopen
+- survives OAuth refresh
+- survives API timeout
+- survives reconnect
+- survives duplicate tabs
+- local vs Gmail source-of-truth behavior
+
+2. Send lifecycle
+- optimistic UI vs confirmed send behavior
+- when Sent state is committed
+- duplicate send prevention
+- timeout handling
+- retry handling
+- Gmail API error handling (429, 401, 403, 5xx)
+
+3. Scheduled send lifecycle
+- exact scheduler flow
+- when scheduled rows are removed
+- whether Gmail confirmation is required before deletion
+- failed scheduled send handling
+- retry queue existence
+- timezone handling
+- local vs UTC conversion
+
+4. Sync lifecycle
+- Gmail vs local DB source-of-truth
+- conflict resolution
+- label reconciliation
+- deleted email reconciliation
+- incremental sync behavior
+- polling/websocket behavior
+- stale cache handling
+
+5. OAuth lifecycle
+- token refresh
+- revoked access behavior
+- reconnect flow
+- partial permission failures
+- account switching safety
+
+==================================================
+PHASE 2 — MULTI-USER SAFETY & ISOLATION
+==================================================
+
+This is CRITICAL.
+
+Verify ALL mail state is fully isolated per user.
+
+Audit:
+- OAuth token isolation
+- polling isolation
+- websocket isolation
+- local cache isolation
+- Zustand/React store isolation
+- scheduler isolation
+- draft isolation
+- compose state isolation
+- account switching behavior
+- logout/login behavior
+- stale cache persistence
+
+Specifically test:
+User A logout → User B login
+
+Verify:
+- no inbox bleed-through
+- no stale drafts
+- no cached threads
+- no stale avatars/accounts
+- no incorrect compose sender identity
+
+This must be treated as a security-critical audit.
+
+==================================================
+PHASE 3 — TRUST / RELIABILITY UX AUDIT
+==================================================
+
+Audit whether the UI clearly communicates mail state.
+
+Identify all silent-failure paths.
+
+Recommend minimal high-leverage UX improvements.
+
+Specifically evaluate:
+
+1. Status visibility
+Need explicit indicators for:
+- Draft saved
+- Sending
+- Sent
+- Scheduled
+- Failed
+- Syncing
+- Reconnecting Gmail
+
+2. Sync confidence
+Need:
+- Last synced timestamp
+- sync state visibility
+- reconnect visibility
+- retry visibility
+
+3. Failed-send recoverability
+Failed sends should:
+- never disappear
+- remain recoverable
+- allow retry
+- expose error reason
+
+4. Compose confidence
+Audit:
+- autosave visibility
+- sender identity clarity
+- account visibility
+- save timestamps
+- attachment state confidence
+
+5. Layout stability
+Audit:
+- loading jumps
+- thread movement
+- filter bar shifts
+- compose resize instability
+- skeleton consistency
+
+==================================================
+PHASE 4 — OPERATIONAL RELIABILITY AUDIT
+==================================================
+
+Audit production observability and operational safety.
+
+Verify existence and quality of:
+
+- mail send logs
+- scheduler logs
+- sync logs
+- Gmail API error logs
+- OAuth failure logs
+- retry queues
+- dead-letter handling
+- health metrics
+- stuck scheduler detection
+- failed send visibility
+
+Need admin-level visibility into:
+- failed sends
+- sync latency
+- OAuth failures
+- scheduler backlog
+- draft save failures
+- Gmail API degradation
+
+==================================================
+PHASE 5 — LOW-EFFORT / HIGH-IMPACT UX IMPROVEMENTS
+==================================================
+
+Please identify:
+- minimal engineering changes
+- highest perceived UX/reliability gains
+- Spark/Superhuman/Gmail patterns worth adopting
+- any “small changes with massive trust impact”
+
+Prioritize:
+- low effort
+- high confidence gain
+- high adoption leverage
+
+==================================================
+REQUIRED OUTPUT FORMAT
+==================================================
+
+Return:
+
+1. Architecture overview
+2. Current strengths
+3. Critical risks
+4. Medium risks
+5. Low risks
+6. Multi-user safety findings
+7. Reliability findings
+8. UX findings
+9. Operational findings
+10. Recommended fixes ranked by:
+   - severity
+   - engineering effort
+   - user trust impact
+
+Also include:
+- exact files/modules involved
+- dangerous flows
+- race conditions
+- silent-failure paths
+- optimistic UI risks
+- source-of-truth inconsistencies
+
+Do NOT just run source-grep.
+Do real runtime tracing where possible.
+
+This audit should determine whether VoltSafe Mail is safe for broader internal team adoption.
