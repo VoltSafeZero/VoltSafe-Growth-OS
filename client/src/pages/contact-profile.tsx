@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { EditContactDialog } from "@/components/contacts/edit-contact-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { formatDistanceToNow, format, isPast } from "date-fns";
 import { Link } from "wouter";
 import { TimelineTab } from "@/components/timeline-tab";
@@ -199,6 +200,20 @@ export default function ContactProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/contacts/${id}`);
+      if (!res.ok) throw new Error((await res.json()).message ?? "Delete failed");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      toast({ title: "Contact deleted" });
+      navigate("/contacts");
+    },
+    onError: (e: any) => toast({ title: "Could not delete contact", description: e.message, variant: "destructive" }),
+  });
 
   const { data, isLoading, isError, refetch } = useQuery<ProfileData>({
     queryKey: ["/api/contacts", id, "profile"],
@@ -396,6 +411,16 @@ export default function ContactProfilePage() {
               >
                 <Pencil className="h-3.5 w-3.5" />
                 Edit
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setDeleteOpen(true)}
+                className="gap-1.5 w-full sm:w-auto"
+                data-testid="button-delete-contact"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
               </Button>
               {contact.email && (
                 <SendBookingLinkButton
@@ -751,6 +776,28 @@ export default function ContactProfilePage() {
           refetch();
         }}
       />
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete contact?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{contact.name}</strong> will be permanently removed. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-delete-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-delete-confirm"
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
