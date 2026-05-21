@@ -1,0 +1,55 @@
+Great audit. Now implement the critical reliability fixes only.
+
+Scope this as Phase 1: VoltSafe Mail Trust Hardening.
+
+Fix these four items surgically:
+
+1. C2 — Failed regular sends must never lose email content
+- If /api/gmail/send fails due to Gmail/API/network/token error, automatically preserve the message as a Gmail draft if possible.
+- Return the draftId to the client.
+- UI should show: “Send failed — saved as draft” with clear recovery.
+- If Gmail draft save also fails, preserve the content locally in a recoverable failed/outbox state.
+- Do not discard compose content on failure.
+
+2. C1 — Server-side send idempotency
+- Add a client-generated idempotency key per compose session.
+- Send it with /api/gmail/send.
+- Server must deduplicate retries for a short TTL window.
+- If the same key is retried after successful send, return the original sent result instead of sending again.
+- Add tests proving double-click/network retry cannot send duplicate emails.
+
+3. C3 — User-scope localStorage keys
+- Prefix all VoltSafe Mail localStorage keys with the authenticated userId.
+- Include:
+  - inbox.focusMode
+  - inbox.density
+  - crm-panel-expanded
+  - inbox-list-width
+  - inbox-top-expanded
+  - inbox-bottom-expanded
+  - voltsafe.mailSource
+- Clear or ignore legacy unscoped keys on logout/login.
+- Add regression test for User A logout → User B login with no mailbox/layout bleed-through.
+
+4. C4 — Retry failed scheduled sends
+- Add POST /api/gmail/scheduled/:id/retry.
+- Only allow retry for the owning user/account.
+- Reset status from failed → pending, clear error, update scheduledAt appropriately if needed.
+- Add UI Retry button for failed scheduled emails.
+- Add tests proving failed scheduled email can be retried and does not disappear.
+
+Important constraints:
+- Keep changes additive and surgical.
+- Do not refactor the whole gmail-inbox.tsx file.
+- Do not change unrelated mail behavior.
+- Do not rely only on source-grep tests.
+- Add focused regression tests for each fix.
+- Run the existing relevant mail/CRM regression suites after implementation.
+
+Required final report:
+- Files changed
+- Exact behavior before/after
+- Tests added
+- Tests passed
+- Any remaining known risks
+- Manual smoke-test checklist

@@ -4,6 +4,15 @@ import { createPortal } from "react-dom";
 import { EmailTokenInput } from "@/components/email/email-autocomplete";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+
+// C3: Returns a user-scoped localStorage key to prevent state bleed between users on shared browsers.
+// queryClient already has /api/auth/me cached by the time GmailInboxPage mounts (auth gate in App.tsx).
+function lsKey(key: string): string {
+  try {
+    const u = queryClient.getQueryData<{ id: number }>(["/api/auth/me"]);
+    return u?.id ? `u${u.id}.${key}` : key;
+  } catch { return key; }
+}
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -689,6 +698,10 @@ function ComposeDialog({
     enabled: showQuotePicker,
   });
 
+  // C1: Per-session idempotency key — stable for the lifetime of this compose window.
+  // A new key is generated each time ComposeDialog mounts (new compose session).
+  const idempotencyKeyRef = useRef<string>(crypto.randomUUID());
+
   const sendMutation = useMutation({
     mutationFn: async () => {
       const appendHtml = EMAIL_SIGNATURE_HTML
@@ -696,16 +709,31 @@ function ComposeDialog({
           ? buildForwardedBlockHtml(defaultQuotedFrom, defaultQuotedDate, forwardSubject, forwardTo, defaultQuotedHtml)
           : "");
       const htmlBody = buildEmailHtml(body, appendHtml);
-      const res = await apiRequest("POST", "/api/gmail/send", {
-        to, subject, body: htmlBody, threadId,
-        ...(cc ? { cc } : {}),
-        ...(bcc ? { bcc } : {}),
-        attachmentIds: attachedAssets.map((a) => a.id),
-        ...(asAccountId ? { asAccountId } : {}),
-        ...(pendingIcal ? { icalContent: pendingIcal } : {}),
-        ...(isForward ? { isForward: true } : {}),
+      // Use raw fetch (not apiRequest) so we can read the full response body on error.
+      // The server returns draftId when a send fails and the draft fallback succeeds (C2).
+      const res = await fetch("/api/gmail/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          to, subject, body: htmlBody, threadId,
+          ...(cc ? { cc } : {}),
+          ...(bcc ? { bcc } : {}),
+          attachmentIds: attachedAssets.map((a) => a.id),
+          ...(asAccountId ? { asAccountId } : {}),
+          ...(pendingIcal ? { icalContent: pendingIcal } : {}),
+          ...(isForward ? { isForward: true } : {}),
+          idempotencyKey: idempotencyKeyRef.current,
+        }),
       });
-      return res.json();
+      const data = await res.json();
+      if (!res.ok) {
+        const err = new Error(data.message || "Send failed") as any;
+        err.draftId = data.draftId ?? null;
+        err.draftSaved = data.draftSaved ?? false;
+        throw err;
+      }
+      return data;
     },
     onSuccess: async () => {
       toast({ title: "Email sent" });
@@ -717,7 +745,16 @@ function ComposeDialog({
       queryClient.invalidateQueries({ queryKey: ["/api/inbox/thread-signals"] });
       onClose();
     },
-    onError: (err: any) => toast({ title: "Failed to send", description: err.message, variant: "destructive" }),
+    onError: (err: any) => {
+      if (err.draftSaved && err.draftId) {
+        // C2: Server saved content as Gmail draft — switch compose to draft-edit mode so user can retry.
+        setActiveDraftId(err.draftId);
+        queryClient.invalidateQueries({ queryKey: ["/api/gmail/drafts"] });
+        toast({ title: "Send failed — saved as draft", description: "Your message was saved. Open Drafts to retry.", variant: "destructive" });
+      } else {
+        toast({ title: "Failed to send", description: err.message, variant: "destructive" });
+      }
+    },
   });
 
   const draftMutation = useMutation({
@@ -2046,12 +2083,12 @@ function CrmContextPanel({
   const [quoteParticipants, setQuoteParticipants] = useState<Set<number>>(new Set());
 
   const [panelExpanded, setPanelExpanded] = useState(() => {
-    try { return localStorage.getItem("crm-panel-expanded") === "true"; } catch { return false; }
+    try { return localStorage.getItem(lsKey("crm-panel-expanded")) === "true"; } catch { return false; }
   });
   const togglePanel = () => {
     const next = !panelExpanded;
     setPanelExpanded(next);
-    try { localStorage.setItem("crm-panel-expanded", String(next)); } catch {}
+    try { localStorage.setItem(lsKey("crm-panel-expanded"), String(next)); } catch {}
   };
 
   const canViewCrm = isAdminUser || (userPermissions?.crm !== "none" && userPermissions?.crm != null);
@@ -3832,22 +3869,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [foldersExpanded, setFoldersExpanded] = useState(true);
   // ── Focus Mode (premium full-reader experience) ────────────────────────
   const [focusMode, setFocusMode] = useState<boolean>(() => {
-    try { return typeof window !== "undefined" && localStorage.getItem("inbox.focusMode") === "1"; } catch { return false; }
+    try { return typeof window !== "undefined" && localStorage.getItem(lsKey("inbox.focusMode")) === "1"; } catch { return false; }
   });
   useEffect(() => {
-    try { localStorage.setItem("inbox.focusMode", focusMode ? "1" : "0"); } catch {}
+    try { localStorage.setItem(lsKey("inbox.focusMode"), focusMode ? "1" : "0"); } catch {}
   }, [focusMode]);
   // ── Density (Comfortable / Compact / Ultra) ────────────────────────────
   type Density = "comfortable" | "compact" | "ultra";
   const [density, setDensity] = useState<Density>(() => {
     try {
-      const v = typeof window !== "undefined" ? localStorage.getItem("inbox.density") : null;
+      const v = typeof window !== "undefined" ? localStorage.getItem(lsKey("inbox.density")) : null;
       if (v === "compact" || v === "ultra" || v === "comfortable") return v as Density;
     } catch {}
     return "comfortable";
   });
   useEffect(() => {
-    try { localStorage.setItem("inbox.density", density); } catch {}
+    try { localStorage.setItem(lsKey("inbox.density"), density); } catch {}
   }, [density]);
 
   // Spark-style "Smart Inbox" toggle. When enabled the inbox renders sectioned
@@ -4015,7 +4052,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
   // Resizable email-list panel
   const [listPanelWidth, setListPanelWidth] = useState<number>(() => {
-    try { const s = localStorage.getItem("inbox-list-width"); return s ? Math.max(300, Math.min(680, Number(s))) : 400; } catch { return 400; }
+    try { const s = localStorage.getItem(lsKey("inbox-list-width")); return s ? Math.max(300, Math.min(680, Number(s))) : 400; } catch { return 400; }
   });
   const listPanelWidthRef = useRef(listPanelWidth);
   useEffect(() => { listPanelWidthRef.current = listPanelWidth; }, [listPanelWidth]);
@@ -4032,7 +4069,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       setListPanelWidth(newW);
     };
     const onUp = () => {
-      try { localStorage.setItem("inbox-list-width", String(listPanelWidthRef.current)); } catch {}
+      try { localStorage.setItem(lsKey("inbox-list-width"), String(listPanelWidthRef.current)); } catch {}
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       document.removeEventListener("mousemove", onMove);
@@ -4044,10 +4081,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
   // Two-state (expanded / mini) top header and bottom panel in thread view
   const [topExpanded, setTopExpanded] = useState<boolean>(() => {
-    try { return localStorage.getItem("inbox-top-expanded") !== "false"; } catch { return true; }
+    try { return localStorage.getItem(lsKey("inbox-top-expanded")) !== "false"; } catch { return true; }
   });
   useEffect(() => {
-    try { localStorage.setItem("inbox-top-expanded", String(topExpanded)); } catch {}
+    try { localStorage.setItem(lsKey("inbox-top-expanded"), String(topExpanded)); } catch {}
   }, [topExpanded]);
   const topHeaderRef = useRef<HTMLDivElement>(null);
 
@@ -4076,10 +4113,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
   // Two-state (expanded / mini) bottom panel in thread view
   const [bottomExpanded, setBottomExpanded] = useState<boolean>(() => {
-    try { return localStorage.getItem("inbox-bottom-expanded") !== "false"; } catch { return true; }
+    try { return localStorage.getItem(lsKey("inbox-bottom-expanded")) !== "false"; } catch { return true; }
   });
   useEffect(() => {
-    try { localStorage.setItem("inbox-bottom-expanded", String(bottomExpanded)); } catch {}
+    try { localStorage.setItem(lsKey("inbox-bottom-expanded"), String(bottomExpanded)); } catch {}
   }, [bottomExpanded]);
   const bottomPanelRef = useRef<HTMLDivElement>(null);
 
@@ -5120,6 +5157,19 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/scheduled"] });
       toast({ title: "Scheduled email cancelled" });
     },
+  });
+
+  // C4: Retry a failed scheduled send — resets status to pending so the scheduler picks it up.
+  const retryScheduledMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/gmail/scheduled/${id}/retry`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/scheduled"] });
+      toast({ title: "Retry scheduled", description: "Email will be sent within ~30 seconds." });
+    },
+    onError: (err: any) => toast({ title: "Retry failed", description: err.message, variant: "destructive" }),
   });
 
   // Review queue — unconfirmed auto-associations needing human review
@@ -7157,7 +7207,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         <span className={`text-sm truncate ${isFailed ? "text-destructive/80" : "text-muted-foreground"}`}>{email.to}</span>
                         <div className="flex items-center gap-1 flex-shrink-0">
                           {isFailed ? (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-destructive/15 text-destructive font-medium">Failed</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-destructive/15 text-destructive font-medium">Failed</span>
+                              <button
+                                onClick={() => retryScheduledMutation.mutate(email.id)}
+                                disabled={retryScheduledMutation.isPending}
+                                title="Retry this scheduled email"
+                                data-testid={`button-retry-scheduled-${email.id}`}
+                                className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-medium disabled:opacity-50"
+                              >Retry</button>
+                            </div>
                           ) : (
                             <button
                               onClick={() => cancelScheduledMutation.mutate(email.id)}

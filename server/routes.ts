@@ -12131,6 +12131,34 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // C4: Retry a failed scheduled send — resets it to pending so the scheduler picks it up.
+  app.post("/api/gmail/scheduled/:id/retry", requireAuth, async (req, res) => {
+    const [user] = await db.select().from(users).where(eq(users.id, req.session.userId!));
+    if (!user || user.globalRole !== "master_admin") {
+      return res.status(403).json({ message: "Only workspace administrators can retry scheduled emails." });
+    }
+    try {
+      const id = Number(req.params.id);
+      const [email] = await db.select().from(scheduledEmails).where(eq(scheduledEmails.id, id));
+      if (!email) return res.status(404).json({ message: "Scheduled email not found" });
+      if (email.status !== "failed") {
+        return res.status(400).json({ message: "Only failed scheduled emails can be retried" });
+      }
+      // If scheduledAt is in the past, advance to 30s from now so it's picked up on the next tick.
+      const newScheduledAt = email.scheduledAt < new Date()
+        ? new Date(Date.now() + 30_000)
+        : email.scheduledAt;
+      const [updated] = await db.update(scheduledEmails)
+        .set({ status: "pending", error: null, scheduledAt: newScheduledAt })
+        .where(eq(scheduledEmails.id, id))
+        .returning();
+      console.log(`[gmail-scheduled] retry queued — id=${id} newScheduledAt=${newScheduledAt.toISOString()}`);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/gmail/messages/:id/mark-read", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;
@@ -12992,6 +13020,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // C1: Per-session send idempotency cache — prevents duplicate sends on network retry / double-click.
+  // Keys are client-generated UUIDs (one per compose session). TTL: 5 minutes.
+  const sendIdempotencyCache = new Map<string, { result: any; expiresAt: number }>();
+  const SEND_IDEMPOTENCY_TTL_MS = 5 * 60 * 1000;
+  setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of sendIdempotencyCache) {
+      if (v.expiresAt < now) sendIdempotencyCache.delete(k);
+    }
+  }, 10 * 60 * 1000);
+
   app.post("/api/gmail/send", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;
@@ -13008,6 +13047,15 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       }
       if (!threadId && !subject) {
         return res.status(400).json({ message: "subject is required for new emails" });
+      }
+      // C1: Idempotency — return cached result if this exact compose session already sent successfully.
+      const idempotencyKey = req.body.idempotencyKey ? String(req.body.idempotencyKey).slice(0, 128) : null;
+      if (idempotencyKey) {
+        const cached = sendIdempotencyCache.get(idempotencyKey);
+        if (cached && cached.expiresAt > Date.now()) {
+          console.log(`[send-idempotency] key=${idempotencyKey} — dedup: returning cached result`);
+          return res.json({ ...cached.result, deduplicated: true });
+        }
       }
       const mimeAttachments: { name: string; mimeType: string; data: Buffer }[] = [];
       if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
@@ -13105,6 +13153,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           `)).catch(e => console.warn("[reply-tag] non-fatal:", e));
         }
 
+        // C1: Cache successful result so a retry with the same idempotency key is deduped.
+        if (idempotencyKey) {
+          sendIdempotencyCache.set(idempotencyKey, {
+            result: { id: result?.id ?? null, threadId: result?.threadId ?? null },
+            expiresAt: Date.now() + SEND_IDEMPOTENCY_TTL_MS,
+          });
+        }
         return res.json({
           ...result,
           trackingId:      trackingEnabled && !trackingFailed ? trackingId : null,
@@ -13216,7 +13271,34 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         recipients:      sentResults,
       });
     } catch (err: any) {
-      res.status(503).json({ message: "Failed to send email", error: err.message });
+      console.error(`[gmail-send] FAILED userId=${userId}: ${err.message}`);
+      // C2: Try to preserve the compose content as a Gmail draft before returning the error.
+      // This ensures the user never loses a composed email due to a transient API/network failure.
+      let draftId: string | null = null;
+      let draftSaved = false;
+      const toForDraft = req.body.to || "";
+      const bodyForDraft = req.body.body || "";
+      const subjectForDraft = req.body.subject || "";
+      const threadIdForDraft = req.body.threadId;
+      if (toForDraft && bodyForDraft) {
+        try {
+          const draft = await saveDraft(
+            resolved.userId, toForDraft, subjectForDraft, bodyForDraft,
+            threadIdForDraft, undefined, resolved.accountId
+          );
+          draftId = draft?.id ?? null;
+          draftSaved = !!draftId;
+          console.log(`[gmail-send] draft fallback saved — draftId=${draftId}`);
+        } catch (draftErr: any) {
+          console.error(`[gmail-send] draft fallback also failed: ${draftErr.message}`);
+        }
+      }
+      res.status(503).json({
+        message: draftSaved ? "Send failed — message saved as draft" : "Failed to send email",
+        error: err.message,
+        draftId,
+        draftSaved,
+      });
     }
   });
 
