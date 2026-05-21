@@ -1,12 +1,14 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
-import { Building2, Mail, Phone, Search, UserCircle2, Tag, ClipboardList, UserPlus } from "lucide-react";
+import { Building2, Mail, Phone, Search, UserCircle2, Tag, ClipboardList, UserPlus, MoreHorizontal, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { SavedViewsBar } from "@/components/saved-views-bar";
@@ -136,6 +138,22 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
       toast({ title: `Created ${data.created} tasks` });
     },
     onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  // ── Delete contact ────────────────────────────────────────────────────────
+  const [contactToDelete, setContactToDelete] = useState<ContactWithAccount | null>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/contacts/${id}`);
+      if (!res.ok) throw new Error((await res.json()).message ?? "Delete failed");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      toast({ title: "Contact deleted" });
+      setContactToDelete(null);
+    },
+    onError: (err: any) => toast({ title: "Could not delete contact", description: err.message, variant: "destructive" }),
   });
 
   const isAllSelected = filtered.length > 0 && filtered.every(c => selectedIds.has(c.id));
@@ -388,6 +406,33 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
                           {contact.relationshipStrength}
                         </Badge>
                       )}
+                      {canEdit && (
+                        <div
+                          className="opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                className="p-1.5 rounded-md hover:bg-secondary/60 text-muted-foreground hover:text-foreground transition-colors"
+                                data-testid={`button-contact-menu-${contact.id}`}
+                              >
+                                <MoreHorizontal className="w-4 h-4" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-40">
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive gap-2"
+                                data-testid={`button-delete-contact-${contact.id}`}
+                                onClick={() => setContactToDelete(contact)}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Delete contact
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -406,6 +451,28 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
           navigate(`/contacts/${created.id}`);
         }}
       />
+
+      <AlertDialog open={!!contactToDelete} onOpenChange={(o) => { if (!o) setContactToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete contact?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{contactToDelete?.name}</strong> will be permanently removed. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-delete-contact-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-delete-contact-confirm"
+              onClick={() => contactToDelete && deleteMutation.mutate(contactToDelete.id)}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
