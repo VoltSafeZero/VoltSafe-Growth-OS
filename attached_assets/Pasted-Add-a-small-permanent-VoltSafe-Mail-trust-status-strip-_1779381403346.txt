@@ -1,0 +1,64 @@
+Add a small permanent VoltSafe Mail trust/status strip.
+
+Goal:
+Increase user confidence by always showing Gmail connection and sync/send state clearly.
+
+Scope:
+Keep this surgical. Do not redesign VoltSafe Mail.
+
+Add a compact status area in the Mail UI, ideally in the top header/footer area where it is always visible but not distracting.
+
+It should show:
+
+Default healthy state:
+- Connected to Gmail
+- Last synced: [time]
+
+Transient states:
+- Syncing…
+- Sending…
+- Draft saved
+- Saving draft…
+- Gmail reconnect required
+- Sync delayed
+- Send failed — saved as draft
+- Scheduled send failed
+- Offline / reconnecting if detectable
+
+Requirements:
+1. Pull from existing Gmail health/sync state if already available.
+2. Do not create a new backend system unless necessary.
+3. Use existing /api/gmail/health or sync-health data if present.
+4. Show last successful sync timestamp in user-friendly local time.
+5. If authStatus is expired/revoked, show a clear “Reconnect Gmail” action.
+6. If a send/draft/scheduled failure occurs, surface it in the strip temporarily and keep the existing toast behavior.
+7. Keep styling subtle:
+   - small text
+   - status dot
+   - green/neutral for healthy
+   - amber for delayed/syncing
+   - red for disconnected/failed
+8. Must work for single-account and unified inbox views.
+9. Must not introduce layout jumping.
+10. Must not interfere with existing compose, inbox filters, or mail actions.
+
+Acceptance criteria:
+- Healthy Gmail account shows “Connected to Gmail · Last synced: [time]”
+- During send, strip shows “Sending…”
+- After successful send, briefly shows “Sent”
+- During draft autosave, shows “Saving draft…” then “Draft saved”
+- Expired Gmail auth shows “Gmail reconnect required” with reconnect action
+- Sync lag/delay shows “Sync delayed”
+- Failed send shows “Send failed — saved as draft” when draft fallback succeeds
+- UI remains compact and stable
+
+Add focused regression/source tests confirming:
+- status strip component exists
+- healthy connected state renders
+- reconnect state renders
+- sending state renders
+- draft saved state renders
+- failed-send saved-as-draft state renders
+- no unrelated Mail behavior changed
+
+Run relevant Mail tests and TypeScript check. Report files changed and pass/fail results.

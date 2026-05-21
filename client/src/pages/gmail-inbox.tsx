@@ -56,6 +56,7 @@ import { SmartAddContactDialog } from "@/components/contacts/smart-add-contact-d
 import { NewLeadFromEmailDialog } from "@/components/inbox/new-lead-from-email-dialog";
 import { EmailFormatToolbar } from "@/components/inbox/email-format-toolbar";
 import { RecipientList } from "@/components/inbox/recipient-list";
+import { MailTrustStrip, type TrustEvent } from "@/components/inbox/mail-trust-strip";
 import { CalendarInviteCard } from "@/components/inbox/calendar-invite-card";
 import {
   useSetAside,
@@ -451,6 +452,7 @@ function ComposeDialog({
   isForward = false,
   forwardSubject = "",
   forwardTo = "",
+  onTrustEvent,
 }: {
   open: boolean;
   onClose: () => void;
@@ -470,6 +472,7 @@ function ComposeDialog({
   isForward?: boolean;
   forwardSubject?: string;
   forwardTo?: string;
+  onTrustEvent?: (event: TrustEvent) => void;
 }) {
   const { toast } = useToast();
   const [to, setTo] = useState(defaultTo);
@@ -716,6 +719,7 @@ function ComposeDialog({
 
   const sendMutation = useMutation({
     mutationFn: async () => {
+      onTrustEvent?.({ type: "sending", at: Date.now() });
       const appendHtml = EMAIL_SIGNATURE_HTML
         + (isForward && defaultQuotedHtml
           ? buildForwardedBlockHtml(defaultQuotedFrom, defaultQuotedDate, forwardSubject, forwardTo, defaultQuotedHtml)
@@ -748,6 +752,7 @@ function ComposeDialog({
       return data;
     },
     onSuccess: async () => {
+      onTrustEvent?.({ type: "sent", at: Date.now() });
       toast({ title: "Email sent" });
       if (activeDraftId) {
         await fetch(`/api/gmail/drafts/${activeDraftId}`, { method: "DELETE", credentials: "include" }).catch(() => {});
@@ -760,10 +765,12 @@ function ComposeDialog({
     onError: (err: any) => {
       if (err.draftSaved && err.draftId) {
         // C2: Server saved content as Gmail draft — switch compose to draft-edit mode so user can retry.
+        onTrustEvent?.({ type: "send-failed-draft-saved", at: Date.now() });
         setActiveDraftId(err.draftId);
         queryClient.invalidateQueries({ queryKey: ["/api/gmail/drafts"] });
         toast({ title: "Send failed — saved as draft", description: "Your message was saved. Open Drafts to retry.", variant: "destructive" });
       } else {
+        onTrustEvent?.({ type: "send-failed", at: Date.now() });
         toast({ title: "Failed to send", description: err.message, variant: "destructive" });
       }
     },
@@ -771,11 +778,13 @@ function ComposeDialog({
 
   const draftMutation = useMutation({
     mutationFn: async () => {
+      onTrustEvent?.({ type: "draft-saving", at: Date.now() });
       const htmlBody = buildEmailHtml(body, EMAIL_SIGNATURE_HTML);
       const res = await apiRequest("POST", "/api/gmail/drafts", { to, subject, body: htmlBody, threadId, draftId: activeDraftId });
       return res.json();
     },
     onSuccess: (data) => {
+      onTrustEvent?.({ type: "draft-saved", at: Date.now() });
       setActiveDraftId(data.id);
       toast({ title: "Draft saved" });
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/drafts"] });
@@ -3854,6 +3863,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // hidden. This set gives a permanent session-level exclusion that survives
   // every subsequent inbox query invalidation.
   const [rescuedFromSpam, setRescuedFromSpam] = useState<Set<string>>(new Set());
+  // Mail Trust Strip — transient send/draft event surfaced from ComposeDialog mutations.
+  const [trustEvent, setTrustEvent] = useState<TrustEvent | null>(null);
+  const trustEventTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleTrustEvent = (event: TrustEvent) => {
+    if (trustEventTimerRef.current) clearTimeout(trustEventTimerRef.current);
+    setTrustEvent(event);
+    const clearMs =
+      event.type === "sent" ? 3000 :
+      event.type === "draft-saved" ? 2500 :
+      event.type === "send-failed-draft-saved" ? 6000 :
+      event.type === "send-failed" ? 6000 :
+      event.type === "scheduled-failed" ? 6000 : null;
+    if (clearMs !== null) {
+      trustEventTimerRef.current = setTimeout(() => setTrustEvent(null), clearMs);
+    }
+  };
   const [returnPath] = useState<string | null>(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("return") ?? null;
@@ -5181,7 +5206,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/scheduled"] });
       toast({ title: "Retry scheduled", description: "Email will be sent within ~30 seconds." });
     },
-    onError: (err: any) => toast({ title: "Retry failed", description: err.message, variant: "destructive" }),
+    onError: (err: any) => {
+      setTrustEvent({ type: "scheduled-failed", at: Date.now() });
+      trustEventTimerRef.current = setTimeout(() => setTrustEvent(null), 6000);
+      toast({ title: "Retry failed", description: err.message, variant: "destructive" });
+    },
   });
 
   // Review queue — unconfirmed auto-associations needing human review
@@ -6881,6 +6910,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
           {/* Account status footer */}
           <div className="flex-shrink-0 border-t border-border/40 bg-card/30">
+            {/* Mail Trust Strip — connection/sync/send state */}
+            <MailTrustStrip
+              authStatus={connectedAccount?.authStatus ?? null}
+              lastSyncAt={connectedAccount?.lastSyncAt ?? null}
+              healthStatus={healthById.get(connectedAccount?.id ?? 0)?.status ?? null}
+              syncErrorMessage={connectedAccount?.syncErrorMessage ?? null}
+              trustEvent={trustEvent}
+              hasFailedScheduled={(scheduledQuery.data?.some(e => e.status === "failed")) ?? false}
+            />
             {connectedAccount && (
               <div className="px-3 py-2">
                 <div className="flex items-center gap-2">
@@ -9084,6 +9122,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         isForward={!!composeInitial?.isForward}
         forwardSubject={composeInitial?.forwardSubject || ""}
         forwardTo={composeInitial?.forwardTo || ""}
+        onTrustEvent={handleTrustEvent}
       />
 
       {/* Create Folder dialog */}
