@@ -385,6 +385,12 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <ExportButton
+            endpoint="/api/leads/template/bc-shore-power"
+            filename="bc-shore-power-marinas-import-template.csv"
+            label="BC Template"
+            testId="button-download-bc-template"
+          />
+          <ExportButton
             endpoint={`/api/leads/export?${new URLSearchParams({
               ...(search ? { search } : {}),
               ...(statusFilter !== "all" ? { status: statusFilter } : {}),

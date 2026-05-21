@@ -1205,6 +1205,18 @@ export async function registerRoutes(
   });
 
   // ── CSV Export Endpoints ──────────────────────────────────────────
+  app.get("/api/leads/template/bc-shore-power", requireAuth, requirePermission("crm", "view"), async (_req, res) => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const filePath = path.resolve("exports/bc-shore-power-marinas-import-template.csv");
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ message: "Template file not found" });
+    }
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="bc-shore-power-marinas-import-template.csv"');
+    res.send(fs.readFileSync(filePath, "utf-8"));
+  });
+
   app.get("/api/marinas/export", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const { search, state } = req.query;
     const result = await storage.getMarinas({ search: search as string, state: state as string, page: 1, limit: 100000 });
