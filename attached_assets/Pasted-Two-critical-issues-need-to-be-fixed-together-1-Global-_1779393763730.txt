@@ -1,0 +1,275 @@
+Two critical issues need to be fixed together:
+
+1. Global CC/BCC draft persistence bug
+2. AI Suggested Email not being time/context aware
+
+These are separate root causes but both affect trust in VoltSafe Mail and CRM AI workflows.
+
+Please audit and fix both systems carefully.
+
+==================================================
+BUG 1 — GLOBAL CC/BCC DRAFT PERSISTENCE BUG
+==================================================
+
+Observed behavior:
+- Compose any email manually OR from AI Suggested Email.
+- Add:
+  - TO recipient
+  - CC recipient(s)
+  - BCC recipient(s)
+- Click Save Draft.
+- Reopen the draft.
+- TO remains.
+- Subject/body remain.
+- CC and BCC disappear.
+
+This happens:
+- new compose drafts
+- AI Suggested Email drafts
+- reply drafts
+- forward drafts
+- re-saving existing drafts
+
+This is a GLOBAL draft lifecycle bug.
+
+--------------------------------------------------
+A. Compose state audit
+--------------------------------------------------
+
+Verify ComposeDialog state correctly tracks:
+- to
+- cc
+- bcc
+- subject
+- body
+- threadId/reply metadata
+
+Verify Save Draft sends ALL fields:
+- to
+- cc
+- bcc
+- subject
+- body
+
+--------------------------------------------------
+B. Frontend draft save audit
+--------------------------------------------------
+
+Audit:
+- draftMutation
+- saveDraft handler
+- existing draft update flow
+- request payload to /api/gmail/drafts
+- request payload when updating an existing draft
+
+Verify:
+- cc/bcc are serialized into the request body
+- cc/bcc are not UI-only chip state
+- update draft flow preserves cc/bcc
+
+--------------------------------------------------
+C. Backend draft route audit
+--------------------------------------------------
+
+Audit:
+- POST /api/gmail/drafts
+- PUT/PATCH /api/gmail/drafts/:id if present
+- saveDraft()
+- updateDraft()
+- MIME/RFC822 generation
+
+Verify:
+- CC header written correctly
+- BCC header written correctly
+- empty values handled correctly
+- existing draft updates preserve CC/BCC
+
+--------------------------------------------------
+D. Draft reopen / hydration audit
+--------------------------------------------------
+
+Audit:
+- GET /api/gmail/drafts/:id
+- getDraftContent()
+- MIME parsing
+- openDraft()
+- compose hydration
+
+Verify:
+- cc parsed correctly
+- bcc parsed correctly
+- compose state hydrated correctly
+- chips rendered correctly
+
+IMPORTANT:
+If Gmail API does not reliably expose BCC for drafts, create a safe local draft metadata fallback so BCC is preserved before sending.
+
+--------------------------------------------------
+E. Regression tests
+--------------------------------------------------
+
+Add tests covering:
+- TO only survives reopen
+- TO + CC survives reopen
+- TO + BCC survives reopen
+- TO + CC + BCC survives reopen
+- multiple CC recipients survive reopen
+- multiple BCC recipients survive reopen
+- re-save existing draft preserves CC/BCC
+- AI Suggested Email → Continue in Mail → Save Draft → Reopen preserves CC
+- reply draft preserves CC
+- forward draft preserves CC/BCC
+
+Acceptance criteria:
+- Save Draft never drops CC.
+- Save Draft never drops BCC.
+- Re-saving drafts never drops CC/BCC.
+- Draft reopen fully restores TO/CC/BCC.
+
+==================================================
+BUG 2 — AI SUGGESTED EMAIL NOT TIME/CONTEXT AWARE
+==================================================
+
+Observed issue:
+AI Suggested Email generated language such as:
+- “Looking forward to our upcoming meeting”
+- “As we approach our scheduled meeting”
+- “Preparing materials for our meeting”
+
+But the referenced meeting date (March 17, 2026) already passed.
+
+This creates incorrect and embarrassing outreach.
+
+--------------------------------------------------
+A. Current date awareness
+--------------------------------------------------
+
+Ensure AI prompt includes:
+- current date
+- current time
+- timezone
+
+The AI must always know “today.”
+
+--------------------------------------------------
+B. CRM context awareness
+--------------------------------------------------
+
+Audit what context is passed into AI:
+- notes
+- meetings
+- emails
+- tasks
+- last contact
+- next activity
+- completed activity
+- AI summary
+- lead/account/contact stage
+
+The AI must distinguish:
+- future meeting
+- past meeting
+- no meeting
+- follow-up needed
+- stale lead
+- awaiting reply
+
+--------------------------------------------------
+C. Deterministic date classification layer
+--------------------------------------------------
+
+Before prompt generation:
+Classify detected dates/events as:
+- past
+- today
+- future
+- unknown
+
+Use deterministic logic BEFORE the LLM.
+
+Example:
+If meetingDate < today:
+- NEVER say “upcoming meeting”
+- Generate follow-up language instead
+
+If meetingDate > today:
+- pre-meeting confirmation language is OK
+
+If unknown:
+- avoid time-specific claims
+
+--------------------------------------------------
+D. Prompt guardrails
+--------------------------------------------------
+
+Update AI prompt rules:
+- Never call past meetings upcoming.
+- Never invent future meetings.
+- Never invent preparation work.
+- If meeting is in the past:
+  - suggest follow-up language
+- If uncertain:
+  - use neutral wording
+
+--------------------------------------------------
+E. Email intent selection
+--------------------------------------------------
+
+AI should intelligently select:
+- pre-meeting confirmation
+- post-meeting follow-up
+- re-engagement
+- next-step proposal
+- neutral outreach
+
+based on timeline/context.
+
+--------------------------------------------------
+F. Suggested Email modal transparency
+--------------------------------------------------
+
+If easy, add a small reasoning/context line such as:
+- “Detected future meeting — suggesting confirmation.”
+- “Detected past meeting — suggesting follow-up.”
+
+This improves trust in the AI.
+
+--------------------------------------------------
+G. Regression tests
+--------------------------------------------------
+
+Add tests covering:
+- past meeting → follow-up language
+- future meeting → pre-meeting language
+- unknown date → neutral wording
+- current date included in prompt
+- timezone included in prompt
+- no invented future meetings
+- works for Leads, Accounts, Contacts
+
+Use this regression fixture:
+- Meeting date: March 17, 2026
+- Current date: after March 17, 2026
+
+Expected:
+- AI writes a follow-up email
+- AI does NOT say “upcoming meeting”
+- AI does NOT say “preparing materials”
+
+==================================================
+FINAL REQUIREMENTS
+==================================================
+
+- Keep fixes surgical.
+- Do not refactor unrelated mail systems.
+- Do not regress send/draft/scheduler behavior.
+- Run all relevant mail + AI regression suites.
+- Run TypeScript check.
+- Separate pre-existing TS errors clearly.
+- Report:
+  - files changed
+  - root causes
+  - before/after behavior
+  - tests added
+  - tests passed
+  - any remaining known risks

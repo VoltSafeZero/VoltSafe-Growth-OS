@@ -304,11 +304,22 @@ export async function sendEmail(
   return res.data;
 }
 
-export async function saveDraft(userId: number, to: string, subject: string, body: string, threadId?: string, draftId?: string, accountId?: number) {
+export async function saveDraft(
+  userId: number,
+  to: string,
+  subject: string,
+  body: string,
+  threadId?: string,
+  draftId?: string,
+  accountId?: number,
+  cc?: string,
+  bcc?: string,
+) {
   const gmail = await getGmailClient(userId, accountId);
   const profileRes = await gmail.users.getProfile({ userId: "me" });
   const from = profileRes.data.emailAddress!;
-  const raw = buildMimeRaw(from, to, subject, body);
+  // Pass cc/bcc so they are written as proper MIME headers in the stored draft.
+  const raw = buildMimeRaw(from, to, subject, body, [], cc, bcc);
   const message: any = { raw };
   if (threadId) message.threadId = threadId;
   if (draftId) {
@@ -354,6 +365,8 @@ export async function getDraftContent(userId: number, draftId: string, accountId
   return {
     id: d.data.id!,
     to: getH("To"),
+    cc: getH("Cc"),
+    bcc: getH("Bcc"),
     subject: getH("Subject"),
     body: textBody,
     threadId: (msg as any).threadId as string | undefined,

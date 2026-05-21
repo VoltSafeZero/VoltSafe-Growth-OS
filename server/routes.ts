@@ -12065,10 +12065,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     // Phase 4: shared-mailbox view-only grants must NOT permit creating drafts.
     if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
     try {
-      const { to, subject, body, threadId, draftId } = req.body;
+      const { to, subject, body, threadId, draftId, cc, bcc } = req.body;
       if (!body) return res.status(400).json({ message: "body is required" });
       const cleanDraftBody = normalizeOutboundHtml(body);
-      const draft = await saveDraft(resolved.userId, to || "", subject || "", cleanDraftBody, threadId, draftId, resolved.accountId);
+      const draft = await saveDraft(resolved.userId, to || "", subject || "", cleanDraftBody, threadId, draftId, resolved.accountId, cc || undefined, bcc || undefined);
       res.json(draft);
     } catch (err: any) {
       res.status(503).json({ message: "Failed to save draft", error: err.message });

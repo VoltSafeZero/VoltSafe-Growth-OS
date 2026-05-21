@@ -16,6 +16,7 @@ interface SuggestedEmail {
   body: string;
   reason: string;
   warning?: string;
+  detectedContext?: string;
 }
 
 interface Props {
@@ -183,6 +184,14 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
                 <p className="text-[11px] uppercase font-semibold tracking-wider text-primary/70 mb-1">Why this email</p>
                 <p className="text-xs text-foreground/80">{suggestion.reason}</p>
               </div>
+
+              {/* Temporal context (deterministic, pre-LLM classification) */}
+              {suggestion.detectedContext && (
+                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary/40 shrink-0" />
+                  {suggestion.detectedContext}
+                </div>
+              )}
 
               {/* Fields */}
               <div className="space-y-2.5">

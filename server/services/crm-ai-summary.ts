@@ -626,6 +626,40 @@ export interface SuggestedEmail {
   body: string;
   reason: string;
   warning?: string;
+  /** Human-readable explanation of the deterministic context used (shown in UI). */
+  detectedContext?: string;
+}
+
+// ── Deterministic date classifier (runs before LLM, no hallucination risk) ───
+function classifyDate(dateStr: string | null | undefined, now: Date): "past" | "today" | "future" | "unknown" {
+  if (!dateStr) return "unknown";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "unknown";
+    const todayMidnight = new Date(now); todayMidnight.setHours(0, 0, 0, 0);
+    const dMidnight = new Date(d); dMidnight.setHours(0, 0, 0, 0);
+    if (dMidnight < todayMidnight) return "past";
+    if (dMidnight > todayMidnight) return "future";
+    return "today";
+  } catch { return "unknown"; }
+}
+
+// Scan free-text for ISO and human-readable date strings, classify each.
+function extractAndClassifyDates(text: string, now: Date): { dateStr: string; classification: "past" | "today" | "future" | "unknown" }[] {
+  const ISO_RE = /\b(20\d{2}-\d{2}-\d{2})\b/g;
+  const HUMAN_RE = /\b((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s*20\d{2})\b/gi;
+  const seen = new Set<string>();
+  const results: { dateStr: string; classification: "past" | "today" | "future" | "unknown" }[] = [];
+  for (const re of [ISO_RE, HUMAN_RE]) {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const ds = m[0];
+      if (seen.has(ds)) continue;
+      seen.add(ds);
+      results.push({ dateStr: ds, classification: classifyDate(ds, now) });
+    }
+  }
+  return results;
 }
 
 export async function generateSuggestedNextEmail(
@@ -636,31 +670,95 @@ export async function generateSuggestedNextEmail(
 
   const openai = buildOpenAIClient();
   if (!openai) {
-    return {
-      to: "",
-      cc: "",
-      subject: "Follow-up",
-      body: "",
-      reason: "AI is not configured.",
-      warning: "No OpenAI API key configured.",
-    };
+    return { to: "", cc: "", subject: "Follow-up", body: "", reason: "AI is not configured.", warning: "No OpenAI API key configured." };
   }
 
   // Use saved summary if available — do not auto-generate if missing
   const summary = await getCrmAiSummary(entityType, id);
   const ctx = await collectCrmEntityContext(entityType, id);
 
-  const systemPrompt = `You are an expert sales and relationship manager at VoltSafe, a marina electrification company. Generate a professional, warm, and concise email suggestion. Return only valid JSON.`;
+  // ── Deterministic date classification (authoritative, pre-LLM) ───────────
+  const now = new Date();
+  const todayISO = now.toISOString().slice(0, 10); // e.g. "2026-05-21"
+
+  // Collect all text that might contain date references
+  const allContextText = [
+    JSON.stringify(summary?.summaryJson || {}),
+    ...ctx.notes.map((n) => n.content),
+    ...ctx.activities.map((a) => a.description),
+    ...ctx.emails.map((e) => `${e.subject} ${e.snippet}`),
+    JSON.stringify(ctx.entityFields),
+  ].join(" ");
+
+  const classifiedDates = extractAndClassifyDates(allContextText, now);
+  const pastDates   = classifiedDates.filter((d) => d.classification === "past").map((d) => d.dateStr);
+  const futureDates = classifiedDates.filter((d) => d.classification === "future").map((d) => d.dateStr);
+  const todayDates  = classifiedDates.filter((d) => d.classification === "today").map((d) => d.dateStr);
+
+  // Also classify est_close_date for leads
+  const estCloseDate = ctx.entityFields.est_close_date as string | undefined;
+  const estCloseClass = classifyDate(estCloseDate, now);
+  if (estCloseDate && !classifiedDates.some((d) => d.dateStr === estCloseDate)) {
+    if (estCloseClass === "past") pastDates.push(estCloseDate);
+    else if (estCloseClass === "future") futureDates.push(estCloseDate);
+  }
+
+  // Determine email intent from date evidence
+  let emailIntent: string;
+  let detectedContext: string;
+  if (pastDates.length > 0 && futureDates.length === 0) {
+    emailIntent = "post-meeting follow-up or re-engagement";
+    detectedContext = `Detected past event(s) — suggesting follow-up language. (Past dates: ${pastDates.slice(0, 3).join(", ")})`;
+  } else if (futureDates.length > 0 && pastDates.length === 0) {
+    emailIntent = "pre-meeting confirmation or preparation";
+    detectedContext = `Detected upcoming event(s) — suggesting pre-meeting language. (Future dates: ${futureDates.slice(0, 3).join(", ")})`;
+  } else if (futureDates.length > 0 && pastDates.length > 0) {
+    emailIntent = "post-meeting follow-up (past events) with awareness of upcoming events";
+    detectedContext = `Detected both past and future events — emphasizing follow-up. (Past: ${pastDates.slice(0, 2).join(", ")}; Future: ${futureDates.slice(0, 2).join(", ")})`;
+  } else if (todayDates.length > 0) {
+    emailIntent = "same-day check-in or confirmation";
+    detectedContext = "Detected event scheduled for today — suggesting timely check-in.";
+  } else {
+    emailIntent = "neutral outreach or next-step proposal";
+    detectedContext = "No specific event dates detected — using neutral outreach language.";
+  }
+
+  const systemPrompt = [
+    `You are an expert sales and relationship manager at VoltSafe, a marina electrification company.`,
+    `Generate a professional, warm, and concise email suggestion. Return only valid JSON.`,
+    ``,
+    `CRITICAL TEMPORAL RULES — NEVER VIOLATE:`,
+    `- Today's date is ${todayISO}. You must treat this as the authoritative present.`,
+    `- Dates BEFORE ${todayISO} are IN THE PAST. NEVER describe past meetings as "upcoming."`,
+    `- NEVER say "looking forward to our upcoming meeting" if the meeting date is in the past.`,
+    `- NEVER say "as we approach our scheduled meeting" if the meeting already occurred.`,
+    `- NEVER invent or assume preparation work for a past event.`,
+    `- If a meeting/event is in the past: write a FOLLOW-UP email, not a pre-meeting email.`,
+    `- If a meeting/event is in the future: pre-meeting confirmation language is appropriate.`,
+    `- When uncertain about timing: use neutral, evergreen language with no time-specific claims.`,
+    `- The DETERMINISTIC DATE CONTEXT section below is authoritative. Trust it over any date in the AI summary.`,
+  ].join("\n");
 
   const userPrompt = [
     `Generate a suggested next email for this ${entityType}:`,
-    `\n=== AI SUMMARY ===`,
+    ``,
+    `=== DETERMINISTIC DATE CONTEXT (pre-computed, authoritative — do not contradict) ===`,
+    `Today: ${todayISO}`,
+    pastDates.length   ? `Past dates found (events already occurred): ${pastDates.join(", ")}` : "",
+    futureDates.length ? `Future dates found (events not yet occurred): ${futureDates.join(", ")}` : "",
+    todayDates.length  ? `Today's dates: ${todayDates.join(", ")}` : "",
+    `Recommended email intent: ${emailIntent}`,
+    ``,
+    `=== AI SUMMARY ===`,
     JSON.stringify(summary?.summaryJson || {}, null, 2),
-    `\n=== KEY CONTEXT ===`,
+    ``,
+    `=== KEY CONTEXT ===`,
     `Entity: ${JSON.stringify(ctx.entityFields)}`,
     `Contacts: ${JSON.stringify(ctx.contacts.slice(0, 5))}`,
-    `Recent notes: ${ctx.notes.slice(0, 3).map(n => n.content).join(" | ")}`,
-    `\n=== INSTRUCTIONS ===`,
+    `Recent notes: ${ctx.notes.slice(0, 3).map((n) => n.content).join(" | ")}`,
+    `Recent activity: ${ctx.activities.slice(0, 3).map((a) => `${a.type}: ${a.description} (${a.createdAt})`).join(" | ")}`,
+    ``,
+    `=== INSTRUCTIONS ===`,
     `Return JSON matching:`,
     JSON.stringify({
       to: "best recipient email address (prefer decision-makers; empty string if unknown)",
@@ -673,7 +771,7 @@ export async function generateSuggestedNextEmail(
     `NEVER hallucinate pricing, commitments, delivery dates, specs, or promises not in the data.`,
     `NEVER auto-send. This is a suggestion only.`,
     `Tone: professional, concise, warm, operational.`,
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   try {
     const completion = await openai.chat.completions.create({
@@ -696,16 +794,15 @@ export async function generateSuggestedNextEmail(
       body: parsed.body || "",
       reason: parsed.reason || "",
       warning: parsed.warning || undefined,
+      detectedContext,
     };
   } catch (err: any) {
     console.error(`[crm-ai-summary] suggest-next-email error for ${entityType}:${id}:`, err?.message);
     return {
-      to: "",
-      cc: "",
-      subject: "Follow-up",
-      body: "",
+      to: "", cc: "", subject: "Follow-up", body: "",
       reason: "Could not generate email suggestion.",
       warning: err?.message || "Generation failed.",
+      detectedContext,
     };
   }
 }

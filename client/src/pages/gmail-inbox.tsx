@@ -780,7 +780,11 @@ function ComposeDialog({
     mutationFn: async () => {
       onTrustEvent?.({ type: "draft-saving", at: Date.now() });
       const htmlBody = buildEmailHtml(body, EMAIL_SIGNATURE_HTML);
-      const res = await apiRequest("POST", "/api/gmail/drafts", { to, subject, body: htmlBody, threadId, draftId: activeDraftId });
+      const res = await apiRequest("POST", "/api/gmail/drafts", {
+        to, subject, body: htmlBody, threadId, draftId: activeDraftId,
+        ...(cc  ? { cc }  : {}),
+        ...(bcc ? { bcc } : {}),
+      });
       return res.json();
     },
     onSuccess: (data) => {
@@ -4078,7 +4082,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   }, []);
   const [editingDomainFolderId, setEditingDomainFolderId] = useState<number | null>(null);
   const [addDomainInput, setAddDomainInput] = useState("");
-  const [editingDraft, setEditingDraft] = useState<{ to: string; subject: string; body: string; draftId: string; threadId?: string } | null>(null);
+  const [editingDraft, setEditingDraft] = useState<{ to: string; cc?: string; bcc?: string; subject: string; body: string; draftId: string; threadId?: string } | null>(null);
   const [loadingDraftId, setLoadingDraftId] = useState<string | null>(null);
   const [inboxExtra, setInboxExtra] = useState<MessageSummary[]>([]);
   const [inboxNextToken, setInboxNextToken] = useState<string | null>(null);
@@ -5801,7 +5805,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     try {
       const res = await fetch(`/api/gmail/drafts/${draftId}`, { credentials: "include" });
       const content = await res.json();
-      setEditingDraft({ to: content.to, subject: content.subject, body: content.body, draftId, threadId: content.threadId });
+      setEditingDraft({ to: content.to, cc: content.cc || "", bcc: content.bcc || "", subject: content.subject, body: content.body, draftId, threadId: content.threadId });
       setComposeOpen(true);
     } catch {
       toast({ title: "Could not load draft", variant: "destructive" });
@@ -9110,7 +9114,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         onClose={() => { setComposeOpen(false); setReplyTo(null); setEditingDraft(null); setComposeInitial(null); }}
         canSend={canSend}
         defaultTo={editingDraft?.to || replyTo?.to || composeInitial?.to || ""}
-        defaultCc={replyTo?.cc || composeInitial?.cc || ""}
+        defaultCc={editingDraft?.cc || replyTo?.cc || composeInitial?.cc || ""}
+        defaultBcc={editingDraft?.bcc || ""}
         defaultSubject={editingDraft?.subject || replyTo?.subject || composeInitial?.subject || ""}
         defaultBody={editingDraft?.body || composeInitial?.body || ""}
         draftId={editingDraft?.draftId}
