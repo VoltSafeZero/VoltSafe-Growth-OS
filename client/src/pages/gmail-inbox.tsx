@@ -3960,6 +3960,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   }, []);
   // ── External compose trigger (from AI Summary "Suggested Email") ───────────
   useEffect(() => {
+    // Fallback: pick up a compose payload that was written to sessionStorage
+    // before navigation (handles the case where the CustomEvent fired before
+    // this component mounted — the classic timing race).
+    const PENDING_KEY = "voltsafe:pendingCompose";
+    try {
+      const raw = sessionStorage.getItem(PENDING_KEY);
+      if (raw) {
+        sessionStorage.removeItem(PENDING_KEY);
+        const p = JSON.parse(raw);
+        setComposeInitial({ to: p.to || "", cc: p.cc || "", subject: p.subject || "", body: p.body || "" });
+        setComposeOpen(true);
+      }
+    } catch { /* ignore parse / storage errors */ }
+
+    // Keep the CustomEvent listener for any in-page callers where the inbox
+    // is already mounted (e.g. future in-app triggers within the Gmail view).
     const onOpenCompose = (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
       setComposeInitial({
@@ -5689,6 +5705,24 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       setLoadingDraftId(null);
     }
   };
+
+  // ── URL-param compose trigger (?draft=<id>&compose=1) ────────────────────
+  // Used by the AI Summary "Continue in Mail" flow: the modal creates a real
+  // draft, navigates here with these params, and we open the compose window
+  // hydrated with that draft — identical to clicking a row in the Drafts tab.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const draftId = params.get("draft");
+    const compose = params.get("compose");
+    if (draftId && compose === "1") {
+      // Clean the URL immediately so a browser refresh doesn't re-open compose.
+      window.history.replaceState({}, "", window.location.pathname);
+      openDraft(draftId);
+    }
+  // openDraft is defined in the same render and only closes over stable
+  // setState/toast refs, so it never needs to be in the dependency array.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Pagination dedup: when local & gmail sources overlap, or refetch races with a loadMore append,
   // the same message id can appear twice. Keep the FIRST occurrence (newer page wins because base

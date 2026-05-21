@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertTriangle, Loader2, Mail, RefreshCw, Send, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -35,11 +34,15 @@ async function fetchSuggestedEmail(entityType: EntityType, entityId: number): Pr
   return res.json();
 }
 
+/** Shared sessionStorage key used as a fallback handoff when draft creation is unavailable. */
+export const PENDING_COMPOSE_KEY = "voltsafe:pendingCompose";
+
 export function SuggestedNextEmailModal({ entityType, entityId, entityName, onClose }: Props) {
   const [, setLocation] = useLocation();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [suggestion, setSuggestion] = useState<SuggestedEmail | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Fetch on mount
   useState(() => {
@@ -64,17 +67,49 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
     }
   }
 
-  function handleContinue() {
+  async function handleContinue() {
     if (!suggestion) return;
-    // Dispatch custom event so gmail-inbox can pick it up
-    window.dispatchEvent(new CustomEvent("voltsafe:openCompose", {
-      detail: {
-        to: suggestion.to,
-        cc: suggestion.cc,
-        subject: suggestion.subject,
-        body: suggestion.body,
-      },
-    }));
+    setIsSaving(true);
+
+    const payload = {
+      to: suggestion.to,
+      cc: suggestion.cc,
+      subject: suggestion.subject,
+      body: suggestion.body,
+    };
+
+    try {
+      // Create a real Gmail draft so the compose window is fully hydrated and
+      // the draft appears in the Drafts folder even if the user navigates away.
+      const res = await fetch("/api/gmail/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ to: payload.to, subject: payload.subject, body: payload.body }),
+      });
+
+      if (res.ok) {
+        const draft = await res.json();
+        onClose();
+        // Navigate with draft ID — gmail-inbox detects these params on mount and
+        // opens the compose window using the same openDraft() path as clicking a
+        // draft row in the Drafts folder.
+        setLocation(`/gmail?draft=${draft.id}&compose=1`);
+        return;
+      }
+    } catch {
+      // Fall through to sessionStorage fallback below.
+    }
+
+    // Fallback: persist compose payload to sessionStorage so gmail-inbox can
+    // pick it up on mount even without a real draft ID.  This works for the
+    // common case where Gmail is not yet connected or the API is temporarily
+    // unavailable.
+    try {
+      sessionStorage.setItem(PENDING_COMPOSE_KEY, JSON.stringify(payload));
+    } catch {
+      // sessionStorage blocked (private mode edge case) — ignore.
+    }
     onClose();
     setLocation("/gmail");
   }
@@ -165,7 +200,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
               variant="outline"
               size="sm"
               onClick={handleRegenerate}
-              disabled={loading}
+              disabled={loading || isSaving}
               data-testid="button-regenerate-suggested-email"
             >
               <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", loading && "animate-spin")} />
@@ -174,12 +209,14 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
             <Button
               size="sm"
               onClick={handleContinue}
-              disabled={loading || !suggestion || !suggestion.body}
+              disabled={loading || !suggestion || !suggestion.body || isSaving}
               className="bg-primary hover:bg-primary/90"
               data-testid="button-continue-suggested-email"
             >
-              <Send className="h-3.5 w-3.5 mr-1.5" />
-              Continue in Mail
+              {isSaving
+                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Opening…</>
+                : <><Send className="h-3.5 w-3.5 mr-1.5" />Continue in Mail</>
+              }
             </Button>
           </div>
         </div>
