@@ -7,11 +7,18 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 
 // C3: Returns a user-scoped localStorage key to prevent state bleed between users on shared browsers.
 // queryClient already has /api/auth/me cached by the time GmailInboxPage mounts (auth gate in App.tsx).
+// If userId is unavailable (should never happen given the auth gate, but defensive), we use an
+// ephemeral anon prefix rather than the bare key — this guarantees we never silently write to an
+// unscoped key that could be read by a subsequent user's session.
+const _anonLsPrefix = typeof crypto !== "undefined" ? crypto.randomUUID().slice(0, 8) : "anon";
 function lsKey(key: string): string {
   try {
     const u = queryClient.getQueryData<{ id: number }>(["/api/auth/me"]);
-    return u?.id ? `u${u.id}.${key}` : key;
-  } catch { return key; }
+    if (u?.id) return `u${u.id}.${key}`;
+    // Fallback: ephemeral anon prefix — won't match any user-scoped key and
+    // won't persist meaningfully (new prefix on every page load).
+    return `_anon_${_anonLsPrefix}.${key}`;
+  } catch { return `_anon_${_anonLsPrefix}.${key}`; }
 }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -471,7 +478,11 @@ function ComposeDialog({
   const [subject, setSubject] = useState(defaultSubject);
   const [body, setBody] = useState(defaultBody);
 
-  // Sync fields whenever the modal opens with new defaults (e.g. switching between reply targets)
+  // Sync fields whenever the modal opens with new defaults (e.g. switching between reply targets).
+  // C1 fix: also reset the idempotency key so each open of the compose window gets a fresh UUID.
+  // This is critical for the "new compose" case where key="compose" is stable and React never
+  // remounts ComposeDialog — without this reset, consecutive compose sessions share the same UUID
+  // and the second send within 5 minutes would return the cached result of the first send.
   useEffect(() => {
     if (open) {
       setTo(defaultTo);
@@ -479,6 +490,7 @@ function ComposeDialog({
       setBcc(defaultBcc);
       setSubject(defaultSubject);
       setBody(defaultBody);
+      idempotencyKeyRef.current = crypto.randomUUID();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultTo, defaultCc, defaultBcc, defaultSubject]);

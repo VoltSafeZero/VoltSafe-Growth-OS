@@ -1,0 +1,54 @@
+Great. Now do a final verification audit of Phase 1 specifically.
+
+Do not add new features unless a Phase 1 fix is broken.
+
+Please verify:
+
+1. C1 idempotency is actually wired to the real send button
+- Confirm the real Compose send handler sends the idempotency key.
+- Confirm the key is stable for retry of the same compose.
+- Confirm a new compose gets a new key.
+- Confirm the server checks the key before calling Gmail.
+- Confirm successful results are cached after Gmail send succeeds.
+- Confirm duplicate retry returns cached result and does not call Gmail again.
+
+2. C2 failed send preservation is actually safe
+- Confirm send failure does not close compose.
+- Confirm content remains visible in the compose window.
+- Confirm if Gmail draft save succeeds, the active draft id is attached.
+- Confirm if draft save fails too, the user still does not lose visible compose content.
+- Confirm the toast wording is clear.
+
+3. C3 user-scoped localStorage has no fallback foot-gun
+- Audit the lsKey fallback to unscoped keys.
+- If auth user is unavailable at init time, do not silently write unscoped keys.
+- Either delay localStorage reads until user id exists, or use a safe temporary session prefix.
+- Confirm voltsafe.mailSource is definitely scoped.
+- Confirm legacy unscoped values cannot bleed into a new user session.
+
+4. C4 scheduled retry is truly user/account safe
+- Confirm retry endpoint verifies ownership.
+- Confirm it cannot retry another user’s scheduled email.
+- Confirm failed → pending transition is correct.
+- Confirm retry does not duplicate-send if the original actually sent but status update failed.
+- Confirm UI refreshes Scheduled list after retry.
+
+5. Run and report:
+- mail-trust-hardening.test.cjs
+- suggested-email-compose-handoff.test.cjs
+- scheduled-send-lifecycle.test.cjs
+- TypeScript check, with unrelated/pre-existing errors separated clearly
+
+6. Manual smoke test checklist:
+- Send a normal email.
+- Force/send simulate failure and verify compose content remains.
+- Schedule an email 2 minutes out and verify it sends or fails recoverably.
+- Retry a failed scheduled email.
+- Log out/in as another user and confirm no mailbox/layout bleed.
+
+Required output:
+- Pass/fail table
+- Any Phase 1 defects found
+- Any fixes applied
+- Files changed, if any
+- Final recommendation: safe/not safe for second-user onboarding

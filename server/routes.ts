@@ -12144,6 +12144,15 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       if (email.status !== "failed") {
         return res.status(400).json({ message: "Only failed scheduled emails can be retried" });
       }
+      // C4 duplicate-send guard: if sentMessageId is already set, Gmail accepted the send
+      // but the subsequent DB status update failed. The email was delivered — retrying would
+      // send a second copy. Surface this as an error so an admin can verify before proceeding.
+      if ((email as any).sentMessageId) {
+        return res.status(409).json({
+          message: "This email may have already been sent (Gmail message ID is recorded). Manual verification required before retry.",
+          sentMessageId: (email as any).sentMessageId,
+        });
+      }
       // If scheduledAt is in the past, advance to 30s from now so it's picked up on the next tick.
       const newScheduledAt = email.scheduledAt < new Date()
         ? new Date(Date.now() + 30_000)

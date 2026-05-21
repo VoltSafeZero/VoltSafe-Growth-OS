@@ -93,6 +93,13 @@ function testC1Source() {
     clientSrc.includes("idempotencyKey: idempotencyKeyRef.current"),
     "gmail-inbox.tsx sends idempotencyKey with every send request"
   );
+  // D-C1 fix: key must be reset each time the compose dialog opens, not just at mount.
+  // Without this, a stable key="compose" component never remounts and the second
+  // new-email compose reuses the first session's UUID.
+  assert(
+    clientSrc.includes("idempotencyKeyRef.current = crypto.randomUUID()"),
+    "idempotencyKeyRef is reset each time compose opens (not just at mount)"
+  );
 }
 
 // ─── Source-grep: C2 — Draft fallback on failed send ─────────────────────────
@@ -151,12 +158,17 @@ function testC3Source() {
     "gmail-inbox.tsx declares lsKey helper function"
   );
   assert(
-    src.includes("u?.id ? `u${u.id}.${key}` : key"),
+    src.includes("if (u?.id) return `u${u.id}.${key}`"),
     "lsKey helper prefixes key with userId"
   );
   assert(
     src.includes('queryClient.getQueryData<{ id: number }>(["/api/auth/me"])'),
     "lsKey reads userId from TanStack Query cache"
+  );
+  // D-C3 fix: fallback must NOT write bare unscoped key — must use anon session prefix.
+  assert(
+    src.includes("_anonLsPrefix") && src.includes("_anon_"),
+    "lsKey fallback uses ephemeral anon prefix (never bare unscoped key)"
   );
 
   const keys = [
@@ -203,6 +215,12 @@ function testC4Source() {
   assert(
     src.includes("newScheduledAt"),
     "retry route advances scheduledAt to the future if it was in the past"
+  );
+  // D-C4 fix: duplicate-send guard — if sentMessageId is already set, the email was
+  // delivered but the status DB write failed. Retrying would send a second copy.
+  assert(
+    src.includes("sentMessageId") && src.includes("409"),
+    "retry route blocks with 409 if sentMessageId is already set (duplicate-send guard)"
   );
 
   const clientPath = path.join(__dirname, "../client/src/pages/gmail-inbox.tsx");
