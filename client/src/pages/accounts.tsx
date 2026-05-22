@@ -380,7 +380,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
         {/* 1 — Industry */}
         <Select value={industryFilter} onValueChange={setIndustryFilter}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-industry-filter">
-            <SelectValue placeholder="Industry" />
+            {industryFilter === "__all__" ? <span>Marine</span> : <SelectValue />}
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All Industries</SelectItem>
@@ -392,7 +392,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
         {/* 2 — Segment */}
         <Select value={marketSegmentFilter} onValueChange={(v) => { setMarketSegmentFilter(v); }}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-market-segment-filter">
-            <SelectValue placeholder="Segment" />
+            {marketSegmentFilter === "all" ? <span>Marina</span> : <SelectValue />}
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Segments</SelectItem>

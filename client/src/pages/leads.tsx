@@ -447,7 +447,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
         {/* 1 — Industry */}
         <Select value={industryFilter} onValueChange={(v) => { setIndustryFilter(v); }}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-industry-filter">
-            <SelectValue placeholder="Industry" />
+            {industryFilter === "__all__" ? <span>Marine</span> : <SelectValue />}
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All Industries</SelectItem>
@@ -459,7 +459,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
         {/* 2 — Segment */}
         <Select value={marketSegmentFilter} onValueChange={(v) => { setMarketSegmentFilter(v); }}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-market-segment-filter">
-            <SelectValue placeholder="Segment" />
+            {marketSegmentFilter === "__all__" ? <span>Marina</span> : <SelectValue />}
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All Segments</SelectItem>
