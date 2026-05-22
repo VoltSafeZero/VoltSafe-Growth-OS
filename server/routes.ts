@@ -460,6 +460,10 @@ export async function registerRoutes(
   const { registerTaskRoutes } = await import("./routes-tasks");
   registerTaskRoutes(app, requireAuth);
 
+  // ⚠️ TEMPORARY — remove after BC marina enrichment import is complete
+  const { registerBcEnrichmentRoute } = await import("./routes-bc-enrichment");
+  registerBcEnrichmentRoute(app);
+
   // ── Help Center: end-of-day asset refresh ───────────────────────────────────
   // Runs only on days when the production app has been republished that day
   // (server boot time == today's local date). Otherwise no action is taken.
