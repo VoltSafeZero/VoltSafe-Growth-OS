@@ -108,8 +108,8 @@ function getOrgTypeLabel(value: string | null | undefined) {
 export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
-  const [industryFilter, setIndustryFilter] = useState("marine");
-  const [marketSegmentFilter, setMarketSegmentFilter] = useState("marina");
+  const [industryFilter, setIndustryFilter] = useState("all");
+  const [marketSegmentFilter, setMarketSegmentFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [countryFilter, setCountryFilter] = useState("all");
   const [regionFilter, setRegionFilter] = useState("all");
