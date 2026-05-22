@@ -7858,7 +7858,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               return (
                 <div
                   key={msg.id}
-                  className={`relative group flex items-stretch transition-all duration-150 border-b border-border/20 ${
+                  className={`relative group flex items-stretch cursor-pointer transition-all duration-150 border-b border-border/20 ${
                     isSelected
                       ? "bg-primary/[0.13] hover:bg-primary/[0.21] border-l-[3px] border-l-primary shadow-[inset_0_0_0_1px_rgba(20,184,166,0.14),inset_4px_0_12px_-4px_rgba(20,184,166,0.08)]"
                       : isBulkChecked
