@@ -1,0 +1,107 @@
+Excellent. Now refine the implementation to make VoltSafe Mail feel operationally intelligent, not just visually organized.
+
+Make the following upgrades:
+
+1. Improve “People” classification logic
+Current logic:
+- unread emails with no category label
+
+Replace with a more reliable human-first classifier.
+
+People emails should prioritize:
+- direct human-to-human communication
+- non-automated senders
+- conversational threads
+
+Exclude emails from People if:
+- sender contains:
+  noreply@
+  no-reply@
+  notifications@
+  support@
+  updates@
+  mailer@
+  donotreply@
+- message contains List-Unsubscribe header
+- bulk/precedence headers exist
+- Gmail categories include:
+  CATEGORY_PROMOTIONS
+  CATEGORY_FORUMS
+  CATEGORY_UPDATES
+- sender domain is known automation/marketing infrastructure
+
+Goal:
+People should feel high-signal and trustworthy.
+
+2. Smart Inbox should feel executive-grade
+Inside each category:
+- unread first
+- newest first
+- compact rows
+- sender name visually dominant
+- subject secondary
+- preview text truncated to one short line
+- timestamp aligned consistently on right side
+
+Optimize for fast scanning.
+
+3. Improve category headers
+Each category header should include:
+- category name
+- unread count badge
+- subtle divider
+- “Show all” link only when unread count > 5
+
+Example:
+People (12)              Show all
+
+4. Smart Inbox ordering
+Always preserve this fixed order:
+1. People
+2. Notifications
+3. Newsletters
+
+Never reorder based on volume.
+
+5. Pinned tab improvements
+Pinned should behave like lightweight CRM memory.
+
+Add:
+- persistent pin state per inbox/account
+- pinned threads sorted by:
+  newest activity first
+- empty state:
+  “Pinned conversations appear here.”
+
+Pinned must work for:
+- personal inboxes
+- team inboxes
+- future inboxes automatically
+
+6. Visual cleanup
+Remove unnecessary visual nesting.
+
+All Smart Inbox categories should appear:
+- flat
+- clean
+- equal hierarchy
+- no parent “Unread” container
+
+7. Performance
+Do not introduce extra API calls.
+
+Everything should derive from already-loaded inbox message data.
+
+Use memoization where appropriate.
+
+8. Future-ready architecture
+Refactor category logic into reusable classification helpers:
+- classifyAsPeople()
+- classifyAsNotification()
+- classifyAsNewsletter()
+
+Avoid hardcoded UI logic directly inside rendering components.
+
+Goal:
+Make VoltSafe Mail feel like:
+“the inbox an operator, founder, investor, or marina manager would actually want to live inside all day.”

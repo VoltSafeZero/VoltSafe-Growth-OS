@@ -15,7 +15,7 @@
  * JSX in `gmail-inbox.tsx` can render unchanged — only headers are new rows.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                              */
@@ -66,11 +66,13 @@ export interface GroupableMessage {
   labelIds: string[];
   internalDate?: string | number | null;
   date?: string | null;
+  /** Sender address (RFC 5322 "From" header). Used for automation detection. */
+  from?: string | null;
 }
 
 /* ------------------------------------------------------------------ */
-/* Label / category helpers — duplicated from gmail-inbox.tsx so this  */
-/* module is self-contained and unit-testable in isolation.            */
+/* Classification helpers — exported so page components can import     */
+/* them instead of duplicating classification logic inline.            */
 /* ------------------------------------------------------------------ */
 
 export function isUnreadMsg(labelIds: string[]): boolean {
@@ -81,9 +83,107 @@ export function isStarredMsg(labelIds: string[]): boolean {
   return labelIds.includes("STARRED");
 }
 
-export function smartCategoryOf(labelIds: string[]): SmartCategory {
-  if (labelIds.includes("CATEGORY_PROMOTIONS") || labelIds.includes("CATEGORY_FORUMS")) return "newsletters";
-  if (labelIds.includes("CATEGORY_UPDATES") || labelIds.includes("CATEGORY_SOCIAL")) return "notifications";
+/**
+ * Local-part prefixes that reliably indicate an automated / system sender
+ * rather than a human replying from their own address.
+ */
+export const AUTOMATION_SENDER_PREFIXES = [
+  "noreply@",
+  "no-reply@",
+  "donotreply@",
+  "do-not-reply@",
+  "notifications@",
+  "notification@",
+  "updates@",
+  "mailer@",
+  "bounce@",
+  "postmaster@",
+  "support@",
+  "alert@",
+  "alerts@",
+  "newsletter@",
+  "newsletters@",
+  "info@",
+  "hello@",
+  "team@",
+] as const;
+
+/**
+ * Returns true when the from-address matches a known automation/bulk-send
+ * prefix. Case-insensitive, works on full RFC 5322 "Name <addr>" strings.
+ */
+export function isAutomationSender(fromAddr: string | null | undefined): boolean {
+  if (!fromAddr) return false;
+  const lower = fromAddr.toLowerCase();
+  return AUTOMATION_SENDER_PREFIXES.some((p) => lower.includes(p));
+}
+
+/**
+ * Returns true when the message looks like direct human-to-human communication:
+ * no Gmail automation category labels, no bulk/noreply sender address.
+ */
+export function classifyAsPeople(
+  labelIds: string[],
+  fromAddr?: string | null,
+): boolean {
+  // Gmail's own categories reliably exclude automated / newsletter traffic
+  if (
+    labelIds.includes("CATEGORY_PROMOTIONS") ||
+    labelIds.includes("CATEGORY_FORUMS") ||
+    labelIds.includes("CATEGORY_UPDATES") ||
+    labelIds.includes("CATEGORY_SOCIAL")
+  ) return false;
+  // Sender address heuristic — noreply / mailer / etc.
+  if (isAutomationSender(fromAddr)) return false;
+  return true;
+}
+
+/**
+ * Returns true for automated transactional/activity emails: CATEGORY_UPDATES,
+ * CATEGORY_SOCIAL, or any non-promotional message from an automation sender.
+ */
+export function classifyAsNotification(
+  labelIds: string[],
+  fromAddr?: string | null,
+): boolean {
+  // Newsletters take priority over notifications
+  if (
+    labelIds.includes("CATEGORY_PROMOTIONS") ||
+    labelIds.includes("CATEGORY_FORUMS")
+  ) return false;
+  if (
+    labelIds.includes("CATEGORY_UPDATES") ||
+    labelIds.includes("CATEGORY_SOCIAL")
+  ) return true;
+  // Automation sender but no newsletter label → notification
+  if (isAutomationSender(fromAddr)) return true;
+  return false;
+}
+
+/**
+ * Returns true for promotional/newsletter email: CATEGORY_PROMOTIONS or
+ * CATEGORY_FORUMS. These are bulk/marketing by definition.
+ */
+export function classifyAsNewsletter(
+  labelIds: string[],
+  _fromAddr?: string | null,
+): boolean {
+  return (
+    labelIds.includes("CATEGORY_PROMOTIONS") ||
+    labelIds.includes("CATEGORY_FORUMS")
+  );
+}
+
+/**
+ * Classify a message into one of three Smart Inbox categories.
+ * Order of precedence: newsletters → notifications → people.
+ */
+export function smartCategoryOf(
+  labelIds: string[],
+  fromAddr?: string | null,
+): SmartCategory {
+  if (classifyAsNewsletter(labelIds, fromAddr)) return "newsletters";
+  if (classifyAsNotification(labelIds, fromAddr)) return "notifications";
   return "people";
 }
 
@@ -159,7 +259,7 @@ export function groupSmartInbox<M extends GroupableMessage>(
       continue;
     }
     if (unread || isOpenAndJustRead) {
-      const cat = smartCategoryOf(labels);
+      const cat = smartCategoryOf(labels, m.from ?? undefined);
       if (cat === "people") unreadPeople.push(m);
       else if (cat === "notifications") unreadNotifications.push(m);
       else unreadNewsletters.push(m);
@@ -227,7 +327,10 @@ export function groupSmartInbox<M extends GroupableMessage>(
 /* ------------------------------------------------------------------ */
 
 const VIEW_MODE_KEY = "inbox.viewMode";
-const PINNED_KEY = "inbox.pinnedThreads";
+/** Namespace prefix — actual key is `${PINNED_KEY_PREFIX}.${accountKey}` */
+const PINNED_KEY_PREFIX = "inbox.pinnedThreads";
+/** Legacy global key (pre per-account) — migrated on first read for personal. */
+const PINNED_KEY_LEGACY = "inbox.pinnedThreads";
 
 function readViewMode(): InboxViewMode {
   if (typeof window === "undefined") return "classic";
@@ -239,13 +342,23 @@ function readViewMode(): InboxViewMode {
   }
 }
 
-function readPinned(): Set<string> {
+function readPinned(storageKey: string): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
-    const raw = window.localStorage.getItem(PINNED_KEY);
+    // One-time migration: promote the old global key into the new personal-scoped key.
+    if (storageKey === `${PINNED_KEY_PREFIX}.personal`) {
+      const legacy = window.localStorage.getItem(PINNED_KEY_LEGACY);
+      if (legacy && !window.localStorage.getItem(storageKey)) {
+        window.localStorage.setItem(storageKey, legacy);
+        window.localStorage.removeItem(PINNED_KEY_LEGACY);
+      }
+    }
+    const raw = window.localStorage.getItem(storageKey);
     if (!raw) return new Set();
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? new Set(parsed.filter((x): x is string => typeof x === "string")) : new Set();
+    return Array.isArray(parsed)
+      ? new Set(parsed.filter((x): x is string => typeof x === "string"))
+      : new Set();
   } catch {
     return new Set();
   }
@@ -277,24 +390,47 @@ export interface PinnedThreadsAPI {
   togglePin: (threadId: string) => void;
 }
 
-export function usePinnedThreads(): PinnedThreadsAPI {
-  const [pinned, setPinned] = useState<Set<string>>(() => readPinned());
+/**
+ * Manages the set of pinned thread IDs for a specific inbox/account.
+ *
+ * @param accountKey  Stable string identifying the account:
+ *   - `"personal"` for the user's own inbox (default)
+ *   - `"acct-<id>"` for a shared team inbox by numeric ID
+ * Pinned state is persisted per-key in localStorage so switching accounts
+ * shows the correct set. Changing `accountKey` between renders re-reads
+ * storage for the new account immediately.
+ */
+export function usePinnedThreads(accountKey = "personal"): PinnedThreadsAPI {
+  const storageKey = `${PINNED_KEY_PREFIX}.${accountKey}`;
+  const [pinned, setPinned] = useState<Set<string>>(() => readPinned(storageKey));
+
+  // Re-sync when the account key changes (e.g., user switches to a team inbox).
+  const prevStorageKey = useRef(storageKey);
+  useEffect(() => {
+    if (prevStorageKey.current !== storageKey) {
+      prevStorageKey.current = storageKey;
+      setPinned(readPinned(storageKey));
+    }
+  });
+
   // Persist on every change.
   useEffect(() => {
     try {
-      window.localStorage.setItem(PINNED_KEY, JSON.stringify(Array.from(pinned)));
+      window.localStorage.setItem(storageKey, JSON.stringify(Array.from(pinned)));
     } catch {
-      /* ignore */
+      /* ignore quota / private-mode failures */
     }
-  }, [pinned]);
+  }, [pinned, storageKey]);
+
   // Cross-tab sync.
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key === PINNED_KEY) setPinned(readPinned());
+      if (e.key === storageKey) setPinned(readPinned(storageKey));
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  }, [storageKey]);
+
   const isPinned = useCallback((threadId: string) => pinned.has(threadId), [pinned]);
   const togglePin = useCallback((threadId: string) => {
     setPinned((prev) => {

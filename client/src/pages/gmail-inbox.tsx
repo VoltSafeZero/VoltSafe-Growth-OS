@@ -3929,12 +3929,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   }, [density]);
 
   // Spark-style "Smart Inbox" toggle. When enabled the inbox renders sectioned
-  // groups (Priority → Unread by category → Pinned → Seen) instead of a flat
-  // chronological list. Persisted in localStorage via the hook.
+  // groups (Unread by category) instead of a flat chronological list.
+  // Persisted in localStorage via the hook.
   const [viewMode, setViewMode] = useInboxViewMode();
-  // Per-user thread pin set (localStorage). Pinning lets the user surface a
-  // specific thread in the "Pinned" section even after it has been read.
-  const pinnedAPI = usePinnedThreads();
+  // Moved up here so it can be passed to usePinnedThreads before other hooks.
+  // Per-inbox pin state: personal vs. each team inbox are stored separately.
+  const [activeAccountId, setActiveAccountId] = useState<number | "all" | null>(null);
+  const pinnedAccountKey =
+    activeAccountId === null ? "personal" :
+    activeAccountId === "all" ? "personal" :
+    `acct-${activeAccountId}`;
+  const pinnedAPI = usePinnedThreads(pinnedAccountKey);
   // Per-user "set aside" thread set (localStorage). Mirrors the Spark gesture:
   // briefly remove a thread from the active inbox without archiving so the
   // user can come back to it later. Surfaced via the actions toolbar.
@@ -4221,10 +4226,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     enabled: tab === "folder" && !!selectedFolderId,
   });
 
-  // null = user's personal account (default); number = shared/specific account id; "all" = unified inbox.
-  // Multi-mailbox Phase 1: "all" sentinel triggers the unified view that pulls from every
-  // account the user can access (their own personal accounts + shared inboxes they have view perms on).
-  const [activeAccountId, setActiveAccountId] = useState<number | "all" | null>(null);
+  // activeAccountId declared earlier (before usePinnedThreads) — see above.
   const [inboxViewPickerOpen, setInboxViewPickerOpen] = useState(false);
   const inboxViewPickerRef = useRef<HTMLDivElement>(null);
   const inboxViewPickerBtnRef = useRef<HTMLButtonElement>(null);
@@ -5949,22 +5951,18 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     });
   }, [isSmartView, crmFilteredMessages, pinnedAPI.pinned, selectedThreadId, openThreadWasUnread]);
 
-  // Pre-process viewItems to collapse sections to SMART_COLLAPSE_LIMIT rows, injecting
-  // "show-all" and "show-less" sentinel rows so the render loop can handle them uniformly.
+  // Pre-process viewItems to collapse sections to SMART_COLLAPSE_LIMIT rows.
+  // Headers carry the full count; the inline "Show all N" / "Show less" buttons
+  // are rendered directly in the header row — no sentinel rows needed.
   const SMART_COLLAPSE_LIMIT = 5;
-  const collapsedViewItems = useMemo(() => {
+  const collapsedViewItems = useMemo((): SmartItem<MessageSummary>[] | null => {
     if (!viewItems) return null;
-    if (viewItems.length === 0) return [] as Array<SmartItem<MessageSummary> | { kind: "show-all"; sectionId: SmartSectionId; total: number } | { kind: "show-less"; sectionId: SmartSectionId }>;
-    const sectionTotals = new Map<SmartSectionId, number>();
-    for (const item of viewItems) {
-      if (item.kind === "msg") sectionTotals.set(item.section, (sectionTotals.get(item.section) ?? 0) + 1);
-    }
+    if (viewItems.length === 0) return [];
     const isCollapsible = (sec: SmartSectionId) =>
       sec === "priority" || sec === "unread-people" || sec === "unread-notifications" || sec === "unread-newsletters";
-    const result: Array<SmartItem<MessageSummary> | { kind: "show-all"; sectionId: SmartSectionId; total: number } | { kind: "show-less"; sectionId: SmartSectionId }> = [];
+    const result: SmartItem<MessageSummary>[] = [];
     const sectionRendered = new Map<SmartSectionId, number>();
-    for (let i = 0; i < viewItems.length; i++) {
-      const item = viewItems[i] as SmartItem<MessageSummary>;
+    for (const item of viewItems) {
       if (item.kind === "header") {
         result.push(item);
       } else {
@@ -5972,21 +5970,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         const rendered = sectionRendered.get(sec) ?? 0;
         const expanded = expandedSections.has(sec);
         const collapsible = isCollapsible(sec);
-        const total = sectionTotals.get(sec) ?? 0;
         if (!collapsible || expanded || rendered < SMART_COLLAPSE_LIMIT) {
           result.push(item);
-          sectionRendered.set(sec, rendered + 1);
-          const nextItem = viewItems[i + 1];
-          const isLastInSection = !nextItem || nextItem.kind === "header";
-          if (isLastInSection && expanded && collapsible) {
-            result.push({ kind: "show-less", sectionId: sec });
-          }
-        } else if (rendered === SMART_COLLAPSE_LIMIT) {
-          result.push({ kind: "show-all", sectionId: sec, total });
-          sectionRendered.set(sec, rendered + 1);
-        } else {
-          sectionRendered.set(sec, rendered + 1);
         }
+        sectionRendered.set(sec, rendered + 1);
       }
     }
     return result;
@@ -7756,6 +7743,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   <p>No unlinked threads</p>
                   <p className="text-[11px] mt-1">All inbox threads are linked to a CRM record.</p>
                 </div>
+              ) : tab === "pinned" ? (
+                <div className="p-6 text-center text-sm text-muted-foreground">
+                  <Pin className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="font-medium">No pinned conversations</p>
+                  <p className="text-[11px] mt-1">Right-click any thread and choose Pin to keep it here.</p>
+                </div>
               ) : (
                 <div className="p-6 text-center text-sm text-muted-foreground">
                   <Inbox className="h-8 w-8 mx-auto mb-2 opacity-30" />
@@ -7774,40 +7767,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 ? unreadCardsMessages.map((m) => ({ kind: "msg" as const, section: "flat" as SmartSectionId, msg: m }))
                 : (collapsedViewItems ?? (crmFilteredMessages ?? []).map((m) => ({ kind: "msg" as const, section: "flat" as SmartSectionId, msg: m })))
             )?.map((item) => {
-              // "Show All" sentinel — expand a collapsed section.
-              if (item.kind === "show-all") {
-                const { sectionId, total } = item as { kind: "show-all"; sectionId: SmartSectionId; total: number };
-                return (
-                  <button
-                    key={`show-all-${sectionId}`}
-                    data-testid={`show-all-${sectionId}`}
-                    onClick={() => setExpandedSections(prev => { const s = new Set(prev); s.add(sectionId); return s; })}
-                    className="w-full flex items-center justify-center gap-1.5 py-2 text-[11px] text-primary/70 hover:text-primary font-medium transition-colors border-b border-border/20 hover:bg-primary/5"
-                  >
-                    <ChevronDown className="h-3 w-3" aria-hidden="true" />
-                    Show all {total}
-                  </button>
-                );
-              }
-              // "Show Less" sentinel — collapse an expanded section.
-              if (item.kind === "show-less") {
-                const { sectionId } = item as { kind: "show-less"; sectionId: SmartSectionId };
-                return (
-                  <button
-                    key={`show-less-${sectionId}`}
-                    data-testid={`show-less-${sectionId}`}
-                    onClick={() => setExpandedSections(prev => { const s = new Set(prev); s.delete(sectionId); return s; })}
-                    className="w-full flex items-center justify-center gap-1.5 py-2 text-[11px] text-muted-foreground/55 hover:text-foreground/70 font-medium transition-colors border-b border-border/20 hover:bg-muted/20"
-                  >
-                    <ChevronUp className="h-3 w-3" aria-hidden="true" />
-                    Show less
-                  </button>
-                );
-              }
               // Smart-Inbox section header — purely visual, not a clickable
-              // mail row. Rendered inline so we don't break the surrounding
-              // <div> flow (the parent is a flex column that expects flat
-              // children with a stable border-bottom rhythm).
+              // mail row. "Show all N" / "Show less" live inline in the header
+              // so there are no sentinel rows interrupting the message list.
               if (item.kind === "header") {
                 const headerIcon =
                   item.glyph === "priority"      ? Flame       :
@@ -7817,25 +7779,44 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   item.glyph === "pinned"        ? Pin         :
                   /* "seen" */                     MailOpen;
                 const HeaderIcon = headerIcon;
-                // Priority rows in Spark use a warm amber tone; everything
-                // else stays neutral so the eye is naturally drawn to the
-                // top section first when there are flagged messages.
                 const tone = item.glyph === "priority"
                   ? "text-amber-400"
                   : "text-muted-foreground/65";
+                const isCollapsibleSection =
+                  item.id === "priority" || item.id === "unread-people" ||
+                  item.id === "unread-notifications" || item.id === "unread-newsletters";
+                const isExpanded = expandedSections.has(item.id);
+                const showToggle = isCollapsibleSection && item.count > SMART_COLLAPSE_LIMIT;
                 return (
                   <div
                     key={`smart-header-${item.id}`}
                     data-testid={`smart-section-header-${item.id}`}
-                    className={`flex items-center gap-2 ${item.isSubsection ? "pl-7" : "pl-3"} pr-3 py-1.5 bg-muted/15 border-b border-border/20 sticky top-0 z-[1] backdrop-blur-sm`}
+                    className="flex items-center gap-2 pl-3 pr-3 py-1.5 bg-muted/15 border-b border-border/20 sticky top-0 z-[1] backdrop-blur-sm"
                   >
-                    <HeaderIcon className={`h-3.5 w-3.5 ${tone}`} aria-hidden="true" />
+                    <HeaderIcon className={`h-3.5 w-3.5 flex-shrink-0 ${tone}`} aria-hidden="true" />
                     <span className={`text-[11px] font-bold uppercase tracking-[0.06em] ${tone}`}>
                       {item.title}
                     </span>
                     <span className="text-[10px] tabular-nums text-muted-foreground/45">
                       {item.count}
                     </span>
+                    {showToggle && (
+                      <button
+                        data-testid={isExpanded ? `show-less-${item.id}` : `show-all-${item.id}`}
+                        onClick={() => setExpandedSections(prev => {
+                          const s = new Set(prev);
+                          if (isExpanded) s.delete(item.id); else s.add(item.id);
+                          return s;
+                        })}
+                        className="ml-auto flex items-center gap-0.5 text-[10px] text-primary/60 hover:text-primary font-medium transition-colors"
+                      >
+                        {isExpanded ? (
+                          <><ChevronUp className="h-2.5 w-2.5" aria-hidden="true" />Show less</>
+                        ) : (
+                          <><ChevronDown className="h-2.5 w-2.5" aria-hidden="true" />Show all {item.count}</>
+                        )}
+                      </button>
+                    )}
                   </div>
                 );
               }
