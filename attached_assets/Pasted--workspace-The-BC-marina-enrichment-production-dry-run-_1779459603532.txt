@@ -1,0 +1,148 @@
+~/workspace$ The BC marina enrichment production dry-run is still producing dev-style account IDs even though the banner says DB: PROD.
+
+Evidence:
+- Production dry-run command used:
+  npx tsx scripts/bc-marina-enrichment-import.ts --prod
+- Output report:
+  exports/bc-enrichment-report-prod-2026-05-22-1417.csv
+- The report still shows:
+  AHOUSAHT HARBOUR AUTHORITY account_id=240
+  Alder Bay RV Park & Marina account_id=241
+  Alert Bay Harbour account_id=242
+
+These are the known bad dev IDs. The expected production IDs should start around:
+  AHOUSAHT HARBOUR AUTHORITY = 247
+  Alder Bay RV Park & Marina = 248
+  Alert Bay Harbour = 249
+
+Do a read-only audit and fix the script so --prod truly connects to PROD_DATABASE_URL before any db/pool import or initialization happens.
+
+Requirements:
+1. Do not run --apply.
+2. Do not write to the database.
+3. Inspect scripts/bc-marina-enrichment-import.ts and server/db.ts import timing.
+4. Confirm whether static imports are causing server/db to initialize before process.env.DATABASE_URL is reassigned.
+5. If so, change the script to use a dynamic import of ../server/db only after --prod has reassigned process.env.DATABASE_URL.
+6. Add a startup sanity check query that prints:
+   - current_database()
+   - inet_server_addr()
+   - inet_server_port()
+   - first 5 matched BC accounts by name with their IDs
+7. Re-run only the production dry-run:
+   npx tsx scripts/bc-marina-enrichment-import.ts --prod
+8. Confirm AHOUSAHT / Alder Bay / Alert Bay account IDs are production-correct before proceeding.
+9. Report the exact file changed and the exact dry-run output.
+
+Again: no --apply until the account IDs are verified correct.
+bash: The: command not found
+bash: Evidence:: command not found
+bash: -: command not found
+═══════════════════════════════════════════════
+  BC Marina Enrichment Import
+  Mode: DRY RUN (read-only)
+  DB:   PROD — image-linker-burgesstrevor76.replit.app
+  CSV:  /home/runner/workspace/attached_assets/voltsafe_bc_marina_leads_address_focus_2026-05-21_1779390777512.csv
+═══════════════════════════════════════════════
+
+CSV rows parsed:  242
+DB leads loaded:  964
+DB accounts loaded: 1017
+
+═══ Plan Summary ═══════════════════════════════
+  UPDATE_LEAD:      0  (fill blank fields on existing lead)
+  UPDATE_ACCOUNT:   0  (fill blank fields on existing account)
+  CONFLICT_REVIEW:  220  (both Lead+Account matched — updating Account; check log)
+  CREATE_LEAD:      16  (no match found — will create new lead)
+  SKIP:             6  (no company name)
+  ── of active rows: 68 have field updates, 168 match but all fields already populated
+
+Report written:   /home/runner/workspace/exports/bc-enrichment-report-prod-2026-05-22-1419.csv
+                  242 rows
+
+DRY RUN — no changes made to the database.
+Review the report CSV, then re-run with --apply to commit.
+
+Sample of first 10 active rows:
+  [CONFLICT_REVIEW ] "AHOUSAHT HARBOUR AUTHORITY                   " Lead#10279 Acct#240 | update: street_address, postal_zip | +notes
+  [CONFLICT_REVIEW ] "Alder Bay RV Park & Marina                   " Lead#10280 Acct#241 | update: street_address, postal_zip | +notes
+  [CONFLICT_REVIEW ] "Alert Bay Harbour                            " Lead#10281 Acct#242 | (no new fields) | +notes
+  [CONFLICT_REVIEW ] "Anchorage Marina Village                     " Lead#10282 Acct#662 | update: street_address, postal_zip | +notes
+  [CONFLICT_REVIEW ] "Anglers Anchorage Marina                     " Lead#10283 Acct#663 | (no new fields) | +notes
+  [CONFLICT_REVIEW ] "April Point Marina                           " Lead#10284 Acct#664 | (no new fields) | +notes
+  [CONFLICT_REVIEW ] "Backeddy Resort & Marina                     " Lead#10286 Acct#665 | (no new fields) | +notes
+  [CONFLICT_REVIEW ] "Bamfield East Dock                           " Lead#10287 Acct#666 | (no new fields) | +notes
+  [CONFLICT_REVIEW ] "Bathgate's Store & Marina                    " Lead#10288 Acct#667 | (no new fields) | +notes
+  [CONFLICT_REVIEW ] "Bayshore West Marina                         " Lead#10289 Acct#668 | (no new fields) | +notes
+
+Done.
+bash: -: command not found
+bash: exports/bc-enrichment-report-prod-2026-05-22-1417.csv: Permission denied
+bash: -: command not found
+bash: AHOUSAHT: command not found
+[1] 798
+bash: Alder: command not found
+bash: Marina: command not found
+[1]+  Exit 127                Alder Bay RV Park
+bash: Alert: command not found
+bash: These: command not found
+bash: AHOUSAHT: command not found
+[1] 858
+bash: Marina: command not found
+bash: Alder: command not found
+bash: Alert: command not found
+[1]+  Exit 127                Alder Bay RV Park
+bash: Do: command not found
+bash: Requirements:: command not found
+bash: 1.: command not found
+bash: 2.: command not found
+bash: 3.: command not found
+bash: 4.: command not found
+bash: 5.: command not found
+bash: 6.: command not found
+bash: syntax error near unexpected token `('
+bash: syntax error near unexpected token `('
+bash: syntax error near unexpected token `('
+bash: -: command not found
+bash: 7.: command not found
+═══════════════════════════════════════════════
+  BC Marina Enrichment Import
+  Mode: DRY RUN (read-only)
+  DB:   PROD — image-linker-burgesstrevor76.replit.app
+  CSV:  /home/runner/workspace/attached_assets/voltsafe_bc_marina_leads_address_focus_2026-05-21_1779390777512.csv
+═══════════════════════════════════════════════
+
+CSV rows parsed:  242
+DB leads loaded:  964
+DB accounts loaded: 1017
+
+═══ Plan Summary ═══════════════════════════════
+  UPDATE_LEAD:      0  (fill blank fields on existing lead)
+  UPDATE_ACCOUNT:   0  (fill blank fields on existing account)
+  CONFLICT_REVIEW:  220  (both Lead+Account matched — updating Account; check log)
+  CREATE_LEAD:      16  (no match found — will create new lead)
+  SKIP:             6  (no company name)
+  ── of active rows: 68 have field updates, 168 match but all fields already populated
+
+Report written:   /home/runner/workspace/exports/bc-enrichment-report-prod-2026-05-22-1419.csv
+                  242 rows
+
+DRY RUN — no changes made to the database.
+Review the report CSV, then re-run with --apply to commit.
+
+Sample of first 10 active rows:
+  [CONFLICT_REVIEW ] "AHOUSAHT HARBOUR AUTHORITY                   " Lead#10279 Acct#240 | update: street_address, postal_zip | +notes
+  [CONFLICT_REVIEW ] "Alder Bay RV Park & Marina                   " Lead#10280 Acct#241 | update: street_address, postal_zip | +notes
+  [CONFLICT_REVIEW ] "Alert Bay Harbour                            " Lead#10281 Acct#242 | (no new fields) | +notes
+  [CONFLICT_REVIEW ] "Anchorage Marina Village                     " Lead#10282 Acct#662 | update: street_address, postal_zip | +notes
+  [CONFLICT_REVIEW ] "Anglers Anchorage Marina                     " Lead#10283 Acct#663 | (no new fields) | +notes
+  [CONFLICT_REVIEW ] "April Point Marina                           " Lead#10284 Acct#664 | (no new fields) | +notes
+  [CONFLICT_REVIEW ] "Backeddy Resort & Marina                     " Lead#10286 Acct#665 | (no new fields) | +notes
+  [CONFLICT_REVIEW ] "Bamfield East Dock                           " Lead#10287 Acct#666 | (no new fields) | +notes
+  [CONFLICT_REVIEW ] "Bathgate's Store & Marina                    " Lead#10288 Acct#667 | (no new fields) | +notes
+  [CONFLICT_REVIEW ] "Bayshore West Marina                         " Lead#10289 Acct#668 | (no new fields) | +notes
+
+Done.
+bash: 8.: command not found
+bash: 9.: command not found
+bash: Again:: command not found
+~/workspace$ 

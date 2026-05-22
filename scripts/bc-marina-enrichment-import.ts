@@ -51,7 +51,11 @@ const HARD_BLOCK = new Set<string>([
   "shelter bay marina (west kelowna)",    // already exists as lead #10952 in production
 ]);
 
-import { db, pool } from "../server/db";
+// pg and drizzle are imported statically — they do NOT read DATABASE_URL at import
+// time; only our pool creation inside main() does, which runs after PROD_MODE has
+// already reassigned process.env.DATABASE_URL.  server/db is never imported.
+import pg from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
 import * as fs from "fs";
 import * as path from "path";
@@ -276,6 +280,47 @@ async function main() {
   // ── Parse CSV ────────────────────────────────────────────────────────────────
   const { rows: csvRows } = parseCsv(fs.readFileSync(CSV_PATH, "utf8"));
   console.log(`CSV rows parsed:  ${csvRows.length}`);
+
+  // ── Create pool directly — server/db is intentionally never imported ────────────
+  // DATABASE_URL has already been set to PROD_DATABASE_URL (if --prod) by the
+  // PROD_MODE block at the very top of the file, before any module initialisation.
+  // Creating the pool here ensures it uses the correct, already-overridden URL.
+  const connStr = process.env.DATABASE_URL;
+  if (!connStr) { console.error("ERROR: DATABASE_URL is not set."); process.exit(1); }
+  const pool = new pg.Pool({
+    connectionString: connStr,
+    max: 5,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 8000,
+  });
+  const db = drizzle(pool);
+
+  // ── Startup sanity check — confirms which database we are actually connected to ─
+  {
+    const sanityRaw = await (db as any).execute(sql`
+      SELECT current_database()    AS db_name,
+             inet_server_addr()::text AS host,
+             inet_server_port()       AS port
+    `);
+    const sr = Array.isArray(sanityRaw) ? sanityRaw[0] : (sanityRaw as any).rows?.[0];
+    console.log(`  ✓ DB connection: ${sr?.db_name ?? "?"} @ ${sr?.host ?? "?"}:${sr?.port ?? "?"}`);
+
+    const sampleRaw = await (db as any).execute(sql`
+      SELECT id, name FROM accounts
+      WHERE state_province ILIKE '%british columbia%'
+      ORDER BY id
+      LIMIT 5
+    `);
+    const sample: Array<{ id: number; name: string }> =
+      Array.isArray(sampleRaw) ? sampleRaw : (sampleRaw as any).rows ?? [];
+    console.log("  ✓ First 5 BC accounts in this database:");
+    if (sample.length === 0) {
+      console.log("       (none found — possible wrong database or no BC accounts)");
+    } else {
+      sample.forEach((r) => console.log(`       id=${r.id}  ${r.name}`));
+    }
+    console.log("");
+  }
 
   // ── Load all BC/Canada leads ──────────────────────────────────────────────────
   const rawLeads = (await db.execute(sql`
