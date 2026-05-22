@@ -26,6 +26,7 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
   const [relationshipFilter, setRelationshipFilter] = useState("all");
   const [roleTypeFilter, setRoleTypeFilter] = useState("all");
   const [emailFilter, setEmailFilter] = useState("all");
+  const [sortOrder, setSortOrder] = useState<"name_asc" | "name_desc">("name_asc");
   const [highlightedContactId, setHighlightedContactId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [activeViewId, setActiveViewId] = useState<number | null>(null);
@@ -85,16 +86,31 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
   });
 
   const currentFiltersJson = useMemo(
-    () => JSON.stringify({ search, primaryFilter, relationshipFilter, roleTypeFilter, emailFilter }),
-    [search, primaryFilter, relationshipFilter, roleTypeFilter, emailFilter]
+    () => JSON.stringify({ search, primaryFilter, relationshipFilter, roleTypeFilter, emailFilter, sortOrder }),
+    [search, primaryFilter, relationshipFilter, roleTypeFilter, emailFilter, sortOrder]
   );
 
-  const roleTypeOptions = useMemo(() => {
-    const vals = Array.from(new Set(
-      enriched.map(c => c.roleType).filter((v): v is string => !!v)
-    )).sort();
-    return vals;
-  }, [enriched]);
+  // Static role type list — always matches the options in Edit Contact
+  const ROLE_TYPE_OPTIONS = [
+    { value: "decision_maker", label: "Decision maker" },
+    { value: "champion",       label: "Champion" },
+    { value: "influencer",     label: "Influencer" },
+    { value: "user",           label: "End user" },
+    { value: "gatekeeper",     label: "Gatekeeper" },
+    { value: "technical",      label: "Technical" },
+    { value: "finance",        label: "Finance" },
+    { value: "executive",      label: "Executive" },
+  ] as const;
+
+  const sorted = useMemo(() => {
+    const copy = [...filtered];
+    copy.sort((a, b) => {
+      const na = (a.name ?? "").toLowerCase();
+      const nb = (b.name ?? "").toLowerCase();
+      return sortOrder === "name_asc" ? na.localeCompare(nb) : nb.localeCompare(na);
+    });
+    return copy;
+  }, [filtered, sortOrder]);
 
   // ── Bulk selection helpers ────────────────────────────────────────────────
   const toggleSelect = (id: number) => {
@@ -105,7 +121,7 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
     });
   };
 
-  const selectAll = () => setSelectedIds(new Set(filtered.map(c => c.id)));
+  const selectAll = () => setSelectedIds(new Set(sorted.map(c => c.id)));
   const clearSelection = () => setSelectedIds(new Set());
 
   // ── Saved view helpers ────────────────────────────────────────────────────
@@ -119,6 +135,7 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
         if (f.relationshipFilter !== undefined) setRelationshipFilter(f.relationshipFilter);
         if (f.roleTypeFilter !== undefined) setRoleTypeFilter(f.roleTypeFilter);
         if (f.emailFilter !== undefined) setEmailFilter(f.emailFilter);
+        if (f.sortOrder !== undefined) setSortOrder(f.sortOrder);
       } catch {}
     }
   };
@@ -130,6 +147,7 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
     setRelationshipFilter("all");
     setRoleTypeFilter("all");
     setEmailFilter("all");
+    setSortOrder("name_asc");
   };
 
   // ── Bulk mutations ────────────────────────────────────────────────────────
@@ -184,8 +202,8 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
     onError: (err: any) => toast({ title: "Could not delete contact", description: err.message, variant: "destructive" }),
   });
 
-  const isAllSelected = filtered.length > 0 && filtered.every(c => selectedIds.has(c.id));
-  const isSomeSelected = filtered.some(c => selectedIds.has(c.id)) && !isAllSelected;
+  const isAllSelected = sorted.length > 0 && sorted.every(c => selectedIds.has(c.id));
+  const isSomeSelected = sorted.some(c => selectedIds.has(c.id)) && !isAllSelected;
 
   const bulkActions = [
     {
@@ -280,11 +298,19 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Role Types</SelectItem>
-              {roleTypeOptions.map((rt) => (
-                <SelectItem key={rt} value={rt}>
-                  {rt.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
-                </SelectItem>
+              {ROLE_TYPE_OPTIONS.map((rt) => (
+                <SelectItem key={rt.value} value={rt.value}>{rt.label}</SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as "name_asc" | "name_desc")}>
+            <SelectTrigger className="h-8 text-xs w-28 bg-secondary/30 border-transparent" data-testid="select-sort-contacts">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="name_asc">A → Z</SelectItem>
+              <SelectItem value="name_desc">Z → A</SelectItem>
             </SelectContent>
           </Select>
 
@@ -350,7 +376,7 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
       {selectedIds.size > 0 && (
         <BulkActionsBar
           selectedCount={selectedIds.size}
-          totalCount={filtered.length}
+          totalCount={sorted.length}
           onSelectAll={selectAll}
           onClearSelection={clearSelection}
           entityLabel="contact"
@@ -378,7 +404,7 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
               <Skeleton key={i} className="h-16 w-full rounded-xl" />
             ))}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : sorted.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <UserCircle2 className="w-12 h-12 text-muted-foreground/30 mb-3" />
             <p className="text-muted-foreground font-medium">No contacts found</p>
@@ -397,11 +423,11 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
                 testId="checkbox-select-all-contacts"
               />
               <span className="text-[11px] text-muted-foreground/50">
-                {filtered.length} contact{filtered.length !== 1 ? "s" : ""}
+                {sorted.length} contact{sorted.length !== 1 ? "s" : ""}
               </span>
             </div>
             <div className="space-y-1.5">
-              {filtered.map((contact) => {
+              {sorted.map((contact) => {
                 const isHighlighted = highlightedContactId === contact.id;
                 const isSelected = selectedIds.has(contact.id);
                 return (
