@@ -1,0 +1,85 @@
+Revise Smart Inbox. The current implementation is not matching the desired hierarchy.
+
+Goal:
+Smart Inbox should look and behave like the screenshot example, with stacked sections in this exact order:
+
+1. Priority
+2. People
+3. Newsletters
+4. Notifications
+5. Seen
+
+Do not change Simple List or Unread views.
+
+Smart Inbox rules:
+
+1. Priority section
+- Priority is the first section.
+- Include emails manually marked priority by the inbox user.
+- Use the lightning bolt icon.
+- Show only the first 3 priority emails by default.
+- Directly below the 3rd priority email, show a clickable “Show all (N)” button.
+- When clicked, expand downward and show all active priority emails.
+- If expanded, button should become “Show less”.
+- Priority may include read or unread emails.
+- Priority emails must NOT appear again in Seen.
+
+2. People section
+- Appears below Priority.
+- Only show unread emails.
+- Use current People classifier logic.
+- Show only first 5 by default.
+- Add “Show all (N)” directly below the 5th email if more exist.
+- Expands downward when clicked.
+- Hide section if empty.
+
+3. Newsletters section
+- Appears below People.
+- Only show unread emails.
+- Use current Newsletter classifier logic.
+- Show only first 5 by default.
+- Add “Show all (N)” directly below the 5th email if more exist.
+- Expands downward when clicked.
+- Hide section if empty.
+
+4. Notifications section
+- Appears below Newsletters.
+- Only show unread emails.
+- Use current Notification classifier logic.
+- Show only first 5 by default.
+- Add “Show all (N)” directly below the 5th email if more exist.
+- Expands downward when clicked.
+- Hide section if empty.
+
+5. Seen section
+- Final section.
+- Include all read/seen emails.
+- Sort newest first.
+- Exclude any emails marked Priority.
+- Show as chronological list.
+- Seen can include emails from any category, except Priority.
+- Show only first 10 by default.
+- Add “Show all (N)” below the 10th email if more exist.
+- Expands downward when clicked.
+- Hide section if empty.
+
+Layout requirements:
+- Use the screenshot as the visual reference.
+- Section cards should be lightly tinted, soft rounded corners.
+- Priority should have a warm/light orange tint.
+- Other sections can be subtle neutral or very light category tint.
+- “Show all (N)” should sit directly under the collapsed section’s last visible email, not in the header.
+- Keep headers simple: icon + section name.
+- Do not use nested parent containers.
+- Each section should feel like its own block.
+
+Important logic:
+- Category order must never change.
+- Priority always wins. If an email is priority, it belongs only in Priority.
+- Unread emails belong in People, Newsletters, or Notifications.
+- Read emails belong in Seen, unless priority.
+- Do not duplicate emails across sections.
+- Do not add extra Gmail API calls.
+- Use already-loaded inbox message data only.
+- Keep the classifier helpers reusable.
+- Add lightweight comments only where needed.

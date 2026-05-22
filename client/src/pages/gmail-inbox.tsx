@@ -3797,6 +3797,23 @@ function LocalSearchButton() {
 
 type MailTeamPerms = Record<string, { view: boolean; edit: boolean }>;
 
+// Per-section visual palette for Smart Inbox card treatment.
+// Subtle tints on dark navy — warm orange for Priority, category tints for the rest.
+const SMART_SECTION_STYLES: Record<string, { headerBg: string; rowBg: string; tone: string; mx: string }> = {
+  priority:               { headerBg: "bg-amber-400/[0.13]",  rowBg: "bg-amber-400/[0.06]",  tone: "text-amber-400",           mx: "mx-2" },
+  "unread-people":        { headerBg: "bg-teal-400/[0.10]",   rowBg: "bg-teal-400/[0.04]",   tone: "text-teal-400/80",         mx: "mx-2" },
+  "unread-newsletters":   { headerBg: "bg-violet-400/[0.10]", rowBg: "bg-violet-400/[0.04]", tone: "text-violet-400/80",       mx: "mx-2" },
+  "unread-notifications": { headerBg: "bg-slate-400/[0.10]",  rowBg: "bg-slate-400/[0.04]",  tone: "text-slate-400/80",        mx: "mx-2" },
+  seen:                   { headerBg: "bg-white/[0.05]",      rowBg: "bg-white/[0.02]",      tone: "text-muted-foreground/65", mx: "mx-2" },
+};
+const SMART_SECTION_STYLES_DEFAULT = { headerBg: "", rowBg: "", tone: "text-muted-foreground/65", mx: "" };
+
+// Union type for items in collapsedViewItems — extends SmartItem with expand/collapse sentinels.
+type SmartCollapseItem =
+  | SmartItem<MessageSummary>
+  | { kind: "show-all"; sectionId: SmartSectionId; total: number }
+  | { kind: "show-less"; sectionId: SmartSectionId };
+
 export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sales", userPermissions }: {
   currentUserEmail: string;
   currentUserRole?: string;
@@ -5957,42 +5974,65 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     });
   }, [isSmartView, crmFilteredMessages, pinnedAPI.pinned, selectedThreadId, openThreadWasUnread]);
 
-  // Collapses each Smart Inbox section to at most SMART_COLLAPSE_LIMIT rows.
-  // Returns null when not in Smart view (signals the renderer to use the flat list).
-  //
-  // Design invariants:
-  //   • Headers always pass through — the header carries item.count (the true
-  //     total) so the "Show all N" toggle in the header row is always correct
-  //     even when most rows are hidden.
-  //   • sectionRendered tracks how many rows have been pushed (not just seen),
-  //     so the limit is exact regardless of where in the array we are.
-  //   • Pinned ("pinned") and Seen ("seen") are not in isCollapsible — they
-  //     are rendered on separate tabs, not in the Smart Inbox list at all.
-  const SMART_COLLAPSE_LIMIT = 5; // also read by the header toggle renderer below
-  const collapsedViewItems = useMemo((): SmartItem<MessageSummary>[] | null => {
-    if (!viewItems) return null; // not in Smart view — caller uses flat list
+  // Collapses each Smart Inbox section to its per-section cap and injects
+  // show-all / show-less sentinels BELOW the last visible email in each section
+  // (not in the section header). Returns null when not in Smart view.
+  const collapsedViewItems = useMemo((): SmartCollapseItem[] | null => {
+    if (!viewItems) return null;
     if (viewItems.length === 0) return [];
-    const isCollapsible = (sec: SmartSectionId) =>
-      sec === "priority" || sec === "unread-people" || sec === "unread-notifications" || sec === "unread-newsletters";
-    const result: SmartItem<MessageSummary>[] = [];
-    const sectionRendered = new Map<SmartSectionId, number>();
-    for (const item of viewItems) {
-      if (item.kind === "header") {
-        // Always include headers so the section title + toggle are visible
-        // even when all message rows for that section are collapsed.
-        result.push(item);
-      } else {
-        const sec = item.section;
-        const rendered = sectionRendered.get(sec) ?? 0;
-        const expanded = expandedSections.has(sec);
-        const collapsible = isCollapsible(sec);
-        if (!collapsible || expanded || rendered < SMART_COLLAPSE_LIMIT) {
-          result.push(item);
-        }
-        // Count every message seen (including skipped ones) so the cap is exact.
-        sectionRendered.set(sec, rendered + 1);
+
+    // Per-section default visible counts (user can expand via show-all).
+    const SECTION_CAPS: Partial<Record<SmartSectionId, number>> = {
+      priority: 3,
+      "unread-people": 5,
+      "unread-newsletters": 5,
+      "unread-notifications": 5,
+      seen: 10,
+    };
+
+    // Pre-count totals so show-all can display the full N.
+    const sectionTotals = new Map<SmartSectionId, number>();
+    for (const it of viewItems) {
+      if (it.kind === "msg") {
+        sectionTotals.set(it.section, (sectionTotals.get(it.section) ?? 0) + 1);
       }
     }
+
+    const result: SmartCollapseItem[] = [];
+    const sectionRendered = new Map<SmartSectionId, number>();
+
+    for (let i = 0; i < viewItems.length; i++) {
+      const it = viewItems[i];
+      if (it.kind === "header") {
+        result.push(it);
+      } else {
+        const sec = it.section;
+        const cap = SECTION_CAPS[sec] ?? 5;
+        const rendered = sectionRendered.get(sec) ?? 0;
+        const expanded = expandedSections.has(sec);
+        const total = sectionTotals.get(sec) ?? 0;
+
+        if (expanded || rendered < cap) {
+          result.push(it);
+          const newRendered = rendered + 1;
+          sectionRendered.set(sec, newRendered);
+
+          const nextIt = viewItems[i + 1];
+          const isLastInSection = !nextIt || nextIt.kind === "header";
+
+          if (!expanded && newRendered === cap && total > cap) {
+            // Show-all sits directly below the last visible email.
+            result.push({ kind: "show-all", sectionId: sec, total });
+          } else if (expanded && isLastInSection) {
+            // Show-less sits below the last email in an expanded section.
+            result.push({ kind: "show-less", sectionId: sec });
+          }
+        } else {
+          sectionRendered.set(sec, rendered + 1);
+        }
+      }
+    }
+
     return result;
   }, [viewItems, expandedSections]);
 
@@ -7783,60 +7823,77 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               isUnreadCardsView
                 ? unreadCardsMessages.map((m) => ({ kind: "msg" as const, section: "flat" as SmartSectionId, msg: m }))
                 : (collapsedViewItems ?? (crmFilteredMessages ?? []).map((m) => ({ kind: "msg" as const, section: "flat" as SmartSectionId, msg: m })))
-            )?.map((item) => {
-              // Smart-Inbox section header — purely visual, not a clickable
-              // mail row. "Show all N" / "Show less" live inline in the header
-              // so there are no sentinel rows interrupting the message list.
+            )?.map((item, _idx, _arr) => {
+              // Resolve section key for palette lookup — works for header, msg, and sentinel items.
+              const smartSection: string =
+                item.kind === "header" ? item.id :
+                item.kind === "msg"    ? item.section :
+                "sectionId" in item    ? (item as { sectionId: string }).sectionId : "";
+              const sStyle = SMART_SECTION_STYLES[smartSection] ?? SMART_SECTION_STYLES_DEFAULT;
+
+              // ── Section header ──────────────────────────────────────────────
               if (item.kind === "header") {
-                const headerIcon =
-                  item.glyph === "priority"      ? Flame       :
-                  item.glyph === "people"        ? Users       :
-                  item.glyph === "notifications" ? Bell        :
-                  item.glyph === "newsletters"   ? Newspaper   :
-                  item.glyph === "pinned"        ? Pin         :
+                const HeaderIcon =
+                  item.glyph === "priority"      ? Zap        :
+                  item.glyph === "people"        ? Users      :
+                  item.glyph === "newsletters"   ? Newspaper  :
+                  item.glyph === "notifications" ? Bell       :
+                  item.glyph === "pinned"        ? Pin        :
                   /* "seen" */                     MailOpen;
-                const HeaderIcon = headerIcon;
-                const tone = item.glyph === "priority"
-                  ? "text-amber-400"
-                  : "text-muted-foreground/65";
-                const isCollapsibleSection =
-                  item.id === "priority" || item.id === "unread-people" ||
-                  item.id === "unread-notifications" || item.id === "unread-newsletters";
-                const isExpanded = expandedSections.has(item.id);
-                const showToggle = isCollapsibleSection && item.count > SMART_COLLAPSE_LIMIT;
                 return (
                   <div
                     key={`smart-header-${item.id}`}
                     data-testid={`smart-section-header-${item.id}`}
-                    className="flex items-center gap-2 pl-3 pr-3 py-1.5 bg-muted/15 border-b border-border/20 sticky top-0 z-[1] backdrop-blur-sm"
+                    className={`flex items-center gap-2 px-3 py-2 ${sStyle.headerBg} rounded-t-md mx-2 ${_idx === 0 ? "mt-1" : "mt-3"} border-b border-white/[0.06]`}
                   >
-                    <HeaderIcon className={`h-3.5 w-3.5 flex-shrink-0 ${tone}`} aria-hidden="true" />
-                    <span className={`text-[11px] font-bold uppercase tracking-[0.06em] ${tone}`}>
+                    <HeaderIcon className={`h-3.5 w-3.5 flex-shrink-0 ${sStyle.tone}`} aria-hidden="true" />
+                    <span className={`text-[11px] font-semibold uppercase tracking-[0.07em] ${sStyle.tone}`}>
                       {item.title}
                     </span>
-                    <span className="text-[10px] tabular-nums text-muted-foreground/45">
+                    <span className="text-[10px] tabular-nums text-muted-foreground/40 ml-0.5">
                       {item.count}
                     </span>
-                    {showToggle && (
-                      <button
-                        data-testid={isExpanded ? `show-less-${item.id}` : `show-all-${item.id}`}
-                        onClick={() => setExpandedSections(prev => {
-                          const s = new Set(prev);
-                          if (isExpanded) s.delete(item.id); else s.add(item.id);
-                          return s;
-                        })}
-                        className="ml-auto flex items-center gap-0.5 text-[10px] text-primary/60 hover:text-primary font-medium transition-colors"
-                      >
-                        {isExpanded ? (
-                          <><ChevronUp className="h-2.5 w-2.5" aria-hidden="true" />Show less</>
-                        ) : (
-                          <><ChevronDown className="h-2.5 w-2.5" aria-hidden="true" />Show all {item.count}</>
-                        )}
-                      </button>
-                    )}
                   </div>
                 );
               }
+
+              // ── Show-all sentinel (below last visible email) ────────────────
+              if (item.kind === "show-all") {
+                const { sectionId, total } = item as { kind: "show-all"; sectionId: SmartSectionId; total: number };
+                return (
+                  <button
+                    key={`show-all-${sectionId}`}
+                    data-testid={`show-all-${sectionId}`}
+                    onClick={() => setExpandedSections(prev => { const s = new Set(prev); s.add(sectionId); return s; })}
+                    className={`w-full flex items-center justify-center gap-1.5 py-2 text-[11px] font-medium cursor-pointer rounded-b-md mx-2 ${sStyle.rowBg} text-primary/60 hover:text-primary border-t border-white/[0.04] transition-colors`}
+                  >
+                    <ChevronDown className="h-3 w-3" aria-hidden="true" />
+                    Show all ({total})
+                  </button>
+                );
+              }
+
+              // ── Show-less sentinel (below last email in expanded section) ───
+              if (item.kind === "show-less") {
+                const { sectionId } = item as { kind: "show-less"; sectionId: SmartSectionId };
+                return (
+                  <button
+                    key={`show-less-${sectionId}`}
+                    data-testid={`show-less-${sectionId}`}
+                    onClick={() => setExpandedSections(prev => { const s = new Set(prev); s.delete(sectionId); return s; })}
+                    className={`w-full flex items-center justify-center gap-1.5 py-2 text-[11px] font-medium cursor-pointer rounded-b-md mx-2 ${sStyle.rowBg} text-muted-foreground/50 hover:text-muted-foreground border-t border-white/[0.04] transition-colors`}
+                  >
+                    <ChevronUp className="h-3 w-3" aria-hidden="true" />
+                    Show less
+                  </button>
+                );
+              }
+
+              // ── Email message row ───────────────────────────────────────────
+              // Safety guard: only msg items reach this point.
+              if (item.kind !== "msg") return null;
+              // isLastInSection: determines rounded-b-md on the row when no sentinel follows.
+              const isLastInSection = sStyle.mx !== "" && (!_arr[_idx + 1] || _arr[_idx + 1].kind === "header");
               const msg = item.msg;
               const unread = isUnread(msg.labelIds);
               const starred = isStarred(msg.labelIds);
@@ -7858,12 +7915,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               return (
                 <div
                   key={msg.id}
-                  className={`relative group flex items-stretch cursor-pointer transition-all duration-150 border-b border-border/20 ${
+                  className={`relative group flex items-stretch cursor-pointer transition-colors border-b border-white/[0.06] ${sStyle.mx} ${isLastInSection ? "rounded-b-md overflow-hidden" : ""} ${
                     isSelected
-                      ? "bg-primary/[0.13] hover:bg-primary/[0.21] border-l-[3px] border-l-primary shadow-[inset_0_0_0_1px_rgba(20,184,166,0.14),inset_4px_0_12px_-4px_rgba(20,184,166,0.08)]"
+                      ? `${sStyle.rowBg} bg-primary/[0.13] hover:bg-primary/[0.15] border-l-[3px] border-l-primary`
                       : isBulkChecked
-                        ? "bg-primary/10 border-l-[3px] border-l-primary/60"
-                        : "border-l-[3px] border-l-transparent hover:bg-primary/[0.07] hover:border-l-primary/25"
+                        ? `${sStyle.rowBg} bg-primary/10 border-l-[3px] border-l-primary/60`
+                        : `${sStyle.rowBg} border-l-[3px] border-l-transparent hover:bg-primary/[0.07] hover:border-l-primary/25`
                   }`}
                 >
                   {/* Checkbox — visible on hover or when any selection active */}

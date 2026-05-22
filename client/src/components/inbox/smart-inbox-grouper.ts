@@ -303,41 +303,33 @@ export function groupSmartInbox<M extends GroupableMessage>(
 
   const out: SmartItem<M>[] = [];
 
-  // Smart Inbox shows only unread emails, grouped into three top-level categories.
-  // Priority, Pinned, and Seen sections are intentionally omitted — the Pinned
-  // sidebar tab and the flat list view already surface those.
+  // Section order (fixed — never reorder):
+  //   Priority → People → Newsletters → Notifications → Seen
+  //
+  // Priority and Seen may include read messages.
+  // The three unread sections only include messages still carrying UNREAD.
+  // Empty sections are not emitted — they stay invisible.
+  if (orderedPriority.length > 0) {
+    out.push({ kind: "header", id: "priority", title: "Priority", glyph: "priority", count: orderedPriority.length, isSubsection: false });
+    for (const m of orderedPriority) out.push({ kind: "msg", section: "priority", msg: m });
+  }
   if (orderedPeople.length > 0) {
-    out.push({
-      kind: "header",
-      id: "unread-people",
-      title: "People",
-      glyph: "people",
-      count: orderedPeople.length,
-      isSubsection: false,
-    });
+    out.push({ kind: "header", id: "unread-people", title: "People", glyph: "people", count: orderedPeople.length, isSubsection: false });
     for (const m of orderedPeople) out.push({ kind: "msg", section: "unread-people", msg: m });
   }
+  // Newsletters before Notifications: bulk/marketing before automated-transactional.
+  if (orderedNewsletters.length > 0) {
+    out.push({ kind: "header", id: "unread-newsletters", title: "Newsletters", glyph: "newsletters", count: orderedNewsletters.length, isSubsection: false });
+    for (const m of orderedNewsletters) out.push({ kind: "msg", section: "unread-newsletters", msg: m });
+  }
   if (orderedNotifs.length > 0) {
-    out.push({
-      kind: "header",
-      id: "unread-notifications",
-      title: "Notifications",
-      glyph: "notifications",
-      count: orderedNotifs.length,
-      isSubsection: false,
-    });
+    out.push({ kind: "header", id: "unread-notifications", title: "Notifications", glyph: "notifications", count: orderedNotifs.length, isSubsection: false });
     for (const m of orderedNotifs) out.push({ kind: "msg", section: "unread-notifications", msg: m });
   }
-  if (orderedNewsletters.length > 0) {
-    out.push({
-      kind: "header",
-      id: "unread-newsletters",
-      title: "Newsletters",
-      glyph: "newsletters",
-      count: orderedNewsletters.length,
-      isSubsection: false,
-    });
-    for (const m of orderedNewsletters) out.push({ kind: "msg", section: "unread-newsletters", msg: m });
+  // Seen: all read messages that are not in Priority, newest first.
+  if (orderedSeen.length > 0) {
+    out.push({ kind: "header", id: "seen", title: "Seen", glyph: "seen", count: orderedSeen.length, isSubsection: false });
+    for (const m of orderedSeen) out.push({ kind: "msg", section: "seen", msg: m });
   }
 
   return out;
