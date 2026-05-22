@@ -3932,9 +3932,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // groups (Unread by category) instead of a flat chronological list.
   // Persisted in localStorage via the hook.
   const [viewMode, setViewMode] = useInboxViewMode();
-  // Moved up here so it can be passed to usePinnedThreads before other hooks.
-  // Per-inbox pin state: personal vs. each team inbox are stored separately.
+  // Declared here (before other hooks that depend on it) so we can derive the
+  // pinned-storage key before calling usePinnedThreads.
+  // null  = user's own inbox (personal), "all" = unified cross-account view.
   const [activeAccountId, setActiveAccountId] = useState<number | "all" | null>(null);
+
+  // Each inbox gets its own pin namespace so switching accounts never leaks
+  // pinned threads from one mailbox into another.
+  // "all" maps to "personal" because the unified view reads personal pins;
+  // team-inbox pins are scoped to their numeric account id.
   const pinnedAccountKey =
     activeAccountId === null ? "personal" :
     activeAccountId === "all" ? "personal" :
@@ -5951,12 +5957,20 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     });
   }, [isSmartView, crmFilteredMessages, pinnedAPI.pinned, selectedThreadId, openThreadWasUnread]);
 
-  // Pre-process viewItems to collapse sections to SMART_COLLAPSE_LIMIT rows.
-  // Headers carry the full count; the inline "Show all N" / "Show less" buttons
-  // are rendered directly in the header row — no sentinel rows needed.
-  const SMART_COLLAPSE_LIMIT = 5;
+  // Collapses each Smart Inbox section to at most SMART_COLLAPSE_LIMIT rows.
+  // Returns null when not in Smart view (signals the renderer to use the flat list).
+  //
+  // Design invariants:
+  //   • Headers always pass through — the header carries item.count (the true
+  //     total) so the "Show all N" toggle in the header row is always correct
+  //     even when most rows are hidden.
+  //   • sectionRendered tracks how many rows have been pushed (not just seen),
+  //     so the limit is exact regardless of where in the array we are.
+  //   • Pinned ("pinned") and Seen ("seen") are not in isCollapsible — they
+  //     are rendered on separate tabs, not in the Smart Inbox list at all.
+  const SMART_COLLAPSE_LIMIT = 5; // also read by the header toggle renderer below
   const collapsedViewItems = useMemo((): SmartItem<MessageSummary>[] | null => {
-    if (!viewItems) return null;
+    if (!viewItems) return null; // not in Smart view — caller uses flat list
     if (viewItems.length === 0) return [];
     const isCollapsible = (sec: SmartSectionId) =>
       sec === "priority" || sec === "unread-people" || sec === "unread-notifications" || sec === "unread-newsletters";
@@ -5964,6 +5978,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     const sectionRendered = new Map<SmartSectionId, number>();
     for (const item of viewItems) {
       if (item.kind === "header") {
+        // Always include headers so the section title + toggle are visible
+        // even when all message rows for that section are collapsed.
         result.push(item);
       } else {
         const sec = item.section;
@@ -5973,6 +5989,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         if (!collapsible || expanded || rendered < SMART_COLLAPSE_LIMIT) {
           result.push(item);
         }
+        // Count every message seen (including skipped ones) so the cap is exact.
         sectionRendered.set(sec, rendered + 1);
       }
     }

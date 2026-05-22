@@ -84,8 +84,13 @@ export function isStarredMsg(labelIds: string[]): boolean {
 }
 
 /**
- * Local-part prefixes that reliably indicate an automated / system sender
- * rather than a human replying from their own address.
+ * Local-part prefixes that identify automated / system senders.
+ * Matched case-insensitively against the full RFC 5322 "From" string, so
+ * "Acme <noreply@acme.com>" is caught by "noreply@".
+ *
+ * To add a new automation pattern: append to this list. Prefer the most
+ * specific local-part you can write without causing false positives on real
+ * human addresses (e.g. "updates@" is safe; "info@" is borderline).
  */
 export const AUTOMATION_SENDER_PREFIXES = [
   "noreply@",
@@ -119,50 +124,62 @@ export function isAutomationSender(fromAddr: string | null | undefined): boolean
 }
 
 /**
- * Returns true when the message looks like direct human-to-human communication:
- * no Gmail automation category labels, no bulk/noreply sender address.
+ * Returns true when the message looks like direct human-to-human communication.
+ *
+ * A message is NOT People if Gmail has already assigned it an automation
+ * category label (UPDATES, SOCIAL, PROMOTIONS, FORUMS) OR if the sender
+ * address matches an automation prefix. Both checks are required because:
+ * - Category labels are reliable but only present on synced Gmail messages.
+ * - The sender heuristic catches unlabelled automated mail (e.g. self-hosted
+ *   apps sending from noreply@theirdomain.com without Gmail category labels).
  */
 export function classifyAsPeople(
   labelIds: string[],
   fromAddr?: string | null,
 ): boolean {
-  // Gmail's own categories reliably exclude automated / newsletter traffic
+  // Gmail category labels take first priority — they're the most reliable signal.
   if (
     labelIds.includes("CATEGORY_PROMOTIONS") ||
     labelIds.includes("CATEGORY_FORUMS") ||
     labelIds.includes("CATEGORY_UPDATES") ||
     labelIds.includes("CATEGORY_SOCIAL")
   ) return false;
-  // Sender address heuristic — noreply / mailer / etc.
+  // Fall back to sender-address heuristic for unlabelled automation mail.
   if (isAutomationSender(fromAddr)) return false;
   return true;
 }
 
 /**
- * Returns true for automated transactional/activity emails: CATEGORY_UPDATES,
- * CATEGORY_SOCIAL, or any non-promotional message from an automation sender.
+ * Returns true for automated transactional/activity emails.
+ *
+ * Precedence: newsletters win over notifications. An unlabelled message from
+ * an automation sender (e.g. noreply@github.com with no category label) lands
+ * here rather than in People, which keeps People clean for actual humans.
  */
 export function classifyAsNotification(
   labelIds: string[],
   fromAddr?: string | null,
 ): boolean {
-  // Newsletters take priority over notifications
+  // Newsletter labels take priority — don't double-count as a notification.
   if (
     labelIds.includes("CATEGORY_PROMOTIONS") ||
     labelIds.includes("CATEGORY_FORUMS")
   ) return false;
+  // Gmail's transactional / social categories are always notifications.
   if (
     labelIds.includes("CATEGORY_UPDATES") ||
     labelIds.includes("CATEGORY_SOCIAL")
   ) return true;
-  // Automation sender but no newsletter label → notification
+  // Unlabelled automation sender (no Gmail category assigned) → notification.
   if (isAutomationSender(fromAddr)) return true;
   return false;
 }
 
 /**
- * Returns true for promotional/newsletter email: CATEGORY_PROMOTIONS or
- * CATEGORY_FORUMS. These are bulk/marketing by definition.
+ * Returns true for promotional / newsletter email only.
+ * Newsletter detection is label-only; sender address is not used here because
+ * PROMOTIONS/FORUMS is already a reliable signal and broadening it risks
+ * mis-classifying legitimate human email from marketing-adjacent domains.
  */
 export function classifyAsNewsletter(
   labelIds: string[],
@@ -176,7 +193,11 @@ export function classifyAsNewsletter(
 
 /**
  * Classify a message into one of three Smart Inbox categories.
- * Order of precedence: newsletters → notifications → people.
+ *
+ * Precedence (first match wins): newsletters → notifications → people.
+ * This ordering matters: a message from noreply@ with CATEGORY_PROMOTIONS
+ * should be a newsletter, not a notification, even though it also matches the
+ * automation-sender heuristic inside classifyAsNotification.
  */
 export function smartCategoryOf(
   labelIds: string[],
