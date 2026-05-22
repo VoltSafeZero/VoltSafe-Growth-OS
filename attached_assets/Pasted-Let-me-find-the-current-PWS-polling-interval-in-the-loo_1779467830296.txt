@@ -1,0 +1,64 @@
+Let me find the current PWS polling interval in the loop and the tier cadence logic simultaneously.
+
+
+3 actions
+I need to read the actual loop sleep values and the tier mod constants before touching anything.
+
+
+5 actions
+Good. Now I have the full picture. Let me read the exact sections I'll modify before touching anything.
+
+
+3 actions
+I have the complete picture. The rate logic lives in wu_polling_tiers.py. The approach:
+
+Add _RATE_SKIP_EVERY = 4 — skip every 4th tier-eligible cycle
+Tier 1: cycle % 4 != 0 → 75% cadence (-25% ✓)
+Tier 2: eligible when cycle % 2 == 0 AND (cycle//2) % 4 != 0 → 37.5% (-25% from 50% ✓)
+Tier 3: eligible when cycle % 5 == 0 AND (cycle//5) % 4 != 0 → 15% (-25% from 20% ✓)
+should_poll_wu_pws (ASOS loop trigger) is in main.py, completely separate — no change needed there.
+
+
+2 actions
+Now add the new test class. Let me read the current end of the test file to find the insertion point.
+
+
+6 actions
+Now run the full test suite and spot-check the live endpoint in parallel.
+
+
+3 actions
+Two pre-existing tests assert the old "Tier-1 always polls" behavior which is now intentionally changed. Need to update them to reflect the new 75% cadence. Let me read both failing tests.
+
+
+3 actions
+Both failures are pre-existing tests that asserted the old "Tier-1 always polls every cycle" behavior — which is intentionally changed by the reduction. Fix them to match the new 75% cadence.
+
+
+7 actions
+65/65 — clean. Let me write the commit message and wrap up.
+
+
+2 actions
+
+Ran validation · 1 passed
+
+Summarizing test passing status
+All done. Here's a summary of what was delivered:
+
+wu_polling_tiers.py — rate reduction logic:
+
+Added _RATE_SKIP_EVERY = 4. Within each tier's eligible-cycle sequence, every 4th occurrence is skipped, giving exactly 75% of the pre-reduction cadence for all tiers:
+Tier 1: 3 of every 4 cycles (was 100%)
+Tier 2: 3 of every 8 cycles (~37.5%, was ~50%)
+Tier 3: 3 of every 20 cycles (~15%, was ~20%)
+get_polling_summary updated to a 40-cycle calculation window that matches the new exact rates
+_TIER2_MOD, _TIER3_MOD, MAX_PWS_PER_ASOS, station selection, credentials, and ASOS loop timing — all untouched
+tests/test_wu_anti_revocation.py — 17 new tests in TestPWSRateReduction:
+
+Verifies MAX_PWS_PER_ASOS == 9 unchanged
+Counts exact poll totals over a 40-cycle window for each tier (30 / 15 / 6 respectively)
+Asserts specific skip cycles (cycle 4/8/12/… for Tier-1; cycle 8/16/… for Tier-2; cycle 20/40 for Tier-3)
+Confirms the reduction is scoped to should_poll_pws_now only (should_poll_wu_pws remains in main.py, untouched)
+Two pre-existing tests updated from "always polls" to "polls 75% of cycles"
+Result: 65/65 tests passing.
