@@ -17,6 +17,7 @@ import type { Express } from "express";
 import { requireAuth, requireAdmin } from "./auth";
 import { db, pool } from "./db";
 import { sql } from "drizzle-orm";
+import { leads } from "../shared/schema";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -512,12 +513,110 @@ export function registerBcEnrichmentRoute(app: Express) {
         }
       }
 
-      // ── Apply (not yet enabled — implement after dry-run is verified) ─────────
-      // ⚠️ TODO: implement apply block here once dry-run output is confirmed correct.
-      return res.status(501).json({
-        error: "apply not yet enabled",
-        reason: "Apply mode is stubbed. Implement the apply block in routes-bc-enrichment.ts after dry-run is verified.",
-      });
+      // ── Apply — CREATE_LEAD rows only ────────────────────────────────────────
+      //
+      // Hard constraints (verified before every insert):
+      //   ✗ No UPDATE_LEAD
+      //   ✗ No UPDATE_ACCOUNT
+      //   ✗ No CONFLICT_REVIEW resolution
+      //   ✗ No lead-account merge
+      //   ✓ Only action === "CREATE_LEAD" rows are touched
+      //   ✓ All 16 inserts are wrapped in a single transaction (all-or-nothing)
+      //   ✓ Safety-check: abort if plan does not produce exactly 16 CREATE_LEAD rows
+      //
+      try {
+        const now   = new Date();
+        const pad   = (n: number) => String(n).padStart(2, "0");
+        const stamp = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+        const dateLabel = stamp.slice(0, 10);
+
+        const result = await runEnrichmentEngine(dateLabel, stamp);
+        const { plan, counts } = result;
+
+        // ── Safety check 1: counts must match expected profile ────────────────
+        if (counts.UPDATE_LEAD !== 0) {
+          return res.status(500).json({ error: "safety abort", reason: `UPDATE_LEAD=${counts.UPDATE_LEAD} — expected 0. Refusing to apply.` });
+        }
+        if (counts.UPDATE_ACCOUNT !== 0) {
+          return res.status(500).json({ error: "safety abort", reason: `UPDATE_ACCOUNT=${counts.UPDATE_ACCOUNT} — expected 0. Refusing to apply.` });
+        }
+
+        // ── Safety check 2: isolate exactly the CREATE_LEAD rows ─────────────
+        const creates = plan.filter((p) => p.action === "CREATE_LEAD");
+        if (creates.length !== 16) {
+          return res.status(500).json({
+            error: "safety abort",
+            reason: `Expected exactly 16 CREATE_LEAD rows, got ${creates.length}. Plan may have changed — do not apply until dry-run is re-verified.`,
+            found: creates.map((p) => p.csv["Company"]),
+          });
+        }
+
+        // ── Insert all 16 new leads in a single atomic transaction ────────────
+        const IMPORT_TAG = "bc_enrichment_import_2026_05_22";
+        const created: Array<{ id: number; company: string; city: string; state: string; street_address: string | null; zip: string | null }> = [];
+
+        await db.transaction(async (tx) => {
+          for (const row of creates) {
+            const c = row.csv;
+            const company      = (c["Company"]      ?? "").trim();
+            const contactName  = (c["Contact Name"] ?? "").trim() || "Marina Contact";
+            const contactEmail = (c["Contact Email"] ?? "").trim() || null;
+            const contactPhone = (c["Contact Phone"] ?? "").trim() || null;
+            const streetAddress = (c["Street Address"] ?? "").trim() || null;
+            const city          = (c["City"]          ?? "").trim() || null;
+            const state         = (c["State"]         ?? "").trim() || null;
+            const zipCode       = (c["Zip / Postal"]  ?? "").trim() || null;
+            const slips         = (c["Slips"]         ?? "").trim() || null;
+            const source        = (c["Source"]        ?? "").trim() || null;
+            const notes         = (c["Notes"]         ?? "").trim() || null;
+
+            const [lead] = await tx.insert(leads).values({
+              company,
+              contactName,
+              contactEmail,
+              contactPhone,
+              streetAddress,
+              city,
+              state,
+              zipCode,
+              country:        "Canada",
+              slips,
+              source,
+              notes,
+              status:         "new",
+              segment:        "Marina",
+              primaryIndustry: "marine",
+              tags:           IMPORT_TAG,
+              campaignTag:    "bc_marina_enrichment_2026",
+            }).returning();
+
+            created.push({
+              id:             lead.id,
+              company:        lead.company,
+              city:           lead.city   ?? "",
+              state:          lead.state  ?? "",
+              street_address: lead.streetAddress ?? null,
+              zip:            lead.zipCode ?? null,
+            });
+          }
+        });
+
+        // ── Verification report ───────────────────────────────────────────────
+        return res.json({
+          mode:                    "apply",
+          leads_created:           created.length,
+          accounts_updated:        0,
+          existing_leads_updated:  0,
+          conflict_rows_modified:  0,
+          skips_untouched:         plan.filter((p) => p.action === "SKIP").length,
+          conflict_review_untouched: counts.CONFLICT_REVIEW,
+          created_leads:           created,
+          note: `APPLY COMPLETE — ${created.length} new BC marina leads inserted. Zero existing records were modified.`,
+        });
+      } catch (err: any) {
+        console.error("[bc-enrichment] apply error:", err?.message ?? err);
+        return res.status(500).json({ error: err?.message ?? "Internal error during apply" });
+      }
     }
   );
 }
