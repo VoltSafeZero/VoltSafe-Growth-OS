@@ -3894,7 +3894,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string; fromName?: string; quotedHtml?: string; quotedFrom?: string; quotedDate?: string } | null>(null);
   const [shownSenderEmailIds, setShownSenderEmailIds] = useState<Set<string>>(new Set());
   const toggleSenderEmail = (msgId: string) => setShownSenderEmailIds(prev => { const n = new Set(prev); n.has(msgId) ? n.delete(msgId) : n.add(msgId); return n; });
-  const [tab, setTab] = useState<"inbox" | "sent" | "spam" | "other" | "drafts" | "scheduled" | "folder" | "review">("inbox");
+  const [tab, setTab] = useState<"inbox" | "sent" | "spam" | "other" | "drafts" | "scheduled" | "folder" | "review" | "pinned">("inbox");
   const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set());
   const [inboxCategory, setInboxCategory] = useState<InboxCategory>("all");
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
@@ -5904,10 +5904,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const updatesCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "updates").length;
   const inboxUnreadCount = inboxMain.filter((m) => isUnread(m.labelIds)).length;
 
+  const pinnedMessages = useMemo(
+    () => inboxMain.filter((m) => pinnedAPI.pinned.has(m.threadId)),
+    [inboxMain, pinnedAPI.pinned],
+  );
+
   const activeMessages =
-    tab === "inbox" ? categorizedInbox :
-    tab === "sent"  ? allSentMessages :
-    tab === "spam"  ? allSpamMessages :
+    tab === "inbox"   ? categorizedInbox :
+    tab === "sent"    ? allSentMessages :
+    tab === "spam"    ? allSpamMessages :
+    tab === "pinned"  ? pinnedMessages :
     inboxOther;
 
   const crmFilteredMessages = tab !== "inbox" ? activeMessages :
@@ -5930,7 +5936,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const isSmartView =
     viewMode === "smart" &&
     !searchQuery &&
-    tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && tab !== "spam";
+    tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && tab !== "spam" && tab !== "pinned";
   const viewItems = useMemo<SmartItem<typeof activeMessages[number]>[] | null>(() => {
     if (!isSmartView) return null;
     if (!crmFilteredMessages || crmFilteredMessages.length === 0) return [];
@@ -5989,7 +5995,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Unread View mode: sort unread messages first, then read — flat list (no card styling).
   const isUnreadCardsView =
     viewMode === "unread-cards" &&
-    tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review";
+    tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && tab !== "pinned";
   const unreadCardsMessages = useMemo<MessageSummary[]>(() => {
     if (!isUnreadCardsView || !crmFilteredMessages) return [];
     const unread = crmFilteredMessages.filter(m => isUnread(m.labelIds));
@@ -6006,8 +6012,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     return crmFilteredMessages ?? [];
   }, [tab, isUnreadCardsView, unreadCardsMessages, collapsedViewItems, crmFilteredMessages]);
 
-  const isLoading = tab === "other" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : tab === "spam" ? spamQuery.isLoading : sentQuery.isLoading;
-  const error = tab === "other" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : tab === "spam" ? spamQuery.error : sentQuery.error;
+  const isLoading = tab === "other" || tab === "pinned" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : tab === "spam" ? spamQuery.isLoading : sentQuery.isLoading;
+  const error = tab === "other" || tab === "pinned" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : tab === "spam" ? spamQuery.error : sentQuery.error;
   // "Other" tab is a derived slice of the same inboxQuery — it must paginate too,
   // otherwise users land on Other and see only blocked-domain rows from the first 50.
   const hasMore =
@@ -6741,6 +6747,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                       <Send className="h-3.5 w-3.5" /><span className="flex-1 text-left">Sent</span>
                     </button>
+                    <button onClick={() => { setTab("pinned"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-pinned"
+                      className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "pinned" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                      <Pin className="h-3.5 w-3.5" /><span className="flex-1 text-left">Pinned</span>
+                      {pinnedMessages.length > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "pinned" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{pinnedMessages.length}</span>}
+                    </button>
                     <button onClick={() => { setTab("spam"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-spam"
                       className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "spam" ? "bg-red-500/15 text-red-400" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                       <Ban className="h-3.5 w-3.5" /><span className="flex-1 text-left">Spam</span>
@@ -6859,6 +6870,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           <button onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-sent-${acct.id}`}
                             className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                             <Send className="h-3.5 w-3.5" /><span className="flex-1 text-left">Sent</span>
+                          </button>
+                          <button onClick={() => { setTab("pinned"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-pinned-${acct.id}`}
+                            className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "pinned" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                            <Pin className="h-3.5 w-3.5" /><span className="flex-1 text-left">Pinned</span>
+                            {pinnedMessages.length > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "pinned" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{pinnedMessages.length}</span>}
                           </button>
                           <button onClick={() => { setTab("spam"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-spam-${acct.id}`}
                             className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "spam" ? "bg-red-500/15 text-red-400" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>

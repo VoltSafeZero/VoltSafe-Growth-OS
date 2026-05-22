@@ -1,0 +1,77 @@
+Update VoltSafe Mail UI.
+
+Goal:
+Match the Smart Inbox behaviour shown in the reference screenshot.
+
+Changes required:
+
+1. Add “Pinned” mailbox item
+For every email account and team inbox, add a “Pinned” navigation item directly below “Sent”.
+
+Applies to:
+- trevor@voltsafe.com
+- sales@voltsafe.com
+- support@voltsafe.com
+- any future personal inbox
+- any future team inbox
+
+Sidebar order should be:
+Inbox
+Sent
+Pinned
+Spam
+Drafts
+Scheduled
+
+Pinned should use a pin icon and show pinned emails for that specific inbox/account.
+
+2. Mail view modes
+VoltSafe Mail currently has 3 views:
+- Simple List: classic inbox
+- Unread: unread classic inbox
+- Smart Inbox: read-first, grouped by category
+
+Modify Smart Inbox only.
+
+3. Smart Inbox behaviour
+Smart Inbox should become an unread-first categorized view.
+
+It must always show the following categories in this exact order:
+
+1. People
+2. Notifications
+3. Newsletters
+
+Each category should display up to 5 unread emails.
+
+Display logic:
+- Show People category first with up to 5 unread People emails
+- Then show Notifications with up to 5 unread Notifications emails
+- Then show Newsletters with up to 5 unread Newsletters emails
+- Do not merge categories
+- Do not show more than 5 emails per category
+- If a category has zero unread emails, hide that category
+- Each category should have a header with the category name and unread count
+- Add “Show all” link under each category if that category has more than 5 unread emails
+
+4. Keep Simple List unchanged
+Simple List should remain the normal chronological inbox.
+
+5. Keep Unread unchanged
+Unread view should remain the classic unread-only list.
+
+6. UI reference
+Use Spark Mail style as the design reference:
+- grouped sections
+- soft category containers
+- clear headers
+- unread emails grouped by type
+- compact but readable rows
+
+7. Acceptance criteria
+- Pinned appears below Sent for personal and team inboxes
+- Smart Inbox shows only unread emails grouped by People, Notifications, Newsletters
+- Each Smart Inbox category displays max 5 unread emails
+- Smart Inbox category order is always People, Notifications, Newsletters
+- Simple List and Unread views are not changed
+- Works for current and future inbox accounts without hardcoding only today’s accounts

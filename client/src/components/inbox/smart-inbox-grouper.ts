@@ -182,20 +182,9 @@ export function groupSmartInbox<M extends GroupableMessage>(
 
   const out: SmartItem<M>[] = [];
 
-  if (orderedPriority.length > 0) {
-    out.push({
-      kind: "header",
-      id: "priority",
-      title: "Priority",
-      glyph: "priority",
-      count: orderedPriority.length,
-      isSubsection: false,
-    });
-    for (const m of orderedPriority) out.push({ kind: "msg", section: "priority", msg: m });
-  }
-
-  // Sub-sections render only when populated. We don't emit a parent "Unread"
-  // header — Spark doesn't either; the categories speak for themselves.
+  // Smart Inbox shows only unread emails, grouped into three top-level categories.
+  // Priority, Pinned, and Seen sections are intentionally omitted — the Pinned
+  // sidebar tab and the flat list view already surface those.
   if (orderedPeople.length > 0) {
     out.push({
       kind: "header",
@@ -203,7 +192,7 @@ export function groupSmartInbox<M extends GroupableMessage>(
       title: "People",
       glyph: "people",
       count: orderedPeople.length,
-      isSubsection: true,
+      isSubsection: false,
     });
     for (const m of orderedPeople) out.push({ kind: "msg", section: "unread-people", msg: m });
   }
@@ -214,7 +203,7 @@ export function groupSmartInbox<M extends GroupableMessage>(
       title: "Notifications",
       glyph: "notifications",
       count: orderedNotifs.length,
-      isSubsection: true,
+      isSubsection: false,
     });
     for (const m of orderedNotifs) out.push({ kind: "msg", section: "unread-notifications", msg: m });
   }
@@ -225,33 +214,9 @@ export function groupSmartInbox<M extends GroupableMessage>(
       title: "Newsletters",
       glyph: "newsletters",
       count: orderedNewsletters.length,
-      isSubsection: true,
+      isSubsection: false,
     });
     for (const m of orderedNewsletters) out.push({ kind: "msg", section: "unread-newsletters", msg: m });
-  }
-
-  if (orderedPinned.length > 0) {
-    out.push({
-      kind: "header",
-      id: "pinned",
-      title: "Pinned",
-      glyph: "pinned",
-      count: orderedPinned.length,
-      isSubsection: false,
-    });
-    for (const m of orderedPinned) out.push({ kind: "msg", section: "pinned", msg: m });
-  }
-
-  if (orderedSeen.length > 0) {
-    out.push({
-      kind: "header",
-      id: "seen",
-      title: "Seen",
-      glyph: "seen",
-      count: orderedSeen.length,
-      isSubsection: false,
-    });
-    for (const m of orderedSeen) out.push({ kind: "msg", section: "seen", msg: m });
   }
 
   return out;
