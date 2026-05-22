@@ -22,6 +22,10 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [search, setSearch] = useState("");
+  const [primaryFilter, setPrimaryFilter] = useState("all");
+  const [relationshipFilter, setRelationshipFilter] = useState("all");
+  const [roleTypeFilter, setRoleTypeFilter] = useState("all");
+  const [emailFilter, setEmailFilter] = useState("all");
   const [highlightedContactId, setHighlightedContactId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [activeViewId, setActiveViewId] = useState<number | null>(null);
@@ -65,16 +69,32 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
 
   const filtered = enriched.filter((c) => {
     const q = search.toLowerCase();
-    return (
-      !q ||
+    if (q && !(
       c.name?.toLowerCase().includes(q) ||
       c.email?.toLowerCase().includes(q) ||
       c.title?.toLowerCase().includes(q) ||
       c.accountName?.toLowerCase().includes(q)
-    );
+    )) return false;
+    if (primaryFilter === "primary" && !c.isPrimary) return false;
+    if (primaryFilter === "non_primary" && c.isPrimary) return false;
+    if (relationshipFilter !== "all" && (c.relationshipStrength ?? "") !== relationshipFilter) return false;
+    if (roleTypeFilter !== "all" && (c.roleType ?? "") !== roleTypeFilter) return false;
+    if (emailFilter === "has_email" && !c.email) return false;
+    if (emailFilter === "no_email" && c.email) return false;
+    return true;
   });
 
-  const currentFiltersJson = useMemo(() => JSON.stringify({ search }), [search]);
+  const currentFiltersJson = useMemo(
+    () => JSON.stringify({ search, primaryFilter, relationshipFilter, roleTypeFilter, emailFilter }),
+    [search, primaryFilter, relationshipFilter, roleTypeFilter, emailFilter]
+  );
+
+  const roleTypeOptions = useMemo(() => {
+    const vals = Array.from(new Set(
+      enriched.map(c => c.roleType).filter((v): v is string => !!v)
+    )).sort();
+    return vals;
+  }, [enriched]);
 
   // ── Bulk selection helpers ────────────────────────────────────────────────
   const toggleSelect = (id: number) => {
@@ -95,6 +115,10 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
       try {
         const f = JSON.parse(sv.filtersJson);
         if (f.search !== undefined) setSearch(f.search);
+        if (f.primaryFilter !== undefined) setPrimaryFilter(f.primaryFilter);
+        if (f.relationshipFilter !== undefined) setRelationshipFilter(f.relationshipFilter);
+        if (f.roleTypeFilter !== undefined) setRoleTypeFilter(f.roleTypeFilter);
+        if (f.emailFilter !== undefined) setEmailFilter(f.emailFilter);
       } catch {}
     }
   };
@@ -102,6 +126,10 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
   const clearView = () => {
     setActiveViewId(null);
     setSearch("");
+    setPrimaryFilter("all");
+    setRelationshipFilter("all");
+    setRoleTypeFilter("all");
+    setEmailFilter("all");
   };
 
   // ── Bulk mutations ────────────────────────────────────────────────────────
@@ -218,6 +246,70 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
             </div>
           </div>
         </div>
+        {/* Filter dropdowns */}
+        <div className="flex items-center gap-2 flex-wrap mt-2">
+          <Select value={primaryFilter} onValueChange={setPrimaryFilter}>
+            <SelectTrigger className="h-8 text-xs w-36 bg-secondary/30 border-transparent" data-testid="select-filter-primary">
+              <SelectValue placeholder="All Contacts" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Contacts</SelectItem>
+              <SelectItem value="primary">Primary Only</SelectItem>
+              <SelectItem value="non_primary">Non-Primary</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={relationshipFilter} onValueChange={setRelationshipFilter}>
+            <SelectTrigger className="h-8 text-xs w-36 bg-secondary/30 border-transparent" data-testid="select-filter-relationship">
+              <SelectValue placeholder="All Relationships" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Relationships</SelectItem>
+              <SelectItem value="strong">Strong</SelectItem>
+              <SelectItem value="warm">Warm</SelectItem>
+              <SelectItem value="developing">Developing</SelectItem>
+              <SelectItem value="work">Work</SelectItem>
+              <SelectItem value="weak">Weak</SelectItem>
+              <SelectItem value="cold">Cold</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={roleTypeFilter} onValueChange={setRoleTypeFilter}>
+            <SelectTrigger className="h-8 text-xs w-40 bg-secondary/30 border-transparent" data-testid="select-filter-role-type">
+              <SelectValue placeholder="All Role Types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Role Types</SelectItem>
+              {roleTypeOptions.map((rt) => (
+                <SelectItem key={rt} value={rt}>
+                  {rt.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={emailFilter} onValueChange={setEmailFilter}>
+            <SelectTrigger className="h-8 text-xs w-32 bg-secondary/30 border-transparent" data-testid="select-filter-email">
+              <SelectValue placeholder="All" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="has_email">Has Email</SelectItem>
+              <SelectItem value="no_email">No Email</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {(primaryFilter !== "all" || relationshipFilter !== "all" || roleTypeFilter !== "all" || emailFilter !== "all") && (
+            <button
+              onClick={() => { setPrimaryFilter("all"); setRelationshipFilter("all"); setRoleTypeFilter("all"); setEmailFilter("all"); }}
+              className="text-[11px] text-muted-foreground hover:text-foreground transition-colors px-1.5"
+              data-testid="button-clear-contact-filters"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+
         <SavedViewsBar
           pageKey="contacts"
           activeViewId={activeViewId}
