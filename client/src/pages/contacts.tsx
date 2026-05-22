@@ -215,35 +215,35 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
   return (
     <div className="flex flex-col h-full">
       <div className="px-6 py-5 border-b border-border/50">
-        <div className="flex items-center justify-between gap-4 mb-3">
-          <div>
+        <div className="flex items-center gap-3 mb-3">
+          <div className="shrink-0">
             <h1 className="text-2xl font-bold tracking-tight">Contacts</h1>
             <p className="text-muted-foreground text-sm mt-0.5">
               All contacts across your accounts
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex-1 relative max-w-sm">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search contacts..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 h-9 bg-secondary/30 border-transparent focus-visible:border-primary/50 rounded-lg"
+              data-testid="input-search-contacts"
+            />
+          </div>
+          <div className="ml-auto shrink-0">
             {canEdit && (
               <Button
                 size="sm"
                 onClick={() => setCreateContactOpen(true)}
-                className="gap-1.5 shrink-0"
+                className="gap-1.5"
                 data-testid="button-new-contact-header"
               >
                 <UserPlus className="w-4 h-4" />
                 New Contact
               </Button>
             )}
-            <div className="relative w-64">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search contacts..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 h-9 bg-secondary/30 border-transparent focus-visible:border-primary/50 rounded-lg"
-                data-testid="input-search-contacts"
-              />
-            </div>
           </div>
         </div>
         {/* Filter dropdowns */}
