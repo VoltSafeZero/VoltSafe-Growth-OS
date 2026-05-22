@@ -14,14 +14,42 @@
  *   - Apply mode wraps all writes in a single DB transaction (pg native).
  *
  * Usage:
- *   npx tsx scripts/bc-marina-enrichment-import.ts             # dry-run
- *   npx tsx scripts/bc-marina-enrichment-import.ts --apply     # write to DB
+ *   npx tsx scripts/bc-marina-enrichment-import.ts                    # dry-run (dev DB)
+ *   npx tsx scripts/bc-marina-enrichment-import.ts --prod             # dry-run (prod DB)
+ *   npx tsx scripts/bc-marina-enrichment-import.ts --apply            # write to dev DB
+ *   npx tsx scripts/bc-marina-enrichment-import.ts --prod --apply     # write to prod DB
  *   npx tsx scripts/bc-marina-enrichment-import.ts path/to/file.csv --apply
  *
  * Outputs:
- *   exports/bc-enrichment-report-YYYY-MM-DD-HHmm.csv   — audit log (always)
- *   exports/bc-enrichment-apply-YYYY-MM-DD-HHmm.json   — apply results (--apply only)
+ *   exports/bc-enrichment-report-{dev|prod}-YYYY-MM-DD-HHmm.csv  — audit log (always)
+ *   exports/bc-enrichment-apply-{dev|prod}-YYYY-MM-DD-HHmm.json  — apply results (--apply only)
+ *
+ * IMPORTANT — dev vs prod:
+ *   Dev and prod databases have the same BC marina data but at DIFFERENT account IDs
+ *   because their auto-increment sequences diverged. A dry-run report generated
+ *   against dev is NOT valid for production apply and vice versa.
+ *   Always generate the dry-run and apply against the SAME database in one session.
  */
+
+// ─── Prod-mode DB override — MUST precede all imports ────────────────────────
+// tsx compiles static imports to CJS require() calls which are evaluated in
+// source order, so setting DATABASE_URL here takes effect before server/db loads.
+const PROD_MODE = process.argv.includes("--prod");
+if (PROD_MODE) {
+  const prodUrl = process.env.PROD_DATABASE_URL;
+  if (!prodUrl) {
+    console.error("ERROR: --prod requires PROD_DATABASE_URL to be set in the environment.");
+    process.exit(1);
+  }
+  process.env.DATABASE_URL = prodUrl;
+}
+
+// ─── Hard-block list — rows that must NEVER be imported regardless of CSV ────
+// Add entries as lowercase exact company names.
+const HARD_BLOCK = new Set<string>([
+  "test marina",                          // test/seed data in source spreadsheet
+  "shelter bay marina (west kelowna)",    // already exists as lead #10952 in production
+]);
 
 import { db, pool } from "../server/db";
 import { sql } from "drizzle-orm";
@@ -41,7 +69,12 @@ const CSV_PATH = CSV_ARG ? path.resolve(CSV_ARG) : DEFAULT_CSV;
 const NOW = new Date();
 const STAMP = `${NOW.getFullYear()}-${pad(NOW.getMonth() + 1)}-${pad(NOW.getDate())}-${pad(NOW.getHours())}${pad(NOW.getMinutes())}`;
 const DATE_LABEL = STAMP.slice(0, 10);
+const DB_ENV = PROD_MODE ? "prod" : "dev";
 function pad(n: number) { return String(n).padStart(2, "0"); }
+function dbHostLabel(): string {
+  const url = process.env.DATABASE_URL ?? "";
+  try { return new URL(url).hostname; } catch { return "unknown-host"; }
+}
 
 fs.mkdirSync("exports", { recursive: true });
 
@@ -225,8 +258,15 @@ async function main() {
   console.log("═══════════════════════════════════════════════");
   console.log("  BC Marina Enrichment Import");
   console.log(`  Mode: ${APPLY_MODE ? "★ APPLY (will write to DB)" : "DRY RUN (read-only)"}`);
+  console.log(`  DB:   ${DB_ENV.toUpperCase()} — ${dbHostLabel()}`);
   console.log(`  CSV:  ${CSV_PATH}`);
-  console.log("═══════════════════════════════════════════════\n");
+  console.log("═══════════════════════════════════════════════");
+  if (!PROD_MODE) {
+    console.log("  ⚠  Running against DEV database. Account/Lead IDs in the report");
+    console.log("     are DEV IDs only and CANNOT be used as a production pre-check.");
+    console.log("     Run with --prod to generate a production-valid dry-run report.");
+  }
+  console.log("");
 
   if (!fs.existsSync(CSV_PATH)) {
     console.error(`ERROR: CSV not found: ${CSV_PATH}`);
@@ -328,6 +368,9 @@ async function main() {
 
   const plan: PlanRow[] = [];
   const counts = { UPDATE_LEAD: 0, UPDATE_ACCOUNT: 0, CONFLICT_REVIEW: 0, CREATE_LEAD: 0, SKIP: 0 };
+  // Tracks "leadId|acctId" pairs already committed to CONFLICT_REVIEW so that
+  // duplicate CSV rows mapping to the same DB record are demoted to SKIP.
+  const seenPairs = new Set<string>();
 
   for (let i = 0; i < csvRows.length; i++) {
     const csv = csvRows[i];
@@ -344,6 +387,17 @@ async function main() {
       continue;
     }
 
+    // ── Hard-block check ──────────────────────────────────────────────────────
+    if (HARD_BLOCK.has(name.toLowerCase())) {
+      plan.push({ rowNum: i + 1, csv, action: "SKIP", leadId: null, acctId: null,
+        matchReason: "hard-blocked", leadUpdates: {}, leadSkipped: [],
+        acctUpdates: {}, acctSkipped: [], notesBlock: null,
+        conflictNote: `HARD BLOCKED: "${name}" is on the permanent exclusion list`,
+        dbLeadNotes: null, dbAcctNotes: null });
+      counts.SKIP++;
+      continue;
+    }
+
     const lm = findLead(name, prov, city);
     const am = findAcct(name, prov, city);
     const nb = enrichmentBlock(csv);
@@ -354,6 +408,20 @@ async function main() {
     let conflictNote = "";
 
     if (am && lm) {
+      // ── Duplicate pair check ────────────────────────────────────────────────
+      // If an earlier CSV row already claimed this exact (lead, account) pair,
+      // skip this row to avoid double-appending notes.
+      const pairKey = `${lm.lead.id}|${am.acct.id}`;
+      if (seenPairs.has(pairKey)) {
+        plan.push({ rowNum: i + 1, csv, action: "SKIP", leadId: lm.lead.id, acctId: am.acct.id,
+          matchReason: lm.reason, leadUpdates: {}, leadSkipped: [],
+          acctUpdates: {}, acctSkipped: [], notesBlock: null,
+          conflictNote: `DUPLICATE PAIR: Lead #${lm.lead.id} + Account #${am.acct.id} already handled by an earlier CSV row — skipped to prevent double-write`,
+          dbLeadNotes: lm.lead.notes ?? null, dbAcctNotes: am.acct.notes ?? null });
+        counts.SKIP++;
+        continue;
+      }
+      seenPairs.add(pairKey);
       action = "CONFLICT_REVIEW";
       ({ updates: acctUpdates, skipped: acctSkipped } = computeUpdates(csv, am.acct, ACCOUNT_FIELDS));
       conflictNote = `Lead #${lm.lead.id} also matches — review for merge`;
@@ -440,7 +508,7 @@ async function main() {
       conflict_note:  p.conflictNote,
     };
   });
-  const reportPath = path.resolve(`exports/bc-enrichment-report-${STAMP}.csv`);
+  const reportPath = path.resolve(`exports/bc-enrichment-report-${DB_ENV}-${STAMP}.csv`);
   writeCsv(reportRows, reportHeaders, reportPath);
   console.log(`Report written:   ${reportPath}`);
   console.log(`                  ${reportRows.length} rows\n`);
@@ -575,7 +643,7 @@ async function main() {
   }
 
   // ── Write apply log ───────────────────────────────────────────────────────────
-  const applyPath = path.resolve(`exports/bc-enrichment-apply-${STAMP}.json`);
+  const applyPath = path.resolve(`exports/bc-enrichment-apply-${DB_ENV}-${STAMP}.json`);
   fs.writeFileSync(applyPath, JSON.stringify({ stamp: STAMP, applied, created, log: applyLog }, null, 2), "utf8");
 
   console.log("\n═══ Apply Complete ══════════════════════════════");
