@@ -574,6 +574,7 @@ async function main() {
       );
     }
     console.log("\nDone.");
+    await pool.end();
     process.exit(0);
   }
 
@@ -583,6 +584,7 @@ async function main() {
   let applied = 0, created = 0;
   const applyLog: any[] = [];
 
+  let txError: Error | null = null;
   try {
     await client.query("BEGIN");
 
@@ -682,10 +684,14 @@ async function main() {
   } catch (err: any) {
     await client.query("ROLLBACK");
     console.error("\nERROR — transaction rolled back:", err.message);
-    process.exit(1);
+    txError = err;
   } finally {
-    client.release();
+    client.release();   // always runs — process.exit() is not called inside catch
   }
+
+  // End the pool whether the transaction succeeded or failed
+  await pool.end();
+  if (txError) process.exit(1);
 
   // ── Write apply log ───────────────────────────────────────────────────────────
   const applyPath = path.resolve(`exports/bc-enrichment-apply-${DB_ENV}-${STAMP}.json`);
