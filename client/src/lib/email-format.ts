@@ -4,9 +4,13 @@
  * Single source of truth for how emails are formatted before sending.
  * Used by every compose/reply/forward/follow-up send path.
  *
- * Two main exports:
- *   buildEmailHtml(text, appendHtml?)  — editor text → styled HTML for sending
- *   htmlToEditorText(html)             — clipboard HTML → editor markdown text (browser only)
+ * Primary exports (rich-text editor path):
+ *   buildEmailHtml(html, appendHtml?)  — sanitize editor HTML + wrap for Gmail
+ *   htmlToCleanHtml(html)              — normalize pasted HTML for the editor (browser)
+ *   normalizeUrl(url)                  — ensure a URL has a protocol prefix
+ *
+ * Legacy export (still used by paste-normalizer layer 2 tests):
+ *   htmlToEditorText(html)             — clipboard HTML → plain text (browser only)
  */
 
 import { VOLTSAFE_BODY_STYLE, VOLTSAFE_LINK_COLOR } from "@shared/email-style";
@@ -14,49 +18,66 @@ import { VOLTSAFE_BODY_STYLE, VOLTSAFE_LINK_COLOR } from "@shared/email-style";
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Convert editor plain text (with markdown-style markers inserted by the
- * format toolbar) into VoltSafe-styled HTML ready for Gmail.
- *
- * Handles:
- *   **bold**  →  <b>bold</b>
- *   *italic*  →  <i>italic</i>
- *   <u>…</u>  →  <u>…</u>   (format toolbar inserts these directly)
- *   ~~text~~  →  <s>text</s>
- *   [label](url)  →  <a href="url">label</a>
- *   - item / * item  →  <ul><li>…</li></ul>
- *   1. item          →  <ol><li>…</li></ul>
- *   blank lines  →  visual spacing
- *   all other text   →  escaped + <br/> separated
- *
- * @param text      Plain text from the composer textarea
- * @param appendHtml  Optional raw HTML appended after the body block
- *                    (e.g. signature + quoted-message block)
+ * Normalize a user-entered URL to include a protocol.
+ *   "voltsafe.com"          → "https://voltsafe.com"
+ *   "https://voltsafe.com"  → "https://voltsafe.com" (unchanged)
  */
-export function buildEmailHtml(text: string, appendHtml = ""): string {
-  const body = markdownToHtml(text);
+export function normalizeUrl(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  if (
+    /^https?:\/\//i.test(trimmed) ||
+    trimmed.startsWith("mailto:") ||
+    trimmed.startsWith("tel:")
+  ) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+}
+
+/**
+ * Sanitize and wrap rich-text HTML from the contenteditable editor for Gmail.
+ *
+ * The editor produces native browser HTML (bold, italic, links, lists, etc.).
+ * This function:
+ *   1. Strips browser-injected inline styles and class attributes
+ *   2. Unwraps bare <span> tags added by execCommand
+ *   3. Normalizes link attributes (target, rel, VoltSafe link colour)
+ *   4. Converts Chrome's <div>-per-line structure to <br> line breaks
+ *   5. Wraps the result in the VoltSafe body style div
+ *
+ * Regex-based so it works in both browser and Node.js (tests).
+ *
+ * @param html       HTML string from the contenteditable editor
+ * @param appendHtml Optional raw HTML appended after the body block
+ *                   (e.g. signature + quoted-message block)
+ */
+export function buildEmailHtml(html: string, appendHtml = ""): string {
+  const body = sanitizeEditorHtml(html);
   return `<div style="${VOLTSAFE_BODY_STYLE}">${body}</div>${appendHtml}`;
 }
 
 /**
- * Convert clipboard HTML to editor-native plain text with markdown markers.
- * Called by the onPaste handler so pasted content immediately matches the
- * surrounding typed text.
+ * Normalize pasted HTML for insertion into the rich-text editor.
+ * Strips external fonts / colours / sizes while preserving semantic structure
+ * (bold, italic, underline, links, lists, paragraphs).
  *
- * Runs in the browser — uses DOMParser.
- *
- * Preserved structure:
- *   bold / strong     → **text** (format toolbar native)
- *   italic / em       → *text*   (format toolbar native)
- *   underline         → <u>text</u>   (format toolbar native)
- *   ordered list      → 1. 2. 3. prefixes
- *   unordered list    → - prefixes
- *   links             → [label](url)
- *   paragraphs / divs / headings → separated by \n
- *
- * Stripped:
- *   All inline styles, font-family, font-size, color, background-color,
- *   class attributes, Word/Google Docs markup, nested spans, tables (text only).
- *   Strikethrough markers are dropped (edge case, toolbar-applied only).
+ * Returns clean HTML suitable for `document.execCommand("insertHTML", …)`.
+ * Browser-only — uses DOMParser.
+ */
+export function htmlToCleanHtml(html: string): string {
+  if (typeof DOMParser === "undefined") return "";
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  // Trim trailing <br> produced by block→br conversion at the root level
+  const raw = nodeToCleanHtml(doc.body);
+  return raw.replace(/(<br\s*\/?>\s*)+$/i, "").trim();
+}
+
+/**
+ * Legacy: convert clipboard HTML to plain text with markdown markers.
+ * Kept for backward compatibility (paste-normalizer tests, inbox-snippets).
+ * Browser-only — uses DOMParser.
  */
 export function htmlToEditorText(html: string): string {
   const parser = new DOMParser();
@@ -65,102 +86,132 @@ export function htmlToEditorText(html: string): string {
   return raw;
 }
 
-// ── Internal: editor text → HTML ─────────────────────────────────────────────
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
+// ── sanitizeEditorHtml ────────────────────────────────────────────────────────
 
 /**
- * Apply inline markdown markers on an already HTML-escaped line.
- * Order matters: links → restore <u> → bold → italic → strikethrough.
+ * Strip browser-added styling from editor HTML and normalise structure.
+ * Handles the predictable flat HTML that Chrome's contenteditable produces.
  */
-function inlineMarkdown(escaped: string): string {
-  let out = escaped;
+function sanitizeEditorHtml(html: string): string {
+  if (!html) return "";
 
-  // 1. Markdown links [label](url) — must run before bold/italic so nested
-  //    *'s inside link labels don't confuse the bold/italic regex.
+  let out = html;
+
+  // 1. Strip all style= attributes (execCommand adds these, e.g. on lists)
+  out = out.replace(/\s+style="[^"]*"/gi, "");
+
+  // 2. Strip all class= attributes
+  out = out.replace(/\s+class="[^"]*"/gi, "");
+
+  // 3. Strip data-* attributes
+  out = out.replace(/\s+data-[a-z][a-z0-9-]*="[^"]*"/gi, "");
+
+  // 4. Unwrap bare <span> tags — execCommand may inject these when formatting
+  out = out.replace(/<span>([\s\S]*?)<\/span>/gi, "$1");
+
+  // 5. Rebuild <a> tags with proper attributes and VoltSafe link colour.
+  //    Match href first, handle any extra attributes before/after.
   out = out.replace(
-    /\[([^\]]*)\]\((https?:\/\/[^)]*)\)/g,
-    (_, label, url) => `<a href="${url}" style="color:${VOLTSAFE_LINK_COLOR};">${label}</a>`,
+    /<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi,
+    (_, href, label) => {
+      const safe = href.replace(/"/g, "&quot;");
+      return `<a href="${safe}" target="_blank" rel="noopener noreferrer" style="color:${VOLTSAFE_LINK_COLOR};">${label}</a>`;
+    },
   );
 
-  // 2. Restore <u>…</u> that the format toolbar inserted as literal text.
-  //    After escapeHtml they look like &lt;u&gt;…&lt;/u&gt;.
-  out = out.replace(/&lt;u&gt;(.*?)&lt;\/u&gt;/g, "<u>$1</u>");
+  // 6. Empty paragraph: <div><br[/]></div> → <br>
+  out = out.replace(/<div>\s*<br\s*\/?>\s*<\/div>/gi, "<br>");
 
-  // 3. Bold: **text** (non-greedy, must not start/end with space)
-  out = out.replace(/\*\*([^*\n]+?)\*\*/g, "<b>$1</b>");
-
-  // 4. Italic: *text* — only after bold so ** isn't consumed as two *
-  out = out.replace(/(?<!\*)\*(?!\*)([^*\n]+?)(?<!\*)\*(?!\*)/g, "<i>$1</i>");
-
-  // 5. Strikethrough: ~~text~~
-  out = out.replace(/~~([^~\n]+?)~~/g, "<s>$1</s>");
-
-  return out;
-}
-
-function markdownToHtml(text: string): string {
-  const lines = text.split("\n");
-  const result: string[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const raw = lines[i];
-
-    // ── Unordered list block ────────────────────────────────────────────────
-    if (/^[-*+]\s+/.test(raw)) {
-      const items: string[] = [];
-      while (i < lines.length && /^[-*+]\s+/.test(lines[i])) {
-        const content = lines[i].replace(/^[-*+]\s+/, "");
-        items.push(inlineMarkdown(escapeHtml(content)));
-        i++;
-      }
-      result.push(
-        `<ul style="margin:4px 0;padding-left:24px;">${items.map((t) => `<li>${t}</li>`).join("")}</ul>`,
-      );
-      continue;
-    }
-
-    // ── Ordered list block ──────────────────────────────────────────────────
-    if (/^\d+\.\s+/.test(raw)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
-        const content = lines[i].replace(/^\d+\.\s+/, "");
-        items.push(inlineMarkdown(escapeHtml(content)));
-        i++;
-      }
-      result.push(
-        `<ol style="margin:4px 0;padding-left:24px;">${items.map((t) => `<li>${t}</li>`).join("")}</ol>`,
-      );
-      continue;
-    }
-
-    // ── Blank line → spacer ─────────────────────────────────────────────────
-    if (raw.trim() === "") {
-      result.push("<br/>");
-      i++;
-      continue;
-    }
-
-    // ── Regular text line ───────────────────────────────────────────────────
-    result.push(inlineMarkdown(escapeHtml(raw)) + "<br/>");
-    i++;
+  // 7. Non-empty Chrome line-divs: process inner-to-outer so nested divs are
+  //    handled correctly. Each pass replaces a <div> whose content has no
+  //    further <div> tags (innermost first).
+  let prev = "";
+  while (out !== prev) {
+    prev = out;
+    // Match a <div> that contains no nested <div>
+    out = out.replace(/<div>((?:(?!<\/?div)[\s\S])*?)<\/div>/gi, "$1<br>");
   }
 
-  // Remove trailing <br/> spacers
-  while (result.length > 0 && result[result.length - 1] === "<br/>") {
-    result.pop();
-  }
+  // 8. Strip trailing <br> / whitespace
+  out = out.replace(/(<br\s*\/?>\s*)+$/i, "");
 
-  return result.join("");
+  // 9. Collapse 3+ consecutive <br> to a double break
+  out = out.replace(/(<br\s*\/?>\s*){3,}/gi, "<br><br>");
+
+  return out.trim();
 }
 
-// ── Internal: HTML → editor text (browser only) ───────────────────────────────
+// ── nodeToCleanHtml ───────────────────────────────────────────────────────────
+// Used by htmlToCleanHtml (paste normalisation for contenteditable).
+
+function nodeToCleanHtml(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const t = node.textContent ?? "";
+    return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return "";
+
+  const el = node as Element;
+  const tag = el.tagName.toLowerCase();
+
+  if (tag === "style" || tag === "script" || tag === "head" || tag === "meta") return "";
+
+  const childHtml = () => Array.from(el.childNodes).map(nodeToCleanHtml).join("");
+
+  switch (tag) {
+    case "b":
+    case "strong":
+      return `<b>${childHtml()}</b>`;
+    case "i":
+    case "em":
+      return `<i>${childHtml()}</i>`;
+    case "u":
+      return `<u>${childHtml()}</u>`;
+    case "s":
+    case "del":
+    case "strike":
+      return `<s>${childHtml()}</s>`;
+    case "br":
+      return "<br>";
+    case "p":
+    case "div": {
+      const inner = childHtml();
+      if (!inner.trim() || inner === "<br>") return "<br>";
+      return inner.endsWith("<br>") ? inner : inner + "<br>";
+    }
+    case "ul":
+      return `<ul>${childHtml()}</ul>`;
+    case "ol":
+      return `<ol>${childHtml()}</ol>`;
+    case "li":
+      return `<li>${childHtml()}</li>`;
+    case "a": {
+      const href = el.getAttribute("href") ?? "";
+      if (!href || href.startsWith("#") || href.startsWith("javascript:")) {
+        return childHtml();
+      }
+      const safe = href.replace(/"/g, "&quot;");
+      return `<a href="${safe}" target="_blank" rel="noopener noreferrer" style="color:${VOLTSAFE_LINK_COLOR};">${childHtml()}</a>`;
+    }
+    case "h1":
+    case "h2":
+    case "h3":
+    case "h4":
+    case "h5":
+    case "h6":
+      return `<b>${childHtml()}</b><br>`;
+    case "img": {
+      const alt = (el.getAttribute("alt") ?? "").trim();
+      if (el.getAttribute("width") === "1" || el.getAttribute("height") === "1") return "";
+      return alt ? `[image: ${alt}]` : "";
+    }
+    default:
+      return childHtml();
+  }
+}
+
+// ── nodeToText ────────────────────────────────────────────────────────────────
+// Legacy — used by htmlToEditorText (kept for paste-normalizer layer 2 tests).
 
 function nodeToText(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) {
@@ -171,14 +222,11 @@ function nodeToText(node: Node): string {
   const el = node as Element;
   const tag = el.tagName.toLowerCase();
 
-  // Skip non-content elements
   if (tag === "style" || tag === "script" || tag === "head" || tag === "meta") return "";
 
-  // Tracking pixels and decorative images — skip entirely
   if (tag === "img") {
     const alt = (el.getAttribute("alt") ?? "").trim();
     const src = el.getAttribute("src") ?? "";
-    // Skip 1×1 tracking pixels
     if (el.getAttribute("width") === "1" || el.getAttribute("height") === "1") return "";
     if (src.includes("tracking") || src.includes("pixel") || src.includes("open.php")) return "";
     return alt ? `[image: ${alt}]` : "";
@@ -187,17 +235,8 @@ function nodeToText(node: Node): string {
   const childText = () => Array.from(el.childNodes).map(nodeToText).join("");
 
   switch (tag) {
-    // Collapse <br> to a space rather than a newline.
-    // Word and Google Docs insert <br> tags at each word-wrap boundary to
-    // preserve the source document's fixed page width. If we keep those as \n,
-    // buildEmailHtml turns them into hard <br/> tags and the recipient's email
-    // client renders the narrow column the sender saw — it never reflows to
-    // the recipient's screen width. Paragraph boundaries (from <p>, <div>,
-    // headings, etc.) still produce proper \n separators, so actual paragraph
-    // spacing is preserved.
     case "br":
       return " ";
-
     case "p":
     case "section":
     case "article":
@@ -208,15 +247,11 @@ function nodeToText(node: Node): string {
       const inner = childText().trim();
       return inner ? inner + "\n" : "\n";
     }
-
-    // Divs: only add a newline when they enclose block-level content
     case "div": {
       const inner = childText();
-      // If the inner content already ends with a newline, don't double it
       if (!inner.trim()) return "";
       return inner.endsWith("\n") ? inner : inner + "\n";
     }
-
     case "h1":
     case "h2":
     case "h3":
@@ -224,61 +259,44 @@ function nodeToText(node: Node): string {
     case "h5":
     case "h6":
       return childText().trim() + "\n";
-
-    // Bold — preserve as ** markers so buildEmailHtml renders them properly.
-    // This matches the format toolbar convention (**text**).
     case "b":
     case "strong": {
       const inner = childText().trim();
       return inner ? `**${inner}**` : "";
     }
-
-    // Italic — preserve as * markers so buildEmailHtml renders them properly.
     case "i":
     case "em": {
       const inner = childText().trim();
       return inner ? `*${inner}*` : "";
     }
-
-    // Strikethrough — strip markers; very rarely intentional in pasted content.
     case "s":
     case "del":
-    case "strike": {
+    case "strike":
       return childText();
-    }
-
     case "u": {
       const inner = childText().trim();
       return inner ? `<u>${inner}</u>` : "";
     }
-
     case "a": {
       const href = el.getAttribute("href") ?? "";
       const inner = childText().trim();
-      // Skip mailto/tel/anchor links — just show the label
       if (!href || href.startsWith("mailto:") || href.startsWith("tel:") || href.startsWith("#")) {
         return inner;
       }
       return `[${inner || href}](${href})`;
     }
-
-    // List items: content only (parent ul/ol adds the prefix)
     case "li":
       return childText().trim();
-
     case "ul": {
       const items = Array.from(el.querySelectorAll(":scope > li"));
       if (!items.length) return childText();
       return items.map((li) => `- ${nodeToText(li).trim()}`).join("\n") + "\n";
     }
-
     case "ol": {
       const items = Array.from(el.querySelectorAll(":scope > li"));
       if (!items.length) return childText();
       return items.map((li, idx) => `${idx + 1}. ${nodeToText(li).trim()}`).join("\n") + "\n";
     }
-
-    // Tables: collapse to text rows
     case "table": {
       const rows = Array.from(el.querySelectorAll("tr"));
       return (
@@ -293,20 +311,15 @@ function nodeToText(node: Node): string {
           .join("\n") + "\n"
       );
     }
-
     case "tr":
     case "td":
     case "th":
       return childText();
-
     case "pre":
     case "code":
       return childText();
-
     case "hr":
       return "\n---\n";
-
-    // Spans, fonts, and other inline wrappers: just return children (strip all styling)
     default:
       return childText();
   }

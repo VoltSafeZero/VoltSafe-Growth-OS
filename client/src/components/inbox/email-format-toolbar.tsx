@@ -1,13 +1,19 @@
 /**
- * Rich-text formatting toolbar that lives inside the email reader, to the
- * LEFT of the existing FIT / 100% / Beautiful / Source / Plain tabs.
+ * Rich-text formatting toolbar for the email composer.
  *
- * Clicking a button fires a `inbox:format` window event (see
- * inbox-actions-store#dispatchFormat). The compose dialog subscribes to
- * this event ONLY while it's open and applies the formatting to the
- * current textarea selection (markdown-style wrapping). When no compose
- * is open, the parent inbox page intercepts and opens the reply for the
- * currently focused message before re-dispatching.
+ * Clicking a button fires an `inbox:format` window event
+ * (see inbox-actions-store#dispatchFormat). The compose dialog subscribes
+ * while open and applies the formatting to the contenteditable editor via
+ * document.execCommand. When no compose is open, the parent inbox page
+ * intercepts and opens the inline reply first.
+ *
+ * Link flow:
+ *   1. User highlights text in the editor.
+ *   2. User clicks the Link button — onBeforeLinkOpen() fires so the compose
+ *      dialog can save the current Selection before focus moves.
+ *   3. Popover opens; user types a URL (bare domains are normalised to https://).
+ *   4. On confirm, the URL is dispatched via the format bus and the compose
+ *      dialog restores the saved selection before calling createLink.
  */
 
 import { memo, useState } from "react";
@@ -35,6 +41,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { dispatchFormat, type FormatCommand } from "./inbox-actions-store";
+import { normalizeUrl } from "@/lib/email-format";
 
 interface ToolbarBtn {
   cmd: FormatCommand;
@@ -44,40 +51,50 @@ interface ToolbarBtn {
 }
 
 const BUTTONS: ToolbarBtn[] = [
-  { cmd: "bold", label: "Bold", shortcut: "⌘B", Icon: Bold },
-  { cmd: "italic", label: "Italic", shortcut: "⌘I", Icon: Italic },
-  { cmd: "underline", label: "Underline", shortcut: "⌘U", Icon: UnderlineIcon },
-  { cmd: "strikethrough", label: "Strikethrough", Icon: Strikethrough },
-  { cmd: "bullet-list", label: "Bullet list", Icon: List },
-  { cmd: "ordered-list", label: "Numbered list", Icon: ListOrdered },
-  // `link` is rendered separately below — it needs a popover to capture the
-  // URL before dispatching.
-  { cmd: "clear", label: "Clear formatting", Icon: RemoveFormatting },
+  { cmd: "bold",          label: "Bold",             shortcut: "⌘B", Icon: Bold },
+  { cmd: "italic",        label: "Italic",           shortcut: "⌘I", Icon: Italic },
+  { cmd: "underline",     label: "Underline",        shortcut: "⌘U", Icon: UnderlineIcon },
+  { cmd: "strikethrough", label: "Strikethrough",                    Icon: Strikethrough },
+  { cmd: "bullet-list",   label: "Bullet list",                      Icon: List },
+  { cmd: "ordered-list",  label: "Numbered list",                    Icon: ListOrdered },
+  // `link` rendered separately — needs a popover to capture the URL first
+  { cmd: "clear",         label: "Clear formatting",                 Icon: RemoveFormatting },
 ];
 
 interface EmailFormatToolbarProps {
   /**
    * Called BEFORE the format event is dispatched. The inbox page uses this
-   * to open the inline reply if no compose is currently open, so the
-   * format keystroke lands on something. May be omitted in contexts where
-   * a compose is guaranteed to be open already.
+   * to open the inline reply if no compose is currently open.
    */
   onBeforeFormat?: () => void;
+  /**
+   * Called immediately when the link popover opens — BEFORE focus moves to
+   * the URL input. The compose dialog uses this to save the current
+   * Selection so it can be restored when createLink is executed.
+   */
+  onBeforeLinkOpen?: () => void;
   className?: string;
 }
 
 function EmailFormatToolbarImpl({
   onBeforeFormat,
+  onBeforeLinkOpen,
   className,
 }: EmailFormatToolbarProps) {
   const [linkOpen, setLinkOpen] = useState(false);
-  const [linkUrl, setLinkUrl] = useState("https://");
+  const [linkUrl, setLinkUrl] = useState("");
 
   const handleClick = (cmd: FormatCommand, value?: string) => {
     onBeforeFormat?.();
-    // Defer to next tick so the compose dialog has a chance to mount and
-    // subscribe to the event bus before we fire the format command.
     setTimeout(() => dispatchFormat(cmd, value), 0);
+  };
+
+  const handleInsertLink = () => {
+    const normalized = normalizeUrl(linkUrl);
+    if (!normalized) return;
+    handleClick("link", normalized);
+    setLinkOpen(false);
+    setLinkUrl("");
   };
 
   return (
@@ -131,10 +148,18 @@ function EmailFormatToolbarImpl({
           </Tooltip>
         ))}
 
-        {/* Link — needs a tiny popover so the user can type the URL.
-            This same popover is what the "Hyperlink Settings" button on
-            the actions toolbar pops, via the InsertLinkPopover wrapper. */}
-        <Popover open={linkOpen} onOpenChange={setLinkOpen}>
+        {/* Link — needs a popover to capture the URL before dispatching */}
+        <Popover
+          open={linkOpen}
+          onOpenChange={(open) => {
+            if (open) {
+              // Save the selection BEFORE focus leaves the editor
+              onBeforeLinkOpen?.();
+              setLinkUrl("");
+            }
+            setLinkOpen(open);
+          }}
+        >
           <Tooltip>
             <TooltipTrigger asChild>
               <PopoverTrigger asChild>
@@ -165,14 +190,13 @@ function EmailFormatToolbarImpl({
               <Input
                 value={linkUrl}
                 onChange={(e) => setLinkUrl(e.target.value)}
-                placeholder="https://"
+                placeholder="https://example.com or example.com"
                 autoFocus
                 data-testid="input-link-url"
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && linkUrl.trim()) {
+                  if (e.key === "Enter") {
                     e.preventDefault();
-                    handleClick("link", linkUrl.trim());
-                    setLinkOpen(false);
+                    handleInsertLink();
                   }
                 }}
               />
@@ -180,18 +204,15 @@ function EmailFormatToolbarImpl({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setLinkOpen(false)}
+                  onClick={() => { setLinkOpen(false); setLinkUrl(""); }}
                   data-testid="button-cancel-link"
                 >
                   Cancel
                 </Button>
                 <Button
                   size="sm"
-                  onClick={() => {
-                    if (!linkUrl.trim()) return;
-                    handleClick("link", linkUrl.trim());
-                    setLinkOpen(false);
-                  }}
+                  onClick={handleInsertLink}
+                  disabled={!linkUrl.trim()}
                   data-testid="button-insert-link"
                 >
                   Insert

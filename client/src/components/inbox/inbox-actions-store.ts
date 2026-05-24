@@ -258,11 +258,85 @@ export function useFormatBus(handler: (e: FormatEvent) => void) {
 }
 
 /**
- * Wrap (or insert) a markdown-style format around the current selection of
- * a textarea. Used by the compose dialog when the format bus fires.
+ * Apply a format command to a contenteditable editor div using
+ * document.execCommand. This is the primary format handler for the rich-text
+ * composer.
  *
- * Returns the new {value, selectionStart, selectionEnd} so the caller can
- * apply both via React's controlled-input pattern AND restore the cursor.
+ * @param div        The contenteditable div element
+ * @param cmd        Format command to apply
+ * @param value      Optional value (e.g. URL for `link` command)
+ * @param savedRange Range saved before the link popover stole focus. When
+ *                   provided it is restored before executing createLink so the
+ *                   correct text is wrapped in the anchor.
+ */
+export function applyFormatToEditor(
+  div: HTMLDivElement,
+  cmd: FormatCommand,
+  value?: string,
+  savedRange?: Range | null,
+): void {
+  if (typeof document === "undefined") return;
+
+  div.focus();
+
+  // Restore a previously-saved selection (link flow: the popover stole focus)
+  if (savedRange) {
+    const sel = window.getSelection();
+    if (sel) {
+      sel.removeAllRanges();
+      sel.addRange(savedRange);
+    }
+  }
+
+  switch (cmd) {
+    case "bold":
+      document.execCommand("bold", false);
+      break;
+    case "italic":
+      document.execCommand("italic", false);
+      break;
+    case "underline":
+      document.execCommand("underline", false);
+      break;
+    case "strikethrough":
+      document.execCommand("strikeThrough", false);
+      break;
+    case "bullet-list":
+      document.execCommand("insertUnorderedList", false);
+      break;
+    case "ordered-list":
+      document.execCommand("insertOrderedList", false);
+      break;
+    case "link": {
+      if (!value) return;
+      document.execCommand("createLink", false, value);
+      // Find the newly created <a> element and apply proper link attributes.
+      // After createLink the selection is typically inside the new anchor.
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        let node: Node | null = sel.getRangeAt(0).startContainer;
+        while (node && node !== div) {
+          if ((node as Element).tagName === "A") {
+            (node as Element).setAttribute("target", "_blank");
+            (node as Element).setAttribute("rel", "noopener noreferrer");
+            break;
+          }
+          node = node.parentNode;
+        }
+      }
+      break;
+    }
+    case "clear":
+      document.execCommand("removeFormat", false);
+      document.execCommand("unlink", false);
+      break;
+  }
+}
+
+/**
+ * @deprecated Use applyFormatToEditor for the rich-text contenteditable
+ * composer. This function wraps selections with markdown markers and is kept
+ * only for legacy compatibility (inbox-snippets plain-text editor).
  */
 export function applyFormatToTextarea(
   textarea: HTMLTextAreaElement,

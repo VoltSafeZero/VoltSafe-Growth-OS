@@ -2,6 +2,10 @@
  * tests/email-html-sanitize.test.js
  *
  * Verifies the email formatting pipeline (buildEmailHtml + normalizeOutboundHtml).
+ *
+ * buildEmailHtml now accepts rich-text HTML from the contenteditable editor
+ * (not markdown text). Tests have been updated accordingly.
+ *
  * Run with: node tests/email-html-sanitize.test.js
  */
 
@@ -28,7 +32,7 @@ function notContains(haystack, needle) {
   if (haystack.includes(needle)) throw new Error("Expected NOT to contain: " + JSON.stringify(needle) + "\\nIn: " + haystack.slice(0, 400));
 }
 
-console.log("\\n=== buildEmailHtml ===");
+console.log("\\n=== buildEmailHtml (HTML input) ===");
 
 test("plain text becomes wrapped body", () => {
   const html = buildEmailHtml("Hello world");
@@ -36,57 +40,62 @@ test("plain text becomes wrapped body", () => {
   contains(html, "Hello world");
 });
 
-test("bold **text** converts to <b>", () => {
-  const html = buildEmailHtml("Hello **world** today");
+test("bold <b> tag passes through", () => {
+  const html = buildEmailHtml("Hello <b>world</b> today");
   contains(html, "<b>world</b>");
   notContains(html, "**");
 });
 
-test("italic *text* converts to <i>", () => {
-  const html = buildEmailHtml("Hello *world* today");
+test("italic <i> tag passes through", () => {
+  const html = buildEmailHtml("Hello <i>world</i> today");
   contains(html, "<i>world</i>");
 });
 
-test("underline <u>text</u> passthrough — no double-encoding", () => {
+test("underline <u> tag passes through — no double-encoding", () => {
   const html = buildEmailHtml("Hello <u>world</u> today");
   contains(html, "<u>world</u>");
   notContains(html, "&lt;u&gt;");
 });
 
-test("strikethrough ~~text~~ converts to <s>", () => {
-  const html = buildEmailHtml("Hello ~~world~~ today");
+test("strikethrough <s> tag passes through", () => {
+  const html = buildEmailHtml("Hello <s>world</s> today");
   contains(html, "<s>world</s>");
   notContains(html, "~~");
 });
 
-test("markdown link [label](url) converts to <a>", () => {
-  const html = buildEmailHtml("Visit [VoltSafe](https://voltsafe.com) now");
+test("anchor tag gets target, rel, and VoltSafe colour", () => {
+  const html = buildEmailHtml('<a href="https://voltsafe.com">VoltSafe</a>');
   contains(html, 'href="https://voltsafe.com"');
+  contains(html, 'target="_blank"');
+  contains(html, 'rel="noopener noreferrer"');
   contains(html, ">VoltSafe<");
   notContains(html, "[VoltSafe](");
 });
 
-test("unordered list - items become <ul><li>", () => {
-  const html = buildEmailHtml("- Apple\\n- Banana\\n- Cherry");
+test("unordered list <ul><li> preserved", () => {
+  const html = buildEmailHtml("<ul><li>Apple</li><li>Banana</li><li>Cherry</li></ul>");
   contains(html, "<ul");
   contains(html, "<li>Apple</li>");
   contains(html, "<li>Banana</li>");
   contains(html, "<li>Cherry</li>");
-  notContains(html, "- Apple");
 });
 
-test("ordered list 1. 2. 3. becomes <ol><li>", () => {
-  const html = buildEmailHtml("1. First\\n2. Second\\n3. Third");
+test("ordered list <ol><li> preserved", () => {
+  const html = buildEmailHtml("<ol><li>First</li><li>Second</li><li>Third</li></ol>");
   contains(html, "<ol");
   contains(html, "<li>First</li>");
-  notContains(html, "1. First");
 });
 
-test("HTML special chars are escaped in plain text", () => {
-  const html = buildEmailHtml("Price: <$100 & > $50");
-  contains(html, "&lt;$100");
-  contains(html, "&amp;");
-  contains(html, "&gt; $50");
+test("style= attributes stripped", () => {
+  const html = buildEmailHtml('<b style="font-weight:900;">bold</b>');
+  contains(html, "<b>bold</b>");
+  notContains(html, 'style="font-weight');
+});
+
+test("class= attributes stripped", () => {
+  const html = buildEmailHtml('<p class="MsoNormal">paragraph</p>');
+  notContains(html, 'class="MsoNormal"');
+  contains(html, "paragraph");
 });
 
 test("appendHtml is appended after body div", () => {
@@ -98,7 +107,7 @@ test("appendHtml is appended after body div", () => {
 });
 
 test("bold and italic in same line", () => {
-  const html = buildEmailHtml("**bold** and *italic* text");
+  const html = buildEmailHtml("<b>bold</b> and <i>italic</i> text");
   contains(html, "<b>bold</b>");
   contains(html, "<i>italic</i>");
 });
@@ -106,6 +115,14 @@ test("bold and italic in same line", () => {
 test("empty body produces valid wrapper", () => {
   const html = buildEmailHtml("");
   contains(html, "font-family:Arial");
+});
+
+test("no markdown markers leak into HTML output", () => {
+  const html = buildEmailHtml("<b>bold</b> normal <i>italic</i>");
+  notContains(html, "**bold**");
+  notContains(html, "*italic*");
+  notContains(html, "~~");
+  notContains(html, "[label](");
 });
 
 console.log("\\n=== normalizeOutboundHtml ===");
@@ -207,11 +224,11 @@ test("links with VoltSafe color preserved", () => {
   contains(clean, 'href="https://voltsafe.com"');
 });
 
-console.log("\\n=== Full pipeline ===");
+console.log("\\n=== Full pipeline (HTML editor → send) ===");
 
-test("typed email survives normalize unchanged", () => {
-  const typed = "Hello **Scott**,\\n\\nPlease review the [proposal](https://voltsafe.com/p).\\n\\n- Item 1\\n- Item 2\\n\\nThanks";
-  const built = buildEmailHtml(typed);
+test("HTML email survives normalize with formatting intact", () => {
+  const composed = "<b>Scott</b>,<br>Please review the <a href=\\"https://voltsafe.com/p\\">proposal</a>.<br><ul><li>Item 1</li><li>Item 2</li></ul>Thanks";
+  const built = buildEmailHtml(composed);
   const normalized = normalizeOutboundHtml(built);
   contains(normalized, "<b>Scott</b>");
   contains(normalized, 'href="https://voltsafe.com/p"');

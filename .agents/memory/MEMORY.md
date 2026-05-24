@@ -1,2 +1,3 @@
 - [Mail Trust Hardening Phase 1](mail-trust-hardening-phase1.md) — C1/C2/C3/C4 implemented; key patterns for send idempotency, draft fallback, localStorage scoping, scheduled retry.
 - [Mail Trust Strip](mail-trust-strip.md) — compact sidebar status strip; TrustEvent propagated via onTrustEvent prop on ComposeDialog; no new API calls; placed in existing sidebar footer above account block.
+- [Composer Rich-Text Editor](composer-rich-text.md) — compose dialog uses contentEditable div (not textarea); formatting via execCommand; link flow saves selection to savedRangeRef before popover opens.

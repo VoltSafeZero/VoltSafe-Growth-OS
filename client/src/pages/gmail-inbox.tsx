@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { buildEmailHtml, htmlToEditorText } from "@/lib/email-format";
+import { buildEmailHtml, htmlToCleanHtml } from "@/lib/email-format";
 import { createPortal } from "react-dom";
 import { EmailTokenInput } from "@/components/email/email-autocomplete";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -61,7 +61,7 @@ import { CalendarInviteCard } from "@/components/inbox/calendar-invite-card";
 import {
   useSetAside,
   useFormatBus,
-  applyFormatToTextarea,
+  applyFormatToEditor,
   type FormatEvent,
 } from "@/components/inbox/inbox-actions-store";
 import {
@@ -494,6 +494,14 @@ function ComposeDialog({
       setSubject(defaultSubject);
       setBody(defaultBody);
       idempotencyKeyRef.current = crypto.randomUUID();
+      // Seed the rich-text editor imperatively so the cursor isn't reset on
+      // every React re-render. requestAnimationFrame gives the portal a frame
+      // to finish mounting before we touch innerHTML.
+      requestAnimationFrame(() => {
+        if (bodyRef.current) {
+          bodyRef.current.innerHTML = defaultBody ?? "";
+        }
+      });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultTo, defaultCc, defaultBcc, defaultSubject]);
@@ -586,38 +594,33 @@ function ComposeDialog({
     }
   };
 
-  // Ref to the message textarea so the format-bus handler (below) can
-  // wrap the current selection with the appropriate markdown markers.
-  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  // Ref to the rich-text contenteditable editor div.
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+
+  // Saved Selection range for the link flow: captured before the link-URL
+  // popover opens (which would steal focus and clear the selection).
+  const savedRangeRef = useRef<Range | null>(null);
 
   // Pending-format queue: when a format event arrives before the
-  // composer is open or before the textarea has mounted, we stash it
+  // composer is open or before the editor has mounted, we stash it
   // here and replay once both conditions are satisfied. This fixes
   // the race where the user clicks a format button in the reader
   // toolbar, the parent calls onBeforeFormat() to open the composer,
-  // and the bus event then fires synchronously before <Textarea> has
-  // a chance to mount and bind its ref.
+  // and the bus event then fires synchronously before the editor div
+  // has a chance to mount and bind its ref.
   const pendingFormatRef = useRef<FormatEvent | null>(null);
 
   const applyFormat = useCallback((e: FormatEvent) => {
-    const ta = bodyRef.current;
-    if (!ta) return false;
-    // The textarea must be focused so the calculated selection is
-    // sensible — if it isn't (e.g. the user just clicked the format
-    // button without ever clicking the textarea), focus it first
-    // and place the cursor at the end before applying.
-    if (document.activeElement !== ta) {
-      ta.focus();
-      ta.setSelectionRange(ta.value.length, ta.value.length);
-    }
-    const next = applyFormatToTextarea(ta, e.cmd, e.value);
-    setBody(next.value);
-    // Restore the selection after React re-renders.
+    const div = bodyRef.current;
+    if (!div) return false;
+    // For the link command, pass the saved range so the correct text is
+    // wrapped even though the popover stole focus.
+    const range = e.cmd === "link" ? savedRangeRef.current : null;
+    applyFormatToEditor(div, e.cmd, e.value, range);
+    if (e.cmd === "link") savedRangeRef.current = null;
+    // Sync React state from innerHTML after execCommand settles.
     requestAnimationFrame(() => {
-      if (bodyRef.current) {
-        bodyRef.current.focus();
-        bodyRef.current.setSelectionRange(next.selectionStart, next.selectionEnd);
-      }
+      if (bodyRef.current) setBody(bodyRef.current.innerHTML);
     });
     return true;
   }, []);
@@ -639,33 +642,30 @@ function ComposeDialog({
   useFormatBus(onFormatEvent);
 
   // ── Paste handler ────────────────────────────────────────────────────────
-  // Intercept rich-text paste events inside the body textarea. When the
-  // clipboard contains HTML (e.g. from Word, Google Docs, Gmail, ChatGPT),
-  // strip all external fonts/colors/spacing and convert the semantic
-  // structure to editor-native text (markdown markers). This ensures pasted
-  // content instantly matches surrounding typed text and never leaks mixed
-  // fonts into outbound emails.
+  // Intercept rich-text paste events inside the editor. When the clipboard
+  // contains HTML (e.g. from Word, Google Docs, Gmail, ChatGPT), strip all
+  // external fonts/colors/spacing while keeping semantic structure (bold,
+  // italic, links, lists). This ensures pasted content matches the VoltSafe
+  // style and never leaks mixed fonts into outbound emails.
   const handleBodyPaste = useCallback(
-    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    (e: React.ClipboardEvent<HTMLDivElement>) => {
       const html = e.clipboardData.getData("text/html");
       if (!html.trim()) return; // No HTML — let browser paste plain text normally
       e.preventDefault();
-      const clean = htmlToEditorText(html);
-      if (!clean) return;
-      const ta = e.currentTarget;
-      const start = ta.selectionStart ?? body.length;
-      const end = ta.selectionEnd ?? body.length;
-      const newValue = body.slice(0, start) + clean + body.slice(end);
-      setBody(newValue);
-      // Restore cursor after React re-renders the controlled textarea
+      const clean = htmlToCleanHtml(html);
+      if (clean) {
+        document.execCommand("insertHTML", false, clean);
+      } else {
+        // Fallback: insert as plain text
+        const text = e.clipboardData.getData("text/plain");
+        if (text) document.execCommand("insertText", false, text);
+      }
+      // Sync React state after the insert settles
       requestAnimationFrame(() => {
-        if (bodyRef.current) {
-          const pos = start + clean.length;
-          bodyRef.current.setSelectionRange(pos, pos);
-        }
+        if (bodyRef.current) setBody(bodyRef.current.innerHTML);
       });
     },
-    [body],
+    [],
   );
 
   // Drain any pending format event once the composer is open AND the
@@ -850,28 +850,17 @@ function ComposeDialog({
   const isWorking = sendMutation.isPending || draftMutation.isPending || scheduleMutation.isPending || deleteDraftMutation.isPending;
   const minDatetime = new Date(Date.now() + 60000).toISOString().slice(0, 16);
 
-  // Auto-grow textarea to fit content
-  const growTextarea = useCallback(() => {
-    const ta = bodyRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = Math.max(160, ta.scrollHeight) + "px";
-  }, []);
-
-  useEffect(() => { growTextarea(); }, [body, growTextarea]);
-
-  // Re-grow textarea whenever the compose dialog is resized horizontally
-  // (CSS resize:both updates the element's inline style — React doesn't
-  // re-render, so we need a ResizeObserver to pick up the change and
-  // ensure the textarea reflowsto the correct height at the new width).
+  // The contenteditable editor grows naturally with content — no auto-grow
+  // hack needed. composeOuterRef is kept for the drag-overlay and resize-both.
   const composeOuterRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const outer = composeOuterRef.current;
-    if (!outer || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => { growTextarea(); });
-    ro.observe(outer);
-    return () => ro.disconnect();
-  }, [growTextarea]);
+
+  // Save the current editor selection before the link popover opens.
+  const handleBeforeLinkOpen = useCallback(() => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+    }
+  }, []);
 
   return (
     <>
@@ -1023,19 +1012,31 @@ function ComposeDialog({
               )}
             </div>
 
-            {/* Message body — auto-grows with content */}
+            {/* Message body — rich-text contentEditable editor */}
             <div className="flex-1 px-4 pt-3 pb-1 flex flex-col gap-3">
-              <textarea
-                ref={bodyRef}
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                onPaste={handleBodyPaste}
-                placeholder="Write your message..."
-                disabled={!canSend}
-                data-testid="input-email-body"
-                className="w-full bg-transparent text-sm outline-none resize-none placeholder:text-muted-foreground/35 disabled:opacity-50 leading-relaxed"
-                style={{ minHeight: 160, overflow: "hidden" }}
-              />
+              <div className="relative">
+                {/* Placeholder shown when the editor is empty */}
+                {!body && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute top-0 left-0 text-sm text-muted-foreground/35 pointer-events-none select-none"
+                  >
+                    Write your message...
+                  </span>
+                )}
+                <div
+                  ref={bodyRef}
+                  contentEditable={canSend}
+                  suppressContentEditableWarning
+                  onInput={() => {
+                    if (bodyRef.current) setBody(bodyRef.current.innerHTML);
+                  }}
+                  onPaste={handleBodyPaste}
+                  data-testid="input-email-body"
+                  className="w-full bg-transparent text-sm outline-none leading-relaxed focus:outline-none"
+                  style={{ minHeight: 160, wordBreak: "break-word" }}
+                />
+              </div>
 
               {/* Email signature preview */}
               <div className="border border-border/30 rounded-md px-3 py-2.5 bg-muted/15">
@@ -1183,7 +1184,7 @@ function ComposeDialog({
           {/* Rich formatting toolbar — always visible inside the compose dialog */}
           {canSend && (
             <div className="flex-shrink-0 px-3 py-1.5 border-t border-border/20 bg-card/50">
-              <EmailFormatToolbar />
+              <EmailFormatToolbar onBeforeLinkOpen={handleBeforeLinkOpen} />
             </div>
           )}
 

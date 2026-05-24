@@ -1,0 +1,39 @@
+Fix the email composer rich-formatting toolbar.
+
+Current bug:
+- Clicking Bold inserts markdown like **text** instead of visually bolding selected text.
+- Clicking hyperlink on highlighted text inserts broken markdown/HTML like:
+  <u>text</u>[https://voltsafe.com](https://voltsafe.com)
+- The toolbar is acting like a markdown inserter, but the email composer needs real rich HTML formatting.
+
+Required behavior:
+1. The composer body must be a rich text editor, not plain textarea markdown.
+2. Toolbar buttons must modify the selected text visually:
+   - Bold → <strong>selected text</strong>
+   - Italic → <em>selected text</em>
+   - Underline → <u>selected text</u>
+   - Lists, alignment, etc. should apply as HTML formatting.
+3. Hyperlink flow:
+   - User highlights text.
+   - User clicks link button.
+   - User enters URL such as voltsafe.com.
+   - Normalize to https://voltsafe.com if no protocol exists.
+   - Replace selected text with:
+     <a href="https://voltsafe.com" target="_blank" rel="noopener noreferrer">selected text</a>
+   - Do NOT insert markdown syntax.
+   - Do NOT append the link after the selected text.
+4. Preserve selection when the link modal/input opens. The selected text should still be the target when the URL is submitted.
+5. Outgoing email body should send sanitized HTML, not markdown.
+6. Pasted content should still be normalized/sanitized so weird fonts/sizes do not leak into sent emails.
+7. Add regression tests for:
+   - Bold selected text produces HTML bold formatting, not **text**
+   - Underline selected text produces <u>text</u>, not literal markup
+   - Link highlighted text produces a real anchor tag
+   - voltsafe.com becomes https://voltsafe.com
+   - Toolbar actions do not corrupt existing email body content
+
+Important:
+- Do not change email threading, sending, recipients, drafts, or AI Suggested Email behavior.
+- This is only a composer formatting/editor fix.
+- Keep the UI visually the same unless a small change is needed to make the toolbar work properly.
+- After fixing, run the relevant frontend/tests and report exactly what changed.
