@@ -3853,6 +3853,31 @@ const SMART_SECTION_STYLES: Record<string, { headerBg: string; rowBg: string; to
 };
 const SMART_SECTION_STYLES_DEFAULT = { headerBg: "", rowBg: "", tone: "text-muted-foreground/65", mx: "" };
 
+// Module-level dedup helpers — pure functions with no component state, defined here so
+// useMemo deps arrays inside GmailInboxPage don't need to include them (they never change).
+function dedupById(msgs: MessageSummary[]): MessageSummary[] {
+  const seen = new Set<string>();
+  const out: MessageSummary[] = [];
+  for (const m of msgs) {
+    if (seen.has(m.id)) continue;
+    seen.add(m.id);
+    out.push(m);
+  }
+  return out;
+}
+// Thread dedup — messages sorted newest-first (ORDER BY sent_at DESC), so the first occurrence
+// of each threadId is the newest reply. Keeps one row per thread (threaded inbox behaviour).
+function dedupByThread(msgs: MessageSummary[]): MessageSummary[] {
+  const seenThreads = new Set<string>();
+  const out: MessageSummary[] = [];
+  for (const m of msgs) {
+    if (seenThreads.has(m.threadId)) continue;
+    seenThreads.add(m.threadId);
+    out.push(m);
+  }
+  return out;
+}
+
 // Union type for items in collapsedViewItems — extends SmartItem with expand/collapse sentinels.
 type SmartCollapseItem =
   | SmartItem<MessageSummary>
@@ -4272,7 +4297,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     },
   });
 
-  const blockedDomains = new Set((filtersQuery.data || []).map((f) => f.domain));
+  // Memoized so downstream derived arrays (inboxMain, categorizedInbox, crmFilteredMessages,
+  // viewItems) only recompute when the filter data actually changes — not on every render.
+  const blockedDomains = useMemo(
+    () => new Set((filtersQuery.data || []).map((f) => f.domain)),
+    [filtersQuery.data],
+  );
 
   const foldersQuery = useQuery<MailFolder[]>({
     queryKey: ["/api/mail-folders"],
@@ -4333,10 +4363,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   });
 
   const triageSummary = triageSummaryQuery.data ?? { awaitingReply: 0, hot: 0, unlinked: 0 };
-  const triageIds = triageThreadIdsQuery.data ?? { awaitingReply: [], hot: [], unlinked: [] };
-  const triageAwaitingSet = new Set(triageIds.awaitingReply);
-  const triageHotSet      = new Set(triageIds.hot);
-  const triageUnlinkedSet = new Set(triageIds.unlinked);
+  // Use the raw .data reference (undefined when not yet loaded) as the memo dep so the Sets
+  // are only rebuilt when the server returns new data — not on every render. The inline
+  // `?? []` fallback inside each memo keeps them empty (not null) while loading.
+  const triageIdsData = triageThreadIdsQuery.data;
+  const triageAwaitingSet = useMemo(() => new Set(triageIdsData?.awaitingReply ?? []), [triageIdsData]);
+  const triageHotSet      = useMemo(() => new Set(triageIdsData?.hot       ?? []), [triageIdsData]);
+  const triageUnlinkedSet = useMemo(() => new Set(triageIdsData?.unlinked  ?? []), [triageIdsData]);
 
   const createFolderMutation = useMutation({
     mutationFn: async (data: { name: string; domains: string[] }) => {
@@ -5906,35 +5939,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // the same message id can appear twice. Keep the FIRST occurrence (newer page wins because base
   // page is always rendered before extras) and drop duplicates so React keys stay unique and the
   // user never sees a row twice.
-  const dedupById = (msgs: MessageSummary[]): MessageSummary[] => {
-    const seen = new Set<string>();
-    const out: MessageSummary[] = [];
-    for (const m of msgs) {
-      if (seen.has(m.id)) continue;
-      seen.add(m.id);
-      out.push(m);
-    }
-    return out;
-  };
-  const allInboxMessages = dedupById([...(inboxQuery.data?.messages || []), ...inboxExtra]);
-  const allSentMessages = dedupById([...(sentQuery.data?.messages || []), ...sentExtra]);
-
-  // Thread deduplication helper — messages are already sorted newest-first by the
-  // API (ORDER BY sent_at DESC), so the first occurrence of each threadId is the
-  // newest (most-recent-reply) representative for that thread. This keeps only one
-  // row per thread in the list, matching Spark/Gmail's threaded inbox behaviour and
-  // ensuring new replies bubble threads to the top rather than appearing as stale
-  // duplicates lower in the list.
-  const dedupByThread = (msgs: MessageSummary[]): MessageSummary[] => {
-    const seenThreads = new Set<string>();
-    const out: MessageSummary[] = [];
-    for (const m of msgs) {
-      if (seenThreads.has(m.threadId)) continue;
-      seenThreads.add(m.threadId);
-      out.push(m);
-    }
-    return out;
-  };
+  // Memoized on query data + extras so it only reruns when actual message data changes, not on
+  // every render — prevents unnecessary downstream recomputation of inboxMain/viewItems/navList.
+  const allInboxMessages = useMemo(
+    () => dedupById([...(inboxQuery.data?.messages || []), ...inboxExtra]),
+    [inboxQuery.data, inboxExtra],
+  );
+  const allSentMessages = useMemo(
+    () => dedupById([...(sentQuery.data?.messages || []), ...sentExtra]),
+    [sentQuery.data, sentExtra],
+  );
 
   const inboxMainRaw = canSend
     ? allInboxMessages.filter((m) => !blockedDomains.has(parseSenderDomain(m.from)))
@@ -6208,8 +6222,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     }
     autoChainRef.current.count += 1;
     dbg("autoChain:fire", { ctx: inboxChainKey, iter: autoChainRef.current.count, visible: navList.length });
-    loadMore();
-  }, [tab, hasMore, isLoadingMore, inboxChainKey, navList.length, loadMore, autoChainExhaustedKey]);
+    // Use loadMoreRef.current() instead of loadMore directly — loadMore is a non-memoized
+    // async function that changes reference every render, and including it in deps would
+    // cause this effect to re-register (and potentially fire) on every render cycle.
+    // loadMoreRef is kept current by a separate sync effect above.
+    loadMoreRef.current();
+  }, [tab, hasMore, isLoadingMore, inboxChainKey, navList.length, autoChainExhaustedKey]);
   // Strictly scope: only render the "more available" CTA when (a) we exhausted THIS chain key,
   // (b) we're on a tab where auto-chain even applies, and (c) hasMore is still true.
   const autoChainExhausted =
@@ -6232,6 +6250,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     },
     enabled: visibleThreadIds.length > 0 && (tab === "inbox" || tab === "sent"),
     staleTime: 30000,
+    // Keep previous signal data visible while a new key (larger thread-ID list) loads.
+    // Without this, when loadMore() adds emails and visibleThreadIds grows, all CRM signal
+    // badges (replied/hot/awaiting) briefly disappear on every row until the new fetch
+    // completes — the most visible cause of per-row "blipping" during startup.
+    placeholderData: (prev: Record<string, ThreadSignal> | undefined) => prev,
   });
   const threadSignals = threadSignalsQuery.data ?? {};
 

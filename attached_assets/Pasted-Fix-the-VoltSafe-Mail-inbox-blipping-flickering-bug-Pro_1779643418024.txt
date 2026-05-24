@@ -1,0 +1,81 @@
+Fix the VoltSafe Mail inbox “blipping/flickering” bug.
+
+Problem:
+When users open the mail inbox, individual email rows visibly blink/blip for the first 1–2 minutes. This looks like repeated remounting, refetching, resorting, or unstable row identity while inbox sync/search/category logic settles.
+
+Goal:
+Make the inbox visually stable immediately after load. Email rows must not flicker, disappear/reappear, reshuffle, or remount repeatedly during background refresh/sync.
+
+Audit and fix the inbox rendering pipeline.
+
+Likely areas to inspect:
+- client/src/pages/gmail-inbox.tsx
+- inbox email list / row components
+- Smart Inbox grouping/category logic
+- polling/refetch intervals
+- loading/skeleton state logic
+- query invalidation / cache updates
+- keys used for email rows
+- animation / transition classes
+- selected email / expanded category state
+- any useEffect loops triggered by email data changes
+
+Required fixes:
+1. Ensure every email row uses a stable key:
+   - Use Gmail message/thread ID only.
+   - Do NOT use array index, category index, timestamp, random IDs, or derived unstable keys.
+
+2. Prevent unnecessary remounting:
+   - Do not rebuild grouped inbox arrays in a way that changes object identity every render unless data actually changed.
+   - Memoize filtered/grouped/sorted inbox lists with useMemo.
+   - Keep category order stable.
+
+3. Stop loading-state flicker:
+   - Do not replace the inbox with skeleton/loading rows after the first successful load.
+   - Use background refresh indicators instead of clearing visible rows.
+   - Preserve previous data while refetching.
+
+4. Fix polling/refetch behavior:
+   - Background email sync should update rows only when actual message data changed.
+   - Avoid invalidating/refetching the entire inbox repeatedly during startup.
+   - Debounce or batch updates if multiple sync events fire close together.
+
+5. Stabilize sorting:
+   - Sort by a deterministic field such as internalDate/date descending.
+   - Add a tie-breaker using messageId/threadId.
+   - Do not let unread/category/priority enrichment temporarily reorder rows unless the final state is known.
+
+6. Remove visual blink sources:
+   - Audit CSS classes for animate-pulse, opacity transitions, fade-in, transition-all, or mount animations on email rows.
+   - Remove row-level animations during normal inbox refresh.
+   - Hover/selection transitions are fine; repeated load animations are not.
+
+7. Preserve UI state:
+   - Opening inbox should not reset expanded Smart Inbox groups repeatedly.
+   - Selection, scroll position, and category expansion should not reset during background sync.
+
+8. Add regression coverage:
+   - Add or update tests that simulate repeated inbox refetches with the same emails.
+   - Confirm rendered row keys/order remain stable.
+   - Confirm skeleton/loading UI is not shown again after initial data load.
+   - Confirm Smart Inbox categories do not remount rows unnecessarily.
+
+Verification:
+- Run the full test suite.
+- Run TypeScript checks.
+- Open the inbox in dev.
+- Watch the first 2 minutes after load.
+- Confirm:
+  - no row blinking/blipping
+  - no repeated skeleton flashes
+  - no row reshuffling unless real new email arrives
+  - no console React key warnings
+  - no runaway useEffect/refetch loop
+
+Important:
+Make the smallest safe change possible.
+Do not redesign the inbox.
+Do not change Smart Inbox category rules.
+Do not change email formatting/composer behavior.
+Commit with a clear message like:
+fix: stabilize inbox rows during background sync
