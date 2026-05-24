@@ -25,14 +25,70 @@ import { VOLTSAFE_BODY_STYLE, VOLTSAFE_LINK_COLOR } from "@shared/email-style";
 export function normalizeUrl(url: string): string {
   const trimmed = url.trim();
   if (!trimmed) return "";
-  if (
-    /^https?:\/\//i.test(trimmed) ||
-    trimmed.startsWith("mailto:") ||
-    trimmed.startsWith("tel:")
-  ) {
+  // If the URL already carries any protocol (http:, https:, mailto:, tel:,
+  // javascript:, data:, etc.) leave it unchanged so the href sanitizer in
+  // sanitizeEditorHtml / nodeToCleanHtml can decide whether to allow or block it.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
     return trimmed;
   }
   return `https://${trimmed}`;
+}
+
+/**
+ * Returns true when the editor HTML is functionally empty (blank, `<br>`,
+ * `<div><br></div>`, etc.). Used to decide placeholder visibility and
+ * disabled states without being fooled by Chrome's empty-div artifacts.
+ */
+export function isBodyEmpty(html: string | undefined): boolean {
+  if (!html) return true;
+  const stripped = html
+    .replace(/<br\s*\/?>/gi, "")
+    .replace(/<[^>]+>/g, "")
+    .trim();
+  return stripped === "";
+}
+
+/**
+ * Strip the VoltSafe body wrapper (and any appended signature/quoted-block)
+ * from a full outbound email HTML string so the editor only shows the user's
+ * own content. Used when seeding the contenteditable from a saved draft.
+ *
+ * Returns the original string unchanged if it doesn't match the wrapper
+ * pattern (e.g. raw editor HTML from a fresh compose session).
+ *
+ * Browser-only — uses DOMParser.
+ */
+export function stripEmailWrapper(html: string): string {
+  if (!html) return "";
+  if (typeof DOMParser === "undefined") return html;
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const first = doc.body.firstElementChild;
+    if (
+      first &&
+      first.tagName === "DIV" &&
+      /font-family\s*:\s*Arial/i.test(first.getAttribute("style") ?? "")
+    ) {
+      return first.innerHTML;
+    }
+  } catch {
+    // Fallback: return as-is
+  }
+  return html;
+}
+
+/**
+ * Convert plain text (with \n line breaks) to safe HTML for insertion into
+ * the rich-text editor. Escapes &, <, > and converts newlines to <br>.
+ * Used when inserting snippets or Zoom links that originate as plain text.
+ */
+export function plainTextToHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n\n+/g, "<br><br>")
+    .replace(/\n/g, "<br>");
 }
 
 /**
@@ -99,9 +155,11 @@ function sanitizeEditorHtml(html: string): string {
 
   // 1. Strip all style= attributes (execCommand adds these, e.g. on lists)
   out = out.replace(/\s+style="[^"]*"/gi, "");
+  out = out.replace(/\s+style='[^']*'/gi, "");
 
   // 2. Strip all class= attributes
   out = out.replace(/\s+class="[^"]*"/gi, "");
+  out = out.replace(/\s+class='[^']*'/gi, "");
 
   // 3. Strip data-* attributes
   out = out.replace(/\s+data-[a-z][a-z0-9-]*="[^"]*"/gi, "");
@@ -110,14 +168,24 @@ function sanitizeEditorHtml(html: string): string {
   out = out.replace(/<span>([\s\S]*?)<\/span>/gi, "$1");
 
   // 5. Rebuild <a> tags with proper attributes and VoltSafe link colour.
-  //    Match href first, handle any extra attributes before/after.
+  //    SECURITY: only allow safe protocols — strip javascript:, data:, vbscript:, etc.
   out = out.replace(
     /<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi,
     (_, href, label) => {
-      const safe = href.replace(/"/g, "&quot;");
+      const safe = href.replace(/"/g, "&quot;").trim();
+      // Block non-safe protocols (XSS guard)
+      if (safe && !/^(https?:|mailto:|tel:|\/[^/]|#)/i.test(safe)) {
+        return label; // strip anchor, keep visible text
+      }
       return `<a href="${safe}" target="_blank" rel="noopener noreferrer" style="color:${VOLTSAFE_LINK_COLOR};">${label}</a>`;
     },
   );
+
+  // 5b. Final XSS safety net: strip any remaining href="javascript:…" / "data:…" /
+  //     "vbscript:…" attributes that survived the first anchor-rebuild pass (e.g.
+  //     inner anchors inside a valid outer link). This is a targeted attribute-level
+  //     strip — it cannot be confused by nesting depth.
+  out = out.replace(/\bhref="(?:javascript|vbscript|data):[^"]*"/gi, "");
 
   // 6. Empty paragraph: <div><br[/]></div> → <br>
   out = out.replace(/<div>\s*<br\s*\/?>\s*<\/div>/gi, "<br>");
@@ -187,7 +255,8 @@ function nodeToCleanHtml(node: Node): string {
       return `<li>${childHtml()}</li>`;
     case "a": {
       const href = el.getAttribute("href") ?? "";
-      if (!href || href.startsWith("#") || href.startsWith("javascript:")) {
+      // SECURITY: only allow safe protocols — strip javascript:, data:, vbscript:, etc.
+      if (!href || !/^(https?:|mailto:|tel:|\/[^/]|#)/i.test(href.trim())) {
         return childHtml();
       }
       const safe = href.replace(/"/g, "&quot;");

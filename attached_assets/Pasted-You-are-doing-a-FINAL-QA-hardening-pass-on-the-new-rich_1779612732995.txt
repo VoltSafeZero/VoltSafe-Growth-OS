@@ -1,0 +1,91 @@
+You are doing a FINAL QA + hardening pass on the new rich-text email composer implementation.
+
+Context:
+We replaced the old <textarea>-based composer with a proper <div contentEditable> editor because formatting buttons were inserting literal markdown-like text into emails (examples: bold, <u>underline</u>, link) instead of real HTML formatting.
+
+The new implementation now:
+- Uses contentEditable
+- Uses document.execCommand for formatting
+- Preserves selection ranges for hyperlink insertion
+- Normalizes pasted HTML
+- Generates clean outbound HTML emails
+- Passes all existing tests
+
+Your task:
+Perform a DEEP production-grade audit and hardening pass on the implementation.
+
+Audit everything related to:
+- contentEditable stability
+- cursor/selection handling
+- hyperlink insertion
+- paste sanitization
+- draft persistence
+- keyboard shortcuts
+- undo/redo behavior
+- placeholder behavior
+- mobile/browser compatibility
+- outbound email rendering
+- XSS/security concerns
+- Gmail/Apple Mail/Outlook rendering compatibility
+- dark mode email rendering issues
+- HTML normalization
+- edge-case formatting corruption
+- nested formatting behavior
+- copy/paste from Word/Gmail/Google Docs/LinkedIn
+- selection restoration after popovers/modals
+- hydration/react rendering issues
+- React reconciliation issues with contentEditable
+- accessibility concerns
+- memory leaks
+- ResizeObserver cleanup remnants
+- event listener cleanup
+- race conditions
+- stale refs
+- focus loss bugs
+- command execution timing bugs
+- whitespace corruption
+- line-break handling
+- Enter vs Shift+Enter behavior
+- plaintext fallback generation
+- malformed HTML generation
+- serialization/deserialization integrity
+- empty draft handling
+- browser autofill interactions
+- IME/input composition behavior
+
+Specifically verify:
+1. No raw markdown markers can ever appear in outbound emails
+2. Links always become real clickable anchors
+3. Existing formatting survives send/save/reopen cycles
+4. Pasted content is sanitized but still visually clean
+5. No formatting corruption occurs during rapid edits
+6. Selection restoration works after toolbar popovers steal focus
+7. Undo/redo remains functional
+8. Placeholder visibility behaves correctly
+9. Emails render correctly in major clients
+10. No React warnings/errors occur in console
+
+Then:
+- Identify ALL remaining weaknesses
+- Rank them by severity
+- Fix all critical and medium-severity issues
+- Add regression tests for every discovered bug
+- Remove dead code and obsolete textarea logic
+- Ensure no duplicated formatting paths remain
+- Verify all tests pass afterward
+
+Constraints:
+- Do NOT rewrite the composer architecture
+- Keep changes surgical and production-safe
+- Preserve existing APIs where possible
+- Do NOT introduce heavy editor frameworks
+- Do NOT break existing compose/send flows
+- Maintain backward compatibility with stored drafts
+
+Output required:
+1. Full audit findings
+2. Root cause explanations
+3. Exact fixes implemented
+4. Regression tests added
+5. Remaining low-priority risks
+6. Final production readiness assessment

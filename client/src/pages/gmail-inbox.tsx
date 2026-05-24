@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { buildEmailHtml, htmlToCleanHtml } from "@/lib/email-format";
+import { buildEmailHtml, htmlToCleanHtml, isBodyEmpty, stripEmailWrapper, plainTextToHtml } from "@/lib/email-format";
 import { createPortal } from "react-dom";
 import { EmailTokenInput } from "@/components/email/email-autocomplete";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -497,9 +497,12 @@ function ComposeDialog({
       // Seed the rich-text editor imperatively so the cursor isn't reset on
       // every React re-render. requestAnimationFrame gives the portal a frame
       // to finish mounting before we touch innerHTML.
+      // stripEmailWrapper extracts only the user-typed content from a saved
+      // draft body (which has the VoltSafe wrapper + signature baked in)
+      // so the editor doesn't show the wrapper div or signature as editable text.
       requestAnimationFrame(() => {
         if (bodyRef.current) {
-          bodyRef.current.innerHTML = defaultBody ?? "";
+          bodyRef.current.innerHTML = stripEmailWrapper(defaultBody ?? "");
         }
       });
     }
@@ -546,8 +549,28 @@ function ComposeDialog({
       const startDate = new Date(zoomStartTime);
       const dateStr = startDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
       const timeStr = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-      const insert = `\n\nYou're invited to a Zoom meeting.\n📅 ${dateStr} at ${timeStr} (${zoomDuration} min)\n🔗 Join Zoom Meeting: ${data.joinUrl}`;
-      setBody((prev) => (prev || "") + insert);
+      // Build as HTML so the join link is a real clickable anchor and line
+      // breaks render correctly in the rich-text editor.
+      const safeDateStr = dateStr.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+      const safeTimeStr = timeStr.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+      const safeJoinUrl = data.joinUrl.replace(/"/g, "&quot;").replace(/&/g, "&amp;");
+      const insertHtml = `<br><br>You're invited to a Zoom meeting.<br>\u{1F4C5} ${safeDateStr} at ${safeTimeStr} (${zoomDuration} min)<br>\u{1F517} <a href="${safeJoinUrl}" target="_blank" rel="noopener noreferrer" style="color:#00C1DE;">Join Zoom Meeting</a>`;
+      if (bodyRef.current) {
+        // Move cursor to end of editor content so the insert appears at the bottom.
+        bodyRef.current.focus();
+        const sel = window.getSelection();
+        if (sel) {
+          const range = document.createRange();
+          range.selectNodeContents(bodyRef.current);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+        document.execCommand("insertHTML", false, insertHtml);
+        setBody(bodyRef.current.innerHTML);
+      } else {
+        setBody((prev) => (prev || "") + insertHtml);
+      }
       if (data.icalContent) setPendingIcal(data.icalContent);
       setShowZoomPanel(false);
       toast({
@@ -669,7 +692,7 @@ function ComposeDialog({
   );
 
   // Drain any pending format event once the composer is open AND the
-  // textarea has mounted. We tick a small timeout to give Radix's
+  // editor has mounted. We tick a small timeout to give Radix's
   // dialog mount + animation a frame to finish before we touch the
   // selection. The retry is bounded by the dialog's open state — if
   // the user closes the dialog before mount, the queued event is
@@ -1015,8 +1038,9 @@ function ComposeDialog({
             {/* Message body — rich-text contentEditable editor */}
             <div className="flex-1 px-4 pt-3 pb-1 flex flex-col gap-3">
               <div className="relative">
-                {/* Placeholder shown when the editor is empty */}
-                {!body && (
+                {/* Placeholder shown when the editor is functionally empty
+                    (isBodyEmpty handles Chrome's <br> empty-div artifact) */}
+                {isBodyEmpty(body) && (
                   <span
                     aria-hidden="true"
                     className="absolute top-0 left-0 text-sm text-muted-foreground/35 pointer-events-none select-none"
@@ -1026,12 +1050,20 @@ function ComposeDialog({
                 )}
                 <div
                   ref={bodyRef}
+                  role="textbox"
+                  aria-label="Email body"
+                  aria-multiline="true"
+                  spellCheck
                   contentEditable={canSend}
                   suppressContentEditableWarning
                   onInput={() => {
                     if (bodyRef.current) setBody(bodyRef.current.innerHTML);
                   }}
                   onPaste={handleBodyPaste}
+                  onKeyDown={(e) => {
+                    // Escape closes the composer
+                    if (e.key === "Escape") { e.preventDefault(); onClose(); }
+                  }}
                   data-testid="input-email-body"
                   className="w-full bg-transparent text-sm outline-none leading-relaxed focus:outline-none"
                   style={{ minHeight: 160, wordBreak: "break-word" }}
@@ -1196,7 +1228,7 @@ function ComposeDialog({
                   variant="ghost"
                   size="sm"
                   onClick={() => draftMutation.mutate()}
-                  disabled={!body || isWorking}
+                  disabled={isBodyEmpty(body) || isWorking}
                   data-testid="button-save-draft"
                   className="text-muted-foreground"
                 >
@@ -1272,16 +1304,28 @@ function ComposeDialog({
               {canSend && (
                 <SnippetInsertButton
                   onInsert={(snippetBody) => {
-                    setBody((prev) => {
-                      const sep = prev && !prev.endsWith("\n") ? "\n\n" : "";
-                      return prev + sep + snippetBody;
-                    });
+                    // Snippets may be plain text (old format) or HTML (new format).
+                    // Convert to HTML so they render correctly in the rich-text editor.
+                    const html = snippetBody.includes("<") ? snippetBody : plainTextToHtml(snippetBody);
+                    const insertHtml = (isBodyEmpty(body) ? "" : "<br><br>") + html;
+                    if (bodyRef.current) {
+                      bodyRef.current.focus();
+                      document.execCommand("insertHTML", false, insertHtml);
+                      setBody(bodyRef.current.innerHTML);
+                    } else {
+                      setBody((prev) => (prev || "") + insertHtml);
+                    }
                   }}
                   onInsertFull={(snippetBody, snippetSubject) => {
-                    setBody((prev) => {
-                      const sep = prev && !prev.endsWith("\n") ? "\n\n" : "";
-                      return prev + sep + snippetBody;
-                    });
+                    const html = snippetBody.includes("<") ? snippetBody : plainTextToHtml(snippetBody);
+                    const insertHtml = (isBodyEmpty(body) ? "" : "<br><br>") + html;
+                    if (bodyRef.current) {
+                      bodyRef.current.focus();
+                      document.execCommand("insertHTML", false, insertHtml);
+                      setBody(bodyRef.current.innerHTML);
+                    } else {
+                      setBody((prev) => (prev || "") + insertHtml);
+                    }
                     if (!threadId && snippetSubject && !subject.trim()) setSubject(snippetSubject);
                   }}
                   isNewEmail={!threadId}
