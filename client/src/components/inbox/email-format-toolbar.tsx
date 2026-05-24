@@ -7,10 +7,20 @@
  * document.execCommand. When no compose is open, the parent inbox page
  * intercepts and opens the inline reply first.
  *
+ * IMPORTANT — focus preservation:
+ *   All non-link toolbar buttons use onMouseDown + e.preventDefault() instead
+ *   of onClick. This prevents the button from stealing focus away from the
+ *   contenteditable editor. Without this, execCommand commands that need a
+ *   live selection (insertUnorderedList, insertOrderedList, createLink) fail
+ *   silently because the browser clears the selection when focus moves.
+ *   Bold/italic/underline appear to work without this fix because they are
+ *   stateless toggle commands, but lists and links are not.
+ *
  * Link flow:
  *   1. User highlights text in the editor.
- *   2. User clicks the Link button — onBeforeLinkOpen() fires so the compose
- *      dialog can save the current Selection before focus moves.
+ *   2. User presses the link button — onBeforeLinkOpen() fires from onMouseDown
+ *      (while focus is STILL in the editor) so the selection is saved before
+ *      focus moves to the URL input.
  *   3. Popover opens; user types a URL (bare domains are normalised to https://).
  *   4. On confirm, the URL is dispatched via the format bus and the compose
  *      dialog restores the saved selection before calling createLink.
@@ -68,9 +78,9 @@ interface EmailFormatToolbarProps {
    */
   onBeforeFormat?: () => void;
   /**
-   * Called immediately when the link popover opens — BEFORE focus moves to
-   * the URL input. The compose dialog uses this to save the current
-   * Selection so it can be restored when createLink is executed.
+   * Called from onMouseDown on the link button — BEFORE focus moves to the
+   * URL input. The compose dialog uses this to save the current Selection so
+   * it can be restored when createLink is executed later.
    */
   onBeforeLinkOpen?: () => void;
   className?: string;
@@ -84,15 +94,19 @@ function EmailFormatToolbarImpl({
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
 
-  const handleClick = (cmd: FormatCommand, value?: string) => {
+  // Use onMouseDown + preventDefault so the editor never loses focus.
+  // The execCommand (especially insertUnorderedList / insertOrderedList /
+  // createLink) requires the selection to remain anchored in the editor.
+  const handleMouseDown = (e: React.MouseEvent, cmd: FormatCommand, value?: string) => {
+    e.preventDefault(); // Prevent focus theft — keep selection in editor
     onBeforeFormat?.();
-    setTimeout(() => dispatchFormat(cmd, value), 0);
+    dispatchFormat(cmd, value);
   };
 
   const handleInsertLink = () => {
     const normalized = normalizeUrl(linkUrl);
     if (!normalized) return;
-    handleClick("link", normalized);
+    dispatchFormat("link", normalized);
     setLinkOpen(false);
     setLinkUrl("");
   };
@@ -110,7 +124,7 @@ function EmailFormatToolbarImpl({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={() => handleClick(cmd)}
+                onMouseDown={(e) => handleMouseDown(e, cmd)}
                 data-testid={`format-${cmd}`}
                 aria-label={label}
                 className="p-1.5 rounded text-muted-foreground/70 hover:text-foreground hover:bg-background/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
@@ -134,7 +148,7 @@ function EmailFormatToolbarImpl({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={() => handleClick(cmd)}
+                onMouseDown={(e) => handleMouseDown(e, cmd)}
                 data-testid={`format-${cmd}`}
                 aria-label={label}
                 className="p-1.5 rounded text-muted-foreground/70 hover:text-foreground hover:bg-background/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
@@ -148,16 +162,19 @@ function EmailFormatToolbarImpl({
           </Tooltip>
         ))}
 
-        {/* Link — needs a popover to capture the URL before dispatching */}
+        {/* Link — needs a popover to capture the URL before dispatching.
+            The PopoverTrigger button saves the editor selection from onMouseDown
+            (before focus moves) then lets the click open the popover normally. */}
         <Popover
           open={linkOpen}
           onOpenChange={(open) => {
-            if (open) {
-              // Save the selection BEFORE focus leaves the editor
-              onBeforeLinkOpen?.();
+            if (!open) {
+              // Only handle close here; open is initiated by the button click.
+              setLinkOpen(false);
+            } else {
               setLinkUrl("");
+              setLinkOpen(true);
             }
-            setLinkOpen(open);
           }}
         >
           <Tooltip>
@@ -165,6 +182,12 @@ function EmailFormatToolbarImpl({
               <PopoverTrigger asChild>
                 <button
                   type="button"
+                  onMouseDown={() => {
+                    // Save the editor selection HERE — before focus moves to
+                    // the URL input. onOpenChange fires after focus has shifted
+                    // so it's too late to capture a live selection there.
+                    onBeforeLinkOpen?.();
+                  }}
                   data-testid="format-link"
                   aria-label="Insert link"
                   className="p-1.5 rounded text-muted-foreground/70 hover:text-foreground hover:bg-background/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
@@ -229,7 +252,7 @@ function EmailFormatToolbarImpl({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={() => handleClick(cmd)}
+                onMouseDown={(e) => handleMouseDown(e, cmd)}
                 data-testid={`format-${cmd}`}
                 aria-label={label}
                 className="p-1.5 rounded text-muted-foreground/70 hover:text-foreground hover:bg-background/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
