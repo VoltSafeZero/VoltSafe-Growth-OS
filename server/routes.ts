@@ -11947,7 +11947,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       // Step 2: For each thread, get latest message + top unconfirmed candidate
       const items: any[] = [];
       for (const tid of threadIds) {
-        // Latest message in this thread
+        // Latest message in this thread — include hasAttachments + body-presence so we
+        // can filter ghost/phantom records that have no reviewable content.
         const [latestMsg] = await db
           .select({
             id: emailMessages.id,
@@ -11956,6 +11957,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             fromEmail: emailMessages.fromEmail,
             snippet: emailMessages.snippet,
             sentAt: emailMessages.sentAt,
+            hasAttachments: emailMessages.hasAttachments,
+            hasBody: sql<boolean>`(body_html IS NOT NULL AND body_html != '') OR (body_text IS NOT NULL AND body_text != '')`,
           })
           .from(emailMessages)
           .where(eq(emailMessages.gmailThreadId, tid))
@@ -11963,6 +11966,21 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           .limit(1);
 
         if (!latestMsg) continue;
+
+        // Ghost filter: exclude threads whose latest message has no subject, no snippet,
+        // no attachments, and no body content. These are phantom sync artifacts (e.g. an
+        // empty send-receipt or a message that was saved to the DB before its payload was
+        // backfilled but never got content). They appear as "(no subject)" blank rows in the
+        // review queue and are never actionable.
+        // Exception: if there IS a subject, or there IS a snippet, or there ARE attachments,
+        // or there IS a body — it's a legitimate email (even if its subject happens to be
+        // blank — e.g. a reply-chain message whose subject was stripped).
+        const hasContent =
+          (latestMsg.subject?.trim() ?? "").length > 0 ||
+          (latestMsg.snippet?.trim() ?? "").length > 0 ||
+          !!latestMsg.hasAttachments ||
+          !!latestMsg.hasBody;
+        if (!hasContent) continue;
 
         // Top unconfirmed auto-association for this thread (highest confidence)
         const threadMsgIds = (
@@ -12001,12 +12019,52 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
               ))[0]?.c ?? 0)
           : 0;
 
+        // Strip internal-only fields before pushing — hasBody is a server-side filter
+        // field that the client type doesn't need.
+        const { hasBody: _hb, ...latestMsgForClient } = latestMsg;
         items.push({
           gmailThreadId: tid,
-          latestMessage: latestMsg,
+          latestMessage: latestMsgForClient,
           topCandidate: topAssoc ?? null,
           candidateCount: totalCandidates,
         });
+      }
+
+      // Dedup safety net: if two different threads both resolve to the same CRM target
+      // (same objectType + objectId), and one has no content while the other does, drop
+      // the no-content duplicate. This catches cases where a phantom thread and a real
+      // thread are both auto-associated to the same lead.
+      // NOTE: if BOTH have content (two distinct real email conversations with the same
+      // lead), both are kept — that's valid and both deserve review.
+      const dedupedItems: typeof items = [];
+      const seenTargetContentState = new Map<string, boolean>(); // "type:id" → hasContent
+      const seenTargetIdx = new Map<string, number>();            // "type:id" → idx in dedupedItems
+      for (const item of items) {
+        if (!item.topCandidate) { dedupedItems.push(item); continue; }
+        const targetKey = `${item.topCandidate.objectType}:${item.topCandidate.objectId}`;
+        const itemHasContent =
+          (item.latestMessage.subject?.trim() ?? "").length > 0 ||
+          (item.latestMessage.snippet?.trim() ?? "").length > 0 ||
+          !!item.latestMessage.hasAttachments;
+        const existingIdx = seenTargetIdx.get(targetKey);
+        if (existingIdx === undefined) {
+          seenTargetIdx.set(targetKey, dedupedItems.length);
+          seenTargetContentState.set(targetKey, itemHasContent);
+          dedupedItems.push(item);
+        } else {
+          const existingHasContent = seenTargetContentState.get(targetKey) ?? false;
+          if (!existingHasContent && itemHasContent) {
+            // Replace the no-content placeholder with the real message
+            dedupedItems[existingIdx] = item;
+            seenTargetContentState.set(targetKey, true);
+          } else if (existingHasContent && !itemHasContent) {
+            // Existing already has content — drop this no-content duplicate silently
+          } else {
+            // Both have content (two real conversations) — keep both
+            seenTargetIdx.set(targetKey, dedupedItems.length);
+            dedupedItems.push(item);
+          }
+        }
       }
 
       // Total count for pagination
@@ -12021,7 +12079,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           )
         );
 
-      res.json({ items, total: Number(totalRow?.c ?? 0) });
+      res.json({ items: dedupedItems, total: Number(totalRow?.c ?? 0) });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

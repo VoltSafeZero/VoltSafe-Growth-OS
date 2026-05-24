@@ -1,0 +1,47 @@
+CRM Review has a duplicate/ghost email bug.
+
+Observed behavior:
+- In CRM Review, each real sent email appears correctly first: subject/body/attachments are visible.
+- But a second “duplicate” row appears for the same apparent thread/message.
+- That duplicate opens as “(no subject)” with blank content and no attachments.
+- I did not send this second email. It appears to be a system-generated ghost record, bad placeholder, or bad dedupe/thread mapping issue.
+
+Fix this surgically. Do not redesign CRM Review.
+
+Investigate:
+1. Find where CRM Review candidate rows are assembled.
+2. Trace whether candidates are built from:
+   - Gmail messages
+   - CRM auto-match suggestions
+   - thread records
+   - draft/placeholder records
+   - local optimistic rows
+3. Identify why blank records with no subject/body/attachments are included.
+4. Check whether rows are being deduped by messageId, threadId, gmailMessageId, crmThreadId, or internal id.
+5. Confirm whether the blank duplicate has missing Gmail payload fields, missing messageId, or a generated placeholder id.
+
+Required fix:
+- CRM Review should only show real reviewable email/thread candidates.
+- Exclude any candidate where:
+  - subject is empty/no subject AND
+  - body/snippet is empty AND
+  - attachments are empty AND
+  - there is no valid Gmail message id/content payload.
+- Do not hide legitimate emails that merely have “(no subject)” if they have body content or attachments.
+- Add a stable dedupe layer so the same Gmail message/thread cannot appear twice as both a real message and a placeholder.
+- Prefer the real Gmail message over any placeholder/system candidate when duplicates exist.
+- Preserve the correct existing behavior where sent emails show full body and attachments.
+
+Verification:
+1. Reproduce in CRM Review using the rows shown in screenshots.
+2. Click the real sent email: confirm subject/body/attachments load.
+3. Click the duplicate ghost row: it should no longer appear.
+4. Confirm no blank “(no subject)” CRM Review detail pane opens.
+5. Confirm the CRM Review count decreases only by removed ghost rows.
+6. Run TypeScript/tests.
+7. Return a short report showing:
+   - root cause
+   - files changed
+   - exact dedupe/filter rule added
+   - before/after count of CRM Review rows
+   - confirmation that legitimate no-subject emails with content are still allowed
