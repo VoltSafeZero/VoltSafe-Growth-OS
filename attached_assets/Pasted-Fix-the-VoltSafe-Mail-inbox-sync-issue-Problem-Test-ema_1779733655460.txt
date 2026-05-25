@@ -1,0 +1,59 @@
+Fix the VoltSafe Mail inbox sync issue.
+
+Problem:
+Test emails appear instantly in webmail and Spark Mail, but do not appear in the VoltSafe Mail inbox for 15+ minutes, even after clicking Refresh Mail.
+
+Conclusion:
+Email delivery is working. The bug is in our app’s inbox sync, polling, cache, or refresh logic.
+
+Tasks:
+1. Audit how the inbox fetches mail:
+   - IMAP / Gmail API / Microsoft Graph / backend database cache
+   - polling interval
+   - refresh button behavior
+   - local/server caching
+   - pagination and since-date filters
+
+2. Make Refresh Mail force a true live server sync:
+   - bypass cached inbox results
+   - reconnect or re-query the mail provider
+   - fetch latest messages from Inbox
+   - update database/cache immediately
+   - re-render inbox after successful fetch
+
+3. Add push-style or near-real-time updates:
+   - use IMAP IDLE if IMAP
+   - use Microsoft Graph delta/webhooks if Outlook
+   - use Gmail history/watch if Gmail
+   - fallback polling every 30–60 seconds
+
+4. Fix stale cache issues:
+   - invalidate inbox cache on manual refresh
+   - prevent old timestamps/cursors from blocking new messages
+   - confirm unread/latest messages are sorted by receivedAt DESC
+   - ensure timezone handling is UTC-safe
+
+5. Add logging around:
+   - refresh button clicked
+   - provider fetch started/completed
+   - number of messages fetched
+   - newest email receivedAt timestamp
+   - cache/database update completed
+   - UI refresh completed
+   - any provider/API errors
+
+6. Add user feedback:
+   - show “Syncing inbox…”
+   - show “Last synced at [time]”
+   - show error if sync fails
+   - never silently fail
+
+Acceptance criteria:
+- A new test email visible in webmail must appear in VoltSafe Mail within 5 seconds after clicking Refresh Mail.
+- Without manual refresh, new emails should appear within 60 seconds.
+- Refresh Mail must not just reload cached data.
+- No duplicate emails should appear.
+- Existing read/unread status must be preserved.
+- Inbox should remain sorted newest first.
+
+Please inspect the current codebase, identify the mail provider/inbox implementation, and apply the fix directly.

@@ -275,13 +275,17 @@ export async function syncIncremental(accountId: number): Promise<IncrementalRes
     //     before reaching this UPDATE) would just adopt our endHistoryId.
     //   - incrementalEventCount: atomic add via SQL, COALESCE-guarded
     //     against the legacy NULL default.
+    // Update lastSyncAt as well so the sidebar "synced X ago" label reflects
+    // incremental syncs, not just the hourly full paginated sync.
+    const now = new Date();
     await db.update(emailAccounts)
       .set({
         lastHistoryId: sql`GREATEST(${emailAccounts.lastHistoryId}::bigint, ${endHistoryId}::bigint)::text`,
-        lastIncrementalSyncAt: new Date(),
+        lastIncrementalSyncAt: now,
+        lastSyncAt: now,
         incrementalEventCount: sql`COALESCE(${emailAccounts.incrementalEventCount}, 0) + ${events}`,
         syncErrorMessage: null,
-        updatedAt: new Date(),
+        updatedAt: now,
       })
       .where(eq(emailAccounts.id, accountId));
 
@@ -296,8 +300,9 @@ export async function syncIncremental(accountId: number): Promise<IncrementalRes
       log(`[gmail-incr] account=${accountId} historyId too old (${startHistoryId}) → falling back to paginated sync`);
       await syncEmailAccount(accountId, { maxPages: 5, pageSize: 100, refreshLabels: true });
       const hid = await captureProfileHistoryId(accountId, gmailClient);
+      const fallbackNow = new Date();
       await db.update(emailAccounts)
-        .set({ lastIncrementalSyncAt: new Date(), updatedAt: new Date() })
+        .set({ lastIncrementalSyncAt: fallbackNow, lastSyncAt: fallbackNow, updatedAt: fallbackNow })
         .where(eq(emailAccounts.id, accountId));
       return { ok: true, startHistoryId, endHistoryId: hid, events: 0, added: 0, deleted: 0, labelsChanged: 0, fellBack: true, reason: "history too old" };
     }

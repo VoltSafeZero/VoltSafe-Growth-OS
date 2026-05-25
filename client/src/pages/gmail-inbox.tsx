@@ -4801,24 +4801,31 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         // Fire.
         inFlightPollRef.current.add(a.id);
         lastPolledAtRef.current.set(a.id, now);
+        // Abort the fetch after 30 s so a slow/hung syncIncremental call
+        // (e.g. historyId fallback to paginated sync) cannot lock inFlightPollRef
+        // indefinitely and silently kill all future poll ticks for this account.
+        const pollCtrl = new AbortController();
+        const pollTimeout = setTimeout(() => pollCtrl.abort(), 30_000);
         fetch(`/api/gmail/sync-incremental?accountId=${a.id}`, {
           method: "POST",
           credentials: "include",
+          signal: pollCtrl.signal,
         })
           .then((res) => (res.ok ? res.json() : null))
           .then((payload) => {
             const r = payload?.results?.[0];
-            // Only invalidate when the sync actually changed something —
-            // avoids unnecessary refetch storms when polling is just
-            // confirming "still nothing new".
+            // Always refresh health data so the staleness-gate timestamps
+            // stay accurate (without this, a zero-change sync leaves
+            // healthDataRef stale and the next tick fires at the wrong cadence).
+            queryClient.invalidateQueries({ queryKey: ["/api/gmail/accounts", "health"] });
             if (r && (r.added > 0 || r.deleted > 0 || r.labelsChanged > 0)) {
               queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
               queryClient.invalidateQueries({ queryKey: ["/api/gmail/threads"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/gmail/accounts", "health"] });
             }
           })
           .catch(() => { /* swallow — next tick will retry */ })
           .finally(() => {
+            clearTimeout(pollTimeout);
             inFlightPollRef.current.delete(a.id);
           });
       }
@@ -4860,17 +4867,41 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   };
 
   /** Triggered by the top-right refresh button.
-   *  Calls sync-incremental for ALL connected accounts (no accountId param),
-   *  then re-queries the message/thread lists from the freshly-updated DB.
-   *  Without this, the button only re-reads the local DB cache and cannot
-   *  surface emails that arrived since the last polling tick. */
+   *  Fires POST /api/gmail/sync-incremental?accountId=N for each of the user's
+   *  active connected accounts (in parallel, with a 30 s per-account timeout),
+   *  then invalidates the message/thread caches so the UI shows fresh data.
+   *
+   *  WHY per-account (not the no-accountId global path):
+   *    POST /api/gmail/sync-incremental (no accountId) requires ADMIN — non-admin
+   *    users would get a silent 403 and the button would only re-read the cached
+   *    DB without ever fetching from Gmail.  The ?accountId=N path uses
+   *    requireOwnerOrAdmin, which passes for any account owned by the caller. */
   const handleRefreshInbox = async () => {
     if (refreshingInbox) return;
     setRefreshingInbox(true);
     try {
-      // No accountId → server runs runIncrementalForAll() across every active account
-      await fetch("/api/gmail/sync-incremental", { method: "POST", credentials: "include" });
-    } catch { /* swallow — still invalidate so the UI at least refreshes from DB */ }
+      const accounts = healthDataRef.current ?? [];
+      const active = accounts.filter(
+        (a) => a.authStatus === "active" && a.syncEnabled !== false,
+      );
+      if (active.length === 0) {
+        // No known accounts yet (health query still loading) — nothing to sync.
+        return;
+      }
+      await Promise.all(
+        active.map((a) => {
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 30_000);
+          return fetch(`/api/gmail/sync-incremental?accountId=${a.id}`, {
+            method: "POST",
+            credentials: "include",
+            signal: ctrl.signal,
+          })
+            .catch(() => { /* swallow — invalidate happens in finally */ })
+            .finally(() => clearTimeout(t));
+        }),
+      );
+    } catch { /* swallow */ }
     finally {
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/threads"] });
@@ -7203,20 +7234,31 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   <span className={`flex-shrink-0 h-2 w-2 rounded-full ${connectedAccount.authStatus === "active" ? "bg-emerald-400" : connectedAccount.authStatus === "expired" ? "bg-amber-400" : "bg-red-400"}`} />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-foreground truncate" data-testid="text-connected-email">{connectedAccount.emailAddress}</p>
-                    {connectedAccount.lastSyncAt ? (
-                      // Commit 4: relative "synced N min ago" sourced from the
-                      // server's email_accounts.last_sync_at — refreshed
-                      // naturally by accountsQuery (30s poll). Avoids a
-                      // frontend-side now() ticker.
-                      <p className="text-[10px] text-muted-foreground truncate" data-testid="text-last-sync">
-                        synced {(() => {
-                          try { return formatDistanceToNow(new Date(connectedAccount.lastSyncAt), { addSuffix: true }); }
-                          catch { return ""; }
-                        })()}
-                      </p>
-                    ) : (
-                      <p className="text-[10px] text-muted-foreground">{connectedAccount.authStatus === "active" ? "Never synced" : connectedAccount.authStatus}</p>
-                    )}
+                    {refreshingInbox ? (
+                      <p className="text-[10px] text-teal-400/80 animate-pulse" data-testid="text-last-sync">Syncing inbox…</p>
+                    ) : (() => {
+                      // Show the MOST RECENT of lastSyncAt and lastIncrementalSyncAt.
+                      // lastSyncAt was historically only updated by the hourly full sync,
+                      // making the label read "synced 2 hours ago" even when incremental
+                      // syncs ran seconds ago. Now incremental sync also updates lastSyncAt
+                      // (server-side fix), but we also take lastIncrementalSyncAt from the
+                      // health data as a belt-and-suspenders fallback.
+                      const h = healthById.get(connectedAccount.id);
+                      const tA = connectedAccount.lastSyncAt ? new Date(connectedAccount.lastSyncAt).getTime() : 0;
+                      const tB = h?.lastIncrementalSyncAt ? new Date(h.lastIncrementalSyncAt).getTime() : 0;
+                      const tBest = Math.max(tA, tB);
+                      if (!tBest) return (
+                        <p className="text-[10px] text-muted-foreground">{connectedAccount.authStatus === "active" ? "Never synced" : connectedAccount.authStatus}</p>
+                      );
+                      return (
+                        <p className="text-[10px] text-muted-foreground truncate" data-testid="text-last-sync">
+                          synced {(() => {
+                            try { return formatDistanceToNow(new Date(tBest), { addSuffix: true }); }
+                            catch { return ""; }
+                          })()}
+                        </p>
+                      );
+                    })()}
                   </div>
                   {connectedAccount.authStatus !== "active" ? (
                     <a href="/api/auth/gmail/connect" className="flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors whitespace-nowrap" data-testid="button-reconnect-account-footer">Reconnect</a>
