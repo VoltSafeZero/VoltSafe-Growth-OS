@@ -9592,6 +9592,37 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     return { isAdmin: false, mailTeamPerms };
   }
 
+  // ── Link preview (Open Graph metadata, SSRF-safe) ────────────────────────
+  app.get("/api/link-preview", requireAuth, async (req, res) => {
+    const rawUrl = String(req.query.url ?? "").trim();
+    if (!rawUrl) return res.status(400).json({ message: "url query parameter is required" });
+
+    // Basic protocol check before delegating to the service.
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      return res.status(400).json({ message: "Invalid URL" });
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return res.status(400).json({ message: "Only http and https URLs are supported" });
+    }
+
+    try {
+      const { fetchLinkPreview } = await import("./services/link-preview");
+      const meta = await fetchLinkPreview(rawUrl);
+      if (!meta) {
+        // null = SSRF-blocked, DNS failure, or fetch error. Return a structured
+        // 422 so the frontend can silently remove the loading placeholder.
+        return res.status(422).json({ message: "URL could not be previewed" });
+      }
+      res.json(meta);
+    } catch (err: any) {
+      console.error("[link-preview] error:", err?.message);
+      res.status(500).json({ message: "Preview fetch failed" });
+    }
+  });
+
   // ── Gmail routes (per-user isolated) ─────────────────────────────────────
   app.get("/api/gmail/profile", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { buildEmailHtml, htmlToCleanHtml, isBodyEmpty, stripEmailWrapper, plainTextToHtml } from "@/lib/email-format";
+import { buildLinkPreviewCardHtml, buildLinkPreviewLoadingHtml } from "@/lib/link-preview-card";
 import { createPortal } from "react-dom";
 import { EmailTokenInput } from "@/components/email/email-autocomplete";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -707,31 +708,113 @@ function ComposeDialog({
   );
   useFormatBus(onFormatEvent);
 
+  // ── Link preview ──────────────────────────────────────────────────────────
+  // Matches a bare pasted URL (the full clipboard text is a single http/https
+  // URL with no surrounding prose). We only trigger previews for bare pastes
+  // so that pasting rich text that happens to contain a URL inside a sentence
+  // doesn't accidentally generate a card.
+  const LINK_PREVIEW_URL_RE = /^https?:\/\/\S{4,}$/i;
+
+  // Fetch Open Graph metadata for `url`, insert a loading placeholder in the
+  // editor, and replace it with the rendered preview card once the fetch
+  // resolves. Silently removes the placeholder on error so the normal pasted
+  // URL text remains untouched.
+  const triggerLinkPreview = useCallback(async (url: string) => {
+    if (!bodyRef.current) return;
+
+    // Deduplicate: don't show two cards for the same URL in the same session.
+    if (bodyRef.current.querySelector(`[data-link-preview]`)) {
+      const existing = Array.from(bodyRef.current.querySelectorAll("[data-link-preview]"));
+      if (existing.some((el) => el.getAttribute("data-link-preview") === url)) return;
+    }
+    // Also skip if a loading placeholder is already pending (concurrent paste guard).
+    if (bodyRef.current.querySelector("[data-link-preview-loading]")) return;
+
+    // Move cursor to end and insert the loading placeholder.
+    bodyRef.current.focus();
+    const sel = window.getSelection();
+    if (sel) {
+      const range = document.createRange();
+      range.selectNodeContents(bodyRef.current);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    document.execCommand("insertHTML", false, buildLinkPreviewLoadingHtml(url));
+    setBody(bodyRef.current.innerHTML);
+
+    try {
+      const res = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}`, {
+        credentials: "include",
+      });
+      // Find and replace the loading placeholder (user may have deleted it).
+      const placeholder = bodyRef.current?.querySelector("table[data-link-preview-loading]");
+      if (!placeholder) return;
+
+      if (res.ok) {
+        const meta = await res.json();
+        if (meta?.title) {
+          placeholder.outerHTML = buildLinkPreviewCardHtml(meta);
+        } else {
+          placeholder.remove();
+        }
+      } else {
+        placeholder.remove();
+      }
+    } catch {
+      bodyRef.current?.querySelector("table[data-link-preview-loading]")?.remove();
+    }
+    if (bodyRef.current) setBody(bodyRef.current.innerHTML);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Paste handler ────────────────────────────────────────────────────────
   // Intercept rich-text paste events inside the editor. When the clipboard
   // contains HTML (e.g. from Word, Google Docs, Gmail, ChatGPT), strip all
   // external fonts/colors/spacing while keeping semantic structure (bold,
   // italic, links, lists). This ensures pasted content matches the VoltSafe
   // style and never leaks mixed fonts into outbound emails.
+  //
+  // If the pasted content is a bare http/https URL (no surrounding prose),
+  // we additionally trigger a link-preview card fetch so the user gets a
+  // rich clickable card below the pasted URL — similar to Slack / iMessage.
   const handleBodyPaste = useCallback(
     (e: React.ClipboardEvent<HTMLDivElement>) => {
       const html = e.clipboardData.getData("text/html");
-      if (!html.trim()) return; // No HTML — let browser paste plain text normally
+      const plainText = e.clipboardData.getData("text/plain").trim();
+
+      if (!html.trim()) {
+        // No HTML — let the browser paste plain text normally. If it looks
+        // like a bare URL, trigger a link preview after the browser inserts it.
+        if (LINK_PREVIEW_URL_RE.test(plainText)) {
+          requestAnimationFrame(() => {
+            if (bodyRef.current) {
+              setBody(bodyRef.current.innerHTML);
+              triggerLinkPreview(plainText);
+            }
+          });
+        }
+        return;
+      }
+
       e.preventDefault();
       const clean = htmlToCleanHtml(html);
       if (clean) {
         document.execCommand("insertHTML", false, clean);
       } else {
         // Fallback: insert as plain text
-        const text = e.clipboardData.getData("text/plain");
-        if (text) document.execCommand("insertText", false, text);
+        if (plainText) document.execCommand("insertText", false, plainText);
       }
       // Sync React state after the insert settles
       requestAnimationFrame(() => {
         if (bodyRef.current) setBody(bodyRef.current.innerHTML);
       });
+      // Trigger link preview when the clipboard plain text is a bare URL
+      // (even when the clipboard also carries HTML wrapping for the URL).
+      if (LINK_PREVIEW_URL_RE.test(plainText)) {
+        setTimeout(() => triggerLinkPreview(plainText), 80);
+      }
     },
-    [],
+    [triggerLinkPreview],
   );
 
   // Drain any pending format event once the composer is open AND the

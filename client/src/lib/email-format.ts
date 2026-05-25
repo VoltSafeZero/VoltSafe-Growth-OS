@@ -142,16 +142,88 @@ export function htmlToEditorText(html: string): string {
   return raw;
 }
 
+// ── Link-preview block extraction ────────────────────────────────────────────
+//
+// Link-preview cards are rendered as <table data-link-preview="url" …> with
+// inline styles and a nested-table image layout.  The sanitizeEditorHtml
+// function strips ALL style= attributes and collapses <div> blocks into <br>
+// tags — both of which would destroy the card.
+//
+// Solution: extract preview-card blocks BEFORE sanitisation, replace them
+// with null-byte sentinel tokens (safe — never present in HTML), run the
+// normal sanitisation on the remaining HTML, then re-insert the preserved
+// blocks (with only their href attributes checked for safe protocols).
+
+const PREVIEW_TOKEN_RE = /\x00LPREVIEW(\d+)\x00/g;
+
+/**
+ * Walk `html` and extract every top-level <table data-link-preview="…"> …
+ * </table> block (including its nested inner tables), replacing each with a
+ * unique sentinel token.  Returns the modified string and the extracted blocks.
+ *
+ * Uses a depth-counter walk rather than a regex so nested <table> tags are
+ * counted correctly.
+ */
+function extractPreviewBlocks(html: string): { out: string; blocks: string[] } {
+  const blocks: string[] = [];
+  let out = html;
+  let guard = 0;
+
+  while (guard++ < 100) {
+    // Locate the start of the next preview-marked outer table.
+    const startMatch = /<table\b[^>]*\bdata-link-preview(?:=["'][^"']*["']|\b)[^>]*>/i.exec(out);
+    if (!startMatch) break;
+
+    const startIdx = startMatch.index;
+    let depth = 0;
+    let i = startIdx;
+
+    // Walk characters, counting <table …> and </table> to find the matching
+    // closing tag for the outermost element.
+    while (i < out.length) {
+      if (/^<table\b/i.test(out.slice(i))) {
+        depth++;
+        // Skip to end of this opening tag.
+        const gt = out.indexOf(">", i);
+        i = gt === -1 ? out.length : gt + 1;
+      } else if (/^<\/table/i.test(out.slice(i))) {
+        depth--;
+        const gt = out.indexOf(">", i);
+        i = gt === -1 ? out.length : gt + 1;
+        if (depth === 0) break;
+      } else {
+        i++;
+      }
+    }
+
+    if (depth !== 0) break; // Unbalanced HTML — bail to avoid infinite loop.
+
+    const block = out.slice(startIdx, i);
+    const token = `\x00LPREVIEW${blocks.length}\x00`;
+    blocks.push(block);
+    out = out.slice(0, startIdx) + token + out.slice(i);
+  }
+
+  return { out, blocks };
+}
+
 // ── sanitizeEditorHtml ────────────────────────────────────────────────────────
 
 /**
  * Strip browser-added styling from editor HTML and normalise structure.
  * Handles the predictable flat HTML that Chrome's contenteditable produces.
+ *
+ * Link-preview card blocks (<table data-link-preview="…">) are extracted
+ * before sanitisation and re-inserted afterwards so their inline styles and
+ * table structure are preserved in both the editor and outbound email.
  */
 function sanitizeEditorHtml(html: string): string {
   if (!html) return "";
 
-  let out = html;
+  // Pre-pass: extract link-preview blocks to protect them from the style-
+  // stripping and div-collapsing passes below.
+  const { out: extracted, blocks: previewBlocks } = extractPreviewBlocks(html);
+  let out = extracted;
 
   // 1. Strip all style= attributes (execCommand adds these, e.g. on lists)
   out = out.replace(/\s+style="[^"]*"/gi, "");
@@ -205,6 +277,23 @@ function sanitizeEditorHtml(html: string): string {
 
   // 9. Collapse 3+ consecutive <br> to a double break
   out = out.replace(/(<br\s*\/?>\s*){3,}/gi, "<br><br>");
+
+  // Post-pass: re-insert the link-preview blocks.  Apply a narrow href-safety
+  // check inside each block so we never re-insert a javascript: href.
+  if (previewBlocks.length > 0) {
+    out = out.replace(PREVIEW_TOKEN_RE, (_m, idx) => {
+      const block = previewBlocks[Number(idx)] ?? "";
+      // Strip any non-https? hrefs inside the preview block as a safety net.
+      return block.replace(
+        /\bhref="([^"]*)"/gi,
+        (_tag, href) => {
+          const safe = href.trim();
+          if (!safe || !/^https?:/i.test(safe)) return 'href="#"';
+          return `href="${safe.replace(/"/g, "&quot;")}"`;
+        },
+      );
+    });
+  }
 
   return out.trim();
 }

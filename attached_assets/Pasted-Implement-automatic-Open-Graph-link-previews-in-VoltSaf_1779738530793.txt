@@ -1,0 +1,113 @@
+Implement automatic Open Graph/link previews in VoltSafe Mail composer.
+
+Goal:
+When a user pastes a URL into an email body, VoltSafe Mail should automatically generate a premium clickable link preview card, similar to iMessage, LinkedIn, Slack, WhatsApp, etc.
+
+Core behavior:
+1. Detect pasted URLs inside the rich-text email composer.
+2. Fetch metadata for the pasted URL:
+   - og:title
+   - og:description
+   - og:image
+   - og:url
+   - favicon if available
+   - fallback to <title> if og:title missing
+   - fallback to meta description if og:description missing
+3. Insert a clean preview card below the pasted link.
+4. The full preview card must be clickable and open the original URL.
+5. Do not break the existing rich-text editor, formatting toolbar, hyperlinks, drafts, replies, forwards, or send flow.
+6. Sanitize everything before rendering or sending.
+
+Important:
+This should work for any pasted link, including:
+- VoltSafe pages
+- YouTube links
+- LinkedIn URLs
+- news articles
+- marina websites
+- general web pages
+
+Backend requirement:
+Create a secure endpoint:
+
+GET /api/link-preview?url=<encoded_url>
+
+The backend should:
+- Validate the URL.
+- Only allow http and https.
+- Block localhost, private IPs, internal network addresses, file URLs, and non-web protocols.
+- Fetch the page server-side with a timeout.
+- Parse Open Graph metadata.
+- Return normalized JSON:
+  {
+    url,
+    title,
+    description,
+    image,
+    favicon,
+    siteName
+  }
+
+Security:
+Prevent SSRF.
+Prevent script injection.
+Sanitize HTML.
+Never directly inject raw remote HTML into the composer.
+Only return plain metadata fields.
+
+Frontend requirement:
+In the rich-text composer:
+- Detect URL paste events.
+- Insert the pasted URL normally.
+- Then request /api/link-preview.
+- Show a loading placeholder while fetching.
+- Replace it with a polished preview card if metadata is found.
+- If metadata fails, silently remove the loading placeholder and keep the normal pasted URL.
+- Avoid duplicate previews for the same URL in the same composer body.
+- Allow the user to delete the preview card normally.
+- Preview cards should survive draft save/load and sent email rendering.
+
+Preview card design:
+Premium, minimal VoltSafe-style card:
+- horizontal card layout on desktop
+- stacked layout on mobile
+- image thumbnail if available
+- title bold
+- description muted
+- domain/site name small
+- rounded corners
+- subtle border
+- hover state
+- works in light and dark mode
+- email-safe HTML for sent messages
+
+Critical email compatibility:
+Because email clients strip scripts and advanced CSS, the final sent preview card must be static HTML:
+- anchor wrapper
+- inline styles where needed
+- no JavaScript
+- no external CSS dependency
+- image uses absolute URL
+- graceful fallback if image is missing
+
+Do not use iframes for previews.
+Do not embed YouTube players inside emails.
+For YouTube links, show preview card only.
+
+Also add a manual test:
+- paste https://www.youtube.com/watch?v=IFC94-ekDFw
+- confirm a clickable preview card appears
+- confirm send email still works
+- confirm draft save/load preserves the card
+- confirm plain links still work
+- confirm invalid/private URLs are rejected by backend
+
+Add automated tests for:
+1. metadata parser extracts og:title, og:description, og:image
+2. fallback to title/meta description
+3. private IP / localhost URLs are blocked
+4. composer does not duplicate preview cards
+5. sanitization removes dangerous HTML
+6. sent email HTML contains static clickable preview card
+
+Keep the implementation surgical. Do not rewrite the composer. Extend the existing rich-text paste/link flow.
