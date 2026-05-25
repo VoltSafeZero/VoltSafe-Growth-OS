@@ -817,7 +817,23 @@ export async function registerRoutes(
       preferredLayout: user.preferredLayout ?? "expanded",
       widgetVisibility: user.widgetVisibility ?? {},
       defaultCommandCenter: user.defaultCommandCenter,
+      calendarBookingUrl: user.calendarBookingUrl ?? null,
     });
+  });
+
+  // PATCH /api/users/me/calendar-url — save the user's personal booking/calendar link
+  app.patch("/api/users/me/calendar-url", requireAuth, async (req, res) => {
+    const userId = (req.session as any).userId as number;
+    const { calendarBookingUrl } = req.body;
+    if (calendarBookingUrl !== null && typeof calendarBookingUrl !== "string") {
+      return res.status(400).json({ message: "calendarBookingUrl must be a string or null" });
+    }
+    const url: string | null = calendarBookingUrl ? (calendarBookingUrl as string).trim() : null;
+    if (url && !/^https?:\/\//i.test(url)) {
+      return res.status(400).json({ message: "calendarBookingUrl must start with http:// or https://" });
+    }
+    await db.update(users).set({ calendarBookingUrl: url }).where(eq(users.id, userId));
+    res.json({ calendarBookingUrl: url });
   });
 
   // GET /api/users/me/profile — extended user profile for command center

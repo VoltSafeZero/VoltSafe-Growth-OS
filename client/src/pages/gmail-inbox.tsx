@@ -34,7 +34,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuIte
 import { useToast } from "@/hooks/use-toast";
 import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
-  Clock, FileText, CalendarClock, CalendarX, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
+  Clock, FileText, CalendarClock, CalendarX, Calendar, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
   FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronUp, ChevronRight, Folder,
   Reply, ReplyAll, Forward, Pencil, User, Building2, Zap, Flame, Video, UserPlus,
   Check, CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
@@ -526,6 +526,49 @@ function ComposeDialog({
   const [zoomStartTime, setZoomStartTime] = useState(defaultZoomStart);
   const [zoomDuration, setZoomDuration] = useState("30");
   const [pendingIcal, setPendingIcal] = useState<string | null>(null);
+
+  // ── Calendar booking link ────────────────────────────────────────────────
+  const authMeQuery = useQuery<{ calendarBookingUrl?: string | null }>({ queryKey: ["/api/auth/me"] });
+  const savedCalUrl = authMeQuery.data?.calendarBookingUrl ?? null;
+  const [showCalendarPopover, setShowCalendarPopover] = useState(false);
+  const [showCalendarEdit, setShowCalendarEdit] = useState(false);
+  const [calendarUrlInput, setCalendarUrlInput] = useState("");
+
+  useEffect(() => {
+    if (showCalendarPopover) {
+      setCalendarUrlInput(savedCalUrl ?? "");
+      setShowCalendarEdit(!savedCalUrl);
+    }
+  }, [showCalendarPopover, savedCalUrl]);
+
+  const saveCalendarUrlMutation = useMutation({
+    mutationFn: async (url: string | null) => {
+      const res = await apiRequest("PATCH", "/api/users/me/calendar-url", { calendarBookingUrl: url });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).message || "Failed to save"); }
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] }),
+  });
+
+  function insertCalendarLinkIntoBody(url: string) {
+    const safe = url.replace(/"/g, "&quot;").replace(/&(?!amp;)/g, "&amp;");
+    const html = `<p style="margin:12px 0 4px 0;">&#x1F4C5;&nbsp;<a href="${safe}" target="_blank" rel="noopener noreferrer" style="color:#00C1DE;">Schedule a meeting with me</a></p>`;
+    if (bodyRef.current) {
+      bodyRef.current.focus();
+      const sel = window.getSelection();
+      if (sel) {
+        const range = document.createRange();
+        range.selectNodeContents(bodyRef.current);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+      document.execCommand("insertHTML", false, html);
+      setBody(bodyRef.current.innerHTML);
+    } else {
+      setBody((prev) => (prev || "") + html);
+    }
+  }
   const zoomMutation = useMutation({
     mutationFn: () => {
       const attendeeEmails = to
@@ -1338,6 +1381,108 @@ function ComposeDialog({
                       : undefined
                   }
                 />
+              )}
+              {canSend && (
+                <Popover
+                  open={showCalendarPopover}
+                  onOpenChange={(v) => { setShowCalendarPopover(v); if (!v) setShowCalendarEdit(false); }}
+                >
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={`h-8 w-8 ${savedCalUrl ? "text-primary" : "text-muted-foreground hover:text-primary"}`}
+                      title={savedCalUrl ? "Insert your booking link" : "Set your booking link"}
+                      data-testid="button-insert-calendar-link"
+                    >
+                      <Calendar className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-72 p-3" align="start" side="top">
+                    {savedCalUrl && !showCalendarEdit ? (
+                      <div className="space-y-2.5">
+                        <p className="text-sm font-medium">Insert booking link</p>
+                        <p className="text-xs text-muted-foreground break-all">{savedCalUrl}</p>
+                        <div className="flex gap-2 pt-0.5">
+                          <Button
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => {
+                              insertCalendarLinkIntoBody(savedCalUrl);
+                              setShowCalendarPopover(false);
+                              toast({ title: "Booking link inserted" });
+                            }}
+                          >
+                            Insert
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowCalendarEdit(true)}
+                            data-testid="button-change-calendar-url"
+                          >
+                            Change
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5">
+                        <p className="text-sm font-medium">Your booking link</p>
+                        <p className="text-xs text-muted-foreground">Paste your Calendly or other booking URL — saved to your profile.</p>
+                        <Input
+                          value={calendarUrlInput}
+                          onChange={(e) => setCalendarUrlInput(e.target.value)}
+                          placeholder="https://calendly.com/yourname"
+                          className="h-8 text-sm"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && calendarUrlInput.trim()) {
+                              const url = calendarUrlInput.trim();
+                              saveCalendarUrlMutation.mutate(url, {
+                                onSuccess: () => {
+                                  insertCalendarLinkIntoBody(url);
+                                  setShowCalendarPopover(false);
+                                  toast({ title: "Booking link saved & inserted" });
+                                },
+                                onError: (err: any) => toast({ title: "Could not save", description: err.message, variant: "destructive" }),
+                              });
+                            }
+                          }}
+                          data-testid="input-calendar-url"
+                          autoFocus
+                        />
+                        <div className="flex gap-2 pt-0.5">
+                          <Button
+                            size="sm"
+                            className="flex-1"
+                            disabled={!calendarUrlInput.trim() || saveCalendarUrlMutation.isPending}
+                            onClick={() => {
+                              const url = calendarUrlInput.trim();
+                              if (!url) return;
+                              saveCalendarUrlMutation.mutate(url, {
+                                onSuccess: () => {
+                                  insertCalendarLinkIntoBody(url);
+                                  setShowCalendarPopover(false);
+                                  toast({ title: "Booking link saved & inserted" });
+                                },
+                                onError: (err: any) => toast({ title: "Could not save", description: err.message, variant: "destructive" }),
+                              });
+                            }}
+                            data-testid="button-save-calendar-url"
+                          >
+                            {saveCalendarUrlMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save & Insert"}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => { setShowCalendarPopover(false); setShowCalendarEdit(false); }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </PopoverContent>
+                </Popover>
               )}
             </div>
             {canSend && (

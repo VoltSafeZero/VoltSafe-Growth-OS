@@ -62,6 +62,7 @@ export const users = pgTable("users", {
   widgetVisibility: jsonb("widget_visibility").default({}),
   dashboardLayouts: jsonb("dashboard_layouts").default({}),
   defaultCommandCenter: text("default_command_center"),
+  calendarBookingUrl: text("calendar_booking_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastLogin: timestamp("last_login"),
 });
