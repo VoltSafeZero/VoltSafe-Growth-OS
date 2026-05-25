@@ -14838,7 +14838,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   app.get("/api/assets", requireAuth, async (req, res) => {
     try {
       const { useCase, visibility, search, tab } = req.query;
-      const isAdmin = !!(req.session as any).isAdmin;
+      const isAdmin = ["master_admin", "admin"].includes(String((req.session as any).globalRole || ""));
 
       let all = await db.select().from(assets).orderBy(assets.createdAt);
       all = all.reverse();
@@ -14856,13 +14856,20 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         all = all.filter(a => (a.visibility ?? "customer_safe") !== "admin_only");
       }
 
+      // Customer-facing tabs enforce safe visibility (public + customer_safe only).
+      // This prevents internal_only / investor_only / admin_only assets from leaking
+      // into email composition flows even if they happen to share the same useCase tag.
+      const CUSTOMER_FACING_TABS = new Set(["sales", "product", "proof", "quotes", "brand"]);
+      const SAFE_VIS = new Set(["public", "customer_safe"]);
+
       // tab-based presets
       if (tab === "recommended") {
-        // customer_safe/public, sorted by usage_count desc then recency
+        // public/customer_safe only, sorted by usage_count desc then isFavorite
         all = all
-          .filter(a => ["public", "customer_safe"].includes(a.visibility ?? "customer_safe"))
+          .filter(a => SAFE_VIS.has(a.visibility ?? "customer_safe"))
           .sort((a, b) => (b.usageCount ?? 0) - (a.usageCount ?? 0) || (b.isFavorite ? 1 : 0) - (a.isFavorite ? 1 : 0));
       } else if (tab === "favorites") {
+        // admin_only already stripped for non-admins above; any remaining visibility is fine
         all = all.filter(a => a.isFavorite);
       } else if (tab === "recent") {
         all = all
@@ -14870,11 +14877,21 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           .sort((a, b) => new Date(b.lastAttachedAt!).getTime() - new Date(a.lastAttachedAt!).getTime())
           .slice(0, 20);
       } else if (tab === "internal") {
-        // Internal tab: show restricted assets — non-admins see internal_only/investor_only
-        // (they still have access — just not the default view)
-        all = all.filter(a => ["internal_only", "investor_only"].includes(a.visibility ?? "customer_safe"));
+        // Internal tab: restricted assets only.
+        // Admins see internal_only + investor_only + admin_only.
+        // Non-admins see internal_only + investor_only (admin_only already stripped above).
+        const allowedVis = isAdmin
+          ? ["internal_only", "investor_only", "admin_only"]
+          : ["internal_only", "investor_only"];
+        all = all.filter(a => allowedVis.includes(a.visibility ?? "customer_safe"));
+      } else if (tab && CUSTOMER_FACING_TABS.has(String(tab))) {
+        // Customer-facing tabs: match useCase AND enforce safe visibility.
+        // Rule: investor_only and internal_only must never appear here.
+        all = all
+          .filter(a => (a.useCase ?? "general") === tab)
+          .filter(a => SAFE_VIS.has(a.visibility ?? "customer_safe"));
       } else if (tab && tab !== "all") {
-        // map tab name to useCase
+        // Unknown/generic tab name: fall back to useCase match only
         all = all.filter(a => (a.useCase ?? "general") === tab);
       }
 
