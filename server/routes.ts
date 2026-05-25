@@ -14028,6 +14028,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   // Phase 4: with explicit accountId → owner-or-admin; without accountId
   // (runs across every account) → admin-only.
   app.post("/api/gmail/sync-incremental", requireAuth, async (req, res) => {
+    const startMs = Date.now();
     try {
       const accountId = req.query.accountId ? Number(req.query.accountId) : undefined;
       if (accountId) {
@@ -14038,6 +14039,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       }
       const { syncIncremental, runIncrementalForAll } = await import("./services/gmail-incremental");
       const result = accountId ? [await syncIncremental(accountId)] : await runIncrementalForAll();
+      // Emit a structured log whenever a manual (user-triggered) per-account sync completes.
+      // This makes the "Refresh Mail" path observable in server logs so a silent failure
+      // (wrong status code, missing result, exception) is immediately visible without
+      // having to trace the frontend network tab.
+      if (accountId) {
+        const r = result[0];
+        const durationMs = Math.round(Date.now() - startMs);
+        log(
+          `[gmail-sync] Manual refresh accountId=${accountId} added=${r?.added ?? 0} deleted=${r?.deleted ?? 0} labelsChanged=${r?.labelsChanged ?? 0} durationMs=${durationMs} ok=${r?.ok ?? false}`,
+        );
+      }
       res.json({ count: result.length, results: result });
     } catch (err: any) {
       res.status(500).json({ message: "Incremental sync failed", error: err.message });
