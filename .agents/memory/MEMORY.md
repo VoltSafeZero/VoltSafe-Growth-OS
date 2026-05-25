@@ -2,3 +2,4 @@
 - [Mail Trust Strip](mail-trust-strip.md) — compact sidebar status strip; TrustEvent propagated via onTrustEvent prop on ComposeDialog; no new API calls; placed in existing sidebar footer above account block.
 - [Composer Rich-Text Editor](composer-rich-text.md) — compose dialog uses contentEditable div (not textarea); formatting via execCommand; link flow saves selection to savedRangeRef before popover opens.
 - [Composer XSS Hardening](composer-xss-hardening.md) — three-layer XSS defense in sanitizeEditorHtml; normalizeUrl leaves all protocols intact so the sanitizer decides; nested-link attack blocked by attribute-level strip.
+- [Asset Library Upgrade](asset-library-upgrade.md) — Document Hub renamed; 7 new metadata columns on attachments+assets; email picker rebuilt with tabs/search/safety warnings; tests/asset-library.test.js (61 checks).

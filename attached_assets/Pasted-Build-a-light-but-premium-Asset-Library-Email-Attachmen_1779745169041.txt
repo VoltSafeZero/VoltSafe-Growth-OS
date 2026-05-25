@@ -1,0 +1,223 @@
+Build a light but premium “Asset Library + Email Attachment Picker” upgrade for VoltSafe CMS.
+
+IMPORTANT CONSTRAINTS
+- Keep this additive and lightweight.
+- Do NOT build a heavy folder system.
+- Do NOT break existing uploaded files or existing email attachment behavior.
+- Do NOT remove existing data.
+- Preserve current upload/attach flows.
+- Make the smallest safe DB/schema changes needed.
+- Premium UI/UX, but simple architecture.
+
+GOAL
+Replace the current vague attachment categories:
+All / Quotes / General / Proposal / Presentation
+
+with a smarter tag + visibility + use-case system:
+
+Recommended / Sales / Product / Proof / Quotes / Brand / Internal
+
+Also rename “Document Hub” to “Asset Library” throughout the UI.
+
+WHY
+Current categories are too vague. “General” becomes a junk drawer. “Proposal” and “Presentation” overlap. Investor/private docs currently appear too easily in the normal email picker, which is dangerous.
+
+PHASE 1 — AUDIT FIRST
+Before coding:
+1. Inspect current document/asset tables, upload routes, attachment picker component, email composer attachment flow, and any tests.
+2. Identify the smallest additive change path.
+3. Do not rewrite the whole document system.
+4. Reuse existing asset/document records wherever possible.
+
+PHASE 2 — LIGHT DATA MODEL
+Add lightweight metadata support to existing assets/documents.
+
+If an existing documents/assets table exists, add nullable columns only:
+
+- asset_category/use_case:
+  values: sales, product, proof, quotes, brand, internal, general
+
+- visibility:
+  values: public, customer_safe, partner_safe, internal_only, investor_only, admin_only
+  default: customer_safe
+
+- asset_type:
+  values: document, image, video_thumbnail, deck, quote, invoice, proposal, spec_sheet, cut_sheet, case_study, spreadsheet, other
+
+- recommended_for:
+  store as JSON/text array if current stack supports it, otherwise simple text/string list
+  possible values:
+  marina_owner, marina_operator, electrical_contractor, city_municipality, investor, distributor, oem, insurance_safety, existing_customer
+
+- is_favorite:
+  boolean default false
+
+- usage_count / attached_count:
+  integer default 0
+
+- last_attached_at:
+  nullable timestamp
+
+If the current schema already has equivalent fields, reuse them instead of duplicating.
+
+Do NOT create complex folder hierarchies.
+Do NOT create nested permissions.
+Do NOT create an approval workflow yet.
+
+PHASE 3 — SMART DEFAULT CLASSIFICATION
+Add a safe auto-classification helper for existing assets using filename/type heuristics.
+
+Examples:
+- filenames containing pricing, price, cost, roi, comparison, onepager, one-pager, deck, marina pitch → Sales
+- pedestal, connector, spec, cut sheet, cutsheet, install, installation, hardware, software, safety, compliance → Product
+- demo, photo, image, testimonial, news, case study, thumbnail → Proof
+- quote, invoice, proposal, pro forma → Quotes
+- logo, brand, social, email thumbnail → Brand
+- investor, use of proceeds, financial, board, private → Internal
+- default unknowns to General
+
+Visibility heuristics:
+- investor, use of proceeds, financial, board, private → investor_only or internal_only
+- quote/invoice/proposal/customer-specific → customer_safe unless clearly internal
+- public sales/product/proof assets → customer_safe
+- default unknowns to customer_safe only if not suspicious; otherwise internal_only
+
+Very important:
+Investor decks, use-of-proceeds docs, financial/private docs must NOT appear in the default customer-safe email attachment picker.
+
+PHASE 4 — ASSET LIBRARY UI
+Rename:
+“Document Hub” → “Asset Library”
+
+Keep existing layout, but improve labels and filters.
+
+Add top-level filter chips:
+- All
+- Sales
+- Product
+- Proof
+- Quotes
+- Brand
+- Internal
+
+Add secondary filters:
+- Visibility
+- Asset Type
+- Recommended For
+- Owner if already available
+- Source if already available
+
+Add search:
+- filename/title
+- description if available
+- tags/recommended_for if available
+
+Each asset row/card should show:
+- title
+- short description if available
+- asset type
+- visibility badge
+- last updated
+- owner if available
+- customer-safe status badge
+
+Use a clean premium UI:
+- compact rows
+- subtle badges
+- clear spacing
+- no visual clutter
+- keep it fast
+
+PHASE 5 — EMAIL ATTACHMENT PICKER UI
+Upgrade the paperclip attachment modal.
+
+Tabs should be:
+- Recommended
+- Sales
+- Product
+- Proof
+- Quotes
+- Brand
+- Internal
+- Recent
+- Favorites
+
+Default tab:
+Recommended
+
+Default visibility behavior:
+- Show customer_safe/public assets by default.
+- Hide internal_only, investor_only, admin_only unless user intentionally selects Internal or has admin permissions.
+- Add a small warning badge on restricted assets.
+
+Add search inside the modal:
+- search by filename/title
+- filter by file type
+- sort by newest / most attached / recently used
+
+Each file row should show:
+- title
+- short description
+- file type
+- visibility badge
+- last updated
+- owner
+- customer-safe badge
+
+When an asset is attached:
+- increment attached_count/usage_count
+- update last_attached_at
+- preserve existing attachment behavior
+
+Recommended tab logic, keep light:
+- Show customer_safe/public assets first
+- Prioritize favorites
+- Prioritize most attached
+- Prioritize recent
+- Exclude internal/investor/admin-only docs by default
+- If the email is connected to a lead/account and there is existing industry/stage metadata, use it lightly, but do not overbuild this yet.
+
+PHASE 6 — SAFETY UX
+If a user tries to attach an internal_only, investor_only, or admin_only asset:
+- show a confirmation warning:
+  “This file is marked internal/restricted. Are you sure you want to attach it?”
+- Do not block admins completely, just force intentional confirmation.
+- Non-admin users should not see admin_only assets.
+
+PHASE 7 — TESTS
+Add/update tests for:
+1. Existing attachments still work.
+2. Existing uploaded assets still appear somewhere.
+3. Customer-safe assets appear in default picker.
+4. Investor/internal/admin-only assets do NOT appear in default picker.
+5. Internal tab shows restricted assets only to allowed users.
+6. Search works by filename/title.
+7. Category filters work.
+8. Attaching an asset increments usage_count/attached_count.
+9. “Document Hub” label is replaced with “Asset Library”.
+10. Quote/generated files still appear under Quotes.
+
+PHASE 8 — VERIFICATION
+Run:
+- TypeScript check
+- relevant frontend tests
+- relevant backend tests
+- any existing attachment/composer tests
+- quick browser smoke test for:
+  - Asset Library page
+  - email compose modal
+  - attachment picker
+  - attaching an existing asset
+  - restricted asset warning
+
+FINAL OUTPUT
+Report back with:
+- files changed
+- schema changes
+- UI changes
+- safety behavior
+- tests run and results
+- any limitations or follow-up recommendations
+
+Keep it light. The goal is not SharePoint. The goal is:
+One asset. Many tags. Clear visibility. Smart email attachments.

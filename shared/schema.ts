@@ -951,13 +951,21 @@ export const attachments = pgTable("attachments", {
   uploadedBy: integer("uploaded_by"),
   uploadedByName: text("uploaded_by_name"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-  // Document Hub extensions
+  // Document Hub / Asset Library extensions
   title: text("title"),
   category: text("category").default("general"),
   notes: text("notes"),
   tags: text("tags").array(),
   source: text("source").default("upload"),
   url: text("url"),
+  // Asset Library smart metadata (0008_asset_library.sql)
+  useCase: text("use_case"),
+  visibility: text("visibility").default("customer_safe"),
+  assetType: text("asset_type"),
+  recommendedFor: text("recommended_for"),
+  isFavorite: boolean("is_favorite").default(false),
+  usageCount: integer("usage_count").default(0),
+  lastAttachedAt: timestamp("last_attached_at"),
 });
 
 export const insertAttachmentSchema = createInsertSchema(attachments).omit({ id: true, createdAt: true });
@@ -1229,6 +1237,14 @@ export const assets = pgTable("assets", {
   folderId: integer("folder_id").references(() => assetFolders.id),
   uploadedBy: integer("uploaded_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Asset Library smart metadata (0008_asset_library.sql)
+  useCase: text("use_case"),
+  visibility: text("visibility").default("customer_safe"),
+  assetType: text("asset_type"),
+  recommendedFor: text("recommended_for"),
+  isFavorite: boolean("is_favorite").default(false),
+  usageCount: integer("usage_count").default(0),
+  lastAttachedAt: timestamp("last_attached_at"),
 });
 export const insertAssetSchema = createInsertSchema(assets).omit({ id: true, createdAt: true });
 export type Asset = typeof assets.$inferSelect;

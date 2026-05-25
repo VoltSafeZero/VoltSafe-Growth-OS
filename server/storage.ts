@@ -160,7 +160,7 @@ export interface IStorage {
   deleteAttachment(id: number): Promise<Attachment | undefined>;
   getAttachment(id: number): Promise<Attachment | undefined>;
   updateAttachment(id: number, data: Partial<InsertAttachment>): Promise<Attachment | undefined>;
-  getAllDocuments(filters: { category?: string; objectType?: string; uploadedBy?: number; search?: string; limit?: number; offset?: number; }): Promise<{ documents: Attachment[]; total: number }>;
+  getAllDocuments(filters: { category?: string; useCase?: string; visibility?: string; objectType?: string; uploadedBy?: number; search?: string; limit?: number; offset?: number; }): Promise<{ documents: Attachment[]; total: number }>;
 
   getUsers(): Promise<Pick<User, 'id' | 'name' | 'email'>[]>;
 
@@ -1098,7 +1098,7 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async getAllDocuments(filters: { category?: string; objectType?: string; uploadedBy?: number; search?: string; limit?: number; offset?: number; }) {
+  async getAllDocuments(filters: { category?: string; useCase?: string; visibility?: string; objectType?: string; uploadedBy?: number; search?: string; limit?: number; offset?: number; }) {
     const limit = filters.limit ?? 50;
     const offset = filters.offset ?? 0;
     const conditions: string[] = [];
@@ -1108,6 +1108,14 @@ export class DatabaseStorage implements IStorage {
     if (filters.category && filters.category !== "all") {
       conditions.push(`a.category = $${pi++}`);
       params.push(filters.category);
+    }
+    if (filters.useCase && filters.useCase !== "all") {
+      conditions.push(`a.use_case = $${pi++}`);
+      params.push(filters.useCase);
+    }
+    if (filters.visibility && filters.visibility !== "all") {
+      conditions.push(`a.visibility = $${pi++}`);
+      params.push(filters.visibility);
     }
     if (filters.objectType && filters.objectType !== "all") {
       conditions.push(`a.object_type = $${pi++}`);
@@ -1150,6 +1158,13 @@ export class DatabaseStorage implements IStorage {
       tags: r.tags ?? null,
       source: r.source ?? "upload",
       url: r.url ?? null,
+      useCase: r.use_case ?? "general",
+      visibility: r.visibility ?? "customer_safe",
+      assetType: r.asset_type ?? null,
+      recommendedFor: r.recommended_for ?? null,
+      isFavorite: r.is_favorite ?? false,
+      usageCount: r.usage_count ?? 0,
+      lastAttachedAt: r.last_attached_at ?? null,
     }));
 
     return { documents, total };

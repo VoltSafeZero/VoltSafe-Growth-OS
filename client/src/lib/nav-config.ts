@@ -132,7 +132,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "projects",          label: "Projects",          route: "/execution/projects",       icon: Layers,    permKey: "projects" },
       { id: "events",            label: "Events",            route: "/operations/events",         icon: Trophy },
       { id: "communications",    label: "Communications",    route: "/execution/communications", icon: Megaphone, permKey: "communications", advisorHidden: true },
-      { id: "documents",         label: "Documents",         route: "/documents",                icon: BookOpen },
+      { id: "documents",         label: "Asset Library",     route: "/documents",                icon: BookOpen },
       { id: "assets",            label: "Assets",            route: "/knowledge/assets",         icon: FolderOpen, permKey: "knowledge" },
     ],
   },

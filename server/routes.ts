@@ -5721,7 +5721,7 @@ export async function registerRoutes(
   // and they should be looking at /api/tickets/:id/attachments for those).
   app.get("/api/documents", requireAuth, async (req, res) => {
     try {
-      const { category, objectType, search, limit, offset } = req.query;
+      const { category, useCase, visibility, objectType, search, limit, offset } = req.query;
       const userId = (req.session as any).userId as number;
       const section = objectType
         ? attachmentSectionFor(String(objectType))
@@ -5730,6 +5730,8 @@ export async function registerRoutes(
       if (!gate.ok) return res.status(403).json({ message: "Not authorized to view documents" });
       const result = await storage.getAllDocuments({
         category: category as string,
+        useCase: useCase as string,
+        visibility: visibility as string,
         objectType: objectType as string,
         search: search as string,
         limit: limit ? Number(limit) : 50,
@@ -14833,15 +14835,82 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   // ── Sales & Marketing Assets ────────────────────────────────────────────
-  app.get("/api/assets", requireAuth, async (_req, res) => {
+  app.get("/api/assets", requireAuth, async (req, res) => {
     try {
-      const all = await db.select().from(assets).orderBy(assets.createdAt);
+      const { useCase, visibility, search, tab } = req.query;
+      const isAdmin = !!(req.session as any).isAdmin;
+
+      let all = await db.select().from(assets).orderBy(assets.createdAt);
+      all = all.reverse();
+
+      // Filter by useCase / tab
+      if (useCase && useCase !== "all") {
+        all = all.filter(a => (a.useCase ?? "general") === useCase);
+      }
+
+      // Visibility filter — non-admins cannot see admin_only assets
+      if (visibility && visibility !== "all") {
+        all = all.filter(a => (a.visibility ?? "customer_safe") === visibility);
+      } else if (!isAdmin) {
+        // Never serve admin_only to non-admins
+        all = all.filter(a => (a.visibility ?? "customer_safe") !== "admin_only");
+      }
+
+      // tab-based presets
+      if (tab === "recommended") {
+        // customer_safe/public, sorted by usage_count desc then recency
+        all = all
+          .filter(a => ["public", "customer_safe"].includes(a.visibility ?? "customer_safe"))
+          .sort((a, b) => (b.usageCount ?? 0) - (a.usageCount ?? 0) || (b.isFavorite ? 1 : 0) - (a.isFavorite ? 1 : 0));
+      } else if (tab === "favorites") {
+        all = all.filter(a => a.isFavorite);
+      } else if (tab === "recent") {
+        all = all
+          .filter(a => a.lastAttachedAt)
+          .sort((a, b) => new Date(b.lastAttachedAt!).getTime() - new Date(a.lastAttachedAt!).getTime())
+          .slice(0, 20);
+      } else if (tab === "internal") {
+        // Internal tab: show restricted assets — non-admins see internal_only/investor_only
+        // (they still have access — just not the default view)
+        all = all.filter(a => ["internal_only", "investor_only"].includes(a.visibility ?? "customer_safe"));
+      } else if (tab && tab !== "all") {
+        // map tab name to useCase
+        all = all.filter(a => (a.useCase ?? "general") === tab);
+      }
+
+      // Search by name / description / tags
+      if (search && String(search).trim()) {
+        const q = String(search).toLowerCase();
+        all = all.filter(a =>
+          a.name.toLowerCase().includes(q) ||
+          (a.description ?? "").toLowerCase().includes(q) ||
+          (a.tags ?? "").toLowerCase().includes(q),
+        );
+      }
+
       // Include hasFile flag, but never return fileData in the list (too large)
-      const result = all.reverse().map(({ fileData, filePath, ...rest }) => ({
+      const result = all.map(({ fileData, filePath, ...rest }) => ({
         ...rest,
         hasFile: !!(fileData || (filePath && fs.existsSync(filePath))),
       }));
       res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Track when an asset is attached to an email — increments usage_count + sets last_attached_at
+  app.patch("/api/assets/:id/track-attachment", requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!id || isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+    try {
+      await db.execute(sql`
+        UPDATE assets
+        SET usage_count = COALESCE(usage_count, 0) + 1,
+            last_attached_at = NOW()
+        WHERE id = ${id}
+      `);
+      res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

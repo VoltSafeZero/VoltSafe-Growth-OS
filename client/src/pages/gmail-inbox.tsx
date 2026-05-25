@@ -27,7 +27,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -43,6 +43,7 @@ import {
   Sparkles, Code2, Type, Rows3, Rows2, Inbox as InboxIcon,
   Maximize2, Minimize2, Pin, PinOff, LayoutList, List as ListIcon,
   Command as CommandIcon, AlignJustify, Hash, AtSign, Folders, Zap as ZapIcon,
+  ShieldAlert, Upload,
 } from "lucide-react";
 import {
   groupSmartInbox,
@@ -626,7 +627,9 @@ function ComposeDialog({
   });
   const [attachedAssets, setAttachedAssets] = useState<{ id: number; name: string }[]>([]);
   const [showAssetPicker, setShowAssetPicker] = useState(false);
-  const [assetCategoryFilter, setAssetCategoryFilter] = useState<string>("all");
+  const [assetTab, setAssetTab] = useState<string>("recommended");
+  const [assetSearch, setAssetSearch] = useState<string>("");
+  const [restrictedWarning, setRestrictedWarning] = useState<{ asset: { id: number; name: string; visibility: string }; onConfirm: () => void } | null>(null);
   const [showQuotePicker, setShowQuotePicker] = useState(false);
 
   // Drag-and-drop attachment state
@@ -847,8 +850,15 @@ function ComposeDialog({
     };
   }, [open, applyFormat]);
 
-  const assetsQuery = useQuery<{ id: number; name: string; mimeType: string; size: number; category: string }[]>({
-    queryKey: ["/api/assets"],
+  const assetsQuery = useQuery<{ id: number; name: string; mimeType: string; size: number; category: string; useCase?: string; visibility?: string; isFavorite?: boolean; usageCount?: number; description?: string }[]>({
+    queryKey: ["/api/assets", assetTab, assetSearch],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("tab", assetTab);
+      if (assetSearch.trim()) params.set("search", assetSearch);
+      const res = await fetch(`/api/assets?${params}`, { credentials: "include" });
+      return res.json();
+    },
     enabled: showAssetPicker,
   });
 
@@ -1624,76 +1634,141 @@ function ComposeDialog({
       </div>
     , document.body)}
 
+    {/* Restricted asset safety warning */}
+    {restrictedWarning && (
+      <Dialog open={!!restrictedWarning} onOpenChange={() => setRestrictedWarning(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-400">
+              <ShieldAlert className="h-4 w-4" /> Restricted Asset
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">{restrictedWarning.asset.name}</span> is marked{" "}
+              <span className="font-medium text-amber-400">{restrictedWarning.asset.visibility.replace(/_/g, " ")}</span>.
+              Are you sure you want to attach it to this email?
+            </p>
+            <p className="text-xs text-muted-foreground/70">
+              This file is not intended for external recipients. Only attach it if you are certain the recipient should have access.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setRestrictedWarning(null)} data-testid="button-cancel-restricted">Cancel</Button>
+            <Button size="sm" className="bg-amber-500 hover:bg-amber-600 text-white" onClick={() => { restrictedWarning.onConfirm(); setRestrictedWarning(null); }} data-testid="button-confirm-restricted">
+              Attach Anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )}
+
     {/* Asset picker dialog */}
-    <Dialog open={showAssetPicker} onOpenChange={(v) => !v && setShowAssetPicker(false)}>
-      <DialogContent className="sm:max-w-md max-h-[75vh] overflow-hidden flex flex-col">
-        <DialogHeader>
-          <DialogTitle>Attach a File</DialogTitle>
+    <Dialog open={showAssetPicker} onOpenChange={(v) => { if (!v) { setShowAssetPicker(false); setAssetSearch(""); } }}>
+      <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-hidden flex flex-col" data-testid="dialog-asset-picker">
+        <DialogHeader className="pb-0">
+          <DialogTitle className="flex items-center gap-2">
+            <Paperclip className="h-4 w-4 text-primary" /> Asset Library
+          </DialogTitle>
         </DialogHeader>
+
         {/* Upload from computer */}
         <button
-          className="flex items-center gap-3 w-full border border-dashed border-border/60 hover:border-primary/50 hover:bg-primary/5 rounded-lg px-3 py-2.5 text-left transition-colors group"
+          className="flex items-center gap-3 w-full border border-dashed border-border/60 hover:border-primary/50 hover:bg-primary/5 rounded-lg px-3 py-2 text-left transition-colors group -mt-1"
           onClick={() => { fileInputRef.current?.click(); setShowAssetPicker(false); }}
           data-testid="button-upload-from-computer"
         >
-          <div className="h-8 w-8 rounded-md bg-muted/60 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/10">
-            <Paperclip className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
+          <div className="h-7 w-7 rounded-md bg-muted/60 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/10">
+            <Upload className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary" />
           </div>
           <div>
-            <p className="text-sm font-medium">Upload from computer</p>
-            <p className="text-xs text-muted-foreground">Select any file from your device</p>
+            <p className="text-xs font-medium">Upload from computer</p>
+            <p className="text-[10px] text-muted-foreground">Select any file from your device</p>
           </div>
         </button>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground/50 -my-0.5">
-          <div className="flex-1 h-px bg-border/40" />
-          <span>or pick from saved assets</span>
-          <div className="flex-1 h-px bg-border/40" />
+
+        {/* Search */}
+        <div className="relative -mt-0.5">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <input
+            value={assetSearch}
+            onChange={e => setAssetSearch(e.target.value)}
+            placeholder="Search assets by name or description…"
+            className="w-full pl-8 pr-3 h-8 text-xs bg-muted/40 border border-border/40 rounded-md outline-none focus:border-primary/50 focus:bg-muted/60 transition-colors"
+            data-testid="input-asset-search"
+          />
         </div>
-        {/* Category filter */}
-        <div className="flex gap-1 flex-wrap pb-1">
-          {["all", "quotes", "general", "proposal", "presentation"].map(cat => (
-            <button key={cat} onClick={() => setAssetCategoryFilter(cat)}
-              className={`px-2.5 py-0.5 rounded text-xs font-medium transition-colors ${assetCategoryFilter === cat ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/80 text-muted-foreground"}`}
-              data-testid={`asset-filter-${cat}`}>
-              {cat === "all" ? "All" : cat.charAt(0).toUpperCase() + cat.slice(1)}
+
+        {/* Tab chips */}
+        <div className="flex gap-1 flex-wrap -mt-0.5 pb-0.5">
+          {[
+            { key: "recommended", label: "Recommended" },
+            { key: "sales",       label: "Sales" },
+            { key: "product",     label: "Product" },
+            { key: "proof",       label: "Proof" },
+            { key: "quotes",      label: "Quotes" },
+            { key: "brand",       label: "Brand" },
+            { key: "internal",    label: "Internal" },
+            { key: "recent",      label: "Recent" },
+            { key: "favorites",   label: "Favorites" },
+          ].map(tab => (
+            <button key={tab.key}
+              onClick={() => setAssetTab(tab.key)}
+              data-testid={`asset-tab-${tab.key}`}
+              className={`px-2.5 py-0.5 rounded text-xs font-medium transition-colors ${
+                assetTab === tab.key
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted hover:bg-muted/80 text-muted-foreground"
+              } ${tab.key === "internal" ? "border border-red-500/30 text-red-400 hover:bg-red-500/10" : ""}`}>
+              {tab.label}
             </button>
           ))}
         </div>
-        <div className="flex-1 overflow-y-auto space-y-1 py-1">
+
+        {/* Asset list */}
+        <div className="flex-1 overflow-y-auto space-y-0.5 py-0.5">
           {assetsQuery.isLoading && (
-            <div className="p-4 text-center text-sm text-muted-foreground">Loading assets...</div>
+            <div className="p-4 text-center text-sm text-muted-foreground">Loading assets…</div>
           )}
-          {!assetsQuery.isLoading && (assetsQuery.data || []).filter(a => assetCategoryFilter === "all" || a.category === assetCategoryFilter).length === 0 && (
+          {!assetsQuery.isLoading && (assetsQuery.data || []).length === 0 && (
             <div className="p-6 text-center text-sm text-muted-foreground">
-              <p>{assetCategoryFilter === "quotes" ? "No quote files yet. Create a quote to generate XLSX & HTML invoice files." : "No assets found."}</p>
-              {assetCategoryFilter !== "quotes" && (
-                <a href="/assets" target="_blank" className="text-primary hover:underline text-xs mt-1 block">
-                  Go to Assets to upload files →
-                </a>
-              )}
-              {assetCategoryFilter === "quotes" && (
-                <a href="/quotes" target="_blank" className="text-primary hover:underline text-xs mt-1 block">
-                  Go to Quotes →
-                </a>
-              )}
+              <Paperclip className="h-6 w-6 mx-auto mb-2 opacity-30" />
+              <p>{assetTab === "quotes" ? "No quote files yet. Create a quote to generate files." : assetTab === "favorites" ? "No favorites yet." : assetTab === "recent" ? "No recently attached assets." : "No assets found."}</p>
+              {assetTab === "quotes" && <a href="/quotes" target="_blank" className="text-primary hover:underline text-xs mt-1 block">Go to Quotes →</a>}
+              {assetTab !== "quotes" && <a href="/documents" target="_blank" className="text-primary hover:underline text-xs mt-1 block">Go to Asset Library →</a>}
             </div>
           )}
-          {(assetsQuery.data || [])
-            .filter(a => assetCategoryFilter === "all" || a.category === assetCategoryFilter)
-            .map((asset) => {
+          {(assetsQuery.data || []).map((asset) => {
             const isAttached = attachedAssets.some((a) => a.id === asset.id);
+            const vis = asset.visibility ?? "customer_safe";
+            const isRestricted = ["internal_only", "investor_only", "admin_only"].includes(vis);
+            const visLabel = vis.replace(/_/g, " ");
+
+            const handleToggle = () => {
+              if (isAttached) {
+                setAttachedAssets(prev => prev.filter(a => a.id !== asset.id));
+                return;
+              }
+              const doAttach = () => {
+                setAttachedAssets(prev => [...prev, { id: asset.id, name: asset.name }]);
+                // Track usage on server (fire-and-forget)
+                fetch(`/api/assets/${asset.id}/track-attachment`, { method: "PATCH", credentials: "include" }).catch(() => {});
+              };
+              if (isRestricted) {
+                setRestrictedWarning({ asset: { id: asset.id, name: asset.name, visibility: vis }, onConfirm: doAttach });
+              } else {
+                doAttach();
+              }
+            };
+
             return (
               <button
                 key={asset.id}
-                onClick={() => {
-                  setAttachedAssets((prev) =>
-                    isAttached ? prev.filter((a) => a.id !== asset.id) : [...prev, { id: asset.id, name: asset.name }]
-                  );
-                }}
+                onClick={handleToggle}
                 data-testid={`asset-picker-item-${asset.id}`}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors ${
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors ${
                   isAttached ? "bg-primary/10 border border-primary/30" : "hover:bg-muted/50"
-                }`}
+                } ${isRestricted && !isAttached ? "border border-red-500/10 bg-red-500/5" : ""}`}
               >
                 <div className={`h-4 w-4 rounded border flex-shrink-0 flex items-center justify-center ${
                   isAttached ? "bg-primary border-primary" : "border-border"
@@ -1702,16 +1777,32 @@ function ComposeDialog({
                 </div>
                 <Paperclip className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm truncate">{asset.name}</p>
-                  <p className="text-xs text-muted-foreground capitalize">{asset.category} · {asset.mimeType.split("/").pop()?.toUpperCase()}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs font-medium truncate">{asset.name}</p>
+                    {isRestricted && (
+                      <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium bg-red-500/10 text-red-400 border border-red-500/20 flex-shrink-0">
+                        <Lock className="h-2 w-2" />{visLabel}
+                      </span>
+                    )}
+                    {!isRestricted && vis === "customer_safe" && (
+                      <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium bg-teal-500/10 text-teal-400 border border-teal-500/20 flex-shrink-0" data-testid={`badge-customer-safe-asset-${asset.id}`}>
+                        Safe
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground capitalize mt-0.5">
+                    {asset.useCase ?? asset.category} · {asset.mimeType.split("/").pop()?.toUpperCase()}
+                    {(asset.usageCount ?? 0) > 0 && ` · Used ${asset.usageCount}×`}
+                  </p>
                 </div>
               </button>
             );
           })}
         </div>
-        <div className="flex-shrink-0 pt-3 flex justify-between items-center border-t border-border/50">
+
+        <div className="flex-shrink-0 pt-2 flex justify-between items-center border-t border-border/50">
           <span className="text-xs text-muted-foreground">{attachedAssets.length} attached</span>
-          <Button size="sm" onClick={() => setShowAssetPicker(false)} data-testid="button-done-assets">Done</Button>
+          <Button size="sm" onClick={() => { setShowAssetPicker(false); setAssetSearch(""); }} data-testid="button-done-assets">Done</Button>
         </div>
       </DialogContent>
     </Dialog>

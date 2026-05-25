@@ -11,49 +11,94 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  FileText, Upload, Link2, Search, Filter, Download, Eye, Trash2,
+  FileText, Upload, Link2, Search, Download, Eye, Trash2,
   ShieldCheck, Package, Wrench, Camera, Receipt, RefreshCcw, FlaskConical,
   FileSignature, Ruler, Paperclip, X, ExternalLink, FolderOpen, File,
-  FileImage, FileVideo, Building2, Users, Layers, Truck, ClipboardList,
-  Calendar, ChevronRight,
+  FileImage, FileVideo, ChevronRight, Star, Lock, Users, Megaphone,
+  TrendingUp, Layers, ShieldAlert,
 } from "lucide-react";
 import type { Attachment } from "@shared/schema";
 
-// ── Constants ────────────────────────────────────────────────────────────────
+// ── Use-Case (primary filter chips) ──────────────────────────────────────────
+
+export const ASSET_USE_CASES = [
+  { key: "all",      label: "All",      icon: FolderOpen,  color: "text-muted-foreground",  bg: "bg-muted/40",        border: "border-border/40" },
+  { key: "sales",    label: "Sales",    icon: TrendingUp,  color: "text-blue-400",          bg: "bg-blue-500/10",     border: "border-blue-500/20" },
+  { key: "product",  label: "Product",  icon: Package,     color: "text-cyan-400",          bg: "bg-cyan-500/10",     border: "border-cyan-500/20" },
+  { key: "proof",    label: "Proof",    icon: Camera,      color: "text-pink-400",          bg: "bg-pink-500/10",     border: "border-pink-500/20" },
+  { key: "quotes",   label: "Quotes",   icon: Receipt,     color: "text-amber-400",         bg: "bg-amber-500/10",    border: "border-amber-500/20" },
+  { key: "brand",    label: "Brand",    icon: Megaphone,   color: "text-purple-400",        bg: "bg-purple-500/10",   border: "border-purple-500/20" },
+  { key: "internal", label: "Internal", icon: Lock,        color: "text-red-400",           bg: "bg-red-500/10",      border: "border-red-500/20" },
+  { key: "general",  label: "General",  icon: Paperclip,   color: "text-muted-foreground",  bg: "bg-muted/30",        border: "border-border/40" },
+];
+
+// ── Detailed categories (secondary filter / type badge) ───────────────────────
 
 export const DOCUMENT_CATEGORIES = [
-  { key: "all", label: "All Categories", icon: FolderOpen, color: "text-muted-foreground", bg: "bg-muted/30", border: "border-border/40" },
-  { key: "quote_proposal", label: "Quote / Proposal", icon: FileText, color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20" },
-  { key: "contract", label: "Contract", icon: FileSignature, color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/20" },
-  { key: "certification", label: "Certification", icon: ShieldCheck, color: "text-green-400", bg: "bg-green-500/10", border: "border-green-500/20" },
-  { key: "lab_report", label: "Lab Report", icon: FlaskConical, color: "text-yellow-400", bg: "bg-yellow-500/10", border: "border-yellow-500/20" },
-  { key: "drawing_spec", label: "Drawing / Spec", icon: Ruler, color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/20" },
-  { key: "install_doc", label: "Install Document", icon: Wrench, color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20" },
-  { key: "deployment_photo", label: "Deployment Photo", icon: Camera, color: "text-pink-400", bg: "bg-pink-500/10", border: "border-pink-500/20" },
-  { key: "procurement_po", label: "Procurement / PO", icon: Package, color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20" },
-  { key: "invoice_billing", label: "Invoice / Billing", icon: Receipt, color: "text-red-400", bg: "bg-red-500/10", border: "border-red-500/20" },
-  { key: "cs_renewal", label: "CS / Renewal", icon: RefreshCcw, color: "text-teal-400", bg: "bg-teal-500/10", border: "border-teal-500/20" },
-  { key: "general", label: "General", icon: Paperclip, color: "text-muted-foreground", bg: "bg-muted/30", border: "border-border/40" },
+  { key: "all",              label: "All Categories",    icon: FolderOpen },
+  { key: "quote_proposal",   label: "Quote / Proposal",  icon: FileText },
+  { key: "contract",         label: "Contract",          icon: FileSignature },
+  { key: "certification",    label: "Certification",     icon: ShieldCheck },
+  { key: "lab_report",       label: "Lab Report",        icon: FlaskConical },
+  { key: "drawing_spec",     label: "Drawing / Spec",    icon: Ruler },
+  { key: "install_doc",      label: "Install Document",  icon: Wrench },
+  { key: "deployment_photo", label: "Deployment Photo",  icon: Camera },
+  { key: "procurement_po",   label: "Procurement / PO",  icon: Package },
+  { key: "invoice_billing",  label: "Invoice / Billing", icon: Receipt },
+  { key: "cs_renewal",       label: "CS / Renewal",      icon: RefreshCcw },
+  { key: "general",          label: "General",           icon: Paperclip },
+];
+
+// ── Visibility config ─────────────────────────────────────────────────────────
+
+export const VISIBILITY_OPTIONS = [
+  { key: "all",             label: "All Visibility" },
+  { key: "public",          label: "Public" },
+  { key: "customer_safe",   label: "Customer Safe" },
+  { key: "partner_safe",    label: "Partner Safe" },
+  { key: "internal_only",   label: "Internal Only" },
+  { key: "investor_only",   label: "Investor Only" },
+  { key: "admin_only",      label: "Admin Only" },
 ];
 
 export const OBJECT_TYPES = [
-  { key: "all", label: "All Records" },
-  { key: "account", label: "Account" },
-  { key: "contact", label: "Contact" },
-  { key: "opportunity", label: "Opportunity" },
-  { key: "quote", label: "Quote" },
+  { key: "all",              label: "All Records" },
+  { key: "account",          label: "Account" },
+  { key: "contact",          label: "Contact" },
+  { key: "opportunity",      label: "Opportunity" },
+  { key: "quote",            label: "Quote" },
   { key: "install_workflow", label: "Install Workflow" },
-  { key: "deployment", label: "Deployment" },
-  { key: "purchase_order", label: "Purchase Order" },
-  { key: "project", label: "Project" },
+  { key: "deployment",       label: "Deployment" },
+  { key: "purchase_order",   label: "Purchase Order" },
+  { key: "project",          label: "Project" },
   { key: "customer_success", label: "Customer Success" },
-  { key: "general", label: "General (unlinked)" },
+  { key: "general",          label: "General (unlinked)" },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+function getUseCaseMeta(key: string) {
+  return ASSET_USE_CASES.find(u => u.key === key) ?? ASSET_USE_CASES[0];
+}
+
 function getCategoryMeta(key: string) {
   return DOCUMENT_CATEGORIES.find(c => c.key === key) ?? DOCUMENT_CATEGORIES[DOCUMENT_CATEGORIES.length - 1];
+}
+
+function getVisibilityMeta(key: string) {
+  const map: Record<string, { label: string; color: string; icon: typeof Lock }> = {
+    public:          { label: "Public",          color: "text-green-400 bg-green-500/10 border-green-500/20",   icon: Eye },
+    customer_safe:   { label: "Customer Safe",   color: "text-teal-400 bg-teal-500/10 border-teal-500/20",     icon: Users },
+    partner_safe:    { label: "Partner Safe",    color: "text-blue-400 bg-blue-500/10 border-blue-500/20",     icon: Layers },
+    internal_only:   { label: "Internal Only",   color: "text-amber-400 bg-amber-500/10 border-amber-500/20",  icon: Lock },
+    investor_only:   { label: "Investor Only",   color: "text-red-400 bg-red-500/10 border-red-500/20",        icon: ShieldAlert },
+    admin_only:      { label: "Admin Only",      color: "text-red-500 bg-red-500/15 border-red-500/30",        icon: ShieldAlert },
+  };
+  return map[key] ?? map.customer_safe;
+}
+
+function isRestricted(visibility: string) {
+  return ["internal_only", "investor_only", "admin_only"].includes(visibility);
 }
 
 function formatFileSize(bytes: number): string {
@@ -97,7 +142,11 @@ function UploadModal({ open, onClose }: { open: boolean; onClose: () => void }) 
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [form, setForm] = useState({ objectType: "general", objectId: "0", category: "general", title: "", notes: "" });
+  const [form, setForm] = useState({
+    objectType: "general", objectId: "0", category: "general",
+    useCase: "general", visibility: "customer_safe",
+    title: "", notes: "",
+  });
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
@@ -106,6 +155,8 @@ function UploadModal({ open, onClose }: { open: boolean; onClose: () => void }) 
       fd.append("objectType", form.objectType);
       fd.append("objectId", form.objectId || "0");
       fd.append("category", form.category);
+      fd.append("useCase", form.useCase);
+      fd.append("visibility", form.visibility);
       if (form.title) fd.append("title", form.title);
       if (form.notes) fd.append("notes", form.notes);
       const res = await fetch("/api/attachments", { method: "POST", body: fd, credentials: "include" });
@@ -114,10 +165,10 @@ function UploadModal({ open, onClose }: { open: boolean; onClose: () => void }) 
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
-      toast({ title: "Document uploaded" });
+      toast({ title: "Asset uploaded" });
       onClose();
       setFile(null);
-      setForm({ objectType: "general", objectId: "0", category: "general", title: "", notes: "" });
+      setForm({ objectType: "general", objectId: "0", category: "general", useCase: "general", visibility: "customer_safe", title: "", notes: "" });
     },
     onError: (e: Error) => toast({ title: "Upload failed", description: e.message, variant: "destructive" }),
   });
@@ -126,9 +177,9 @@ function UploadModal({ open, onClose }: { open: boolean; onClose: () => void }) 
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
       <DialogContent className="max-w-md" data-testid="modal-upload-document">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Upload className="h-4 w-4" /> Upload Document</DialogTitle>
+          <DialogTitle className="flex items-center gap-2"><Upload className="h-4 w-4" /> Upload Asset</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-2">
+        <div className="space-y-3 py-2">
           <div>
             <Label className="text-xs text-muted-foreground mb-1.5 block">File</Label>
             <div
@@ -154,6 +205,27 @@ function UploadModal({ open, onClose }: { open: boolean; onClose: () => void }) 
 
           <div className="grid grid-cols-2 gap-3">
             <div>
+              <Label className="text-xs text-muted-foreground mb-1.5 block">Use Case</Label>
+              <Select value={form.useCase} onValueChange={v => setForm(f => ({ ...f, useCase: v }))}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-use-case"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ASSET_USE_CASES.filter(u => u.key !== "all").map(u => <SelectItem key={u.key} value={u.key}>{u.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1.5 block">Visibility</Label>
+              <Select value={form.visibility} onValueChange={v => setForm(f => ({ ...f, visibility: v }))}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-visibility"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {VISIBILITY_OPTIONS.filter(v => v.key !== "all").map(v => <SelectItem key={v.key} value={v.key}>{v.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
               <Label className="text-xs text-muted-foreground mb-1.5 block">Linked To</Label>
               <Select value={form.objectType} onValueChange={v => setForm(f => ({ ...f, objectType: v }))}>
                 <SelectTrigger className="h-8 text-xs" data-testid="select-object-type"><SelectValue /></SelectTrigger>
@@ -171,7 +243,7 @@ function UploadModal({ open, onClose }: { open: boolean; onClose: () => void }) 
           </div>
 
           <div>
-            <Label className="text-xs text-muted-foreground mb-1.5 block">Category</Label>
+            <Label className="text-xs text-muted-foreground mb-1.5 block">Detailed Category</Label>
             <Select value={form.category} onValueChange={v => setForm(f => ({ ...f, category: v }))}>
               <SelectTrigger className="h-8 text-xs" data-testid="select-category"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -180,14 +252,16 @@ function UploadModal({ open, onClose }: { open: boolean; onClose: () => void }) 
             </Select>
           </div>
 
-          <div>
-            <Label className="text-xs text-muted-foreground mb-1.5 block">Title (optional)</Label>
-            <Input className="h-8 text-xs" placeholder="Display name" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} data-testid="input-title" />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1.5 block">Title (optional)</Label>
+              <Input className="h-8 text-xs" placeholder="Display name" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} data-testid="input-title" />
+            </div>
           </div>
 
           <div>
             <Label className="text-xs text-muted-foreground mb-1.5 block">Notes (optional)</Label>
-            <Textarea className="text-xs min-h-[60px] resize-none" placeholder="Context or description…" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} data-testid="input-notes" />
+            <Textarea className="text-xs min-h-[56px] resize-none" placeholder="Context or description…" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} data-testid="input-notes" />
           </div>
         </div>
         <DialogFooter>
@@ -205,7 +279,10 @@ function UploadModal({ open, onClose }: { open: boolean; onClose: () => void }) 
 
 function LinkModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { toast } = useToast();
-  const [form, setForm] = useState({ url: "", title: "", objectType: "general", objectId: "0", category: "general", notes: "" });
+  const [form, setForm] = useState({
+    url: "", title: "", objectType: "general", objectId: "0",
+    category: "general", useCase: "general", visibility: "customer_safe", notes: "",
+  });
 
   const linkMutation = useMutation({
     mutationFn: async () => {
@@ -222,7 +299,7 @@ function LinkModal({ open, onClose }: { open: boolean; onClose: () => void }) {
       queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
       toast({ title: "Link added" });
       onClose();
-      setForm({ url: "", title: "", objectType: "general", objectId: "0", category: "general", notes: "" });
+      setForm({ url: "", title: "", objectType: "general", objectId: "0", category: "general", useCase: "general", visibility: "customer_safe", notes: "" });
     },
     onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
@@ -233,7 +310,7 @@ function LinkModal({ open, onClose }: { open: boolean; onClose: () => void }) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><Link2 className="h-4 w-4" /> Link URL</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-2">
+        <div className="space-y-3 py-2">
           <div>
             <Label className="text-xs text-muted-foreground mb-1.5 block">URL *</Label>
             <Input className="h-8 text-xs" placeholder="https://…" value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))} data-testid="input-url" />
@@ -241,6 +318,26 @@ function LinkModal({ open, onClose }: { open: boolean; onClose: () => void }) {
           <div>
             <Label className="text-xs text-muted-foreground mb-1.5 block">Title</Label>
             <Input className="h-8 text-xs" placeholder="Display name" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} data-testid="input-link-title" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1.5 block">Use Case</Label>
+              <Select value={form.useCase} onValueChange={v => setForm(f => ({ ...f, useCase: v }))}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-link-use-case"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ASSET_USE_CASES.filter(u => u.key !== "all").map(u => <SelectItem key={u.key} value={u.key}>{u.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1.5 block">Visibility</Label>
+              <Select value={form.visibility} onValueChange={v => setForm(f => ({ ...f, visibility: v }))}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-link-visibility"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {VISIBILITY_OPTIONS.filter(v => v.key !== "all").map(v => <SelectItem key={v.key} value={v.key}>{v.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -260,17 +357,8 @@ function LinkModal({ open, onClose }: { open: boolean; onClose: () => void }) {
             )}
           </div>
           <div>
-            <Label className="text-xs text-muted-foreground mb-1.5 block">Category</Label>
-            <Select value={form.category} onValueChange={v => setForm(f => ({ ...f, category: v }))}>
-              <SelectTrigger className="h-8 text-xs" data-testid="select-link-category"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {DOCUMENT_CATEGORIES.filter(c => c.key !== "all").map(c => <SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
             <Label className="text-xs text-muted-foreground mb-1.5 block">Notes (optional)</Label>
-            <Textarea className="text-xs min-h-[60px] resize-none" placeholder="Context…" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} data-testid="input-link-notes" />
+            <Textarea className="text-xs min-h-[56px] resize-none" placeholder="Context…" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} data-testid="input-link-notes" />
           </div>
         </div>
         <DialogFooter>
@@ -284,14 +372,33 @@ function LinkModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   );
 }
 
+// ── Visibility badge ─────────────────────────────────────────────────────────
+
+function VisibilityBadge({ visibility }: { visibility: string }) {
+  const meta = getVisibilityMeta(visibility);
+  const Icon = meta.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border ${meta.color}`}>
+      <Icon className="h-2.5 w-2.5" />
+      {meta.label}
+    </span>
+  );
+}
+
 // ── Document Detail Panel ────────────────────────────────────────────────────
 
-function DocumentDetail({ doc, onClose, onDeleted }: { doc: Attachment; onClose: () => void; onDeleted: () => void }) {
+function DocumentDetail({ doc, onClose, onDeleted }: { doc: Attachment & { useCase?: string; visibility?: string; isFavorite?: boolean }; onClose: () => void; onDeleted: () => void }) {
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState({ category: doc.category ?? "general", title: doc.title ?? "", notes: doc.notes ?? "" });
-  const catMeta = getCategoryMeta(doc.category ?? "general");
-  const CatIcon = catMeta.icon;
+  const [draft, setDraft] = useState({
+    category: doc.category ?? "general",
+    useCase: (doc as any).useCase ?? "general",
+    visibility: (doc as any).visibility ?? "customer_safe",
+    title: doc.title ?? "",
+    notes: doc.notes ?? "",
+  });
+  const ucMeta = getUseCaseMeta((doc as any).useCase ?? "general");
+  const UcIcon = ucMeta.icon;
   const MimeIcon = getMimeIcon(doc.mimeType, doc.source ?? "upload");
 
   const updateMutation = useMutation({
@@ -328,9 +435,8 @@ function DocumentDetail({ doc, onClose, onDeleted }: { doc: Attachment; onClose:
 
   return (
     <div className="flex flex-col h-full border-l border-border/30 bg-card/30">
-      {/* Header with inline actions — no bottom footer, avoids split-pane FAB conflict */}
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/30">
-        <span className="text-sm font-medium flex-1 truncate min-w-0">Document Details</span>
+        <span className="text-sm font-medium flex-1 truncate min-w-0">Asset Details</span>
         <div className="flex items-center gap-0.5 shrink-0">
           {doc.source === "upload" && doc.fileName && !editing && (
             <a href={`/api/attachments/file/${doc.fileName}`} download={doc.originalName}>
@@ -369,9 +475,12 @@ function DocumentDetail({ doc, onClose, onDeleted }: { doc: Attachment; onClose:
           </div>
         </div>
 
-        <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border ${catMeta.bg} ${catMeta.color} ${catMeta.border}`}>
-          <CatIcon className="h-3 w-3" />
-          {catMeta.label}
+        <div className="flex flex-wrap gap-1.5">
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${ucMeta.bg} ${ucMeta.color} ${ucMeta.border}`}>
+            <UcIcon className="h-3 w-3" />
+            {ucMeta.label}
+          </span>
+          <VisibilityBadge visibility={(doc as any).visibility ?? "customer_safe"} />
         </div>
 
         <div className="space-y-2 text-xs">
@@ -393,6 +502,10 @@ function DocumentDetail({ doc, onClose, onDeleted }: { doc: Attachment; onClose:
               <span className="font-medium">{formatFileSize(doc.fileSize)}</span>
             </div>
           )}
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Category</span>
+            <span className="font-medium">{getCategoryMeta(doc.category ?? "general").label}</span>
+          </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Source</span>
             <Badge variant="outline" className="text-[10px] h-4">{doc.source === "link" ? "URL Link" : "Upload"}</Badge>
@@ -417,8 +530,28 @@ function DocumentDetail({ doc, onClose, onDeleted }: { doc: Attachment; onClose:
 
         {editing && (
           <div className="space-y-3 pt-2 border-t border-border/30">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Use Case</Label>
+                <Select value={draft.useCase} onValueChange={v => setDraft(d => ({ ...d, useCase: v }))}>
+                  <SelectTrigger className="h-8 text-xs" data-testid="select-edit-use-case"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {ASSET_USE_CASES.filter(u => u.key !== "all").map(u => <SelectItem key={u.key} value={u.key}>{u.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Visibility</Label>
+                <Select value={draft.visibility} onValueChange={v => setDraft(d => ({ ...d, visibility: v }))}>
+                  <SelectTrigger className="h-8 text-xs" data-testid="select-edit-visibility"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {VISIBILITY_OPTIONS.filter(v => v.key !== "all").map(v => <SelectItem key={v.key} value={v.key}>{v.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <div>
-              <Label className="text-xs text-muted-foreground mb-1 block">Category</Label>
+              <Label className="text-xs text-muted-foreground mb-1 block">Detailed Category</Label>
               <Select value={draft.category} onValueChange={v => setDraft(d => ({ ...d, category: v }))}>
                 <SelectTrigger className="h-8 text-xs" data-testid="select-edit-category"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -437,41 +570,60 @@ function DocumentDetail({ doc, onClose, onDeleted }: { doc: Attachment; onClose:
           </div>
         )}
       </div>
-
     </div>
   );
 }
 
 // ── Document Row ─────────────────────────────────────────────────────────────
 
-function DocumentRow({ doc, selected, onClick }: { doc: Attachment; selected: boolean; onClick: () => void }) {
-  const catMeta = getCategoryMeta(doc.category ?? "general");
-  const CatIcon = catMeta.icon;
+type DocRow = Attachment & { useCase?: string; visibility?: string; isFavorite?: boolean };
+
+function DocumentRow({ doc, selected, onClick }: { doc: DocRow; selected: boolean; onClick: () => void }) {
+  const ucMeta = getUseCaseMeta((doc as any).useCase ?? "general");
+  const UcIcon = ucMeta.icon;
   const MimeIcon = getMimeIcon(doc.mimeType, doc.source ?? "upload");
+  const vis = (doc as any).visibility ?? "customer_safe";
+  const restricted = isRestricted(vis);
 
   return (
     <div
       onClick={onClick}
-      className={`flex items-center gap-3 px-4 py-3 border-b border-border/20 hover:bg-muted/20 cursor-pointer transition-colors ${selected ? "bg-primary/5 border-l-2 border-l-primary" : ""}`}
+      className={`flex items-center gap-3 px-4 py-2.5 border-b border-border/20 hover:bg-muted/20 cursor-pointer transition-colors ${selected ? "bg-primary/5 border-l-2 border-l-primary" : ""}`}
       data-testid={`document-row-${doc.id}`}
     >
       <div className="w-8 h-8 rounded-md bg-muted/30 flex items-center justify-center shrink-0">
         {doc.source === "link" ? <Link2 className="h-4 w-4 text-primary" /> : <MimeIcon className="h-4 w-4 text-muted-foreground" />}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{doc.title || doc.originalName}</p>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${catMeta.color}`}>
-            <CatIcon className="h-2.5 w-2.5" />{catMeta.label}
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm font-medium truncate">{doc.title || doc.originalName}</p>
+          {(doc as any).isFavorite && <Star className="h-3 w-3 text-amber-400 fill-amber-400 flex-shrink-0" />}
+        </div>
+        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+          <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${ucMeta.color}`}>
+            <UcIcon className="h-2.5 w-2.5" />{ucMeta.label}
           </span>
-          <span className="text-[10px] text-muted-foreground">·</span>
+          <span className="text-[10px] text-muted-foreground/40">·</span>
           <span className="text-[10px] text-muted-foreground capitalize">{getObjectTypeLabel(doc.objectType)}</span>
+          {restricted && (
+            <>
+              <span className="text-[10px] text-muted-foreground/40">·</span>
+              <span className={`inline-flex items-center gap-0.5 text-[10px] font-medium ${getVisibilityMeta(vis).color.split(" ")[0]}`}>
+                <Lock className="h-2 w-2" />{getVisibilityMeta(vis).label}
+              </span>
+            </>
+          )}
         </div>
       </div>
       <div className="text-right shrink-0 hidden sm:block">
         <p className="text-xs text-muted-foreground">{doc.uploadedByName ?? "—"}</p>
         <p className="text-[10px] text-muted-foreground/60">{timeAgo(doc.createdAt)}</p>
       </div>
+      {!restricted && (
+        <span className="hidden md:inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border text-teal-400 bg-teal-500/10 border-teal-500/20 shrink-0" data-testid={`badge-customer-safe-${doc.id}`}>
+          <Eye className="h-2.5 w-2.5" />Safe
+        </span>
+      )}
       <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
     </div>
   );
@@ -481,24 +633,27 @@ function DocumentRow({ doc, selected, onClick }: { doc: Attachment; selected: bo
 
 export default function DocumentsPage() {
   const [search, setSearch] = useState("");
+  const [useCaseFilter, setUseCaseFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [visibilityFilter, setVisibilityFilter] = useState("all");
   const [objectTypeFilter, setObjectTypeFilter] = useState("all");
-  const [sourceFilter, setSourceFilter] = useState("all");
   const [page, setPage] = useState(0);
-  const [selectedDoc, setSelectedDoc] = useState<Attachment | null>(null);
+  const [selectedDoc, setSelectedDoc] = useState<DocRow | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
   const limit = 50;
 
   const queryParams = new URLSearchParams();
   if (search) queryParams.set("search", search);
+  if (useCaseFilter !== "all") queryParams.set("useCase", useCaseFilter);
   if (categoryFilter !== "all") queryParams.set("category", categoryFilter);
+  if (visibilityFilter !== "all") queryParams.set("visibility", visibilityFilter);
   if (objectTypeFilter !== "all") queryParams.set("objectType", objectTypeFilter);
   queryParams.set("limit", String(limit));
   queryParams.set("offset", String(page * limit));
 
-  const { data, isLoading } = useQuery<{ documents: Attachment[]; total: number }>({
-    queryKey: ["/api/documents", search, categoryFilter, objectTypeFilter, page],
+  const { data, isLoading } = useQuery<{ documents: DocRow[]; total: number }>({
+    queryKey: ["/api/documents", search, useCaseFilter, categoryFilter, visibilityFilter, objectTypeFilter, page],
     queryFn: async () => {
       const res = await fetch(`/api/documents?${queryParams}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load documents");
@@ -509,12 +664,9 @@ export default function DocumentsPage() {
   const documents = data?.documents ?? [];
   const total = data?.total ?? 0;
 
-  const filtered = sourceFilter === "all" ? documents : documents.filter(d => (d.source ?? "upload") === sourceFilter);
-
-  const recentDocs = documents.slice(0, 6);
-
-  const statUploads = documents.filter(d => d.source === "upload").length;
-  const statLinks = documents.filter(d => d.source === "link").length;
+  const statSales = documents.filter(d => (d as any).useCase === "sales").length;
+  const statRestricted = documents.filter(d => isRestricted((d as any).visibility ?? "customer_safe")).length;
+  const statFavorites = documents.filter(d => (d as any).isFavorite).length;
 
   return (
     <div className="flex flex-col h-full min-h-0" data-testid="page-documents">
@@ -522,8 +674,8 @@ export default function DocumentsPage() {
       <div className="px-6 pt-5 pb-4 border-b border-border/30">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Document Hub</h1>
-            <p className="text-muted-foreground text-sm mt-0.5">Files, links and records — organized and searchable · {total} total</p>
+            <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Asset Library</h1>
+            <p className="text-muted-foreground text-sm mt-0.5">Files, links and records — organized by use case and visibility · {total} total</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <Button variant="outline" size="sm" onClick={() => setLinkOpen(true)} className="gap-1.5 text-xs" data-testid="button-link-url">
@@ -538,10 +690,10 @@ export default function DocumentsPage() {
         {/* Stats strip */}
         <div className="flex items-center gap-6 mt-4">
           {[
-            { label: "Total Documents", value: total },
-            { label: "Uploaded Files", value: statUploads },
-            { label: "URL Links", value: statLinks },
-            { label: "Categories", value: DOCUMENT_CATEGORIES.length - 1 },
+            { label: "Total Assets", value: total },
+            { label: "Sales", value: statSales },
+            { label: "Restricted", value: statRestricted },
+            { label: "Favorites", value: statFavorites },
           ].map(s => (
             <div key={s.label}>
               <p className="text-lg font-bold" data-testid={`stat-${s.label.toLowerCase().replace(/\s+/g, "-")}`}>{s.value}</p>
@@ -551,132 +703,113 @@ export default function DocumentsPage() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="px-6 py-3 border-b border-border/20 space-y-2.5">
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="relative flex-1 max-w-xs">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              className="pl-8 h-8 text-xs"
-              placeholder="Search documents…"
-              value={search}
-              onChange={e => { setSearch(e.target.value); setPage(0); }}
-              data-testid="input-search"
-            />
-          </div>
-          <Select value={objectTypeFilter} onValueChange={v => { setObjectTypeFilter(v); setPage(0); }}>
-            <SelectTrigger className="h-8 w-40 text-xs" data-testid="select-object-type-filter"><SelectValue placeholder="All Records" /></SelectTrigger>
-            <SelectContent>
-              {OBJECT_TYPES.map(t => <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={sourceFilter} onValueChange={v => { setSourceFilter(v); }}>
-            <SelectTrigger className="h-8 w-32 text-xs" data-testid="select-source-filter"><SelectValue placeholder="All Sources" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Sources</SelectItem>
-              <SelectItem value="upload">Uploads Only</SelectItem>
-              <SelectItem value="link">Links Only</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Category chips */}
+      {/* Use-case filter chips */}
+      <div className="px-6 pt-3 pb-1 border-b border-border/10">
         <div className="flex items-center gap-1.5 flex-wrap">
-          {DOCUMENT_CATEGORIES.map(c => {
-            const Icon = c.icon;
-            const active = categoryFilter === c.key;
+          {ASSET_USE_CASES.map(uc => {
+            const Icon = uc.icon;
+            const active = useCaseFilter === uc.key;
             return (
               <button
-                key={c.key}
-                onClick={() => { setCategoryFilter(c.key); setPage(0); }}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border transition-all ${active ? `${c.bg} ${c.color} ${c.border}` : "border-border/40 text-muted-foreground/70 hover:border-border"}`}
-                data-testid={`filter-category-${c.key}`}
+                key={uc.key}
+                onClick={() => { setUseCaseFilter(uc.key); setPage(0); }}
+                data-testid={`use-case-filter-${uc.key}`}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                  active
+                    ? `${uc.bg} ${uc.color} ${uc.border} shadow-sm`
+                    : "bg-muted/30 text-muted-foreground border-border/30 hover:bg-muted/50"
+                }`}
               >
-                <Icon className="h-2.5 w-2.5" />
-                {c.label}
+                <Icon className="h-3 w-3" />
+                {uc.label}
               </button>
             );
           })}
         </div>
       </div>
 
+      {/* Secondary filters + search */}
+      <div className="px-6 py-2.5 border-b border-border/20">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Search assets…"
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(0); }}
+              className="pl-8 h-8 text-xs"
+              data-testid="input-search"
+            />
+          </div>
+          <Select value={visibilityFilter} onValueChange={v => { setVisibilityFilter(v); setPage(0); }}>
+            <SelectTrigger className="h-8 text-xs w-40" data-testid="select-filter-visibility"><SelectValue placeholder="Visibility" /></SelectTrigger>
+            <SelectContent>
+              {VISIBILITY_OPTIONS.map(v => <SelectItem key={v.key} value={v.key}>{v.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={categoryFilter} onValueChange={v => { setCategoryFilter(v); setPage(0); }}>
+            <SelectTrigger className="h-8 text-xs w-44" data-testid="select-filter-category"><SelectValue placeholder="Category" /></SelectTrigger>
+            <SelectContent>
+              {DOCUMENT_CATEGORIES.map(c => <SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={objectTypeFilter} onValueChange={v => { setObjectTypeFilter(v); setPage(0); }}>
+            <SelectTrigger className="h-8 text-xs w-40" data-testid="select-filter-object-type"><SelectValue placeholder="Record Type" /></SelectTrigger>
+            <SelectContent>
+              {OBJECT_TYPES.map(t => <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {(search || useCaseFilter !== "all" || categoryFilter !== "all" || visibilityFilter !== "all" || objectTypeFilter !== "all") && (
+            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setSearch(""); setUseCaseFilter("all"); setCategoryFilter("all"); setVisibilityFilter("all"); setObjectTypeFilter("all"); setPage(0); }} data-testid="button-clear-filters">
+              Clear
+            </Button>
+          )}
+        </div>
+      </div>
+
       {/* Content */}
-      <div className="flex flex-1 min-h-0">
+      <div className={`flex flex-1 min-h-0 overflow-hidden`}>
         {/* Document list */}
-        <div className={`flex flex-col ${selectedDoc ? "w-1/2 lg:w-3/5" : "flex-1"} min-h-0`}>
-          {/* Recent (only when no filters active) */}
-          {!search && categoryFilter === "all" && objectTypeFilter === "all" && page === 0 && recentDocs.length > 0 && !selectedDoc && (
-            <div className="px-6 py-4 border-b border-border/20">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">Recent</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-                {recentDocs.map(doc => {
-                  const catMeta = getCategoryMeta(doc.category ?? "general");
-                  const CatIcon = catMeta.icon;
-                  const MimeIcon = getMimeIcon(doc.mimeType, doc.source ?? "upload");
-                  return (
-                    <button
-                      key={doc.id}
-                      onClick={() => setSelectedDoc(doc)}
-                      className="flex flex-col items-center p-2.5 rounded-lg border border-border/30 bg-card/30 hover:bg-muted/20 transition-colors text-center group"
-                      data-testid={`recent-doc-${doc.id}`}
-                    >
-                      <div className="w-8 h-8 rounded-md bg-muted/30 flex items-center justify-center mb-1.5">
-                        {doc.source === "link" ? <Link2 className="h-4 w-4 text-primary" /> : <MimeIcon className="h-4 w-4 text-muted-foreground" />}
-                      </div>
-                      <p className="text-[10px] font-medium truncate w-full">{doc.title || doc.originalName}</p>
-                      <span className={`text-[9px] mt-0.5 ${catMeta.color}`}>{catMeta.label}</span>
-                    </button>
-                  );
-                })}
+        <div className={`flex flex-col flex-1 min-w-0 overflow-hidden ${selectedDoc ? "hidden md:flex" : "flex"}`}>
+          <div className="flex-1 overflow-y-auto">
+            {isLoading ? (
+              <div className="p-4 space-y-1">
+                {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-14 w-full rounded-none" />)}
+              </div>
+            ) : documents.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-40 text-muted-foreground gap-2">
+                <FolderOpen className="h-8 w-8 opacity-30" />
+                <p className="text-sm">No assets found</p>
+                <p className="text-xs opacity-60">Try changing your filters or upload an asset</p>
+              </div>
+            ) : (
+              documents.map(doc => (
+                <DocumentRow
+                  key={doc.id}
+                  doc={doc}
+                  selected={selectedDoc?.id === doc.id}
+                  onClick={() => setSelectedDoc(doc)}
+                />
+              ))
+            )}
+          </div>
+
+          {/* Pagination */}
+          {total > limit && (
+            <div className="flex items-center justify-between px-4 py-2.5 border-t border-border/20 bg-card/20 shrink-0">
+              <p className="text-xs text-muted-foreground">{page * limit + 1}–{Math.min((page + 1) * limit, total)} of {total}</p>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="h-7 text-xs" disabled={page === 0} onClick={() => setPage(p => p - 1)} data-testid="button-prev-page">Prev</Button>
+                <Button variant="outline" size="sm" className="h-7 text-xs" disabled={(page + 1) * limit >= total} onClick={() => setPage(p => p + 1)} data-testid="button-next-page">Next</Button>
               </div>
             </div>
           )}
-
-          {/* List */}
-          <div className="flex-1 overflow-y-auto pb-36 md:pb-24">
-            {isLoading ? (
-              <div className="space-y-0">
-                {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-14 w-full rounded-none" />)}
-              </div>
-            ) : filtered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-center px-6">
-                <div className="w-12 h-12 rounded-xl bg-muted/30 flex items-center justify-center mb-3">
-                  <FolderOpen className="h-6 w-6 text-muted-foreground/50" />
-                </div>
-                <p className="font-medium text-sm">No documents found</p>
-                <p className="text-xs text-muted-foreground mt-1">Try adjusting your filters or upload a document</p>
-                <div className="flex gap-2 mt-4">
-                  <Button size="sm" variant="outline" onClick={() => setLinkOpen(true)} className="text-xs gap-1.5" data-testid="button-empty-link"><Link2 className="h-3 w-3" /> Link URL</Button>
-                  <Button size="sm" onClick={() => setUploadOpen(true)} className="text-xs gap-1.5 bg-primary text-primary-foreground" data-testid="button-empty-upload"><Upload className="h-3 w-3" /> Upload</Button>
-                </div>
-              </div>
-            ) : (
-              <>
-                {filtered.map(doc => (
-                  <DocumentRow
-                    key={doc.id}
-                    doc={doc}
-                    selected={selectedDoc?.id === doc.id}
-                    onClick={() => setSelectedDoc(selectedDoc?.id === doc.id ? null : doc)}
-                  />
-                ))}
-                {total > limit && (
-                  <div className="flex items-center justify-center gap-3 p-4">
-                    <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)} data-testid="button-prev-page" className="text-xs">Previous</Button>
-                    <span className="text-xs text-muted-foreground">{page * limit + 1}–{Math.min((page + 1) * limit, total)} of {total}</span>
-                    <Button variant="outline" size="sm" disabled={(page + 1) * limit >= total} onClick={() => setPage(p => p + 1)} data-testid="button-next-page" className="text-xs">Next</Button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
         </div>
 
         {/* Detail panel */}
         {selectedDoc && (
-          <div className="w-1/2 lg:w-2/5 min-h-0 overflow-hidden">
+          <div className="w-full md:w-80 shrink-0 overflow-hidden">
             <DocumentDetail
-              key={selectedDoc.id}
               doc={selectedDoc}
               onClose={() => setSelectedDoc(null)}
               onDeleted={() => setSelectedDoc(null)}
