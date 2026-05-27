@@ -376,6 +376,9 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
         if (count === 0) {
           setGeocodingActive(false);
           if (geocodeIntervalRef.current) clearInterval(geocodeIntervalRef.current);
+        } else {
+          // Re-trigger batch in case previous run only covered a partial set
+          fetch("/api/leads/geocode-batch", { method: "POST", credentials: "include" }).catch(() => {});
         }
       } catch { /* silent */ }
     }, 10000);

@@ -1479,6 +1479,12 @@ export async function registerRoutes(
           UPDATE leads SET lead_lat = ${parseFloat(gData[0].lat)}, lead_lng = ${parseFloat(gData[0].lon)}
           WHERE id = ${leadId} AND lead_lat IS NULL
         `);
+      } else {
+        // No result from Nominatim — mark as attempted so it never re-enters the queue
+        await db.execute(sql`
+          UPDATE leads SET lead_lat = -9999, lead_lng = -9999
+          WHERE id = ${leadId} AND lead_lat IS NULL
+        `);
       }
     } catch { /* silent */ }
   }
@@ -1518,6 +1524,7 @@ export async function registerRoutes(
         FROM leads l
         WHERE l.marina_id IS NULL
           AND l.lead_lat IS NOT NULL AND l.lead_lng IS NOT NULL
+          AND l.lead_lat > -9000
           AND l.lead_lat BETWEEN ${minLat} AND ${maxLat}
           AND l.lead_lng BETWEEN ${minLng} AND ${maxLng}
       ) sub
@@ -1556,7 +1563,7 @@ export async function registerRoutes(
             (city IS NOT NULL AND city != '') OR
             (street_address IS NOT NULL AND street_address != '')
           )
-        LIMIT 100
+        LIMIT 500
       `);
       const pending = result.rows as Array<{ id: number; street_address: string | null; city: string | null; state: string | null; zip_code: string | null; country: string | null }>;
       res.json({ started: true, count: pending.length });
