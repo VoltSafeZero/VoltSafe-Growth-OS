@@ -50,8 +50,11 @@ const PRIORITY_DOT: Record<string, string> = {
 };
 
 function fmtTime(d: string) {
-  try { return new Date(d).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
-  catch { return ""; }
+  try {
+    // Timestamps from the DB may lack a timezone marker — treat as UTC if ambiguous
+    const utc = d && !/[Z+]/.test(d) ? d.replace(" ", "T") + "Z" : d;
+    return new Date(utc).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  } catch { return ""; }
 }
 function parseSlips(s: string | null) {
   const m = String(s ?? "").match(/\d+/);

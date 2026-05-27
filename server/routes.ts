@@ -1561,7 +1561,7 @@ export async function registerRoutes(
         SELECT
           t.id                                              AS task_id,
           t.title,
-          t.due_date,
+          to_char(t.due_date, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS due_date,
           t.priority,
           t.status,
           l.id                                              AS lead_id,
