@@ -1465,28 +1465,40 @@ export async function registerRoutes(
   });
 
   // ── Background geocode helper (fire-and-forget, respects Nominatim 1 req/s) ─
-  async function geocodeLeadBg(leadId: number, streetAddress?: string | null, city?: string | null, state?: string | null, zipCode?: string | null, country?: string | null) {
+  let geocodeBatchRunning = false;
+
+  async function geocodeLeadBg(leadId: number, streetAddress?: string | null, city?: string | null, state?: string | null, zipCode?: string | null, country?: string | null): Promise<"ok" | "empty" | "rate_limit" | "error"> {
     try {
       const parts = [streetAddress, city, state, zipCode, country === "CA" ? "Canada" : country]
         .map((s) => (s ?? "").trim()).filter(Boolean).join(", ");
-      if (!parts) return;
+      if (!parts) return "empty";
       const gUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(parts)}&limit=1`;
-      const gRes = await fetch(gUrl, { headers: { "User-Agent": "VoltSafeCortex/1.0" }, signal: AbortSignal.timeout(8000) });
-      if (!gRes.ok) return;
+      const gRes = await fetch(gUrl, { headers: { "User-Agent": "VoltSafeCortex/1.0" }, signal: AbortSignal.timeout(10000) });
+      if (gRes.status === 429) {
+        console.log(`[geocode] rate-limited on lead ${leadId} — will back off`);
+        return "rate_limit";
+      }
+      if (!gRes.ok) {
+        console.log(`[geocode] Nominatim ${gRes.status} for lead ${leadId} — marking sentinel`);
+        await db.execute(sql`UPDATE leads SET lead_lat = -9999, lead_lng = -9999 WHERE id = ${leadId} AND lead_lat IS NULL`);
+        return "error";
+      }
       const gData = await gRes.json() as Array<{ lat: string; lon: string }>;
       if (gData[0]?.lat) {
         await db.execute(sql`
           UPDATE leads SET lead_lat = ${parseFloat(gData[0].lat)}, lead_lng = ${parseFloat(gData[0].lon)}
           WHERE id = ${leadId} AND lead_lat IS NULL
         `);
+        return "ok";
       } else {
         // No result from Nominatim — mark as attempted so it never re-enters the queue
-        await db.execute(sql`
-          UPDATE leads SET lead_lat = -9999, lead_lng = -9999
-          WHERE id = ${leadId} AND lead_lat IS NULL
-        `);
+        await db.execute(sql`UPDATE leads SET lead_lat = -9999, lead_lng = -9999 WHERE id = ${leadId} AND lead_lat IS NULL`);
+        return "empty";
       }
-    } catch { /* silent */ }
+    } catch (e) {
+      console.log(`[geocode] exception for lead ${leadId}:`, e);
+      return "error";
+    }
   }
 
   app.get("/api/leads/nearby", requireAuth, requirePermission("crm", "view"), async (req, res) => {
@@ -1553,6 +1565,10 @@ export async function registerRoutes(
 
   // POST /api/leads/geocode-batch — fire-and-forget background geocoding for unresolved leads
   app.post("/api/leads/geocode-batch", requireAuth, requirePermission("crm", "edit"), async (_req, res) => {
+    if (geocodeBatchRunning) {
+      res.json({ started: false, running: true });
+      return;
+    }
     try {
       const result = await db.execute(sql`
         SELECT id, street_address, city, state, zip_code, country
@@ -1567,14 +1583,28 @@ export async function registerRoutes(
       `);
       const pending = result.rows as Array<{ id: number; street_address: string | null; city: string | null; state: string | null; zip_code: string | null; country: string | null }>;
       res.json({ started: true, count: pending.length });
+      if (pending.length === 0) return;
+      geocodeBatchRunning = true;
+      console.log(`[geocode-batch] starting — ${pending.length} leads`);
       // Process in background — do NOT await
       (async () => {
+        let ok = 0, empty = 0, rateLimited = 0, errors = 0;
+        let delay = 1200; // ms between requests
         for (const lead of pending) {
-          await geocodeLeadBg(lead.id, lead.street_address, lead.city, lead.state, lead.zip_code, lead.country);
-          await new Promise(r => setTimeout(r, 1100)); // Respect Nominatim 1 req/s ToS
+          const outcome = await geocodeLeadBg(lead.id, lead.street_address, lead.city, lead.state, lead.zip_code, lead.country);
+          if (outcome === "ok") { ok++; delay = 1200; }
+          else if (outcome === "empty") { empty++; delay = 1200; }
+          else if (outcome === "rate_limit") {
+            rateLimited++;
+            delay = Math.min(delay * 2, 10000); // exponential back-off, cap 10s
+          } else { errors++; }
+          await new Promise(r => setTimeout(r, delay));
         }
+        geocodeBatchRunning = false;
+        console.log(`[geocode-batch] done — ok=${ok} empty=${empty} rateLimited=${rateLimited} errors=${errors}`);
       })();
-    } catch {
+    } catch (e) {
+      geocodeBatchRunning = false;
       res.status(500).json({ message: "Failed to start geocoding" });
     }
   });
