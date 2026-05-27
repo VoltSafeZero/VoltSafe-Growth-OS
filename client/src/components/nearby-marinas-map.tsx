@@ -5,11 +5,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Navigation, MapPin, Anchor,
-  Locate, Loader2, ArrowUpDown
+  Locate, Loader2, ArrowUpDown,
+  Sparkles, SlidersHorizontal, List, X,
 } from "lucide-react";
 import AddressAutocomplete from "@/components/address-autocomplete";
 import { MarinasDayPlannerDialog } from "@/components/marinas-day-planner-dialog";
-import { Sparkles, SlidersHorizontal, List, X } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
@@ -243,6 +243,8 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedLeadIds, setSelectedLeadIds] = useState<Set<number>>(new Set());
   const [preselectedForPlanner, setPreselectedForPlanner] = useState<NearbyLead[] | null>(null);
+  const [mapPickMode, setMapPickMode] = useState<"start" | "end" | null>(null);
+  const [pickedMapLocation, setPickedMapLocation] = useState<{ lat: number; lng: number; target: "start" | "end" } | null>(null);
   const [pendingGeoCount, setPendingGeoCount] = useState<number>(0);
   const [geocodingActive, setGeocodingActive] = useState(false);
   const geocodeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -387,6 +389,19 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
     }, 10000);
     return () => { if (geocodeIntervalRef.current) clearInterval(geocodeIntervalRef.current); };
   }, [geocodingActive, debouncedFetchFromBounds]);
+
+  // ── Map-pick mode: capture a single click for start/end location ────────────
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapPickMode) return;
+    const handler = (e: L.LeafletMouseEvent) => {
+      setPickedMapLocation({ lat: e.latlng.lat, lng: e.latlng.lng, target: mapPickMode });
+      setMapPickMode(null);
+      setPlannerOpen(true);
+    };
+    map.on("click", handler);
+    return () => { map.off("click", handler); };
+  }, [mapPickMode]);
 
   const handleAddressSelect = (lat: number, lng: number, _displayName: string) => {
     setMapCenter({ lat, lng });
@@ -868,6 +883,24 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
             </button>
           )}
 
+          {/* Map-pick mode banner */}
+          {mapPickMode && (
+            <div className="absolute top-3 left-3 right-3 z-[700] flex items-center gap-3 backdrop-blur-xl bg-background/95 border border-primary/40 rounded-2xl px-4 py-3 shadow-2xl" data-testid="banner-map-pick">
+              <MapPin className="h-4 w-4 text-primary flex-shrink-0" />
+              <p className="text-sm font-medium flex-1">
+                Click anywhere on the map to set your <span className="text-primary">{mapPickMode === "start" ? "start" : "end"} location</span>
+              </p>
+              <button
+                onClick={() => { setMapPickMode(null); setPlannerOpen(true); }}
+                className="text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-muted/60 transition"
+                aria-label="Cancel pick"
+                data-testid="button-cancel-map-pick"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
           {/* Selection mode: top banner + bottom action bar */}
           {selectionMode && (
             <>
@@ -1061,7 +1094,7 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
         open={plannerOpen}
         onOpenChange={(o) => {
           setPlannerOpen(o);
-          if (!o) {
+          if (!o && !mapPickMode) {
             setPreselectedForPlanner(null);
             setSelectedLeadIds(new Set());
           }
@@ -1069,6 +1102,11 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
         userLocation={userLocation}
         defaultStageFilter={stageFilter}
         preselectedLeads={preselectedForPlanner as any}
+        onRequestMapPick={(target) => {
+          setPlannerOpen(false);
+          setMapPickMode(target);
+        }}
+        pickedLocation={pickedMapLocation}
       />
     </div>
   );

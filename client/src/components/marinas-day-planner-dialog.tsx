@@ -1,11 +1,15 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Sparkles, Loader2, Navigation, Clock, Anchor, MapPin, ExternalLink, RotateCcw, Target } from "lucide-react";
+import {
+  Sparkles, Loader2, Navigation, Clock, Anchor, MapPin, ExternalLink,
+  RotateCcw, Target, LocateFixed, Search, Check, X, Map,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { WheelPicker, WheelGroup, type WheelOption } from "@/components/ui/wheel-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -41,6 +45,11 @@ type Plan = {
   candidatesConsidered: number;
 };
 
+type LocMode = "current" | "address" | "map";
+type EndMode = "return_start" | "finish_last" | "custom";
+type GeoPoint = { lat: number; lng: number };
+type ResolvedGeo = GeoPoint & { display: string };
+
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
   const toRad = (d: number) => (d * Math.PI) / 180;
@@ -75,11 +84,12 @@ function fmtClock(startTotalMin: number, addMin: number): string {
 }
 
 function planRoute(
-  start: { lat: number; lng: number },
+  start: GeoPoint,
   candidates: PlannerLead[],
-  opts: { hoursAvailable: number; visitMin: number; avgSpeedKmh: number; returnToStart: boolean }
+  opts: { hoursAvailable: number; visitMin: number; avgSpeedKmh: number; returnTo: GeoPoint | null }
 ): Plan {
-  const budgetMin = opts.hoursAvailable * 60;
+  const { hoursAvailable, visitMin, avgSpeedKmh, returnTo } = opts;
+  const budgetMin = hoursAvailable * 60;
   const stops: PlannedStop[] = [];
   let cur = start;
   let elapsed = 0;
@@ -93,55 +103,50 @@ function planRoute(
     }
     if (bestIdx === -1) break;
     const lead = pool[bestIdx];
-    const driveMin = (bestKm / opts.avgSpeedKmh) * 60;
+    const driveMin = (bestKm / avgSpeedKmh) * 60;
     const arriveMin = elapsed + driveMin;
-    const departMin = arriveMin + opts.visitMin;
-    const backKm = haversineKm(lead.marina_lat, lead.marina_lng, start.lat, start.lng);
-    const backMin = (backKm / opts.avgSpeedKmh) * 60;
-    const projectedTotal = opts.returnToStart ? departMin + backMin : departMin;
-    if (projectedTotal > budgetMin) {
-      pool.splice(bestIdx, 1);
-      continue;
+    const departMin = arriveMin + visitMin;
+    let projectedTotal = departMin;
+    if (returnTo) {
+      const backKm = haversineKm(lead.marina_lat, lead.marina_lng, returnTo.lat, returnTo.lng);
+      projectedTotal = departMin + (backKm / avgSpeedKmh) * 60;
     }
+    if (projectedTotal > budgetMin) { pool.splice(bestIdx, 1); continue; }
     stops.push({ lead, driveKm: bestKm, driveMin, arriveMin, departMin });
     elapsed = departMin;
     cur = { lat: lead.marina_lat, lng: lead.marina_lng };
     pool.splice(bestIdx, 1);
   }
   const last = stops[stops.length - 1];
-  const returnDriveKm = last ? haversineKm(last.lead.marina_lat, last.lead.marina_lng, start.lat, start.lng) : 0;
-  const returnDriveMin = (returnDriveKm / opts.avgSpeedKmh) * 60;
-  const totalDriveKm = stops.reduce((sum, s) => sum + s.driveKm, 0) + (opts.returnToStart ? returnDriveKm : 0);
-  const totalDriveMin = stops.reduce((sum, s) => sum + s.driveMin, 0) + (opts.returnToStart ? returnDriveMin : 0);
-  const totalElapsedMin = (last ? last.departMin : 0) + (opts.returnToStart ? returnDriveMin : 0);
-  return {
-    stops, totalDriveKm, totalDriveMin, totalElapsedMin,
-    returnDriveKm, returnDriveMin, candidatesConsidered: candidates.length,
-  };
+  const returnDriveKm = (last && returnTo)
+    ? haversineKm(last.lead.marina_lat, last.lead.marina_lng, returnTo.lat, returnTo.lng) : 0;
+  const returnDriveMin = returnDriveKm > 0 ? (returnDriveKm / avgSpeedKmh) * 60 : 0;
+  const totalDriveKm = stops.reduce((s, x) => s + x.driveKm, 0) + returnDriveKm;
+  const totalDriveMin = stops.reduce((s, x) => s + x.driveMin, 0) + returnDriveMin;
+  const totalElapsedMin = (last ? last.departMin : 0) + returnDriveMin;
+  return { stops, totalDriveKm, totalDriveMin, totalElapsedMin, returnDriveKm, returnDriveMin, candidatesConsidered: candidates.length };
 }
 
-function buildGoogleMapsUrl(start: { lat: number; lng: number }, stops: PlannedStop[], returnToStart: boolean): string {
+function buildGoogleMapsUrl(start: GeoPoint, stops: PlannedStop[], end: GeoPoint | null): string {
   if (!stops.length) return "";
   const origin = `${start.lat},${start.lng}`;
   const last = stops[stops.length - 1];
-  const destination = returnToStart ? origin : `${last.lead.marina_lat},${last.lead.marina_lng}`;
-  const waypoints = (returnToStart ? stops : stops.slice(0, -1))
-    .map(s => `${s.lead.marina_lat},${s.lead.marina_lng}`).join("|");
+  const destination = end
+    ? `${end.lat},${end.lng}`
+    : `${last.lead.marina_lat},${last.lead.marina_lng}`;
+  const waypointStops = end ? stops : stops.slice(0, -1);
+  const waypoints = waypointStops.map(s => `${s.lead.marina_lat},${s.lead.marina_lng}`).join("|");
   const params = new URLSearchParams({ api: "1", origin, destination, travelmode: "driving" });
   if (waypoints) params.set("waypoints", waypoints);
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 }
 
-// ── Wheel option builders ────────────────────────────────────────────
 const HOUR_OPTIONS: WheelOption[] = Array.from({ length: 24 }, (_, h) => {
   const period = h >= 12 ? "PM" : "AM";
   const h12 = h % 12 === 0 ? 12 : h % 12;
   return { value: h, label: `${h12} ${period}` };
 });
-const MINUTE_OPTIONS: WheelOption[] = Array.from({ length: 12 }, (_, i) => {
-  const m = i * 5;
-  return { value: m, label: String(m).padStart(2, "0") };
-});
+const MINUTE_OPTIONS: WheelOption[] = Array.from({ length: 12 }, (_, i) => ({ value: i * 5, label: String(i * 5).padStart(2, "0") }));
 const VISIT_MIN_OPTIONS: WheelOption[] = [10, 15, 20, 30, 45, 60, 75, 90, 120, 150, 180].map(m => ({ value: m, label: `${m} min` }));
 const SPEED_OPTIONS: WheelOption[] = [20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120].map(s => ({ value: s, label: `${s} km/h` }));
 const SLIP_OPTIONS: WheelOption[] = [0, 25, 50, 100, 150, 200, 250, 300, 400, 500, 750, 1000, 1500].map(s => ({ value: s, label: s === 0 ? "Any" : `${s}+` }));
@@ -149,28 +154,91 @@ const RADIUS_OPTIONS: WheelOption[] = [5, 10, 15, 20, 30, 40, 50, 75, 100, 150, 
 
 function buildDayOptions(): WheelOption[] {
   const labels: WheelOption[] = [];
-  const days = 14;
   const today = new Date();
-  for (let i = 0; i < days; i++) {
+  for (let i = 0; i < 14; i++) {
     const d = new Date(today.getTime() + i * 86_400_000);
-    const dayLabel =
-      i === 0 ? "Today" :
-      i === 1 ? "Tomorrow" :
-      d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-    labels.push({ value: i, label: dayLabel });
+    const label = i === 0 ? "Today" : i === 1 ? "Tomorrow" : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    labels.push({ value: i, label });
   }
   return labels;
 }
 
 const STAGE_LABELS: Record<string, string> = {
-  all: "All stages",
-  new: "New", contacted: "Contacted", meeting_scheduled: "Meeting scheduled",
+  all: "All stages", new: "New", contacted: "Contacted", meeting_scheduled: "Meeting scheduled",
   qualified: "Qualified", proposal_sent: "Proposal sent", negotiation: "Negotiation",
   converted: "Closed Won", lost: "Closed Lost",
 };
 
-function dayHourMinToTotalMin(dayOffset: number, hour: number, minute: number): number {
-  return dayOffset * 24 * 60 + hour * 60 + minute;
+function dayHourMinToTotalMin(d: number, h: number, m: number): number { return d * 24 * 60 + h * 60 + m; }
+
+async function geocodeAddress(q: string): Promise<ResolvedGeo | null> {
+  const res = await fetch(`/api/geocode/search?q=${encodeURIComponent(q)}`, { credentials: "include" });
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!data?.lat) return null;
+  return { lat: parseFloat(data.lat), lng: parseFloat(data.lon ?? data.lng), display: data.display_name ?? q };
+}
+
+function LocModeToggle({ value, onChange, onPickMap, label }: {
+  value: LocMode; onChange: (v: LocMode) => void; onPickMap: () => void; label: string;
+}) {
+  return (
+    <div>
+      <Label className="text-xs mb-2 block">{label}</Label>
+      <div className="flex gap-1.5 flex-wrap">
+        {(["current", "address", "map"] as LocMode[]).map(mode => (
+          <button
+            key={mode}
+            onClick={() => { if (mode === "map") { onPickMap(); } else { onChange(mode); } }}
+            className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all ${
+              value === mode
+                ? "bg-primary/20 border-primary/50 text-primary"
+                : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
+            }`}
+            data-testid={`button-loc-${label.toLowerCase().replace(/\s+/g, "-")}-${mode}`}
+          >
+            {mode === "current" && <LocateFixed className="h-3 w-3" />}
+            {mode === "address" && <Search className="h-3 w-3" />}
+            {mode === "map" && <Map className="h-3 w-3" />}
+            {mode === "current" ? "My location" : mode === "address" ? "Address" : "Pick on map"}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AddressSearchRow({ inputVal, onInputChange, onSearch, loading, resolved, onClear, placeholder }: {
+  inputVal: string; onInputChange: (v: string) => void; onSearch: () => void;
+  loading: boolean; resolved: ResolvedGeo | null; onClear: () => void; placeholder?: string;
+}) {
+  return (
+    <div className="space-y-1.5 mt-2">
+      <div className="flex gap-2">
+        <Input
+          value={inputVal}
+          onChange={e => onInputChange(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && onSearch()}
+          placeholder={placeholder ?? "Enter address or city…"}
+          className="h-8 text-xs flex-1"
+          data-testid="input-loc-address"
+        />
+        <Button size="sm" variant="outline" className="h-8 px-2.5 gap-1.5" onClick={onSearch} disabled={loading || !inputVal.trim()}>
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+        </Button>
+        {resolved && (
+          <Button size="sm" variant="ghost" className="h-8 px-2" onClick={onClear}>
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </div>
+      {resolved && (
+        <p className="text-[11px] text-emerald-400 flex items-center gap-1">
+          <Check className="h-3 w-3" /> {resolved.display}
+        </p>
+      )}
+    </div>
+  );
 }
 
 interface Props {
@@ -178,31 +246,44 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   userLocation: { lat: number; lng: number } | null;
   defaultStageFilter?: string;
-  /** When provided, planning uses ONLY these leads instead of fetching by radius. */
   preselectedLeads?: PlannerLead[] | null;
+  onRequestMapPick?: (target: "start" | "end") => void;
+  pickedLocation?: { lat: number; lng: number; target: "start" | "end" } | null;
 }
 
 export function MarinasDayPlannerDialog({
   open, onOpenChange, userLocation, defaultStageFilter, preselectedLeads,
+  onRequestMapPick, pickedLocation,
 }: Props) {
   const { toast } = useToast();
   const dayOptions = useMemo(buildDayOptions, []);
 
-  // Time wheels (start)
   const [startDay, setStartDay] = useState(0);
   const [startHour, setStartHour] = useState(9);
   const [startMin, setStartMin] = useState(0);
-  // Time wheels (stop)
   const [stopDay, setStopDay] = useState(0);
   const [stopHour, setStopHour] = useState(17);
   const [stopMin, setStopMin] = useState(0);
-  // Trip params
+
   const [visitMin, setVisitMin] = useState(30);
   const [avgSpeedKmh, setAvgSpeedKmh] = useState(50);
   const [minSlips, setMinSlips] = useState<number>(0);
   const [searchRadiusKm, setSearchRadiusKm] = useState<number>(50);
   const [stageFilter, setStageFilter] = useState<string>(defaultStageFilter || "all");
-  const [returnToStart, setReturnToStart] = useState(true);
+
+  // ── Start location ──────────────────────────────────────────────────────────
+  const [startLocMode, setStartLocMode] = useState<LocMode>("current");
+  const [startAddrInput, setStartAddrInput] = useState("");
+  const [startAddrGeo, setStartAddrGeo] = useState<ResolvedGeo | null>(null);
+  const [startAddrLoading, setStartAddrLoading] = useState(false);
+  const [startMapGeo, setStartMapGeo] = useState<GeoPoint | null>(null);
+
+  // ── End location ────────────────────────────────────────────────────────────
+  const [endLocMode, setEndLocMode] = useState<EndMode>("return_start");
+  const [endAddrInput, setEndAddrInput] = useState("");
+  const [endAddrGeo, setEndAddrGeo] = useState<ResolvedGeo | null>(null);
+  const [endAddrLoading, setEndAddrLoading] = useState(false);
+  const [endMapGeo, setEndMapGeo] = useState<GeoPoint | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -213,23 +294,79 @@ export function MarinasDayPlannerDialog({
   const windowMin = stopTotalMin - startTotalMin;
   const hoursAvailable = windowMin > 0 ? windowMin / 60 : 0;
 
-  // Reset plan whenever scope changes
-  useEffect(() => { setPlan(null); }, [startTotalMin, stopTotalMin, visitMin, avgSpeedKmh, minSlips, searchRadiusKm, stageFilter, returnToStart, preselectedLeads]);
+  const effectiveStart: GeoPoint | null = useMemo(() => {
+    if (startLocMode === "current") return userLocation;
+    if (startLocMode === "map") return startMapGeo;
+    return startAddrGeo ? { lat: startAddrGeo.lat, lng: startAddrGeo.lng } : null;
+  }, [startLocMode, userLocation, startMapGeo, startAddrGeo]);
 
-  // Clear stale plan/error/loading whenever the dialog closes so reopening starts fresh.
+  const effectiveEnd: GeoPoint | null = useMemo(() => {
+    if (endLocMode === "return_start") return effectiveStart;
+    if (endLocMode === "finish_last") return null;
+    if (endAddrGeo) return { lat: endAddrGeo.lat, lng: endAddrGeo.lng };
+    if (endMapGeo) return endMapGeo;
+    return null;
+  }, [endLocMode, effectiveStart, endAddrGeo, endMapGeo]);
+
+  // Consume picked map location from parent
+  const lastPickedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!open) {
-      setPlan(null);
-      setError(null);
-      setLoading(false);
+    if (!pickedLocation) return;
+    const key = `${pickedLocation.lat},${pickedLocation.lng},${pickedLocation.target}`;
+    if (key === lastPickedRef.current) return;
+    lastPickedRef.current = key;
+    if (pickedLocation.target === "start") {
+      setStartLocMode("map");
+      setStartMapGeo({ lat: pickedLocation.lat, lng: pickedLocation.lng });
+    } else {
+      setEndLocMode("custom");
+      setEndMapGeo({ lat: pickedLocation.lat, lng: pickedLocation.lng });
     }
+  }, [pickedLocation]);
+
+  useEffect(() => {
+    setPlan(null);
+  }, [startTotalMin, stopTotalMin, visitMin, avgSpeedKmh, minSlips, searchRadiusKm, stageFilter, preselectedLeads, effectiveStart?.lat, effectiveStart?.lng, endLocMode, effectiveEnd?.lat, effectiveEnd?.lng]);
+
+  useEffect(() => {
+    if (!open) { setPlan(null); setError(null); setLoading(false); }
   }, [open]);
 
   const usingPreselected = !!(preselectedLeads && preselectedLeads.length > 0);
 
+  const searchStartAddr = async () => {
+    if (!startAddrInput.trim()) return;
+    setStartAddrLoading(true);
+    const geo = await geocodeAddress(startAddrInput);
+    setStartAddrLoading(false);
+    if (geo) { setStartAddrGeo(geo); }
+    else toast({ title: "Address not found", description: "Try a more specific address.", variant: "destructive" });
+  };
+
+  const searchEndAddr = async () => {
+    if (!endAddrInput.trim()) return;
+    setEndAddrLoading(true);
+    const geo = await geocodeAddress(endAddrInput);
+    setEndAddrLoading(false);
+    if (geo) { setEndAddrGeo(geo); }
+    else toast({ title: "Address not found", description: "Try a more specific address.", variant: "destructive" });
+  };
+
+  const startReady = effectiveStart !== null;
+  const endCustomReady = endLocMode !== "custom" || (endAddrGeo !== null || endMapGeo !== null);
+
   const runPlan = async () => {
-    if (!userLocation) {
-      toast({ title: "Location needed", description: "Enable My Location on the map first.", variant: "destructive" });
+    if (!effectiveStart) {
+      const msg = startLocMode === "current"
+        ? 'Enable "My Location" on the map first.'
+        : startLocMode === "address"
+        ? "Search for a start address first."
+        : "Pick a start location on the map first.";
+      toast({ title: "Start location needed", description: msg, variant: "destructive" });
+      return;
+    }
+    if (!endCustomReady) {
+      toast({ title: "End location needed", description: "Search for an end address or pick one on the map.", variant: "destructive" });
       return;
     }
     if (windowMin <= 0) {
@@ -244,7 +381,7 @@ export function MarinasDayPlannerDialog({
       if (usingPreselected) {
         candidates = preselectedLeads!.filter(l => typeof l.marina_lat === "number" && typeof l.marina_lng === "number");
       } else {
-        const url = `/api/leads/nearby?lat=${userLocation.lat}&lng=${userLocation.lng}&radius=${searchRadiusKm}&limit=500`;
+        const url = `/api/leads/nearby?lat=${effectiveStart.lat}&lng=${effectiveStart.lng}&radius=${searchRadiusKm}&limit=500`;
         const res = await fetch(url, { credentials: "include" });
         if (!res.ok) throw new Error("Failed to fetch nearby marinas");
         const all: PlannerLead[] = await res.json();
@@ -258,12 +395,13 @@ export function MarinasDayPlannerDialog({
       if (!candidates.length) {
         setError(usingPreselected
           ? "No selected marinas have map coordinates."
-          : "No marinas matched your scope within reach. Widen the radius, slip count, or stage filter.");
+          : "No marinas matched your scope. Widen the radius, slip count, or stage filter.");
         return;
       }
-      const result = planRoute(userLocation, candidates, { hoursAvailable, visitMin, avgSpeedKmh, returnToStart });
+      const returnTo = endLocMode === "finish_last" ? null : effectiveEnd;
+      const result = planRoute(effectiveStart, candidates, { hoursAvailable, visitMin, avgSpeedKmh, returnTo });
       if (!result.stops.length) {
-        setError("Couldn't fit any marinas in your time window. Try a longer window, fewer minutes per visit, or a higher driving speed.");
+        setError("Couldn't fit any marinas in your time window. Try a longer window, fewer minutes per visit, or a higher speed.");
         return;
       }
       setPlan(result);
@@ -275,7 +413,21 @@ export function MarinasDayPlannerDialog({
   };
 
   const reset = () => { setPlan(null); setError(null); };
-  const mapsUrl = plan && userLocation ? buildGoogleMapsUrl(userLocation, plan.stops, returnToStart) : "";
+  const mapsUrl = plan && effectiveStart
+    ? buildGoogleMapsUrl(effectiveStart, plan.stops, endLocMode === "finish_last" ? null : effectiveEnd)
+    : "";
+
+  const startLocLabel = () => {
+    if (startLocMode === "current") return userLocation ? "My location" : "My location (not set)";
+    if (startLocMode === "map") return startMapGeo ? `${startMapGeo.lat.toFixed(4)}, ${startMapGeo.lng.toFixed(4)}` : "Pick on map";
+    return startAddrGeo ? startAddrGeo.display : "Address";
+  };
+  const endLocLabel = () => {
+    if (endLocMode === "return_start") return `Return to ${startLocLabel()}`;
+    if (endLocMode === "finish_last") return "Finish at last stop";
+    if (endMapGeo) return `${endMapGeo.lat.toFixed(4)}, ${endMapGeo.lng.toFixed(4)}`;
+    return endAddrGeo ? endAddrGeo.display : "Custom location";
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -285,7 +437,7 @@ export function MarinasDayPlannerDialog({
             <Sparkles className="h-5 w-5 text-primary" /> Plan my marina day
           </DialogTitle>
           <DialogDescription>
-            Spin the wheels to set your day. Cortex builds the most efficient driving route from your location.
+            Set your start and end points, then let Cortex build the most efficient driving route.
           </DialogDescription>
         </DialogHeader>
 
@@ -298,7 +450,119 @@ export function MarinasDayPlannerDialog({
               </div>
             )}
 
-            {/* Start time */}
+            {/* ── Start location ─────────────────────────────────────────── */}
+            <div className="rounded-xl border border-border/50 bg-card/30 p-3.5 space-y-2.5">
+              <LocModeToggle
+                label="Start location"
+                value={startLocMode}
+                onChange={setStartLocMode}
+                onPickMap={() => onRequestMapPick?.("start")}
+              />
+              {startLocMode === "current" && (
+                <p className={`text-[11px] flex items-center gap-1 ${userLocation ? "text-emerald-400" : "text-amber-400"}`}>
+                  {userLocation ? <Check className="h-3 w-3" /> : <MapPin className="h-3 w-3" />}
+                  {userLocation ? `${userLocation.lat.toFixed(4)}, ${userLocation.lng.toFixed(4)}` : 'Tap "My Location" on the map to set your position'}
+                </p>
+              )}
+              {startLocMode === "address" && (
+                <AddressSearchRow
+                  inputVal={startAddrInput}
+                  onInputChange={v => { setStartAddrInput(v); setStartAddrGeo(null); }}
+                  onSearch={searchStartAddr}
+                  loading={startAddrLoading}
+                  resolved={startAddrGeo}
+                  onClear={() => { setStartAddrGeo(null); setStartAddrInput(""); }}
+                  placeholder="e.g. Kelowna, BC or 123 Marina Way"
+                />
+              )}
+              {startLocMode === "map" && (
+                <p className={`text-[11px] flex items-center gap-1 ${startMapGeo ? "text-emerald-400" : "text-amber-400"}`}>
+                  {startMapGeo ? <Check className="h-3 w-3" /> : <Map className="h-3 w-3" />}
+                  {startMapGeo
+                    ? `Pinned: ${startMapGeo.lat.toFixed(4)}, ${startMapGeo.lng.toFixed(4)}`
+                    : "Click the map to drop a start pin — this dialog will reopen automatically"}
+                </p>
+              )}
+            </div>
+
+            {/* ── End location ───────────────────────────────────────────── */}
+            <div className="rounded-xl border border-border/50 bg-card/30 p-3.5 space-y-2.5">
+              <div>
+                <Label className="text-xs mb-2 block">End location</Label>
+                <div className="flex gap-1.5 flex-wrap">
+                  {(["return_start", "finish_last", "custom"] as EndMode[]).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setEndLocMode(mode)}
+                      className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all ${
+                        endLocMode === mode
+                          ? "bg-primary/20 border-primary/50 text-primary"
+                          : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
+                      }`}
+                      data-testid={`button-end-loc-${mode}`}
+                    >
+                      {mode === "return_start" && <RotateCcw className="h-3 w-3" />}
+                      {mode === "finish_last" && <Navigation className="h-3 w-3" />}
+                      {mode === "custom" && <MapPin className="h-3 w-3" />}
+                      {mode === "return_start" ? "Return to start" : mode === "finish_last" ? "Finish at last stop" : "Custom location"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {endLocMode === "return_start" && (
+                <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                  <RotateCcw className="h-3 w-3" /> Route will loop back to: <span className="text-foreground">{startLocLabel()}</span>
+                </p>
+              )}
+              {endLocMode === "finish_last" && (
+                <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                  <Navigation className="h-3 w-3" /> Route ends at your last marina stop — no return trip.
+                </p>
+              )}
+              {endLocMode === "custom" && (
+                <div className="space-y-2">
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => { setEndAddrGeo(null); setEndMapGeo(null); }}
+                      className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-md border transition-all ${
+                        endMapGeo === null
+                          ? "bg-muted/60 border-border text-foreground"
+                          : "border-border/40 text-muted-foreground hover:border-border"
+                      }`}
+                    >
+                      <Search className="h-3 w-3" /> Address
+                    </button>
+                    <button
+                      onClick={() => onRequestMapPick?.("end")}
+                      className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-md border border-border/40 text-muted-foreground hover:border-border hover:text-foreground transition-all"
+                      data-testid="button-end-pick-map"
+                    >
+                      <Map className="h-3 w-3" /> Pick on map
+                    </button>
+                  </div>
+                  {endMapGeo ? (
+                    <p className="text-[11px] text-emerald-400 flex items-center gap-1">
+                      <Check className="h-3 w-3" /> Pinned: {endMapGeo.lat.toFixed(4)}, {endMapGeo.lng.toFixed(4)}
+                      <button onClick={() => setEndMapGeo(null)} className="ml-1 text-muted-foreground hover:text-foreground">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </p>
+                  ) : (
+                    <AddressSearchRow
+                      inputVal={endAddrInput}
+                      onInputChange={v => { setEndAddrInput(v); setEndAddrGeo(null); }}
+                      onSearch={searchEndAddr}
+                      loading={endAddrLoading}
+                      resolved={endAddrGeo}
+                      onClear={() => { setEndAddrGeo(null); setEndAddrInput(""); }}
+                      placeholder="e.g. Vancouver, BC or hotel address"
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ── Start time ─────────────────────────────────────────────── */}
             <div>
               <Label className="text-xs mb-1.5 block">Start time</Label>
               <WheelGroup>
@@ -308,7 +572,7 @@ export function MarinasDayPlannerDialog({
               </WheelGroup>
             </div>
 
-            {/* Stop time */}
+            {/* ── Stop time ──────────────────────────────────────────────── */}
             <div>
               <Label className="text-xs mb-1.5 block">Stop time</Label>
               <WheelGroup>
@@ -321,7 +585,7 @@ export function MarinasDayPlannerDialog({
               </p>
             </div>
 
-            {/* Visit / speed */}
+            {/* ── Visit / speed ──────────────────────────────────────────── */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs mb-1.5 block">Minutes per visit</Label>
@@ -337,7 +601,7 @@ export function MarinasDayPlannerDialog({
               </div>
             </div>
 
-            {/* Slips / radius — hidden when preselected (overridden by selection) */}
+            {/* ── Slips / radius ─────────────────────────────────────────── */}
             {!usingPreselected && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -355,36 +619,23 @@ export function MarinasDayPlannerDialog({
               </div>
             )}
 
-            {/* Stage filter + return-to-start */}
-            <div className="grid grid-cols-2 gap-3 items-end">
-              {!usingPreselected && (
-                <div>
-                  <Label className="text-xs mb-1.5 block">Stage filter</Label>
-                  <Select value={stageFilter} onValueChange={setStageFilter}>
-                    <SelectTrigger className="h-9 text-xs" data-testid="select-planner-stage">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(STAGE_LABELS).map(([v, l]) => (
-                        <SelectItem key={v} value={v}>{l}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              <div className="flex items-center gap-2 pb-1">
-                <Checkbox id="return-to-start" checked={returnToStart}
-                  onCheckedChange={(v) => setReturnToStart(v === true)}
-                  data-testid="checkbox-return-to-start" />
-                <Label htmlFor="return-to-start" className="text-xs cursor-pointer">Return to start</Label>
-              </div>
-            </div>
-
-            {!userLocation && (
-              <div className="text-xs text-amber-400 flex items-center gap-2">
-                <MapPin className="h-3 w-3" /> Tap "My Location" on the map first so Cortex knows where you're starting from.
+            {/* ── Stage filter ───────────────────────────────────────────── */}
+            {!usingPreselected && (
+              <div className="w-1/2">
+                <Label className="text-xs mb-1.5 block">Stage filter</Label>
+                <Select value={stageFilter} onValueChange={setStageFilter}>
+                  <SelectTrigger className="h-9 text-xs" data-testid="select-planner-stage">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(STAGE_LABELS).map(([v, l]) => (
+                      <SelectItem key={v} value={v}>{l}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
+
             {error && (
               <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded p-2" data-testid="text-plan-error">
                 {error}
@@ -393,11 +644,14 @@ export function MarinasDayPlannerDialog({
 
             <div className="flex justify-between items-center pt-1 border-t border-border/40">
               <p className="text-[11px] text-muted-foreground">
-                {usingPreselected
-                  ? `Routing ${preselectedLeads!.length} marinas`
-                  : `Searching within ${searchRadiusKm} km`}
+                {usingPreselected ? `Routing ${preselectedLeads!.length} marinas` : `Searching within ${searchRadiusKm} km`}
               </p>
-              <Button onClick={runPlan} disabled={loading || !userLocation || windowMin <= 0} data-testid="button-build-plan" className="gap-2">
+              <Button
+                onClick={runPlan}
+                disabled={loading || !startReady || !endCustomReady || windowMin <= 0}
+                data-testid="button-build-plan"
+                className="gap-2"
+              >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                 {loading ? "Planning…" : "Build my route"}
               </Button>
@@ -410,6 +664,15 @@ export function MarinasDayPlannerDialog({
           </div>
         ) : (
           <div className="space-y-3">
+            {/* Route summary banner */}
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground bg-muted/30 rounded-lg px-3 py-2 flex-wrap">
+              <span className="flex items-center gap-1"><MapPin className="h-3 w-3 text-primary" />{startLocLabel()}</span>
+              <span className="text-border">→</span>
+              <span className="flex items-center gap-1 italic">{plan.stops.length} stops</span>
+              <span className="text-border">→</span>
+              <span className="flex items-center gap-1"><Navigation className="h-3 w-3 text-primary" />{endLocLabel()}</span>
+            </div>
+
             <div className="grid grid-cols-3 gap-2">
               <div className="rounded-lg border border-border/40 p-2.5 text-center">
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Stops</p>
@@ -458,9 +721,9 @@ export function MarinasDayPlannerDialog({
                   </div>
                 );
               })}
-              {returnToStart && plan.returnDriveKm > 0 && (
+              {endLocMode !== "finish_last" && plan.returnDriveKm > 0 && (
                 <div className="flex items-center gap-3 p-2 text-[11px] text-muted-foreground italic">
-                  <RotateCcw className="h-3 w-3" /> Return to start: {plan.returnDriveKm.toFixed(1)} km · {fmtMin(plan.returnDriveMin)}
+                  <RotateCcw className="h-3 w-3" /> Return to end: {plan.returnDriveKm.toFixed(1)} km · {fmtMin(plan.returnDriveMin)}
                 </div>
               )}
             </div>
