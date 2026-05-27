@@ -3867,7 +3867,82 @@ export async function registerRoutes(
           ORDER BY created_at DESC LIMIT 10
         `)),
       ]);
-      if (!oppRows.rows.length) return res.status(404).json({ message: "Opportunity not found" });
+      // ── Lead fallback ──────────────────────────────────────────────────────
+      // If no opportunity record exists, check the leads table. This handles
+      // marina prospect leads linked from My Travel (linked_object_type='lead')
+      // that haven't been promoted to a full opportunity yet.
+      if (!oppRows.rows.length) {
+        const [leadRows, leadNotes, leadTasks, leadActivities] = await Promise.all([
+          db.execute(sql.raw(`
+            SELECT l.*, u.name AS owner_name, m.name AS marina_name
+            FROM leads l
+            LEFT JOIN users u ON l.owner_user_id = u.id
+            LEFT JOIN marinas m ON l.marina_id = m.id
+            WHERE l.id = ${id} LIMIT 1
+          `)),
+          db.execute(sql.raw(`
+            SELECT id, content, author_name, created_at, updated_at, is_pinned
+            FROM notes WHERE linked_object_type = 'lead' AND linked_object_id = ${id}
+            ORDER BY is_pinned DESC, created_at DESC LIMIT 15
+          `)),
+          db.execute(sql.raw(`
+            SELECT id, title, status, priority, due_date
+            FROM tasks WHERE linked_object_type = 'lead' AND linked_object_id = ${id}
+            ORDER BY CASE WHEN status != 'done' THEN 0 ELSE 1 END, due_date ASC NULLS LAST LIMIT 10
+          `)),
+          db.execute(sql.raw(`
+            SELECT id, type, summary, created_at FROM activities
+            WHERE linked_object_type = 'lead' AND linked_object_id = ${id}
+            ORDER BY created_at DESC LIMIT 10
+          `)),
+        ]);
+        if (!leadRows.rows.length) return res.status(404).json({ message: "Opportunity not found" });
+        const lead = leadRows.rows[0] as any;
+        const leadTasksArr = leadTasks.rows as any[];
+        const hasOverdueTasks = leadTasksArr.some((t: any) => t.status !== 'done' && t.due_date && new Date(t.due_date) < new Date());
+        // Map lead fields to the opportunity shape the frontend expects
+        const opp = {
+          id: lead.id,
+          _isLead: true,
+          title: lead.company,
+          stage: lead.status ?? "inbound_new",
+          account_id: null,
+          account_name: lead.marina_name ?? null,
+          owner_name: lead.owner_name ?? null,
+          owner_user_id: lead.owner_user_id ?? null,
+          amount: lead.deal_amount ?? null,
+          est_close_date: lead.due_date ?? null,
+          next_step: lead.next_step ?? null,
+          next_step_due_date: null,
+          value_hardware: lead.deal_value_hardware ?? null,
+          value_software: lead.deal_value_software ?? null,
+          value_services: lead.deal_value_services ?? null,
+          value_total: lead.deal_amount ?? null,
+          estimated_slips_impacted: lead.estimated_slips_impacted ?? null,
+          estimated_pedestal_count: lead.estimated_pedestal_count ?? null,
+          forecast_category: null,
+          city: lead.city ?? null,
+          state: lead.state ?? null,
+          slips: lead.slips ?? null,
+          contact_name: lead.contact_name ?? null,
+          contact_email: lead.contact_email ?? null,
+        };
+        let suggestedAction = hasOverdueTasks
+          ? "Clear overdue tasks to unblock this lead"
+          : lead.next_step ? "Complete the next step" : "Define the next step to advance this lead";
+        return res.json({
+          opportunity: opp,
+          contacts: [],
+          emails: [],
+          meetings: [],
+          notes: leadNotes.rows,
+          tasks: leadTasksArr,
+          stageHistory: [],
+          activities: leadActivities.rows,
+          suggestedAction,
+        });
+      }
+      // ── End lead fallback ──────────────────────────────────────────────────
       const opp = oppRows.rows[0] as any;
       const tasks = taskRows.rows as any[];
       const contacts = contactRows.rows as any[];
