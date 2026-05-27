@@ -106,9 +106,14 @@ function EmailFormatToolbarImpl({
   const handleInsertLink = () => {
     const normalized = normalizeUrl(linkUrl);
     if (!normalized) return;
-    dispatchFormat("link", normalized);
+    const urlToInsert = normalized; // capture before state clears
     setLinkOpen(false);
     setLinkUrl("");
+    // Dispatch AFTER the popover has closed so Radix's focus trap has released.
+    // If we call dispatchFormat() while the popover is still open, Radix's
+    // focus trap blocks div.focus() inside applyFormatToEditor — execCommand
+    // ("createLink") runs without the editor being focused and silently fails.
+    setTimeout(() => dispatchFormat("link", urlToInsert), 20);
   };
 
   return (

@@ -46,6 +46,52 @@ function isPrivateIp(ip: string): boolean {
   return PRIVATE_RANGES.some((r) => r.test(ip));
 }
 
+// ── YouTube / Vimeo oEmbed short-circuit ─────────────────────────────────────
+// These platforms block generic bot user-agents from serving their OG HTML,
+// but they expose a public oEmbed JSON endpoint we can safely call instead.
+
+const YOUTUBE_RE =
+  /^https?:\/\/(?:www\.|m\.)?(?:youtube\.com\/watch|youtu\.be\/)/i;
+const VIMEO_RE =
+  /^https?:\/\/(?:www\.)?vimeo\.com\/\d/i;
+
+function extractYouTubeId(url: string): string {
+  return (
+    url.match(/[?&]v=([A-Za-z0-9_-]{11})/)?.[1] ??
+    url.match(/youtu\.be\/([A-Za-z0-9_-]{11})/)?.[1] ??
+    ""
+  );
+}
+
+async function fetchOEmbed(
+  oembedUrl: string,
+  pageUrl: string,
+  siteName: string,
+  faviconUrl: string,
+  buildImage: (data: Record<string, string>) => string,
+): Promise<LinkPreviewMeta | null> {
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const res = await fetch(oembedUrl, { signal: controller.signal as any });
+    clearTimeout(tid);
+    if (!res.ok) return null;
+    const data = (await res.json()) as Record<string, string>;
+    if (!data?.title) return null;
+    return {
+      url: pageUrl,
+      title: data.title,
+      description: data.author_name ? `By ${data.author_name}` : "",
+      image: buildImage(data),
+      favicon: faviconUrl,
+      siteName,
+    };
+  } catch {
+    clearTimeout(tid);
+    return null;
+  }
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 /**
@@ -66,6 +112,33 @@ export async function fetchLinkPreview(rawUrl: string): Promise<LinkPreviewMeta 
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
 
   const hostname = parsed.hostname;
+
+  // 2a. YouTube — use the public oEmbed API instead of scraping, since YouTube
+  //     blocks generic bot user-agents from returning usable OG HTML.
+  if (YOUTUBE_RE.test(rawUrl)) {
+    const videoId = extractYouTubeId(rawUrl);
+    return fetchOEmbed(
+      `https://www.youtube.com/oembed?url=${encodeURIComponent(rawUrl)}&format=json`,
+      rawUrl,
+      "YouTube",
+      "https://www.youtube.com/favicon.ico",
+      () =>
+        videoId
+          ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+          : "",
+    );
+  }
+
+  // 2b. Vimeo — same reasoning.
+  if (VIMEO_RE.test(rawUrl)) {
+    return fetchOEmbed(
+      `https://vimeo.com/api/oembed.json?url=${encodeURIComponent(rawUrl)}`,
+      rawUrl,
+      "Vimeo",
+      "https://vimeo.com/favicon.ico",
+      (data) => data.thumbnail_url ?? "",
+    );
+  }
 
   // 3. Block literal loopback / wildcard hostnames before DNS.
   const lowerHost = hostname.toLowerCase();
