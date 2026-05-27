@@ -243,6 +243,9 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedLeadIds, setSelectedLeadIds] = useState<Set<number>>(new Set());
   const [preselectedForPlanner, setPreselectedForPlanner] = useState<NearbyLead[] | null>(null);
+  const [pendingGeoCount, setPendingGeoCount] = useState<number>(0);
+  const [geocodingActive, setGeocodingActive] = useState(false);
+  const geocodeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.LayerGroup | null>(null);
@@ -340,6 +343,44 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
   useEffect(() => {
     requestLocation();
   }, [requestLocation]);
+
+  // ── Geocode missing leads on map mount ────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/leads/geocode-missing-count", { credentials: "include" });
+        if (!r.ok || cancelled) return;
+        const { count } = await r.json();
+        if (count > 0) {
+          setPendingGeoCount(count);
+          setGeocodingActive(true);
+          // Fire-and-forget batch — server processes 1/s in background
+          fetch("/api/leads/geocode-batch", { method: "POST", credentials: "include" }).catch(() => {});
+        }
+      } catch { /* silent */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // While geocoding is active, refetch the map every 10 s and check the count
+  useEffect(() => {
+    if (!geocodingActive) return;
+    geocodeIntervalRef.current = setInterval(async () => {
+      debouncedFetchFromBounds();
+      try {
+        const r = await fetch("/api/leads/geocode-missing-count", { credentials: "include" });
+        if (!r.ok) return;
+        const { count } = await r.json();
+        setPendingGeoCount(count);
+        if (count === 0) {
+          setGeocodingActive(false);
+          if (geocodeIntervalRef.current) clearInterval(geocodeIntervalRef.current);
+        }
+      } catch { /* silent */ }
+    }, 10000);
+    return () => { if (geocodeIntervalRef.current) clearInterval(geocodeIntervalRef.current); };
+  }, [geocodingActive, debouncedFetchFromBounds]);
 
   const handleAddressSelect = (lat: number, lng: number, _displayName: string) => {
     setMapCenter({ lat, lng });
@@ -759,6 +800,12 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
         {!loading && filteredMarinas.length > 0 && (
           <Badge variant="outline" className="text-xs">{filteredMarinas.length} marinas in view</Badge>
         )}
+        {geocodingActive && (
+          <span className="flex items-center gap-1.5 text-xs text-amber-400/90 bg-amber-400/10 border border-amber-400/20 rounded-full px-2.5 py-0.5" data-testid="geocoding-status">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Geocoding {pendingGeoCount} lead{pendingGeoCount !== 1 ? "s" : ""} — pins will appear shortly
+          </span>
+        )}
       </div>
 
       <div className="flex flex-1 sm:gap-3 min-h-0 relative">
@@ -900,9 +947,17 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
           {/* Empty state overlay */}
           {!loading && filteredMarinas.length === 0 && (
             <div className="sm:hidden absolute top-1/2 left-4 right-4 -translate-y-1/2 z-[400] text-center backdrop-blur-xl bg-background/80 border border-white/10 rounded-2xl p-5 shadow-xl pointer-events-none">
-              <Anchor className="h-7 w-7 text-muted-foreground mx-auto mb-2" />
+              {geocodingActive ? (
+                <Loader2 className="h-7 w-7 text-amber-400 mx-auto mb-2 animate-spin" />
+              ) : (
+                <Anchor className="h-7 w-7 text-muted-foreground mx-auto mb-2" />
+              )}
               <p className="text-sm font-medium">No marinas in view</p>
-              <p className="text-xs text-muted-foreground mt-1">Zoom out or search an address</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {geocodingActive
+                  ? `Geocoding ${pendingGeoCount} lead${pendingGeoCount !== 1 ? "s" : ""} — zoom out to see them once complete`
+                  : "Zoom out or search an address"}
+              </p>
             </div>
           )}
         </div>
@@ -913,9 +968,17 @@ export default function NearbyMarinasMap({ onSelectLead }: { onSelectLead?: (lea
             Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)
           ) : filteredMarinas.length === 0 ? (
             <div className="text-center py-12 px-4">
-              <Anchor className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+              {geocodingActive ? (
+                <Loader2 className="h-8 w-8 text-amber-400 mx-auto mb-2 animate-spin" />
+              ) : (
+                <Anchor className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+              )}
               <p className="text-sm text-muted-foreground">No marinas in view</p>
-              <p className="text-xs text-muted-foreground mt-1">Zoom out or search an address</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {geocodingActive
+                  ? `Geocoding ${pendingGeoCount} lead${pendingGeoCount !== 1 ? "s" : ""}…`
+                  : "Zoom out or search an address"}
+              </p>
             </div>
           ) : (
             filteredMarinas.map(renderListItem)

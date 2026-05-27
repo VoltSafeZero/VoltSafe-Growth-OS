@@ -1464,6 +1464,25 @@ export async function registerRoutes(
     res.json(await storage.getDashboardSummary());
   });
 
+  // ── Background geocode helper (fire-and-forget, respects Nominatim 1 req/s) ─
+  async function geocodeLeadBg(leadId: number, streetAddress?: string | null, city?: string | null, state?: string | null, zipCode?: string | null, country?: string | null) {
+    try {
+      const parts = [streetAddress, city, state, zipCode, country === "CA" ? "Canada" : country]
+        .map((s) => (s ?? "").trim()).filter(Boolean).join(", ");
+      if (!parts) return;
+      const gUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(parts)}&limit=1`;
+      const gRes = await fetch(gUrl, { headers: { "User-Agent": "VoltSafeCortex/1.0" }, signal: AbortSignal.timeout(8000) });
+      if (!gRes.ok) return;
+      const gData = await gRes.json() as Array<{ lat: string; lon: string }>;
+      if (gData[0]?.lat) {
+        await db.execute(sql`
+          UPDATE leads SET lead_lat = ${parseFloat(gData[0].lat)}, lead_lng = ${parseFloat(gData[0].lon)}
+          WHERE id = ${leadId} AND lead_lat IS NULL
+        `);
+      }
+    } catch { /* silent */ }
+  }
+
   app.get("/api/leads/nearby", requireAuth, requirePermission("crm", "view"), async (req, res) => {
     const lat = Number(req.query.lat);
     const lng = Number(req.query.lng);
@@ -1507,6 +1526,50 @@ export async function registerRoutes(
       LIMIT ${limit}
     `);
     res.json(results.rows);
+  });
+
+  // GET /api/leads/geocode-missing-count — how many standalone leads have address but no coords
+  app.get("/api/leads/geocode-missing-count", requireAuth, requirePermission("crm", "view"), async (_req, res) => {
+    try {
+      const result = await db.execute(sql`
+        SELECT COUNT(*)::int AS count FROM leads
+        WHERE marina_id IS NULL
+          AND lead_lat IS NULL
+          AND (
+            (city IS NOT NULL AND city != '') OR
+            (street_address IS NOT NULL AND street_address != '')
+          )
+      `);
+      res.json({ count: Number((result.rows[0] as any).count) });
+    } catch { res.json({ count: 0 }); }
+  });
+
+  // POST /api/leads/geocode-batch — fire-and-forget background geocoding for unresolved leads
+  app.post("/api/leads/geocode-batch", requireAuth, requirePermission("crm", "edit"), async (_req, res) => {
+    try {
+      const result = await db.execute(sql`
+        SELECT id, street_address, city, state, zip_code, country
+        FROM leads
+        WHERE marina_id IS NULL
+          AND lead_lat IS NULL
+          AND (
+            (city IS NOT NULL AND city != '') OR
+            (street_address IS NOT NULL AND street_address != '')
+          )
+        LIMIT 100
+      `);
+      const pending = result.rows as Array<{ id: number; street_address: string | null; city: string | null; state: string | null; zip_code: string | null; country: string | null }>;
+      res.json({ started: true, count: pending.length });
+      // Process in background — do NOT await
+      (async () => {
+        for (const lead of pending) {
+          await geocodeLeadBg(lead.id, lead.street_address, lead.city, lead.state, lead.zip_code, lead.country);
+          await new Promise(r => setTimeout(r, 1100)); // Respect Nominatim 1 req/s ToS
+        }
+      })();
+    } catch {
+      res.status(500).json({ message: "Failed to start geocoding" });
+    }
   });
 
   app.get("/api/geocode/search", requireAuth, async (req, res) => {
@@ -1629,7 +1692,12 @@ export async function registerRoutes(
     if (body.estCloseDate && typeof body.estCloseDate === "string") body.estCloseDate = new Date(body.estCloseDate);
     const parsed = insertLeadSchema.safeParse(body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
-    res.status(201).json(await storage.createLead(parsed.data));
+    const lead = await storage.createLead(parsed.data);
+    res.status(201).json(lead);
+    // Auto-geocode if address present and no explicit coords
+    if (!parsed.data.marinaId && !parsed.data.leadLat && (parsed.data.city || parsed.data.streetAddress)) {
+      geocodeLeadBg(lead.id, parsed.data.streetAddress, parsed.data.city, parsed.data.state, parsed.data.zipCode, parsed.data.country);
+    }
   });
 
   app.put("/api/leads/:id", requirePermission("crm", "edit"), async (req, res) => {
@@ -1662,6 +1730,15 @@ export async function registerRoutes(
     }
     res.json(result);
     import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("lead", lid, "fields")).catch(() => {});
+    // Auto-geocode if address changed and lead still has no coords
+    if (!existing.marinaId && !result?.leadLat && (body.city || body.streetAddress || body.state || body.zipCode)) {
+      const city = body.city ?? existing.city;
+      const state = body.state ?? existing.state;
+      const street = body.streetAddress ?? existing.streetAddress;
+      const zip = body.zipCode ?? existing.zipCode;
+      const country = body.country ?? existing.country;
+      if (city || street) geocodeLeadBg(lid, street, city, state, zip, country);
+    }
   });
 
   app.delete("/api/leads/:id", requirePermission("crm", "edit"), async (req, res) => {
