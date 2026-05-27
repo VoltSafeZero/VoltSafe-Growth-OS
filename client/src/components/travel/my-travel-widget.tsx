@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -120,20 +120,22 @@ function TodayItineraryDialog({
   const [plannerOpen, setPlannerOpen] = useState(false);
   const dateLabel = format(new Date(), "EEEE, MMMM d");
 
-  const preselectedLeads = tasks
-    .filter(t => t.marina_lat && t.marina_lng)
-    .map(t => ({
-      id: t.lead_id,
-      company: t.company,
-      marina_lat: t.marina_lat!,
-      marina_lng: t.marina_lng!,
-      marina_address: t.address,
-      street_address: null,
-      city: t.city,
-      state: t.state,
-      slips: t.slips,
-      status: "",
-    }));
+  const preselectedLeads = useMemo(() =>
+    tasks
+      .filter(t => t.marina_lat && t.marina_lng)
+      .map(t => ({
+        id: t.lead_id,
+        company: t.company,
+        marina_lat: t.marina_lat!,
+        marina_lng: t.marina_lng!,
+        marina_address: t.address,
+        street_address: null,
+        city: t.city,
+        state: t.state,
+        slips: t.slips,
+        status: "",
+      })),
+  [tasks]);
 
   return (
     <>

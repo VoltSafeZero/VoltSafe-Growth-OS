@@ -1569,7 +1569,7 @@ export async function registerRoutes(
           l.city,
           l.state,
           l.slips,
-          COALESCE(l.marina_address, l.street_address)      AS address,
+          COALESCE(m.street_address, l.street_address)       AS address,
           COALESCE(m.latitude,  l.lead_lat)                 AS marina_lat,
           COALESCE(m.longitude, l.lead_lng)                 AS marina_lng
         FROM tasks t
