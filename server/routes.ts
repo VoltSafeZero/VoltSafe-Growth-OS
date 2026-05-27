@@ -1547,6 +1547,70 @@ export async function registerRoutes(
     res.json(results.rows);
   });
 
+  // GET /api/travel/my-day — Today + upcoming tasks linked to leads (marina visit planning)
+  // Returns tasks owned by the requesting user that are linked to leads and have a due_date
+  // within the next 14 days, enriched with lead coordinates and address info.
+  app.get("/api/travel/my-day", requireAuth, async (req, res) => {
+    const userId = getSessionUserId(req);
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd   = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000 - 1);
+    const cutoff     = new Date(todayStart.getTime() + 14 * 24 * 60 * 60 * 1000);
+    try {
+      const result = await db.execute(sql.raw(`
+        SELECT
+          t.id                                              AS task_id,
+          t.title,
+          t.due_date,
+          t.priority,
+          t.status,
+          l.id                                              AS lead_id,
+          l.company,
+          l.city,
+          l.state,
+          l.slips,
+          COALESCE(l.marina_address, l.street_address)      AS address,
+          COALESCE(m.latitude,  l.lead_lat)                 AS marina_lat,
+          COALESCE(m.longitude, l.lead_lng)                 AS marina_lng
+        FROM tasks t
+        JOIN leads l ON t.linked_object_type = 'lead'
+                    AND t.linked_object_id   = l.id
+        LEFT JOIN marinas m ON l.marina_id = m.id
+        WHERE t.owner_user_id = ${userId}
+          AND t.status NOT IN ('done','completed','cancelled')
+          AND (t.archived IS NULL OR t.archived = FALSE)
+          AND t.due_date IS NOT NULL
+          AND t.due_date >= '${todayStart.toISOString()}'
+          AND t.due_date <  '${cutoff.toISOString()}'
+        ORDER BY t.due_date ASC
+        LIMIT 100
+      `));
+      const rows = result.rows as any[];
+      const today: any[] = [];
+      const upcomingMap = new Map<string, any[]>();
+      for (const row of rows) {
+        const due = new Date(row.due_date);
+        if (due <= todayEnd) {
+          today.push(row);
+        } else {
+          const dateKey = due.toISOString().slice(0, 10);
+          if (!upcomingMap.has(dateKey)) upcomingMap.set(dateKey, []);
+          upcomingMap.get(dateKey)!.push(row);
+        }
+      }
+      const upcoming = Array.from(upcomingMap.entries()).map(([date, tasks]) => {
+        const d = new Date(date + "T12:00:00Z");
+        const diff = Math.round((d.getTime() - todayStart.getTime()) / 86_400_000);
+        const label = diff === 1 ? "Tomorrow"
+          : d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+        return { date, label, tasks };
+      });
+      res.json({ today, upcoming });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Failed" });
+    }
+  });
+
   // GET /api/leads/geocode-missing-count — how many standalone leads have address but no coords
   app.get("/api/leads/geocode-missing-count", requireAuth, requirePermission("crm", "view"), async (_req, res) => {
     try {

@@ -220,6 +220,12 @@ const NEW_WIDGETS: Record<string, WidgetDef> = {
     // is requested by the widget itself; users without permission are simply
     // shown a "use my location" prompt.
   },
+  my_travel: {
+    id: "my_travel", label: "My Travel",
+    description: "Today's scheduled marina visits and upcoming stops — click Today to open your itinerary and route in the day planner",
+    defaultVisible: true, category: "action", isNew: true,
+    // No permKey — every user can see their own travel schedule.
+  },
 };
 
 // Classic widgets referenced by id inside each center array.
@@ -280,6 +286,7 @@ function applyClassicRule(w: WidgetDef): WidgetDef {
 // Widgets that make sense for every user regardless of role/department.
 const UNIVERSAL_EXTRAS: WidgetDef[] = [
   { ...NEW_WIDGETS.leads_nearby,          defaultVisible: true  },
+  { ...NEW_WIDGETS.my_travel,             defaultVisible: true  },
   { ...NEW_WIDGETS.travel_calendar,       defaultVisible: true  },
   { ...NEW_WIDGETS.my_inbox,              defaultVisible: true  },
   { ...NEW_WIDGETS.todays_meetings,       defaultVisible: false },
@@ -406,6 +413,7 @@ export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {
     { id: "week_priorities",      label: "This Week",                description: "Tasks and meetings due this week",       defaultVisible: false, category: "classic" },
     { id: "nearby_routes",        label: "Nearby Routes",            description: "High-priority stops near your location", defaultVisible: false, category: "classic" },
     { ...NEW_WIDGETS.leads_nearby,           defaultVisible: true  },
+    { ...NEW_WIDGETS.my_travel,              defaultVisible: true  },
     { ...NEW_WIDGETS.today_critical_actions, defaultVisible: true  },
     { ...NEW_WIDGETS.inbox_priority_radar,   defaultVisible: true  },
     { ...NEW_WIDGETS.todays_meetings,        defaultVisible: true  },

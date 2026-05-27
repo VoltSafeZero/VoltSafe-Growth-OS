@@ -17,6 +17,7 @@ import {
 import { format, formatDistanceToNow, isToday } from "date-fns";
 import { WeatherWidget } from "@/components/widgets/weather";
 import { TravelCalendarWidget as _TravelCalendarWidget } from "@/components/travel/travel-calendar-widget";
+import { MyTravelWidget as _MyTravelWidget } from "@/components/travel/my-travel-widget";
 import { LeadsMissionControlWidget as _LeadsMissionControlWidget } from "@/components/leads/leads-mission-control-widget";
 import {
   ExecutiveSnapshotWidget,
@@ -1075,6 +1076,11 @@ export function TravelCalendarGridWidget(_props: WidgetProps) {
   return <_TravelCalendarWidget />;
 }
 
+// My Travel — shows today's + upcoming marina-visit tasks for the signed-in user.
+export function MyTravelGridWidget(_props: WidgetProps) {
+  return <_MyTravelWidget />;
+}
+
 // Leads Nearby — same self-contained pattern. The underlying widget mounts its
 // own MarinasDayPlannerDialog when no onPlanDay prop is supplied, so it can
 // participate in the draggable grid like every other widget instead of being
@@ -1085,6 +1091,7 @@ export function LeadsNearbyGridWidget(_props: WidgetProps) {
 
 export const ACTION_WIDGET_MAP: Record<string, React.ComponentType<WidgetProps>> = {
   travel_calendar:        TravelCalendarGridWidget,
+  my_travel:              MyTravelGridWidget,
   leads_nearby:           LeadsNearbyGridWidget,
   today_critical_actions: TodayCriticalActionsWidget,
   inbox_priority_radar:   InboxPriorityRadarWidget,
