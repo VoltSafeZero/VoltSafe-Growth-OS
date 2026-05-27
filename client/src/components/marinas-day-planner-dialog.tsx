@@ -8,10 +8,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Sparkles, Loader2, Navigation, Clock, Anchor, MapPin, ExternalLink,
   RotateCcw, Target, LocateFixed, Search, Check, X, Map, GripVertical, Plus, Trash2,
+  BookCheck,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { WheelPicker, WheelGroup, type WheelOption } from "@/components/ui/wheel-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { apiRequest, queryClient as globalQueryClient } from "@/lib/queryClient";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -554,6 +556,56 @@ export function MarinasDayPlannerDialog({
     ? buildGoogleMapsUrl(effectiveStart, displayStops, endLocMode === "finish_last" ? null : effectiveEnd)
     : "";
 
+  const [saving, setSaving] = useState(false);
+  const [savedCount, setSavedCount] = useState(0);
+
+  const saveTrip = useCallback(async () => {
+    if (!displayStops.length) return;
+    setSaving(true);
+    setSavedCount(0);
+    try {
+      const tripBase = new Date();
+      tripBase.setDate(tripBase.getDate() + startDay);
+      tripBase.setHours(0, 0, 0, 0);
+      const startOffsetMin = startHour * 60 + startMin;
+      let created = 0;
+      for (const s of displayStops) {
+        const arrivalMinutes = startOffsetMin + Math.round(s.arriveMin);
+        const departMinutes  = startOffsetMin + Math.round(s.departMin);
+        const arriveDate = new Date(tripBase.getTime() + arrivalMinutes * 60 * 1000);
+        const departDate = new Date(tripBase.getTime() + departMinutes * 60 * 1000);
+        const fmt = (d: Date) => d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        await apiRequest("POST", "/api/tasks", {
+          title: `Marina visit: ${s.lead.company}`,
+          description: `Planned field visit — arrive ${fmt(arriveDate)}, depart ${fmt(departDate)}. Drive: ${s.driveKm.toFixed(1)} km.`,
+          dueDate: arriveDate.toISOString(),
+          linkedObjectType: "lead",
+          linkedObjectId: s.lead.id,
+          priority: "high",
+          status: "pending",
+        });
+        created++;
+        setSavedCount(created);
+      }
+      await globalQueryClient.invalidateQueries({ queryKey: ["/api/travel/my-day"] });
+      await globalQueryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      toast({
+        title: `Trip saved — ${created} visit${created !== 1 ? "s" : ""} scheduled`,
+        description: (
+          <span>
+            Tasks linked to each lead.{" "}
+            <a href="/my-travel" className="underline font-medium">View My Travel →</a>
+          </span>
+        ) as any,
+        duration: 6000,
+      });
+    } catch (err: any) {
+      toast({ title: "Failed to save trip", description: err.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }, [displayStops, startDay, startHour, startMin, toast]);
+
   const startLocLabel = () => {
     if (startLocMode === "current") return startGpsGeo ? `${startGpsGeo.lat.toFixed(4)}, ${startGpsGeo.lng.toFixed(4)}` : userLocation ? "My location" : "My location (not set)";
     if (startLocMode === "map") return startMapGeo ? `${startMapGeo.lat.toFixed(4)}, ${startMapGeo.lng.toFixed(4)}` : "Map pin";
@@ -1003,13 +1055,30 @@ export function MarinasDayPlannerDialog({
 
             <div className="flex gap-2 justify-between items-center pt-2 border-t border-border/40">
               <Button variant="ghost" size="sm" onClick={reset} data-testid="button-reset-plan">Adjust scope</Button>
-              {mapsUrl && (
-                <a href={mapsUrl} target="_blank" rel="noopener" data-testid="link-open-route-maps">
-                  <Button size="sm" className="gap-2">
-                    <Navigation className="h-3.5 w-3.5" /> Open route in Google Maps
+              <div className="flex items-center gap-2">
+                {displayStops.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-2"
+                    onClick={saveTrip}
+                    disabled={saving}
+                    data-testid="button-save-trip"
+                  >
+                    {saving
+                      ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving {savedCount}/{displayStops.length}…</>
+                      : <><BookCheck className="h-3.5 w-3.5" /> Save Trip</>
+                    }
                   </Button>
-                </a>
-              )}
+                )}
+                {mapsUrl && (
+                  <a href={mapsUrl} target="_blank" rel="noopener" data-testid="link-open-route-maps">
+                    <Button size="sm" className="gap-2">
+                      <Navigation className="h-3.5 w-3.5" /> Open route in Google Maps
+                    </Button>
+                  </a>
+                )}
+              </div>
             </div>
           </div>
         )}
