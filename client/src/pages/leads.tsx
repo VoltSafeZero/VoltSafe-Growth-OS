@@ -1697,7 +1697,7 @@ function LeadDetailDialog({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="rounded-lg border border-border/50 p-3 min-w-0 overflow-hidden">
                 <p className="text-xs text-muted-foreground">Slips</p>
-                <p className="text-lg font-semibold">{!lead.slips || lead.slips === "-" ? "—" : Number(lead.slips).toLocaleString()}</p>
+                <p className="text-lg font-semibold">{!lead.slips || lead.slips === "-" ? "—" : lead.slips}</p>
               </div>
               <div className="rounded-lg border border-border/50 p-3 min-w-0 overflow-hidden">
                 <p className="text-xs text-muted-foreground">Segment</p>
