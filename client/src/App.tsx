@@ -20,6 +20,7 @@ import CommandCenter from "@/pages/command-center";
 import DailyCommandCenter from "@/pages/daily-command-center";
 import RoleCommandCenter from "@/pages/role-command-center";
 import TodayPage from "@/pages/today";
+import MyTravelPage from "@/pages/my-travel";
 import PipelinePage from "@/pages/pipeline";
 import MarinasPage from "@/pages/marinas";
 import LeadsPage from "@/pages/leads";
@@ -248,6 +249,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/command-center">{() => wrap(<CommandCenter />)}</Route>
       <Route path="/dashboard">{() => wrap(<Dashboard />)}</Route>
       <Route path="/today">{() => wrap(<TodayPage />)}</Route>
+      <Route path="/my-travel">{() => wrap(<MyTravelPage />)}</Route>
       <Route path="/field/nearby">{() => wrap(<FieldNearbyPage />)}</Route>
       <Route path="/field">{() => wrap(<FieldPage />)}</Route>
       <Route path="/pipeline">{() => guard("crm", isAdvisor ? <AccessDenied /> : <PipelinePage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
