@@ -25,6 +25,7 @@ export const PIPELINE_STAGE_OPTIONS = [
   { value: "negotiation",       label: "Negotiation",        color: "bg-orange-500/10 text-orange-400 border-orange-500/20", columnColor: "border-t-orange-500" },
   { value: "converted",         label: "Promoted",           color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", columnColor: "border-t-emerald-500" },
   { value: "lost",              label: "Closed Lost",        color: "bg-red-500/10 text-red-400 border-red-500/20",       columnColor: "border-t-red-500" },
+  { value: "no_shore_power",    label: "No Shore Power",     color: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",    columnColor: "border-t-zinc-500" },
 ] as const;
 
 export type PipelineStageValue = typeof PIPELINE_STAGE_OPTIONS[number]["value"];
