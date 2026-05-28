@@ -1337,6 +1337,15 @@ export async function migrateScheduledEmailColumns(): Promise<void> {
   }
 }
 
+export async function migrateShorePowerColumn(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS shore_power TEXT DEFAULT 'unknown'`);
+    console.log("[migration] shore_power column ready.");
+  } catch (err) {
+    console.error("[migration] shore_power column migration error (non-fatal):", err);
+  }
+}
+
 export async function migrateCrmAiSummarySchema(): Promise<void> {
   try {
     await db.execute(sql`
