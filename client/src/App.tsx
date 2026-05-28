@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { Search } from "lucide-react";
 import { queryClient } from "./lib/queryClient";
@@ -15,84 +15,94 @@ import { isAdvisorRole } from "@/lib/nav-config";
 import BookingPublicPage from "@/pages/booking-public";
 import { UpcomingMeetingBanner } from "@/components/dashboard/upcoming-meeting-banner";
 
-import Dashboard from "@/pages/dashboard";
-import CommandCenter from "@/pages/command-center";
-import DailyCommandCenter from "@/pages/daily-command-center";
-import RoleCommandCenter from "@/pages/role-command-center";
-import TodayPage from "@/pages/today";
-import MyTravelPage from "@/pages/my-travel";
-import PipelinePage from "@/pages/pipeline";
-import MarinasPage from "@/pages/marinas";
-import LeadsPage from "@/pages/leads";
-import AccountsPage from "@/pages/accounts";
-import ContactsPage from "@/pages/contacts";
-import QuotesPage from "@/pages/quotes";
-import TicketsPage from "@/pages/tickets";
-import CommunicationsPage from "@/pages/communications";
-import SettingsPage from "@/pages/settings";
-import TeamWorkloadPage from "@/pages/team-workload";
-import PartnershipsPage from "@/pages/partnerships";
-import EcosystemOrganizationsPage from "@/pages/ecosystem-organizations";
-import EcosystemPeoplePage from "@/pages/ecosystem-people";
-import EcosystemRelationshipsPage from "@/pages/ecosystem-relationships";
-import EcosystemEventsPage from "@/pages/ecosystem-events";
-import TradeshowEventsPage from "@/pages/tradeshow-events";
-import EcosystemRegionsPage from "@/pages/ecosystem-regions";
-import CalendarPage from "@/pages/calendar";
-import LoginPage from "@/pages/login";
-import ChangePasswordPage from "@/pages/change-password";
-import NotFound from "@/pages/not-found";
-import { VoiceAssistant } from "@/components/voice-assistant";
-import { QuickCapture } from "@/components/quick-capture";
-import GmailInboxPage from "@/pages/gmail-inbox";
-import { InboxFullScreenShell } from "@/components/inbox/inbox-fullscreen-shell";
-import AssetsPage from "@/pages/assets";
-import PriceListsPage from "@/pages/price-lists";
-import JiraPage from "@/pages/jira";
-import ConfluencePage from "@/pages/confluence";
-import AdminIntegrationsPage from "@/pages/admin-integrations";
-import AdminUsersPage from "@/pages/admin-users";
-import ProjectsPage from "@/pages/projects";
-import ResetPasswordPage from "@/pages/reset-password";
-import RelationshipIntelligencePage from "@/pages/relationship-intelligence";
-import ContactProfilePage from "@/pages/contact-profile";
-import AccountProfilePage from "@/pages/account-profile";
-import OpportunityProfilePage from "@/pages/opportunity-profile";
-import BookingOutreachPage from "@/pages/booking-outreach";
-import BookingAnalyticsPage from "@/pages/booking-analytics";
-import ActivityFeedPage from "@/pages/activity-feed";
-import NotesPage from "@/pages/notes-page";
-import TasksHubPage from "@/pages/tasks-hub";
-import TaskRulesSettingsPage from "@/pages/task-rules-settings";
-import DailyExecutionPage from "@/pages/daily-execution";
-import DataQualityPage from "@/pages/data-quality";
-import InstallWorkflowsPage from "@/pages/install-workflows";
-import SourceAttributionPage from "@/pages/source-attribution";
-import ExecutiveDashboardPage from "@/pages/executive-dashboard";
-import ProcurementPage from "@/pages/procurement";
-import DeploymentsPage from "@/pages/deployments";
-import RenewalsPage from "@/pages/renewals";
-import GeographyPage from "@/pages/geography";
-import DocumentsPage from "@/pages/documents";
-import AutomationsPage from "@/pages/automations";
-import BoardPackPage from "@/pages/board-pack";
-import RevenuePage from "@/pages/revenue";
-import RevenueSimPage from "@/pages/revenue-sim";
-import RevenueOpsPage from "@/pages/revenue-ops";
-import WinterHubPage from "@/pages/winter-hub";
-import ExecutiveCopilotPage from "@/pages/executive-copilot";
-import FieldPage from "@/pages/field";
-import FieldNearbyPage from "@/pages/field-nearby";
-import AlertsDigestPage from "@/pages/alerts-digest";
-import ScoreFeedbackPage from "@/pages/score-feedback";
-import TerritoryRoutingPage from "@/pages/territory-routing";
-import MailboxSettingsPage from "@/pages/mailbox-settings";
-import MailboxHealthPage from "@/pages/mailbox-health";
-import HelpCenterPage from "@/pages/help-center";
-import MeetingNotesIndexPage from "@/pages/meeting-notes-index";
-import MeetingNotesDetailPage from "@/pages/meeting-notes-detail";
-import { GlobalSearch } from "@/components/global-search";
-import { DemonAtmospherics } from "@/components/demon-atmospherics";
+// ── Lazy page imports — each route gets its own chunk ─────────────────────────
+const Dashboard = lazy(() => import("@/pages/dashboard"));
+const CommandCenter = lazy(() => import("@/pages/command-center"));
+const DailyCommandCenter = lazy(() => import("@/pages/daily-command-center"));
+const RoleCommandCenter = lazy(() => import("@/pages/role-command-center"));
+const TodayPage = lazy(() => import("@/pages/today"));
+const MyTravelPage = lazy(() => import("@/pages/my-travel"));
+const PipelinePage = lazy(() => import("@/pages/pipeline"));
+const MarinasPage = lazy(() => import("@/pages/marinas"));
+const LeadsPage = lazy(() => import("@/pages/leads"));
+const AccountsPage = lazy(() => import("@/pages/accounts"));
+const ContactsPage = lazy(() => import("@/pages/contacts"));
+const QuotesPage = lazy(() => import("@/pages/quotes"));
+const TicketsPage = lazy(() => import("@/pages/tickets"));
+const CommunicationsPage = lazy(() => import("@/pages/communications"));
+const SettingsPage = lazy(() => import("@/pages/settings"));
+const TeamWorkloadPage = lazy(() => import("@/pages/team-workload"));
+const PartnershipsPage = lazy(() => import("@/pages/partnerships"));
+const EcosystemOrganizationsPage = lazy(() => import("@/pages/ecosystem-organizations"));
+const EcosystemPeoplePage = lazy(() => import("@/pages/ecosystem-people"));
+const EcosystemRelationshipsPage = lazy(() => import("@/pages/ecosystem-relationships"));
+const EcosystemEventsPage = lazy(() => import("@/pages/ecosystem-events"));
+const TradeshowEventsPage = lazy(() => import("@/pages/tradeshow-events"));
+const EcosystemRegionsPage = lazy(() => import("@/pages/ecosystem-regions"));
+const CalendarPage = lazy(() => import("@/pages/calendar"));
+const LoginPage = lazy(() => import("@/pages/login"));
+const ChangePasswordPage = lazy(() => import("@/pages/change-password"));
+const NotFound = lazy(() => import("@/pages/not-found"));
+const VoiceAssistant = lazy(() => import("@/components/voice-assistant").then(m => ({ default: m.VoiceAssistant })));
+const QuickCapture = lazy(() => import("@/components/quick-capture").then(m => ({ default: m.QuickCapture })));
+const GmailInboxPage = lazy(() => import("@/pages/gmail-inbox"));
+const InboxFullScreenShell = lazy(() => import("@/components/inbox/inbox-fullscreen-shell").then(m => ({ default: m.InboxFullScreenShell })));
+const AssetsPage = lazy(() => import("@/pages/assets"));
+const PriceListsPage = lazy(() => import("@/pages/price-lists"));
+const JiraPage = lazy(() => import("@/pages/jira"));
+const ConfluencePage = lazy(() => import("@/pages/confluence"));
+const AdminIntegrationsPage = lazy(() => import("@/pages/admin-integrations"));
+const AdminUsersPage = lazy(() => import("@/pages/admin-users"));
+const ProjectsPage = lazy(() => import("@/pages/projects"));
+const ResetPasswordPage = lazy(() => import("@/pages/reset-password"));
+const RelationshipIntelligencePage = lazy(() => import("@/pages/relationship-intelligence"));
+const ContactProfilePage = lazy(() => import("@/pages/contact-profile"));
+const AccountProfilePage = lazy(() => import("@/pages/account-profile"));
+const OpportunityProfilePage = lazy(() => import("@/pages/opportunity-profile"));
+const BookingOutreachPage = lazy(() => import("@/pages/booking-outreach"));
+const BookingAnalyticsPage = lazy(() => import("@/pages/booking-analytics"));
+const ActivityFeedPage = lazy(() => import("@/pages/activity-feed"));
+const NotesPage = lazy(() => import("@/pages/notes-page"));
+const TasksHubPage = lazy(() => import("@/pages/tasks-hub"));
+const TaskRulesSettingsPage = lazy(() => import("@/pages/task-rules-settings"));
+const DailyExecutionPage = lazy(() => import("@/pages/daily-execution"));
+const DataQualityPage = lazy(() => import("@/pages/data-quality"));
+const InstallWorkflowsPage = lazy(() => import("@/pages/install-workflows"));
+const SourceAttributionPage = lazy(() => import("@/pages/source-attribution"));
+const ExecutiveDashboardPage = lazy(() => import("@/pages/executive-dashboard"));
+const ProcurementPage = lazy(() => import("@/pages/procurement"));
+const DeploymentsPage = lazy(() => import("@/pages/deployments"));
+const RenewalsPage = lazy(() => import("@/pages/renewals"));
+const GeographyPage = lazy(() => import("@/pages/geography"));
+const DocumentsPage = lazy(() => import("@/pages/documents"));
+const AutomationsPage = lazy(() => import("@/pages/automations"));
+const BoardPackPage = lazy(() => import("@/pages/board-pack"));
+const RevenuePage = lazy(() => import("@/pages/revenue"));
+const RevenueSimPage = lazy(() => import("@/pages/revenue-sim"));
+const RevenueOpsPage = lazy(() => import("@/pages/revenue-ops"));
+const WinterHubPage = lazy(() => import("@/pages/winter-hub"));
+const ExecutiveCopilotPage = lazy(() => import("@/pages/executive-copilot"));
+const FieldPage = lazy(() => import("@/pages/field"));
+const FieldNearbyPage = lazy(() => import("@/pages/field-nearby"));
+const AlertsDigestPage = lazy(() => import("@/pages/alerts-digest"));
+const ScoreFeedbackPage = lazy(() => import("@/pages/score-feedback"));
+const TerritoryRoutingPage = lazy(() => import("@/pages/territory-routing"));
+const MailboxSettingsPage = lazy(() => import("@/pages/mailbox-settings"));
+const MailboxHealthPage = lazy(() => import("@/pages/mailbox-health"));
+const HelpCenterPage = lazy(() => import("@/pages/help-center"));
+const MeetingNotesIndexPage = lazy(() => import("@/pages/meeting-notes-index"));
+const MeetingNotesDetailPage = lazy(() => import("@/pages/meeting-notes-detail"));
+const GlobalSearch = lazy(() => import("@/components/global-search").then(m => ({ default: m.GlobalSearch })));
+const DemonAtmospherics = lazy(() => import("@/components/demon-atmospherics").then(m => ({ default: m.DemonAtmospherics })));
+
+// ── Page-level loading fallback ───────────────────────────────────────────────
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center flex-1 h-full min-h-[40vh]">
+      <div className="h-6 w-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+    </div>
+  );
+}
 
 type AccessLevel = "none" | "view" | "edit";
 
@@ -171,27 +181,15 @@ function AppShell({ children, user, onLogout }: { children: React.ReactNode; use
   const sidebarStyle = { "--sidebar-width": "16rem", "--sidebar-width-icon": "4rem" } as React.CSSProperties;
   return (
     <SidebarProvider style={sidebarStyle}>
-      {/*
-        DemonAtmospherics renders fixed-position SVG environmental layers
-        (vines, thorns, cracks) BEHIND the app shell when a demon theme is
-        active. Returns null for light/dark — zero cost when not in a demon
-        theme. The shell wrapper below is forced transparent under demon
-        themes via index.css so these layers are actually visible.
-      */}
-      <DemonAtmospherics />
+      <Suspense fallback={null}>
+        <DemonAtmospherics />
+      </Suspense>
       <div data-app-shell="root" className="flex h-screen w-full bg-background text-foreground overflow-hidden">
         <div className="hidden md:flex">
           <AppSidebar userGlobalRole={user.globalRole || "sales"} userPermissions={user.permissions ?? FULL_PERMISSIONS} />
         </div>
         <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
           <Header user={user} onLogout={onLogout} />
-          {/*
-            Main is the single scroll container for the app.
-            - flex flex-col + min-h-0 give descendant pages a usable height context
-              so `flex-1`/`h-full` fill the viewport reliably and reflow on resize.
-            - pb-20 md:pb-0 is just enough mobile clearance for MobileNav; on
-              desktop we don't reserve dead space at the bottom anymore.
-          */}
           <main className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden relative scroll-smooth pb-20 md:pb-0">
             {children}
           </main>
@@ -210,13 +208,9 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
   const [searchOpen, setSearchOpen] = useState(false);
   const [appLocation] = useLocation();
 
-  // ⌘K opens GlobalSearch app-wide, EXCEPT on the inbox page where the inbox
-  // command palette owns ⌘K. The inbox handler also calls
-  // stopImmediatePropagation in capture phase as a belt-and-suspenders guard.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!((e.metaKey || e.ctrlKey) && e.key === "k")) return;
-      // Route-based gate — skip on inbox routes so the inbox cmdk wins cleanly
       const path = window.location.pathname || "";
       if (path.startsWith("/inbox") || path.startsWith("/gmail")) return;
       e.preventDefault();
@@ -229,8 +223,12 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
   function wrap(children: React.ReactNode) {
     return (
       <>
-        <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
-        <AppShell user={user} onLogout={onLogout}>{children}</AppShell>
+        <Suspense fallback={null}>
+          <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
+        </Suspense>
+        <AppShell user={user} onLogout={onLogout}>
+          <Suspense fallback={<PageLoader />}>{children}</Suspense>
+        </AppShell>
       </>
     );
   }
@@ -264,15 +262,12 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/routing">{() => advisorBlock(<TerritoryRoutingPage />)}</Route>
       <Route path="/documents">{() => wrap(<DocumentsPage />)}</Route>
 
-      {/* ── Sidebar alias routes — each nav item gets a unique URL so active   */}
-      {/* ── state never leaks across sections (no shared paths between items). */}
       <Route path="/execution/forecast">{() => guard("crm", isAdvisor ? <AccessDenied /> : <PipelinePage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
       <Route path="/revenue/deals">{() => guard("crm", isAdvisor ? <AccessDenied /> : <LeadsPage canEdit={isAdmin(role) || perms.crm === "edit"} lockedStatus="converted" pageTitle="Accounts Won" />)}</Route>
       <Route path="/intelligence/briefs">{() => wrap(<TodayPage />)}</Route>
       <Route path="/intelligence/signals">{() => wrap(<ActivityFeedPage />)}</Route>
       <Route path="/intelligence/rel-intelligence">{() => wrap(<RelationshipIntelligencePage />)}</Route>
 
-      {/* ── Growth OS: Relationships ───────────────────────────────── */}
       <Route path="/accounts/:id">{(params) => guard("crm", isAdvisor ? <AccessDenied /> : <AccountProfilePage />)}</Route>
       <Route path="/accounts">{() => guard("crm", isAdvisor ? <AccessDenied /> : <AccountsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
       <Route path="/contacts/:id">{(params) => guard("crm", isAdvisor ? <AccessDenied /> : <ContactProfilePage />)}</Route>
@@ -283,7 +278,6 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/booking-outreach">{() => guard("crm", isAdvisor ? <AccessDenied /> : <BookingOutreachPage />)}</Route>
       <Route path="/booking-analytics">{() => guard("crm", isAdvisor ? <AccessDenied /> : <BookingAnalyticsPage />)}</Route>
 
-      {/* ── Growth OS: Coming Soon stubs ──────────────────────────── */}
       <Route path="/activity">{() => wrap(<ActivityFeedPage />)}</Route>
       <Route path="/notes">{() => wrap(<NotesPage />)}</Route>
       <Route path="/meeting-notes/:id">{(params) => wrap(<MeetingNotesDetailPage params={params as { id: string }} />)}</Route>
@@ -302,7 +296,6 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
         )}</Route>
       ))}
 
-      {/* ── STRATEGY ──────────────────────────────────────────────── */}
       <Route path="/strategy/partnerships/:typeSlug">{(params) => guard("partnerships", isAdvisor ? <AccessDenied /> : <PartnershipsPage typeSlug={(params as any)?.typeSlug || ""} canEdit={isAdmin(role) || perms.partnerships === "edit"} />)}</Route>
       <Route path="/strategy/partnerships">{() => guard("partnerships", isAdvisor ? <AccessDenied /> : <PartnershipsPage typeSlug="" canEdit={isAdmin(role) || perms.partnerships === "edit"} />)}</Route>
       <Route path="/strategy/industry">{() => <Redirect to="/strategy/partnerships" />}</Route>
@@ -310,11 +303,12 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/strategy/government">{() => <Redirect to="/strategy/partnerships" />}</Route>
       <Route path="/strategy/research">{() => <Redirect to="/strategy/partnerships" />}</Route>
 
-      {/* ── EXECUTION ─────────────────────────────────────────────── */}
       <Route path="/gmail">{() => (
-        <InboxFullScreenShell>
-          <GmailInboxPage currentUserEmail={user.email} currentUserRole={user.globalRole || "sales"} userPermissions={perms} />
-        </InboxFullScreenShell>
+        <Suspense fallback={<PageLoader />}>
+          <InboxFullScreenShell>
+            <GmailInboxPage currentUserEmail={user.email} currentUserRole={user.globalRole || "sales"} userPermissions={perms} />
+          </InboxFullScreenShell>
+        </Suspense>
       )}</Route>
       <Route path="/relationships">{() => wrap(<RelationshipIntelligencePage />)}</Route>
       <Route path="/execution/calendar">{() => guard("calendar", <CalendarPage permissions={perms} currentUserId={user.id} isAdmin={isAdmin(role)} />)}</Route>
@@ -324,14 +318,11 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/execution/team-workload">{() => guard("team_workload", <TeamWorkloadPage />)}</Route>
       <Route path="/execution/tasks">{() => wrap(<TasksHubPage />)}</Route>
 
-      {/* ── KNOWLEDGE ─────────────────────────────────────────────── */}
       <Route path="/knowledge/assets">{() => guard("knowledge", <AssetsPage />)}</Route>
       <Route path="/price-lists">{() => guard("quoting", isAdvisor ? <AccessDenied /> : <PriceListsPage />)}</Route>
 
-      {/* ── SUPPORT ───────────────────────────────────────────────── */}
       <Route path="/support/tickets">{() => guard("support", <TicketsPage canEdit={isAdmin(role) || perms.support === "edit"} />)}</Route>
 
-      {/* ── REPORTS ───────────────────────────────────────────────── */}
       <Route path="/board-pack">{() => wrap(<BoardPackPage />)}</Route>
       <Route path="/revenue">{() => advisorBlock(<RevenuePage />)}</Route>
       <Route path="/revenue-sim">{() => advisorBlock(<RevenueSimPage />)}</Route>
@@ -339,12 +330,10 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/winter">{() => wrap(<WinterHubPage />)}</Route>
       <Route path="/executive-copilot">{() => wrap(<ExecutiveCopilotPage />)}</Route>
 
-      {/* ── AUTOMATION ────────────────────────────────────────────── */}
       <Route path="/automations">{() => wrap(<AutomationsPage />)}</Route>
       <Route path="/automation/tasks">{() => wrap(<TaskRulesSettingsPage />)}</Route>
       <Route path="/execution/daily">{() => wrap(<DailyExecutionPage />)}</Route>
 
-      {/* ── ADMIN ─────────────────────────────────────────────────── */}
       <Route path="/admin/users">{() => wrap(<AdminUsersPage currentUserGlobalRole={user.globalRole || "sales"} />)}</Route>
       <Route path="/admin/integrations">{() => wrap(<AdminIntegrationsPage />)}</Route>
       <Route path="/jira">{() => wrap(<JiraPage />)}</Route>
@@ -375,7 +364,6 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
         </div>
       )}</Route>
 
-      {/* ── LEGACY REDIRECTS ──────────────────────────────────────── */}
       <Route path="/tasks">{() => <Redirect to="/execution/tasks" />}</Route>
       <Route path="/leads">{() => <Redirect to="/opportunities" />}</Route>
       <Route path="/tickets">{() => <Redirect to="/support/tickets" />}</Route>
@@ -400,7 +388,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/alerts-digest">{() => wrap(<AlertsDigestPage />)}</Route>
       <Route path="/scores/feedback">{() => advisorBlock(<ScoreFeedbackPage />)}</Route>
 
-      <Route component={NotFound} />
+      <Route>{() => wrap(<Suspense fallback={<PageLoader />}><NotFound /></Suspense>)}</Route>
     </Switch>
   );
 }
@@ -423,76 +411,56 @@ function App() {
     queryClient.clear();
   };
 
-  // Handle /reset-password?token=XXX before any auth checks
   const resetToken = typeof window !== "undefined"
     ? new URLSearchParams(window.location.search).get("token")
     : null;
-  const isResetPage = typeof window !== "undefined" && window.location.pathname === "/reset-password";
-
-  if (isResetPage) {
-    return (
-      <ThemeProvider defaultTheme="dark">
-        <ResetPasswordPage
-          token={resetToken ?? ""}
-          onLogin={(u) => setUser(u as unknown as AuthUser)}
-        />
-      </ThemeProvider>
-    );
-  }
-
-  // Handle /book/:token — public booking page (no auth required)
-  const bookingTokenMatch = typeof window !== "undefined"
-    ? window.location.pathname.match(/^\/book\/([^/]+)$/)
-    : null;
-  if (bookingTokenMatch) {
-    return (
-      <ThemeProvider defaultTheme="dark">
-        <QueryClientProvider client={queryClient}>
-          <TooltipProvider>
-            <Toaster />
-            <BookingPublicPage token={bookingTokenMatch[1]} />
-          </TooltipProvider>
-        </QueryClientProvider>
-      </ThemeProvider>
-    );
-  }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-pulse text-muted-foreground">Loading...</div>
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
       </div>
     );
   }
 
-  if (!user) {
-    return (
-      <ThemeProvider defaultTheme="dark">
-        <LoginPage onLogin={(user) => setUser(user as unknown as AuthUser)} />
-      </ThemeProvider>
-    );
-  }
-
-  if (user.mustChangePassword) {
-    return (
-      <ThemeProvider defaultTheme="dark">
-        <ChangePasswordPage onComplete={() => setUser({ ...user, mustChangePassword: false })} />
-      </ThemeProvider>
-    );
-  }
-
   return (
-    <ThemeProvider defaultTheme="dark">
-      <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
         <TooltipProvider>
-          <Toaster />
-          <AuthenticatedRouter user={user} onLogout={handleLogout} />
-          <VoiceAssistant />
-          <QuickCapture />
-          <UpcomingMeetingBanner />
+          <Suspense fallback={
+            <div className="flex items-center justify-center min-h-screen bg-background">
+              <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            </div>
+          }>
+            {window.location.pathname === "/book" ? (
+              <BookingPublicPage />
+            ) : window.location.pathname.startsWith("/reset-password") || resetToken ? (
+              <ResetPasswordPage />
+            ) : !user ? (
+              user === null && !loading ? (
+                <Suspense fallback={<div className="flex items-center justify-center min-h-screen bg-background"><div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" /></div>}>
+                  <LoginPage onLogin={setUser} />
+                </Suspense>
+              ) : null
+            ) : user.mustChangePassword ? (
+              <Suspense fallback={null}>
+                <ChangePasswordPage onChanged={() => setUser(u => u ? { ...u, mustChangePassword: false } : u)} />
+              </Suspense>
+            ) : (
+              <>
+                <AuthenticatedRouter user={user} onLogout={handleLogout} />
+                <Suspense fallback={null}>
+                  <VoiceAssistant currentUserId={user.id} currentUserRole={user.globalRole || "sales"} userPermissions={user.permissions ?? FULL_PERMISSIONS} />
+                  <QuickCapture />
+                </Suspense>
+                <UpcomingMeetingBanner currentUserId={user.id} isAdmin={isAdmin(user.globalRole || "sales")} />
+                <Toaster />
+              </>
+            )}
+          </Suspense>
         </TooltipProvider>
-      </QueryClientProvider>
-    </ThemeProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 }
 
