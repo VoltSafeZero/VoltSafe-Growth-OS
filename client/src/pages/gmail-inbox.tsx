@@ -7562,7 +7562,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           </div>
 
           {/* Message list — bottom padding ensures last email isn't hidden under the FAB */}
-          <div ref={inboxScrollRef} className="flex-1 overflow-y-auto pb-36 md:pb-24">
+          <div ref={inboxScrollRef} className="flex-1 overflow-y-auto pb-36 lg:pb-24">
             {/* Commit 7: Auto 1-year backfill progress banner. Sticky-pinned
                 at the absolute top of the scroll viewport, sitting above the
                 Commit 6 "new messages" pill (z-30 vs pill's z-20 vs the
@@ -8928,7 +8928,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             </div>
 
             {/* Messages in thread — bottom padding so last message is not hidden under FAB */}
-            <div className={`flex-1 overflow-y-auto pb-36 md:pb-24 transition-[padding] duration-300 ${focusMode ? "pt-8 px-4 sm:px-6" : `${densityClasses.readerThreadPt} ${densityClasses.readerThreadPx}`}`}>
+            <div className={`flex-1 overflow-y-auto pb-36 lg:pb-24 transition-[padding] duration-300 ${focusMode ? "pt-8 px-4 sm:px-6" : `${densityClasses.readerThreadPt} ${densityClasses.readerThreadPx}`}`}>
             <div className={`transition-[max-width] duration-300 ${focusMode ? "space-y-6 max-w-3xl mx-auto w-full" : densityClasses.readerThreadGap}`}>
               {threadQuery.isLoading && (
                 <div className="space-y-3">

@@ -1225,7 +1225,7 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-5 pb-36 md:pb-24">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-5 pb-36 lg:pb-24">
           {tab === "customer" && (
             <div className="space-y-5 max-w-2xl">
               <div className="grid grid-cols-2 gap-4">

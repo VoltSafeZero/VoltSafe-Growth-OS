@@ -781,7 +781,7 @@ export default function PriceListsPage() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 pb-36 md:pb-2 space-y-1">
+        <div className="flex-1 overflow-y-auto p-2 pb-36 lg:pb-2 space-y-1">
           {listsQuery.isLoading ? (
             <div className="space-y-2 p-2">
               {[1, 2, 3].map(i => <div key={i} className="h-16 bg-muted/30 rounded-lg animate-pulse" />)}
@@ -969,7 +969,7 @@ export default function PriceListsPage() {
             </div>
 
             {/* Items table */}
-            <div className="flex-1 overflow-y-auto pb-36 md:pb-6">
+            <div className="flex-1 overflow-y-auto pb-36 lg:pb-6">
               {filteredItems.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
                   <Package className="h-12 w-12 mb-3 opacity-20" />

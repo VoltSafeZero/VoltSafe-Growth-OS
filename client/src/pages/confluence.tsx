@@ -159,7 +159,7 @@ export default function ConfluencePage() {
             <RefreshCw className="h-3.5 w-3.5" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto py-1 pb-36 md:pb-24">
+        <div className="flex-1 overflow-y-auto py-1 pb-36 lg:pb-24">
           <button onClick={() => { setSelectedSpace("all"); setSearchQuery(""); setSearch(""); setSelectedPageId(null); }}
             data-testid="filter-space-all"
             className={`w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors ${selectedSpace === "all" && !searchQuery ? "bg-[#0052CC]/10 border-l-2 border-[#0052CC]" : "border-l-2 border-transparent"}`}>
@@ -236,7 +236,7 @@ export default function ConfluencePage() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto pb-36 md:pb-24">
+            <div className="flex-1 overflow-y-auto pb-36 lg:pb-24">
               {pageDetailQuery.isLoading ? (
                 <div className="max-w-3xl mx-auto px-8 py-8 space-y-3">
                   <Skeleton className="h-8 w-2/3" />
@@ -347,7 +347,7 @@ export default function ConfluencePage() {
               <span className="w-5 flex-shrink-0" />
             </div>
 
-            <div className="flex-1 overflow-y-auto pb-36 md:pb-24">
+            <div className="flex-1 overflow-y-auto pb-36 lg:pb-24">
               {pagesQuery.isLoading && (
                 <div>{Array.from({ length: 12 }).map((_, i) => (
                   <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-border/20">

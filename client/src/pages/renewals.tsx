@@ -278,7 +278,7 @@ function CustomerDetailPanel({ csId, onClose }: { csId: number; onClose: () => v
   const expansionOptions = ["none", "low", "medium", "high"];
 
   return (
-    <div className="fixed inset-y-0 right-0 z-40 w-[480px] bg-background border-l border-border shadow-2xl flex flex-col" data-testid="cs-detail-panel">
+    <div className="fixed inset-y-0 right-0 z-40 w-full lg:w-[480px] bg-background border-l border-border shadow-2xl flex flex-col" data-testid="cs-detail-panel">
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/50">
         <div className="flex items-center gap-2">

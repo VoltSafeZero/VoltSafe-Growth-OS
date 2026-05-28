@@ -402,7 +402,7 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
   return (
     <div className="flex h-full overflow-hidden" data-testid="page-admin-users">
       {/* Left panel */}
-      <div className={`flex flex-col ${selectedUser ? "w-[420px] shrink-0" : "flex-1"} border-r border-border/50 overflow-hidden`}>
+      <div className={`flex flex-col ${selectedUser ? "hidden lg:flex lg:w-[420px] lg:shrink-0" : "flex-1"} border-r border-border/50 overflow-hidden`}>
         {/* Header */}
         <div className="p-4 sm:p-6 border-b border-border/50">
           <div className="flex items-center justify-between gap-3">
@@ -469,7 +469,7 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
         </div>
 
         {/* User list */}
-        <div className="flex-1 overflow-auto pb-36 md:pb-24">
+        <div className="flex-1 overflow-auto pb-36 lg:pb-24">
           {isLoading ? (
             <div className="p-6 space-y-3">{[...Array(5)].map((_, i) => <div key={i} className="h-16 bg-secondary/20 rounded-lg animate-pulse" />)}</div>
           ) : filtered.length === 0 ? (
@@ -563,7 +563,7 @@ function UserDetailPanel({ user, currentUserId, isMasterAdmin, onClose, onUpdate
   return (
     <div className="flex-1 flex flex-col overflow-hidden" data-testid="panel-user-detail">
       {/* Panel header */}
-      <div className="px-6 py-4 border-b border-border/50 flex items-start justify-between">
+      <div className="px-4 sm:px-6 py-4 border-b border-border/50 flex items-start justify-between">
         <div className="flex items-center gap-3">
           <UserInitial name={user.name} size="lg" />
           <div>
@@ -585,7 +585,7 @@ function UserDetailPanel({ user, currentUserId, isMasterAdmin, onClose, onUpdate
         ))}
       </div>
 
-      <div className="flex-1 overflow-auto p-6 pb-36 md:pb-24 space-y-6">
+      <div className="flex-1 overflow-auto p-6 pb-36 lg:pb-24 space-y-6">
         {activeTab === "info" ? (
           <>
             {/* Status + Role badges */}

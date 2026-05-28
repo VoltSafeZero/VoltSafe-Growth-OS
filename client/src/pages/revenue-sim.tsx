@@ -458,7 +458,7 @@ export default function RevenueSimPage() {
         <div className="flex flex-1 overflow-hidden">
 
           {/* ── Left: Controls ── */}
-          <div className="w-72 flex-shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-y-auto p-5 pb-36 md:pb-24">
+          <div className="w-72 flex-shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-y-auto p-5 pb-36 lg:pb-24">
             <div className="flex items-center gap-2 mb-5">
               <SlidersHorizontal className="w-4 h-4 text-zinc-500" />
               <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200 uppercase tracking-wide">Parameters</span>
@@ -550,7 +550,7 @@ export default function RevenueSimPage() {
           </div>
 
           {/* ── Right: Chart + Results ── */}
-          <div className="flex-1 overflow-y-auto p-6 pb-24 md:pb-6">
+          <div className="flex-1 overflow-y-auto p-6 pb-24 lg:pb-6">
 
             {/* Summary cards */}
             {summary && (
