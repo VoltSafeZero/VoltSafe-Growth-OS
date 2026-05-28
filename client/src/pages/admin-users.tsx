@@ -404,7 +404,7 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
       {/* Left panel */}
       <div className={`flex flex-col ${selectedUser ? "w-[420px] shrink-0" : "flex-1"} border-r border-border/50 overflow-hidden`}>
         {/* Header */}
-        <div className="px-6 py-5 border-b border-border/50">
+        <div className="p-4 sm:p-6 border-b border-border/50">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">User Management</h1>
@@ -444,7 +444,7 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
         </div>
 
         {/* Filters */}
-        <div className="px-6 py-3 flex gap-3 flex-wrap border-b border-border/30">
+        <div className="px-4 sm:px-6 py-3 flex gap-3 flex-wrap border-b border-border/30">
           <div className="relative flex-1 min-w-[160px] max-w-xs">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input placeholder="Search users..." value={search} onChange={e => setSearch(e.target.value)}

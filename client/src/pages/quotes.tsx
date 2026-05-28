@@ -1198,7 +1198,7 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-6 pt-6 pb-0 border-b border-border/50">
+      <div className="px-4 sm:px-6 pt-4 sm:pt-6 pb-0 border-b border-border/50">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold">New Quote</h2>
           {lineItems.length > 0 && (
@@ -1225,7 +1225,7 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-y-auto px-6 py-5 pb-36 md:pb-24">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-5 pb-36 md:pb-24">
           {tab === "customer" && (
             <div className="space-y-5 max-w-2xl">
               <div className="grid grid-cols-2 gap-4">
@@ -1629,7 +1629,7 @@ function QuoteBuilder({ accounts, onSubmit, isPending }: { accounts: Account[]; 
         )}
       </div>
 
-      <div className="flex items-center justify-between px-6 py-4 border-t border-border/50 bg-card/50">
+      <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-t border-border/50 bg-card/50 flex-wrap gap-2">
         <div className="flex gap-2">
           {tab !== "customer" && <Button variant="ghost" size="sm" onClick={() => { const tabs = ["customer","products","pricing","notes"]; setTab(tabs[tabs.indexOf(tab)-1]); }}>← Back</Button>}
           {tab !== "notes" && <Button variant="outline" size="sm" onClick={() => { const tabs = ["customer","products","pricing","notes"]; setTab(tabs[tabs.indexOf(tab)+1]); }}>Next →</Button>}

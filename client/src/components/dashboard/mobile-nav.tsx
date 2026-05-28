@@ -57,7 +57,8 @@ export function MobileNav({ userGlobalRole = "sales" }: { userGlobalRole?: strin
 
       {showMore && (
         <div
-          className="fixed bottom-16 left-0 right-0 z-50 bg-background border-t border-border/50 rounded-t-2xl max-h-[75vh] overflow-y-auto"
+          className="fixed left-0 right-0 z-50 bg-background border-t border-border/50 rounded-t-2xl max-h-[75vh] overflow-y-auto"
+          style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom, 0px))' }}
           data-testid="mobile-nav-more-panel"
         >
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/50 sticky top-0 bg-background z-10">

@@ -4,3 +4,4 @@
 - [Composer Link Flow Fix](composer-link-flow-fix.md) — Radix Popover focus trap blocks div.focus() if dispatchFormat fires while popover is still open; fix is setTimeout(dispatch, 20) after setLinkOpen(false).
 - [Composer XSS Hardening](composer-xss-hardening.md) — three-layer XSS defense in sanitizeEditorHtml; normalizeUrl leaves all protocols intact so the sanitizer decides; nested-link attack blocked by attribute-level strip.
 - [Asset Library Upgrade](asset-library-upgrade.md) — Document Hub renamed; 7 new metadata columns on attachments+assets; email picker rebuilt with tabs/search/safety warnings; tests/asset-library.test.js (61 checks).
+- [Mobile/Tablet Responsive Audit](mobile-tablet-responsive.md) — breakpoint strategy for tablet (lg=1024px); all changed files and key patterns.

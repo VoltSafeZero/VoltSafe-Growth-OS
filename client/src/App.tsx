@@ -185,12 +185,12 @@ function AppShell({ children, user, onLogout }: { children: React.ReactNode; use
         <DemonAtmospherics />
       </Suspense>
       <div data-app-shell="root" className="flex h-screen w-full bg-background text-foreground overflow-hidden">
-        <div className="hidden md:flex">
+        <div className="hidden lg:flex">
           <AppSidebar userGlobalRole={user.globalRole || "sales"} userPermissions={user.permissions ?? FULL_PERMISSIONS} />
         </div>
         <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
           <Header user={user} onLogout={onLogout} />
-          <main className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden relative scroll-smooth pb-20 md:pb-0">
+          <main className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden relative scroll-smooth pb-20 lg:pb-0">
             {children}
           </main>
         </div>

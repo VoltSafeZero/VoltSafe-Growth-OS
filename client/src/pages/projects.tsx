@@ -1736,7 +1736,7 @@ function ProjectDetailDialog({ project, onClose, onDelete }: { project: Project;
               </TabsList>
 
               <ScrollArea className="flex-1 min-h-0">
-                <div className="px-6 py-4">
+                <div className="px-4 sm:px-6 py-4">
 
                   <TabsContent value="overview" className="mt-0 space-y-4">
                     {project.description && (

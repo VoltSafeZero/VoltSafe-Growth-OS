@@ -1,0 +1,115 @@
+Audit and fix VoltSafe CMS mobile + tablet usability across the full app.
+
+Problem:
+On mobile, important top-page buttons become unreachable or hidden. On iPad/tablet, many buttons either do not respond or navigate/activate the wrong target, even though they work correctly on desktop Mac and iPhone.
+
+Goal:
+Make the entire CMS fully usable on:
+- iPhone/mobile
+- iPad/tablet
+- Desktop
+
+Do not redesign the product. Fix responsiveness, touch targets, sticky headers, overflow, z-index, pointer/tap behavior, and tablet layout bugs.
+
+Requirements:
+
+1. Global responsive audit
+- Inspect all main CMS pages/components, especially:
+  - CRM / Leads / Accounts / Contacts / Pipeline
+  - Mail / Inbox / Composer
+  - Calendar
+  - Documents / Asset Library
+  - Quotes / Renewals
+  - Booking Outreach / Analytics
+  - Top nav, side nav, page headers, action bars, dialogs, dropdowns, modals
+- Identify all areas where buttons are clipped, unreachable, hidden behind headers, or outside the viewport.
+
+2. Mobile header/action-bar fix
+- Important action buttons must never sit above the visible viewport or become unreachable.
+- On small screens, convert crowded top action rows into:
+  - sticky bottom action bar, OR
+  - wrapped action rows, OR
+  - “More” overflow menu
+- Ensure primary actions remain visible and reachable with thumb/touch.
+- Avoid horizontal overflow unless absolutely intentional.
+
+3. Tablet/iPad tap bug investigation
+- Specifically test iPad/tablet viewport sizes:
+  - 768x1024 portrait
+  - 1024x768 landscape
+  - 820x1180 iPad Air portrait
+  - 1180x820 iPad Air landscape
+- Fix buttons that:
+  - do not respond
+  - trigger the wrong nearby button
+  - navigate to the wrong section
+  - require multiple taps
+- Look for root causes:
+  - invisible overlays
+  - bad z-index stacking
+  - absolute/fixed positioned elements covering buttons
+  - pointer-events misuse
+  - stale click handlers
+  - mobile/tablet breakpoint mismatch
+  - dialogs/dropdowns not closing correctly
+  - incorrect hitboxes after layout shift
+
+4. Touch target standards
+- All tappable controls should have a minimum practical touch size around 44px.
+- Add enough spacing between adjacent buttons so tablet taps do not hit the wrong target.
+- Do not shrink critical buttons into tiny icons without labels unless there is a clear tooltip/accessible label.
+
+5. Breakpoint cleanup
+- Review Tailwind/CSS breakpoints.
+- Make sure tablet is treated as its own real layout, not accidentally desktop or cramped mobile.
+- Use clear responsive rules for:
+  - mobile: single-column, bottom/sticky actions
+  - tablet: two-column where safe, larger touch targets
+  - desktop: current layout preserved as much as possible
+
+6. Sticky/fixed layout safety
+- Audit all sticky/fixed headers, navbars, tab bars, and floating buttons.
+- Ensure they do not cover content or steal taps.
+- Add safe-area padding for iOS:
+  - env(safe-area-inset-top)
+  - env(safe-area-inset-bottom)
+- Ensure scrolling containers are correct and not trapping content.
+
+7. Forms, dialogs, and dropdowns
+- Modals must fit mobile/tablet screens.
+- Dialog footers/actions must remain visible.
+- Dropdowns must not open off-screen.
+- Long forms should scroll inside the page safely.
+- Composer and CRM dialogs should be usable without hidden Save/Send/Cancel buttons.
+
+8. Regression protection
+Add tests where possible:
+- Responsive smoke tests for core pages.
+- Touch/click target tests for action buttons.
+- Tablet viewport tests for known problem areas.
+- Verify primary actions are visible/clickable at iPad and mobile breakpoints.
+
+9. Manual verification
+After fixes, run:
+- existing test suite
+- TypeScript check
+- app build
+- browser/manual viewport checks for:
+  - iPhone-size
+  - iPad portrait
+  - iPad landscape
+  - desktop
+
+10. Report back with:
+- root causes found
+- files changed
+- before/after behavior
+- tests run
+- any remaining risky areas
+
+Important constraints:
+- Do not break desktop behavior.
+- Do not remove existing functionality.
+- Prefer surgical fixes over a full redesign.
+- Preserve existing styling where possible.
+- Fix the actual tablet tap/root layout bug, not just visual symptoms.

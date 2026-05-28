@@ -232,15 +232,15 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-6 py-5 border-b border-border/50">
-        <div className="flex items-center gap-3 mb-3">
+      <div className="p-4 sm:p-6 border-b border-border/50">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-3">
           <div className="shrink-0">
             <h1 className="text-2xl font-bold tracking-tight">Contacts</h1>
             <p className="text-muted-foreground text-sm mt-0.5">
               All contacts across your accounts
             </p>
           </div>
-          <div className="flex-1 relative max-w-sm">
+          <div className="flex-1 relative sm:max-w-sm">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search contacts..."

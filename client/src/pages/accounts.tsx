@@ -327,7 +327,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
             <Button variant={view === "map" ? "secondary" : "ghost"} size="default" onClick={() => setView("map")} className="rounded-none px-3" data-testid="button-map-view"><Map className="h-5 w-5" /></Button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <ExportButton
             endpoint={`/api/accounts/export?${new URLSearchParams({
               ...(search ? { search } : {}),

@@ -511,7 +511,7 @@ function GlobalSearch({ canEdit }: { canEdit: boolean }) {
   };
 
   return (
-    <div ref={containerRef} className="relative w-full max-w-md hidden md:block">
+    <div ref={containerRef} className="relative w-full max-w-md hidden lg:block">
       <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none z-10" />
       <Input
         ref={inputRef}
@@ -1062,7 +1062,7 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
   return (
     <header className="h-auto py-2 flex items-center justify-between px-3 sm:px-6 border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
       {mobileSearchOpen ? (
-        <div className="flex items-center gap-2 flex-1 md:hidden">
+        <div className="flex items-center gap-2 flex-1 lg:hidden">
           <div className="relative flex-1">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -1088,7 +1088,7 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
             <Button
               variant="ghost"
               size="icon"
-              className="md:hidden rounded-full text-muted-foreground"
+              className="lg:hidden rounded-full text-muted-foreground"
               onClick={() => setMobileSearchOpen(true)}
               data-testid="button-open-mobile-search"
             >

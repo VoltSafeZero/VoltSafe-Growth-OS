@@ -671,7 +671,7 @@ export default function DocumentsPage() {
   return (
     <div className="flex flex-col h-full min-h-0" data-testid="page-documents">
       {/* Header */}
-      <div className="px-6 pt-5 pb-4 border-b border-border/30">
+      <div className="p-4 sm:p-6 pb-4 border-b border-border/30">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Asset Library</h1>

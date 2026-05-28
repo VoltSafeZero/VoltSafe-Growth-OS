@@ -134,7 +134,7 @@ export default function TicketsPage({ canEdit = true }: { canEdit?: boolean }) {
   return (
     <div className="flex flex-col h-full">
       {/* Page header */}
-      <div className="px-6 py-5 border-b border-border/50">
+      <div className="p-4 sm:p-6 border-b border-border/50">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Tickets</h1>
