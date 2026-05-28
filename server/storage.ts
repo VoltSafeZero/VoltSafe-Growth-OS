@@ -81,7 +81,7 @@ export interface IStorage {
   getMarinas(options: { search?: string; state?: string; page?: number; limit?: number }): Promise<{ data: Marina[]; total: number; page: number; totalPages: number }>;
   getMarinaStates(): Promise<string[]>;
 
-  getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; marketSegment?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }): Promise<{ data: Lead[]; total: number; page: number; totalPages: number }>;
+  getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; marketSegment?: string; shorePower?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }): Promise<{ data: Lead[]; total: number; page: number; totalPages: number }>;
   getLead(id: number): Promise<Lead | undefined>;
   createLead(data: InsertLead): Promise<Lead>;
   updateLead(id: number, data: Partial<InsertLead>): Promise<Lead | undefined>;
@@ -373,7 +373,7 @@ export class DatabaseStorage implements IStorage {
     return result.map((r) => r.state);
   }
 
-  async getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; marketSegment?: string; type?: string; priority?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
+  async getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; marketSegment?: string; shorePower?: string; type?: string; priority?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -416,6 +416,16 @@ export class DatabaseStorage implements IStorage {
     }
     if (options?.marketSegment) {
       conditions.push(eq(leads.marketSegment, options.marketSegment));
+    }
+    if (options?.shorePower) {
+      if (options.shorePower === "unknown") {
+        conditions.push(or(
+          eq(leads.shorePower, "unknown"),
+          sql`${leads.shorePower} IS NULL`
+        ));
+      } else {
+        conditions.push(eq(leads.shorePower, options.shorePower));
+      }
     }
     if (options?.type) {
       const relTypeMap: Record<string, string[]> = {

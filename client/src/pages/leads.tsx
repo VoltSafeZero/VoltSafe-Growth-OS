@@ -85,6 +85,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
   const [marketSegmentFilter, setMarketSegmentFilter] = useState("__all__");
   const [typeFilter, setTypeFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
+  const [shorePowerFilter, setShorePowerFilter] = useState("all");
   const [sortOption, setSortOption] = useState("default");
   const [view, setView] = useState<"list" | "pipeline" | "map">(() => {
     if (typeof window === "undefined") return "list";
@@ -150,7 +151,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery<{ data: Lead[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, primaryIndustry: industryFilter === "__all__" ? "" : industryFilter, marketSegment: marketSegmentFilter === "__all__" ? "" : marketSegmentFilter, type: typeFilter === "all" ? "" : typeFilter, priority: priorityFilter === "all" ? "" : priorityFilter, sort: sortOption, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],
+    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, primaryIndustry: industryFilter === "__all__" ? "" : industryFilter, marketSegment: marketSegmentFilter === "__all__" ? "" : marketSegmentFilter, type: typeFilter === "all" ? "" : typeFilter, priority: priorityFilter === "all" ? "" : priorityFilter, shorePower: shorePowerFilter === "all" ? "" : shorePowerFilter, sort: sortOption, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
@@ -161,6 +162,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
       if (marketSegmentFilter && marketSegmentFilter !== "__all__") params.set("marketSegment", marketSegmentFilter);
       if (typeFilter !== "all") params.set("type", typeFilter);
       if (priorityFilter !== "all") params.set("priority", priorityFilter);
+      if (shorePowerFilter !== "all") params.set("shorePower", shorePowerFilter);
       if (sortOption !== "default") { const [sk, so] = sortOption.split(":"); params.set("sortBy", sk); params.set("sortOrder", so); } else if (sort.sortBy) { params.set("sortBy", sort.sortBy); params.set("sortOrder", sort.sortOrder); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
@@ -317,7 +319,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
   });
 
-  const currentFiltersJson = useMemo(() => JSON.stringify({ status: statusFilter, country: countryFilter, state: stateFilter, primaryIndustry: industryFilter, marketSegment: marketSegmentFilter, type: typeFilter, priority: priorityFilter, sort: sortOption }), [statusFilter, countryFilter, stateFilter, industryFilter, marketSegmentFilter, typeFilter, priorityFilter, sortOption]);
+  const currentFiltersJson = useMemo(() => JSON.stringify({ status: statusFilter, country: countryFilter, state: stateFilter, primaryIndustry: industryFilter, marketSegment: marketSegmentFilter, type: typeFilter, priority: priorityFilter, shorePower: shorePowerFilter, sort: sortOption }), [statusFilter, countryFilter, stateFilter, industryFilter, marketSegmentFilter, typeFilter, priorityFilter, shorePowerFilter, sortOption]);
 
   const applyView = (sv: SavedView) => {
     setActiveViewId(sv.id);
@@ -331,12 +333,13 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
         if (f.marketSegment !== undefined) setMarketSegmentFilter(f.marketSegment);
         if (f.type !== undefined) setTypeFilter(f.type);
         if (f.priority !== undefined) setPriorityFilter(f.priority);
+        if (f.shorePower !== undefined) setShorePowerFilter(f.shorePower);
         if (f.sort !== undefined) setSortOption(f.sort);
       } catch {}
     }
   };
 
-  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); setIndustryFilter("__all__"); setMarketSegmentFilter("__all__"); setTypeFilter("all"); setPriorityFilter("all"); setSortOption("default"); };
+  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); setIndustryFilter("__all__"); setMarketSegmentFilter("__all__"); setTypeFilter("all"); setPriorityFilter("all"); setShorePowerFilter("all"); setSortOption("default"); };
 
   const isAllSelected = allLeads.length > 0 && allLeads.every(l => selectedIds.has(l.id));
 
@@ -400,6 +403,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
               ...(marketSegmentFilter && marketSegmentFilter !== "__all__" ? { marketSegment: marketSegmentFilter } : {}),
               ...(typeFilter !== "all" ? { type: typeFilter } : {}),
               ...(priorityFilter !== "all" ? { priority: priorityFilter } : {}),
+              ...(shorePowerFilter !== "all" ? { shorePower: shorePowerFilter } : {}),
             }).toString()}`}
             filename="leads_export.csv"
           />
@@ -516,7 +520,19 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
             ))}
           </SelectContent>
         </Select>
-        {/* 7 — Sort */}
+        {/* 7 — Shore Power */}
+        <Select value={shorePowerFilter} onValueChange={setShorePowerFilter}>
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-40" data-testid="select-shore-power-filter">
+            <SelectValue placeholder="Shore Power?" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Shore Power?</SelectItem>
+            <SelectItem value="unknown">Unknown</SelectItem>
+            <SelectItem value="yes">Yes</SelectItem>
+            <SelectItem value="no">No</SelectItem>
+          </SelectContent>
+        </Select>
+        {/* 8 — Sort */}
         <Select value={sortOption} onValueChange={setSortOption}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-sort">
             <ArrowUpDown className="mr-2 h-4 w-4" />
@@ -1710,8 +1726,10 @@ function LeadDetailDialog({
                 <p className="text-lg font-semibold">{!lead.slips || lead.slips === "-" ? "—" : lead.slips}</p>
               </div>
               <div className="rounded-lg border border-border/50 p-3 min-w-0 overflow-hidden">
-                <p className="text-xs text-muted-foreground">Segment</p>
-                <p className="text-sm font-medium break-words">{lead.segment || "—"}</p>
+                <p className="text-xs text-muted-foreground">Shore Power?</p>
+                <p className={`text-sm font-medium ${(lead as any).shorePower === "yes" ? "text-emerald-400" : (lead as any).shorePower === "no" ? "text-red-400" : "text-muted-foreground"}`}>
+                  {(lead as any).shorePower === "yes" ? "Yes" : (lead as any).shorePower === "no" ? "No" : "Unknown"}
+                </p>
               </div>
               <div className="rounded-lg border border-border/50 p-3 min-w-0 overflow-hidden">
                 <p className="text-xs text-muted-foreground">Country</p>
@@ -1933,6 +1951,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
     marketSegment: (lead as any).marketSegment || "",
     slipRange: (lead as any).slipRange || "",
     slipCountInt: (lead as any).slipCountInt != null ? String((lead as any).slipCountInt) : "",
+    shorePower: (lead as any).shorePower || "unknown",
   });
 
   const formRegions = form.country ? getRegionsForCountry(form.country) : [];
@@ -1956,6 +1975,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
         marketSegment: form.marketSegment || null,
         slipRange: form.slipRange || null,
         slipCountInt: form.slipCountInt ? Number(form.slipCountInt) : null,
+        shorePower: form.shorePower || "unknown",
       });
     }} className="space-y-4 mt-2">
       <div>
@@ -2097,6 +2117,17 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
             </Select>
           </div>}
           {showMarinaOps && <div><Label className="text-xs">Slip Count (exact)</Label><Input type="number" value={form.slipCountInt} onChange={(e) => setForm(f => ({ ...f, slipCountInt: e.target.value }))} placeholder="e.g. 250" data-testid="input-edit-slip-count-int" /></div>}
+          <div>
+            <Label className="text-xs">Shore Power?</Label>
+            <Select value={form.shorePower || "unknown"} onValueChange={(v) => setForm(f => ({ ...f, shorePower: v }))}>
+              <SelectTrigger data-testid="select-edit-shore-power"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="unknown">Unknown</SelectItem>
+                <SelectItem value="yes">Yes</SelectItem>
+                <SelectItem value="no">No</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div><Label className="text-xs">Source</Label><Input value={form.source} onChange={(e) => setForm(f => ({ ...f, source: e.target.value }))} data-testid="input-edit-source" /></div>
         </div>
       </div>

@@ -132,6 +132,7 @@ export const leads = pgTable("leads", {
   marketSegment: text("market_segment"),
   slipRange: text("slip_range"),
   slipCountInt: integer("slip_count_int"),
+  shorePower: text("shore_power").default("unknown"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
