@@ -1543,6 +1543,16 @@ function LeadDetailDialog({
           </div>
         </DialogHeader>
 
+        <div className="mt-3 mb-1">
+          <a
+            href={`/opportunities/${lead.id}`}
+            className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium"
+            data-testid={`link-opportunity-profile-${lead.id}`}
+          >
+            <ExternalLink className="h-3.5 w-3.5" /> View full opportunity profile
+          </a>
+        </div>
+
         <RecordSummaryBar objectType="lead" objectId={lead.id} compact />
 
         <div className="mt-3">

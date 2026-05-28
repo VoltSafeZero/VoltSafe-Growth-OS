@@ -483,7 +483,7 @@ function StopCard({
                 href={`/opportunities/${leadId}`}
                 className="text-xs text-muted-foreground/60 hover:text-muted-foreground flex items-center gap-1"
               >
-                <ExternalLink className="h-3 w-3" /> View lead
+                <ExternalLink className="h-3 w-3" /> View opportunity profile
               </a>
             )}
           </>
