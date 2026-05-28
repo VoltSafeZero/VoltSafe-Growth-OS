@@ -186,10 +186,17 @@ export default function OpportunityProfilePage() {
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5" data-testid="opportunity-profile-page">
       {/* Back */}
-      <Button variant="ghost" size="sm" onClick={() => navigate("/opportunities")}
-        className="gap-1.5 text-muted-foreground hover:text-foreground" data-testid="button-back">
-        <ArrowLeft className="h-4 w-4" /> Opportunities
-      </Button>
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" size="sm" onClick={() => navigate("/opportunities")}
+          className="gap-1.5 text-muted-foreground hover:text-foreground" data-testid="button-back">
+          <ArrowLeft className="h-4 w-4" /> Leads
+        </Button>
+        <Link href="/opportunities">
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs" data-testid="button-view-in-leads">
+            <ExternalLink className="h-3.5 w-3.5" /> View in Leads list
+          </Button>
+        </Link>
+      </div>
 
       {/* Deal Card */}
       <Card className="border-border/50">
