@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Search, ArrowRightLeft, Trash2, Loader2, Undo2, ArrowUpDown,
-  LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar, DollarSign, Map, ExternalLink,
+  LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar, DollarSign, Map, ExternalLink, Globe,
   CheckCircle2, AlertCircle, Link2, UserCheck, Shuffle, ClipboardList, Archive,
 } from "lucide-react";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
@@ -1717,6 +1717,22 @@ function LeadDetailDialog({
                     <p className="text-sm text-muted-foreground italic">Not set</p>
                   )}
                 </div>
+                {(lead as any).website && (
+                  <div className="min-w-0 overflow-hidden sm:col-span-3">
+                    <p className="text-xs text-muted-foreground">Website</p>
+                    <a
+                      href={(lead as any).website.startsWith("http") ? (lead as any).website : `https://${(lead as any).website}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-primary hover:underline flex items-center gap-1 min-w-0"
+                      data-testid={`link-lead-website-${lead.id}`}
+                    >
+                      <Globe className="h-3 w-3 shrink-0" />
+                      <span className="break-all overflow-hidden">{(lead as any).website}</span>
+                      <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    </a>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1952,6 +1968,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
     slipRange: (lead as any).slipRange || "",
     slipCountInt: (lead as any).slipCountInt != null ? String((lead as any).slipCountInt) : "",
     shorePower: (lead as any).shorePower || "unknown",
+    website: (lead as any).website || "",
   });
 
   const formRegions = form.country ? getRegionsForCountry(form.country) : [];
@@ -1976,6 +1993,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
         slipRange: form.slipRange || null,
         slipCountInt: form.slipCountInt ? Number(form.slipCountInt) : null,
         shorePower: form.shorePower || "unknown",
+        website: form.website || null,
       });
     }} className="space-y-4 mt-2">
       <div>
@@ -2054,6 +2072,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
           <div><Label className="text-xs">Contact Name</Label><Input value={form.contactName} onChange={(e) => setForm(f => ({ ...f, contactName: e.target.value }))} placeholder="Full name" data-testid="input-edit-contact-name" /></div>
           <div><Label className="text-xs">Email</Label><Input type="email" value={form.contactEmail} onChange={(e) => setForm(f => ({ ...f, contactEmail: e.target.value }))} data-testid="input-edit-contact-email" /></div>
           <div><Label className="text-xs">Phone</Label><Input value={form.contactPhone} onChange={(e) => setForm(f => ({ ...f, contactPhone: e.target.value }))} data-testid="input-edit-contact-phone" /></div>
+          <div className="sm:col-span-3"><Label className="text-xs">Website</Label><Input value={form.website} onChange={(e) => setForm(f => ({ ...f, website: e.target.value }))} placeholder="https://..." data-testid="input-edit-website" /></div>
         </div>
       </div>
 

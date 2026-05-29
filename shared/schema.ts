@@ -129,6 +129,7 @@ export const leads = pgTable("leads", {
   // marketSegment: canonical MARKET_SEGMENT_OPTIONS value (crm-taxonomy.ts).
   // slipRange: canonical SLIP_RANGE_OPTIONS key (e.g. "100_to_300").
   // slipCountInt: integer slip count parsed from legacy leads.slips text.
+  website: text("website"),
   marketSegment: text("market_segment"),
   slipRange: text("slip_range"),
   slipCountInt: integer("slip_count_int"),
