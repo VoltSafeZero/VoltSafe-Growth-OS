@@ -10909,11 +10909,12 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         return res.status(403).json({ message: "No accessible mailboxes" });
       }
 
-      // Resolve the normalized_subject of the anchor message for fallback threading.
+      // Resolve the normalized_subject and sender of the anchor message for fallback threading.
       const [anchorMeta] = await db
         .select({
           accId: emailMessages.sourceAccountId,
           normalizedSubject: emailMessages.normalizedSubject,
+          fromEmail: emailMessages.fromEmail,
         })
         .from(emailMessages)
         .where(eq(emailMessages.gmailThreadId, threadId))
@@ -10939,7 +10940,37 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         return res.status(404).json({ message: "Thread not found in any accessible mailbox" });
       }
 
-      res.json({ ok: result.ok, threadId, ...result });
+      // ── Sender allowlist: permanently trust this sender so future emails
+      //    from them never land in spam again.
+      //    1. Store in spam_trusted_senders (local fast-path guard for incremental sync).
+      //    2. Create a Gmail filter "from:<sender> → never spam" in every accessible
+      //       mailbox account (best-effort — failures are non-fatal).
+      const senderEmail = anchorMeta.fromEmail?.trim().toLowerCase();
+      if (senderEmail && result.ok) {
+        try {
+          await db.execute(
+            sql`INSERT INTO spam_trusted_senders (email, added_by) VALUES (${senderEmail}, ${userId}) ON CONFLICT (email) DO NOTHING`,
+          );
+        } catch (e: any) {
+          console.warn("[inbox-not-spam] trusted-sender insert failed (non-fatal):", e?.message);
+        }
+        for (const accId of accessibleAccountIds) {
+          try {
+            const gmail = await getGmailClient(userId, accId);
+            await gmail.users.settings.filters.create({
+              userId: "me",
+              requestBody: {
+                criteria: { from: senderEmail },
+                action: { removeLabelIds: ["SPAM"] },
+              },
+            });
+          } catch (e: any) {
+            console.warn(`[inbox-not-spam] Gmail filter creation failed for account=${accId} (non-fatal):`, e?.message);
+          }
+        }
+      }
+
+      res.json({ ok: result.ok, threadId, ...result, trustedSender: senderEmail || null });
     } catch (err: any) {
       console.error("[inbox-not-spam] unexpected error:", err?.message);
       res.status(500).json({ message: err?.message || "not-spam failed" });

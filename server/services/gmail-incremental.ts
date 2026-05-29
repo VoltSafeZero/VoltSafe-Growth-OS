@@ -232,6 +232,43 @@ export async function syncIncremental(accountId: number): Promise<IncrementalRes
               });
               newLabels = meta.data.labelIds || [];
             }
+
+            // Trusted-sender guard: if Gmail is adding SPAM to a message from
+            // a sender the user has explicitly trusted (via "Not Spam"), override
+            // the labels locally and instruct Gmail to remove SPAM + add INBOX.
+            if (newLabels.some((l: string) => l.toUpperCase() === "SPAM")) {
+              try {
+                const [localMsg] = await db
+                  .select({ fromEmail: emailMessages.fromEmail, gmailThreadId: emailMessages.gmailThreadId })
+                  .from(emailMessages)
+                  .where(eq(emailMessages.gmailMessageId, id))
+                  .limit(1);
+                if (localMsg?.fromEmail) {
+                  const senderLc = localMsg.fromEmail.trim().toLowerCase();
+                  const trusted = await db.execute(
+                    sql`SELECT 1 FROM spam_trusted_senders WHERE email = ${senderLc} LIMIT 1`,
+                  );
+                  const trustedRows: any[] = (trusted as any).rows ?? trusted;
+                  if (trustedRows.length > 0) {
+                    // Re-apply not-spam at the Gmail level (best-effort).
+                    try {
+                      await gmailClient.users.threads.modify({
+                        userId: "me",
+                        id: localMsg.gmailThreadId,
+                        requestBody: { removeLabelIds: ["SPAM"], addLabelIds: ["INBOX"] },
+                      });
+                    } catch { /* non-fatal — local override is applied regardless */ }
+                    // Override labels locally: remove SPAM, ensure INBOX.
+                    const labelSet = new Set(newLabels.map((l: string) => l.toUpperCase()));
+                    labelSet.delete("SPAM");
+                    labelSet.add("INBOX");
+                    newLabels = Array.from(labelSet);
+                    log(`[gmail-incr] trusted-sender guard applied for msg=${id} sender=${senderLc}`);
+                  }
+                }
+              } catch { /* non-fatal — proceed with original label set */ }
+            }
+
             const newLabelsJson = JSON.stringify(newLabels);
             const upd = await db.update(emailMessages)
               .set({ labelIds: newLabelsJson, updatedAt: new Date() })

@@ -6134,14 +6134,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         setSelectedMessageId(null);
       }
 
-      // 4. Navigate to inbox so the user can immediately see the rescued email.
-      //    Without this, the email disappears from the spam list with no visible
-      //    destination — the user has no way to find it until they manually switch
-      //    tabs. We only auto-switch when all spam is cleared (partial success
-      //    keeps the user on spam so they can retry the remaining messages).
-      if (remainingSpam === 0) {
-        setTab("inbox");
-      }
+      // Stay in the spam folder — the user may have more emails to triage.
+      // The thread already disappears from the list optimistically above,
+      // and the toast confirms where it went.
 
       if (remainingSpam > 0) {
         // Partial success — some linked messages could not be moved out of spam.

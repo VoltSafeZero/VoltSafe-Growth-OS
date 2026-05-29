@@ -1346,6 +1346,22 @@ export async function migrateLeadWebsiteColumn(): Promise<void> {
   }
 }
 
+export async function migrateSpamTrustedSenders(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS spam_trusted_senders (
+        id SERIAL PRIMARY KEY,
+        email TEXT NOT NULL UNIQUE,
+        added_by INTEGER REFERENCES users(id),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log("[migration] spam_trusted_senders table ready.");
+  } catch (err) {
+    console.error("[migration] spam_trusted_senders migration error (non-fatal):", err);
+  }
+}
+
 export async function migrateShorePowerColumn(): Promise<void> {
   try {
     await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS shore_power TEXT DEFAULT 'unknown'`);
