@@ -1142,3 +1142,11 @@ body.has-modal #quick-capture-fab {
   animation: rgl-widget-enter 240ms ease-out;
   animation-fill-mode: backwards;
 }
+
+/* Compose editor — hyperlinked text must be visibly blue so the user knows
+   the link was applied before they send. */
+.compose-editor a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

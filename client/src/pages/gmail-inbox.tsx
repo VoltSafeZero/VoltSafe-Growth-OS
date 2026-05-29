@@ -1201,7 +1201,7 @@ function ComposeDialog({
                     if (e.key === "Escape") { e.preventDefault(); onClose(); }
                   }}
                   data-testid="input-email-body"
-                  className="w-full bg-transparent text-sm outline-none leading-relaxed focus:outline-none"
+                  className="compose-editor w-full bg-transparent text-sm outline-none leading-relaxed focus:outline-none"
                   style={{ minHeight: 160, wordBreak: "break-word" }}
                 />
               </div>
