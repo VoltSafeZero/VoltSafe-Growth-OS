@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import {
   Car, MapPin, Clock, Calendar, Navigation,
   Anchor, AlertCircle, Sparkles, ExternalLink, ChevronDown, ChevronUp,
-  Route, Plus, Pencil, Check, Trash2, GripVertical, ArrowUp, ArrowDown,
+  Route, Plus, Trash2, GripVertical, ArrowUp, ArrowDown,
   RotateCcw, Search, X,
 } from "lucide-react";
 import { format } from "date-fns";
@@ -342,7 +342,6 @@ function StopCard({
   stop,
   index,
   total,
-  editMode,
   onMoveUp,
   onMoveDown,
   onDelete,
@@ -350,7 +349,6 @@ function StopCard({
   stop: DisplayStop;
   index: number;
   total: number;
-  editMode: boolean;
   onMoveUp: () => void;
   onMoveDown: () => void;
   onDelete: () => void;
@@ -373,37 +371,31 @@ function StopCard({
 
   return (
     <div
-      className={`flex items-start gap-3 p-4 rounded-xl border transition-colors ${
-        editMode
-          ? "border-border/60 bg-card/80 shadow-sm"
-          : "border-border/40 bg-card/60 hover:bg-card/80"
-      }`}
+      className="flex items-start gap-3 p-4 rounded-xl border border-border/40 bg-card/60 hover:bg-card/80 transition-colors"
       data-testid={`travel-stop-${stop.stopId}`}
     >
-      {/* Reorder controls */}
-      {editMode && (
-        <div className="flex flex-col items-center gap-0.5 flex-shrink-0 mt-0.5">
-          <button
-            onClick={onMoveUp}
-            disabled={index === 0}
-            className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
-            title="Move up"
-            data-testid={`stop-move-up-${stop.stopId}`}
-          >
-            <ArrowUp className="h-3.5 w-3.5" />
-          </button>
-          <GripVertical className="h-4 w-4 text-muted-foreground/30" />
-          <button
-            onClick={onMoveDown}
-            disabled={index === total - 1}
-            className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
-            title="Move down"
-            data-testid={`stop-move-down-${stop.stopId}`}
-          >
-            <ArrowDown className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
+      {/* Reorder controls — always visible */}
+      <div className="flex flex-col items-center gap-0.5 flex-shrink-0 mt-0.5">
+        <button
+          onClick={onMoveUp}
+          disabled={index === 0}
+          className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+          title="Move up"
+          data-testid={`stop-move-up-${stop.stopId}`}
+        >
+          <ArrowUp className="h-3.5 w-3.5" />
+        </button>
+        <GripVertical className="h-4 w-4 text-muted-foreground/30" />
+        <button
+          onClick={onMoveDown}
+          disabled={index === total - 1}
+          className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+          title="Move down"
+          data-testid={`stop-move-down-${stop.stopId}`}
+        >
+          <ArrowDown className="h-3.5 w-3.5" />
+        </button>
+      </div>
 
       {/* Stop number */}
       <div className="w-8 h-8 rounded-full bg-primary/15 text-primary text-sm font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -449,44 +441,39 @@ function StopCard({
         )}
       </div>
 
-      {/* Actions */}
+      {/* Actions — always visible */}
       <div className="flex flex-col items-end gap-2 flex-shrink-0">
-        {editMode ? (
-          <button
-            onClick={onDelete}
-            className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-            title="Remove from route"
-            data-testid={`stop-delete-${stop.stopId}`}
+        <button
+          onClick={onDelete}
+          className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+          title="Remove from route"
+          data-testid={`stop-delete-${stop.stopId}`}
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+        {time && (
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            <Clock className="h-3 w-3" /> {time}
+          </span>
+        )}
+        {mapsUrl && (
+          <a
+            href={mapsUrl}
+            target="_blank"
+            rel="noopener"
+            className="flex items-center gap-1 text-xs text-primary hover:text-primary/80"
+            data-testid={`travel-maps-link-${stop.stopId}`}
           >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        ) : (
-          <>
-            {time && (
-              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                <Clock className="h-3 w-3" /> {time}
-              </span>
-            )}
-            {mapsUrl && (
-              <a
-                href={mapsUrl}
-                target="_blank"
-                rel="noopener"
-                className="flex items-center gap-1 text-xs text-primary hover:text-primary/80"
-                data-testid={`travel-maps-link-${stop.stopId}`}
-              >
-                <Navigation className="h-3.5 w-3.5" /> Navigate
-              </a>
-            )}
-            {leadId && (
-              <a
-                href={`/opportunities/${leadId}`}
-                className="text-xs text-muted-foreground/60 hover:text-muted-foreground flex items-center gap-1"
-              >
-                <ExternalLink className="h-3 w-3" /> View opportunity profile
-              </a>
-            )}
-          </>
+            <Navigation className="h-3.5 w-3.5" /> Navigate
+          </a>
+        )}
+        {leadId && (
+          <a
+            href={`/opportunities/${leadId}`}
+            className="text-xs text-muted-foreground/60 hover:text-muted-foreground flex items-center gap-1"
+          >
+            <ExternalLink className="h-3 w-3" /> View opportunity profile
+          </a>
         )}
       </div>
     </div>
@@ -517,7 +504,6 @@ function RouteSection({
   onDisplayStopsChange?: (stops: DisplayStop[]) => void;
 }) {
   const [open, setOpen] = useState(!defaultCollapsed);
-  const [editMode, setEditMode] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const { override, setOrder, hideStop, addExtra, reset } = useRouteOverride(dateKey);
 
@@ -578,33 +564,18 @@ function RouteSection({
           )}
         </div>
 
-        {/* Edit controls */}
-        {displayStops.length > 0 && (
+        {/* Route controls */}
+        {modified && (
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            {modified && !editMode && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={reset}
-                className="h-7 px-2 text-xs text-muted-foreground gap-1 hover:text-foreground"
-                title="Reset to original order"
-                data-testid={`button-reset-route-${dateKey}`}
-              >
-                <RotateCcw className="h-3 w-3" /> Reset
-              </Button>
-            )}
             <Button
-              variant={editMode ? "default" : "outline"}
+              variant="ghost"
               size="sm"
-              onClick={() => setEditMode(v => !v)}
-              className="h-7 px-2.5 text-xs gap-1"
-              data-testid={`button-edit-route-${dateKey}`}
+              onClick={reset}
+              className="h-7 px-2 text-xs text-muted-foreground gap-1 hover:text-foreground"
+              title="Reset to original order"
+              data-testid={`button-reset-route-${dateKey}`}
             >
-              {editMode ? (
-                <><Check className="h-3 w-3" /> Done</>
-              ) : (
-                <><Pencil className="h-3 w-3" /> Edit</>
-              )}
+              <RotateCcw className="h-3 w-3" /> Reset
             </Button>
           </div>
         )}
@@ -620,11 +591,9 @@ function RouteSection({
                   <>
                     <Car className="h-8 w-8 mx-auto mb-2 opacity-20" />
                     <p className="text-sm">No stops yet</p>
-                    {editMode && (
-                      <Button variant="outline" size="sm" className="mt-3 gap-1.5" onClick={() => setAddOpen(true)}>
-                        <Plus className="h-3.5 w-3.5" /> Add Stop
-                      </Button>
-                    )}
+                    <Button variant="outline" size="sm" className="mt-3 gap-1.5" onClick={() => setAddOpen(true)}>
+                      <Plus className="h-3.5 w-3.5" /> Add Stop
+                    </Button>
                   </>
                 ) : (
                   <>
@@ -645,26 +614,23 @@ function RouteSection({
                   stop={stop}
                   index={i}
                   total={displayStops.length}
-                  editMode={editMode}
                   onMoveUp={() => moveStop(i, i - 1)}
                   onMoveDown={() => moveStop(i, i + 1)}
                   onDelete={() => hideStop(stop.stopId)}
                 />
               ))}
 
-              {/* Edit mode footer */}
-              {editMode && (
-                <button
-                  onClick={() => setAddOpen(true)}
-                  className="w-full flex items-center justify-center gap-2 p-3 rounded-xl border-2 border-dashed border-primary/30 hover:border-primary/60 hover:bg-primary/5 text-primary/70 hover:text-primary transition-all text-sm font-medium"
-                  data-testid={`button-add-stop-${dateKey}`}
-                >
-                  <Plus className="h-4 w-4" /> Add a stop
-                </button>
-              )}
+              {/* Add stop — always visible */}
+              <button
+                onClick={() => setAddOpen(true)}
+                className="w-full flex items-center justify-center gap-2 p-3 rounded-xl border-2 border-dashed border-primary/30 hover:border-primary/60 hover:bg-primary/5 text-primary/70 hover:text-primary transition-all text-sm font-medium"
+                data-testid={`button-add-stop-${dateKey}`}
+              >
+                <Plus className="h-4 w-4" /> Add a stop
+              </button>
 
-              {/* Normal mode footer for today */}
-              {!editMode && plannerLeads && plannerLeads.length > 0 && onOpenPlanner && (
+              {/* Planner footer for today */}
+              {plannerLeads && plannerLeads.length > 0 && onOpenPlanner && (
                 <div className="flex items-center justify-between pt-2">
                   <p className="text-xs text-muted-foreground">
                     {plannerLeads.length} of {stopCount} stops have map coordinates
