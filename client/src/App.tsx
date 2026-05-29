@@ -14,6 +14,7 @@ import { GlobalCreateContact } from "@/components/contacts/global-create-contact
 import { isAdvisorRole } from "@/lib/nav-config";
 import BookingPublicPage from "@/pages/booking-public";
 import { UpcomingMeetingBanner } from "@/components/dashboard/upcoming-meeting-banner";
+import { ChunkErrorBoundary } from "@/components/chunk-error-boundary";
 
 // ── Lazy page imports — each route gets its own chunk ─────────────────────────
 const Dashboard = lazy(() => import("@/pages/dashboard"));
@@ -227,7 +228,9 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
           <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
         </Suspense>
         <AppShell user={user} onLogout={onLogout}>
-          <Suspense fallback={<PageLoader />}>{children}</Suspense>
+          <ChunkErrorBoundary>
+            <Suspense fallback={<PageLoader />}>{children}</Suspense>
+          </ChunkErrorBoundary>
         </AppShell>
       </>
     );
@@ -427,6 +430,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <TooltipProvider>
+          <ChunkErrorBoundary>
           <Suspense fallback={
             <div className="flex items-center justify-center min-h-screen bg-background">
               <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
@@ -458,6 +462,7 @@ function App() {
               </>
             )}
           </Suspense>
+          </ChunkErrorBoundary>
         </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>

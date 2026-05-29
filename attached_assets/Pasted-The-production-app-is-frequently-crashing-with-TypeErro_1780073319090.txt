@@ -1,0 +1,66 @@
+The production app is frequently crashing with:
+
+TypeError: Failed to fetch dynamically imported module:
+/assets/role-command-center-B1dYSj1L.js
+
+Please perform a production-safe audit and fix.
+
+Goal:
+Prevent the entire app from crashing when a lazy-loaded route chunk fails, especially role-command-center.
+
+Tasks:
+
+1. Search for all dynamic imports / React.lazy / lazy route loaders involving:
+   - role-command-center
+   - RoleCommandCenter
+   - command center routes
+   - router lazy imports
+
+2. Add a ChunkLoadError-safe wrapper around all lazy-loaded route imports.
+   If a dynamic import fails, the UI should show a friendly recovery screen:
+   - “This app version changed. Please refresh.”
+   - button: “Hard refresh”
+   - button should call window.location.reload()
+   Do not leave users on a raw “Something went wrong” crash screen.
+
+3. Add detection for common chunk load failures:
+   - Failed to fetch dynamically imported module
+   - Importing a module script failed
+   - ChunkLoadError
+   - Loading chunk failed
+
+4. Confirm the deployed build output actually includes the referenced route chunk.
+   Inspect:
+   - dist/public/assets
+   - generated index.html
+   - Vite manifest if present
+
+5. Check whether old assets are being deleted between deploys while old clients still reference them.
+   If yes, recommend/fix one of:
+   - disable fragile route-level code splitting for core app routes
+   - configure Vite manualChunks more safely
+   - ensure asset filenames are preserved during deploy
+   - make server return correct cache headers
+
+6. Set safe cache headers:
+   - index.html: no-cache / must-revalidate
+   - hashed assets under /assets: immutable long cache is fine
+   This prevents browsers from using an old index.html that points to missing chunks.
+
+7. Verify Express/static hosting serves /assets/*.js correctly in production.
+   Add a test or script that checks every JS file referenced by built index.html returns HTTP 200.
+
+8. Run:
+   - npm run build
+   - TypeScript check if available
+   - relevant tests
+   - production static asset verification
+
+9. Report:
+   - root cause
+   - files changed
+   - how you verified no lazy chunk can crash the app
+   - whether role-command-center chunk is now reachable
+
+Important:
+Do not rewrite the app routing system unless necessary. Make the smallest durable fix.
