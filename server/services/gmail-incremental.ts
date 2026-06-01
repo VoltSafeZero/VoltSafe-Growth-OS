@@ -12,6 +12,64 @@ import { routeEmailToFolders } from "./email-folder-router";
 import { log } from "../index";
 import { syncEmailAccount } from "./gmail-sync";
 
+// ─── Trusted-sender override ─────────────────────────────────────────────────
+// Exported so gmail-sync.ts (full page sync) can reuse the exact same guard.
+//
+// If a message arrives with a SPAM label but its sender is in
+// spam_trusted_senders, we rewrite the labels (SPAM→INBOX) before saving
+// locally and ask Gmail to move the thread to inbox (best-effort via
+// threads.modify — no special OAuth scope required beyond gmail.modify).
+//
+// This is the primary enforcement mechanism. The Gmail Filters API
+// (gmail.users.settings.filters.create) would be more permanent but requires
+// the gmail.settings.basic scope which is not in our current OAuth grant.
+export async function applyTrustedSenderOverride(
+  emailData: { labelIds?: string | null; fromEmail?: string | null; gmailThreadId?: string | null },
+  gmailClient: any,
+): Promise<{ labelIds?: string | null }> {
+  const rawLabels: string[] = (() => {
+    if (!emailData.labelIds) return [];
+    try { return JSON.parse(emailData.labelIds); } catch { return []; }
+  })();
+
+  if (!rawLabels.some((l: string) => l.toUpperCase() === "SPAM")) {
+    return { labelIds: emailData.labelIds };
+  }
+
+  const fromEmail = emailData.fromEmail?.trim().toLowerCase();
+  if (!fromEmail) return { labelIds: emailData.labelIds };
+
+  try {
+    const trusted = await db.execute(
+      sql`SELECT 1 FROM spam_trusted_senders WHERE email = ${fromEmail} LIMIT 1`,
+    );
+    const rows: any[] = (trusted as any).rows ?? trusted;
+    if (rows.length === 0) return { labelIds: emailData.labelIds };
+
+    // Sender is trusted — rewrite labels: remove SPAM, ensure INBOX.
+    const labelSet = new Set(rawLabels.map((l: string) => l.toUpperCase()));
+    labelSet.delete("SPAM");
+    labelSet.add("INBOX");
+    const correctedLabels = JSON.stringify(Array.from(labelSet));
+
+    // Best-effort: tell Gmail to also move the thread to inbox.
+    if (emailData.gmailThreadId && gmailClient) {
+      try {
+        await gmailClient.users.threads.modify({
+          userId: "me",
+          id: emailData.gmailThreadId,
+          requestBody: { removeLabelIds: ["SPAM"], addLabelIds: ["INBOX"] },
+        });
+        log(`[trusted-sender] auto-rescued thread=${emailData.gmailThreadId} from=${fromEmail}`);
+      } catch { /* non-fatal — local label correction is applied regardless */ }
+    }
+
+    return { labelIds: correctedLabels };
+  } catch {
+    return { labelIds: emailData.labelIds };
+  }
+}
+
 export type IncrementalResult = {
   ok: boolean;
   startHistoryId: string | null;
@@ -78,7 +136,10 @@ export async function upsertMessageById(
       format: "full",
     });
     const parsed = parseGmailMessage(msgRes.data as any, myEmail);
-    const { attachments, ...emailData } = parsed;
+    const { attachments, ...emailDataRaw } = parsed;
+    // Apply trusted-sender guard before writing any labels to the DB.
+    const override = await applyTrustedSenderOverride(emailDataRaw, gmailClient);
+    const emailData = { ...emailDataRaw, ...override };
 
     if (!existing) {
       const [inserted] = await db

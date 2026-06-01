@@ -10954,20 +10954,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         } catch (e: any) {
           console.warn("[inbox-not-spam] trusted-sender insert failed (non-fatal):", e?.message);
         }
-        for (const accId of accessibleAccountIds) {
-          try {
-            const gmail = await getGmailClient(userId, accId);
-            await gmail.users.settings.filters.create({
-              userId: "me",
-              requestBody: {
-                criteria: { from: senderEmail },
-                action: { removeLabelIds: ["SPAM"] },
-              },
-            });
-          } catch (e: any) {
-            console.warn(`[inbox-not-spam] Gmail filter creation failed for account=${accId} (non-fatal):`, e?.message);
-          }
-        }
+        // Note: gmail.users.settings.filters.create requires the
+        // gmail.settings.basic OAuth scope which is not in our current grant.
+        // The local spam_trusted_senders table + applyTrustedSenderOverride
+        // (called in upsertMessageById and gmail-sync) is the enforcement
+        // mechanism — it intercepts SPAM labels at every sync path.
       }
 
       res.json({ ok: result.ok, threadId, ...result, trustedSender: senderEmail || null });

@@ -7,6 +7,7 @@ import { runAssociationEngine } from "./association-engine";
 import { routeEmailToFolders } from "./email-folder-router";
 import { runAutoConfirmSweep, AUTO_CONFIRM_DRY_RUN } from "./auto-confirm";
 import { log } from "../index";
+import { applyTrustedSenderOverride } from "./gmail-incremental";
 
 // Multi-user note: this module is fully account-scoped. Each call to
 // syncEmailAccount() resolves credentials via the account's owner
@@ -122,7 +123,11 @@ export async function syncEmailAccount(
       try {
         const msgRes = await gmailClient.users.messages.get({ userId: "me", id, format: "full" });
         const parsed = parseGmailMessage(msgRes.data as any, myEmail);
-        const { attachments, ...emailData } = parsed;
+        const { attachments, ...emailDataRaw } = parsed;
+        // Apply trusted-sender guard so trusted senders never land in spam
+        // even during a full page-by-page sync.
+        const override = await applyTrustedSenderOverride(emailDataRaw, gmailClient);
+        const emailData = { ...emailDataRaw, ...override };
         const [inserted] = await db
           .insert(emailMessages)
           .values({ ...emailData, ownerUserId, sourceAccountId: account.id })
