@@ -21,7 +21,7 @@ import {
   type EmailMessage,
 } from "@shared/schema";
 import { eq, and, ilike, inArray, sql } from "drizzle-orm";
-import { resolveParticipants, isInternalEmail } from "./identity-resolver";
+import { resolveParticipants, isInternalEmail, isGenericRecipient } from "./identity-resolver";
 
 interface AssocCandidate {
   objectType: "contact" | "account" | "lead" | "opportunity" | "partner";
@@ -100,8 +100,24 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
   const externalParticipants = participants.filter(e => !isInternalEmail(e));
   if (externalParticipants.length === 0) return;
 
+  // ── Outbound VoltSafe email handling ──────────────────────────────────────
+  // For emails sent FROM a @voltsafe.com address (outbound), the CRM target
+  // is the external RECIPIENT (TO/CC), not the internal sender.
+  //
+  // externalParticipants already excludes @voltsafe.com senders, so for
+  // outbound emails it contains only the external TO/CC recipients. We
+  // additionally strip generic role-mailboxes (info@, sales@, etc.) which are
+  // never real-person CRM targets. If nothing real-person remains, there is
+  // no CRM association to make — return early without creating any CRM Review
+  // entry (e.g. internal-to-internal, outbound to bulk mailbox, newsletters).
+  const isOutbound = isInternalEmail(msg.fromEmail ?? "");
+  const matchingParticipants = isOutbound
+    ? externalParticipants.filter(e => !isGenericRecipient(e))
+    : externalParticipants;
+  if (isOutbound && matchingParticipants.length === 0) return;
+
   // 2. Resolve participants → contacts/accounts/leads
-  const resolved = await resolveParticipants(externalParticipants);
+  const resolved = await resolveParticipants(matchingParticipants);
 
   // 3. Load thread record for bonus scoring
   const [threadRecord] = await db
@@ -156,7 +172,7 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
   // that never appear in the CRM Review queue.
   const earlyDomains = [
     ...new Set(
-      externalParticipants
+      matchingParticipants
         .map(e => e.split("@")[1]?.toLowerCase())
         .filter((d): d is string => !!d && d.length > 3)
     ),
@@ -354,7 +370,7 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
   // ── Signal 4: Domain → Lead (+30) ────────────────────────────────────────
   const participantDomains = [
     ...new Set(
-      externalParticipants
+      matchingParticipants
         .map(e => e.split("@")[1]?.toLowerCase())
         .filter((d): d is string => !!d && d.length > 3)
     ),

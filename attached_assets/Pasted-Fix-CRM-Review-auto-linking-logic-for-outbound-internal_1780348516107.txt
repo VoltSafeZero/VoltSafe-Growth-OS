@@ -1,0 +1,169 @@
+Fix CRM Review auto-linking logic for outbound/internal VoltSafe emails.
+
+Problem:
+Emails from VoltSafe employees are appearing in CRM Review and are sometimes being matched incorrectly. Internal VoltSafe email addresses should never be treated as the CRM target record.
+
+Required behavior:
+When an email originates from any @voltsafe.com mailbox, the system should attempt to associate the email with the external recipient(s) in the TO and CC fields, not the VoltSafe sender.
+
+Business Rules
+
+1. Internal VoltSafe senders
+- Any sender using the @voltsafe.com domain is considered an internal user.
+- Internal users must never be used as CRM match candidates.
+- This must work for all current and future @voltsafe.com mailboxes automatically.
+- Do not hardcode specific employee names.
+
+Examples:
+- trevor@voltsafe.com
+- scott@voltsafe.com
+- support@voltsafe.com
+- sales@voltsafe.com
+- any future @voltsafe.com mailbox
+
+2. Recipient evaluation
+When the sender is internal (@voltsafe.com):
+
+- Ignore the sender for CRM matching purposes.
+- Evaluate all TO and CC recipients.
+- Remove any recipients belonging to @voltsafe.com.
+- Remove generic/non-person addresses such as:
+
+  info@
+  sales@
+  support@
+  hello@
+  admin@
+  accounting@
+  billing@
+  finance@
+  invoices@
+  noreply@
+  no-reply@
+  marketing@
+  newsletter@
+  contact@
+  office@
+  team@
+  operations@
+  service@
+  customerservice@
+
+- Only real individual email addresses should be considered CRM match candidates.
+
+3. Auto-linking logic
+If at least one valid external real-person recipient remains:
+
+- Extract the recipient domain.
+- Search existing CRM records.
+- Check Leads, Accounts, Partners, and Contacts.
+- If there is a single strong CRM match:
+  - Automatically link the email/thread.
+  - Do not send it to CRM Review.
+  - Store an audit reason:
+
+    "Auto-linked outbound VoltSafe email by external recipient domain match."
+
+4. No valid recipient
+If no valid real-person external recipient exists:
+
+- Do not auto-link.
+- Do not create a CRM Review item.
+- Do not clutter CRM Review with newsletters, generic mailboxes, internal communications, automated notifications, or system-generated messages.
+
+5. Unknown external domain
+If a valid real-person external recipient exists but their domain does not match any existing CRM Lead, Account, Partner, or Contact:
+
+- Send the item to CRM Review.
+- Show the external recipient email/domain as the review reason.
+- Never propose linking to a VoltSafe employee or @voltsafe.com record.
+
+6. Multiple CRM candidates
+If multiple external recipient domains produce multiple CRM candidates:
+
+- Send to CRM Review.
+- Display all candidate records.
+- Do not auto-link unless an existing confirmed thread association already exists.
+
+7. Domain Auto-Link Rules
+Update the Domain Auto-Link Rules engine:
+
+- @voltsafe.com must never be treated as a CRM target domain.
+- Internal company domains are source domains only.
+- Domain auto-linking should only apply to external organizations.
+- Auto-link rules should continue working for external domains such as:
+  - qai.org
+  - portsandiego.org
+  - innovatbc.ca
+  - etc.
+
+Expected behavior examples
+
+Example A
+From:
+  scott@voltsafe.com
+
+To:
+  person@portsandiego.org
+
+Result:
+  Auto-link to Port of San Diego CRM record.
+  No CRM Review.
+
+Example B
+From:
+  trevor@voltsafe.com
+
+CC:
+  jane@qai.org
+
+Result:
+  Auto-link to QAI CRM record.
+  No CRM Review.
+
+Example C
+From:
+  sales@voltsafe.com
+
+To:
+  info@externaldomain.com
+
+Result:
+  No auto-link.
+  No CRM Review.
+
+Example D
+From:
+  support@voltsafe.com
+
+To:
+  person@unknownexternal.com
+
+Result:
+  CRM Review required.
+
+Example E
+From:
+  trevor@voltsafe.com
+
+To:
+  scott@voltsafe.com
+
+Result:
+  No CRM Review.
+  No CRM association.
+
+Required tests
+
+- From any @voltsafe.com sender to person@externaldomain.com where the domain matches an existing Partner → auto-link Partner, no CRM Review.
+- From any @voltsafe.com sender with person@externaldomain.com in CC where the domain matches an Account → auto-link Account, no CRM Review.
+- From any @voltsafe.com sender to person@externaldomain.com where the domain matches a Lead → auto-link Lead, no CRM Review.
+- From any @voltsafe.com sender to person@externaldomain.com where the domain matches a Contact → auto-link Contact, no CRM Review.
+- From any @voltsafe.com sender to info@externaldomain.com → no auto-link and no CRM Review.
+- From any @voltsafe.com sender to support@externaldomain.com → no auto-link and no CRM Review.
+- From any @voltsafe.com sender to person@unknownexternal.com → CRM Review required.
+- From any @voltsafe.com sender to only @voltsafe.com recipients → no CRM Review.
+- Confirm no CRM Review suggestion ever links to voltsafe.com as the CRM target.
+- Confirm the behavior works for trevor@voltsafe.com, scott@voltsafe.com, support@voltsafe.com, sales@voltsafe.com, and any future @voltsafe.com mailbox without requiring additional code changes.
+- Verify existing inbound email association logic remains unchanged.
+- Run all CRM association, CRM Review, thread matching, and domain auto-link tests and confirm no regressions.

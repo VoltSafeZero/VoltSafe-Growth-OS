@@ -11139,6 +11139,15 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       return res.status(400).json({ message: "domain, objectType, and objectId are required" });
     }
     const cleanDomain = String(domain).toLowerCase().trim().replace(/^@/, "");
+    // Internal company domains must never be used as CRM target domains in auto-link rules.
+    // Matching against @voltsafe.com would link outbound emails to internal employees instead
+    // of the actual external CRM record.
+    const BLOCKED_INTERNAL_DOMAINS = new Set(["voltsafe.com"]);
+    if (BLOCKED_INTERNAL_DOMAINS.has(cleanDomain)) {
+      return res.status(400).json({
+        message: `@${cleanDomain} is an internal domain and cannot be used as a CRM auto-link target. Auto-link rules apply to external organizations only.`,
+      });
+    }
     const userId = (req.session as any)?.userId ?? null;
     try {
       await db.execute(sql`

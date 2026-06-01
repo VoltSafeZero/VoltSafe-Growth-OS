@@ -1371,6 +1371,28 @@ export async function migrateShorePowerColumn(): Promise<void> {
   }
 }
 
+// Removes any crm_auto_link_rules rows that target internal VoltSafe domains
+// (voltsafe.com). These rules were never effective (the engine already filtered
+// internal domains from earlyDomains) but their presence in the DB was
+// confusing and misleading. The API now also blocks creating new rules for
+// internal domains. This migration is idempotent.
+export async function migrateCleanInternalAutoLinkRules(): Promise<void> {
+  try {
+    const deleted = await db.execute(sql`
+      DELETE FROM crm_auto_link_rules
+      WHERE domain IN ('voltsafe.com')
+    `);
+    const count = (deleted as any).rowCount ?? 0;
+    if (count > 0) {
+      console.log(`[migration] Removed ${count} internal-domain auto-link rule(s) (voltsafe.com).`);
+    } else {
+      console.log("[migration] Internal auto-link rule cleanup: nothing to remove.");
+    }
+  } catch (err) {
+    console.error("[migration] migrateCleanInternalAutoLinkRules error (non-fatal):", err);
+  }
+}
+
 export async function migrateCrmAiSummarySchema(): Promise<void> {
   try {
     await db.execute(sql`

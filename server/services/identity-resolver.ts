@@ -21,6 +21,24 @@ export function isInternalEmail(email: string): boolean {
   return domain ? INTERNAL_DOMAINS.has(domain) : false;
 }
 
+export function isInternalDomain(domain: string): boolean {
+  return INTERNAL_DOMAINS.has(domain.toLowerCase().replace(/^@/, "").trim());
+}
+
+// Generic role/mailbox addresses that are never real-person CRM targets.
+// Used to filter outbound recipient lists so bulk-mailboxes (info@, sales@, …)
+// don't pollute CRM matching or create noise in the CRM Review queue.
+const GENERIC_LOCAL_PARTS = new Set([
+  "info", "sales", "support", "hello", "admin", "accounting", "billing",
+  "finance", "invoices", "noreply", "no-reply", "marketing", "newsletter",
+  "contact", "office", "team", "operations", "service", "customerservice",
+]);
+
+export function isGenericRecipient(email: string): boolean {
+  const local = email.split("@")[0]?.toLowerCase().replace(/[^a-z0-9-]/g, "");
+  return local ? GENERIC_LOCAL_PARTS.has(local) : false;
+}
+
 export async function resolveEmailToContact(email: string): Promise<{ id: number; name: string; accountId: number } | null> {
   if (!email || isInternalEmail(email)) return null;
   const [contact] = await db.select().from(contacts).where(
