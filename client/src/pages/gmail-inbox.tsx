@@ -5681,6 +5681,29 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     refetchInterval: 60000,
   });
 
+  // Domains that belong to VoltSafe and must never be used as auto-link targets.
+  const INTERNAL_DOMAINS = new Set(["voltsafe.com"]);
+
+  // Resolve the best external domain for an auto-link rule:
+  // - If the sender is external, use their domain.
+  // - If the sender is internal (outbound email), scan TO/CC for the first external recipient domain.
+  // - Returns null if no valid external domain can be found.
+  function resolveAutoLinkDomain(item: ReviewQueueItem): string | null {
+    const senderDomain = item.latestMessage.fromEmail?.split("@")[1]?.toLowerCase() ?? "";
+    if (senderDomain && !INTERNAL_DOMAINS.has(senderDomain)) return senderDomain;
+
+    // Outbound email — find the first external TO or CC recipient domain
+    const allRecipients = [
+      ...(item.latestMessage.toEmails ? item.latestMessage.toEmails.split(",") : []),
+      ...(item.latestMessage.ccEmails ? item.latestMessage.ccEmails.split(",") : []),
+    ];
+    for (const addr of allRecipients) {
+      const domain = addr.trim().split("@")[1]?.toLowerCase();
+      if (domain && !INTERNAL_DOMAINS.has(domain)) return domain;
+    }
+    return null;
+  }
+
   type ReviewQueueItem = {
     gmailThreadId: string;
     latestMessage: {
@@ -5688,6 +5711,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       subject: string | null;
       fromName: string | null;
       fromEmail: string | null;
+      toEmails: string | null;
+      ccEmails: string | null;
       snippet: string | null;
       sentAt: string | null;
     };
@@ -7940,8 +7965,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
                         {/* Per-row confirm / reject / auto-link buttons */}
                         {cand && (() => {
-                          const senderDomain = item.latestMessage.fromEmail?.split("@")[1]?.toLowerCase() ?? "";
-                          const canAutoLink = !!senderDomain && !!cand.objectId && !!cand.objectType;
+                          const autoLinkDomain = resolveAutoLinkDomain(item);
+                          const canAutoLink = !!autoLinkDomain && !!cand.objectId && !!cand.objectType;
                           const isBusy = bulkConfirmMutation.isPending || bulkRejectMutation.isPending || confirmAndAutoLinkMutation.isPending;
                           return (
                           <div className="flex flex-col justify-center gap-1 pr-2.5 pl-1 flex-shrink-0">
@@ -7975,7 +8000,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                                   e.stopPropagation();
                                   confirmAndAutoLinkMutation.mutate({
                                     items: [{ associationId: cand.id, threadId: item.gmailThreadId }],
-                                    domain: senderDomain,
+                                    domain: autoLinkDomain!,
                                     objectType: cand.objectType,
                                     objectId: cand.objectId,
                                     objectName: cand.objectName ?? cand.objectType,
@@ -7983,7 +8008,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                                 }}
                                 disabled={isBusy}
                                 data-testid={`button-autolink-row-${item.gmailThreadId}`}
-                                title={`Confirm + always auto-link @${senderDomain} to ${cand.objectName ?? cand.objectType}`}
+                                title={`Confirm + always auto-link @${autoLinkDomain} to ${cand.objectName ?? cand.objectType}`}
                                 className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-primary/15 text-primary hover:bg-primary/25 border border-primary/25 transition-colors disabled:opacity-40"
                               >
                                 <Zap className="h-3 w-3" /> Auto

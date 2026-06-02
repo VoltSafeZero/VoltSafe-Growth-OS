@@ -12289,6 +12289,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             subject: emailMessages.subject,
             fromName: emailMessages.fromName,
             fromEmail: emailMessages.fromEmail,
+            toEmails: emailMessages.toEmails,
+            ccEmails: emailMessages.ccEmails,
             snippet: emailMessages.snippet,
             sentAt: emailMessages.sentAt,
             hasAttachments: emailMessages.hasAttachments,

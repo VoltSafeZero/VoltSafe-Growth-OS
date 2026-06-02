@@ -1,0 +1,49 @@
+Fix CRM Review action buttons failing after internal-domain auto-link change.
+
+Current bug:
+In CRM Review, clicking Yes / No / Auto fails with:
+
+400: {"message":"@voltsafe.com is an internal domain and cannot be used as a CRM auto-link target. Auto-link rules apply to external organizations only."}
+
+This validation is correct for Domain Auto-Link Rules, but it is being incorrectly applied to CRM Review actions.
+
+Required fix:
+Separate these two concepts:
+
+1. Domain Auto-Link Rules
+- Must block @voltsafe.com as a target domain.
+- Internal domains are source domains only.
+- This validation should remain.
+
+2. CRM Review item actions: Yes / No / Auto
+- Must not fail just because the original sender is @voltsafe.com.
+- These buttons are acting on a CRM Review suggestion, not creating a domain auto-link rule.
+- The action should use the review item’s proposed CRM target record, not blindly use the sender domain.
+- If the message is from @voltsafe.com, resolve the external TO/CC recipient domain first.
+- Never try to create an auto-link rule for @voltsafe.com.
+
+Expected behavior:
+- Clicking Yes confirms the proposed CRM association.
+- Clicking No rejects/dismisses the proposed CRM association.
+- Clicking Auto should only create/apply an auto-link rule if the resolved target domain is external.
+- If Auto is clicked on an internal @voltsafe.com sender email:
+  - Use the external TO/CC recipient domain if available.
+  - If no valid external person/domain exists, show a friendly message:
+    "No external recipient domain available for auto-linking."
+  - Do not throw a 400 using @voltsafe.com.
+
+Likely root cause:
+The CRM Review Auto button is probably passing sender_domain into the domain auto-link API. For outbound VoltSafe emails, sender_domain is voltsafe.com, which now correctly fails validation. The fix is to pass the external recipient domain instead.
+
+Add tests:
+- CRM Review Yes works when sender is any @voltsafe.com address.
+- CRM Review No works when sender is any @voltsafe.com address.
+- CRM Review Auto uses external TO domain, not @voltsafe.com.
+- CRM Review Auto uses external CC domain when TO is internal.
+- CRM Review Auto does not call/create a domain rule for voltsafe.com.
+- Domain Auto-Link Rules still reject manual attempts to add voltsafe.com.
+- Existing external-domain Auto behavior still works.
+
+After fix:
+- Re-run CRM Review tests.
+- Manually verify the CRM Review list buttons no longer throw the red 400 toast.
