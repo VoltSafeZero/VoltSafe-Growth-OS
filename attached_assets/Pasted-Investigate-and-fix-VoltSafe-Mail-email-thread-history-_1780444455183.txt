@@ -1,0 +1,177 @@
+Investigate and fix VoltSafe Mail email thread/history forwarding and reply behavior.
+
+Current bug:
+Users other than Trevor/myself cannot see the full prior email history when they are added to an existing email chain.
+
+Examples:
+- I forward an email chain to another VoltSafe Mail user
+- I reply or reply-all in an existing chain and add another user in To/CC/BCC
+- The added user receives only the newest email body or initial visible message
+- They do not receive the full email history / quoted thread below it
+
+This makes forwarded chains and added recipients useless because they lack context.
+
+Do a full root-cause investigation first. Do not assume the cause.
+
+Expected behavior:
+When forwarding an email chain, the recipient should receive:
+- the new message
+- the forwarded original email content
+- the visible prior thread/history where available
+- original sender/date/to/cc/subject metadata
+- attachments where appropriate
+
+When replying/reply-all and adding a new recipient, the recipient should receive:
+- the new reply
+- the quoted prior conversation/history underneath, the same way normal Gmail/Outlook email threads work
+- enough header context to understand who said what and when
+
+Investigation checklist:
+
+1. Inspect VoltSafe Mail send/reply/forward code paths:
+- send new email
+- reply
+- reply all
+- forward
+- draft creation
+- send draft
+- composer prefill from existing message/thread
+
+2. Find where the outgoing email body is constructed.
+Check whether the app is only sending:
+- current composer HTML/body
+
+instead of:
+- composer body + quoted prior message/thread HTML
+
+3. Inspect thread/message storage:
+- Are prior messages stored in DB?
+- Is full HTML body stored or only snippet/plain text?
+- Are message bodies stripped/sanitized too aggressively?
+- Are quoted sections hidden only in UI or actually missing from outbound payload?
+
+4. Inspect Gmail/SMTP/provider send implementation:
+- Is it sending only text/plain?
+- Is HTML body being dropped?
+- Are quoted sections removed by sanitizer?
+- Are forwarded headers removed?
+- Is reply threading metadata correct?
+  - In-Reply-To
+  - References
+  - threadId/messageId if using Gmail API
+  - subject prefix Re:/Fwd:
+
+5. Compare behavior:
+A. Forward from native Gmail/Outlook
+B. Forward from VoltSafe Mail
+
+Identify exactly what VoltSafe Mail omits.
+
+Required fixes:
+
+Forward behavior:
+- Build a full forwarded email body.
+- Include the user’s new message at top.
+- Then include a forwarded-message block:
+  - ---------- Forwarded message ---------
+  - From:
+  - Date:
+  - Subject:
+  - To:
+  - Cc:
+  - Original HTML/plain body
+- Preserve safe HTML formatting.
+- Preserve line breaks.
+- Include attachments if forward-with-attachments is supported.
+
+Reply/reply-all behavior:
+- When replying, include quoted prior conversation below the new message.
+- If the user adds new recipients to To/CC/BCC, they must receive the same quoted history in the outbound body.
+- Do not rely only on email-client threading because new recipients may not have the old messages.
+- The outbound email itself must contain enough visible history.
+
+Security/sanitization:
+- Keep HTML sanitization, but do not strip normal quoted email markup.
+- Preserve safe tags:
+  - div
+  - p
+  - br
+  - blockquote
+  - span
+  - table
+  - tr
+  - td
+  - th
+  - tbody
+  - thead
+  - a
+  - strong
+  - em
+  - ul
+  - ol
+  - li
+- Strip dangerous tags/scripts/events.
+- Preserve links safely.
+
+UI requirements:
+- Composer should show or clearly include quoted history before send.
+- Forward composer should visibly show forwarded content.
+- Reply composer should include collapsible quoted history or append it at send time.
+- Do not double-append quoted history if the composer already contains it.
+
+Backend requirements:
+- The server must enforce correct outbound body construction.
+- Do not trust frontend-only behavior.
+- Add a helper such as:
+  - buildForwardedEmailHtml(...)
+  - buildReplyEmailHtmlWithQuotedHistory(...)
+- Ensure all send paths use the helper.
+
+Testing:
+Add regression tests for:
+
+1. Forward full chain
+- Given a thread with multiple prior messages
+- When forwarding to a new user
+- Then outbound HTML contains the new message plus prior message bodies and forwarded headers
+
+2. Reply with added recipient
+- Given an existing thread
+- When replying and adding a new To/CC/BCC recipient
+- Then outbound HTML includes quoted prior history
+
+3. Sanitization
+- Safe quoted HTML remains
+- script/event handlers are removed
+
+4. No duplicate quote blocks
+- If quoted history is already in composer HTML, do not append it twice
+
+5. Attachments
+- Forward preserves attachments if the system supports forwarding attachments
+- If not supported, show a clear limitation and do not silently drop them
+
+Live validation:
+Use browser automation and actual app endpoints.
+
+Perform:
+- Open an existing email thread with multiple messages
+- Forward it to another internal VoltSafe Mail user
+- Confirm recipient sees full history
+- Reply/reply-all and add a different internal user
+- Confirm recipient sees full history
+- Check raw outbound payload/body if available
+- Check browser console
+- Check server logs
+- Check network requests
+
+Final report must include:
+- root cause
+- exact files changed
+- before/after behavior
+- tests added
+- live validation results
+- screenshots or raw body evidence
+- final pass/fail status
+
+Do not stop at “the thread should render because email clients thread it.” New recipients do not have the original thread. The outbound email body must contain the readable history.
