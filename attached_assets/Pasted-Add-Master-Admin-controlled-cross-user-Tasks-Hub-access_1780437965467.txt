@@ -1,0 +1,122 @@
+Add Master Admin-controlled cross-user Tasks Hub access.
+
+Goal:
+Allow a Master Admin to grant specific users permission to view another user’s Tasks Hub. This should support two permission levels:
+
+1. View Only
+- User can switch into another user’s Tasks Hub view.
+- User can see that person’s task board, columns, filters, statuses, labels, due dates, and task details.
+- User cannot create, edit, move, archive, delete, complete, assign, or comment on that user’s tasks.
+
+2. Edit Access
+- User can switch into another user’s Tasks Hub view.
+- User can create, edit, move, archive, delete, complete, assign, and comment on tasks for that user.
+- Every edit must clearly track who actually made the change.
+
+Required UI:
+1. Master Admin settings
+- Add a settings/admin area for “Task Access Permissions”.
+- Master Admin can select:
+  - Viewer user
+  - Target user whose Tasks Hub can be accessed
+  - Permission level: View Only or Edit
+- Master Admin can add/remove/update permissions.
+- Permissions should be user-specific, not role-wide for now.
+
+2. Tasks Hub user switcher
+- In Tasks Hub, add a dropdown near the current assignee/user filter area.
+- Default view should be “My Tasks Hub”.
+- If the logged-in user has permission to view other users’ task hubs, show those users in the dropdown.
+- Selecting another user changes the board to that user’s Tasks Hub.
+- Clearly show when the user is viewing someone else’s hub, e.g.:
+  “Viewing Scott Carlson’s Tasks Hub”
+- If mode is View Only, show a visible “View Only” badge.
+
+3. View behavior
+When viewing another user’s Tasks Hub:
+- Board columns should show the selected target user’s task board.
+- Existing filters should still work.
+- Search should search within the selected user’s tasks.
+- Counts should update based on the selected user’s visible board.
+- My Tasks / Delegated / Team Tasks / Due Today / Overdue / Upcoming / Completed / Suggestions / Archived should respect the selected viewed user context where appropriate.
+
+4. Edit behavior
+If permission is View Only:
+- Disable drag/drop.
+- Disable task creation.
+- Disable edit controls.
+- Disable complete/archive/delete buttons.
+- Disable comments or notes if they alter the task.
+- Tooltips should say:
+  “View-only access. Ask a Master Admin for edit access.”
+
+If permission is Edit:
+- Allow normal task actions.
+- Track actual editor separately from task owner/assignee.
+- Show edit attribution in task activity/history:
+  “Edited by Trevor Burgess while viewing Scott Carlson’s Tasks Hub”
+- For card-level visible metadata, preserve current owner/assignee display, but activity log must show actual editor.
+
+Backend requirements:
+- Add a task access permission model/table, for example:
+  task_hub_access_permissions
+  - id
+  - viewer_user_id
+  - target_user_id
+  - permission_level: view | edit
+  - created_by_user_id
+  - created_at
+  - updated_at
+  - revoked_at nullable
+
+- Enforce permissions server-side, not only in the UI.
+- A user cannot access another user’s Tasks Hub unless:
+  - they are Master Admin, or
+  - they have an active permission record.
+- A user with View Only permission must be blocked server-side from mutations.
+- A user with Edit permission can mutate only within the granted target user context.
+- Master Admin can view/edit all task hubs.
+
+API requirements:
+- Add endpoint to list accessible task hubs for the current user.
+- Add endpoint for Master Admin to create/update/delete access permissions.
+- Update task list endpoints to accept a target user context safely.
+- Update task mutation endpoints to validate permission before changing tasks.
+- Never trust client-provided target_user_id without checking permissions.
+
+Audit/history requirements:
+- Every mutation must store:
+  - task_id
+  - action type
+  - actual_actor_user_id
+  - target_task_owner_user_id / viewed_user_id
+  - previous values
+  - new values
+  - timestamp
+- Display this in task activity/history.
+- Do not overwrite task ownership with the viewer’s user ID unless the action explicitly reassigns the task.
+
+Security rules:
+- Users should never see task hubs they were not granted access to.
+- View Only users should not be able to mutate by calling APIs directly.
+- Removed/revoked permissions should immediately remove access.
+- Prevent self-duplicate permission records.
+- Prevent non-admin users from granting access.
+
+Tests:
+- Master Admin can grant user A View Only access to user B’s Tasks Hub.
+- User A can see user B in the Tasks Hub switcher.
+- User A can view user B’s board.
+- User A cannot edit, drag, complete, archive, delete, create, or comment in View Only mode.
+- Server rejects mutation attempts from View Only user A against user B’s tasks.
+- Master Admin can grant user A Edit access to user B’s Tasks Hub.
+- User A can edit user B’s tasks.
+- Edit history shows user A as the actual editor and user B as the viewed/target task owner.
+- User A cannot access user C’s Tasks Hub without permission.
+- Revoking permission removes user B from user A’s switcher.
+- Master Admin can view/edit all task hubs.
+- Existing “My Tasks” behavior remains unchanged.
+- Existing task filters, labels, board columns, archived/completed views, and search still work.
+
+Acceptance criteria:
+A user with permission can toggle into another user’s Tasks Hub from a dropdown. View Only means look but don’t touch. Edit Access means they can help manage the work, but the audit trail always shows who actually changed what. No invisible ghost edits. No accidental task ownership chaos.
