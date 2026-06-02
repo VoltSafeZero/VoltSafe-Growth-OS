@@ -8,10 +8,11 @@
  *
  * Uses a WHITELIST approach — all styling is stripped unless it belongs to
  * our known, controlled markup (the VoltSafe body wrapper, the signature
- * block, and link colors).
+ * block, link colors, and our paragraph style).
  *
  * Safe preserved elements:
  *   <div style="font-family:Arial…">  — VoltSafe body wrapper
+ *   <p style="margin:0 0 16px 0;…">  — VoltSafe paragraph blocks (body)
  *   <b>, <strong>, <i>, <em>, <u>, <s>  — semantic inline formatting
  *   <ul>, <ol>, <li>  — lists (with our margin/padding style preserved)
  *   <a href="…" style="color:#00C1DE;">  — links
@@ -24,6 +25,10 @@ import {
   VOLTSAFE_FONT_FAMILY,
   VOLTSAFE_LINK_COLOR,
 } from "@shared/email-style";
+
+// The paragraph style produced by the client-side sanitizer.
+// Must be kept in sync with EMAIL_P_STYLE in client/src/lib/email-format.ts.
+const EMAIL_P_STYLE_FINGERPRINT = "margin:0 0 16px 0";
 
 /**
  * Normalise outbound email HTML. Returns a sanitised version of `html` that:
@@ -58,10 +63,19 @@ export function normalizeOutboundHtml(html: string): string {
   // GDocs uses class="c0 c5" patterns and id="docs-internal-guid-…"
   out = out.replace(/\s+id="docs-internal-guid-[^"]*"/gi, "");
   out = out.replace(/\s+class="[^"]*\bc\d+\b[^"]*"/gi, "");
-  // GDocs sometimes wraps everything in a <b> tag with font-weight:normal
-  // Turn those into harmless spans by stripping their style
+  // GDocs sometimes wraps everything in a <b> tag with font-weight:normal —
+  // turn those into harmless <span> elements to prevent fake bold.
+  // Fix: use two independent replacements (the original lookahead was fragile).
   out = out.replace(/<b\s+style="font-weight:\s*normal[^"]*">/gi, "<span>");
-  out = out.replace(/<\/b>(?=[\s\S]*?<\/span>)/gi, "</span>");
+  out = out.replace(/<\/b>/gi, (match, offset) => {
+    // Only convert </b> to </span> if there is a matching <span> still open
+    // from the GDocs <b style="font-weight:normal"> pass above.
+    // Simple heuristic: count unmatched <span> vs </span> up to this offset.
+    const before = out.slice(0, offset);
+    const openSpans = (before.match(/<span>/gi) || []).length;
+    const closeSpans = (before.match(/<\/span>/gi) || []).length;
+    return openSpans > closeSpans ? "</span>" : match;
+  });
 
   // ── 3. Gmail compose junk ─────────────────────────────────────────────────
   // Gmail adds class="gmail_default", "gmail_attr", "gmail_extra", "gmail_quote"
@@ -120,20 +134,29 @@ export function normalizeOutboundHtml(html: string): string {
   // ── 8b. Strip rogue style attributes from block/inline elements ───────────
   // Preserve style only when it:
   //   (a) contains our font family + "line-height" → our body wrapper
-  //   (b) contains "#787f84"                       → signature text color
-  //   (c) contains "border-top"                    → our forwarded-block separator
-  //   (d) contains "padding-left:24px"             → our list indent
-  //   (e) fine-print sizes combined with signature color (11px, 12px, 13px)
-  //       — must be paired with #787f84 to avoid matching arbitrary elements
+  //   (b) contains our paragraph fingerprint      → our <p> paragraph blocks
+  //   (c) contains "#787f84"                       → signature text color
+  //   (d) contains "border-top"                    → our forwarded-block separator
+  //   (e) contains "padding-left:24px"             → our list indent
+  //   (f) fine-print sizes combined with signature color (11px, 12px, 13px)
+  //   (g) contains "font-weight" on signature name elements (bold name)
+  //   (h) contains "letter-spacing"                → our name element
+  //   (i) contains "margin: 0 0 20px"              → "Regards," paragraph in sig
   out = out.replace(
     /(<(?:p|h[1-6]|li|blockquote|table|tr|td|th|div|b|i|u|s|ul|ol|strong|em)\b[^>]*?)\s+style="([^"]*)"/gi,
     (match, tag, styleVal) => {
       const isSignatureColor = styleVal.includes("#787f84");
+      const isOurParagraph = styleVal.includes(EMAIL_P_STYLE_FINGERPRINT);
       const keep =
         (styleVal.includes(VOLTSAFE_FONT_FAMILY.split(",")[0]) && styleVal.includes("line-height")) ||
+        isOurParagraph ||
         isSignatureColor ||
         styleVal.includes("border-top") ||
         styleVal.includes("padding-left:24px") ||
+        styleVal.includes("font-weight") ||
+        styleVal.includes("letter-spacing") ||
+        styleVal.includes("margin: 0 0 20px") ||
+        styleVal.includes("margin:0 0 20px") ||
         (isSignatureColor && (styleVal.includes("font-size:11px") || styleVal.includes("font-size:12px") || styleVal.includes("font-size:13px")));
       return keep ? match : tag;
     },

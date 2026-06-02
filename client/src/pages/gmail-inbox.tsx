@@ -386,7 +386,7 @@ function getEmailCategory(labelIds: string[]): "people" | "newsletters" | "updat
   return "people";
 }
 
-const EMAIL_SIGNATURE_HTML = `<div style="font-family: OpenSans, Arial, sans-serif; font-size: 13px; color: #222; line-height: 1.5;">
+const EMAIL_SIGNATURE_HTML = `<div style="font-family: OpenSans, Arial, sans-serif; font-size: 13px; color: #222; line-height: 1.5; font-weight: normal;">
 <p style="margin: 0 0 20px 0; font-size: 13px;">Regards,</p>
 <table cellpadding="0" cellspacing="0" border="0" style="min-width: 300px;">
     <tbody>

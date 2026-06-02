@@ -15,6 +15,12 @@
 
 import { VOLTSAFE_BODY_STYLE, VOLTSAFE_LINK_COLOR } from "@shared/email-style";
 
+// Email-safe paragraph style used for every body paragraph in outbound mail.
+// margin-bottom provides consistent paragraph spacing across Gmail, Outlook,
+// Apple Mail, Spark, and mobile clients without relying on <br><br> chains
+// (which Gmail can collapse or misinterpret, causing bold to "leak").
+const EMAIL_P_STYLE = "margin:0 0 16px 0;line-height:1.6;";
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -99,8 +105,12 @@ export function plainTextToHtml(text: string): string {
  *   1. Strips browser-injected inline styles and class attributes
  *   2. Unwraps bare <span> tags added by execCommand
  *   3. Normalizes link attributes (target, rel, VoltSafe link colour)
- *   4. Converts Chrome's <div>-per-line structure to <br> line breaks
- *   5. Wraps the result in the VoltSafe body style div
+ *   4. Converts Chrome's <div>/<p>-per-line structure to <p> paragraph blocks
+ *      with explicit email-safe inline styles — prevents bold/italic/underline
+ *      from leaking across paragraph boundaries in Gmail, Outlook, Apple Mail,
+ *      Spark, and mobile clients
+ *   5. Closes any still-open inline formatting tags at paragraph boundaries
+ *   6. Wraps the result in the VoltSafe body style div
  *
  * Regex-based so it works in both browser and Node.js (tests).
  *
@@ -207,15 +217,141 @@ function extractPreviewBlocks(html: string): { out: string; blocks: string[] } {
   return { out, blocks };
 }
 
+// ── sanitizeEditorHtml helpers ────────────────────────────────────────────────
+
+/**
+ * Close any still-open inline formatting tags at double-<br> paragraph
+ * boundaries, and at the end of the string, so bold/italic/underline never
+ * bleeds into the next paragraph in Gmail or other clients.
+ *
+ * Chrome's contentEditable can produce <b> openers inside one <div> that are
+ * closed inside a different <div>. After div-collapsing both become part of a
+ * flat <br>-chain, leaving the <b> spanning across what should be a paragraph
+ * boundary. Gmail in particular does not reset inline formatting at <br> tags,
+ * so the bold "leaks" into every subsequent line until a real block boundary.
+ *
+ * This function inserts the missing closing tags before each double-<br> and
+ * re-opens them after so the formatting intent (bold this phrase) is preserved
+ * without leaking into the next paragraph.
+ *
+ * Regex-based / works in Node.js.
+ */
+function closeInlineTagsAtBoundaries(html: string): string {
+  const OPEN_RE = /^<(b|strong|i|em|u|s)>/i;
+  const CLOSE_RE = /^<\/(b|strong|i|em|u|s)>/i;
+  // Two consecutive <br> = paragraph separator (optional whitespace between)
+  const DBL_BR_RE = /^(<br\s*\/?>)(\s*)(<br\s*\/?>)/i;
+
+  const stack: string[] = [];
+  let result = "";
+  let i = 0;
+
+  while (i < html.length) {
+    // Check for double-<br> paragraph boundary
+    const dblBr = DBL_BR_RE.exec(html.slice(i));
+    if (dblBr) {
+      // Close all open inline tags (reverse order = proper LIFO close)
+      for (let j = stack.length - 1; j >= 0; j--) {
+        result += `</${stack[j]}>`;
+      }
+      result += dblBr[0]; // the two <br> (including any whitespace between)
+      i += dblBr[0].length;
+      // Re-open the same inline tags (in original order)
+      for (const t of stack) result += `<${t}>`;
+      continue;
+    }
+
+    // Opening inline tag
+    const open = OPEN_RE.exec(html.slice(i));
+    if (open) {
+      stack.push(open[1].toLowerCase());
+      result += open[0];
+      i += open[0].length;
+      continue;
+    }
+
+    // Closing inline tag — pop from stack
+    const close = CLOSE_RE.exec(html.slice(i));
+    if (close) {
+      const tag = close[1].toLowerCase();
+      const idx = stack.lastIndexOf(tag);
+      if (idx !== -1) stack.splice(idx, 1);
+      result += close[0];
+      i += close[0].length;
+      continue;
+    }
+
+    result += html[i];
+    i++;
+  }
+
+  // Close any unclosed inline tags at end of the string
+  for (let j = stack.length - 1; j >= 0; j--) {
+    result += `</${stack[j]}>`;
+  }
+
+  return result;
+}
+
+/**
+ * Convert a flat <br>-chain into email-safe <p> paragraph blocks.
+ *
+ * Using <p> block elements guarantees each paragraph is visually independent
+ * regardless of inline formatting state.  A <p> boundary resets rendering
+ * context in every major email client — Gmail, Outlook, Apple Mail, Spark,
+ * and mobile clients all treat <p> as a hard paragraph reset, so bold/italic
+ * that opens in one <p> cannot bleed into the next one.
+ *
+ * Rules:
+ *  • Double-<br> (paragraph separator) → paragraph break between <p> blocks
+ *  • Single <br> within a chunk → preserved as a soft line break inside <p>
+ *  • Chunks that are or start with a block element (<ul>,<ol>) → emitted as-is
+ *    (wrapping <ul>/<ol> inside <p> is invalid HTML and breaks email clients)
+ *  • Empty / whitespace-only chunks → dropped (paragraph margin handles spacing)
+ *  • Trailing <br> at the end of each chunk is stripped (prevents double-spacing
+ *    inside the <p>)
+ *
+ * Regex-based / works in Node.js.
+ */
+function convertBrChainToParagraphs(html: string): string {
+  // Normalise 3+ consecutive <br> → exactly two (one paragraph boundary)
+  html = html.replace(/(<br\s*\/?>[\s]*){3,}/gi, "<br><br>");
+
+  // Split on paragraph boundary: two consecutive <br> (with optional whitespace)
+  const chunks = html.split(/(?:<br\s*\/?>)\s*(?:<br\s*\/?>)/i);
+
+  const parts: string[] = [];
+  for (const chunk of chunks) {
+    // Strip leading/trailing whitespace and trailing <br>
+    const trimmed = chunk.replace(/(<br\s*\/?>)+$/i, "").trim();
+    if (!trimmed) continue;
+
+    // Block elements (<ul>, <ol>, <table>) must NOT be wrapped in <p> —
+    // that is invalid HTML and some clients refuse to render it correctly.
+    if (/^<(?:ul|ol|table)\b/i.test(trimmed)) {
+      parts.push(trimmed);
+    } else {
+      parts.push(`<p style="${EMAIL_P_STYLE}">${trimmed}</p>`);
+    }
+  }
+
+  return parts.join("");
+}
+
 // ── sanitizeEditorHtml ────────────────────────────────────────────────────────
 
 /**
- * Strip browser-added styling from editor HTML and normalise structure.
- * Handles the predictable flat HTML that Chrome's contenteditable produces.
+ * Strip browser-added styling from editor HTML and normalise structure for
+ * email delivery. Handles the predictable flat HTML that Chrome's
+ * contenteditable produces, plus <p>-based HTML reloaded from saved drafts.
  *
  * Link-preview card blocks (<table data-link-preview="…">) are extracted
  * before sanitisation and re-inserted afterwards so their inline styles and
  * table structure are preserved in both the editor and outbound email.
+ *
+ * Output: email-safe <p> blocks with explicit margin/line-height styles so
+ * bold/italic/underline formatting can never leak across paragraph boundaries
+ * in Gmail, Outlook, Apple Mail, Spark, or mobile clients.
  */
 function sanitizeEditorHtml(html: string): string {
   if (!html) return "";
@@ -254,29 +390,38 @@ function sanitizeEditorHtml(html: string): string {
   );
 
   // 5b. Final XSS safety net: strip any remaining href="javascript:…" / "data:…" /
-  //     "vbscript:…" attributes that survived the first anchor-rebuild pass (e.g.
-  //     inner anchors inside a valid outer link). This is a targeted attribute-level
-  //     strip — it cannot be confused by nesting depth.
+  //     "vbscript:…" attributes that survived the first anchor-rebuild pass.
   out = out.replace(/\bhref="(?:javascript|vbscript|data):[^"]*"/gi, "");
 
-  // 6. Empty paragraph: <div><br[/]></div> → <br>
-  out = out.replace(/<div>\s*<br\s*\/?>\s*<\/div>/gi, "<br>");
+  // 6. Collapse empty block elements (div or p with only whitespace/br) to a
+  //    double-<br> paragraph separator.  Chrome produces <div><br></div> for
+  //    blank lines; saved drafts may have <p style="..."></p> or similar.
+  out = out.replace(/<(?:div|p)\b[^>]*>\s*<br\s*\/?>\s*<\/(?:div|p)>/gi, "<br><br>");
+  out = out.replace(/<(?:div|p)\b[^>]*>\s*<\/(?:div|p)>/gi, "");
 
-  // 7. Non-empty Chrome line-divs: process inner-to-outer so nested divs are
-  //    handled correctly. Each pass replaces a <div> whose content has no
-  //    further <div> tags (innermost first).
+  // 7. Non-empty block elements (div, p): process inner-to-outer so nested
+  //    elements are handled correctly before their parents.  Each pass replaces
+  //    the innermost <div> or <p> that contains no further block tags with its
+  //    content followed by <br> (soft line break within the flat chain).
   let prev = "";
   while (out !== prev) {
     prev = out;
-    // Match a <div> that contains no nested <div>
-    out = out.replace(/<div>((?:(?!<\/?div)[\s\S])*?)<\/div>/gi, "$1<br>");
+    out = out.replace(
+      /<(?:div|p)\b[^>]*>((?:(?!<\/?\s*(?:div|p)\b)[\s\S])*?)<\/(?:div|p)>/gi,
+      "$1<br>",
+    );
   }
 
-  // 8. Strip trailing <br> / whitespace
-  out = out.replace(/(<br\s*\/?>\s*)+$/i, "");
+  // 8. Repair: close inline formatting tags (b, strong, i, em, u, s) at every
+  //    double-<br> paragraph boundary so they never bleed into the next
+  //    paragraph in Gmail or other clients that don't reset inline formatting
+  //    at <br> tags.  Also closes any unclosed tags at the end of the string.
+  out = closeInlineTagsAtBoundaries(out);
 
-  // 9. Collapse 3+ consecutive <br> to a double break
-  out = out.replace(/(<br\s*\/?>\s*){3,}/gi, "<br><br>");
+  // 9. Convert the flat <br>-chain to email-safe <p> paragraph blocks.
+  //    Block-level elements (<p>) prevent Gmail from extending bold/italic
+  //    across paragraph boundaries regardless of inline tag state.
+  out = convertBrChainToParagraphs(out);
 
   // Post-pass: re-insert the link-preview blocks.  Apply a narrow href-safety
   // check inside each block so we never re-insert a javascript: href.
