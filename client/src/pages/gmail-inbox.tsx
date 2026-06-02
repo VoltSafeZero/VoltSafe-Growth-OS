@@ -5722,6 +5722,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
   type ReviewQueueItem = {
     gmailThreadId: string;
+    gmailAccountId: number | null;
     latestMessage: {
       id: number;
       subject: string | null;
@@ -7951,7 +7952,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         {/* Row content — click opens thread */}
                         <button
                           className="flex-1 text-left py-3 min-w-0"
-                          onClick={() => { setSelectedThreadId(item.gmailThreadId); setSelectedMessageId(null); }}
+                          onClick={() => { setSelectedThreadId(item.gmailThreadId); setSelectedMessageId(null); setCurrentThreadAccountId(item.gmailAccountId ?? null); }}
                         >
                           <div className="flex items-center justify-between gap-2 mb-[3px]">
                             <span className="text-[13px] leading-none font-medium text-foreground/80 truncate">{senderName}</span>

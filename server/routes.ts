@@ -12314,6 +12314,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             sentAt: emailMessages.sentAt,
             hasAttachments: emailMessages.hasAttachments,
             hasBody: sql<boolean>`(body_html IS NOT NULL AND body_html != '') OR (body_text IS NOT NULL AND body_text != '')`,
+            sourceAccountId: emailMessages.sourceAccountId,
           })
           .from(emailMessages)
           .where(eq(emailMessages.gmailThreadId, tid))
@@ -12375,10 +12376,12 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           : 0;
 
         // Strip internal-only fields before pushing — hasBody is a server-side filter
-        // field that the client type doesn't need.
-        const { hasBody: _hb, ...latestMsgForClient } = latestMsg;
+        // field that the client type doesn't need. sourceAccountId is hoisted to the
+        // top-level item so the frontend can pass asAccountId when fetching the thread.
+        const { hasBody: _hb, sourceAccountId: _srcAcct, ...latestMsgForClient } = latestMsg;
         items.push({
           gmailThreadId: tid,
+          gmailAccountId: latestMsg.sourceAccountId ?? null,
           latestMessage: latestMsgForClient,
           topCandidate: topAssoc ?? null,
           candidateCount: totalCandidates,
