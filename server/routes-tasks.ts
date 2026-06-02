@@ -227,7 +227,7 @@ async function loadTaskFull(taskId: number) {
     LEFT JOIN users cb ON cb.id = t.completed_by_user_id
     LEFT JOIN users lu ON lu.id = t.last_updated_by_user_id
     LEFT JOIN accounts a ON a.id = t.account_id
-    LEFT JOIN contacts co ON co.id = t.linked_object_id AND t.linked_object_type = 'contact'
+    LEFT JOIN contacts co ON co.id = COALESCE(t.contact_id, CASE WHEN t.linked_object_type = 'contact' THEN t.linked_object_id END)
     LEFT JOIN leads l ON l.id = t.linked_object_id AND t.linked_object_type = 'lead'
     WHERE t.id = ${taskId}
     LIMIT 1
@@ -612,6 +612,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       setIf("linked_object_type", "linkedObjectType", (v) => (v == null ? null : String(v)), "linked contact type");
       setIf("linked_object_id", "linkedObjectId", (v) => (v == null ? null : Number(v)), "linked contact");
       setIf("account_id", "accountId", (v) => (v == null ? null : Number(v)), "organization");
+      setIf("contact_id", "contactId", (v) => (v == null ? null : Number(v)), "linked contact");
       setIf("recurrence_rule", "recurrenceRule", (v) => (v == null ? "none" : String(v)), "recurrence");
       setIf("recurrence_end_date", "recurrenceEndDate", (v) => (v ? new Date(v) : null), "recurrence end date");
 

@@ -460,6 +460,7 @@ export const tasks = pgTable("tasks", {
   linkedObjectType: text("linked_object_type"),
   linkedObjectId: integer("linked_object_id"),
   accountId: integer("account_id"),
+  contactId: integer("contact_id"),
   ownerUserId: integer("owner_user_id"),
   createdByUserId: integer("created_by_user_id"),
   title: text("title").notNull(),

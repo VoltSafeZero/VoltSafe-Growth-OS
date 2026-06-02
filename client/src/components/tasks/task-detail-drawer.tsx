@@ -408,13 +408,13 @@ export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, 
                   <CrmLinkCombobox
                     type="contact"
                     value={
-                      t.linked_object_type === "contact" && t.linked_object_id
-                        ? { id: Number(t.linked_object_id), label: t.contact_name || `Contact #${t.linked_object_id}` }
+                      (t.contact_id || (t.linked_object_type === "contact" && t.linked_object_id))
+                        ? { id: Number(t.contact_id || t.linked_object_id), label: t.contact_name || `Contact #${t.contact_id || t.linked_object_id}` }
                         : null
                     }
                     onChange={async (v) => {
-                      if (v) await patchTask.mutateAsync({ linkedObjectType: "contact", linkedObjectId: v.id });
-                      else await patchTask.mutateAsync({ linkedObjectType: null, linkedObjectId: null });
+                      if (v) await patchTask.mutateAsync({ contactId: v.id });
+                      else await patchTask.mutateAsync({ contactId: null });
                     }}
                   />
                 </div>
@@ -434,8 +434,10 @@ export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, 
                       if (v?.kind === "lead") {
                         await patchTask.mutateAsync({ linkedObjectType: "lead", linkedObjectId: v.id, accountId: null });
                       } else if (v) {
-                        await patchTask.mutateAsync({ accountId: v.id });
+                        // Linking an account: clear any stale lead link but leave contactId alone
+                        await patchTask.mutateAsync({ accountId: v.id, linkedObjectType: null, linkedObjectId: null });
                       } else {
+                        // Unlinking: clear lead/account fields only — contactId is independent
                         await patchTask.mutateAsync({ accountId: null, linkedObjectType: null, linkedObjectId: null });
                       }
                     }}
@@ -1737,7 +1739,7 @@ function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: number) => void;
         status: "pending",
         boardColumn: column,
         ownerUserId: resolvedOwner,
-        ...(linkedContact ? { linkedObjectType: "contact", linkedObjectId: linkedContact.id } : {}),
+        ...(linkedContact ? { contactId: linkedContact.id } : {}),
         ...(linkedAccount?.kind === "lead"
           ? { linkedObjectType: "lead", linkedObjectId: linkedAccount.id, accountId: null }
           : linkedAccount

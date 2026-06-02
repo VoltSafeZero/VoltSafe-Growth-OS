@@ -1371,6 +1371,42 @@ export async function migrateShorePowerColumn(): Promise<void> {
   }
 }
 
+// Adds a dedicated contact_id column to tasks so a linked contact can coexist
+// with a linked lead (linked_object_type='lead' + linked_object_id) without
+// overwriting each other. Backfills existing rows where linked_object_type='contact'.
+export async function migrateTaskContactId(): Promise<void> {
+  try {
+    // Add column without FK constraint — avoids FK validation issues on existing data
+    await db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS contact_id INTEGER`);
+    // Null out any orphaned contact_id values that don't exist in contacts
+    await db.execute(sql`
+      UPDATE tasks
+      SET contact_id = NULL
+      WHERE contact_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM contacts WHERE id = tasks.contact_id)
+    `);
+    // Backfill: tasks with linked_object_type='contact' → move to contact_id
+    const backfilled = await db.execute(sql`
+      UPDATE tasks
+      SET contact_id = linked_object_id,
+          linked_object_type = NULL,
+          linked_object_id = NULL
+      WHERE linked_object_type = 'contact'
+        AND linked_object_id IS NOT NULL
+        AND contact_id IS NULL
+        AND EXISTS (SELECT 1 FROM contacts WHERE id = tasks.linked_object_id)
+    `);
+    const count = (backfilled as any).rowCount ?? 0;
+    if (count > 0) {
+      console.log(`[migration] tasks.contact_id: backfilled ${count} contact-linked task(s).`);
+    } else {
+      console.log("[migration] tasks.contact_id column ready (no backfill needed).");
+    }
+  } catch (err) {
+    console.error("[migration] migrateTaskContactId error (non-fatal):", err);
+  }
+}
+
 // Removes any crm_auto_link_rules rows that target internal VoltSafe domains
 // (voltsafe.com). These rules were never effective (the engine already filtered
 // internal domains from earlyDomains) but their presence in the DB was

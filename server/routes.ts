@@ -8400,7 +8400,7 @@ export async function registerRoutes(
           FROM tasks t
           LEFT JOIN users u ON u.id = t.owner_user_id
           LEFT JOIN accounts a ON t.linked_object_type = 'account' AND t.linked_object_id = a.id
-          LEFT JOIN contacts c ON t.linked_object_type = 'contact' AND t.linked_object_id = c.id
+          LEFT JOIN contacts c ON c.id = COALESCE(t.contact_id, CASE WHEN t.linked_object_type = 'contact' THEN t.linked_object_id END)
           LEFT JOIN opportunities o ON t.linked_object_type = 'opportunity' AND t.linked_object_id = o.id
           WHERE t.status NOT IN ('done','completed','cancelled')
             AND t.priority IN ('high','urgent')
@@ -8434,7 +8434,7 @@ export async function registerRoutes(
                  EXTRACT(DAY FROM NOW() - t.updated_at)::int AS days_waiting
           FROM tasks t
           LEFT JOIN accounts a ON t.linked_object_type = 'account' AND t.linked_object_id = a.id
-          LEFT JOIN contacts c ON t.linked_object_type = 'contact' AND t.linked_object_id = c.id
+          LEFT JOIN contacts c ON c.id = COALESCE(t.contact_id, CASE WHEN t.linked_object_type = 'contact' THEN t.linked_object_id END)
           LEFT JOIN opportunities o ON t.linked_object_type = 'opportunity' AND t.linked_object_id = o.id
           WHERE t.owner_user_id = ${userId}
             AND t.status IN ('waiting','on_hold','blocked')
@@ -8670,12 +8670,12 @@ export async function registerRoutes(
                EXTRACT(EPOCH FROM (NOW() - t.due_date)) / 86400 AS days_overdue,
                CASE
                  WHEN t.linked_object_type = 'account' THEN a.name
-                 WHEN t.linked_object_type = 'contact' THEN c.name
+                 WHEN t.contact_id IS NOT NULL OR t.linked_object_type = 'contact' THEN c.name
                  WHEN t.linked_object_type = 'opportunity' THEN op.title
                END AS linked_object_name
         FROM tasks t
         LEFT JOIN accounts a ON t.linked_object_type = 'account' AND t.linked_object_id = a.id
-        LEFT JOIN contacts c ON t.linked_object_type = 'contact' AND t.linked_object_id = c.id
+        LEFT JOIN contacts c ON c.id = COALESCE(t.contact_id, CASE WHEN t.linked_object_type = 'contact' THEN t.linked_object_id END)
         LEFT JOIN opportunities op ON t.linked_object_type = 'opportunity' AND t.linked_object_id = op.id
         WHERE t.status NOT IN ('completed','cancelled')
           AND t.due_date < NOW()
