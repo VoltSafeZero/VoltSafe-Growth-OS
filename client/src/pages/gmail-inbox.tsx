@@ -5684,21 +5684,37 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Domains that belong to VoltSafe and must never be used as auto-link targets.
   const INTERNAL_DOMAINS = new Set(["voltsafe.com"]);
 
+  // Extract clean domain from an email address string that may contain a display
+  // name in angle-bracket format: "Name <email@domain>" or plain "email@domain".
+  // Handles semicolon-separated lists as well as comma-separated.
+  function extractEmailDomain(raw: string): string | null {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    // Strip display name: "Name <email@domain.com>" → "email@domain.com"
+    const angleMatch = trimmed.match(/<([^>]+)>/);
+    const email = angleMatch ? angleMatch[1].trim() : trimmed;
+    const atIdx = email.lastIndexOf("@");
+    if (atIdx < 0) return null;
+    const domain = email.slice(atIdx + 1).toLowerCase().trim();
+    return domain || null;
+  }
+
   // Resolve the best external domain for an auto-link rule:
   // - If the sender is external, use their domain.
   // - If the sender is internal (outbound email), scan TO/CC for the first external recipient domain.
   // - Returns null if no valid external domain can be found.
   function resolveAutoLinkDomain(item: ReviewQueueItem): string | null {
-    const senderDomain = item.latestMessage.fromEmail?.split("@")[1]?.toLowerCase() ?? "";
+    const senderDomain = extractEmailDomain(item.latestMessage.fromEmail ?? "");
     if (senderDomain && !INTERNAL_DOMAINS.has(senderDomain)) return senderDomain;
 
-    // Outbound email — find the first external TO or CC recipient domain
-    const allRecipients = [
-      ...(item.latestMessage.toEmails ? item.latestMessage.toEmails.split(",") : []),
-      ...(item.latestMessage.ccEmails ? item.latestMessage.ccEmails.split(",") : []),
+    // Outbound email — find the first external TO or CC recipient domain.
+    // Split on both comma and semicolon to handle all RFC-style formats.
+    const rawAddrs = [
+      ...(item.latestMessage.toEmails ?? "").split(/[,;]/),
+      ...(item.latestMessage.ccEmails ?? "").split(/[,;]/),
     ];
-    for (const addr of allRecipients) {
-      const domain = addr.trim().split("@")[1]?.toLowerCase();
+    for (const addr of rawAddrs) {
+      const domain = extractEmailDomain(addr);
       if (domain && !INTERNAL_DOMAINS.has(domain)) return domain;
     }
     return null;

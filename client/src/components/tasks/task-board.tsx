@@ -69,9 +69,10 @@ type SavedView = {
 type Props = {
   view: "my" | "team";
   onOpenTask: (id: number) => void;
+  viewingUserId?: number | null;
 };
 
-export function TaskBoard({ view, onOpenTask }: Props) {
+export function TaskBoard({ view, onOpenTask, viewingUserId }: Props) {
   const { toast } = useToast();
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
@@ -151,8 +152,12 @@ export function TaskBoard({ view, onOpenTask }: Props) {
   }
 
   const { data, isLoading } = useQuery<any>({
-    queryKey: ["/api/tasks/board", view],
-    queryFn: () => fetch(`/api/tasks/board?view=${view}`, { credentials: "include" }).then(r => r.json()),
+    queryKey: ["/api/tasks/board", view, viewingUserId ?? null],
+    queryFn: () => {
+      const params = new URLSearchParams({ view });
+      if (viewingUserId) params.set("viewingUserId", String(viewingUserId));
+      return fetch(`/api/tasks/board?${params}`, { credentials: "include" }).then(r => r.json());
+    },
     refetchInterval: 30000,
   });
 

@@ -67,6 +67,28 @@ function isAdmin(req: Request): boolean {
   return r === "master_admin" || r === "admin";
 }
 
+function isMasterAdmin(req: Request): boolean {
+  return (req.session as any)?.globalRole === "master_admin";
+}
+
+// Check if userId has hub-access permission to view targetUserId's tasks.
+// Admins always have access. Other users need an explicit non-revoked grant.
+async function checkHubAccess(viewerId: number, targetId: number, adminOverride: boolean): Promise<"edit" | "view" | null> {
+  if (adminOverride) return "edit";
+  if (viewerId === targetId) return "edit";
+  try {
+    const row: any = await db.execute(sql`
+      SELECT permission_level FROM task_hub_access_permissions
+      WHERE viewer_user_id = ${viewerId} AND target_user_id = ${targetId} AND revoked_at IS NULL
+      LIMIT 1
+    `);
+    const level = row.rows?.[0]?.permission_level;
+    if (level === "edit") return "edit";
+    if (level === "view") return "view";
+  } catch { /* table may not exist yet */ }
+  return null;
+}
+
 async function logActivity(
   taskId: number,
   userId: number | null,
@@ -348,6 +370,22 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
   `).then(() => console.log("[migration] CRM auto-link rules schema migration complete."))
     .catch(e => console.error("[crm-auto-link-rules] migration error:", e.message));
 
+  // ── Task Hub Access Permissions: bootstrap (idempotent) ─────────────────
+  db.execute(sql`
+    CREATE TABLE IF NOT EXISTS task_hub_access_permissions (
+      id SERIAL PRIMARY KEY,
+      viewer_user_id INTEGER NOT NULL,
+      target_user_id INTEGER NOT NULL,
+      permission_level TEXT NOT NULL DEFAULT 'view',
+      created_by_user_id INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      revoked_at TIMESTAMPTZ,
+      UNIQUE(viewer_user_id, target_user_id)
+    )
+  `).then(() => console.log("[migration] task_hub_access_permissions ready."))
+    .catch(e => console.error("[task-hub-access] migration error:", e.message));
+
   // ── Column shares: bootstrap (idempotent) ────────────────────────────────
   db.execute(sql`
     CREATE TABLE IF NOT EXISTS task_column_shares (
@@ -430,18 +468,28 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const view = String(req.query.view || "my");
       const admin = isAdmin(req);
+
+      // Hub-access delegation: if viewingUserId is provided, verify access before showing that user's board.
+      const rawViewingId = req.query.viewingUserId ? Number(req.query.viewingUserId) : null;
+      let effectiveUserId = userId;
+      if (rawViewingId && Number.isFinite(rawViewingId) && rawViewingId !== userId) {
+        const accessLevel = await checkHubAccess(userId, rawViewingId, admin);
+        if (!accessLevel) return res.status(403).json({ message: "Access denied to that user's tasks" });
+        effectiveUserId = rawViewingId;
+      }
+
       // Build the WHERE clause filter for this view:
       //   assigned_by_me → tasks I created but assigned to someone else
       //   team (admin only) → no owner restriction (full team visibility)
       //   anything else (or team for non-admin) → only tasks assigned to me
       let whereFilter = "";
       if (view === "assigned_by_me") {
-        whereFilter = `AND t.created_by_user_id = ${userId} AND t.owner_user_id IS NOT NULL AND t.owner_user_id != ${userId}`;
+        whereFilter = `AND t.created_by_user_id = ${effectiveUserId} AND t.owner_user_id IS NOT NULL AND t.owner_user_id != ${effectiveUserId}`;
       } else if (view === "team" && admin) {
         whereFilter = ""; // admin sees everyone
       } else {
-        // Default: my assigned tasks + tasks I created and delegated to others
-        whereFilter = `AND (t.owner_user_id = ${userId} OR (t.created_by_user_id = ${userId} AND t.owner_user_id IS NOT NULL AND t.owner_user_id != ${userId}))`;
+        // Default: effective user's assigned tasks + tasks they created and delegated to others
+        whereFilter = `AND (t.owner_user_id = ${effectiveUserId} OR (t.created_by_user_id = ${effectiveUserId} AND t.owner_user_id IS NOT NULL AND t.owner_user_id != ${effectiveUserId}))`;
       }
 
       const rows: any = await db.execute(sql.raw(`
@@ -479,10 +527,10 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       `));
 
       const tasks: any[] = (rows as any).rows ?? [];
-      // Use the workspace's currently configured columns so custom columns
+      // Use the effective user's currently configured columns so custom columns
       // appear on the board. Anything pointing at an unknown column gets
       // dropped into "backlog" (the guaranteed fallback).
-      const allCols = await loadColumnsForUser(userId);
+      const allCols = await loadColumnsForUser(effectiveUserId);
       const colValues = allCols.map(c => c.value);
       const colSet = new Set(colValues);
       const fallback = "backlog";
@@ -493,12 +541,12 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
         if (!colSet.has(col)) col = fallback;
         // Auto-blocked override only applies when "blocked" is still a column
         if (col !== "done" && t.openDependencies > 0 && colSet.has("blocked")) col = "blocked";
-        // Auto-delegated override: tasks I created but assigned to someone else → delegated column
+        // Auto-delegated override: tasks effective user created but assigned to someone else → delegated column
         // Guard against completed tasks: check original boardColumn AND status so that a task
         // completed by its assignee (board_column='done', status='completed') doesn't leak back
         // into the delegated column after the fallback remaps 'done' → 'backlog' above.
         const isDone = String(t.boardColumn) === "done" || t.status === "completed" || t.status === "done";
-        if (!isDone && t.createdByUserId === userId && t.ownerUserId != null && t.ownerUserId !== userId && colSet.has("delegated")) col = "delegated";
+        if (!isDone && t.createdByUserId === effectiveUserId && t.ownerUserId != null && t.ownerUserId !== effectiveUserId && colSet.has("delegated")) col = "delegated";
         grouped[col].push(t);
       }
       res.json({ columns: colValues, grouped, total: tasks.length });
@@ -1220,6 +1268,82 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       res.json({ success: true, count: cleaned.length });
     } catch (err: any) {
       console.error("[task-columns/user PUT]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Task Hub Access: what users the current user can view ─────────────────
+  app.get("/api/tasks/hub-access/my-access", requireAuth, async (req, res) => {
+    const userId = uid(req);
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+    try {
+      const rows: any = await db.execute(sql`
+        SELECT p.id, p.target_user_id AS "targetUserId", u.name AS "targetUserName", p.permission_level AS "permissionLevel"
+        FROM task_hub_access_permissions p
+        JOIN users u ON u.id = p.target_user_id
+        WHERE p.viewer_user_id = ${userId} AND p.revoked_at IS NULL
+        ORDER BY u.name
+      `);
+      res.json(rows.rows ?? []);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Task Hub Access: list all permissions (admin only) ────────────────────
+  app.get("/api/tasks/hub-access/permissions", requireAuth, async (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ message: "Admin only" });
+    try {
+      const rows: any = await db.execute(sql`
+        SELECT p.id, p.viewer_user_id AS "viewerUserId", vu.name AS "viewerName",
+               p.target_user_id AS "targetUserId", tu.name AS "targetName",
+               p.permission_level AS "permissionLevel", p.created_at AS "createdAt"
+        FROM task_hub_access_permissions p
+        JOIN users vu ON vu.id = p.viewer_user_id
+        JOIN users tu ON tu.id = p.target_user_id
+        WHERE p.revoked_at IS NULL
+        ORDER BY vu.name, tu.name
+      `);
+      res.json(rows.rows ?? []);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Task Hub Access: grant access (admin only) ────────────────────────────
+  app.post("/api/tasks/hub-access/permissions", requireAuth, async (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ message: "Admin only" });
+    const { viewerUserId, targetUserId, permissionLevel } = req.body;
+    const adminId = uid(req);
+    if (!viewerUserId || !targetUserId) {
+      return res.status(400).json({ message: "viewerUserId and targetUserId are required" });
+    }
+    if (Number(viewerUserId) === Number(targetUserId)) {
+      return res.status(400).json({ message: "A user already has access to their own tasks" });
+    }
+    const level = permissionLevel === "edit" ? "edit" : "view";
+    try {
+      await db.execute(sql`
+        INSERT INTO task_hub_access_permissions (viewer_user_id, target_user_id, permission_level, created_by_user_id, created_at, updated_at)
+        VALUES (${Number(viewerUserId)}, ${Number(targetUserId)}, ${level}, ${adminId}, NOW(), NOW())
+        ON CONFLICT (viewer_user_id, target_user_id) DO UPDATE
+          SET permission_level = ${level}, revoked_at = NULL, updated_at = NOW()
+      `);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Task Hub Access: revoke access (admin only) ───────────────────────────
+  app.delete("/api/tasks/hub-access/permissions/:id", requireAuth, async (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ message: "Admin only" });
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+    try {
+      await db.execute(sql`UPDATE task_hub_access_permissions SET revoked_at = NOW(), updated_at = NOW() WHERE id = ${id}`);
+      res.json({ ok: true });
+    } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });

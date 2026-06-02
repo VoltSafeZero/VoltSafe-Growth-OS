@@ -248,6 +248,7 @@ function TaskRow({
   onNavigate,
   isSelected,
   onToggleSelect,
+  readOnly,
 }: {
   task: HubTask;
   users: { id: number; name: string }[];
@@ -258,6 +259,7 @@ function TaskRow({
   onNavigate: (href: string) => void;
   isSelected?: boolean;
   onToggleSelect?: () => void;
+  readOnly?: boolean;
 }) {
   const overdue = isOverdue(task.dueDate) && task.status !== "done";
   const days = daysUntil(task.dueDate);
@@ -363,15 +365,17 @@ function TaskRow({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5">
-        {!isDone && (
-          <>
-            <SnoozeMenu taskId={task.id} onSnooze={onSnooze} />
-            <ReassignMenu taskId={task.id} currentOwnerName={task.ownerName} users={users} onReassign={onReassign} />
-            <DueDatePicker taskId={task.id} currentDate={task.dueDate} onSave={onDueDate} />
-          </>
-        )}
-      </div>
+      {!readOnly && (
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5">
+          {!isDone && (
+            <>
+              <SnoozeMenu taskId={task.id} onSnooze={onSnooze} />
+              <ReassignMenu taskId={task.id} currentOwnerName={task.ownerName} users={users} onReassign={onReassign} />
+              <DueDatePicker taskId={task.id} currentDate={task.dueDate} onSave={onDueDate} />
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -388,6 +392,7 @@ function GroupSection({
   onNavigate,
   selectedIds,
   onToggleSelect,
+  readOnly,
 }: {
   label: string;
   tasks: HubTask[];
@@ -400,6 +405,7 @@ function GroupSection({
   onNavigate: (href: string) => void;
   selectedIds?: Set<number>;
   onToggleSelect?: (id: number) => void;
+  readOnly?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen ?? true);
   const isOverdueGroup = label === "Overdue";
@@ -430,6 +436,7 @@ function GroupSection({
               onNavigate={onNavigate}
               isSelected={selectedIds?.has(t.id)}
               onToggleSelect={onToggleSelect ? () => onToggleSelect(t.id) : undefined}
+              readOnly={readOnly}
             />
           ))}
         </div>
@@ -619,6 +626,13 @@ function EmptyState({ view }: { view: ViewTab }) {
   );
 }
 
+type HubAccessEntry = {
+  id: number;
+  targetUserId: number;
+  targetUserName: string;
+  permissionLevel: "view" | "edit";
+};
+
 export default function TasksHubPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -626,6 +640,7 @@ export default function TasksHubPage() {
   const [view, setView] = useState<ViewTab>("board");
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
+  const [viewingUserId, setViewingUserId] = useState<number | null>(null);
 
   // Allow any list-row component to request the drawer via a window event
   useEffect(() => {
@@ -662,9 +677,12 @@ export default function TasksHubPage() {
   }, []);
 
   const { data, isLoading } = useQuery<HubResponse>({
-    queryKey: ["/api/tasks/hub", view, groupBy],
-    queryFn: () =>
-      fetch(`/api/tasks/hub?view=${view}&groupBy=${groupBy}`, { credentials: "include" }).then(r => r.json()),
+    queryKey: ["/api/tasks/hub", view, groupBy, viewingUserId],
+    queryFn: () => {
+      const params = new URLSearchParams({ view, groupBy });
+      if (viewingUserId) params.set("viewingUserId", String(viewingUserId));
+      return fetch(`/api/tasks/hub?${params}`, { credentials: "include" }).then(r => r.json());
+    },
     refetchInterval: 30_000,
     enabled: view !== "board" && view !== "suggestions" && view !== "archived",
   });
@@ -673,6 +691,30 @@ export default function TasksHubPage() {
     queryKey: ["/api/users"],
     queryFn: () => fetch("/api/users", { credentials: "include" }).then(r => r.json()),
   });
+
+  const { data: me } = useQuery<{ id: number; name: string; globalRole: string }>({
+    queryKey: ["/api/auth/me"],
+    queryFn: () => fetch("/api/auth/me", { credentials: "include" }).then(r => r.json()),
+    staleTime: 60_000,
+  });
+
+  const { data: myAccess = [] } = useQuery<HubAccessEntry[]>({
+    queryKey: ["/api/tasks/hub-access/my-access"],
+    queryFn: () => fetch("/api/tasks/hub-access/my-access", { credentials: "include" }).then(r => r.json()),
+    staleTime: 60_000,
+  });
+
+  const isAdmin = me?.globalRole === "master_admin" || me?.globalRole === "admin";
+  const canShowSwitcher = isAdmin || myAccess.length > 0;
+  const viewingPermission: "view" | "edit" = viewingUserId
+    ? (isAdmin ? "edit" : (myAccess.find(a => a.targetUserId === viewingUserId)?.permissionLevel ?? "view"))
+    : "edit";
+  const isViewOnly = viewingUserId !== null && viewingPermission === "view";
+  const viewingUserName = viewingUserId
+    ? (myAccess.find(a => a.targetUserId === viewingUserId)?.targetUserName
+        ?? usersData.find(u => u.id === viewingUserId)?.name
+        ?? "User")
+    : null;
 
   const { data: suggestionsData, isLoading: suggestionsLoading } = useQuery<{ suggestions: GlobalSuggestion[]; total: number }>({
     queryKey: ["/api/tasks/suggestions"],
@@ -841,6 +883,62 @@ export default function TasksHubPage() {
             </div>
             {/* Action buttons on the right */}
             <div className="flex items-center gap-2 flex-shrink-0">
+              {canShowSwitcher && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant={viewingUserId ? "secondary" : "outline"}
+                      size="sm"
+                      className={`h-8 text-xs gap-1 border-border/50 ${viewingUserId ? "ring-1 ring-primary/30" : ""}`}
+                      data-testid="button-user-switcher"
+                    >
+                      <Users className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline max-w-[90px] truncate">
+                        {viewingUserId ? viewingUserName : "My Tasks"}
+                      </span>
+                      <ChevronDown className="h-3 w-3 ml-0.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52">
+                    <DropdownMenuItem
+                      onClick={() => setViewingUserId(null)}
+                      className={`text-xs ${!viewingUserId ? "text-primary font-medium" : ""}`}
+                      data-testid="option-my-tasks"
+                    >
+                      <User2 className="h-3.5 w-3.5 mr-2" />
+                      My Tasks
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    {isAdmin
+                      ? usersData.filter(u => u.id !== me?.id).map(u => (
+                          <DropdownMenuItem
+                            key={u.id}
+                            onClick={() => setViewingUserId(u.id)}
+                            className={`text-xs ${viewingUserId === u.id ? "text-primary font-medium" : ""}`}
+                            data-testid={`option-user-${u.id}`}
+                          >
+                            <User2 className="h-3.5 w-3.5 mr-2" />
+                            {u.name}
+                          </DropdownMenuItem>
+                        ))
+                      : myAccess.map(a => (
+                          <DropdownMenuItem
+                            key={a.targetUserId}
+                            onClick={() => setViewingUserId(a.targetUserId)}
+                            className={`text-xs ${viewingUserId === a.targetUserId ? "text-primary font-medium" : ""}`}
+                            data-testid={`option-user-${a.targetUserId}`}
+                          >
+                            <User2 className="h-3.5 w-3.5 mr-2" />
+                            <span className="flex-1 truncate">{a.targetUserName}</span>
+                            {a.permissionLevel === "view" && (
+                              <span className="text-[10px] text-muted-foreground opacity-60">view</span>
+                            )}
+                          </DropdownMenuItem>
+                        ))
+                    }
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="h-8 text-xs gap-1 border-border/50" data-testid="button-group-by">
@@ -857,7 +955,7 @@ export default function TasksHubPage() {
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Button size="sm" className="h-8 text-xs gap-1" onClick={openCapture} data-testid="button-new-task">
+              <Button size="sm" className="h-8 text-xs gap-1" onClick={openCapture} disabled={isViewOnly} data-testid="button-new-task">
                 <Plus className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">New Task</span>
               </Button>
@@ -897,11 +995,33 @@ export default function TasksHubPage() {
         </div>
       </div>
 
+      {/* Context banner: shown when viewing another user's tasks */}
+      {viewingUserId && viewingUserName && (
+        <div className={`px-4 md:px-6 py-1.5 flex items-center gap-2 text-xs border-b ${
+          isViewOnly
+            ? "bg-amber-500/10 border-amber-500/20 text-amber-400"
+            : "bg-primary/5 border-primary/10 text-primary"
+        }`} data-testid="banner-viewing-user">
+          <Eye className="h-3.5 w-3.5 flex-shrink-0" />
+          <span>
+            Viewing <strong>{viewingUserName}</strong>'s Tasks Hub
+            {isViewOnly && <span className="ml-1 opacity-70">— view only</span>}
+          </span>
+          <button
+            onClick={() => setViewingUserId(null)}
+            className="ml-auto text-inherit hover:underline opacity-70 hover:opacity-100 transition-opacity"
+            data-testid="button-exit-view"
+          >
+            Exit
+          </button>
+        </div>
+      )}
+
       {/* Body — pb-24 on mobile ensures the last task row isn't hidden under the FAB */}
       <div className="flex-1 overflow-y-auto pb-36 lg:pb-24">
         {view === "board" ? (
           <div className="p-4 md:p-6">
-            <TaskBoard view="team" onOpenTask={(id) => setOpenTaskId(id)} />
+            <TaskBoard view="team" onOpenTask={(id) => setOpenTaskId(id)} viewingUserId={viewingUserId} />
           </div>
         ) : view === "archived" ? (
           <ArchivedList onOpenTask={(id) => setOpenTaskId(id)} />
@@ -1023,6 +1143,7 @@ export default function TasksHubPage() {
                   onNavigate={(href) => navigate(href)}
                   selectedIds={selectedIds}
                   onToggleSelect={toggleSelect}
+                  readOnly={isViewOnly}
                 />
               );
             })}

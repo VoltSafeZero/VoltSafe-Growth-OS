@@ -4946,37 +4946,53 @@ export async function registerRoutes(
       const todayEnd = new Date(now); todayEnd.setHours(23,59,59,999);
       const sevenDaysOut = new Date(now); sevenDaysOut.setDate(now.getDate() + 7);
 
+      // Hub-access delegation: if viewingUserId is provided, verify access before showing that user's hub.
+      const rawViewingId = req.query.viewingUserId ? Number(req.query.viewingUserId) : null;
+      let effectiveUserId = userId;
+      if (rawViewingId && Number.isFinite(rawViewingId) && rawViewingId !== userId) {
+        if (!isAdminUser) {
+          try {
+            const pRow: any = await db.execute(sql`
+              SELECT id FROM task_hub_access_permissions
+              WHERE viewer_user_id = ${userId} AND target_user_id = ${rawViewingId} AND revoked_at IS NULL
+              LIMIT 1
+            `);
+            if (!pRow.rows?.length) return res.status(403).json({ message: "Access denied to that user's tasks" });
+          } catch { return res.status(403).json({ message: "Access denied to that user's tasks" }); }
+        }
+        effectiveUserId = rawViewingId;
+      }
+
       let whereClause = "";
       switch (view) {
         case "my":
-          whereClause = `t.owner_user_id = ${userId} AND t.status NOT IN ('done','completed') AND (t.snoozed_until IS NULL OR t.snoozed_until <= NOW())`;
+          whereClause = `t.owner_user_id = ${effectiveUserId} AND t.status NOT IN ('done','completed') AND (t.snoozed_until IS NULL OR t.snoozed_until <= NOW())`;
           break;
         case "team":
-          // BOLA hardening (Round-3 review #2): the "team" view previously
-          // returned org-wide rows to ANY authenticated user. Non-admins are
-          // now self-scoped (effectively equivalent to "my" until a real
-          // team_workload:view permission is wired up at the section layer).
-          whereClause = `${isAdminUser ? "" : `t.owner_user_id = ${userId} AND `}t.status NOT IN ('done','completed') AND (t.snoozed_until IS NULL OR t.snoozed_until <= NOW())`;
+          // When viewing another user's hub, scope to their tasks rather than all-team.
+          if (effectiveUserId !== userId) {
+            whereClause = `t.owner_user_id = ${effectiveUserId} AND t.status NOT IN ('done','completed') AND (t.snoozed_until IS NULL OR t.snoozed_until <= NOW())`;
+          } else {
+            whereClause = `${isAdminUser ? "" : `t.owner_user_id = ${effectiveUserId} AND `}t.status NOT IN ('done','completed') AND (t.snoozed_until IS NULL OR t.snoozed_until <= NOW())`;
+          }
           break;
         case "today":
-          whereClause = `t.status NOT IN ('done','completed') AND t.due_date >= '${todayStart.toISOString()}' AND t.due_date <= '${todayEnd.toISOString()}' ${isAdminUser ? "" : `AND t.owner_user_id = ${userId}`}`;
+          whereClause = `t.status NOT IN ('done','completed') AND t.due_date >= '${todayStart.toISOString()}' AND t.due_date <= '${todayEnd.toISOString()}' AND t.owner_user_id = ${effectiveUserId}`;
           break;
         case "overdue":
-          whereClause = `t.status NOT IN ('done','completed') AND t.due_date < '${todayStart.toISOString()}' ${isAdminUser ? "" : `AND t.owner_user_id = ${userId}`}`;
+          whereClause = `t.status NOT IN ('done','completed') AND t.due_date < '${todayStart.toISOString()}' AND t.owner_user_id = ${effectiveUserId}`;
           break;
         case "upcoming":
-          whereClause = `t.status NOT IN ('done','completed') AND t.due_date > '${todayEnd.toISOString()}' AND t.due_date <= '${sevenDaysOut.toISOString()}' ${isAdminUser ? "" : `AND t.owner_user_id = ${userId}`}`;
+          whereClause = `t.status NOT IN ('done','completed') AND t.due_date > '${todayEnd.toISOString()}' AND t.due_date <= '${sevenDaysOut.toISOString()}' AND t.owner_user_id = ${effectiveUserId}`;
           break;
         case "completed":
-          whereClause = `t.status IN ('done','completed') ${isAdminUser ? "" : `AND t.owner_user_id = ${userId}`}`;
+          whereClause = `t.status IN ('done','completed') AND t.owner_user_id = ${effectiveUserId}`;
           break;
         case "assigned_by_me":
-          // Tasks the current user CREATED and assigned to someone else — includes
-          // all statuses (open + done) so the user can track completion.
-          whereClause = `t.created_by_user_id = ${userId} AND t.owner_user_id IS NOT NULL AND t.owner_user_id != ${userId} AND t.archived = false`;
+          whereClause = `t.created_by_user_id = ${effectiveUserId} AND t.owner_user_id IS NOT NULL AND t.owner_user_id != ${effectiveUserId} AND t.archived = false`;
           break;
         default:
-          whereClause = `t.owner_user_id = ${userId} AND t.status NOT IN ('done','completed')`;
+          whereClause = `t.owner_user_id = ${effectiveUserId} AND t.status NOT IN ('done','completed')`;
       }
 
       const taskRes = await db.execute(sql.raw(`
@@ -5035,15 +5051,15 @@ export async function registerRoutes(
         addToGroup(key, t);
       }
 
-      // Counts for sidebar badges
+      // Counts for sidebar badges (always scoped to effectiveUserId)
       const countsRes = await db.execute(sql.raw(`
         SELECT
-          COUNT(*) FILTER (WHERE owner_user_id = ${userId} AND status NOT IN ('done','completed') AND (snoozed_until IS NULL OR snoozed_until <= NOW()))::int AS my_count,
-          COUNT(*) FILTER (WHERE ${isAdminUser ? "" : `owner_user_id = ${userId} AND `}status NOT IN ('done','completed') AND (snoozed_until IS NULL OR snoozed_until <= NOW()))::int AS team_count,
-          COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date >= '${todayStart.toISOString()}' AND due_date <= '${todayEnd.toISOString()}' ${isAdminUser ? "" : `AND owner_user_id = ${userId}`})::int AS today_count,
-          COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date < '${todayStart.toISOString()}' ${isAdminUser ? "" : `AND owner_user_id = ${userId}`})::int AS overdue_count,
-          COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date > '${todayEnd.toISOString()}' AND due_date <= '${sevenDaysOut.toISOString()}' ${isAdminUser ? "" : `AND owner_user_id = ${userId}`})::int AS upcoming_count,
-          COUNT(*) FILTER (WHERE created_by_user_id = ${userId} AND owner_user_id IS NOT NULL AND owner_user_id != ${userId} AND status NOT IN ('done','completed') AND archived = false)::int AS assigned_by_me_count
+          COUNT(*) FILTER (WHERE owner_user_id = ${effectiveUserId} AND status NOT IN ('done','completed') AND (snoozed_until IS NULL OR snoozed_until <= NOW()))::int AS my_count,
+          COUNT(*) FILTER (WHERE owner_user_id = ${effectiveUserId} AND status NOT IN ('done','completed') AND (snoozed_until IS NULL OR snoozed_until <= NOW()))::int AS team_count,
+          COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date >= '${todayStart.toISOString()}' AND due_date <= '${todayEnd.toISOString()}' AND owner_user_id = ${effectiveUserId})::int AS today_count,
+          COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date < '${todayStart.toISOString()}' AND owner_user_id = ${effectiveUserId})::int AS overdue_count,
+          COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date > '${todayEnd.toISOString()}' AND due_date <= '${sevenDaysOut.toISOString()}' AND owner_user_id = ${effectiveUserId})::int AS upcoming_count,
+          COUNT(*) FILTER (WHERE created_by_user_id = ${effectiveUserId} AND owner_user_id IS NOT NULL AND owner_user_id != ${effectiveUserId} AND status NOT IN ('done','completed') AND archived = false)::int AS assigned_by_me_count
         FROM tasks
       `));
       const counts = (countsRes as any).rows?.[0] ?? {};
@@ -11138,7 +11154,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     if (!domain || !objectType || !objectId) {
       return res.status(400).json({ message: "domain, objectType, and objectId are required" });
     }
-    const cleanDomain = String(domain).toLowerCase().trim().replace(/^@/, "");
+    const cleanDomain = String(domain).toLowerCase().trim()
+      .replace(/^@/, "")    // strip leading @
+      .replace(/^</, "")    // strip leading angle bracket (display-name format)
+      .replace(/>$/, "");   // strip trailing angle bracket
     // Internal company domains must never be used as CRM target domains in auto-link rules.
     // Matching against @voltsafe.com would link outbound emails to internal employees instead
     // of the actual external CRM record.

@@ -1,0 +1,79 @@
+The CRM Review Auto button bug still persists in production after the previous fix.
+
+Current production error:
+Clicking Auto still throws:
+
+400: {"message":"@voltsafe.com is an internal domain and cannot be used as a CRM auto-link target. Auto-link rules apply to external organizations only."}
+
+This means the frontend or backend is STILL passing voltsafe.com into the auto-link rule creation path.
+
+Do not assume the previous fix worked. Verify runtime behavior.
+
+Required investigation:
+1. Open CRM Review in browser/devtools or Playwright.
+2. Click Auto on a failing item where sender is scott@voltsafe.com.
+3. Capture:
+   - exact request URL
+   - request method
+   - request body
+   - response body
+   - frontend console logs
+   - server logs for that request
+4. Confirm whether the request still sends:
+   domain: "voltsafe.com"
+5. Find the actual runtime source causing this.
+
+Likely issue:
+The UI list item may now include toEmails/ccEmails, but the Auto button being clicked in the thread detail panel or another CRM action path may still use senderDomain directly.
+
+Search and fix ALL call sites that create auto-link rules:
+- CRM Review list Auto button
+- CRM Review thread/detail Auto button
+- bulk Auto action
+- any “confirm and auto-link” mutation
+- any floating CRM action bar
+- any reply/thread CRM panel action
+
+Required fix:
+Create one shared function used by every Auto path:
+
+resolveExternalAutoLinkDomain({ fromEmail, toEmails, ccEmails, internalDomains })
+
+Rules:
+- If fromEmail domain is external, use fromEmail domain.
+- If fromEmail domain is internal, ignore it.
+- Then scan TO emails for first valid external domain.
+- Then scan CC emails for first valid external domain.
+- Never return voltsafe.com or any configured internal domain.
+- Return null if no external domain exists.
+
+Before calling the auto-link rules API:
+- Hard-block internal domains client-side.
+- Hard-block internal domains server-side with a specific CRM Review-safe message.
+- If no external domain exists, show:
+  "No external recipient domain available for auto-linking."
+- Do not send a request with voltsafe.com. Ever. Little gremlin, big mess.
+
+Backend safety:
+Even if frontend sends voltsafe.com, the CRM Review Auto route must not call the domain auto-link rule creation endpoint with it.
+Instead:
+- resolve external TO/CC domain server-side
+- if found, use that
+- if not found, return a friendly 422/400 message, not the domain-auto-link validation error
+
+Also verify the review queue payload includes:
+- fromEmail
+- toEmails
+- ccEmails
+for both list items and selected thread/detail views.
+
+Tests:
+- Auto from scott@voltsafe.com to external person uses external recipient domain.
+- Auto from trevor@voltsafe.com cc external person uses CC domain.
+- Auto from any @voltsafe.com to only @voltsafe.com shows friendly no-domain message.
+- Auto never sends voltsafe.com to domain auto-link API.
+- All CRM Review Auto call sites use the shared resolver.
+- Production bundle no longer contains old senderDomain-only Auto logic.
+
+Acceptance:
+After deploy, manually click Auto on the exact failing Scott Carlson CRM Review item shown in the screenshot. It must not send voltsafe.com and must not throw the red 400 toast.

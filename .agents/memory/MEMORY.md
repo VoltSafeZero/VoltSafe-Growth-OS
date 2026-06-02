@@ -5,3 +5,4 @@
 - [Composer XSS Hardening](composer-xss-hardening.md) — three-layer XSS defense in sanitizeEditorHtml; normalizeUrl leaves all protocols intact so the sanitizer decides; nested-link attack blocked by attribute-level strip.
 - [Asset Library Upgrade](asset-library-upgrade.md) — Document Hub renamed; 7 new metadata columns on attachments+assets; email picker rebuilt with tabs/search/safety warnings; tests/asset-library.test.js (61 checks).
 - [Mobile/Tablet Responsive Audit](mobile-tablet-responsive.md) — breakpoint strategy for tablet (lg=1024px); all changed files and key patterns.
+- [Task Hub Access](task-hub-access.md) — cross-user Tasks Hub access system; `task_hub_access_permissions` table; 4 admin routes; viewingUserId state in tasks-hub.tsx + task-board.tsx; email domain fix for angle-bracket display names.

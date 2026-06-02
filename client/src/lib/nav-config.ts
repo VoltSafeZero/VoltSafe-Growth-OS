@@ -198,11 +198,12 @@ export const NAV_CONFIG: NavSection[] = [
     icon: Settings2,
     adminOnly: true,
     items: [
-      { id: "admin-users",        label: "Users",                                          route: "/admin/users",        icon: ShieldCheck, adminOnly: true },
-      { id: "admin-integrations", label: "Integrations",                                   route: "/admin/integrations", icon: Zap,         adminOnly: true },
-      { id: "admin-mailboxes",    label: { desktop: "My Mailboxes", mobile: "Mailboxes" }, route: "/settings/mailbox",   icon: Mail,        adminOnly: true },
-      { id: "admin-search",       label: "Global Search",                                  route: "/search",             icon: Search,      adminOnly: true },
-      { id: "admin-settings",     label: "Settings",                                       route: "/settings",           icon: Settings,    adminOnly: true, exactMatch: true },
+      { id: "admin-users",        label: "Users",                                          route: "/admin/users",             icon: ShieldCheck, adminOnly: true },
+      { id: "admin-task-access",  label: "Task Hub Access",                                route: "/admin/task-hub-access",   icon: CheckSquare, adminOnly: true },
+      { id: "admin-integrations", label: "Integrations",                                   route: "/admin/integrations",      icon: Zap,         adminOnly: true },
+      { id: "admin-mailboxes",    label: { desktop: "My Mailboxes", mobile: "Mailboxes" }, route: "/settings/mailbox",        icon: Mail,        adminOnly: true },
+      { id: "admin-search",       label: "Global Search",                                  route: "/search",                  icon: Search,      adminOnly: true },
+      { id: "admin-settings",     label: "Settings",                                       route: "/settings",                icon: Settings,    adminOnly: true, exactMatch: true },
     ],
   },
 ];
