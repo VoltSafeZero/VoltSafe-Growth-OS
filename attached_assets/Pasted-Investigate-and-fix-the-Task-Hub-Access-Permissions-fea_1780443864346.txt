@@ -1,0 +1,169 @@
+Investigate and fix the Task Hub Access Permissions feature end-to-end.
+
+Current issue:
+Users cannot be added to Task Hub permissions and access records cannot be created.
+
+Do not assume the cause. Perform a full root-cause investigation first.
+
+Tasks:
+
+1. Database Verification
+
+* Verify the table exists:
+    * task_hub_access_permissions
+* Verify schema matches intended design:
+    * id
+    * viewer_user_id
+    * target_user_id
+    * permission_level
+    * created_by_user_id
+    * created_at
+    * revoked_at
+* If missing:
+    * create migration
+    * run migration
+    * verify table creation
+* Check for foreign key failures.
+
+2. Backend Route Audit
+    Verify all Task Hub Access routes exist and are registered:
+
+GET /api/task-hub-access/my-access
+GET /api/admin/task-hub-access
+POST /api/admin/task-hub-access
+PUT /api/admin/task-hub-access/:id
+DELETE /api/admin/task-hub-access/:id
+
+For each route:
+
+* confirm registration
+* confirm auth middleware
+* confirm permission checks
+* confirm response shape
+
+3. Live API Testing
+    Execute real requests against each endpoint.
+
+Capture:
+
+* status code
+* response body
+* stack traces
+* validation errors
+
+Do not stop after finding the first issue.
+
+4. Frontend Audit
+    Inspect:
+
+* Task Access page
+* Add Permission dialog
+* User selector
+* Permission selector
+* Save button handler
+
+Verify:
+
+* users load successfully
+* selected values are stored correctly
+* request payload is valid
+* API call is executed
+* success/error handling works
+
+5. Browser Investigation
+    Use browser automation.
+
+Open:
+Admin → Task Access
+
+Attempt:
+
+* Add View permission
+* Add Edit permission
+
+Capture:
+
+* browser console errors
+* network failures
+* request payloads
+* screenshots
+
+6. Common Failure Checks
+
+Specifically check for:
+
+A.
+Missing route registration
+
+B.
+Frontend calling wrong endpoint
+
+C.
+User dropdown returns empty list
+
+D.
+Permission dropdown sends invalid value
+
+E.
+Master admin check blocking access
+
+F.
+Database insert failing
+
+G.
+Tenant filtering preventing user selection
+
+H.
+Schema mismatch between frontend and backend
+
+I.
+Frontend expects:
+viewerUserId
+
+Backend expects:
+viewer_user_id
+
+(or similar mismatch)
+
+7. Fixes
+    Implement all required fixes.
+
+Requirements:
+
+* Add Permission works
+* Edit Permission works
+* Revoke Permission works
+* User dropdown populated
+* Permission dropdown populated
+* No console errors
+* No network errors
+* No TypeScript errors
+
+8. Validation
+    After fixes:
+
+Create test permissions:
+
+Trevor → User A (View)
+Trevor → User B (Edit)
+
+Verify:
+
+* records appear in table
+* records persist after refresh
+* permissions returned by API
+* no server errors
+
+9. Final Report
+
+Provide:
+
+ROOT CAUSE
+FILES CHANGED
+MIGRATIONS RUN
+API TEST RESULTS
+BROWSER TEST RESULTS
+SCREENSHOTS
+FINAL STATUS
+
+Do not stop until the feature is fully functional and verified with live testing.

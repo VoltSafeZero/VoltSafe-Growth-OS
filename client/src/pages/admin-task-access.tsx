@@ -36,8 +36,8 @@ export default function AdminTaskAccessPage() {
   });
 
   const { data: users = [] } = useQuery<User[]>({
-    queryKey: ["/api/admin/users/list"],
-    queryFn: () => fetch("/api/admin/users/list", { credentials: "include" }).then(r => r.json()),
+    queryKey: ["/api/admin/users"],
+    queryFn: () => fetch("/api/admin/users", { credentials: "include" }).then(r => r.json()),
   });
 
   const grantMut = useMutation({
