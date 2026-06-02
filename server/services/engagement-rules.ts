@@ -298,6 +298,13 @@ async function actionCreateTask(
   rule: any, pixel: NonNullable<Pixel>,
   eventType: string, url?: string
 ): Promise<void> {
+  // Auto-task creation from email engagement events is disabled.
+  // Tasks must be created explicitly by users. Rules with action_type='create_task'
+  // still fire and are recorded in email_rule_triggers for auditing, but no task row
+  // is inserted. To re-enable, remove this guard.
+  console.log(`[engagement-rules] create_task skipped (auto-task disabled) — rule=${rule.id} tracking=${pixel.tracking_id}`);
+  return;
+
   if (!pixel.sent_by_user_id) return;
   const cfg = (rule.action_config as any) || {};
   const subject = pixel.subject || "email";

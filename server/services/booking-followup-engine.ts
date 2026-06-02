@@ -261,8 +261,21 @@ function buildPayload(kind: FollowupKind, row: ScanRow, now: Date) {
 /**
  * Run one scan pass. Pure: takes optional `now` for deterministic tests.
  * Idempotent: if called twice, the second call creates 0 new tasks.
+ *
+ * AUTO-TASK CREATION IS DISABLED. Tasks must be created explicitly by users.
+ * The scan logic is preserved so it can be re-enabled by removing the early return.
  */
 export async function runFollowupScan(now: Date = new Date()): Promise<FollowupRunResult> {
+  // Auto-task creation from booking follow-up events is disabled.
+  // Remove this block to re-enable.
+  console.log("[booking-followup] scan skipped — auto-task creation is disabled");
+  return {
+    scanned: { sentNotOpened: 0, openedNotBooked: 0, postMeeting: 0 },
+    created: 0, skipped: 0,
+    perKind: { sent_not_opened: 0, opened_not_booked: 0, post_meeting_followup: 0 },
+    taskIds: [],
+  };
+
   const [r1, r2, r3] = await Promise.all([
     fetchSentNotOpened(now),
     fetchOpenedNotBooked(now),
