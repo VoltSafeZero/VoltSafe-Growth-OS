@@ -63,9 +63,15 @@ export function columnSwatchClass(color: string): string {
   return SWATCH_CLASS[color] || SWATCH_CLASS.slate;
 }
 
-export function useTaskColumns() {
+export function useTaskColumns(viewingUserId?: number | null) {
   const q = useQuery<TaskColumn[]>({
-    queryKey: ["/api/task-columns"],
+    queryKey: viewingUserId ? ["/api/task-columns", viewingUserId] : ["/api/task-columns"],
+    queryFn: () => {
+      const url = viewingUserId
+        ? `/api/task-columns?userId=${viewingUserId}`
+        : "/api/task-columns";
+      return fetch(url, { credentials: "include" }).then(r => r.json());
+    },
     staleTime: 30_000,
   });
   const columns = q.data && q.data.length > 0 ? q.data : DEFAULT_TASK_COLUMNS;

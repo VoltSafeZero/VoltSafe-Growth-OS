@@ -4687,6 +4687,22 @@ export async function registerRoutes(
   app.get("/api/task-columns", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any)?.userId as number | undefined;
+      // Support ?userId=X to load another user's columns (hub-access check required)
+      let targetUserId: number | undefined = userId;
+      const qUserId = req.query.userId ? Number(req.query.userId) : null;
+      if (qUserId && Number.isFinite(qUserId) && qUserId !== userId) {
+        const globalRole = (req.session as any)?.globalRole;
+        const isAdminUser = globalRole === "master_admin" || globalRole === "admin";
+        if (!isAdminUser) {
+          const accessRow: any = await db.execute(sql`
+            SELECT permission_level FROM task_hub_access_permissions
+            WHERE viewer_user_id = ${userId} AND target_user_id = ${qUserId}
+            AND revoked_at IS NULL LIMIT 1
+          `);
+          if (!accessRow.rows?.[0]) return res.status(403).json({ message: "Access denied" });
+        }
+        targetUserId = qUserId;
+      }
       const SYS_COLS = [
         { value: "backlog",     label: "Backlog",               color: "slate"   },
         { value: "blocked",     label: "Blocked",               color: "amber"   },
@@ -4724,22 +4740,22 @@ export async function registerRoutes(
         ...c, isSystem: true, isOwn: false, shares: sharesBySlug[c.value] ?? [],
       }));
 
-      if (userId) {
+      if (targetUserId) {
         try {
           const own: any = await db.execute(sql`
             SELECT slug, label, color FROM user_task_columns
-            WHERE user_id = ${userId} ORDER BY sort_order, id
+            WHERE user_id = ${targetUserId} ORDER BY sort_order, id
           `);
           for (const r of (own.rows ?? [])) {
-            const fullSlug = `u${userId}_${r.slug}`;
+            const fullSlug = `u${targetUserId}_${r.slug}`;
             result.push({
               value: fullSlug, label: r.label, color: r.color,
-              isSystem: false, isOwn: true, ownerId: userId,
+              isSystem: false, isOwn: targetUserId === userId, ownerId: targetUserId,
               shares: sharesBySlug[fullSlug] ?? [],
             });
           }
           const sharedSlugs: any = await db.execute(sql`
-            SELECT DISTINCT column_slug FROM task_column_shares WHERE shared_with_user_id = ${userId}
+            SELECT DISTINCT column_slug FROM task_column_shares WHERE shared_with_user_id = ${targetUserId}
           `);
           for (const r of (sharedSlugs.rows ?? [])) {
             const slug = r.column_slug as string;

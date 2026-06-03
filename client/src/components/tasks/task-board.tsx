@@ -54,7 +54,6 @@ const LABEL_BAR: Record<string, string> = {
 
 type Filters = {
   search?: string;
-  ownerId?: number | "me" | "unassigned" | null;
   labelIds?: number[];
   priority?: string | null;
 };
@@ -66,13 +65,17 @@ type SavedView = {
   isDefault: boolean;
 };
 
+type PermittedUser = { id: number; name: string };
+
 type Props = {
   view: "my" | "team";
   onOpenTask: (id: number) => void;
   viewingUserId?: number | null;
+  permittedUsers?: PermittedUser[];
+  onViewUser?: (userId: number | null) => void;
 };
 
-export function TaskBoard({ view, onOpenTask, viewingUserId }: Props) {
+export function TaskBoard({ view, onOpenTask, viewingUserId, permittedUsers = [], onViewUser }: Props) {
   const { toast } = useToast();
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
@@ -91,8 +94,8 @@ export function TaskBoard({ view, onOpenTask, viewingUserId }: Props) {
   });
   const isAdmin = me?.globalRole === "master_admin" || me?.globalRole === "admin";
 
-  // Workspace-wide custom columns
-  const { columns: columnDefs } = useTaskColumns();
+  // Workspace-wide custom columns — load the viewed user's columns when switching boards
+  const { columns: columnDefs } = useTaskColumns(viewingUserId ?? null);
   const [manageOpen, setManageOpen] = useState(false);
 
   // Per-user column order persisted in localStorage
@@ -107,8 +110,9 @@ export function TaskBoard({ view, onOpenTask, viewingUserId }: Props) {
   }, [me?.id]);
 
   // All columns (system + personal, including DONE) are freely reorderable by the user.
+  // When viewing another user's board, use their natural column order instead.
   const displayColumns = useMemo(() => {
-    if (!colOrderOverride.length) return columnDefs;
+    if (viewingUserId || !colOrderOverride.length) return columnDefs;
     const ordered: typeof columnDefs = [];
     for (const val of colOrderOverride) {
       const col = columnDefs.find(c => c.value === val);
@@ -118,7 +122,7 @@ export function TaskBoard({ view, onOpenTask, viewingUserId }: Props) {
       if (!colOrderOverride.includes(col.value)) ordered.push(col);
     }
     return ordered;
-  }, [columnDefs, colOrderOverride]);
+  }, [columnDefs, colOrderOverride, viewingUserId]);
 
   // Get current user's explicit permission on a column.
   // System/permanent columns are always editable by everyone — share records on
@@ -160,11 +164,6 @@ export function TaskBoard({ view, onOpenTask, viewingUserId }: Props) {
       return fetch(`/api/tasks/board?${params}`, { credentials: "include" }).then(r => r.json());
     },
     refetchInterval: 30000,
-  });
-
-  const { data: users = [] } = useQuery<{ id: number; name: string }[]>({
-    queryKey: ["/api/users"],
-    queryFn: () => fetch("/api/users", { credentials: "include" }).then(r => r.json()),
   });
 
   const { data: labels = [] } = useQuery<{ id: number; name: string; color: string }[]>({
@@ -209,9 +208,6 @@ export function TaskBoard({ view, onOpenTask, viewingUserId }: Props) {
           const hay = `${t.title || ""} ${t.description || ""} ${t.accountName || ""}`.toLowerCase();
           if (!hay.includes(q)) return false;
         }
-        if (filters.ownerId === "me" && me?.id && t.ownerUserId !== me.id) return false;
-        if (filters.ownerId === "unassigned" && t.ownerUserId != null) return false;
-        if (typeof filters.ownerId === "number" && t.ownerUserId !== filters.ownerId) return false;
         if (filters.priority && t.priority !== filters.priority) return false;
         if (labelSet.size > 0) {
           const tlabels: number[] = (t.labels || []).map((l: any) => l.id);
@@ -221,11 +217,10 @@ export function TaskBoard({ view, onOpenTask, viewingUserId }: Props) {
       });
     }
     return out;
-  }, [grouped, filters, me]);
+  }, [grouped, filters]);
 
   const filterCount =
     (filters.search ? 1 : 0) +
-    (filters.ownerId != null ? 1 : 0) +
     (filters.labelIds?.length ? 1 : 0) +
     (filters.priority ? 1 : 0);
 
@@ -335,25 +330,49 @@ export function TaskBoard({ view, onOpenTask, viewingUserId }: Props) {
           />
         </div>
 
-        <Select
-          value={filters.ownerId == null ? "all" : String(filters.ownerId)}
-          onValueChange={(v) => updateFilter({
-            ownerId: v === "all" ? null : v === "me" ? "me" : v === "unassigned" ? "unassigned" : Number(v),
-          })}
-        >
-          <SelectTrigger className="h-8 text-xs w-[140px]" data-testid="board-filter-owner">
-            <UserIcon className="h-3 w-3 mr-1" />
-            <SelectValue placeholder="Anyone" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Anyone</SelectItem>
-            <SelectItem value="me">Just me</SelectItem>
-            <SelectItem value="unassigned">Unassigned</SelectItem>
-            {users.map(u => (
-              <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* User board switcher — "My Tasks" by default, permitted users only */}
+        {onViewUser && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant={viewingUserId ? "secondary" : "outline"}
+                size="sm"
+                className={`h-8 text-xs gap-1 border-border/50 ${viewingUserId ? "ring-1 ring-primary/30" : ""}`}
+                data-testid="board-filter-owner"
+              >
+                <UserIcon className="h-3 w-3" />
+                <span className="max-w-[110px] truncate">
+                  {viewingUserId
+                    ? (permittedUsers.find(u => u.id === viewingUserId)?.name ?? "User")
+                    : "My Tasks"}
+                </span>
+                <ChevronDown className="h-3 w-3 ml-0.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-52">
+              <DropdownMenuItem
+                onClick={() => onViewUser(null)}
+                className={`text-xs ${!viewingUserId ? "text-primary font-medium" : ""}`}
+                data-testid="board-owner-my-tasks"
+              >
+                <UserIcon className="h-3.5 w-3.5 mr-2" />
+                My Tasks
+              </DropdownMenuItem>
+              {permittedUsers.length > 0 && <DropdownMenuSeparator />}
+              {permittedUsers.map(u => (
+                <DropdownMenuItem
+                  key={u.id}
+                  onClick={() => onViewUser(u.id)}
+                  className={`text-xs ${viewingUserId === u.id ? "text-primary font-medium" : ""}`}
+                  data-testid={`board-owner-user-${u.id}`}
+                >
+                  <Users className="h-3.5 w-3.5 mr-2" />
+                  <span className="flex-1 truncate">{u.name}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
 
         <Select
           value={filters.priority || "all"}

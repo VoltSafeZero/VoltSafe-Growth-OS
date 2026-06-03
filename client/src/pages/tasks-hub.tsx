@@ -706,6 +706,11 @@ export default function TasksHubPage() {
 
   const isAdmin = me?.globalRole === "master_admin" || me?.globalRole === "admin";
   const canShowSwitcher = isAdmin || myAccess.length > 0;
+
+  // Users the current user is permitted to view/edit boards for (passed to TaskBoard)
+  const permittedUsers = isAdmin
+    ? usersData.filter(u => u.id !== me?.id).map(u => ({ id: u.id, name: u.name }))
+    : myAccess.map(a => ({ id: a.targetUserId, name: a.targetUserName }));
   const viewingPermission: "view" | "edit" = viewingUserId
     ? (isAdmin ? "edit" : (myAccess.find(a => a.targetUserId === viewingUserId)?.permissionLevel ?? "view"))
     : "edit";
@@ -883,7 +888,7 @@ export default function TasksHubPage() {
             </div>
             {/* Action buttons on the right */}
             <div className="flex items-center gap-2 flex-shrink-0">
-              {canShowSwitcher && (
+              {canShowSwitcher && view !== "board" && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -1021,7 +1026,13 @@ export default function TasksHubPage() {
       <div className="flex-1 overflow-y-auto pb-36 lg:pb-24">
         {view === "board" ? (
           <div className="p-4 md:p-6">
-            <TaskBoard view="team" onOpenTask={(id) => setOpenTaskId(id)} viewingUserId={viewingUserId} />
+            <TaskBoard
+              view="team"
+              onOpenTask={(id) => setOpenTaskId(id)}
+              viewingUserId={viewingUserId}
+              permittedUsers={permittedUsers}
+              onViewUser={setViewingUserId}
+            />
           </div>
         ) : view === "archived" ? (
           <ArchivedList onOpenTask={(id) => setOpenTaskId(id)} />
