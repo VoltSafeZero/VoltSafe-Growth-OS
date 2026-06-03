@@ -381,9 +381,11 @@ async function main() {
   if (ja.body?.id) await api("DELETE", `/api/signatures/${ja.body.id}`, undefined, cookie);
 
   const afterPromote = await api("GET", "/api/signatures", undefined, cookie);
-  const jbAfter = (afterPromote.body ?? []).find(s => s.id === jb.body?.id);
-  check("J1 deleting default promotes another signature to default",
-    jbAfter?.isDefault === true, `jb.isDefault = ${jbAfter?.isDefault}`);
+  // Promotion picks the oldest remaining sig (asc createdAt), which may not be jb
+  // if other sigs exist. Verify that SOME sig is now default (J2 checks exactly 1).
+  const anyPromoted = (afterPromote.body ?? []).some(s => s.isDefault && s.id !== ja.body?.id);
+  check("J1 deleting default promotes another signature to default", anyPromoted,
+    `no remaining sig became default`);
 
   const totalDefaults = (afterPromote.body ?? []).filter(s => s.isDefault).length;
   check("J2 still exactly one default after promotion", totalDefaults === 1,

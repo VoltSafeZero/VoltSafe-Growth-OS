@@ -361,6 +361,7 @@ export async function getDraftContent(userId: number, draftId: string, accountId
   const msg = d.data.message!;
   const headers: any[] = msg.payload?.headers || [];
   const getH = (name: string) => headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value || "";
+  const htmlBody = extractHtmlBody(msg.payload);
   const textBody = extractBody(msg.payload);
   return {
     id: d.data.id!,
@@ -368,7 +369,7 @@ export async function getDraftContent(userId: number, draftId: string, accountId
     cc: getH("Cc"),
     bcc: getH("Bcc"),
     subject: getH("Subject"),
-    body: textBody,
+    body: htmlBody || textBody,
     threadId: (msg as any).threadId as string | undefined,
   };
 }
