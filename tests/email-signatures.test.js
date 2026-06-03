@@ -97,6 +97,7 @@ async function main() {
   // ── B: route presence ─────────────────────────────────────────────────────
   console.log("\n=== B: route source-grep ===");
   const routes = src("server/routes.ts");
+  const sanitizerSvc = src("server/services/signature-sanitizer.ts");
   check("B1 GET /api/signatures route present",
     routes.includes('"/api/signatures"') && routes.includes("requireAuth"));
   check("B2 POST /api/signatures route present",
@@ -107,16 +108,17 @@ async function main() {
     routes.includes('app.delete("/api/signatures/:id"'));
   check("B5 PATCH set-default route present",
     routes.includes('app.patch("/api/signatures/:id/set-default"'));
-  check("B6 sanitizeSignatureHtml defined in routes",
-    routes.includes("function sanitizeSignatureHtml"));
+  check("B6 sanitizeSignatureHtml in service + imported by routes",
+    sanitizerSvc.includes("export function sanitizeSignatureHtml") &&
+    routes.includes("sanitizeSignatureHtml"));
   check("B7 script tag strip in sanitizer",
-    routes.includes("<script"));
+    sanitizerSvc.includes("<script"));
   check("B8 iframe tag strip in sanitizer",
-    routes.includes("<iframe"));
+    sanitizerSvc.includes("<iframe"));
   check("B9 event handler strip in sanitizer",
-    routes.includes("on\\w+"));
+    sanitizerSvc.includes("on\\w+"));
   check("B10 unquoted href strip in sanitizer",
-    routes.includes("href\\s*=\\s*(?:javascript|vbscript|data)"));
+    sanitizerSvc.includes("href\\s*=\\s*(?:javascript|vbscript|data)"));
   check("B11 auto-default for first signature (isFirstSig)",
     routes.includes("isFirstSig"));
   check("B12 delete-default promotion logic present",

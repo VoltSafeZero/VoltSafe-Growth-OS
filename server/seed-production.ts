@@ -1458,3 +1458,26 @@ export async function migrateCrmAiSummarySchema(): Promise<void> {
     console.error("[migration] CRM AI Summary schema migration error (non-fatal):", err);
   }
 }
+
+export async function migrateEmailSignaturesSchema(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS email_signatures (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        html_content TEXT NOT NULL,
+        plain_text_content TEXT,
+        is_default BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_email_signatures_user_id ON email_signatures(user_id)
+    `);
+    console.log("[migration] email_signatures schema ready.");
+  } catch (err) {
+    console.error("[migration] email_signatures migration error (non-fatal):", err);
+  }
+}

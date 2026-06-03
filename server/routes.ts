@@ -20,6 +20,7 @@ import { getBaseline, runSimulation } from "./services/revenue-simulator";
 import { deriveScenarioFromCRM, generateScenarioActions, computeForecastVsActuals, chooseBoardPackScenario } from "./services/revenue-simulator-insights";
 import { createPlanCommitFromScenario, computeGapToPlan, generateGapClosureActions, autoCreateTasksFromActions, snapshotGapStatus } from "./services/revenue-operating-system";
 import { generateDailyBrief, getTodaysBrief, getAlerts, updateAlertStatus } from "./services/executive-copilot";
+import { sanitizeSignatureHtml } from "./services/signature-sanitizer";
 import { db } from "./db";
 import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications, activities, tasks, emailSignatures } from "@shared/schema";
 import {
@@ -27490,45 +27491,9 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── Email Signatures ─────────────────────────────────────────────────────────
-
-  // Ensure table exists (idempotent migration)
-  db.execute(sql.raw(`
-    CREATE TABLE IF NOT EXISTS email_signatures (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      html_content TEXT NOT NULL,
-      plain_text_content TEXT,
-      is_default BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_email_signatures_user_id ON email_signatures(user_id);
-  `)).catch(err => console.error("[routes] email_signatures migration error:", err));
-
-  function sanitizeSignatureHtml(html: string): string {
-    if (!html) return "";
-    let out = html;
-    // Strip dangerous tag types
-    out = out.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
-    out = out.replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, "");
-    out = out.replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, "");
-    out = out.replace(/<object\b[^>]*>[\s\S]*?<\/object>/gi, "");
-    out = out.replace(/<embed\b[^>]*\/?>/gi, "");
-    out = out.replace(/<applet\b[^>]*>[\s\S]*?<\/applet>/gi, "");
-    out = out.replace(/<form\b[^>]*>[\s\S]*?<\/form>/gi, "");
-    // Strip inline event handlers (with or without surrounding whitespace)
-    out = out.replace(/[\s]on\w+\s*=\s*["'][^"']*["']/gi, "");
-    out = out.replace(/[\s]on\w+\s*=\s*[^\s>]*/gi, "");
-    out = out.replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, "");
-    // Strip dangerous protocols in quoted href/src attributes
-    out = out.replace(/href\s*=\s*["'](?:javascript|vbscript|data):[^"']*["']/gi, 'href="#"');
-    out = out.replace(/src\s*=\s*["'](?:javascript|vbscript|data):[^"']*["']/gi, 'src=""');
-    // Strip dangerous protocols in unquoted href/src attributes
-    out = out.replace(/href\s*=\s*(?:javascript|vbscript|data):[^\s>"]*/gi, 'href="#"');
-    out = out.replace(/src\s*=\s*(?:javascript|vbscript|data):[^\s>"]*/gi, 'src=""');
-    return out;
-  }
+  // Table is created by migrateEmailSignaturesSchema() in seed-production.ts,
+  // awaited before registerRoutes() runs — no race condition.
+  // sanitizeSignatureHtml() lives in server/services/signature-sanitizer.ts.
 
   app.get("/api/signatures", requireAuth, async (req, res) => {
     try {
@@ -27551,7 +27516,7 @@ export function registerConfluenceRoutes(app: Express) {
       // Auto-set as default if explicitly requested OR if this is the user's first signature
       const [countResult] = await db.select({ n: sql<number>`count(*)::int` }).from(emailSignatures)
         .where(eq(emailSignatures.userId, userId));
-      const isFirstSig = (countResult?.n ?? 0) === 0;
+      const isFirstSig = Number(countResult?.n ?? 0) === 0;
       const shouldBeDefault = !!isDefault || isFirstSig;
       if (shouldBeDefault) {
         await db.update(emailSignatures).set({ isDefault: false }).where(eq(emailSignatures.userId, userId));

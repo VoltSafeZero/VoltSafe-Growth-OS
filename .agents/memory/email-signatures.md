@@ -3,19 +3,28 @@ name: Email Signature Management
 description: Dynamic email signatures system — DB table, CRUD API, settings page, compose dialog integration
 ---
 
-## Rule
-`email_signatures` table is created via inline fire-and-forget migration in `server/routes.ts` (no `await` — must use `.catch()` only, same pattern as other migrations).
-
-**Why:** The routes file (`server/routes.ts`) has a scoping quirk where `esbuild`/`tsx` rejects `await` at the top level of `registerRoutes` around line 27495+, even though the function is async. Using `db.execute(...).catch(...)` (no `await`) avoids this.
-
-**How to apply:** Any new top-level `await` calls added near the Email Signatures section (~line 27495) must be changed to fire-and-forget with `.catch()`.
-
-## Critical Bug Fixed
-All 6 signature route handlers originally used `(req as any).user!.id` — this is WRONG. `requireAuth` checks `req.session.userId` but never sets `req.user`. The correct pattern throughout routes.ts is `(req.session as any).userId as number`.
-
 ## Architecture
+
 - `shared/schema.ts`: `emailSignatures` table (id, userId, name, htmlContent, plainTextContent, isDefault, createdAt, updatedAt)
-- `server/routes.ts`: CRUD at `/api/signatures` + `sanitizeSignatureHtml()` helper (strips XSS vectors)
-- `client/src/pages/signature-settings.tsx`: Full WYSIWYG builder with tabs (Builder / Preview / HTML)
-- `client/src/pages/gmail-inbox.tsx` `ComposeDialog`: fetches `/api/signatures`, `selectedSigId` state (undefined=auto, null=none, number=specific), `activeSignatureHtml` replaces `EMAIL_SIGNATURE_HTML` in all 3 send paths (send/draft/schedule); falls back to in-code `EMAIL_SIGNATURE_HTML` constant if no DB signatures exist.
-- Route: `/settings/signatures`, nav entry in `nav-config.ts`, card in `settings.tsx`
+- `server/services/signature-sanitizer.ts`: `sanitizeSignatureHtml()` — XSS sanitizer, strips script/iframe/object/embed/form tags, event handlers, javascript:/vbscript:/data: protocols. Imported by routes.ts.
+- `server/seed-production.ts`: `migrateEmailSignaturesSchema()` — idempotent CREATE TABLE IF NOT EXISTS + index. Awaited in index.ts before `registerRoutes()`.
+- `server/routes.ts`: CRUD at `/api/signatures` (GET list, POST create, GET /:id, PUT /:id, DELETE /:id, PATCH /:id/set-default). All use `(req.session as any).userId as number`.
+- `client/src/pages/signature-settings.tsx`: WYSIWYG builder with Builder / Preview / HTML tabs.
+- `client/src/pages/gmail-inbox.tsx` `ComposeDialog`: fetches `/api/signatures`, `selectedSigId` state (undefined=auto, null=none, number=specific), `activeSignatureHtml` used in all 3 send paths (send/draft/schedule); falls back to in-code `EMAIL_SIGNATURE_HTML` if no DB signatures.
+- Route: `/settings/signatures`, nav entry in `nav-config.ts`.
+
+## Critical Rules
+
+**Use `(req.session as any).userId as number` — NEVER `(req as any).user!.id`.**
+`requireAuth` only checks `req.session.userId`; it never populates `req.user`. Using `req.user` causes a 500 on every authenticated route.
+
+**Signature is appended OUTSIDE the body wrapper div.**
+`buildEmailHtml(body, appendHtml)` = `<div style="...Arial...">{body}</div>{appendHtml}`.
+`stripEmailWrapper()` returns `first.innerHTML` (only the body, not the appended sig).
+Therefore: draft re-open → sig is stripped → editor shows body only → sig re-appended on send. No duplication.
+
+**Migration is awaited before routes register — no race condition.**
+`migrateEmailSignaturesSchema()` runs in the `async ()` IIFE in `index.ts`, before `registerRoutes()`.
+
+## Tests
+`tests/email-signatures.test.js` — 75 checks (A–K). Source-grep tests B6–B10 check `server/services/signature-sanitizer.ts`, not routes.ts.
