@@ -19,7 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   ChevronLeft, Plus, Pencil, Trash2, Star, Copy, Loader2, PenSquare, AlertTriangle,
-  Eye, Code2, Wand2,
+  Eye, Code2, Wand2, MousePointerClick, ToggleLeft, ToggleRight,
 } from "lucide-react";
 
 type EmailSignature = {
@@ -30,6 +30,18 @@ type EmailSignature = {
   isDefault: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+type SignatureCta = {
+  id: number;
+  signature_id: number | null;
+  name: string;
+  type: string;
+  destination_url: string;
+  image_url: string | null;
+  alt_text: string | null;
+  width_px: number | null;
+  tracking_enabled: boolean;
 };
 
 type SigFields = {
@@ -324,6 +336,244 @@ function SignatureDialog({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+// ── CtaDialog — create / edit a tracked CTA for a signature ────────────────
+function CtaDialog({
+  open, signatureId, existing, onClose,
+}: {
+  open: boolean;
+  signatureId: number;
+  existing?: SignatureCta;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [name, setName] = useState(existing?.name ?? "");
+  const [type, setType] = useState(existing?.type ?? "image");
+  const [destinationUrl, setDestinationUrl] = useState(existing?.destination_url ?? "");
+  const [imageUrl, setImageUrl] = useState(existing?.image_url ?? "");
+  const [altText, setAltText] = useState(existing?.alt_text ?? "Watch a Demo");
+  const [widthPx, setWidthPx] = useState(String(existing?.width_px ?? 200));
+  const [trackingEnabled, setTrackingEnabled] = useState(existing?.tracking_enabled ?? true);
+
+  const applyPreset = () => {
+    setName("Watch a Demo");
+    setType("image");
+    setDestinationUrl("https://voltsafemarine.com/demo");
+    setAltText("Watch a Demo");
+    setWidthPx("200");
+    setTrackingEnabled(true);
+  };
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const body = {
+        signatureId, name: name.trim(), type,
+        destinationUrl: destinationUrl.trim(),
+        imageUrl: imageUrl.trim() || null,
+        altText: altText.trim() || null,
+        widthPx: Number(widthPx) || 200,
+        trackingEnabled,
+      };
+      if (existing) {
+        const res = await apiRequest("PUT", `/api/signature-ctas/${existing.id}`, body);
+        if (!res.ok) throw new Error("Failed to update");
+        return res.json();
+      }
+      const res = await apiRequest("POST", "/api/signature-ctas", body);
+      if (!res.ok) throw new Error("Failed to create");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/signature-ctas", signatureId] });
+      toast({ title: existing ? "CTA updated" : "CTA created" });
+      onClose();
+    },
+    onError: () => toast({ title: "Failed to save CTA", variant: "destructive" }),
+  });
+
+  const canSave = name.trim().length > 0 && destinationUrl.trim().length > 0;
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{existing ? "Edit Tracked CTA" : "Add Tracked CTA"}</DialogTitle>
+          <DialogDescription>
+            A tracked CTA logs clicks with CRM attribution so you know who engaged with your signature.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          {!existing && (
+            <Button
+              type="button" size="sm" variant="outline"
+              className="w-full text-xs gap-1.5 border-primary/40 text-primary"
+              onClick={applyPreset}
+              data-testid="button-cta-preset-demo"
+            >
+              <MousePointerClick className="h-3 w-3" /> Use "Watch a Demo" preset
+            </Button>
+          )}
+          <div>
+            <Label className="text-xs text-muted-foreground mb-1 block">Name</Label>
+            <Input value={name} onChange={e => setName(e.target.value)} placeholder="Watch a Demo"
+              className="h-8 text-xs" data-testid="input-cta-name" />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground mb-1 block">Destination URL</Label>
+            <Input value={destinationUrl} onChange={e => setDestinationUrl(e.target.value)}
+              placeholder="https://voltsafemarine.com/demo"
+              className="h-8 text-xs" data-testid="input-cta-dest-url" />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground mb-1 block">Type</Label>
+            <select value={type} onChange={e => setType(e.target.value)}
+              className="w-full h-8 text-xs bg-background border border-input rounded-md px-2"
+              data-testid="select-cta-type">
+              <option value="image">Image</option>
+              <option value="text">Text Link</option>
+              <option value="button">Button</option>
+            </select>
+          </div>
+          {type === "image" && (
+            <>
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Image URL</Label>
+                <Input value={imageUrl} onChange={e => setImageUrl(e.target.value)}
+                  placeholder="https://..." className="h-8 text-xs" data-testid="input-cta-image-url" />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Alt Text</Label>
+                <Input value={altText} onChange={e => setAltText(e.target.value)}
+                  placeholder="Watch a Demo" className="h-8 text-xs" data-testid="input-cta-alt-text" />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Width (px)</Label>
+                <Input type="number" value={widthPx} onChange={e => setWidthPx(e.target.value)}
+                  className="h-8 text-xs" data-testid="input-cta-width" />
+              </div>
+            </>
+          )}
+          <div className="flex items-center justify-between pt-1">
+            <Label className="text-xs text-muted-foreground">Tracking enabled</Label>
+            <button type="button" onClick={() => setTrackingEnabled(v => !v)}
+              className={trackingEnabled ? "text-primary" : "text-muted-foreground/40"}
+              data-testid="button-cta-tracking-toggle">
+              {trackingEnabled
+                ? <ToggleRight className="h-5 w-5" />
+                : <ToggleLeft className="h-5 w-5" />}
+            </button>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={!canSave || mutation.isPending}
+            onClick={() => mutation.mutate()} data-testid="button-save-cta">
+            {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save CTA"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── CtaSection — inline CTA list + management for a signature card ───────────
+function CtaSection({ signatureId }: { signatureId: number }) {
+  const [showDialog, setShowDialog] = useState(false);
+  const [editCta, setEditCta] = useState<SignatureCta | null>(null);
+  const { toast } = useToast();
+
+  const { data: ctas = [], isLoading: ctasLoading } = useQuery<SignatureCta[]>({
+    queryKey: ["/api/signature-ctas", signatureId],
+    queryFn: () =>
+      fetch(`/api/signature-ctas?signatureId=${signatureId}`, { credentials: "include" })
+        .then(r => r.json()),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/signature-ctas/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/signature-ctas", signatureId] }),
+    onError: () => toast({ title: "Failed to delete CTA", variant: "destructive" }),
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: (cta: SignatureCta) =>
+      apiRequest("PUT", `/api/signature-ctas/${cta.id}`, {
+        name: cta.name,
+        type: cta.type,
+        destinationUrl: cta.destination_url,
+        imageUrl: cta.image_url,
+        altText: cta.alt_text,
+        widthPx: cta.width_px,
+        trackingEnabled: !cta.tracking_enabled,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/signature-ctas", signatureId] }),
+  });
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border/20">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+          <MousePointerClick className="h-3 w-3" /> Tracked CTAs
+        </span>
+        <button
+          onClick={() => { setEditCta(null); setShowDialog(true); }}
+          className="text-[11px] flex items-center gap-0.5 text-primary hover:underline"
+          data-testid={`button-add-cta-${signatureId}`}
+        >
+          <Plus className="h-3 w-3" /> Add
+        </button>
+      </div>
+      {ctasLoading ? (
+        <div className="h-5 bg-muted/20 rounded animate-pulse" />
+      ) : ctas.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground/40 italic">No tracked CTAs</p>
+      ) : (
+        <div className="space-y-1.5">
+          {ctas.map(cta => (
+            <div key={cta.id} className="flex items-center gap-1.5 text-[11px]"
+              data-testid={`cta-row-${cta.id}`}>
+              <button
+                onClick={() => toggleMutation.mutate(cta)}
+                className={cta.tracking_enabled ? "text-primary shrink-0" : "text-muted-foreground/30 shrink-0"}
+                title={cta.tracking_enabled ? "Tracking on — click to disable" : "Tracking off — click to enable"}
+              >
+                {cta.tracking_enabled
+                  ? <ToggleRight className="h-3.5 w-3.5" />
+                  : <ToggleLeft className="h-3.5 w-3.5" />}
+              </button>
+              <span className="font-medium truncate max-w-[90px]">{cta.name}</span>
+              <span className="text-muted-foreground/50 truncate flex-1 min-w-0">
+                {cta.destination_url}
+              </span>
+              <button
+                onClick={() => { setEditCta(cta); setShowDialog(true); }}
+                className="shrink-0 text-muted-foreground hover:text-foreground p-0.5"
+                title="Edit"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+              <button
+                onClick={() => deleteMutation.mutate(cta.id)}
+                className="shrink-0 text-muted-foreground hover:text-destructive p-0.5"
+                title="Delete"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {showDialog && (
+        <CtaDialog
+          open
+          signatureId={signatureId}
+          existing={editCta ?? undefined}
+          onClose={() => { setShowDialog(false); setEditCta(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function SignatureSettingsPage() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -454,6 +704,7 @@ export default function SignatureSettingsPage() {
                       className="text-xs opacity-50 pointer-events-none select-none line-clamp-3 bg-white/5 rounded p-2 border border-border/20"
                       dangerouslySetInnerHTML={{ __html: sig.htmlContent }}
                     />
+                    <CtaSection signatureId={sig.id} />
                   </div>
                   <div className="flex items-center gap-1 shrink-0 mt-0.5">
                     {!sig.isDefault && (

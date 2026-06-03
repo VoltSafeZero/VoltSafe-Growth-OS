@@ -120,7 +120,10 @@ export function plainTextToHtml(text: string): string {
  */
 export function buildEmailHtml(html: string, appendHtml = ""): string {
   const body = sanitizeEditorHtml(html);
-  return `<div style="${VOLTSAFE_BODY_STYLE}">${body}</div>${appendHtml}`;
+  const sigSection = appendHtml
+    ? `<!--vs-sig-start-->${appendHtml}<!--vs-sig-end-->`
+    : "";
+  return `<div style="${VOLTSAFE_BODY_STYLE}">${body}</div>${sigSection}`;
 }
 
 /**

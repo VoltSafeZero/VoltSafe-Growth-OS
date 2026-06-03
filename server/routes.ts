@@ -61,6 +61,7 @@ import { registerImageRoutes } from "./replit_integrations/image";
 import { generateInvoiceHtml, generateQuoteXlsx, type QuoteData } from "./quote-generator";
 import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead, saveDraft, listDraftSummaries, getDraftContent, deleteDraft } from "./gmail";
 import { normalizeOutboundHtml } from "./services/email-html-normalizer";
+import { wrapSignatureCtaLinks, updateSignatureCtaMessageIds, recordSignatureCtaClick } from "./services/signature-cta-tracker";
 import { getAuthUrl, exchangeCodeForTokens, isGmailConnected, getGmailClient } from "./gmail-oauth";
 import { parseGmailMessage } from "./services/email-parser";
 import { runAssociationEngine } from "./services/association-engine";
@@ -565,6 +566,22 @@ export async function registerRoutes(
     res.redirect(302, safeUrl);
     // Fire and forget
     recordClick(trackingId, safeUrl, ip, ua).catch(() => {});
+  });
+
+  // ── Signature CTA tracked redirect (public — no auth; clicked by email recipients) ──
+  app.get("/track/signature-click/:token", async (req, res) => {
+    const { token } = req.params;
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim()
+      || (req.socket.remoteAddress ?? undefined);
+    const ua = req.headers["user-agent"] as string | undefined;
+    let destUrl = "https://voltsafemarine.com";
+    try {
+      const resolved = await recordSignatureCtaClick(token, ip, ua);
+      if (resolved) destUrl = resolved;
+    } catch (err) {
+      console.error("[cta-tracker] click record failed (non-fatal):", err);
+    }
+    res.redirect(302, destUrl);
   });
 
   // ── Email Address Autocomplete ────────────────────────────────────────────
@@ -13550,16 +13567,28 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       for (const e of toList)  pushUnique(e, "to");
       for (const e of ccList)  pushUnique(e, "cc");
       for (const e of bccList) pushUnique(e, "bcc");
+      // Wrap signature CTA links at send time (before general tracking injection).
+      // injectTracking already skips URLs containing "/track/", so these won't be double-wrapped.
+      const _ctaRecipient = (toList[0] || ccList[0] || bccList[0] || String(to || "")).toLowerCase();
+      let ctaWrappedBody = cleanBody;
+      let _ctaTokens: string[] = [];
+      try {
+        const _ctaResult = await wrapSignatureCtaLinks(cleanBody, userId, _ctaRecipient, baseUrl);
+        ctaWrappedBody = _ctaResult.html;
+        _ctaTokens = _ctaResult.tokens;
+      } catch (ctaErr) {
+        console.error("[cta-tracker] link wrap failed (non-fatal):", ctaErr);
+      }
       // Always send as a single RFC-compliant email with proper To/Cc/Bcc headers.
       // Fanout (one send per recipient) broke reply-all semantics: each person only
       // saw their own address in To instead of seeing the full To/Cc distribution.
       if (true) {
         const trackingId = generateTrackingId();
-        let trackedBody = cleanBody;
+        let trackedBody = ctaWrappedBody;
         let trackingFailed = false;
         if (trackingEnabled) {
           try {
-            trackedBody = injectTracking(cleanBody, trackingId, baseUrl);
+            trackedBody = injectTracking(ctaWrappedBody, trackingId, baseUrl);
           } catch (trackErr) {
             console.error("[tracking] injection failed (non-fatal, sending untracked):", trackErr);
             trackingFailed = true;
@@ -13572,6 +13601,12 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           threadId, mimeAttachments, resolved.accountId,
           cc || undefined, bcc || undefined, icalContent || undefined
         );
+
+        if (result?.id && _ctaTokens.length > 0) {
+          updateSignatureCtaMessageIds(_ctaTokens, String(result.id)).catch(e =>
+            console.warn("[cta-tracker] messageId backfill non-fatal:", e)
+          );
+        }
 
         if (trackingEnabled && !trackingFailed && result?.id) {
           try {
@@ -27609,6 +27644,117 @@ export function registerConfluenceRoutes(app: Express) {
         .where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId))).returning();
       res.json(updated);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── Signature CTAs — CRUD ────────────────────────────────────────────────
+  app.get("/api/signature-ctas", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const sigId = req.query.signatureId ? Number(req.query.signatureId) : null;
+      const filter = sigId && !isNaN(sigId) ? `AND signature_id = ${sigId}` : "";
+      const rows = (await db.execute(sql.raw(`
+        SELECT id, user_id, signature_id, name, type, destination_url,
+               image_url, alt_text, width_px, tracking_enabled, created_at, updated_at
+        FROM email_signature_ctas
+        WHERE user_id = ${userId} ${filter}
+        ORDER BY id ASC
+      `))).rows;
+      res.json(rows);
+    } catch (err: any) {
+      console.error("[signature-ctas] GET error:", err);
+      res.status(500).json({ message: "Failed to load CTAs" });
+    }
+  });
+
+  app.post("/api/signature-ctas", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const { signatureId, name, type, destinationUrl, imageUrl, altText, widthPx, trackingEnabled } = req.body;
+      if (!name?.trim() || !destinationUrl?.trim()) {
+        return res.status(400).json({ message: "name and destinationUrl are required" });
+      }
+      const s = (v: string) => String(v).replace(/'/g, "''");
+      const [row] = (await db.execute(sql.raw(`
+        INSERT INTO email_signature_ctas
+          (user_id, signature_id, name, type, destination_url, image_url, alt_text, width_px, tracking_enabled)
+        VALUES (
+          ${userId},
+          ${signatureId ? Number(signatureId) : "NULL"},
+          '${s(name)}',
+          '${s(type || "image")}',
+          '${s(destinationUrl)}',
+          ${imageUrl ? `'${s(imageUrl)}'` : "NULL"},
+          ${altText ? `'${s(altText)}'` : "NULL"},
+          ${widthPx ? Number(widthPx) : 200},
+          ${trackingEnabled !== false}
+        )
+        RETURNING *
+      `))).rows;
+      res.json(row);
+    } catch (err: any) {
+      console.error("[signature-ctas] POST error:", err);
+      res.status(500).json({ message: "Failed to create CTA" });
+    }
+  });
+
+  app.put("/api/signature-ctas/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const id = Number(req.params.id);
+      const { name, type, destinationUrl, imageUrl, altText, widthPx, trackingEnabled } = req.body;
+      const s = (v: string) => String(v).replace(/'/g, "''");
+      const [row] = (await db.execute(sql.raw(`
+        UPDATE email_signature_ctas SET
+          name             = '${s(name || "")}',
+          type             = '${s(type || "image")}',
+          destination_url  = '${s(destinationUrl || "")}',
+          image_url        = ${imageUrl ? `'${s(imageUrl)}'` : "NULL"},
+          alt_text         = ${altText ? `'${s(altText)}'` : "NULL"},
+          width_px         = ${widthPx ? Number(widthPx) : 200},
+          tracking_enabled = ${trackingEnabled !== false},
+          updated_at       = NOW()
+        WHERE id = ${id} AND user_id = ${userId}
+        RETURNING *
+      `))).rows;
+      if (!row) return res.status(404).json({ message: "CTA not found" });
+      res.json(row);
+    } catch (err: any) {
+      console.error("[signature-ctas] PUT error:", err);
+      res.status(500).json({ message: "Failed to update CTA" });
+    }
+  });
+
+  app.delete("/api/signature-ctas/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const id = Number(req.params.id);
+      await db.execute(sql.raw(`DELETE FROM email_signature_ctas WHERE id = ${id} AND user_id = ${userId}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[signature-ctas] DELETE error:", err);
+      res.status(500).json({ message: "Failed to delete CTA" });
+    }
+  });
+
+  // ── Signature CTA analytics — click stats per CTA ────────────────────────
+  app.get("/api/signature-ctas/:id/stats", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const id = Number(req.params.id);
+      const [cta] = (await db.execute(sql.raw(`SELECT id FROM email_signature_ctas WHERE id = ${id} AND user_id = ${userId}`))).rows;
+      if (!cta) return res.status(404).json({ message: "Not found" });
+      const rows = (await db.execute(sql.raw(`
+        SELECT token, recipient_email, cta_name, destination_url, click_count, last_clicked_at, created_at
+        FROM signature_cta_clicks
+        WHERE signature_cta_id = ${id}
+        ORDER BY created_at DESC LIMIT 100
+      `))).rows;
+      const totalClicks = (rows as any[]).reduce((s: number, r: any) => s + Number(r.click_count || 0), 0);
+      res.json({ totalClicks, sends: rows.length, recentClicks: rows });
+    } catch (err: any) {
+      console.error("[signature-ctas] stats error:", err);
+      res.status(500).json({ message: "Failed to load stats" });
+    }
   });
 
   // ── Engagement scheduler + default rules ────────────────────────────────────

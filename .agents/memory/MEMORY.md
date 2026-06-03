@@ -9,3 +9,4 @@
 - [Draft Reopen Sig Fix](draft-reopen-sig-fix.md) — getDraftContent must use extractHtmlBody (not extractBody) or sig bleeds into editor body and duplicates on resend.
 - [Email Signatures](email-signatures.md) — dynamic signatures system; top-level migration must be fire-and-forget (no `await`) due to esbuild scoping quirk near routes.ts line 27495+.
 - [Reply-Forward Thread History Fix](reply-forward-history.md) — quoted history was shown in UI but never sent; sendMutation and scheduleMutation both need the quote block; forward now builds full thread from threadQuery.data.messages.
+- [Signature CTA Tracking](signature-cta-tracking.md) — tracked redirect links injected into signature at send time; 3 DB tables; send pipeline order: normalizeOutboundHtml → wrapSignatureCtaLinks → injectTracking → sendEmail → updateSignatureCtaMessageIds.

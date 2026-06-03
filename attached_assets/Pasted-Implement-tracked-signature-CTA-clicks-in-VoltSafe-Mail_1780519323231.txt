@@ -1,0 +1,275 @@
+Implement tracked signature CTA clicks in VoltSafe Mail, with the default CTA pointing to a clean VoltSafe demo landing page.
+
+Objective:
+Extend VoltSafe Mail’s existing email tracking system so signature CTA clicks — especially the “Watch a Demo” image — are wrapped in tracked redirect URLs, logged, tied to CRM/email engagement, then redirected to:
+
+https://voltsafemarine.com/demo
+
+Do not send users directly to YouTube unless this page is unavailable.
+
+---
+
+# Required Flow
+
+Email signature CTA:
+
+WatchDemo_Thumbnail_200.png
+
+When sent, transform:
+
+<a href="https://voltsafemarine.com/demo">
+  <img src="...WatchDemo_Thumbnail_200.png" alt="Watch a Demo" width="200">
+</a>
+
+into:
+
+<a href="https://[VOLTsafe-mail-domain]/track/signature-click/[tracking_token]">
+  <img src="...WatchDemo_Thumbnail_200.png" alt="Watch a Demo" width="200">
+</a>
+
+Click flow:
+
+1. Recipient clicks the image.
+2. VoltSafe logs the click.
+3. Click is attributed to sender, recipient, email, contact/account if matched, signature, and CTA.
+4. CRM/email engagement timeline updates.
+5. Recipient is redirected to:
+
+https://voltsafemarine.com/demo
+
+---
+
+# Demo Landing Page Requirement
+
+Create or support a clean destination page:
+
+https://voltsafemarine.com/demo
+
+The page should include:
+
+- embedded demo video
+- clean VoltSafe branding
+- no YouTube clutter if avoidable
+- “Book a Demo” CTA
+- “Contact Sales” CTA
+- mobile-responsive layout
+
+If the actual video embed URL is not known yet, create the CTA destination and make it configurable, but default to:
+
+https://voltsafemarine.com/demo
+
+---
+
+# Signature Settings UX
+
+Add support for tracked signature CTAs.
+
+Users can add/edit:
+
+- CTA name
+- CTA type: image, text link, button
+- Destination URL
+- Image URL or uploaded image asset
+- Alt text
+- Tracking enabled true/false
+
+Default CTA preset:
+
+CTA Name:
+Watch a Demo
+
+Type:
+Image
+
+Destination:
+https://voltsafemarine.com/demo
+
+Image:
+WatchDemo_Thumbnail_200.png
+
+Alt Text:
+Watch a Demo
+
+Width:
+200px
+
+Tracking:
+Enabled
+
+---
+
+# Important Architecture Rule
+
+Do not permanently store per-recipient tracking URLs in signature templates.
+
+Store the clean destination URL in the signature/CTA config.
+
+Generate tracking URLs only at send time because each token must be recipient/message specific.
+
+---
+
+# Backend Data Model
+
+Reuse existing email tracking tables if practical.
+
+If needed, add:
+
+email_signature_ctas
+
+Fields:
+- id
+- user_id
+- organization_id
+- signature_id
+- name
+- type
+- destination_url
+- image_url
+- alt_text
+- width
+- tracking_enabled
+- created_at
+- updated_at
+
+Tracking records should capture:
+- tracking_token
+- sent email/message ID
+- sender user ID
+- recipient email
+- contact ID nullable
+- account ID nullable
+- signature ID nullable
+- signature CTA ID nullable
+- CTA name
+- destination URL
+- clicked_at
+- click_count / event rows
+- user agent
+- privacy-safe IP hash if existing system supports it
+
+---
+
+# Send-Time Wrapping
+
+Find the existing email send pipeline where:
+- email HTML body is assembled
+- signature HTML is appended
+- current open/click tracking is applied
+
+Add signature CTA wrapping there.
+
+Rules:
+- Wrap only links inside the signature block.
+- Do not accidentally rewrite normal email body links unless existing tracking already does.
+- Do not double-wrap existing VoltSafe tracking URLs.
+- Preserve image alt text, width, and styling.
+- Generate one tracking token per sent email + recipient + CTA/link.
+- For multiple recipients, create per-recipient tokens where current sending architecture allows it. If not, document limitation clearly.
+
+---
+
+# Public Redirect Endpoint
+
+Create:
+
+GET /track/signature-click/:token
+
+Behavior:
+1. Validate token.
+2. Log click event.
+3. Capture timestamp, user agent, and privacy-safe IP metadata if existing tracking does.
+4. Update CRM/email engagement activity.
+5. Redirect 302 to the clean destination URL.
+
+Security:
+- Only allow http/https destination URLs.
+- Block javascript:, vbscript:, data:text/html, file:, and other unsafe protocols.
+- Return 404 or safe fallback for invalid token.
+- Tokens must be random, unguessable, and non-sequential.
+- Do not expose internal IDs in public URLs.
+
+---
+
+# CRM / Engagement UI
+
+Show signature CTA clicks in:
+
+- sent email engagement view
+- contact timeline
+- account timeline
+- lead timeline if applicable
+
+Activity example:
+
+John Smith clicked signature CTA “Watch a Demo”
+Sender: Trevor
+Email Subject: Marina Shore Power Demo
+Destination: voltsafemarine.com/demo
+Clicks: 3
+Last Clicked: Jun 3, 2026 1:42 PM
+
+Basic counters:
+- total signature CTA clicks
+- unique recipient clicks
+- last clicked CTA
+- most clicked CTA
+
+Do not overbuild dashboards yet. Basic visibility is enough.
+
+---
+
+# Tests Required
+
+Add tests for:
+
+1. CTA CRUD
+- create/update/delete CTA
+- user can only access own CTA
+- unauthenticated blocked
+
+2. Send-time wrapping
+- Watch Demo CTA becomes /track/signature-click/:token
+- destination remains https://voltsafemarine.com/demo
+- body links are not accidentally changed
+- existing tracking links are not double-wrapped
+- multiple CTAs receive unique tokens
+
+3. Redirect endpoint
+- valid token logs click and redirects to /demo page
+- invalid token returns 404 or safe fallback
+- unsafe destination is rejected
+- duplicate clicks increment correctly
+
+4. CRM attribution
+- click ties to recipient/contact/account where possible
+- activity appears in timeline
+
+5. Email rendering
+- image CTA remains clickable
+- alt text preserved
+- width 200 preserved
+- signature not duplicated
+- reply/forward history preserved
+
+Run:
+- TypeScript check
+- backend tests
+- frontend tests if relevant
+- production build
+
+---
+
+# Acceptance Criteria
+
+Complete when:
+
+- A user can add the Watch Demo image CTA to their signature.
+- Sent emails contain a VoltSafe tracked redirect URL.
+- Clicking the image logs the click.
+- Recipient lands on https://voltsafemarine.com/demo.
+- CRM/email engagement shows the click.
+- Multiple clicks are counted.
+- Signature switching still works.
+- No duplicate signatures are appended.
+- No unsafe redirect issue exists.
+- Tests pass.
