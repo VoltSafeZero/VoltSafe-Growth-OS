@@ -386,41 +386,6 @@ function getEmailCategory(labelIds: string[]): "people" | "newsletters" | "updat
   return "people";
 }
 
-const EMAIL_SIGNATURE_HTML = `<div style="font-family: OpenSans, Arial, sans-serif; font-size: 13px; color: #222; line-height: 1.5; font-weight: normal;">
-<p style="margin: 0 0 20px 0; font-size: 13px;">Regards,</p>
-<table cellpadding="0" cellspacing="0" border="0" style="min-width: 300px;">
-    <tbody>
-        <tr>
-            <td style="padding-bottom: 2px;">
-                <p style="margin: 0; font-size: 16px; font-weight: bold; color: #111; letter-spacing: 0.01em;">TREVOR BURGESS</p>
-                <p style="margin: 0; font-size: 12px; color: #00C1DE; line-height: 1.6;">Co-Founder &amp; CEO</p>
-            </td>
-        </tr>
-        <tr>
-            <td style="padding: 6px 0 8px 0;">
-                <hr style="border: none; border-top: 1px solid #d0d0d0; margin: 0;">
-            </td>
-        </tr>
-        <tr>
-            <td>
-                <p style="margin: 0; font-size: 12px; color: #787f84; line-height: 1.8;">
-                    VoltSafe Inc.<br>
-                    410-1444 Alberni St. Vancouver, BC<br>
-                    <b style="color: #555;">M:</b> <a href="tel:+17786880498" style="text-decoration: none; color: #787f84;">+1 778 688 0498</a> &nbsp;|&nbsp; <b style="color: #555;">T:</b> <a href="tel:+18339996960" style="text-decoration: none; color: #787f84;">+1 833 999 6960</a><br>
-                    <a href="mailto:trevor@voltsafe.com" style="color: #787f84; text-decoration: none;">trevor@voltsafe.com</a><br>
-                    <a href="https://www.voltsafe.com" style="color: #787f84; text-decoration: none;"><span style="color: #787f84;">voltsafe.com</span></a> | <a href="https://www.voltsafemarine.com" style="color: #787f84; text-decoration: none;"><span style="color: #787f84;">voltsafemarine.com</span></a>
-                </p>
-                <p style="margin: 4px 0 0 0; font-size: 11px; color: #787f84;">
-                    Follow us:
-                    <a href="https://www.linkedin.com/company/voltsafe" style="color: #00C1DE; text-decoration: none;">LinkedIn</a> |
-                    <a href="https://www.instagram.com/voltsafetech/" style="color: #00C1DE; text-decoration: none;">Instagram</a> |
-                    <a href="https://www.youtube.com/channel/UChU-fgZlHgE6TQtve3pXGMw" style="color: #00C1DE; text-decoration: none;">Youtube</a>
-                </p>
-            </td>
-        </tr>
-    </tbody>
-</table>
-</div>`;
 
 
 function escHtml(s: string): string {
@@ -499,9 +464,8 @@ function ComposeDialog({
   const [selectedSigId, setSelectedSigId] = useState<number | null | undefined>(undefined);
   const defaultSig = signaturesData.find(s => s.isDefault) ?? signaturesData[0];
   const effectiveSigId = selectedSigId === undefined ? (defaultSig?.id ?? null) : selectedSigId;
-  const activeSignatureHtml = signaturesData.length === 0
-    ? EMAIL_SIGNATURE_HTML  // legacy fallback until user creates DB signatures
-    : (effectiveSigId === null ? "" : (signaturesData.find(s => s.id === effectiveSigId)?.htmlContent ?? ""));
+  const activeSignatureHtml = effectiveSigId === null ? ""
+    : (signaturesData.find(s => s.id === effectiveSigId)?.htmlContent ?? "");
 
   // Sync fields whenever the modal opens with new defaults (e.g. switching between reply targets).
   // C1 fix: also reset the idempotency key so each open of the compose window gets a fresh UUID.

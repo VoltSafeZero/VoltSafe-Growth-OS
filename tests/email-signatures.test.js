@@ -140,8 +140,9 @@ async function main() {
     inbox.includes("buildEmailHtml(body, activeSignatureHtml)"));
   check("C6 scheduleMutation uses activeSignatureHtml",
     inbox.includes("const scheduleAppendHtml = activeSignatureHtml"));
-  check("C7 fallback to EMAIL_SIGNATURE_HTML when no DB sigs",
-    inbox.includes("EMAIL_SIGNATURE_HTML"));
+  check("C7 activeSignatureHtml driven by DB only (no hardcoded fallback)",
+    !inbox.includes("EMAIL_SIGNATURE_HTML") &&
+    inbox.includes("effectiveSigId === null"));
   check("C8 signature selector dropdown present (Select component)",
     inbox.includes("select-signature") || inbox.includes("sig-option-none"));
   check("C9 selectedSigId reset to undefined on compose open",
