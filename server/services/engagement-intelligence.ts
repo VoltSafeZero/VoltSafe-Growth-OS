@@ -493,39 +493,65 @@ export async function getThreadEngagementFull(
 ): Promise<ThreadEngagementFull> {
   const tEsc = esc(threadId);
 
-  // ── Email opens ──────────────────────────────────────────────────────────
+  // ── Email opens — mirrors the inbox thread-signals query exactly ─────────
+  // Uses is_duplicate IS NOT TRUE + is_bot = false to match the badge counts.
   const openRows = (await db.execute(sql.raw(`
     SELECT
       p.recipient_email,
       p.gmail_message_id,
-      COUNT(*) FILTER (WHERE ee.is_bot = FALSE) AS open_count,
-      MIN(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE) AS first_at,
-      MAX(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE) AS last_at
+      COUNT(*) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE) AS open_count,
+      MIN(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE) AS first_at,
+      MAX(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE) AS last_at
     FROM email_tracking_pixels p
     JOIN email_messages m ON m.gmail_message_id = p.gmail_message_id
     JOIN email_engagement_events ee ON ee.tracking_id = p.tracking_id
       AND ee.event_type = 'open'
     WHERE m.gmail_thread_id = '${tEsc}'
+      AND m.direction = 'outbound'
     GROUP BY p.recipient_email, p.gmail_message_id
-    HAVING COUNT(*) FILTER (WHERE ee.is_bot = FALSE) > 0
+    HAVING COUNT(*) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE) > 0
   `))).rows as any[];
 
-  // ── Email link clicks ────────────────────────────────────────────────────
+  // ── Email link clicks ─────────────────────────────────────────────────────
   const linkRows = (await db.execute(sql.raw(`
     SELECT
       p.recipient_email,
       p.gmail_message_id,
       ee.url,
-      COUNT(*) FILTER (WHERE ee.is_bot = FALSE) AS click_count,
-      MIN(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE) AS first_at,
-      MAX(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE) AS last_at
+      COUNT(*) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE) AS click_count,
+      MIN(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE) AS first_at,
+      MAX(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE) AS last_at
     FROM email_tracking_pixels p
     JOIN email_messages m ON m.gmail_message_id = p.gmail_message_id
     JOIN email_engagement_events ee ON ee.tracking_id = p.tracking_id
       AND ee.event_type = 'click'
     WHERE m.gmail_thread_id = '${tEsc}'
+      AND m.direction = 'outbound'
     GROUP BY p.recipient_email, p.gmail_message_id, ee.url
-    HAVING COUNT(*) FILTER (WHERE ee.is_bot = FALSE) > 0
+    HAVING COUNT(*) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE) > 0
+  `))).rows as any[];
+
+  // ── Pixel pre-computed scores (fallback when no live events yet) ──────────
+  // Reads signal_level / is_hot / engagement_score / is_replied set by the
+  // scoring pipeline. These match the InboxSignalBadge source exactly.
+  const pixelScoreRows = (await db.execute(sql.raw(`
+    SELECT
+      p.recipient_email,
+      p.gmail_message_id,
+      p.signal_level,
+      p.is_hot,
+      p.engagement_score,
+      p.is_replied
+    FROM email_tracking_pixels p
+    JOIN email_messages m ON m.gmail_message_id = p.gmail_message_id
+    WHERE m.gmail_thread_id = '${tEsc}'
+      AND m.direction = 'outbound'
+      AND (
+        (p.signal_level IS NOT NULL AND p.signal_level != 'none')
+        OR p.is_hot = TRUE
+        OR p.is_replied = TRUE
+        OR COALESCE(p.engagement_score, 0) > 0
+      )
   `))).rows as any[];
 
   // ── Signature CTA clicks ─────────────────────────────────────────────────
@@ -561,11 +587,12 @@ export async function getThreadEngagementFull(
       AND p.is_replied = TRUE
   `))).rows as any[];
 
-  // ── Contact lookup for opens / link clicks ───────────────────────────────
+  // ── Contact lookup for opens / link clicks / pixel scores ────────────────
   const allEmails = Array.from(new Set([
     ...openRows.map((r: any) => String(r.recipient_email ?? "").toLowerCase()),
     ...linkRows.map((r: any) => String(r.recipient_email ?? "").toLowerCase()),
     ...replyRows.map((r: any) => String(r.recipient_email ?? "").toLowerCase()),
+    ...pixelScoreRows.map((r: any) => String(r.recipient_email ?? "").toLowerCase()),
   ].filter(Boolean)));
 
   let contactMap: Record<string, { id: number; name: string; accountId: number | null }> = {};
@@ -682,6 +709,55 @@ export async function getThreadEngagementFull(
       intentLevel: "none",
       suggestedAction: null,
       relatedEmailId: r.gmail_message_id ? String(r.gmail_message_id) : null,
+      threadId,
+    });
+  }
+
+  // ── Pixel pre-computed score fallback ────────────────────────────────────
+  // Surface signal_level / is_hot from the scoring pipeline when there are
+  // no live events yet — ensures the widget matches the InboxSignalBadge.
+  const seenMsgIds = new Set([
+    ...openRows.map((r: any) => String(r.gmail_message_id)),
+    ...linkRows.map((r: any) => String(r.gmail_message_id)),
+    ...replyRows.map((r: any) => String(r.gmail_message_id)),
+  ]);
+  for (const r of pixelScoreRows) {
+    const msgId = String(r.gmail_message_id ?? "");
+    if (seenMsgIds.has(msgId)) continue; // already covered by live events
+    const email = String(r.recipient_email ?? "").toLowerCase();
+    const ct = contactMap[email];
+    const signalLevel = String(r.signal_level ?? "none");
+    const isHot = r.is_hot === true || r.is_hot === "true";
+    const isReplied = r.is_replied === true || r.is_replied === "true";
+    const score = Number(r.engagement_score ?? 0);
+    // Map signal_level to intent
+    const intentLevel: IntentLevel =
+      signalLevel === "hot" || isHot ? "very_high_intent"
+      : signalLevel === "high"       ? "high_intent"
+      : signalLevel === "medium"     ? "interested"
+      : signalLevel === "low"        ? "interested"
+      : score > 0                    ? "interested"
+      : "none";
+    const label = isHot
+      ? "Hot Lead (scored)"
+      : signalLevel !== "none"
+      ? `Tracked — signal: ${signalLevel}`
+      : "Tracked";
+    activities.push({
+      recipientEmail: String(r.recipient_email ?? ""),
+      contactId: ct?.id ?? null,
+      contactName: ct?.name ?? null,
+      accountId: ct?.accountId ?? null,
+      activityType: isReplied ? "reply" : "email_open",
+      label,
+      ctaName: null,
+      url: null,
+      count: score > 0 ? score : 1,
+      firstAt: null,
+      lastAt: null,
+      intentLevel,
+      suggestedAction: suggestedActionFor(intentLevel),
+      relatedEmailId: msgId || null,
       threadId,
     });
   }
