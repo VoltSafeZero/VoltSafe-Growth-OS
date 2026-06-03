@@ -1,0 +1,89 @@
+Verify the new VoltSafe Mail Email Signature Management implementation end-to-end.
+
+Focus on finding bugs, not confirming success.
+
+Test and fix the following:
+
+1. Backend API
+- Confirm /api/signatures requires authentication.
+- Confirm users can only access their own signatures.
+- Confirm create, update, duplicate, delete, and set-default all work.
+- Confirm only one default signature exists per user.
+- Confirm deleting the default signature safely promotes another signature or leaves no default cleanly.
+- Confirm HTML sanitization blocks:
+  - script tags
+  - iframe tags
+  - onerror/onload/event handlers
+  - javascript: links
+  - data: URLs where unsafe
+- Confirm sanitized HTML still preserves normal email-safe HTML:
+  - tables
+  - inline styles
+  - links
+  - images
+  - line breaks
+
+2. Database
+- Confirm email_signatures table exists in production/dev.
+- Confirm migration is idempotent.
+- Confirm boot migration does not run outside async scope.
+- Confirm no duplicate columns, duplicate indexes, or startup race conditions.
+- Confirm organization_id and user_id are handled correctly.
+- Confirm deleted users or missing users do not crash signature fetch.
+
+3. Settings UI
+- Confirm /settings/signatures loads directly on refresh.
+- Confirm sidebar navigation works.
+- Confirm Settings → Email Signatures card works.
+- Confirm create/edit/delete/duplicate/default actions update UI immediately.
+- Confirm mobile layout works.
+- Confirm preview rendering does not overflow.
+- Confirm raw HTML mode does not break the builder state.
+
+4. Composer Integration
+- Confirm compose loads signatures every time it opens.
+- Confirm default signature auto-inserts on:
+  - new email
+  - reply
+  - reply all
+  - forward
+- Confirm user can select:
+  - default signature
+  - another signature
+  - no signature
+- Confirm switching signatures replaces only the signature block, not the user’s typed message.
+- Confirm typing above the signature is preserved.
+- Confirm quoted reply history is preserved.
+- Confirm send, draft, and scheduled send all use the selected signature.
+- Confirm fallback EMAIL_SIGNATURE_HTML only applies when the user has no saved signatures.
+- Confirm duplicate signatures are not appended repeatedly when reopening or switching compose modes.
+
+5. Reply/Forward Safety
+- Confirm the signature is placed above quoted history by default.
+- Confirm reply chains are not destroyed.
+- Confirm forwarding a full thread still includes prior email history.
+- Confirm adding/removing signatures does not strip HTML from the email body.
+
+6. Regression Tests
+Add or update tests for:
+- signature CRUD
+- default uniqueness
+- sanitization
+- composer signature injection
+- no duplicate insertion
+- reply history preservation
+- send/draft/schedule paths
+
+7. Code Quality
+- Remove any brittle inline migration if the app has a normal migration system.
+- Prefer shared schema definitions if the project uses Drizzle or typed schema.
+- Avoid giant route-file hacks if there is an existing modular route pattern.
+- Make sure TypeScript passes.
+- Make sure the app starts cleanly.
+- Run the relevant test suite.
+
+Deliver a concise report with:
+- Bugs found
+- Fixes made
+- Tests added
+- Any remaining risks

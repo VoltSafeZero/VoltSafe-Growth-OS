@@ -27509,6 +27509,7 @@ export function registerConfluenceRoutes(app: Express) {
   function sanitizeSignatureHtml(html: string): string {
     if (!html) return "";
     let out = html;
+    // Strip dangerous tag types
     out = out.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
     out = out.replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, "");
     out = out.replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, "");
@@ -27516,16 +27517,22 @@ export function registerConfluenceRoutes(app: Express) {
     out = out.replace(/<embed\b[^>]*\/?>/gi, "");
     out = out.replace(/<applet\b[^>]*>[\s\S]*?<\/applet>/gi, "");
     out = out.replace(/<form\b[^>]*>[\s\S]*?<\/form>/gi, "");
-    out = out.replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, "");
-    out = out.replace(/\s+on\w+\s*=\s*[^\s>]*/gi, "");
+    // Strip inline event handlers (with or without surrounding whitespace)
+    out = out.replace(/[\s]on\w+\s*=\s*["'][^"']*["']/gi, "");
+    out = out.replace(/[\s]on\w+\s*=\s*[^\s>]*/gi, "");
+    out = out.replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, "");
+    // Strip dangerous protocols in quoted href/src attributes
     out = out.replace(/href\s*=\s*["'](?:javascript|vbscript|data):[^"']*["']/gi, 'href="#"');
     out = out.replace(/src\s*=\s*["'](?:javascript|vbscript|data):[^"']*["']/gi, 'src=""');
+    // Strip dangerous protocols in unquoted href/src attributes
+    out = out.replace(/href\s*=\s*(?:javascript|vbscript|data):[^\s>"]*/gi, 'href="#"');
+    out = out.replace(/src\s*=\s*(?:javascript|vbscript|data):[^\s>"]*/gi, 'src=""');
     return out;
   }
 
   app.get("/api/signatures", requireAuth, async (req, res) => {
     try {
-      const userId = (req as any).user!.id;
+      const userId = (req.session as any).userId as number;
       const rows = await db.select().from(emailSignatures)
         .where(eq(emailSignatures.userId, userId))
         .orderBy(desc(emailSignatures.isDefault), asc(emailSignatures.createdAt));
@@ -27535,13 +27542,18 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.post("/api/signatures", requireAuth, async (req, res) => {
     try {
-      const userId = (req as any).user!.id;
+      const userId = (req.session as any).userId as number;
       const { name, htmlContent, plainTextContent, isDefault } = req.body;
       if (!name?.trim() || !htmlContent?.trim()) {
         return res.status(400).json({ message: "name and htmlContent are required" });
       }
       const cleanHtml = sanitizeSignatureHtml(htmlContent);
-      if (isDefault) {
+      // Auto-set as default if explicitly requested OR if this is the user's first signature
+      const [countResult] = await db.select({ n: sql<number>`count(*)::int` }).from(emailSignatures)
+        .where(eq(emailSignatures.userId, userId));
+      const isFirstSig = (countResult?.n ?? 0) === 0;
+      const shouldBeDefault = !!isDefault || isFirstSig;
+      if (shouldBeDefault) {
         await db.update(emailSignatures).set({ isDefault: false }).where(eq(emailSignatures.userId, userId));
       }
       const [row] = await db.insert(emailSignatures).values({
@@ -27549,7 +27561,7 @@ export function registerConfluenceRoutes(app: Express) {
         name: name.trim(),
         htmlContent: cleanHtml,
         plainTextContent: plainTextContent ?? null,
-        isDefault: !!isDefault,
+        isDefault: shouldBeDefault,
       }).returning();
       res.status(201).json(row);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
@@ -27557,7 +27569,7 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.get("/api/signatures/:id", requireAuth, async (req, res) => {
     try {
-      const userId = (req as any).user!.id;
+      const userId = (req.session as any).userId as number;
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
       const [row] = await db.select().from(emailSignatures)
@@ -27569,7 +27581,7 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.put("/api/signatures/:id", requireAuth, async (req, res) => {
     try {
-      const userId = (req as any).user!.id;
+      const userId = (req.session as any).userId as number;
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
       const { name, htmlContent, plainTextContent, isDefault } = req.body;
@@ -27596,20 +27608,32 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.delete("/api/signatures/:id", requireAuth, async (req, res) => {
     try {
-      const userId = (req as any).user!.id;
+      const userId = (req.session as any).userId as number;
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
       const [existing] = await db.select().from(emailSignatures)
         .where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId)));
       if (!existing) return res.status(404).json({ message: "Not found" });
       await db.delete(emailSignatures).where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId)));
+      // If the deleted signature was the default, promote the next oldest to default
+      if (existing.isDefault) {
+        const [next] = await db.select().from(emailSignatures)
+          .where(eq(emailSignatures.userId, userId))
+          .orderBy(asc(emailSignatures.createdAt))
+          .limit(1);
+        if (next) {
+          await db.update(emailSignatures)
+            .set({ isDefault: true, updatedAt: new Date() })
+            .where(eq(emailSignatures.id, next.id));
+        }
+      }
       res.json({ ok: true });
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
   app.patch("/api/signatures/:id/set-default", requireAuth, async (req, res) => {
     try {
-      const userId = (req as any).user!.id;
+      const userId = (req.session as any).userId as number;
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
       const [existing] = await db.select().from(emailSignatures)

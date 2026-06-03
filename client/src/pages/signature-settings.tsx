@@ -58,18 +58,27 @@ function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+/** Block javascript:/vbscript:/data: in URLs placed into href attributes */
+function safeUrl(url: string): string {
+  if (!url) return "";
+  const lower = url.toLowerCase().replace(/[\s\u200b\u00ad]/g, "");
+  if (lower.startsWith("javascript:") || lower.startsWith("vbscript:") || lower.startsWith("data:")) return "#";
+  return url;
+}
+
 function buildSignatureHtml(f: SigFields): string {
   const color = f.brandColor || "#00C1DE";
   const phoneLinks: string[] = [];
   if (f.phone) phoneLinks.push(`<b style="color:#555;">P:</b> <a href="tel:${esc(f.phone)}" style="text-decoration:none;color:#787f84;">${esc(f.phone)}</a>`);
   if (f.mobile) phoneLinks.push(`<b style="color:#555;">M:</b> <a href="tel:${esc(f.mobile)}" style="text-decoration:none;color:#787f84;">${esc(f.mobile)}</a>`);
   const socials: string[] = [];
-  if (f.linkedin) socials.push(`<a href="${esc(f.linkedin)}" style="color:${color};text-decoration:none;">LinkedIn</a>`);
-  if (f.twitter) socials.push(`<a href="${esc(f.twitter)}" style="color:${color};text-decoration:none;">X / Twitter</a>`);
-  if (f.instagram) socials.push(`<a href="${esc(f.instagram)}" style="color:${color};text-decoration:none;">Instagram</a>`);
-  if (f.youtube) socials.push(`<a href="${esc(f.youtube)}" style="color:${color};text-decoration:none;">YouTube</a>`);
+  if (f.linkedin) socials.push(`<a href="${esc(safeUrl(f.linkedin))}" style="color:${color};text-decoration:none;">LinkedIn</a>`);
+  if (f.twitter) socials.push(`<a href="${esc(safeUrl(f.twitter))}" style="color:${color};text-decoration:none;">X / Twitter</a>`);
+  if (f.instagram) socials.push(`<a href="${esc(safeUrl(f.instagram))}" style="color:${color};text-decoration:none;">Instagram</a>`);
+  if (f.youtube) socials.push(`<a href="${esc(safeUrl(f.youtube))}" style="color:${color};text-decoration:none;">YouTube</a>`);
 
-  const websiteHref = f.website ? (f.website.startsWith("http") ? f.website : `https://${f.website}`) : "";
+  const rawWebsite = f.website ? (f.website.startsWith("http") ? f.website : `https://${f.website}`) : "";
+  const websiteHref = safeUrl(rawWebsite);
 
   return `<div style="font-family:Arial,sans-serif;font-size:13px;color:#333;line-height:1.5;">
 <p style="margin:0 0 14px 0;font-size:13px;">Best regards,</p>
@@ -494,6 +503,7 @@ export default function SignatureSettingsPage() {
       {/* Create / Edit dialog — editSig===undefined means closed, null means new, object means edit */}
       {editSig !== undefined && (
         <SignatureDialog
+          key={editSig?.id ?? "new"}
           open
           onClose={() => setEditSig(undefined)}
           existing={editSig ?? undefined}

@@ -10,6 +10,9 @@ description: Dynamic email signatures system — DB table, CRUD API, settings pa
 
 **How to apply:** Any new top-level `await` calls added near the Email Signatures section (~line 27495) must be changed to fire-and-forget with `.catch()`.
 
+## Critical Bug Fixed
+All 6 signature route handlers originally used `(req as any).user!.id` — this is WRONG. `requireAuth` checks `req.session.userId` but never sets `req.user`. The correct pattern throughout routes.ts is `(req.session as any).userId as number`.
+
 ## Architecture
 - `shared/schema.ts`: `emailSignatures` table (id, userId, name, htmlContent, plainTextContent, isDefault, createdAt, updatedAt)
 - `server/routes.ts`: CRUD at `/api/signatures` + `sanitizeSignatureHtml()` helper (strips XSS vectors)
