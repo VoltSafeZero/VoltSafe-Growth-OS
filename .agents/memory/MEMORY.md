@@ -6,3 +6,4 @@
 - [Asset Library Upgrade](asset-library-upgrade.md) — Document Hub renamed; 7 new metadata columns on attachments+assets; email picker rebuilt with tabs/search/safety warnings; tests/asset-library.test.js (61 checks).
 - [Mobile/Tablet Responsive Audit](mobile-tablet-responsive.md) — breakpoint strategy for tablet (lg=1024px); all changed files and key patterns.
 - [Task Hub Access](task-hub-access.md) — cross-user Tasks Hub access system; `task_hub_access_permissions` table; 4 admin routes; viewingUserId state in tasks-hub.tsx + task-board.tsx; email domain fix for angle-bracket display names.
+- [Reply-Forward Thread History Fix](reply-forward-history.md) — quoted history was shown in UI but never sent; sendMutation and scheduleMutation both need the quote block; forward now builds full thread from threadQuery.data.messages.

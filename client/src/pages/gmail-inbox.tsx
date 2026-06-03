@@ -423,15 +423,24 @@ const EMAIL_SIGNATURE_HTML = `<div style="font-family: OpenSans, Arial, sans-ser
 </div>`;
 
 
+function escHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function buildReplyQuoteBlockHtml(from: string, date: string, bodyHtml: string): string {
+  const meta = [date && `On ${escHtml(date)}`, from && escHtml(from)].filter(Boolean).join(", ");
+  const header = meta ? `<p style="margin:0 0 8px 0;font-size:12px;color:#555;">${meta}${from ? " wrote:" : ""}</p>` : "";
+  return `<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e0e0e0;">${header}<blockquote style="margin:0;padding-left:16px;border-left:3px solid #ccc;color:#555;">${bodyHtml}</blockquote></div>`;
+}
+
 function buildForwardedBlockHtml(from: string, date: string, subject: string, to: string, bodyHtml: string): string {
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return `<div style="margin-top:24px;padding-top:16px;border-top:2px solid #e0e0e0;font-family:Arial,sans-serif;font-size:13px;color:#555;">
 <p style="margin:0 0 8px 0;font-weight:bold;color:#333;">---------- Forwarded message ----------</p>
-<p style="margin:0 0 2px 0;"><b>From:</b> ${esc(from)}</p>
-<p style="margin:0 0 2px 0;"><b>Date:</b> ${esc(date)}</p>
-<p style="margin:0 0 2px 0;"><b>Subject:</b> ${esc(subject)}</p>
-<p style="margin:0 0 12px 0;"><b>To:</b> ${esc(to)}</p>
-<div style="color:#444;">${bodyHtml}</div>
+<p style="margin:0 0 2px 0;"><b>From:</b> ${escHtml(from)}</p>
+<p style="margin:0 0 2px 0;"><b>Date:</b> ${escHtml(date)}</p>
+<p style="margin:0 0 2px 0;"><b>Subject:</b> ${escHtml(subject)}</p>
+<p style="margin:0 0 12px 0;"><b>To:</b> ${escHtml(to)}</p>
+<div>${bodyHtml}</div>
 </div>`;
 }
 
@@ -882,7 +891,9 @@ function ComposeDialog({
       const appendHtml = EMAIL_SIGNATURE_HTML
         + (isForward && defaultQuotedHtml
           ? buildForwardedBlockHtml(defaultQuotedFrom, defaultQuotedDate, forwardSubject, forwardTo, defaultQuotedHtml)
-          : "");
+          : (!isForward && threadId && defaultQuotedHtml
+            ? buildReplyQuoteBlockHtml(defaultQuotedFrom, defaultQuotedDate, defaultQuotedHtml)
+            : ""));
       const htmlBody = buildEmailHtml(body, appendHtml);
       // Use raw fetch (not apiRequest) so we can read the full response body on error.
       // The server returns draftId when a send fails and the draft fallback succeeds (C2).
@@ -985,7 +996,13 @@ function ComposeDialog({
 
   const scheduleMutation = useMutation({
     mutationFn: async () => {
-      const htmlBody = buildEmailHtml(body, EMAIL_SIGNATURE_HTML);
+      const scheduleAppendHtml = EMAIL_SIGNATURE_HTML
+        + (isForward && defaultQuotedHtml
+          ? buildForwardedBlockHtml(defaultQuotedFrom, defaultQuotedDate, forwardSubject, forwardTo, defaultQuotedHtml)
+          : (!isForward && threadId && defaultQuotedHtml
+            ? buildReplyQuoteBlockHtml(defaultQuotedFrom, defaultQuotedDate, defaultQuotedHtml)
+            : ""));
+      const htmlBody = buildEmailHtml(body, scheduleAppendHtml);
       const res = await apiRequest("POST", "/api/gmail/schedule", {
         to, subject, body: htmlBody, threadId, scheduledAt,
         ...(cc ? { cc } : {}),
@@ -6756,11 +6773,27 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
   const handleForward = (msg: ThreadMessage) => {
     const dateStr = msg.date || (msg.internalDate ? new Date(Number(msg.internalDate)).toUTCString() : "");
-    // Pass the original email body as HTML for the forwarded block visual preview.
-    // The body is empty so the user types their own message at the top; the
-    // forwarded block is appended after the signature by buildForwardedBlockHtml()
-    // when the email is actually sent.
-    const quotedHtml = msg.isHtml ? (msg.body || "") : `<pre style="font-family:inherit;white-space:pre-wrap;">${(msg.body || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</pre>`;
+    // Build full thread history so the recipient gets the entire conversation context.
+    // For a single-message thread use that message's body directly.
+    // For multi-message threads, concatenate all messages oldest-first with dividers
+    // so each sender/date is visible — this is the correct behaviour when the stored
+    // body_html of a message doesn't contain Gmail's native quoted-chain inline.
+    const allMsgs = threadQuery.data?.messages || [msg];
+    let quotedHtml: string;
+    if (allMsgs.length <= 1) {
+      quotedHtml = msg.isHtml
+        ? (msg.body || "")
+        : `<pre style="font-family:inherit;white-space:pre-wrap;">${escHtml(msg.body || "")}</pre>`;
+    } else {
+      quotedHtml = allMsgs.map((m, idx) => {
+        const mDate = m.date || (m.internalDate ? new Date(Number(m.internalDate)).toLocaleString() : "");
+        const mBody = m.isHtml
+          ? (m.body || "")
+          : `<pre style="font-family:inherit;white-space:pre-wrap;">${escHtml(m.body || "")}</pre>`;
+        const divider = idx > 0 ? `<div style="margin:12px 0;border-top:1px solid #e8e8e8;"></div>` : "";
+        return `${divider}<p style="margin:0 0 4px 0;font-size:11px;color:#888;font-weight:bold;">${escHtml(m.from || "Unknown")}&nbsp;&nbsp;<span style="font-weight:normal;">${escHtml(mDate)}</span></p>${mBody}`;
+      }).join("");
+    }
     setReplyTo(null);
     setComposeInitial({
       to: "",

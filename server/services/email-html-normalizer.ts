@@ -152,7 +152,10 @@ export function normalizeOutboundHtml(html: string): string {
         isOurParagraph ||
         isSignatureColor ||
         styleVal.includes("border-top") ||
+        styleVal.includes("border-left") ||      // quoted-email blockquote indicators
         styleVal.includes("padding-left:24px") ||
+        styleVal.includes("padding-left:16px") || // reply-quote indentation
+        styleVal.includes("padding-left:1ex") ||  // Gmail native blockquote indent
         styleVal.includes("font-weight") ||
         styleVal.includes("letter-spacing") ||
         styleVal.includes("margin: 0 0 20px") ||
