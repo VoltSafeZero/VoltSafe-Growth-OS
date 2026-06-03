@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { buildEmailHtml, htmlToCleanHtml, isBodyEmpty, stripEmailWrapper, plainTextToHtml } from "@/lib/email-format";
+import { CtaEngagementBanner } from "@/components/engagement/EngagementWidget";
 import { buildLinkPreviewCardHtml, buildLinkPreviewLoadingHtml } from "@/lib/link-preview-card";
 import { createPortal } from "react-dom";
 import { EmailTokenInput } from "@/components/email/email-autocomplete";
@@ -8751,6 +8752,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           const focusRecommended = !focusMode && (totalBodyLen > 12000 || selectedMessages.length >= 3);
           return (
           <div className={`flex-1 flex flex-col min-h-0 transition-colors duration-300 ${focusMode ? "bg-gradient-to-b from-background via-background to-card/10" : ""}`}>
+            {/* CTA Engagement Banner — shows when recipient clicked a signature CTA */}
+            {!focusMode && <CtaEngagementBanner threadId={selectedThreadId} />}
             {/* Resizable top header section (actions toolbar + subject header) */}
             {!topExpanded && focusedMsg && (
               <div

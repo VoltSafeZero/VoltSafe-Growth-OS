@@ -1,0 +1,444 @@
+Implement a beautiful, simple VoltSafe Mail Engagement Widget for email opens, link clicks, video/signature CTA clicks, and follow-up creation.
+
+Objective:
+Create a clean UI widget that helps VoltSafe Mail users quickly understand recipient engagement and take action. Users should be able to sort/filter engagement types, identify high-intent contacts, and quickly create follow-up emails.
+
+Do not rebuild existing tracking. Use the existing email tracking, signature CTA tracking, open tracking, and CRM activity systems.
+
+---
+
+# Core Widget Name
+
+Engagement Widget
+
+Also acceptable UI labels:
+- Engagement
+- Recipient Activity
+- Follow-Up Signals
+- Intent Signals
+
+---
+
+# Primary Use Case
+
+A user sends an email with:
+
+- open tracking
+- normal tracked links
+- signature CTA/video tracking, such as “Watch a Demo”
+
+The user should see a simple widget showing:
+
+- who opened
+- who clicked
+- who clicked the demo/video CTA
+- how many times
+- when they last engaged
+- suggested follow-up action
+
+Example:
+
+John Smith
+High Intent
+Opened 4 times
+Clicked Watch a Demo 3 times
+Last activity: 14 minutes ago
+
+Suggested action:
+Follow up now
+
+Button:
+Create Follow-Up Email
+
+---
+
+# Where The Widget Should Appear
+
+Add this widget to:
+
+1. Mail thread view
+Show engagement for the current email/thread.
+
+2. Contact record
+Show engagement history for that contact.
+
+3. Account record
+Show aggregate engagement across contacts at the company.
+
+4. Lead/CRM review view if applicable
+Show recent high-intent contacts/accounts.
+
+Start with the mail thread view first if scope needs to be controlled.
+
+---
+
+# Widget UI Requirements
+
+Design should be beautiful, simple, and fast.
+
+Layout:
+
+Top summary cards:
+- Opens
+- Email Link Clicks
+- Demo/Video Clicks
+- Replies
+- Last Activity
+
+Example:
+
+[ Opens: 4 ] [ Links: 2 ] [ Demo Clicks: 3 ] [ Last: 14m ago ]
+
+Below that, show sortable activity rows.
+
+Columns:
+- Recipient / Contact
+- Activity Type
+- CTA / Link Name
+- Count
+- Last Activity
+- Intent Level
+- Action
+
+Activity Type filters:
+- All
+- Opens
+- Email link clicks
+- Demo/video clicks
+- Replies
+- High intent only
+
+Sort options:
+- Most recent
+- Most opens
+- Most clicks
+- Most demo/video clicks
+- Highest intent
+
+Intent badges:
+- Interested
+- High Intent
+- Very High Intent
+- Follow Up Recommended
+
+Use compact badges and calm styling. Avoid a noisy analytics dashboard.
+
+---
+
+# Activity Types
+
+Normalize tracking events into these types:
+
+1. email_open
+Label: Email Open
+
+2. email_link_click
+Label: Link Click
+
+3. signature_cta_click
+Label: Signature CTA Click
+
+4. video_click
+Label: Demo/Video Click
+
+5. reply
+Label: Reply
+
+For “Watch a Demo” signature CTA, classify it as:
+video_click
+and also preserve original type:
+signature_cta_click
+
+This lets users filter for “video clicks” even if technically the event came from the signature CTA system.
+
+---
+
+# Follow-Up Email Creation
+
+Add a “Create Follow-Up Email” button beside high-intent rows.
+
+When clicked:
+
+Open the VoltSafe Mail composer with a suggested follow-up draft.
+
+The draft should be contextual.
+
+Example trigger:
+Recipient clicked Watch a Demo 3 times.
+
+Suggested email:
+
+Subject:
+Following up on the VoltSafe demo
+
+Body:
+Hi {{first_name}},
+
+I noticed you had a chance to check out the VoltSafe demo. Happy to answer any questions or walk you through how it could apply to your marina.
+
+Would it be helpful to schedule a quick 15-minute call this week?
+
+Best,
+{{sender_name}}
+
+Allow the user to edit before sending.
+
+Do not auto-send.
+
+---
+
+# Suggested Follow-Up Templates
+
+Create simple templates based on engagement type.
+
+1. Demo/video clicked
+
+Subject:
+Following up on the VoltSafe demo
+
+Tone:
+Helpful, direct, not creepy.
+
+Avoid saying:
+“I saw you clicked…”
+
+Instead say:
+“I wanted to follow up and see if the demo raised any questions.”
+
+2. Link clicked
+
+Subject:
+Any questions on VoltSafe?
+
+3. Multiple opens, no click
+
+Subject:
+Quick follow-up
+
+4. High account activity
+
+Subject:
+VoltSafe for {{account_name}}
+
+---
+
+# Privacy-Safe Language
+
+Do not make the generated email sound invasive.
+
+Bad:
+“I saw you opened my email 6 times and clicked the demo 3 times.”
+
+Good:
+“I wanted to follow up in case the demo or product details raised any questions.”
+
+The internal UI can show exact tracking data.
+The outbound email should sound natural.
+
+---
+
+# Backend API
+
+Create or extend endpoints:
+
+GET /api/engagement/thread/:threadId
+GET /api/engagement/contact/:contactId
+GET /api/engagement/account/:accountId
+GET /api/engagement/recent
+
+Each response should return normalized activity rows:
+
+{
+  recipientEmail,
+  contactId,
+  accountId,
+  contactName,
+  activityType,
+  label,
+  ctaName,
+  url,
+  count,
+  firstAt,
+  lastAt,
+  intentLevel,
+  suggestedAction,
+  relatedEmailId,
+  threadId
+}
+
+Also return summary counts:
+
+{
+  opens,
+  emailLinkClicks,
+  signatureCtaClicks,
+  videoClicks,
+  replies,
+  lastActivityAt,
+  highestIntentLevel
+}
+
+---
+
+# Intent Scoring
+
+Use simple rules first.
+
+none:
+No meaningful engagement.
+
+interested:
+Opened email or clicked one normal link.
+
+high_intent:
+Clicked Watch Demo / video CTA once, or clicked any link 2+ times.
+
+very_high_intent:
+Clicked Watch Demo / video CTA 3+ times within 7 days, or multiple contacts from same account clicked the demo.
+
+follow_up_recommended:
+High intent and no reply within 24 hours.
+
+---
+
+# Frontend Components
+
+Create reusable components:
+
+EngagementWidget
+EngagementSummaryCards
+EngagementActivityTable
+EngagementFilterTabs
+EngagementIntentBadge
+CreateFollowUpButton
+
+The widget should be reusable on:
+- mail thread view
+- contact page
+- account page
+
+---
+
+# UX Details
+
+The widget should feel like a sales assistant, not an analytics spreadsheet.
+
+Good empty state:
+No engagement yet.
+When this contact opens or clicks your email, activity will appear here.
+
+Loading state:
+Use skeleton cards.
+
+Error state:
+Couldn’t load engagement activity.
+
+Mobile:
+Use stacked cards instead of wide tables.
+
+---
+
+# Sorting and Filtering
+
+Users must be able to:
+
+Filter by:
+- all
+- opens
+- link clicks
+- demo/video clicks
+- replies
+- high intent
+
+Sort by:
+- newest
+- oldest
+- most opens
+- most clicks
+- most demo clicks
+- highest intent
+
+Persist last selected filter/sort locally if easy.
+
+---
+
+# CRM Integration
+
+On contact/account pages, show:
+
+- latest engagement
+- total opens
+- total link clicks
+- total demo/video clicks
+- last engaged
+- intent level
+
+Add a visible follow-up action:
+Create Follow-Up Email
+
+If task creation already exists, optionally add:
+Create Task
+
+Do not force automation yet.
+
+---
+
+# Tests Required
+
+Add tests for:
+
+1. Event normalization
+- email open becomes email_open
+- normal click becomes email_link_click
+- Watch Demo CTA becomes video_click and signature_cta_click
+- reply becomes reply
+
+2. Summary counts
+- opens counted correctly
+- link clicks counted correctly
+- demo/video clicks counted correctly
+- last activity calculated correctly
+
+3. Intent scoring
+- one demo click = high_intent
+- three demo clicks in 7 days = very_high_intent
+- high intent + no reply after 24h = follow_up_recommended
+- multiple contacts from same account clicking demo = very_high_intent account signal
+
+4. API access
+- unauthenticated requests blocked
+- users can only access engagement for their own accessible contacts/accounts/threads
+
+5. UI behavior
+- filters work
+- sorting works
+- high intent badge appears
+- create follow-up button opens composer
+- suggested follow-up draft is created but not sent
+
+6. Regression
+- existing email tracking still works
+- signature CTA tracking still works
+- scheduled send tracking still works
+- no duplicate tracking events are created
+
+Run:
+- TypeScript check
+- backend tests
+- frontend tests if touched
+- production build
+
+---
+
+# Acceptance Criteria
+
+Complete when:
+
+- Users can clearly see opens, email clicks, and demo/video clicks in one clean widget.
+- Users can filter and sort engagement by activity type.
+- High-intent contacts are visually obvious.
+- Users can create a contextual follow-up email from the widget.
+- The follow-up email is editable and never auto-sent.
+- Tracking data remains privacy-safe.
+- Existing tracking systems keep working.
+- Tests pass.

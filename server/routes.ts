@@ -689,6 +689,45 @@ export async function registerRoutes(
     }
   });
 
+  // ── CTA Engagement Intelligence ─────────────────────────────────────────
+  {
+    const { getContactEngagement, getAccountEngagement, getRecentHighIntent, getThreadEngagement } =
+      await import("./services/engagement-intelligence");
+
+    app.get("/api/engagement/contact/:contactId", requireAuth, async (req, res) => {
+      try {
+        const data = await getContactEngagement(Number(req.params.contactId));
+        if (!data) return res.status(404).json({ message: "Contact not found" });
+        res.json(data);
+      } catch (err: any) { res.status(500).json({ message: err.message }); }
+    });
+
+    app.get("/api/engagement/account/:accountId", requireAuth, async (req, res) => {
+      try {
+        const data = await getAccountEngagement(Number(req.params.accountId));
+        if (!data) return res.status(404).json({ message: "Account not found" });
+        res.json(data);
+      } catch (err: any) { res.status(500).json({ message: err.message }); }
+    });
+
+    app.get("/api/engagement/recent-high-intent", requireAuth, async (req, res) => {
+      try {
+        const userId = (req.session as any).userId as number;
+        const limit  = Math.min(Number(req.query.limit) || 20, 100);
+        const data   = await getRecentHighIntent(userId, limit);
+        res.json(data);
+      } catch (err: any) { res.status(500).json({ message: err.message }); }
+    });
+
+    app.get("/api/engagement/thread/:threadId", requireAuth, async (req, res) => {
+      try {
+        const threadId = decodeURIComponent(req.params.threadId);
+        const data = await getThreadEngagement(threadId);
+        res.json(data);
+      } catch (err: any) { res.status(500).json({ message: err.message }); }
+    });
+  }
+
   // Engagement rules CRUD
   app.get("/api/email-engagement-rules", requireAuth, async (req, res) => {
     try {

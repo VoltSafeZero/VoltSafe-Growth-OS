@@ -1,0 +1,233 @@
+Implement VoltSafe Mail engagement intelligence for tracked signature CTA clicks.
+
+Objective:
+When a recipient clicks a tracked signature CTA such as “Watch a Demo,” surface that as a high-intent sales signal across VoltSafe Mail and CRM.
+
+Do not rebuild tracking. Use the existing signature CTA click tracking already implemented.
+
+---
+
+# Core Feature
+
+Create an engagement intelligence layer that detects high-intent contacts based on:
+
+- signature CTA clicks
+- repeated clicks
+- recent clicks
+- email opens, if existing tracking supports it
+- no reply after engagement
+
+Example signal:
+
+High Intent Contact
+John Smith clicked “Watch a Demo” 3 times
+Last click: 14 minutes ago
+Suggested action: Follow up
+
+---
+
+# Scoring Rules
+
+Add simple first-pass rules:
+
+1. Demo CTA clicked once
+Signal:
+Interested
+
+2. Demo CTA clicked 2+ times
+Signal:
+High Intent
+
+3. Demo CTA clicked 3+ times within 7 days
+Signal:
+Very High Intent
+
+4. Demo CTA clicked but no reply within 24 hours
+Signal:
+Follow Up Recommended
+
+5. Demo CTA clicked by multiple people from same account
+Signal:
+Account Heating Up
+
+---
+
+# Where To Show Signals
+
+Add engagement signals to:
+
+1. Contact record
+- latest CTA clicked
+- total CTA clicks
+- last click time
+- intent level
+
+2. Account record
+- total CTA clicks across contacts
+- number of engaged contacts
+- most-clicked CTA
+- account intent level
+
+3. Mail thread view
+Show a small banner:
+
+“John clicked Watch a Demo 3 times — follow-up recommended.”
+
+4. CRM Review / Lead view if applicable
+Surface contacts/accounts with recent high-intent activity.
+
+---
+
+# Suggested Actions
+
+For high-intent contacts, show suggested actions:
+
+- Follow up now
+- Send demo booking link
+- Create task
+- Add note
+- Move lead/account stage forward
+
+Do not auto-create tasks yet unless the system already supports user-controlled task creation. Show suggestions first.
+
+---
+
+# Backend
+
+Create or extend an engagement summary service.
+
+Suggested computed fields:
+
+contact_engagement_summary:
+- contact_id
+- account_id
+- last_signature_cta_clicked
+- last_signature_cta_clicked_at
+- total_signature_cta_clicks
+- unique_signature_ctas_clicked
+- demo_click_count
+- intent_level
+- suggested_action
+- updated_at
+
+If a physical table is overkill, start with a query/service that computes this from existing tracking tables.
+
+Prefer computed service first unless performance requires materialization.
+
+---
+
+# Intent Levels
+
+Use:
+
+- none
+- interested
+- high_intent
+- very_high_intent
+
+Rules:
+
+none:
+0 CTA clicks
+
+interested:
+1 demo CTA click
+
+high_intent:
+2+ demo CTA clicks or any CTA clicked in last 24 hours
+
+very_high_intent:
+3+ demo CTA clicks in 7 days or 2+ contacts from same account clicked demo CTA
+
+---
+
+# CRM Activity Text
+
+Add clear activity messages:
+
+“Clicked signature CTA: Watch a Demo”
+
+For repeated clicks:
+
+“Clicked Watch a Demo 3 times”
+
+For account-level signal:
+
+“Account heating up: 2 contacts clicked Watch a Demo”
+
+---
+
+# UI Requirements
+
+Keep it simple.
+
+Use compact badges:
+
+- Interested
+- High Intent
+- Very High Intent
+- Follow Up Recommended
+
+Use clear timestamps:
+
+- 14 minutes ago
+- 2 hours ago
+- Yesterday
+- Jun 3, 2026
+
+Avoid noisy dashboards.
+
+---
+
+# API Endpoints
+
+Add endpoints as needed:
+
+GET /api/engagement/contact/:contactId
+GET /api/engagement/account/:accountId
+GET /api/engagement/recent-high-intent
+
+Return:
+- intent level
+- click counts
+- last clicked CTA
+- last click timestamp
+- suggested action
+- related email/thread if available
+
+---
+
+# Tests
+
+Add tests for:
+
+1. One demo click → Interested
+2. Two demo clicks → High Intent
+3. Three demo clicks in 7 days → Very High Intent
+4. Demo click + no reply after 24h → Follow Up Recommended
+5. Multiple contacts from same account click demo → Account Heating Up
+6. Contact endpoint returns correct summary
+7. Account endpoint aggregates correctly
+8. Recent high-intent endpoint returns only relevant recent records
+9. No duplicate CRM activities for repeated clicks unless count changes meaningfully
+10. Existing email tracking still works
+
+Run:
+- TypeScript check
+- backend tests
+- frontend tests if touched
+- production build
+
+---
+
+# Acceptance Criteria
+
+Complete when:
+
+- Signature CTA clicks create visible intent signals.
+- Contacts show latest demo-click activity.
+- Accounts show aggregate engagement.
+- Mail thread view can surface high-intent banners.
+- Users can identify who clicked Watch a Demo and how many times.
+- Suggested follow-up actions are visible but not automatically forced.
+- Tests pass.

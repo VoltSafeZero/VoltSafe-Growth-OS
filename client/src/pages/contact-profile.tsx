@@ -27,6 +27,8 @@ import { useRef } from "react";
 import { Camera, Trash2 } from "lucide-react";
 import { SendBookingLinkButton, BookingLinkStatusInline } from "@/components/SendBookingLinkButton";
 import { AiSummaryCard } from "@/components/crm/ai-summary-card";
+import { ContactEngagementWidget } from "@/components/engagement/EngagementWidget";
+import { MousePointerClick } from "lucide-react";
 
 const STAGE_LABEL: Record<string, string> = {
   inbound_new: "New", qualified: "Qualified", discovery: "Discovery",
@@ -731,6 +733,11 @@ export default function ContactProfilePage() {
                 })}
               </div>
             )}
+          </SectionCard>
+
+          {/* Engagement Intelligence */}
+          <SectionCard title="Engagement" icon={MousePointerClick}>
+            <ContactEngagementWidget contactId={contactId} />
           </SectionCard>
 
           {/* Quick links */}
