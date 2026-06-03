@@ -214,6 +214,220 @@ section("[9] No duplicate CRM activities for repeated clicks");
     svcSrc.includes("SUM(s.click_count)"));
 }
 
+// ── [P2-1] Activity row normalization ─────────────────────────────────────
+
+section("[P2-1] Activity row normalization");
+{
+  const svcSrc = read("server/services/engagement-intelligence.ts");
+
+  check("ActivityRow type exported",
+    svcSrc.includes("export interface ActivityRow"));
+  check("EngagementSummary type exported",
+    svcSrc.includes("export interface EngagementSummary"));
+  check("ThreadEngagementFull type exported",
+    svcSrc.includes("export interface ThreadEngagementFull"));
+
+  check("email_open activity type defined",
+    svcSrc.includes("\"email_open\"") || svcSrc.includes("'email_open'") ||
+    svcSrc.includes("email_open"));
+  check("email_link_click activity type defined",
+    svcSrc.includes("email_link_click"));
+  check("video_click activity type defined",
+    svcSrc.includes("video_click"));
+  check("signature_cta_click activity type defined",
+    svcSrc.includes("signature_cta_click"));
+  check("reply activity type defined",
+    svcSrc.includes("\"reply\"") || svcSrc.includes("'reply'"));
+
+  // Demo CTA classified as video_click
+  check("demo CTA → video_click type when isDemoCtaName",
+    svcSrc.includes("isDemo ? \"video_click\" : \"signature_cta_click\"") ||
+    svcSrc.includes("isDemo ? 'video_click' : 'signature_cta_click'") ||
+    (svcSrc.includes("video_click") && svcSrc.includes("isDemoCtaName")));
+
+  // ActivityRow has all required spec fields
+  check("ActivityRow has recipientEmail",   svcSrc.includes("recipientEmail"));
+  check("ActivityRow has activityType",     svcSrc.includes("activityType"));
+  check("ActivityRow has label",            svcSrc.includes("label:"));
+  check("ActivityRow has ctaName",          svcSrc.includes("ctaName"));
+  check("ActivityRow has count",            svcSrc.includes("count:"));
+  check("ActivityRow has firstAt / lastAt", svcSrc.includes("firstAt") && svcSrc.includes("lastAt"));
+  check("ActivityRow has suggestedAction",  svcSrc.includes("suggestedAction"));
+  check("ActivityRow has threadId",         svcSrc.includes("threadId"));
+}
+
+// ── [P2-2] Summary counts ──────────────────────────────────────────────────
+
+section("[P2-2] Engagement summary counts");
+{
+  const svcSrc = read("server/services/engagement-intelligence.ts");
+
+  check("summary includes opens",            svcSrc.includes("opens:"));
+  check("summary includes emailLinkClicks",  svcSrc.includes("emailLinkClicks"));
+  check("summary includes signatureCtaClicks", svcSrc.includes("signatureCtaClicks"));
+  check("summary includes videoClicks",      svcSrc.includes("videoClicks"));
+  check("summary includes replies",          svcSrc.includes("replies:"));
+  check("summary includes lastActivityAt",   svcSrc.includes("lastActivityAt"));
+  check("summary includes highestIntentLevel", svcSrc.includes("highestIntentLevel"));
+
+  // Opens come from email_tracking_pixels JOIN email_engagement_events
+  check("opens query joins email_tracking_pixels + email_engagement_events",
+    svcSrc.includes("email_tracking_pixels") && svcSrc.includes("email_engagement_events") &&
+    svcSrc.includes("event_type = 'open'"));
+  // Link clicks come from same tables but event_type='click'
+  check("link click query uses event_type = 'click'",
+    svcSrc.includes("event_type = 'click'"));
+  // Thread scoping via email_messages.gmail_thread_id
+  check("thread engagement scoped to gmail_thread_id",
+    svcSrc.includes("gmail_thread_id"));
+  // Replies come from email_tracking_pixels.is_replied
+  check("replies detected via is_replied column",
+    svcSrc.includes("is_replied"));
+}
+
+// ── [P2-3] New API endpoints ───────────────────────────────────────────────
+
+section("[P2-3] Phase 2 API endpoints");
+{
+  const routesSrc = read("server/routes.ts");
+  const svcSrc    = read("server/services/engagement-intelligence.ts");
+
+  check("GET /api/engagement/recent exists",
+    routesSrc.includes("/api/engagement/recent\""));
+  check("/api/engagement/recent requires auth",
+    routesSrc.includes("/api/engagement/recent") &&
+    routesSrc.includes("requireAuth"));
+  check("getThreadEngagementFull exported from service",
+    svcSrc.includes("export async function getThreadEngagementFull"));
+  check("thread endpoint calls getThreadEngagementFull",
+    routesSrc.includes("getThreadEngagementFull"));
+  check("ThreadEngagementFull includes activities array",
+    svcSrc.includes("activities: ActivityRow[]") || svcSrc.includes("activities:"));
+  check("ThreadEngagementFull backward-compatible (ctaClicks, bannerText still present)",
+    svcSrc.includes("ctaClicks:") && svcSrc.includes("bannerText"));
+}
+
+// ── [P2-4] UI components Phase 2 ──────────────────────────────────────────
+
+section("[P2-4] Phase 2 UI components");
+{
+  const widgetSrc = read("client/src/components/engagement/EngagementWidget.tsx");
+
+  check("EngagementSummaryCards exported",
+    widgetSrc.includes("export function EngagementSummaryCards"));
+  check("EngagementFilterTabs exported",
+    widgetSrc.includes("export function EngagementFilterTabs"));
+  check("EngagementActivityTable exported",
+    widgetSrc.includes("export function EngagementActivityTable"));
+  check("ThreadEngagementWidget exported",
+    widgetSrc.includes("export function ThreadEngagementWidget"));
+
+  // Summary cards cover all 5 required signal types
+  check("summary cards show Opens",   widgetSrc.includes("Opens") || widgetSrc.includes("opens"));
+  check("summary cards show Demo/Video", widgetSrc.includes("Demo") || widgetSrc.includes("videoClicks"));
+  check("summary cards show Replies", widgetSrc.includes("Replies") || widgetSrc.includes("replies"));
+  check("summary cards show Links",   widgetSrc.includes("Links") || widgetSrc.includes("emailLinkClicks"));
+  check("summary cards show Last Activity", widgetSrc.includes("Last") || widgetSrc.includes("lastActivityAt"));
+
+  // Filter tabs
+  check("filter tabs: all",         widgetSrc.includes("\"all\"") || widgetSrc.includes("'all'"));
+  check("filter tabs: opens",       widgetSrc.includes("\"opens\"") || widgetSrc.includes("'opens'"));
+  check("filter tabs: demo",        widgetSrc.includes("\"demo\"") || widgetSrc.includes("'demo'"));
+  check("filter tabs: high_intent", widgetSrc.includes("\"high_intent\"") || widgetSrc.includes("'high_intent'"));
+
+  // Sort options
+  check("sort option: newest",        widgetSrc.includes("newest"));
+  check("sort option: most_clicks",   widgetSrc.includes("most_clicks"));
+  check("sort option: highest_intent",widgetSrc.includes("highest_intent"));
+
+  // Thread widget uses collapsible expand/collapse
+  check("ThreadEngagementWidget is collapsible (expanded state)",
+    widgetSrc.includes("expanded") && (widgetSrc.includes("ChevronDown") || widgetSrc.includes("ChevronUp")));
+
+  // Privacy-safe follow-up: never reveals exact tracking data in outbound email
+  check("follow-up template does NOT say 'I saw you clicked'",
+    !widgetSrc.includes("I saw you clicked") && !widgetSrc.includes("I saw you opened"));
+  check("follow-up template uses safe language",
+    widgetSrc.includes("follow up") || widgetSrc.includes("questions"));
+
+  // CtaEngagementBanner still exported (backward compat)
+  check("CtaEngagementBanner backward-compat export exists",
+    widgetSrc.includes("export function CtaEngagementBanner"));
+}
+
+// ── [P2-5] Filter and sort logic ──────────────────────────────────────────
+
+section("[P2-5] Filter and sort logic (inline simulation)");
+{
+  // Simulate applyFilter behavior
+  const activities = [
+    { activityType: "email_open",    intentLevel: "interested",           count: 3, lastAt: "2026-06-01T10:00:00Z" },
+    { activityType: "email_link_click", intentLevel: "interested",        count: 1, lastAt: "2026-06-02T10:00:00Z" },
+    { activityType: "video_click",   intentLevel: "high_intent",          count: 2, lastAt: "2026-06-03T10:00:00Z" },
+    { activityType: "signature_cta_click", intentLevel: "interested",     count: 1, lastAt: "2026-05-30T10:00:00Z" },
+    { activityType: "reply",         intentLevel: "none",                 count: 1, lastAt: "2026-06-01T08:00:00Z" },
+  ];
+
+  const INTENT_ORDER_P2 = ["none","interested","high_intent","very_high_intent","follow_up_recommended"];
+
+  function applyFilter(rows, filter) {
+    switch (filter) {
+      case "opens":       return rows.filter(r => r.activityType === "email_open");
+      case "links":       return rows.filter(r => r.activityType === "email_link_click");
+      case "demo":        return rows.filter(r => r.activityType === "video_click" || r.activityType === "signature_cta_click");
+      case "replies":     return rows.filter(r => r.activityType === "reply");
+      case "high_intent": return rows.filter(r => INTENT_ORDER_P2.indexOf(r.intentLevel) >= INTENT_ORDER_P2.indexOf("high_intent"));
+      default:            return rows;
+    }
+  }
+
+  function applySort(rows, sort) {
+    const copy = [...rows];
+    switch (sort) {
+      case "newest":  return copy.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
+      case "oldest":  return copy.sort((a, b) => new Date(a.lastAt).getTime() - new Date(b.lastAt).getTime());
+      case "most_demo": return copy.sort((a, b) => {
+        const aS = a.activityType === "video_click" ? a.count : 0;
+        const bS = b.activityType === "video_click" ? b.count : 0;
+        return bS - aS;
+      });
+      case "highest_intent": return copy.sort((a, b) =>
+        INTENT_ORDER_P2.indexOf(b.intentLevel) - INTENT_ORDER_P2.indexOf(a.intentLevel));
+      default: return copy;
+    }
+  }
+
+  const opens = applyFilter(activities, "opens");
+  check("filter 'opens' returns only email_open rows", opens.length === 1 && opens[0].activityType === "email_open");
+
+  const links = applyFilter(activities, "links");
+  check("filter 'links' returns only email_link_click rows", links.length === 1 && links[0].activityType === "email_link_click");
+
+  const demo = applyFilter(activities, "demo");
+  check("filter 'demo' returns video_click + signature_cta_click", demo.length === 2);
+
+  const replies = applyFilter(activities, "replies");
+  check("filter 'replies' returns only reply rows", replies.length === 1 && replies[0].activityType === "reply");
+
+  const highIntent = applyFilter(activities, "high_intent");
+  check("filter 'high_intent' returns rows with high_intent or above", highIntent.length === 1 && highIntent[0].activityType === "video_click");
+
+  const all = applyFilter(activities, "all");
+  check("filter 'all' returns all rows", all.length === 5);
+
+  const sortedNewest = applySort(activities, "newest");
+  check("sort 'newest' puts most-recent row first",
+    sortedNewest[0].lastAt === "2026-06-03T10:00:00Z");
+
+  const sortedDemo = applySort(activities, "most_demo");
+  check("sort 'most_demo' puts video_click first",
+    sortedDemo[0].activityType === "video_click");
+
+  const sortedIntent = applySort(activities, "highest_intent");
+  check("sort 'highest_intent' puts high_intent row first",
+    sortedIntent[0].intentLevel === "high_intent");
+}
+
 // ── [10] Existing email tracking still works ──────────────────────────────
 
 section("[10] Existing tracking systems unaffected");

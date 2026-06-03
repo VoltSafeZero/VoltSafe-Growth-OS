@@ -691,8 +691,10 @@ export async function registerRoutes(
 
   // ── CTA Engagement Intelligence ─────────────────────────────────────────
   {
-    const { getContactEngagement, getAccountEngagement, getRecentHighIntent, getThreadEngagement } =
-      await import("./services/engagement-intelligence");
+    const {
+      getContactEngagement, getAccountEngagement,
+      getRecentHighIntent, getThreadEngagement, getThreadEngagementFull,
+    } = await import("./services/engagement-intelligence");
 
     app.get("/api/engagement/contact/:contactId", requireAuth, async (req, res) => {
       try {
@@ -719,10 +721,21 @@ export async function registerRoutes(
       } catch (err: any) { res.status(500).json({ message: err.message }); }
     });
 
+    // /api/engagement/recent — canonical alias (spec name)
+    app.get("/api/engagement/recent", requireAuth, async (req, res) => {
+      try {
+        const userId = (req.session as any).userId as number;
+        const limit  = Math.min(Number(req.query.limit) || 20, 100);
+        const data   = await getRecentHighIntent(userId, limit);
+        res.json(data);
+      } catch (err: any) { res.status(500).json({ message: err.message }); }
+    });
+
+    // Thread endpoint returns full normalized activity rows + summary counts
     app.get("/api/engagement/thread/:threadId", requireAuth, async (req, res) => {
       try {
         const threadId = decodeURIComponent(req.params.threadId);
-        const data = await getThreadEngagement(threadId);
+        const data = await getThreadEngagementFull(threadId);
         res.json(data);
       } catch (err: any) { res.status(500).json({ message: err.message }); }
     });

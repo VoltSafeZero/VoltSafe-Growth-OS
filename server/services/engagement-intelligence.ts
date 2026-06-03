@@ -75,6 +75,56 @@ export interface ThreadEngagementSummary {
   suggestedAction: string | null;
 }
 
+// ── Normalized activity rows (Phase 2) ────────────────────────────────────
+
+export type ActivityType =
+  | "email_open"
+  | "email_link_click"
+  | "signature_cta_click"
+  | "video_click"
+  | "reply";
+
+export interface ActivityRow {
+  recipientEmail: string;
+  contactId: number | null;
+  contactName: string | null;
+  accountId: number | null;
+  activityType: ActivityType;
+  label: string;
+  ctaName: string | null;
+  url: string | null;
+  count: number;
+  firstAt: string | null;
+  lastAt: string | null;
+  intentLevel: IntentLevel;
+  suggestedAction: string | null;
+  relatedEmailId: string | null;
+  threadId: string | null;
+}
+
+export interface EngagementSummary {
+  opens: number;
+  emailLinkClicks: number;
+  signatureCtaClicks: number;
+  videoClicks: number;
+  replies: number;
+  lastActivityAt: string | null;
+  highestIntentLevel: IntentLevel;
+}
+
+export interface ThreadEngagementFull {
+  threadId: string;
+  summary: EngagementSummary;
+  activities: ActivityRow[];
+  // backward-compat fields for CtaEngagementBanner
+  ctaClicks: ThreadEngagementSummary["ctaClicks"];
+  totalCtaClicks: number;
+  uniqueCtaRecipients: number;
+  hasHighIntent: boolean;
+  bannerText: string | null;
+  suggestedAction: string | null;
+}
+
 export interface RecentHighIntentRecord {
   contactId: number;
   accountId: number | null;
@@ -425,6 +475,306 @@ export async function getThreadEngagement(
     hasHighIntent,
     bannerText,
     suggestedAction,
+  };
+}
+
+// ── Thread engagement (full — Phase 2) ────────────────────────────────────
+
+const INTENT_ORDER: IntentLevel[] = [
+  "none", "interested", "high_intent", "very_high_intent", "follow_up_recommended",
+];
+
+function higherIntent(a: IntentLevel, b: IntentLevel): IntentLevel {
+  return INTENT_ORDER.indexOf(a) >= INTENT_ORDER.indexOf(b) ? a : b;
+}
+
+export async function getThreadEngagementFull(
+  threadId: string,
+): Promise<ThreadEngagementFull> {
+  const tEsc = esc(threadId);
+
+  // ── Email opens ──────────────────────────────────────────────────────────
+  const openRows = (await db.execute(sql.raw(`
+    SELECT
+      p.recipient_email,
+      p.gmail_message_id,
+      COUNT(*) FILTER (WHERE ee.is_bot = FALSE) AS open_count,
+      MIN(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE) AS first_at,
+      MAX(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE) AS last_at
+    FROM email_tracking_pixels p
+    JOIN email_messages m ON m.gmail_message_id = p.gmail_message_id
+    JOIN email_engagement_events ee ON ee.tracking_id = p.tracking_id
+      AND ee.event_type = 'open'
+    WHERE m.gmail_thread_id = '${tEsc}'
+    GROUP BY p.recipient_email, p.gmail_message_id
+    HAVING COUNT(*) FILTER (WHERE ee.is_bot = FALSE) > 0
+  `))).rows as any[];
+
+  // ── Email link clicks ────────────────────────────────────────────────────
+  const linkRows = (await db.execute(sql.raw(`
+    SELECT
+      p.recipient_email,
+      p.gmail_message_id,
+      ee.url,
+      COUNT(*) FILTER (WHERE ee.is_bot = FALSE) AS click_count,
+      MIN(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE) AS first_at,
+      MAX(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE) AS last_at
+    FROM email_tracking_pixels p
+    JOIN email_messages m ON m.gmail_message_id = p.gmail_message_id
+    JOIN email_engagement_events ee ON ee.tracking_id = p.tracking_id
+      AND ee.event_type = 'click'
+    WHERE m.gmail_thread_id = '${tEsc}'
+    GROUP BY p.recipient_email, p.gmail_message_id, ee.url
+    HAVING COUNT(*) FILTER (WHERE ee.is_bot = FALSE) > 0
+  `))).rows as any[];
+
+  // ── Signature CTA clicks ─────────────────────────────────────────────────
+  const ctaRows = (await db.execute(sql.raw(`
+    SELECT
+      s.recipient_email,
+      s.cta_name,
+      s.destination_url,
+      s.click_count,
+      s.last_clicked_at,
+      s.contact_id,
+      m.gmail_message_id,
+      c.id AS matched_contact_id,
+      c.name AS contact_name,
+      c.account_id
+    FROM signature_cta_clicks s
+    JOIN email_messages m ON m.gmail_message_id = s.gmail_message_id
+    LEFT JOIN contacts c ON LOWER(c.email) = LOWER(s.recipient_email)
+    WHERE m.gmail_thread_id = '${tEsc}'
+      AND s.click_count > 0
+    ORDER BY s.last_clicked_at DESC NULLS LAST
+  `))).rows as any[];
+
+  // ── Replies ──────────────────────────────────────────────────────────────
+  const replyRows = (await db.execute(sql.raw(`
+    SELECT
+      p.recipient_email,
+      p.gmail_message_id,
+      p.updated_at AS replied_at
+    FROM email_tracking_pixels p
+    JOIN email_messages m ON m.gmail_message_id = p.gmail_message_id
+    WHERE m.gmail_thread_id = '${tEsc}'
+      AND p.is_replied = TRUE
+  `))).rows as any[];
+
+  // ── Contact lookup for opens / link clicks ───────────────────────────────
+  const allEmails = Array.from(new Set([
+    ...openRows.map((r: any) => String(r.recipient_email ?? "").toLowerCase()),
+    ...linkRows.map((r: any) => String(r.recipient_email ?? "").toLowerCase()),
+    ...replyRows.map((r: any) => String(r.recipient_email ?? "").toLowerCase()),
+  ].filter(Boolean)));
+
+  let contactMap: Record<string, { id: number; name: string; accountId: number | null }> = {};
+  if (allEmails.length > 0) {
+    const escaped = allEmails.map(e => `'${esc(e)}'`).join(",");
+    const contacts = (await db.execute(sql.raw(`
+      SELECT id, name, email, account_id FROM contacts
+      WHERE LOWER(email) IN (${escaped})
+    `))).rows as any[];
+    for (const c of contacts) {
+      contactMap[String(c.email ?? "").toLowerCase()] = {
+        id: Number(c.id),
+        name: String(c.name),
+        accountId: c.account_id ? Number(c.account_id) : null,
+      };
+    }
+  }
+
+  // ── Build normalized ActivityRow[] ───────────────────────────────────────
+  const activities: ActivityRow[] = [];
+
+  for (const r of openRows) {
+    const email = String(r.recipient_email ?? "").toLowerCase();
+    const ct = contactMap[email];
+    activities.push({
+      recipientEmail: String(r.recipient_email ?? ""),
+      contactId: ct?.id ?? null,
+      contactName: ct?.name ?? null,
+      accountId: ct?.accountId ?? null,
+      activityType: "email_open",
+      label: "Email Open",
+      ctaName: null,
+      url: null,
+      count: Number(r.open_count ?? 0),
+      firstAt: r.first_at ? String(r.first_at) : null,
+      lastAt: r.last_at ? String(r.last_at) : null,
+      intentLevel: Number(r.open_count ?? 0) >= 3 ? "interested" : "interested",
+      suggestedAction: null,
+      relatedEmailId: r.gmail_message_id ? String(r.gmail_message_id) : null,
+      threadId,
+    });
+  }
+
+  for (const r of linkRows) {
+    const email = String(r.recipient_email ?? "").toLowerCase();
+    const ct = contactMap[email];
+    activities.push({
+      recipientEmail: String(r.recipient_email ?? ""),
+      contactId: ct?.id ?? null,
+      contactName: ct?.name ?? null,
+      accountId: ct?.accountId ?? null,
+      activityType: "email_link_click",
+      label: "Link Click",
+      ctaName: null,
+      url: r.url ? String(r.url) : null,
+      count: Number(r.click_count ?? 0),
+      firstAt: r.first_at ? String(r.first_at) : null,
+      lastAt: r.last_at ? String(r.last_at) : null,
+      intentLevel: "interested",
+      suggestedAction: suggestedActionFor("interested"),
+      relatedEmailId: r.gmail_message_id ? String(r.gmail_message_id) : null,
+      threadId,
+    });
+  }
+
+  for (const r of ctaRows) {
+    const isDemo = isDemoCtaName(r.cta_name, r.destination_url);
+    const clickCount = Number(r.click_count ?? 0);
+    const lastAt = r.last_clicked_at ? String(r.last_clicked_at) : null;
+    const level = computeIntentLevel({
+      demoClickCount: isDemo ? clickCount : 0,
+      demoClicksIn7d: isDemo ? clickCount : 0,
+      lastCtaClickedAt: lastAt,
+      isReplied: replyRows.some((rr: any) =>
+        String(rr.recipient_email ?? "").toLowerCase() ===
+        String(r.recipient_email ?? "").toLowerCase()
+      ),
+    });
+    const activityType: ActivityType = isDemo ? "video_click" : "signature_cta_click";
+    activities.push({
+      recipientEmail: String(r.recipient_email ?? ""),
+      contactId: r.matched_contact_id ? Number(r.matched_contact_id) : null,
+      contactName: r.contact_name ? String(r.contact_name) : null,
+      accountId: r.account_id ? Number(r.account_id) : null,
+      activityType,
+      label: isDemo ? "Demo/Video Click" : "Signature CTA Click",
+      ctaName: r.cta_name ? String(r.cta_name) : null,
+      url: r.destination_url ? String(r.destination_url) : null,
+      count: clickCount,
+      firstAt: null,
+      lastAt,
+      intentLevel: level,
+      suggestedAction: suggestedActionFor(level),
+      relatedEmailId: r.gmail_message_id ? String(r.gmail_message_id) : null,
+      threadId,
+    });
+  }
+
+  for (const r of replyRows) {
+    const email = String(r.recipient_email ?? "").toLowerCase();
+    const ct = contactMap[email];
+    activities.push({
+      recipientEmail: String(r.recipient_email ?? ""),
+      contactId: ct?.id ?? null,
+      contactName: ct?.name ?? null,
+      accountId: ct?.accountId ?? null,
+      activityType: "reply",
+      label: "Reply",
+      ctaName: null,
+      url: null,
+      count: 1,
+      firstAt: r.replied_at ? String(r.replied_at) : null,
+      lastAt: r.replied_at ? String(r.replied_at) : null,
+      intentLevel: "none",
+      suggestedAction: null,
+      relatedEmailId: r.gmail_message_id ? String(r.gmail_message_id) : null,
+      threadId,
+    });
+  }
+
+  // ── Summary counts ───────────────────────────────────────────────────────
+  const opens     = openRows.reduce((s: number, r: any) => s + Number(r.open_count ?? 0), 0);
+  const emailLinkClicks = linkRows.reduce((s: number, r: any) => s + Number(r.click_count ?? 0), 0);
+  const signatureCtaClicks = ctaRows
+    .filter((r: any) => !isDemoCtaName(r.cta_name, r.destination_url))
+    .reduce((s: number, r: any) => s + Number(r.click_count ?? 0), 0);
+  const videoClicks = ctaRows
+    .filter((r: any) => isDemoCtaName(r.cta_name, r.destination_url))
+    .reduce((s: number, r: any) => s + Number(r.click_count ?? 0), 0);
+  const replies = replyRows.length;
+
+  const allTimestamps = activities
+    .map(a => a.lastAt)
+    .filter(Boolean)
+    .map(d => new Date(d!).getTime());
+  const lastActivityAt = allTimestamps.length > 0
+    ? new Date(Math.max(...allTimestamps)).toISOString()
+    : null;
+
+  const highestIntentLevel = activities.reduce<IntentLevel>(
+    (best, a) => higherIntent(best, a.intentLevel),
+    "none",
+  );
+
+  const summary: EngagementSummary = {
+    opens, emailLinkClicks, signatureCtaClicks, videoClicks, replies, lastActivityAt, highestIntentLevel,
+  };
+
+  // ── Build backward-compat ctaClicks shape ────────────────────────────────
+  const ctaClicks = ctaRows.map((r: any) => {
+    const isDemo = isDemoCtaName(r.cta_name, r.destination_url);
+    const clickCount = Number(r.click_count ?? 0);
+    const lastAt = r.last_clicked_at ? String(r.last_clicked_at) : null;
+    const level = computeIntentLevel({
+      demoClickCount: isDemo ? clickCount : 0,
+      demoClicksIn7d: isDemo ? clickCount : 0,
+      lastCtaClickedAt: lastAt,
+      isReplied: false,
+    });
+    return {
+      recipientEmail: String(r.recipient_email ?? ""),
+      contactId: r.matched_contact_id ? Number(r.matched_contact_id) : null,
+      ctaName: r.cta_name ? String(r.cta_name) : null,
+      clickCount,
+      lastClickedAt: lastAt,
+      intentLevel: level,
+    };
+  });
+
+  const totalCtaClicks      = ctaClicks.reduce((s, r) => s + r.clickCount, 0);
+  const uniqueCtaRecipients = new Set(ctaClicks.map(r => r.recipientEmail)).size;
+  const hasHighIntent       = ctaClicks.some(r =>
+    r.intentLevel === "high_intent" || r.intentLevel === "very_high_intent" || r.intentLevel === "follow_up_recommended"
+  );
+
+  let bannerText: string | null = null;
+  let bannerSuggestedAction: string | null = null;
+
+  if (ctaClicks.length > 0) {
+    const top = ctaClicks[0];
+    const name = top.ctaName ?? "a CTA";
+    if (top.clickCount >= 3) {
+      bannerText = `Recipient clicked "${name}" ${top.clickCount} times — follow-up recommended.`;
+      bannerSuggestedAction = "Follow up now";
+    } else if (top.clickCount === 2) {
+      bannerText = `Recipient clicked "${name}" twice — high intent signal.`;
+      bannerSuggestedAction = "Send demo booking link";
+    } else if (top.clickCount === 1) {
+      bannerText = `Recipient clicked "${name}".`;
+      bannerSuggestedAction = "Send demo booking link";
+    }
+    if (uniqueCtaRecipients > 1) {
+      bannerText = `${uniqueCtaRecipients} recipients clicked your signature CTA — account is heating up.`;
+      bannerSuggestedAction = "Follow up now";
+    }
+  } else if (opens > 0) {
+    bannerText = `Opened ${opens} time${opens !== 1 ? "s" : ""}${lastActivityAt ? ` · ${new Date(Date.now() - new Date(lastActivityAt).getTime()) < new Date(24 * 3600 * 1000) ? "today" : ""}` : ""}.`;
+  }
+
+  return {
+    threadId,
+    summary,
+    activities,
+    ctaClicks,
+    totalCtaClicks,
+    uniqueCtaRecipients,
+    hasHighIntent,
+    bannerText,
+    suggestedAction: bannerSuggestedAction,
   };
 }
 
