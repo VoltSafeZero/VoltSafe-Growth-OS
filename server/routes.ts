@@ -61,7 +61,7 @@ import { registerImageRoutes } from "./replit_integrations/image";
 import { generateInvoiceHtml, generateQuoteXlsx, type QuoteData } from "./quote-generator";
 import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead, saveDraft, listDraftSummaries, getDraftContent, deleteDraft } from "./gmail";
 import { normalizeOutboundHtml } from "./services/email-html-normalizer";
-import { wrapSignatureCtaLinks, updateSignatureCtaMessageIds, recordSignatureCtaClick } from "./services/signature-cta-tracker";
+import { wrapSignatureCtaLinks, updateSignatureCtaMessageIds, recordSignatureCtaClick, isSafeCtaUrl } from "./services/signature-cta-tracker";
 import { getAuthUrl, exchangeCodeForTokens, isGmailConnected, getGmailClient } from "./gmail-oauth";
 import { parseGmailMessage } from "./services/email-parser";
 import { runAssociationEngine } from "./services/association-engine";
@@ -577,7 +577,7 @@ export async function registerRoutes(
     let destUrl = "https://voltsafemarine.com";
     try {
       const resolved = await recordSignatureCtaClick(token, ip, ua);
-      if (resolved) destUrl = resolved;
+      if (resolved && isSafeCtaUrl(resolved)) destUrl = resolved;
     } catch (err) {
       console.error("[cta-tracker] click record failed (non-fatal):", err);
     }
@@ -27673,6 +27673,9 @@ export function registerConfluenceRoutes(app: Express) {
       if (!name?.trim() || !destinationUrl?.trim()) {
         return res.status(400).json({ message: "name and destinationUrl are required" });
       }
+      if (!isSafeCtaUrl(destinationUrl)) {
+        return res.status(422).json({ message: "destinationUrl must be a valid http or https URL" });
+      }
       const s = (v: string) => String(v).replace(/'/g, "''");
       const [row] = (await db.execute(sql.raw(`
         INSERT INTO email_signature_ctas
@@ -27702,6 +27705,9 @@ export function registerConfluenceRoutes(app: Express) {
       const userId = (req.session as any).userId as number;
       const id = Number(req.params.id);
       const { name, type, destinationUrl, imageUrl, altText, widthPx, trackingEnabled } = req.body;
+      if (destinationUrl && !isSafeCtaUrl(destinationUrl)) {
+        return res.status(422).json({ message: "destinationUrl must be a valid http or https URL" });
+      }
       const s = (v: string) => String(v).replace(/'/g, "''");
       const [row] = (await db.execute(sql.raw(`
         UPDATE email_signature_ctas SET

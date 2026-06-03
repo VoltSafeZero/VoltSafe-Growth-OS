@@ -1,0 +1,82 @@
+Run a final live smoke test for tracked signature CTA clicks.
+
+Do not add features. Only verify and fix real bugs.
+
+Test setup:
+1. Create a user email signature.
+2. Add the “Watch a Demo” tracked CTA preset.
+3. Confirm:
+   - destination_url = https://voltsafemarine.com/demo
+   - image alt text = Watch a Demo
+   - width = 200
+   - tracking enabled = true
+
+Send test emails to:
+- Gmail
+- Outlook / Microsoft 365
+- Apple Mail
+- iPhone Mail
+
+Test scenarios:
+
+A. New Email
+- CTA image appears correctly
+- image is clickable
+- href is /track/signature-click/:token
+- recipient lands on https://voltsafemarine.com/demo
+- click appears in VoltSafe Mail engagement/activity
+
+B. Reply
+- CTA appears once
+- quoted history remains intact
+- clicking CTA logs correctly
+
+C. Reply All
+- recipients remain correct
+- each recipient attribution is correct where supported
+- CTA appears once
+
+D. Forward
+- forwarded history remains intact
+- attachments remain unaffected
+- CTA appears once
+- click logs correctly
+
+E. Draft
+- save draft
+- reopen draft
+- confirm CTA/signature is not duplicated
+- send draft
+- click logs correctly
+
+F. Scheduled Send
+- schedule an email with the CTA
+- confirm sent email contains tracked CTA
+- click logs correctly
+
+G. Multiple Clicks
+- click the CTA multiple times from the same recipient
+- confirm total clicks increments
+- confirm first-click CRM activity is not duplicated unnecessarily
+- confirm click event rows are stored correctly
+
+H. Security
+- create a CTA with unsafe destination:
+  - javascript:alert(1)
+  - data:text/html,<script>alert(1)</script>
+  - file:///etc/passwd
+- confirm these are rejected or sanitized
+- confirm public redirect endpoint cannot be used as an open redirect
+
+I. Regression
+- body links are not rewritten as signature CTA links
+- existing email link tracking still works
+- open tracking still works
+- signature switching still works
+- no duplicate signature is appended
+
+Report:
+- pass/fail by mail client
+- bugs found
+- fixes made
+- final release recommendation

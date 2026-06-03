@@ -19,7 +19,7 @@ import { esc, hashIp, isBotUserAgent } from "../tracking";
 const SIG_START = "<!--vs-sig-start-->";
 const SIG_END   = "<!--vs-sig-end-->";
 
-function isSafeUrl(url: string): boolean {
+export function isSafeCtaUrl(url: string): boolean {
   try {
     const u = new URL(url);
     return u.protocol === "http:" || u.protocol === "https:";
@@ -81,7 +81,7 @@ export async function wrapSignatureCtaLinks(
 
   for (const cta of ctaRows) {
     const destUrl: string = cta.destination_url;
-    if (!isSafeUrl(destUrl)) continue;
+    if (!isSafeCtaUrl(destUrl)) continue;
 
     // Escape special regex chars in the destination URL
     const escapedDest = destUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

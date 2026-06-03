@@ -56,7 +56,7 @@ console.log("\n[2] server/services/signature-cta-tracker.ts — service");
   check("uses hashIp for privacy",           src.includes("hashIp"));
   check("writes CRM activity on real click", src.includes("email_cta_click"));
   check("non-fatal on CTA insert error",     src.includes("non-fatal"));
-  check("isSafeUrl guards against non-http", src.includes("isSafeUrl"));
+  check("isSafeCtaUrl guards against non-http", src.includes("isSafeCtaUrl"));
 }
 
 // ── 3. SQL migration: tables exist ───────────────────────────────────────────

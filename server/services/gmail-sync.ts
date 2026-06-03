@@ -269,14 +269,58 @@ async function runScheduledEmailSender() {
     log(`[gmail-scheduled] #${email.id} attempting send → to="${email.to}" subject="${email.subject}" userId=${sendUserId}`);
 
     try {
+      // Apply the same pipeline as immediate sends:
+      // normalise → CTA-wrap (injects tracked redirect URLs) → tracking pixel inject → send
+      const baseUrl = process.env.PUBLIC_URL?.replace(/\/$/, "")
+        ?? (process.env.REPL_SLUG && process.env.REPL_OWNER
+          ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.replit.app`
+          : "http://localhost:5000");
+
+      const { normalizeOutboundHtml } = await import("./email-html-normalizer");
+      const { wrapSignatureCtaLinks: wrapCta, updateSignatureCtaMessageIds: backfillCta } = await import("./signature-cta-tracker");
+      const { injectTracking, generateTrackingId } = await import("../tracking");
+
+      const cleanBody = normalizeOutboundHtml(email.body);
+      // Extract plain address from "Name <addr>" or bare address
+      const recipientEmail = String(email.to)
+        .split(/[,;]/)[0]
+        .replace(/^.*<([^>]+)>.*$/, "$1")
+        .trim()
+        .toLowerCase();
+
+      let ctaWrappedBody = cleanBody;
+      let _schedCtaTokens: string[] = [];
+      try {
+        const ctaRes = await wrapCta(cleanBody, sendUserId, recipientEmail, baseUrl);
+        ctaWrappedBody = ctaRes.html;
+        _schedCtaTokens = ctaRes.tokens;
+      } catch (ctaErr: any) {
+        log(`[gmail-scheduled] #${email.id} CTA wrap non-fatal: ${ctaErr.message}`);
+      }
+
+      const trackingId = generateTrackingId();
+      let trackedBody = ctaWrappedBody;
+      try {
+        trackedBody = injectTracking(ctaWrappedBody, trackingId, baseUrl);
+      } catch (trackErr: any) {
+        log(`[gmail-scheduled] #${email.id} tracking inject non-fatal: ${trackErr.message}`);
+      }
+
       // IMPORTANT: sendEmail(userId, to, subject, body, threadId?, attachments?, accountId?)
       const result = await sendEmail(
         sendUserId,
         email.to,
         email.subject || "",
-        email.body,
+        trackedBody,
         email.threadId ?? undefined,
       );
+
+      if (result?.id && _schedCtaTokens.length > 0) {
+        backfillCta(_schedCtaTokens, String(result.id)).catch((e: any) =>
+          log(`[gmail-scheduled] #${email.id} CTA msgId backfill non-fatal: ${e.message}`)
+        );
+      }
+
       const sentMsgId = result?.id ?? null;
       await db.update(scheduledEmails)
         .set({ status: "sent", sentAt: new Date(), sentMessageId: sentMsgId })
