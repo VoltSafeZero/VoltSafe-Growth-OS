@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Badge } from "@/components/ui/badge";
@@ -79,6 +79,7 @@ export function TaskBoard({ view, onOpenTask, viewingUserId }: Props) {
   const [draggingColValue, setDraggingColValue] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>({});
   const [activeViewId, setActiveViewId] = useState<number | null>(null);
+  const hasAppliedDefaultRef = useRef(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [newViewName, setNewViewName] = useState("");
   const [newViewDefault, setNewViewDefault] = useState(false);
@@ -176,14 +177,19 @@ export function TaskBoard({ view, onOpenTask, viewingUserId }: Props) {
     queryFn: () => fetch("/api/task-board-views", { credentials: "include" }).then(r => r.json()),
   });
 
+  // Apply the default saved view exactly once on initial load.
+  // Using a ref so that manual filter changes (which call setActiveViewId(null))
+  // do NOT re-trigger this and wipe the user's in-flight selection.
   useEffect(() => {
-    if (activeViewId !== null) return;
+    if (hasAppliedDefaultRef.current) return;
+    if (savedViews.length === 0) return;
+    hasAppliedDefaultRef.current = true;
     const def = savedViews.find(v => v.isDefault);
     if (def) {
       setActiveViewId(def.id);
       setFilters(def.filters || {});
     }
-  }, [savedViews, activeViewId]);
+  }, [savedViews]);
 
   const grouped: Record<string, any[]> = useMemo(() => {
     const base: Record<string, any[]> = {};
