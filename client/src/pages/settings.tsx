@@ -29,6 +29,7 @@ import {
   AlertCircle, Clock, Settings2, Apple, ChevronLeft, FlaskConical,
   CalendarCheck, ShieldAlert, Users, WifiOff, Wifi,
   Mail, Eye, MousePointerClick, BellRing, ListTodo, Zap,
+  PenSquare, ArrowRight,
 } from "lucide-react";
 import { SiGooglecalendar, SiZoom } from "react-icons/si";
 import { useLocation } from "wouter";
@@ -1223,6 +1224,36 @@ export default function SettingsPage() {
               )}
             </>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Mail Signatures */}
+      <Card className="border-border/50">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <PenSquare className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-lg">Email Signatures</CardTitle>
+              <CardDescription>
+                Create and manage signatures that are automatically inserted into your outgoing emails.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate("/settings/signatures")}
+            className="gap-2"
+            data-testid="button-manage-signatures"
+          >
+            <PenSquare className="h-4 w-4" />
+            Manage Signatures
+            <ArrowRight className="h-3.5 w-3.5 ml-1" />
+          </Button>
         </CardContent>
       </Card>
 

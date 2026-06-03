@@ -492,6 +492,17 @@ function ComposeDialog({
   const [subject, setSubject] = useState(defaultSubject);
   const [body, setBody] = useState(defaultBody);
 
+  // ── Dynamic Signatures ───────────────────────────────────────────────────────
+  type EmailSig = { id: number; name: string; htmlContent: string; isDefault: boolean };
+  const { data: signaturesData = [] } = useQuery<EmailSig[]>({ queryKey: ["/api/signatures"] });
+  // undefined = auto-pick default; null = user chose "No signature"; number = specific sig id
+  const [selectedSigId, setSelectedSigId] = useState<number | null | undefined>(undefined);
+  const defaultSig = signaturesData.find(s => s.isDefault) ?? signaturesData[0];
+  const effectiveSigId = selectedSigId === undefined ? (defaultSig?.id ?? null) : selectedSigId;
+  const activeSignatureHtml = signaturesData.length === 0
+    ? EMAIL_SIGNATURE_HTML  // legacy fallback until user creates DB signatures
+    : (effectiveSigId === null ? "" : (signaturesData.find(s => s.id === effectiveSigId)?.htmlContent ?? ""));
+
   // Sync fields whenever the modal opens with new defaults (e.g. switching between reply targets).
   // C1 fix: also reset the idempotency key so each open of the compose window gets a fresh UUID.
   // This is critical for the "new compose" case where key="compose" is stable and React never
@@ -504,6 +515,7 @@ function ComposeDialog({
       setBcc(defaultBcc);
       setSubject(defaultSubject);
       setBody(defaultBody);
+      setSelectedSigId(undefined); // reset to auto-pick default on each compose open
       idempotencyKeyRef.current = crypto.randomUUID();
       // Seed the rich-text editor imperatively so the cursor isn't reset on
       // every React re-render. requestAnimationFrame gives the portal a frame
@@ -888,7 +900,7 @@ function ComposeDialog({
   const sendMutation = useMutation({
     mutationFn: async () => {
       onTrustEvent?.({ type: "sending", at: Date.now() });
-      const appendHtml = EMAIL_SIGNATURE_HTML
+      const appendHtml = activeSignatureHtml
         + (isForward && defaultQuotedHtml
           ? buildForwardedBlockHtml(defaultQuotedFrom, defaultQuotedDate, forwardSubject, forwardTo, defaultQuotedHtml)
           : (!isForward && threadId && defaultQuotedHtml
@@ -949,7 +961,7 @@ function ComposeDialog({
   const draftMutation = useMutation({
     mutationFn: async () => {
       onTrustEvent?.({ type: "draft-saving", at: Date.now() });
-      const htmlBody = buildEmailHtml(body, EMAIL_SIGNATURE_HTML);
+      const htmlBody = buildEmailHtml(body, activeSignatureHtml);
       const res = await apiRequest("POST", "/api/gmail/drafts", {
         to, subject, body: htmlBody, threadId, draftId: activeDraftId,
         ...(cc  ? { cc }  : {}),
@@ -996,7 +1008,7 @@ function ComposeDialog({
 
   const scheduleMutation = useMutation({
     mutationFn: async () => {
-      const scheduleAppendHtml = EMAIL_SIGNATURE_HTML
+      const scheduleAppendHtml = activeSignatureHtml
         + (isForward && defaultQuotedHtml
           ? buildForwardedBlockHtml(defaultQuotedFrom, defaultQuotedDate, forwardSubject, forwardTo, defaultQuotedHtml)
           : (!isForward && threadId && defaultQuotedHtml
@@ -1223,12 +1235,50 @@ function ComposeDialog({
                 />
               </div>
 
-              {/* Email signature preview */}
-              <div className="border border-border/30 rounded-md px-3 py-2.5 bg-muted/15">
-                <div
-                  className="text-sm opacity-60 pointer-events-none select-none"
-                  dangerouslySetInnerHTML={{ __html: EMAIL_SIGNATURE_HTML }}
-                />
+              {/* Signature selector + preview */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between px-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground/70">Signature:</span>
+                    <Select
+                      value={effectiveSigId === null ? "none" : String(effectiveSigId ?? "")}
+                      onValueChange={v => setSelectedSigId(v === "none" ? null : Number(v))}
+                    >
+                      <SelectTrigger
+                        className="h-6 text-xs border-border/40 bg-transparent w-44 py-0"
+                        data-testid="select-signature"
+                      >
+                        <SelectValue placeholder="No signature" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none" data-testid="sig-option-none">No signature</SelectItem>
+                        {signaturesData.map(s => (
+                          <SelectItem key={s.id} value={String(s.id)} data-testid={`sig-option-${s.id}`}>
+                            {s.name}{s.isDefault ? " ★" : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <a
+                    href="/settings/signatures"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground/70 flex items-center gap-0.5 transition-colors"
+                    data-testid="link-manage-signatures"
+                  >
+                    <Settings2 className="h-2.5 w-2.5" />
+                    Manage
+                  </a>
+                </div>
+                {activeSignatureHtml && (
+                  <div className="border border-border/30 rounded-md px-3 py-2.5 bg-muted/15">
+                    <div
+                      className="text-sm opacity-60 pointer-events-none select-none"
+                      dangerouslySetInnerHTML={{ __html: activeSignatureHtml }}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Quoted original email (reply) / forwarded block (forward) */}

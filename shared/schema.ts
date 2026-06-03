@@ -2709,3 +2709,17 @@ export const tradeshowEvents = pgTable("tradeshow_events", {
 export const insertTradeshowEventSchema = createInsertSchema(tradeshowEvents).omit({ id: true, createdAt: true, updatedAt: true });
 export type TradeshowEvent = typeof tradeshowEvents.$inferSelect;
 export type InsertTradeshowEvent = z.infer<typeof insertTradeshowEventSchema>;
+
+export const emailSignatures = pgTable("email_signatures", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  name: text("name").notNull(),
+  htmlContent: text("html_content").notNull(),
+  plainTextContent: text("plain_text_content"),
+  isDefault: boolean("is_default").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+export const insertEmailSignatureSchema = createInsertSchema(emailSignatures).omit({ id: true, createdAt: true, updatedAt: true });
+export type EmailSignature = typeof emailSignatures.$inferSelect;
+export type InsertEmailSignature = z.infer<typeof insertEmailSignatureSchema>;

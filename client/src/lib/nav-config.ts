@@ -7,7 +7,7 @@ import {
   Bell, Globe, Users2, Truck, Factory, FlaskConical, Landmark, Circle,
   Newspaper, PlayCircle, FlaskRound, BellRing, MapPin, ShieldCheck, Tags,
   Zap, HelpCircle, ClipboardList, Snowflake, Search, Settings, Smartphone,
-  Mic, Car,
+  Mic, Car, PenSquare,
 } from "lucide-react";
 
 // Note: a few items intentionally use a different icon on mobile than on desktop
@@ -202,6 +202,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "admin-task-access",  label: "Task Hub Access",                                route: "/admin/task-hub-access",   icon: CheckSquare, adminOnly: true },
       { id: "admin-integrations", label: "Integrations",                                   route: "/admin/integrations",      icon: Zap,         adminOnly: true },
       { id: "admin-mailboxes",    label: { desktop: "My Mailboxes", mobile: "Mailboxes" }, route: "/settings/mailbox",        icon: Mail,        adminOnly: true },
+      { id: "admin-signatures",   label: "Email Signatures",                               route: "/settings/signatures",     icon: PenSquare,   adminOnly: false },
       { id: "admin-search",       label: "Global Search",                                  route: "/search",                  icon: Search,      adminOnly: true },
       { id: "admin-settings",     label: "Settings",                                       route: "/settings",                icon: Settings,    adminOnly: true, exactMatch: true },
     ],

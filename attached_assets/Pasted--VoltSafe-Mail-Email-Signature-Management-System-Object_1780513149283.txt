@@ -1,0 +1,340 @@
+# VoltSafe Mail – Email Signature Management System
+
+## Objective
+
+Implement a modern email signature management system inside VoltSafe Mail that allows users to create, edit, manage, and automatically insert email signatures without requiring HTML knowledge.
+
+The current system relies on manually uploading HTML signatures into mail client settings. Replace this with a first-class signature management feature.
+
+---
+
+# Phase 1 – Core Signature Management
+
+## New Settings Section
+
+Add:
+
+Settings → Mail → Signatures
+
+Users can:
+
+- Create Signature
+- Edit Signature
+- Delete Signature
+- Duplicate Signature
+- Set Default Signature
+- Preview Signature
+
+Display:
+
+My Signatures
+
+- Corporate Signature (Default)
+- Sales Signature
+- Investor Signature
+- Personal Signature
+
+---
+
+## Database
+
+Create table:
+
+email_signatures
+
+Fields:
+
+- id
+- organization_id
+- user_id
+- name
+- html_content
+- plain_text_content
+- is_default
+- created_at
+- updated_at
+
+Indexes:
+
+- user_id
+- organization_id
+
+Constraint:
+
+Only one default signature per user.
+
+---
+
+## Signature Builder
+
+Create a WYSIWYG signature editor.
+
+Fields:
+
+- Full Name
+- Job Title
+- Company
+- Email
+- Phone
+- Mobile
+- Website
+- Address
+- Logo Upload
+- Social Links
+
+Supported formatting:
+
+- Bold
+- Italic
+- Underline
+- Hyperlinks
+- Images
+- Tables
+- Brand Colors
+
+System generates valid responsive HTML automatically.
+
+Users should not need HTML knowledge.
+
+---
+
+## Advanced HTML Mode
+
+Add:
+
+"Edit HTML"
+
+button.
+
+When enabled:
+
+- Show raw HTML editor.
+- Allow direct HTML editing.
+- Preserve custom HTML exactly.
+- Sanitize dangerous code.
+- Block scripts and unsafe embeds.
+
+---
+
+## Signature Preview
+
+Provide:
+
+Desktop Preview
+
+Mobile Preview
+
+Preview must match actual outgoing email rendering as closely as possible.
+
+---
+
+# Phase 2 – Composer Integration
+
+## Signature Selector
+
+Inside compose window add:
+
+Signature:
+[ Default Signature ▼ ]
+
+Dropdown contains all user signatures.
+
+User can switch signatures instantly while composing.
+
+---
+
+## Automatic Insertion
+
+When creating:
+
+- New Email
+- Reply
+- Reply All
+- Forward
+
+Automatically insert user's default signature.
+
+---
+
+## Signature Positioning
+
+Support:
+
+- Below Message (default)
+- Above Quoted Reply
+
+User preference stored per account.
+
+---
+
+## Dynamic Updates
+
+Changing a signature should not modify previously sent emails.
+
+Only future emails use updated versions.
+
+---
+
+# Phase 3 – Organization Signatures
+
+## Admin Signature Management
+
+Admins can create:
+
+Organization Signatures
+
+Examples:
+
+- Corporate
+- Support
+- Sales
+- Investor Relations
+
+---
+
+## Dynamic Variables
+
+Support:
+
+{{first_name}}
+{{last_name}}
+{{full_name}}
+{{job_title}}
+{{email}}
+{{phone}}
+{{mobile}}
+{{company}}
+{{website}}
+
+Example template:
+
+{{full_name}}
+{{job_title}}
+VoltSafe Inc.
+{{phone}}
+
+Rendered automatically per user.
+
+---
+
+## Assignment
+
+Admins can:
+
+- Assign organization signatures to all users
+- Assign to specific teams
+- Lock signatures
+- Allow local edits
+- Force branding compliance
+
+---
+
+# Phase 4 – Marketing & Campaign Banners
+
+Allow admins to append:
+
+- Banner Images
+- CTA Buttons
+- Event Promotions
+- Product Launch Announcements
+
+Examples:
+
+Book a Demo
+
+Watch Product Video
+
+Schedule Marina Assessment
+
+Campaigns should support:
+
+- Start Date
+- End Date
+- Target Groups
+- Click Tracking
+
+---
+
+# Technical Requirements
+
+## Security
+
+Sanitize all HTML.
+
+Block:
+
+- Script tags
+- Embedded JavaScript
+- Event handlers
+- Malicious HTML
+
+Prevent XSS attacks.
+
+---
+
+## Image Handling
+
+Store images in VoltSafe assets storage.
+
+Do not use external image URLs by default.
+
+Automatically generate secure hosted URLs.
+
+---
+
+## Mobile Compatibility
+
+Signatures must render properly in:
+
+- VoltSafe Mail
+- Gmail
+- Outlook
+- Apple Mail
+- iPhone Mail
+- Android Mail
+
+Use responsive HTML.
+
+---
+
+## Performance
+
+Signatures should be cached.
+
+No noticeable delay when opening compose window.
+
+---
+
+# UX Requirements
+
+The system should feel similar to:
+
+- Gmail
+- Outlook
+- Front
+- Superhuman
+
+Modern, fast, and easy to use.
+
+The majority of users should never need to interact with HTML directly.
+
+HTML editing should be available only through Advanced Mode.
+
+---
+
+# Deliverables
+
+Build:
+
+1. Database migration
+2. Backend API endpoints
+3. Signature management UI
+4. WYSIWYG editor
+5. HTML editor
+6. Composer integration
+7. Organization-level signature management
+8. Dynamic variables engine
+9. Preview system
+10. Campaign banner framework
+
+All functionality must be production-ready, mobile-responsive, and integrated into VoltSafe Mail's existing permissions, user management, and organization architecture.

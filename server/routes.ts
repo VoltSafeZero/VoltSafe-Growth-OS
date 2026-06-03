@@ -21,7 +21,7 @@ import { deriveScenarioFromCRM, generateScenarioActions, computeForecastVsActual
 import { createPlanCommitFromScenario, computeGapToPlan, generateGapClosureActions, autoCreateTasksFromActions, snapshotGapStatus } from "./services/revenue-operating-system";
 import { generateDailyBrief, getTodaysBrief, getAlerts, updateAlertStatus } from "./services/executive-copilot";
 import { db } from "./db";
-import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications, activities, tasks } from "@shared/schema";
+import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications, activities, tasks, emailSignatures } from "@shared/schema";
 import {
   insertLeadSchema, insertAccountSchema, insertContactSchema,
   insertOpportunitySchema, insertTicketSchema, insertQuoteSchema,
@@ -27486,6 +27486,139 @@ export function registerConfluenceRoutes(app: Express) {
       const { generateSuggestedNextEmail } = await import("./services/crm-ai-summary");
       const suggestion = await generateSuggestedNextEmail(entityType as any, entityId);
       res.json(suggestion);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── Email Signatures ─────────────────────────────────────────────────────────
+
+  // Ensure table exists (idempotent migration)
+  db.execute(sql.raw(`
+    CREATE TABLE IF NOT EXISTS email_signatures (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      html_content TEXT NOT NULL,
+      plain_text_content TEXT,
+      is_default BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_email_signatures_user_id ON email_signatures(user_id);
+  `)).catch(err => console.error("[routes] email_signatures migration error:", err));
+
+  function sanitizeSignatureHtml(html: string): string {
+    if (!html) return "";
+    let out = html;
+    out = out.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+    out = out.replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, "");
+    out = out.replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, "");
+    out = out.replace(/<object\b[^>]*>[\s\S]*?<\/object>/gi, "");
+    out = out.replace(/<embed\b[^>]*\/?>/gi, "");
+    out = out.replace(/<applet\b[^>]*>[\s\S]*?<\/applet>/gi, "");
+    out = out.replace(/<form\b[^>]*>[\s\S]*?<\/form>/gi, "");
+    out = out.replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, "");
+    out = out.replace(/\s+on\w+\s*=\s*[^\s>]*/gi, "");
+    out = out.replace(/href\s*=\s*["'](?:javascript|vbscript|data):[^"']*["']/gi, 'href="#"');
+    out = out.replace(/src\s*=\s*["'](?:javascript|vbscript|data):[^"']*["']/gi, 'src=""');
+    return out;
+  }
+
+  app.get("/api/signatures", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user!.id;
+      const rows = await db.select().from(emailSignatures)
+        .where(eq(emailSignatures.userId, userId))
+        .orderBy(desc(emailSignatures.isDefault), asc(emailSignatures.createdAt));
+      res.json(rows);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/signatures", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user!.id;
+      const { name, htmlContent, plainTextContent, isDefault } = req.body;
+      if (!name?.trim() || !htmlContent?.trim()) {
+        return res.status(400).json({ message: "name and htmlContent are required" });
+      }
+      const cleanHtml = sanitizeSignatureHtml(htmlContent);
+      if (isDefault) {
+        await db.update(emailSignatures).set({ isDefault: false }).where(eq(emailSignatures.userId, userId));
+      }
+      const [row] = await db.insert(emailSignatures).values({
+        userId,
+        name: name.trim(),
+        htmlContent: cleanHtml,
+        plainTextContent: plainTextContent ?? null,
+        isDefault: !!isDefault,
+      }).returning();
+      res.status(201).json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.get("/api/signatures/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user!.id;
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const [row] = await db.select().from(emailSignatures)
+        .where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId)));
+      if (!row) return res.status(404).json({ message: "Not found" });
+      res.json(row);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.put("/api/signatures/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user!.id;
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const { name, htmlContent, plainTextContent, isDefault } = req.body;
+      if (!name?.trim() || !htmlContent?.trim()) {
+        return res.status(400).json({ message: "name and htmlContent are required" });
+      }
+      const [existing] = await db.select().from(emailSignatures)
+        .where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId)));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      const cleanHtml = sanitizeSignatureHtml(htmlContent);
+      if (isDefault) {
+        await db.update(emailSignatures).set({ isDefault: false }).where(eq(emailSignatures.userId, userId));
+      }
+      const [updated] = await db.update(emailSignatures).set({
+        name: name.trim(),
+        htmlContent: cleanHtml,
+        plainTextContent: plainTextContent ?? null,
+        isDefault: !!isDefault,
+        updatedAt: new Date(),
+      }).where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId))).returning();
+      res.json(updated);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.delete("/api/signatures/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user!.id;
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const [existing] = await db.select().from(emailSignatures)
+        .where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId)));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      await db.delete(emailSignatures).where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId)));
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.patch("/api/signatures/:id/set-default", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user!.id;
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const [existing] = await db.select().from(emailSignatures)
+        .where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId)));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      await db.update(emailSignatures).set({ isDefault: false }).where(eq(emailSignatures.userId, userId));
+      const [updated] = await db.update(emailSignatures).set({ isDefault: true, updatedAt: new Date() })
+        .where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId))).returning();
+      res.json(updated);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
