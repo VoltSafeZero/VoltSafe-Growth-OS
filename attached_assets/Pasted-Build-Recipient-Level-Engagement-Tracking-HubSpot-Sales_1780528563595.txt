@@ -1,0 +1,348 @@
+Build Recipient-Level Engagement Tracking (HubSpot/Salesforce/Klaviyo Style)
+
+Objective:
+
+Move VoltSafe Mail from message-level tracking to recipient-level tracking so we know exactly WHICH person opened, clicked, viewed a demo, or engaged with an email.
+
+Current Problem:
+
+Today engagement is tracked primarily at the message/thread level.
+
+Example:
+
+TO: marina@tmv.vc
+CC: soraya@tmv.vc
+CC: scott@voltsafe.com
+
+Current analytics:
+
+Opened 14x
+3 Clicks
+
+This is not actionable because we do not know:
+
+- Which recipient opened
+- Which recipient clicked
+- Whether the engagement was internal
+- Whether the primary recipient engaged
+- Whether a decision maker engaged
+
+Goal:
+
+Provide HubSpot/Salesforce/Klaviyo-style recipient-level engagement.
+
+==================================================
+PHASE 1 — DATA MODEL
+==================================================
+
+Create recipient-level tracking.
+
+Add table:
+
+email_recipients
+
+Fields:
+
+id
+gmail_message_id
+gmail_thread_id
+
+recipient_email
+recipient_name
+
+recipient_type
+('to','cc','bcc')
+
+is_primary_recipient
+boolean
+
+is_internal
+boolean
+
+tracking_token
+unique
+
+created_at
+
+==================================================
+TRACKING TOKENS
+==================================================
+
+Every recipient receives a unique token.
+
+Example:
+
+marina@tmv.vc
+→ token_abc123
+
+soraya@tmv.vc
+→ token_def456
+
+scott@voltsafe.com
+→ token_ghi789
+
+No shared tracking tokens.
+
+No shared tracking pixels.
+
+No shared click tracking.
+
+==================================================
+PHASE 2 — OPEN TRACKING
+==================================================
+
+Tracking pixel URLs must become recipient-specific.
+
+Current:
+
+/track/open/{messageId}
+
+Replace with:
+
+/track/open/{trackingToken}
+
+When pixel fires:
+
+1. Resolve recipient
+2. Resolve recipient email
+3. Resolve recipient type
+4. Create engagement event
+
+Store:
+
+recipient_email
+recipient_type
+tracking_token
+
+is_internal
+
+==================================================
+PHASE 3 — CLICK TRACKING
+==================================================
+
+All tracked links become recipient-specific.
+
+Current:
+
+/track/click/{token}
+
+Replace with:
+
+/track/click/{trackingToken}/{linkId}
+
+When clicked:
+
+Store:
+
+recipient_email
+recipient_type
+tracking_token
+
+destination_url
+
+is_internal
+
+==================================================
+PHASE 4 — CTA TRACKING
+==================================================
+
+Apply the same model to:
+
+- Signature CTA clicks
+- Demo video clicks
+- Webinar clicks
+- Document clicks
+- Meeting booking clicks
+
+All events must resolve to a specific recipient.
+
+==================================================
+PHASE 5 — INTERNAL FILTERING
+==================================================
+
+Internal domains:
+
+@voltsafe.com
+@voltsafemarine.com
+
+Add:
+
+is_internal
+
+to all engagement event tables.
+
+Rule:
+
+Internal engagement never contributes to:
+
+- Open counts
+- Click counts
+- Intent scores
+- Hot lead scores
+- Widgets
+- Dashboards
+- Reply queues
+
+Required filter everywhere:
+
+is_internal IS NOT TRUE
+
+==================================================
+PHASE 6 — RECIPIENT ANALYTICS
+==================================================
+
+Add recipient breakdowns.
+
+Example thread:
+
+Opened 14x
+Clicked 3x
+
+Expanded:
+
+Opened By:
+
+✓ marina@tmv.vc
+8 opens
+
+✓ soraya@tmv.vc
+3 opens
+
+Internal:
+
+✓ scott@voltsafe.com
+4 opens
+(excluded)
+
+Clicked By:
+
+✓ marina@tmv.vc
+3 clicks
+
+==================================================
+PHASE 7 — THREAD ENGAGEMENT PANEL
+==================================================
+
+Enhance ThreadEngagementWidget.
+
+Add:
+
+Recipient Engagement
+
+Example:
+
+Recipients
+
+Marina (TO)
+Opened 8x
+Clicked Demo
+Last active 2h ago
+
+Soraya (CC)
+Opened 3x
+No clicks
+
+Scott (CC)
+Internal
+Ignored
+
+==================================================
+PHASE 8 — NEEDS REPLY WIDGET
+==================================================
+
+Use recipient-level engagement.
+
+Example:
+
+🔥 Marina
+Opened 21x
+Clicked Demo
+Last active 1h ago
+
+instead of:
+
+Opened 21x
+
+This makes follow-up prioritization dramatically more useful.
+
+==================================================
+PHASE 9 — LEAD INTELLIGENCE
+==================================================
+
+Add recipient-level intent scoring.
+
+Open = 1
+Link Click = 3
+CTA Click = 5
+Demo Click = 8
+Meeting Booked = 20
+
+Per-recipient score.
+
+Example:
+
+Marina
+Score 28
+Very High Intent
+
+Soraya
+Score 4
+Interested
+
+Scott
+Ignored (internal)
+
+==================================================
+PHASE 10 — BACKWARD COMPATIBILITY
+==================================================
+
+Do not break existing data.
+
+Historical rows:
+
+Continue displaying aggregate counts.
+
+New emails:
+
+Use recipient-level tracking.
+
+Allow mixed-mode operation during migration.
+
+==================================================
+PHASE 11 — FUTURE CAPABILITIES
+==================================================
+
+Prepare architecture for:
+
+- Decision maker identification
+- Buying committee mapping
+- Champion detection
+- Multi-contact account engagement
+- CRM timeline events
+- Account-level engagement heatmaps
+
+==================================================
+TESTS
+==================================================
+
+Add tests proving:
+
+✓ TO recipient tracked separately
+✓ CC recipient tracked separately
+✓ BCC recipient tracked separately
+✓ Internal users excluded
+✓ Opens attributed correctly
+✓ Clicks attributed correctly
+✓ CTA clicks attributed correctly
+✓ Thread widget shows recipient breakdown
+✓ Needs Reply widget uses recipient-level scores
+✓ Historical data still works
+✓ Tracking tokens unique per recipient
+
+All tests must pass.
+
+Goal:
+
+After implementation, VoltSafe Mail should answer:
+
+"Exactly who opened, who clicked, who watched the demo, who is most engaged, and who should I follow up with next?"

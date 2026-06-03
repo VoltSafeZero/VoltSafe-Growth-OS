@@ -1,0 +1,88 @@
+Fix email open tracking so internal VoltSafe opens do not count as recipient engagement.
+
+Problem:
+When a VoltSafe user opens their own sent email, or when a teammate on CC/BCC opens the email, the system increments the open count. This creates false engagement.
+
+Required behavior:
+Any open/click/event from an internal VoltSafe user must not increase customer engagement counts.
+
+Internal domains:
+- @voltsafe.com
+- @voltsafemarine.com
+- any configured internal company domains if already supported in settings/env
+
+Implementation requirements:
+
+1. Identify tracking event ingestion paths:
+   - tracking pixel open endpoint
+   - link click tracking endpoint
+   - signature CTA click endpoint
+   - video/demo click tracking endpoint if separate
+
+2. Determine the best available identity for the opener/clicker:
+   - recipient_email attached to tracking pixel/token
+   - Gmail message recipient metadata
+   - tracking token owner/recipient mapping
+   - authenticated user email if event happens inside the app
+   - fallback to IP/User-Agent only for bot filtering, not person identity
+
+3. Add an internal-recipient filter:
+   If resolved opener/clicker email domain is internal, mark the event as internal and exclude it from engagement counts.
+
+4. Database:
+   If not already present, add columns to engagement event tables:
+   - is_internal boolean default false
+   - internal_reason text nullable
+
+   Apply to relevant tables such as:
+   - email_engagement_events
+   - email_tracking_pixels
+   - signature_cta_clicks
+   or whichever tables actually store open/click events.
+
+5. Do not delete historical data.
+   Instead:
+   - mark internal events as is_internal=true
+   - exclude is_internal=true from all engagement counts, widgets, inbox badges, and scoring.
+
+6. Update all engagement queries to exclude internal events:
+   - InboxSignalBadge counts
+   - ThreadEngagementWidget
+   - Needs Reply — High Engagement widget
+   - recent/high-intent endpoints
+   - engagement summaries
+   - any scoring pipeline that updates signal_level, engagement_score, is_hot
+
+   Required filter:
+   is_internal IS NOT TRUE
+
+7. Backfill:
+   Add a safe backfill script that marks historical events internal where recipient_email or resolved email domain is:
+   - voltsafe.com
+   - voltsafemarine.com
+
+   Do not mark client opens internal just because the sender is VoltSafe.
+   Only mark internal when the opener/clicker/recipient tied to that tracking token is internal.
+
+8. Important edge case:
+   If an email is sent TO a client and CCs a VoltSafe teammate, the client’s opens should count, but the VoltSafe teammate’s opens should not.
+
+9. Bot filtering should remain separate:
+   - is_bot = true is not the same as is_internal = true
+   - both should be excluded from customer engagement counts
+
+10. Tests:
+   Add tests proving:
+   - Client recipient opens count
+   - @voltsafe.com opens do not count
+   - @voltsafemarine.com opens do not count
+   - CC’d internal teammate opens do not count
+   - Client clicks still count
+   - Internal clicks do not count
+   - Inbox badges match filtered counts
+   - ThreadEngagementWidget matches filtered counts
+   - Needs Reply widget uses filtered counts
+   - Historical backfill marks internal events but does not delete rows
+
+11. After fix:
+   Open tracking numbers should represent external/customer engagement only.
