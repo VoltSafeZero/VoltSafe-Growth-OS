@@ -71,6 +71,7 @@ import { buildSweepReport } from "./services/auto-confirm";
 import { generateGlobalSuggestions } from "./services/global-suggestions";
 import {
   generateTrackingId, injectTracking, recordOpen, recordClick, getEngagementStats,
+  isInternalEmail, INTERNAL_DOMAINS,
 } from "./tracking";
 import { startEngagementScheduler } from "./services/engagement-scheduler";
 import { runFollowupScan, startFollowupScheduler } from "./services/booking-followup-engine";
@@ -8089,10 +8090,10 @@ export async function registerRoutes(
           JOIN email_messages em ON em.gmail_message_id = p.gmail_message_id
           LEFT JOIN LATERAL (
             SELECT
-              COUNT(*) FILTER (WHERE event_type='open'  AND is_bot=false AND is_duplicate=false) AS unique_opens,
-              COUNT(*) FILTER (WHERE event_type='click' AND is_bot=false AND is_duplicate=false) AS unique_clicks,
-              MAX(occurred_at) FILTER (WHERE event_type='open'  AND is_bot=false AND is_duplicate=false) AS last_open_at,
-              MAX(occurred_at) FILTER (WHERE event_type='click' AND is_bot=false AND is_duplicate=false) AS last_click_at
+              COUNT(*) FILTER (WHERE event_type='open'  AND is_bot=false AND is_duplicate=false AND is_internal IS NOT TRUE) AS unique_opens,
+              COUNT(*) FILTER (WHERE event_type='click' AND is_bot=false AND is_duplicate=false AND is_internal IS NOT TRUE) AS unique_clicks,
+              MAX(occurred_at) FILTER (WHERE event_type='open'  AND is_bot=false AND is_duplicate=false AND is_internal IS NOT TRUE) AS last_open_at,
+              MAX(occurred_at) FILTER (WHERE event_type='click' AND is_bot=false AND is_duplicate=false AND is_internal IS NOT TRUE) AS last_click_at
             FROM email_engagement_events WHERE tracking_id = p.tracking_id
           ) ev ON true
           WHERE em.direction = 'outbound'
@@ -13539,10 +13540,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         JOIN email_messages em ON em.gmail_message_id = p.gmail_message_id
         LEFT JOIN LATERAL (
           SELECT
-            COUNT(*) FILTER (WHERE event_type='open'  AND is_bot=false AND is_duplicate=false) AS unique_opens,
-            COUNT(*) FILTER (WHERE event_type='click' AND is_bot=false AND is_duplicate=false) AS unique_clicks,
-            MIN(occurred_at) FILTER (WHERE event_type='open' AND is_bot=false AND is_duplicate=false) AS first_open_at,
-            MAX(occurred_at) FILTER (WHERE event_type='open' AND is_bot=false AND is_duplicate=false) AS last_open_at
+            COUNT(*) FILTER (WHERE event_type='open'  AND is_bot=false AND is_duplicate=false AND is_internal IS NOT TRUE) AS unique_opens,
+            COUNT(*) FILTER (WHERE event_type='click' AND is_bot=false AND is_duplicate=false AND is_internal IS NOT TRUE) AS unique_clicks,
+            MIN(occurred_at) FILTER (WHERE event_type='open' AND is_bot=false AND is_duplicate=false AND is_internal IS NOT TRUE) AS first_open_at,
+            MAX(occurred_at) FILTER (WHERE event_type='open' AND is_bot=false AND is_duplicate=false AND is_internal IS NOT TRUE) AS last_open_at
           FROM email_engagement_events
           WHERE tracking_id = p.tracking_id
         ) ev ON true
@@ -13819,6 +13820,33 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           } catch (saveErr) {
             console.error("[tracking] pixel save failed (non-fatal, message already sent):", saveErr);
             trackingFailed = true;
+          }
+        }
+
+        // Populate email_recipients table for recipient-level tracking.
+        // Stores all TO/CC/BCC recipients with their types and internal flags.
+        // Non-fatal — runs after response guarantee, does not block send.
+        if (result?.id) {
+          try {
+            const msgId = String(result.id).replace(/'/g, "''");
+            const thId  = String(result.threadId || threadId || "").replace(/'/g, "''");
+            const token = (trackingEnabled && !trackingFailed) ? trackingId : null;
+            const rows = recipients.map((r, i) => {
+              const safeEmail = r.email.replace(/'/g, "''");
+              const internal  = isInternalEmail(r.email);
+              const isPrimary = i === 0 && r.kind === "to";
+              return `('${msgId}','${thId}','${safeEmail}',${isPrimary},${internal},'${r.kind}',${token ? `'${token}'` : "NULL"},NOW())`;
+            }).join(",");
+            if (rows) {
+              await db.execute(sql.raw(`
+                INSERT INTO email_recipients
+                  (gmail_message_id, gmail_thread_id, recipient_email, is_primary, is_internal, recipient_type, tracking_token, created_at)
+                VALUES ${rows}
+                ON CONFLICT (gmail_message_id, recipient_email) DO NOTHING
+              `));
+            }
+          } catch (recErr) {
+            console.warn("[tracking] email_recipients insert non-fatal:", recErr);
           }
         }
 

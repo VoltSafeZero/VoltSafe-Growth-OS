@@ -108,10 +108,24 @@ interface AccountEngagement {
   contacts: ContactEngagement[];
 }
 
+interface RecipientBreakdown {
+  recipientEmail: string;
+  recipientName: string | null;
+  recipientType: "to" | "cc" | "bcc";
+  isPrimary: boolean;
+  isInternal: boolean;
+  openCount: number;
+  clickCount: number;
+  ctaClickCount: number;
+  lastActivityAt: string | null;
+  intentScore: number;
+}
+
 interface ThreadEngagementFull {
   threadId: string;
   summary: EngagementSummary;
   activities: ActivityRow[];
+  recipientBreakdown: RecipientBreakdown[];
   ctaClicks: Array<{
     recipientEmail: string;
     contactId: number | null;
@@ -635,6 +649,74 @@ export function ThreadEngagementWidget({ threadId }: { threadId: string | null }
             <p className="text-[11px] text-muted-foreground/50 text-center py-2">
               Detailed activity breakdown not yet available.
             </p>
+          )}
+
+          {/* Recipient breakdown */}
+          {data.recipientBreakdown && data.recipientBreakdown.length > 0 && (
+            <div className="pt-2 border-t border-border/15 space-y-1" data-testid="recipient-breakdown">
+              <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-medium mb-1">
+                Recipients
+              </p>
+              {data.recipientBreakdown.map((r) => (
+                <div
+                  key={r.recipientEmail}
+                  className={`flex items-center gap-2 text-[11px] rounded px-1.5 py-0.5 ${
+                    r.isInternal ? "opacity-40" : ""
+                  }`}
+                  data-testid={`recipient-row-${r.recipientEmail}`}
+                >
+                  {/* Type badge */}
+                  <span className={`flex-shrink-0 uppercase text-[9px] font-semibold px-1 rounded ${
+                    r.recipientType === "to"  ? "bg-primary/15 text-primary"          :
+                    r.recipientType === "cc"  ? "bg-muted/40 text-muted-foreground"   :
+                                                "bg-muted/20 text-muted-foreground/60"
+                  }`}>
+                    {r.recipientType}
+                  </span>
+
+                  {/* Email / name */}
+                  <span className="flex-1 min-w-0 truncate text-foreground/80">
+                    {r.recipientName || r.recipientEmail}
+                  </span>
+
+                  {/* Internal tag */}
+                  {r.isInternal && (
+                    <span className="text-[9.5px] text-muted-foreground/50 italic flex-shrink-0">internal</span>
+                  )}
+
+                  {/* Engagement counts */}
+                  {!r.isInternal && (r.openCount > 0 || r.clickCount > 0 || r.ctaClickCount > 0) && (
+                    <span className="flex items-center gap-1.5 flex-shrink-0 text-[10px] text-muted-foreground/70">
+                      {r.openCount > 0 && (
+                        <span className="flex items-center gap-0.5">
+                          <Eye className="h-2.5 w-2.5 text-sky-400" />
+                          {r.openCount}
+                        </span>
+                      )}
+                      {r.clickCount > 0 && (
+                        <span className="flex items-center gap-0.5">
+                          <Link2 className="h-2.5 w-2.5 text-blue-400" />
+                          {r.clickCount}
+                        </span>
+                      )}
+                      {r.ctaClickCount > 0 && (
+                        <span className="flex items-center gap-0.5">
+                          <MousePointerClick className="h-2.5 w-2.5 text-violet-400" />
+                          {r.ctaClickCount}
+                        </span>
+                      )}
+                    </span>
+                  )}
+
+                  {/* Last activity */}
+                  {!r.isInternal && r.lastActivityAt && (
+                    <span className="flex-shrink-0 text-[10px] text-muted-foreground/40">
+                      {friendlyDate(r.lastActivityAt)}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
 
           {/* Follow-up button for top CTA recipient */}

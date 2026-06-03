@@ -15,6 +15,26 @@ import { sql } from "drizzle-orm";
 const IP_HASH_SALT    = process.env.TRACKING_SALT || "vs_tracking_salt_2026";
 const DEDUPE_WINDOW   = 60;   // seconds — rapid same-source events within this window = duplicate
 
+// ── Internal domain filter ─────────────────────────────────────────────────────
+// Domains whose recipients' opens/clicks must NOT count as customer engagement.
+// Override via comma-separated env var: INTERNAL_EMAIL_DOMAINS
+export const INTERNAL_DOMAINS: Set<string> = new Set(
+  (process.env.INTERNAL_EMAIL_DOMAINS ?? "voltsafe.com,voltsafemarine.com")
+    .split(",").map(d => d.trim().toLowerCase()).filter(Boolean)
+);
+
+/**
+ * Returns true when the given email address belongs to an internal VoltSafe domain.
+ * Internal opens/clicks are stored (not deleted) but excluded from all engagement
+ * counts, widgets, badges, and scoring via `is_internal IS NOT TRUE` SQL filters.
+ */
+export function isInternalEmail(email: string | null | undefined): boolean {
+  if (!email) return false;
+  const at = email.lastIndexOf("@");
+  if (at < 0) return false;
+  return INTERNAL_DOMAINS.has(email.slice(at + 1).toLowerCase());
+}
+
 // ── Bot UA patterns ────────────────────────────────────────────────────────────
 const BOT_UA: RegExp[] = [
   /googleimageproxy/i, /yahoo.*mail/i, /yahooysmtp/i, /yahoo.*slurp/i,
@@ -82,11 +102,17 @@ export async function recordOpen(
     const meta: Record<string, unknown> = {};
     if (userAgent) meta.uaParsed = classifyUa(userAgent);
 
+    const internal = isInternalEmail(pixel?.recipient_email);
+    const internalReason = internal
+      ? `internal_domain:${String(pixel!.recipient_email!).split("@")[1]}`
+      : null;
+
     // Insert first, then post-insert dedupe (no TOCTOU race)
     await db.execute(sql.raw(`
       INSERT INTO email_engagement_events
         (tracking_id, event_type, ip_hash, user_agent, is_bot, is_duplicate,
-         email_message_id, recipient_email, metadata, occurred_at, timeline_created)
+         email_message_id, recipient_email, metadata, occurred_at, timeline_created,
+         is_internal, internal_reason)
       VALUES (
         '${esc(trackingId)}', 'open',
         ${ipHash ? `'${esc(ipHash)}'` : "NULL"},
@@ -95,15 +121,16 @@ export async function recordOpen(
         ${pixel?.email_message_id_fk ?? "NULL"},
         ${pixel?.recipient_email ? `'${esc(pixel.recipient_email)}'` : "NULL"},
         ${Object.keys(meta).length ? `'${esc(JSON.stringify(meta))}'::jsonb` : "NULL"},
-        NOW(), false
+        NOW(), false,
+        ${internal}, ${internalReason ? `'${esc(internalReason)}'` : "NULL"}
       )
     `));
 
-    if (!bot && ipHash) {
+    if (!bot && !internal && ipHash) {
       await markDuplicates(trackingId, "open", ipHash);
     }
 
-    if (!bot) {
+    if (!bot && !internal) {
       const isDupe = await justInsertedIsDuplicate(trackingId, "open", ipHash);
       if (!isDupe) {
         await updateScore(trackingId);
@@ -132,10 +159,16 @@ export async function recordClick(
       try { const p = new URL(url); meta.domain = p.hostname; meta.path = p.pathname; } catch { /* */ }
     }
 
+    const internal = isInternalEmail(pixel?.recipient_email);
+    const internalReason = internal
+      ? `internal_domain:${String(pixel!.recipient_email!).split("@")[1]}`
+      : null;
+
     await db.execute(sql.raw(`
       INSERT INTO email_engagement_events
         (tracking_id, event_type, url, ip_hash, user_agent, is_bot, is_duplicate,
-         email_message_id, recipient_email, metadata, occurred_at, timeline_created)
+         email_message_id, recipient_email, metadata, occurred_at, timeline_created,
+         is_internal, internal_reason)
       VALUES (
         '${esc(trackingId)}', 'click',
         ${url ? `'${esc(url.slice(0, 2000))}'` : "NULL"},
@@ -145,15 +178,16 @@ export async function recordClick(
         ${pixel?.email_message_id_fk ?? "NULL"},
         ${pixel?.recipient_email ? `'${esc(pixel.recipient_email)}'` : "NULL"},
         ${Object.keys(meta).length ? `'${esc(JSON.stringify(meta))}'::jsonb` : "NULL"},
-        NOW(), false
+        NOW(), false,
+        ${internal}, ${internalReason ? `'${esc(internalReason)}'` : "NULL"}
       )
     `));
 
-    if (!bot && ipHash && url) {
+    if (!bot && !internal && ipHash && url) {
       await markDuplicatesClick(trackingId, ipHash, url);
     }
 
-    if (!bot) {
+    if (!bot && !internal) {
       const isDupe = await justInsertedIsDuplicate(trackingId, "click", ipHash);
       if (!isDupe) {
         await updateScore(trackingId);
@@ -217,8 +251,8 @@ export async function updateScore(trackingId: string): Promise<void> {
   try {
     const [counts] = (await db.execute(sql.raw(`
       SELECT
-        COUNT(*) FILTER (WHERE event_type='open'  AND is_bot=false AND is_duplicate=false) AS u_opens,
-        COUNT(*) FILTER (WHERE event_type='click' AND is_bot=false AND is_duplicate=false) AS u_clicks
+        COUNT(*) FILTER (WHERE event_type='open'  AND is_bot=false AND is_duplicate=false AND is_internal IS NOT TRUE) AS u_opens,
+        COUNT(*) FILTER (WHERE event_type='click' AND is_bot=false AND is_duplicate=false AND is_internal IS NOT TRUE) AS u_clicks
       FROM email_engagement_events
       WHERE tracking_id = '${esc(trackingId)}'
     `))).rows as any[];
@@ -264,18 +298,18 @@ export type EngagementStats = {
 export async function getEngagementStats(trackingId: string): Promise<EngagementStats> {
   const [opens] = (await db.execute(sql.raw(`
     SELECT
-      COUNT(*)                                                                   AS opens_total,
-      COUNT(*) FILTER (WHERE is_bot=false AND is_duplicate=false)               AS unique_opens,
-      MIN(occurred_at) FILTER (WHERE is_bot=false AND is_duplicate=false)       AS first_open_at,
-      MAX(occurred_at) FILTER (WHERE is_bot=false AND is_duplicate=false)       AS last_open_at
+      COUNT(*)                                                                                          AS opens_total,
+      COUNT(*) FILTER (WHERE is_bot=false AND is_duplicate=false AND is_internal IS NOT TRUE)          AS unique_opens,
+      MIN(occurred_at) FILTER (WHERE is_bot=false AND is_duplicate=false AND is_internal IS NOT TRUE)  AS first_open_at,
+      MAX(occurred_at) FILTER (WHERE is_bot=false AND is_duplicate=false AND is_internal IS NOT TRUE)  AS last_open_at
     FROM email_engagement_events
     WHERE tracking_id='${esc(trackingId)}' AND event_type='open'
   `))).rows as any[];
 
   const [clicks] = (await db.execute(sql.raw(`
     SELECT
-      COUNT(*)                                                                   AS clicks_total,
-      COUNT(*) FILTER (WHERE is_bot=false AND is_duplicate=false)               AS unique_clicks
+      COUNT(*)                                                                                          AS clicks_total,
+      COUNT(*) FILTER (WHERE is_bot=false AND is_duplicate=false AND is_internal IS NOT TRUE)          AS unique_clicks
     FROM email_engagement_events
     WHERE tracking_id='${esc(trackingId)}' AND event_type='click'
   `))).rows as any[];

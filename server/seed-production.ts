@@ -1540,3 +1540,45 @@ export async function migrateSignatureCtaSchema(): Promise<void> {
     console.error("[migration] signature_cta migration error (non-fatal):", err);
   }
 }
+
+export async function migrateEmailRecipientsSchema(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS email_recipients (
+        id               SERIAL PRIMARY KEY,
+        gmail_message_id TEXT NOT NULL,
+        gmail_thread_id  TEXT,
+        recipient_email  TEXT NOT NULL,
+        recipient_name   TEXT,
+        recipient_type   TEXT NOT NULL DEFAULT 'to',
+        is_primary       BOOLEAN NOT NULL DEFAULT FALSE,
+        is_internal      BOOLEAN NOT NULL DEFAULT FALSE,
+        tracking_token   TEXT,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_email_recipients_message ON email_recipients(gmail_message_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_email_recipients_thread  ON email_recipients(gmail_thread_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_email_recipients_token   ON email_recipients(tracking_token)`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_email_recipients_unique ON email_recipients(gmail_message_id, recipient_email)`);
+    console.log("[migration] email_recipients schema ready.");
+  } catch (err) {
+    console.error("[migration] email_recipients migration error (non-fatal):", err);
+  }
+}
+
+export async function migrateInternalEngagementSchema(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE email_engagement_events ADD COLUMN IF NOT EXISTS is_internal BOOLEAN NOT NULL DEFAULT FALSE`);
+    await db.execute(sql`ALTER TABLE email_engagement_events ADD COLUMN IF NOT EXISTS internal_reason TEXT`);
+    await db.execute(sql`ALTER TABLE email_tracking_pixels ADD COLUMN IF NOT EXISTS recipient_type TEXT DEFAULT 'to'`);
+    await db.execute(sql`ALTER TABLE email_tracking_pixels ADD COLUMN IF NOT EXISTS engagement_score INTEGER DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE email_tracking_pixels ADD COLUMN IF NOT EXISTS signal_level TEXT DEFAULT 'none'`);
+    await db.execute(sql`ALTER TABLE email_tracking_pixels ADD COLUMN IF NOT EXISTS is_hot BOOLEAN NOT NULL DEFAULT FALSE`);
+    await db.execute(sql`ALTER TABLE email_tracking_pixels ADD COLUMN IF NOT EXISTS last_scored_at TIMESTAMPTZ`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_eee_is_internal ON email_engagement_events(is_internal) WHERE is_internal = TRUE`);
+    console.log("[migration] internal engagement schema ready.");
+  } catch (err) {
+    console.error("[migration] internal engagement migration error (non-fatal):", err);
+  }
+}

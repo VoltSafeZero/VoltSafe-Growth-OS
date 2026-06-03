@@ -112,10 +112,24 @@ export interface EngagementSummary {
   highestIntentLevel: IntentLevel;
 }
 
+export interface RecipientBreakdown {
+  recipientEmail: string;
+  recipientName: string | null;
+  recipientType: "to" | "cc" | "bcc";
+  isPrimary: boolean;
+  isInternal: boolean;
+  openCount: number;
+  clickCount: number;
+  ctaClickCount: number;
+  lastActivityAt: string | null;
+  intentScore: number;
+}
+
 export interface ThreadEngagementFull {
   threadId: string;
   summary: EngagementSummary;
   activities: ActivityRow[];
+  recipientBreakdown: RecipientBreakdown[];
   // backward-compat fields for CtaEngagementBanner
   ctaClicks: ThreadEngagementSummary["ctaClicks"];
   totalCtaClicks: number;
@@ -499,9 +513,9 @@ export async function getThreadEngagementFull(
     SELECT
       p.recipient_email,
       p.gmail_message_id,
-      COUNT(*) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE) AS open_count,
-      MIN(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE) AS first_at,
-      MAX(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE) AS last_at
+      COUNT(*) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE) AS open_count,
+      MIN(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE) AS first_at,
+      MAX(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE) AS last_at
     FROM email_tracking_pixels p
     JOIN email_messages m ON m.gmail_message_id = p.gmail_message_id
     JOIN email_engagement_events ee ON ee.tracking_id = p.tracking_id
@@ -509,7 +523,7 @@ export async function getThreadEngagementFull(
     WHERE m.gmail_thread_id = '${tEsc}'
       AND m.direction = 'outbound'
     GROUP BY p.recipient_email, p.gmail_message_id
-    HAVING COUNT(*) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE) > 0
+    HAVING COUNT(*) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE) > 0
   `))).rows as any[];
 
   // ── Email link clicks ─────────────────────────────────────────────────────
@@ -518,9 +532,9 @@ export async function getThreadEngagementFull(
       p.recipient_email,
       p.gmail_message_id,
       ee.url,
-      COUNT(*) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE) AS click_count,
-      MIN(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE) AS first_at,
-      MAX(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE) AS last_at
+      COUNT(*) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE) AS click_count,
+      MIN(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE) AS first_at,
+      MAX(ee.occurred_at) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE) AS last_at
     FROM email_tracking_pixels p
     JOIN email_messages m ON m.gmail_message_id = p.gmail_message_id
     JOIN email_engagement_events ee ON ee.tracking_id = p.tracking_id
@@ -528,7 +542,7 @@ export async function getThreadEngagementFull(
     WHERE m.gmail_thread_id = '${tEsc}'
       AND m.direction = 'outbound'
     GROUP BY p.recipient_email, p.gmail_message_id, ee.url
-    HAVING COUNT(*) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE) > 0
+    HAVING COUNT(*) FILTER (WHERE ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE) > 0
   `))).rows as any[];
 
   // ── Pixel pre-computed scores (fallback when no live events yet) ──────────
@@ -841,10 +855,125 @@ export async function getThreadEngagementFull(
     bannerText = `Opened ${opens} time${opens !== 1 ? "s" : ""}${lastActivityAt ? ` · ${new Date(Date.now() - new Date(lastActivityAt).getTime()) < new Date(24 * 3600 * 1000) ? "today" : ""}` : ""}.`;
   }
 
+  // ── Recipient-level breakdown ──────────────────────────────────────────────
+  // Reads from email_recipients (populated at send time for new messages) and
+  // falls back to pixel-based data for historical threads without recipient rows.
+  let recipientBreakdown: RecipientBreakdown[] = [];
+  try {
+    const recipRows = (await db.execute(sql.raw(`
+      SELECT
+        er.recipient_email,
+        er.recipient_name,
+        er.recipient_type,
+        er.is_primary,
+        er.is_internal,
+        er.tracking_token,
+        COALESCE((
+          SELECT COUNT(*) FROM email_engagement_events ee
+          WHERE ee.tracking_id = er.tracking_token
+            AND ee.event_type = 'open'
+            AND ee.is_bot = FALSE
+            AND ee.is_duplicate IS NOT TRUE
+            AND ee.is_internal IS NOT TRUE
+        ), 0) AS open_count,
+        COALESCE((
+          SELECT COUNT(*) FROM email_engagement_events ee
+          WHERE ee.tracking_id = er.tracking_token
+            AND ee.event_type = 'click'
+            AND ee.is_bot = FALSE
+            AND ee.is_duplicate IS NOT TRUE
+            AND ee.is_internal IS NOT TRUE
+        ), 0) AS click_count,
+        COALESCE((
+          SELECT COALESCE(SUM(s.click_count), 0)
+          FROM signature_cta_clicks s
+          WHERE LOWER(s.recipient_email) = LOWER(er.recipient_email)
+            AND s.gmail_message_id IN (
+              SELECT gmail_message_id FROM email_messages
+              WHERE gmail_thread_id = '${tEsc}'
+            )
+        ), 0) AS cta_click_count,
+        (
+          SELECT MAX(ee.occurred_at) FROM email_engagement_events ee
+          WHERE ee.tracking_id = er.tracking_token
+            AND ee.is_bot = FALSE
+            AND ee.is_internal IS NOT TRUE
+        ) AS last_activity_at
+      FROM email_recipients er
+      WHERE er.gmail_thread_id = '${tEsc}'
+      ORDER BY er.is_primary DESC, er.recipient_type, er.recipient_email
+    `))).rows as any[];
+
+    if (recipRows.length > 0) {
+      recipientBreakdown = recipRows.map((r: any) => {
+        const opens  = Number(r.open_count  ?? 0);
+        const clicks = Number(r.click_count ?? 0);
+        const cta    = Number(r.cta_click_count ?? 0);
+        const score  = Math.min(100, opens * 10 + clicks * 20 + cta * 30);
+        return {
+          recipientEmail: String(r.recipient_email),
+          recipientName:  r.recipient_name ? String(r.recipient_name) : null,
+          recipientType:  (r.recipient_type as "to" | "cc" | "bcc") || "to",
+          isPrimary:      Boolean(r.is_primary),
+          isInternal:     Boolean(r.is_internal),
+          openCount:      opens,
+          clickCount:     clicks,
+          ctaClickCount:  cta,
+          lastActivityAt: r.last_activity_at ? String(r.last_activity_at) : null,
+          intentScore:    score,
+        };
+      });
+    } else {
+      // Fallback: derive from tracking pixels for historical threads
+      const pixelRows = (await db.execute(sql.raw(`
+        SELECT
+          p.recipient_email,
+          COALESCE((
+            SELECT COUNT(*) FROM email_engagement_events ee
+            WHERE ee.tracking_id = p.tracking_id AND ee.event_type = 'open'
+              AND ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE
+          ), 0) AS open_count,
+          COALESCE((
+            SELECT COUNT(*) FROM email_engagement_events ee
+            WHERE ee.tracking_id = p.tracking_id AND ee.event_type = 'click'
+              AND ee.is_bot = FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE
+          ), 0) AS click_count,
+          (SELECT MAX(ee.occurred_at) FROM email_engagement_events ee
+           WHERE ee.tracking_id = p.tracking_id AND ee.is_bot = FALSE AND ee.is_internal IS NOT TRUE
+          ) AS last_activity_at
+        FROM email_tracking_pixels p
+        JOIN email_messages m ON m.gmail_message_id = p.gmail_message_id
+        WHERE m.gmail_thread_id = '${tEsc}' AND m.direction = 'outbound'
+        ORDER BY p.recipient_email
+      `))).rows as any[];
+
+      recipientBreakdown = pixelRows.map((r: any) => {
+        const opens  = Number(r.open_count  ?? 0);
+        const clicks = Number(r.click_count ?? 0);
+        const score  = Math.min(100, opens * 10 + clicks * 20);
+        return {
+          recipientEmail: String(r.recipient_email),
+          recipientName:  null,
+          recipientType:  "to" as const,
+          isPrimary:      true,
+          isInternal:     false,
+          openCount:      opens,
+          clickCount:     clicks,
+          ctaClickCount:  0,
+          lastActivityAt: r.last_activity_at ? String(r.last_activity_at) : null,
+          intentScore:    score,
+        };
+      });
+    }
+  } catch (rbErr) {
+    console.warn("[engagement] recipientBreakdown query non-fatal:", rbErr);
+  }
+
   return {
     threadId,
     summary,
     activities,
+    recipientBreakdown,
     ctaClicks,
     totalCtaClicks,
     uniqueCtaRecipients,
