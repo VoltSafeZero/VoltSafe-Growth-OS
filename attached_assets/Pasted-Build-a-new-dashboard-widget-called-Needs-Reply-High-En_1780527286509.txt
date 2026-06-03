@@ -1,0 +1,225 @@
+Build a new dashboard widget called:
+
+Needs Reply — High Engagement
+
+Objective:
+Show the highest-engagement email threads that currently require a reply from us.
+
+This should become a daily action queue, not an analytics widget.
+
+==================================================
+SOURCE OF TRUTH
+==================================================
+
+IMPORTANT:
+
+Use the exact same engagement source used by InboxSignalBadge and the corrected getThreadEngagementFull() implementation.
+
+Do NOT create a new engagement calculation system.
+
+The widget must match the engagement counts visible in the inbox list.
+
+==================================================
+BACKEND
+==================================================
+
+Add endpoint:
+
+GET /api/dashboard/needs-reply-high-engagement
+
+Return:
+
+{
+  items: [
+    {
+      threadId: string,
+      gmailThreadId: string,
+      subject: string,
+      senderName: string,
+      senderEmail: string,
+      snippet: string,
+
+      opensCount: number,
+      clickCount: number,
+      ctaClicks: number,
+      videoClicks: number,
+
+      engagementScore: number,
+      intentLevel: string,
+
+      lastEmailAt: string,
+      lastEngagementAt: string,
+      waitingDays: number,
+
+      needsReply: boolean,
+
+      routeTarget: string
+    }
+  ]
+}
+
+==================================================
+REPLY LOGIC
+==================================================
+
+Thread should appear when:
+
+- Recipient engaged
+- Thread is not closed
+- Thread is not done
+- Thread is not marked No Reply Needed
+- Latest meaningful action requires response from us
+
+Exclude:
+
+- Spam
+- Trash
+- Archived completed threads
+- Done
+- No Reply Needed
+
+==================================================
+SCORING
+==================================================
+
+Score:
+
+Open = 1
+Link click = 3
+CTA click = 5
+Video/demo click = 8
+Inbound reply awaiting our response = 10
+
+Final score:
+
+engagementScore
+
+Sort descending by default.
+
+==================================================
+WIDGET
+==================================================
+
+Add to Today Widgets settings.
+
+Name:
+
+Needs Reply — High Engagement
+
+Description:
+
+People actively engaging with emails that still need a response.
+
+==================================================
+UI
+==================================================
+
+Header:
+
+Needs Reply — High Engagement
+
+Count badge:
+
+12 waiting
+
+Controls:
+
+Sort dropdown:
+
+- Highest Engagement
+- Most Recent Engagement
+- Longest Waiting
+- Newest Email
+- Highest Intent
+
+==================================================
+ROW DESIGN
+==================================================
+
+Each row shows:
+
+Subject
+
+Sender
+
+Engagement pills:
+
+Opened 39x
+14 Clicks
+Demo Viewed
+CTA Clicked
+
+Intent badge:
+
+Interested
+High Intent
+Very High Intent
+
+Metadata:
+
+Last engaged 3h ago
+Waiting 4 days
+
+==================================================
+CLICK BEHAVIOR
+==================================================
+
+Clicking a row should:
+
+1. Open Mail
+2. Open the thread
+3. Select the correct email
+
+Reuse existing thread navigation.
+
+Do not build a new viewer.
+
+==================================================
+EMPTY STATE
+==================================================
+
+No high-engagement replies waiting.
+
+Inbox is behaving for once.
+
+==================================================
+ACCEPTANCE TEST
+==================================================
+
+Use real threads that currently show:
+
+Opened 10x / 3 clicks
+Opened 39x
+Opened 6x / 14 clicks
+
+If they still require a reply they must appear.
+
+Clicking the row must jump directly into the thread.
+
+==================================================
+BONUS
+==================================================
+
+Add quick actions:
+
+Reply
+Snooze 3 days
+Mark No Reply Needed
+
+without opening the thread.
+
+==================================================
+TESTS
+==================================================
+
+Add tests covering:
+
+- scoring
+- sorting
+- reply detection
+- exclusions
+- routing
+- empty state
+- quick actions
+
+All tests must pass.

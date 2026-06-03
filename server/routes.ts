@@ -8064,6 +8064,148 @@ export async function registerRoutes(
     }
   });
 
+  // ── Needs Reply — High Engagement widget ─────────────────────────────────
+  // Returns threads where the recipient has engaged (opens/clicks) but a reply
+  // from us is still needed. Uses the exact same engagement query as
+  // InboxSignalBadge (is_bot=false AND is_duplicate IS NOT TRUE) so counts match.
+  app.get("/api/dashboard/needs-reply-high-engagement", requireAuth, async (req, res) => {
+    try {
+      const rows = (await db.execute(sql.raw(`
+        WITH thread_eng AS (
+          SELECT
+            em.gmail_thread_id,
+            COALESCE(SUM(ev.unique_opens),  0)::int AS open_count,
+            COALESCE(SUM(ev.unique_clicks), 0)::int AS click_count,
+            MAX(GREATEST(ev.last_open_at, ev.last_click_at)) AS last_engagement_at,
+            (ARRAY_AGG(
+              COALESCE(p.signal_level, 'none')
+              ORDER BY CASE COALESCE(p.signal_level, 'none')
+                WHEN 'hot'    THEN 5 WHEN 'high'   THEN 4
+                WHEN 'medium' THEN 3 WHEN 'low'    THEN 2 ELSE 1
+              END DESC
+            ))[1] AS signal_level,
+            BOOL_OR(p.is_hot) AS is_hot
+          FROM email_tracking_pixels p
+          JOIN email_messages em ON em.gmail_message_id = p.gmail_message_id
+          LEFT JOIN LATERAL (
+            SELECT
+              COUNT(*) FILTER (WHERE event_type='open'  AND is_bot=false AND is_duplicate=false) AS unique_opens,
+              COUNT(*) FILTER (WHERE event_type='click' AND is_bot=false AND is_duplicate=false) AS unique_clicks,
+              MAX(occurred_at) FILTER (WHERE event_type='open'  AND is_bot=false AND is_duplicate=false) AS last_open_at,
+              MAX(occurred_at) FILTER (WHERE event_type='click' AND is_bot=false AND is_duplicate=false) AS last_click_at
+            FROM email_engagement_events WHERE tracking_id = p.tracking_id
+          ) ev ON true
+          WHERE em.direction = 'outbound'
+          GROUP BY em.gmail_thread_id
+          HAVING COALESCE(SUM(ev.unique_opens), 0) + COALESCE(SUM(ev.unique_clicks), 0) > 0
+        ),
+        thread_cta AS (
+          SELECT
+            em.gmail_thread_id,
+            COALESCE(SUM(s.click_count) FILTER (WHERE NOT (
+              LOWER(COALESCE(s.cta_name,'')) LIKE '%demo%'
+              OR LOWER(COALESCE(s.cta_name,'')) LIKE '%watch%'
+              OR LOWER(COALESCE(s.destination_url,'')) LIKE '%demo%'
+            )), 0)::int AS cta_clicks,
+            COALESCE(SUM(s.click_count) FILTER (WHERE
+              LOWER(COALESCE(s.cta_name,'')) LIKE '%demo%'
+              OR LOWER(COALESCE(s.cta_name,'')) LIKE '%watch%'
+              OR LOWER(COALESCE(s.destination_url,'')) LIKE '%demo%'
+            ), 0)::int AS video_clicks
+          FROM signature_cta_clicks s
+          JOIN email_messages em ON em.gmail_message_id = s.gmail_message_id
+          WHERE s.click_count > 0
+          GROUP BY em.gmail_thread_id
+        ),
+        latest_msg AS (
+          SELECT DISTINCT ON (gmail_thread_id)
+            gmail_thread_id, subject, from_name, from_email, snippet, sent_at, label_ids
+          FROM email_messages
+          WHERE gmail_thread_id IS NOT NULL
+          ORDER BY gmail_thread_id, sent_at DESC NULLS LAST
+        )
+        SELECT
+          et.gmail_thread_id,
+          lm.subject,
+          lm.from_name,
+          lm.from_email,
+          lm.snippet,
+          lm.sent_at                    AS last_email_at,
+          COALESCE(te.open_count,  0)   AS opens_count,
+          COALESCE(te.click_count, 0)   AS click_count,
+          COALESCE(tc.cta_clicks,  0)   AS cta_clicks,
+          COALESCE(tc.video_clicks,0)   AS video_clicks,
+          te.signal_level,
+          te.is_hot,
+          te.last_engagement_at,
+          et.awaiting_reply_since,
+          et.reply_status,
+          et.workflow_state
+        FROM email_threads et
+        JOIN thread_eng te ON te.gmail_thread_id = et.gmail_thread_id
+        JOIN latest_msg  lm ON lm.gmail_thread_id = et.gmail_thread_id
+        LEFT JOIN thread_cta tc ON tc.gmail_thread_id = et.gmail_thread_id
+        WHERE
+          COALESCE(et.reply_status, 'none') NOT IN ('done', 'no_reply_needed')
+          AND COALESCE(et.workflow_state, '') NOT IN ('done', 'closed', 'archived', 'completed')
+          AND (lm.label_ids IS NULL
+               OR (lm.label_ids NOT ILIKE '%"SPAM"%' AND lm.label_ids NOT ILIKE '%"TRASH"%'))
+        ORDER BY (
+          COALESCE(te.open_count,  0) * 1
+          + COALESCE(te.click_count, 0) * 3
+          + COALESCE(tc.cta_clicks,  0) * 5
+          + COALESCE(tc.video_clicks, 0) * 8
+          + CASE WHEN et.awaiting_reply_since IS NOT NULL THEN 10 ELSE 0 END
+        ) DESC
+        LIMIT 50
+      `))).rows as any[];
+
+      const items = rows.map((r: any) => {
+        const opens      = Number(r.opens_count  || 0);
+        const clicks     = Number(r.click_count  || 0);
+        const ctaClicks  = Number(r.cta_clicks   || 0);
+        const videoClicks= Number(r.video_clicks || 0);
+        const awaitingReply = r.awaiting_reply_since != null;
+        const engagementScore =
+          opens * 1 + clicks * 3 + ctaClicks * 5 + videoClicks * 8 + (awaitingReply ? 10 : 0);
+
+        let intentLevel = "none";
+        if      (engagementScore >= 16) intentLevel = "very_high_intent";
+        else if (engagementScore >= 6)  intentLevel = "high_intent";
+        else if (engagementScore >= 1)  intentLevel = "interested";
+
+        const waitingBase = r.awaiting_reply_since ?? r.last_email_at;
+        const waitingDays = waitingBase
+          ? Math.max(0, Math.floor((Date.now() - new Date(waitingBase).getTime()) / 86400000))
+          : 0;
+
+        return {
+          threadId:         String(r.gmail_thread_id),
+          gmailThreadId:    String(r.gmail_thread_id),
+          subject:          r.subject   ? String(r.subject)   : "(No subject)",
+          senderName:       r.from_name ? String(r.from_name) : "",
+          senderEmail:      r.from_email? String(r.from_email): "",
+          snippet:          r.snippet   ? String(r.snippet)   : "",
+          opensCount:       opens,
+          clickCount:       clicks,
+          ctaClicks,
+          videoClicks,
+          engagementScore,
+          intentLevel,
+          lastEmailAt:      r.last_email_at       ? String(r.last_email_at)       : null,
+          lastEngagementAt: r.last_engagement_at  ? String(r.last_engagement_at)  : null,
+          waitingDays,
+          needsReply:       awaitingReply || r.reply_status === "needs_reply",
+          routeTarget:      `/gmail?thread=${encodeURIComponent(String(r.gmail_thread_id))}`,
+        };
+      });
+
+      res.json({ items });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Team Wins Ticker ─────────────────────────────────────────────────────
 
   // In-memory cache: 60-min TTL always.

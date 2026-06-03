@@ -226,6 +226,11 @@ const NEW_WIDGETS: Record<string, WidgetDef> = {
     defaultVisible: true, category: "action", isNew: true,
     // No permKey — every user can see their own travel schedule.
   },
+  needs_reply_high_engagement: {
+    id: "needs_reply_high_engagement", label: "Needs Reply — High Engagement",
+    description: "People actively engaging with emails that still need a response.",
+    defaultVisible: false, category: "action", isNew: true,
+  },
 };
 
 // Classic widgets referenced by id inside each center array.
@@ -285,15 +290,16 @@ function applyClassicRule(w: WidgetDef): WidgetDef {
 
 // Widgets that make sense for every user regardless of role/department.
 const UNIVERSAL_EXTRAS: WidgetDef[] = [
-  { ...NEW_WIDGETS.leads_nearby,          defaultVisible: true  },
-  { ...NEW_WIDGETS.my_travel,             defaultVisible: true  },
-  { ...NEW_WIDGETS.travel_calendar,       defaultVisible: true  },
-  { ...NEW_WIDGETS.my_inbox,              defaultVisible: true  },
-  { ...NEW_WIDGETS.todays_meetings,       defaultVisible: false },
-  { ...NEW_WIDGETS.my_waiting_on,         defaultVisible: false },
-  { ...NEW_WIDGETS.inbox_priority_radar,  defaultVisible: false },
-  { ...NEW_WIDGETS.quick_create_launcher, defaultVisible: false },
-  { ...NEW_WIDGETS.weather,               defaultVisible: false },
+  { ...NEW_WIDGETS.leads_nearby,                   defaultVisible: true  },
+  { ...NEW_WIDGETS.my_travel,                      defaultVisible: true  },
+  { ...NEW_WIDGETS.travel_calendar,                defaultVisible: true  },
+  { ...NEW_WIDGETS.my_inbox,                       defaultVisible: true  },
+  { ...NEW_WIDGETS.todays_meetings,                defaultVisible: false },
+  { ...NEW_WIDGETS.my_waiting_on,                  defaultVisible: false },
+  { ...NEW_WIDGETS.inbox_priority_radar,           defaultVisible: false },
+  { ...NEW_WIDGETS.needs_reply_high_engagement,    defaultVisible: false },
+  { ...NEW_WIDGETS.quick_create_launcher,          defaultVisible: false },
+  { ...NEW_WIDGETS.weather,                        defaultVisible: false },
 ];
 
 export const WIDGET_DEFS: Record<CenterType, WidgetDef[]> = {

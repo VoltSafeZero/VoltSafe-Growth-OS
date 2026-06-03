@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ActionWidgetShell } from "@/components/command-centers/action-widgets";
 import { TeamWinsTickerWidget } from "@/components/today/TeamWinsTicker";
+import { NeedsReplyHighEngagementWidget } from "@/components/today/NeedsReplyWidget";
 import {
   CalendarDays, Clock, CheckSquare, AlertTriangle, TrendingUp,
   UserPlus, Zap, Video, MapPin, ArrowRight, Building2,
@@ -647,6 +648,12 @@ export const TODAY_WIDGET_DEFS: WidgetDef[] = [
     description: "All active projects with milestone progress, owner, and end date — spot slipping deliverables at a glance.",
     defaultVisible: true, category: "operations", isNew: true,
   },
+  {
+    id: "today_needs_reply_high_engagement",
+    label: "Needs Reply — High Engagement",
+    description: "People actively engaging with emails that still need a response.",
+    defaultVisible: false, category: "action", isNew: true,
+  },
 ];
 
 // Map of today widget id → component, merged into ACTION_WIDGET_MAP at the
@@ -664,7 +671,8 @@ export const TODAY_ACTION_WIDGET_MAP: Record<string, React.ComponentType<any>> =
   today_team_workload:      TodayTeamWorkloadWidget,
   today_team_blockers:      TodayTeamBlockersWidget,
   today_pipeline_funnel:    TodayPipelineFunnelWidget,
-  today_active_projects:    TodayActiveProjectsWidget,
+  today_active_projects:               TodayActiveProjectsWidget,
+  today_needs_reply_high_engagement:   NeedsReplyHighEngagementWidget,
 };
 
 // Default size hints for today widgets in the 12-col responsive grid.
@@ -681,5 +689,6 @@ export const TODAY_WIDGET_SIZE_HINTS: Record<string, { w: number; h: number; min
   today_team_workload:      { w: 6,  h: 10, minW: 4,  minH: 6 },
   today_team_blockers:      { w: 6,  h: 10, minW: 4,  minH: 6 },
   today_pipeline_funnel:    { w: 6,  h: 9,  minW: 4,  minH: 5 },
-  today_active_projects:    { w: 6,  h: 11, minW: 4,  minH: 6 },
+  today_active_projects:               { w: 6,  h: 11, minW: 4,  minH: 6 },
+  today_needs_reply_high_engagement:   { w: 6,  h: 14, minW: 4,  minH: 8 },
 };

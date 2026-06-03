@@ -28,6 +28,7 @@ import {
   KeyAccountsActionWidget,
 } from "@/components/widgets/role-cards";
 import { MyCalendarWidget } from "@/components/widgets/my-calendar-widget";
+import { NeedsReplyHighEngagementWidget } from "@/components/today/NeedsReplyWidget";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1112,6 +1113,7 @@ export const ACTION_WIDGET_MAP: Record<string, React.ComponentType<WidgetProps>>
   unresponded_leads:      UnrespondedLeadsWidget,
   renewal_countdown:      RenewalCountdownWidget,
   forecast_gap:           ForecastGapWidget,
+  needs_reply_high_engagement: NeedsReplyHighEngagementWidget,
   todays_meetings:        MyCalendarWidget,
   my_inbox:               MyInboxWidget,
   team_inboxes:           TeamInboxesWidget,
