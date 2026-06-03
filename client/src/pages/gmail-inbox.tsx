@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { buildEmailHtml, htmlToCleanHtml, isBodyEmpty, stripEmailWrapper, plainTextToHtml } from "@/lib/email-format";
-import { CtaEngagementBanner } from "@/components/engagement/EngagementWidget";
+import { CtaEngagementBanner, ThreadEngagementWidget } from "@/components/engagement/EngagementWidget";
 import { buildLinkPreviewCardHtml, buildLinkPreviewLoadingHtml } from "@/lib/link-preview-card";
 import { createPortal } from "react-dom";
 import { EmailTokenInput } from "@/components/email/email-autocomplete";
@@ -3235,6 +3235,11 @@ function CrmContextPanel({
           </button>
         </div>
       )}
+
+      {/* Engagement Intelligence — opens, clicks, demo signals for this thread */}
+      <div className="px-4 pb-2" data-testid="thread-engagement-section">
+        <ThreadEngagementWidget threadId={threadId} />
+      </div>
 
       {/* People on this thread — participant training panel */}
       {canEditCrm && (participantsQuery.data?.length ?? 0) > 0 && (

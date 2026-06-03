@@ -520,12 +520,31 @@ export function ThreadEngagementWidget({ threadId }: { threadId: string | null }
     retry: false,
   });
 
-  if (!threadId || isLoading) return null;
-  if (!data) return null;
+  if (!threadId) return null;
 
-  const hasActivity = data.activities.length > 0 || data.totalCtaClicks > 0;
-  const hasOpenActivity = (data.summary?.opens ?? 0) > 0;
-  if (!hasActivity && !hasOpenActivity) return null;
+  if (isLoading) {
+    return (
+      <div className="space-y-1.5 py-1" data-testid="thread-engagement-loading">
+        <div className="h-3 w-24 bg-muted/30 rounded animate-pulse" />
+        <div className="h-8 w-full bg-muted/20 rounded-lg animate-pulse" />
+      </div>
+    );
+  }
+
+  const hasActivity = (data?.activities?.length ?? 0) > 0 || (data?.totalCtaClicks ?? 0) > 0;
+  const hasOpenActivity = (data?.summary?.opens ?? 0) > 0;
+
+  if (!data || (!hasActivity && !hasOpenActivity)) {
+    return (
+      <div className="py-2" data-testid="thread-engagement-empty">
+        <p className="text-[10.5px] font-semibold text-muted-foreground/50 uppercase tracking-wide mb-1">Engagement</p>
+        <p className="text-[11px] text-muted-foreground/50">No engagement yet.</p>
+        <p className="text-[10.5px] text-muted-foreground/35 mt-0.5">
+          Opens, clicks, and demo signals will appear here.
+        </p>
+      </div>
+    );
+  }
 
   const levelCls: Record<IntentLevel, string> = {
     none:                  "hidden",
